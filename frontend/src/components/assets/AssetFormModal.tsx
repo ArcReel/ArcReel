@@ -59,8 +59,7 @@ export function AssetFormModal({
 
   useEffect(() => {
     if (!image) {
-      // image 变更时同步重置本地预览（动作驱动重置）
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- image 变更时同步重置本地预览，是动作驱动重置
       setLocalPreview(null);
       return;
     }

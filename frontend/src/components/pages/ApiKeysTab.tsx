@@ -302,8 +302,7 @@ export function ApiKeysTab() {
   }, []);
 
   useEffect(() => {
-    // mount 时异步拉取 API Key 列表后回写状态，属于受控的初始化加载
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 时异步拉取 API Key 列表后回写，属于受控的初始化加载
     void fetchKeys();
   }, [fetchKeys]);
 

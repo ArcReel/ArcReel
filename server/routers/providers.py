@@ -341,11 +341,11 @@ def _build_field(
     if "placeholder" in meta:
         field["placeholder"] = meta["placeholder"]
 
-    if is_set:
+    if db_entry is not None and is_set:
         if meta["type"] == "secret":
-            field["value_masked"] = db_entry.get("masked", "••••")  # type: ignore[index]
+            field["value_masked"] = db_entry.get("masked", "••••")
         else:
-            field["value"] = db_entry.get("value", "")  # type: ignore[index]
+            field["value"] = db_entry.get("value", "")
     else:
         if meta["type"] == "secret":
             field["value_masked"] = None
@@ -765,8 +765,8 @@ def _check_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> Co
 
     api_key = config["api_key"]
     base_url = normalize_base_url(config.get("base_url"))
-    http_options = {"base_url": base_url} if base_url else None
-    client = genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
+    http_options: genai.types.HttpOptionsDict | None = {"base_url": base_url} if base_url else None
+    client = genai.Client(api_key=api_key, http_options=http_options)
 
     pager = client.models.list()
     available = _extract_gemini_models(pager)

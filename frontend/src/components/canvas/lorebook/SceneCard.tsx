@@ -93,14 +93,12 @@ export function SceneCard({
   const isDirty = description !== scene.description;
 
   useEffect(() => {
-    // 上游场景描述变化时同步本地草稿
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游场景描述变化时同步本地草稿
     setDescription(scene.description);
   }, [scene.description]);
 
   useEffect(() => {
-    // 场景立绘变化时重置图片加载错误标记
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 场景立绘变化时重置图片加载错误标记
     setImgError(false);
   }, [scene.scene_sheet, sheetFp]);
 

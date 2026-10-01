@@ -62,6 +62,8 @@ def embedded_server(
     ]
     server = Server(name, version=version)
 
+    # 以下两个处理器由 @server.* 就地注册，函数内无其它引用；basedpyright 把函数作用域内的符号
+    # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:  # pyright: ignore[reportUnusedFunction]
         return listed

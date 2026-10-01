@@ -144,7 +144,7 @@ class CustomProviderRepository(BaseRepository):
         """跨所有供应商获取全部已启用模型。"""
         stmt = (
             select(CustomProviderModel)
-            .where(CustomProviderModel.is_enabled == True)  # noqa: E712
+            .where(CustomProviderModel.is_enabled)
             .order_by(CustomProviderModel.provider_id, CustomProviderModel.id)
         )
         result = await self.session.execute(stmt)
@@ -179,7 +179,7 @@ class CustomProviderRepository(BaseRepository):
             select(CustomProviderModel)
             .where(
                 _media_type_endpoint_filter(media_type),
-                CustomProviderModel.is_enabled == True,  # noqa: E712
+                CustomProviderModel.is_enabled,
             )
             .order_by(CustomProviderModel.id)
         )
@@ -235,8 +235,8 @@ class CustomProviderRepository(BaseRepository):
             .where(
                 CustomProviderModel.provider_id == provider_id,
                 _media_type_endpoint_filter(media_type),
-                CustomProviderModel.is_default == True,  # noqa: E712
-                CustomProviderModel.is_enabled == True,  # noqa: E712
+                CustomProviderModel.is_default,
+                CustomProviderModel.is_enabled,
             )
             .order_by(CustomProviderModel.id)
         )

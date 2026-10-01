@@ -6,6 +6,8 @@
 - DEPENDABOT-GROUP：每个直接依赖都要落进 `.github/dependabot.yml` 中一个具名分组，
   只命中兜底分组（`patterns: ["*"]`）说明新增依赖时漏了归组。
 - TOOL-VERSION：actionlint / zizmor 在 pre-commit 与 CI workflow 中的版本一致。
+- SUPPRESSION-REASON：行内豁免注释（`noqa`、`pyright: ignore`、`type: ignore`、`deptry: ignore`、
+  `zizmor: ignore`、`eslint-disable`、knip 的 `@public`）在同一行写明理由。
 
 `--check` 以 `规则号 file:line 修复指引` 列出全部命中，非零即退出码 1；
 `--fix` 重新生成索引表与 CodeRabbit 映射后再检查其余规则。
@@ -14,10 +16,15 @@
 from __future__ import annotations
 
 import argparse
+import ast
+import io
 import json
+import os
 import re
 import sys
+import tokenize
 import tomllib
+from collections.abc import Iterator
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -284,6 +291,179 @@ def check_tool_versions(root: Path, out: list[Violation]) -> None:
             )
 
 
+# ---------------------------------------------------------------- 豁免理由
+
+SUPPRESSION_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".venv",
+        ".worktrees",
+        ".claude",
+        ".agents",
+        "node_modules",
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".docusaurus",
+        "dist",
+        "build",
+        "coverage",
+        "projects",
+        "vertex_keys",
+    }
+)
+PY_SUFFIXES = frozenset({".py", ".pyi"})
+JS_SUFFIXES = frozenset({".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"})
+YAML_SUFFIXES = frozenset({".yml", ".yaml"})
+
+_PY_DIRECTIVE = re.compile(r"#\s*(?:noqa\b(?::\s*[\w, ]+)?|(?P<tool>pyright|type|deptry):\s*ignore(?:\[[^\]]*\])?)")
+_REGISTRATION_IGNORE = re.compile(r"#\s*pyright:\s*ignore\[\s*reportUnusedFunction\s*\]")
+_ESLINT_DIRECTIVE = re.compile(r"(?://|/\*)\s*eslint-disable(?:-next-line|-line)?\b")
+_KNIP_PUBLIC = re.compile(r"(?:/\*\*|^\s*\*)(?:(?!\*/)[^@])*@public\b")
+_ZIZMOR_DIRECTIVE = re.compile(r"#\s*zizmor:\s*ignore(?:\[[^\]]*\])?")
+
+
+def _suppression_files(root: Path) -> Iterator[Path]:
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in SUPPRESSION_SKIP_DIRS)
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            if path.suffix in PY_SUFFIXES | JS_SUFFIXES | YAML_SUFFIXES:
+                yield path
+
+
+def _registration_lines(source: str) -> set[int]:
+    """同一函数作用域内带装饰器的嵌套 def 构成一个注册块；首个 def 的装饰器上一行是注释时，块内每个 def 行放行。"""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    lines = source.split("\n")
+    allowed: set[int] = set()
+
+    def registered_defs(scope: ast.AST) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDef]:
+        for child in ast.iter_child_nodes(scope):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if child.decorator_list:
+                    yield child
+            elif not isinstance(child, (ast.ClassDef, ast.Lambda)):
+                yield from registered_defs(child)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        block = sorted(registered_defs(node), key=lambda d: d.lineno)
+        if not block:
+            continue
+        first = block[0].decorator_list[0].lineno
+        header = lines[first - 2].strip() if first >= 2 else ""
+        if header.startswith("#") and header.lstrip("#").strip():
+            allowed.update(d.lineno for d in block)
+    return allowed
+
+
+def _python_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, SyntaxError):
+        return
+    registration: set[int] | None = None
+    for token in tokens:
+        if token.type != tokenize.COMMENT:
+            continue
+        directives = list(_PY_DIRECTIVE.finditer(token.string))
+        if not directives:
+            continue
+        last = directives[-1]
+        rest = token.string[last.end() :]
+        if last["tool"] is None:
+            if re.match(r"\s*--\s*\S", rest):
+                continue
+            guidance = "`# noqa: <规则>` 后接 ` -- 理由`，写明这里为什么是工具误报"
+        else:
+            if re.match(r"\s*#\s*\S", rest):
+                continue
+            if _REGISTRATION_IGNORE.fullmatch(token.string.strip()):
+                if registration is None:
+                    registration = _registration_lines(source)
+                if token.start[0] in registration:
+                    continue
+            guidance = (
+                f"`# {last['tool']}: ignore[<规则>]` 后接 `  # 理由`，写明这里为什么是工具误报；"
+                "装饰器就地注册的处理器把理由写在注册块开头的一条注释里"
+            )
+        out.append(Violation("SUPPRESSION-REASON", rel, token.start[0], guidance))
+
+
+def _inside_literal_or_comment(line: str, start: int, end: int, *, yaml: bool) -> bool:
+    """指令文本是否只是同一行的字面量或注释正文，而非真实指令。
+
+    字面量要求起点前的引号未闭合、且同一引号在指令之后闭合；起点前已进入行注释或未闭合的块注释时为注释正文。
+    判断偏向报告：无法确认是字面量时（正则字面量里的引号、跨行模板字符串、YAML 块标量）按真实指令检查。
+    """
+    quotes = "\"'" if yaml else "\"'`"
+    quote: str | None = None
+    i = 0
+    while i < start:
+        c = line[i]
+        if quote is not None:
+            if c == "\\" and not (yaml and quote == "'"):
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in quotes:
+            quote = c
+        elif yaml:
+            if c == "#" and (i == 0 or line[i - 1].isspace()):
+                return True
+        elif line.startswith("//", i):
+            return True
+        elif line.startswith("/*", i):
+            close = line.find("*/", i + 2)
+            if close < 0:
+                return True
+            i = close + 1
+        i += 1
+    return quote is not None and quote in line[end:]
+
+
+def _text_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
+    yaml = rel.suffix in YAML_SUFFIXES
+    if yaml:
+        checks = [(_ZIZMOR_DIRECTIVE, r"\S", "`# zizmor: ignore[<规则>]` 后接理由，写明这里为什么是工具误报")]
+    else:
+        checks = [
+            (
+                _ESLINT_DIRECTIVE,
+                r"\s--\s*\S",
+                "`eslint-disable*` 指令的规则名后接 ` -- 理由`，写明这里为什么是工具误报",
+            ),
+            (_KNIP_PUBLIC, r"\S", "`@public` 后接理由，写明这个导出为什么要保留"),
+        ]
+    for n, line in enumerate(source.split("\n"), 1):
+        for pattern, reason, guidance in checks:
+            for match in pattern.finditer(line):
+                if _inside_literal_or_comment(line, match.start(), match.end(), yaml=yaml):
+                    continue
+                rest = line[match.end() :].split("*/", 1)[0]
+                if not re.search(reason, rest):
+                    out.append(Violation("SUPPRESSION-REASON", rel, n, guidance))
+                    break
+
+
+def check_suppression_reasons(root: Path, out: list[Violation]) -> None:
+    for path in _suppression_files(root):
+        rel = path.relative_to(root)
+        try:
+            source = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if path.suffix in PY_SUFFIXES:
+            _python_suppressions(rel, source, out)
+        else:
+            _text_suppressions(rel, source, out)
+
+
 # ---------------------------------------------------------------- 入口
 
 
@@ -293,6 +473,7 @@ def audit(root: Path = ROOT, *, fix: bool = False) -> list[Violation]:
     check_generated_blocks(root, standards, fix, out)
     check_dependabot_groups(root, out)
     check_tool_versions(root, out)
+    check_suppression_reasons(root, out)
     return out
 
 

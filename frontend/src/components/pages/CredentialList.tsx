@@ -622,8 +622,7 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
   }, [refresh]);
 
   useEffect(() => {
-    // providerId 变化时重置加载态并重新拉取，属于动作驱动的状态重置
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- providerId 变化时重置加载态并重新拉取，是动作驱动重置
     setLoading(true);
     setShowAdd(false);
     void refresh();
@@ -671,8 +670,7 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
       )}
 
       <div className="space-y-1.5">
-        {/* 子组件 onChanged 通过 voidPromise 包装 ref 持有的最新回调 */}
-        {/* eslint-disable-next-line react-hooks/refs */}
+        {/* eslint-disable-next-line react-hooks/refs -- handleChanged 只在子组件回调时读 onChangedRef，render 期不读 ref */}
         {credentials.map((c) => (
           <CredentialRow
             key={c.id}

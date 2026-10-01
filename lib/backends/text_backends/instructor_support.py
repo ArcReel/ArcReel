@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from enum import Enum
 from json import JSONDecodeError
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import instructor
 from instructor import Mode
@@ -32,6 +32,9 @@ from lib.backends.text_backends.base import (
     strip_leading_think_block,
     truncate_for_log,
 )
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +300,7 @@ def generate_structured_via_instructor(
     try:
         result, completion = patched.chat.completions.create_with_completion(
             model=model,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,  # type: ignore[arg-type]  # messages 是 OpenAI 与 Ark 通道共用的普通 dict，instructor 只声明 openai 的消息 TypedDict
             response_model=response_model,
             max_retries=max_retries,
             **extra,
@@ -318,7 +321,7 @@ def generate_structured_via_instructor(
 
 
 async def generate_structured_via_instructor_async(
-    client,
+    client: AsyncOpenAI,
     model: str,
     messages: list[dict],
     response_model: type[BaseModel],
@@ -339,9 +342,9 @@ async def generate_structured_via_instructor_async(
     patched.on("completion:response", _strip_think_block_in_response)
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
     try:
-        result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]
+        result, completion = await patched.chat.completions.create_with_completion(
             model=model,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,  # type: ignore[arg-type]  # messages 是 OpenAI 与 Ark 通道共用的普通 dict，instructor 只声明 openai 的消息 TypedDict
             response_model=response_model,
             max_retries=max_retries,
             **extra,
@@ -500,7 +503,7 @@ def instructor_fallback_sync(
 
 
 async def instructor_fallback_async(
-    client,
+    client: AsyncOpenAI,
     model: str,
     messages: list[dict],
     response_schema: dict | type[BaseModel] | None,

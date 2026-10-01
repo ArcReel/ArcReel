@@ -148,8 +148,10 @@ class GeminiTextBackend:
             if not api_key:
                 raise ValueError("Gemini API Key 未提供（API Key is required for AI Studio mode）。")
             effective_base_url = normalize_base_url(base_url)
-            http_options = {"base_url": effective_base_url} if effective_base_url else None
-            self._client = genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
+            http_options: genai.types.HttpOptionsDict | None = (
+                {"base_url": effective_base_url} if effective_base_url else None
+            )
+            self._client = genai.Client(api_key=api_key, http_options=http_options)
             if base_url:
                 logger.info("GeminiTextBackend: 使用 AI Studio 后端（Base URL: %s）", base_url)
             else:
@@ -176,9 +178,9 @@ class GeminiTextBackend:
         response_schema: dict | type | None,
         system_prompt: str | None,
         max_output_tokens: int | None = None,
-    ) -> dict:
+    ) -> genai.types.GenerateContentConfigDict:
         """构建 generate_content 的 config 字典。"""
-        config: dict = {}
+        config: genai.types.GenerateContentConfigDict = {}
         if response_schema:
             config["response_mime_type"] = "application/json"
             config["response_schema"] = _to_response_schema(response_schema)
@@ -258,7 +260,7 @@ class GeminiTextBackend:
         response = await self._client.aio.models.generate_content(
             model=self._model,
             contents=contents,
-            config=config if config else None,  # type: ignore[arg-type]
+            config=config if config else None,
         )
 
         text = response.text.strip() if response.text else ""

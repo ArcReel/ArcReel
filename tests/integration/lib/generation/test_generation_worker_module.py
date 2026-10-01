@@ -930,7 +930,7 @@ class TestGenerationWorker:
                 self.allow_new = False
                 self.new_dispatched = False
 
-            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
+            async def claim_next_task(self, media_type, **_kwargs):
                 if self.allow_new and not self.new_dispatched and media_type == "image":
                     self.new_dispatched = True
                     return {
@@ -1038,7 +1038,7 @@ class TestGenerationWorker:
                     },
                 ]
 
-            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
+            async def claim_next_task(self, media_type, **_kwargs):
                 for i, t in enumerate(self._tasks):
                     if t["media_type"] == media_type:
                         return self._tasks.pop(i)
@@ -1100,7 +1100,7 @@ class TestGenerationWorker:
                 ]
                 self.claim_kwargs: list[dict] = []
 
-            async def claim_next_task(self, media_type, **kwargs):  # type: ignore[override]
+            async def claim_next_task(self, media_type, **kwargs):
                 self.claim_kwargs.append(kwargs)
                 if media_type == "video" and self._tasks:
                     return self._tasks.pop()

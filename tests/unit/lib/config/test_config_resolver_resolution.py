@@ -20,7 +20,7 @@ from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
 @pytest.fixture
 async def resolver(db_session: AsyncSession) -> ConfigResolver:
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     return ConfigResolver(factory, _bound_session=db_session)
 
 

@@ -132,7 +132,7 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
     # project.json 中 video_backend 指向这个 text-only 模型
     project = {"video_backend": f"{provider_id_str}/gpt-4o"}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
 
     from lib.config.service import ConfigService
 
@@ -200,7 +200,7 @@ async def test_custom_video_max_reference_images_from_endpoint(
     provider_id_str = make_provider_id(provider.id)
     project = {"video_backend": f"{provider_id_str}/{model_id}", "generation_mode": generation_mode}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
@@ -245,7 +245,7 @@ async def test_custom_video_caps_resolved_without_api_key(db_session: AsyncSessi
     provider_id_str = make_provider_id(provider.id)
     project = {"video_backend": f"{provider_id_str}/doubao-seedance-2-0"}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
@@ -295,7 +295,7 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
     provider_id_str = make_provider_id(provider.id)
     project = {"video_backend": f"{provider_id_str}/doubao-seedance-2-0"}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
@@ -347,7 +347,7 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     provider_id_str = make_provider_id(provider.id)
     project = {"video_backend": f"{provider_id_str}/doubao-seedance-2-0"}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
@@ -390,7 +390,7 @@ async def test_image_bucket_gate_rejects_model_lacking_the_bucket(db_session: As
     provider_id_str = await _seed_image_provider(db_session, endpoint="openai-images-generations", model_id="t2i-m")
     project = {"image_provider_i2i": f"{provider_id_str}/t2i-m"}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
     with pytest.raises(ImageBucketCapabilityError) as excinfo:
@@ -406,7 +406,7 @@ async def test_image_bucket_gate_passes_model_declaring_the_bucket(db_session: A
     provider_id_str = await _seed_image_provider(db_session, endpoint="openai-images-edits", model_id="i2i-m")
     project = {"image_provider_i2i": f"{provider_id_str}/i2i-m"}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
     resolved = await resolver.resolve_image_backend(project, None, generation_type="i2i")
@@ -424,7 +424,7 @@ async def test_image_bucket_gate_leaves_disabled_reference_to_the_default_fallba
     await db_session.flush()
     project = {"image_provider_i2i": f"{provider_id_str}/t2i-m"}
 
-    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
     resolved = await resolver.resolve_image_backend(project, None, generation_type="i2i")

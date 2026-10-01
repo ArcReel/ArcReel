@@ -213,8 +213,7 @@ export function ProviderModelSelect({
   useEffect(() => {
     if (open) {
       const idx = flatOptions.findIndex((o) => o.fullValue === value);
-      // 动作驱动的重置（open 切换为 true 时），无法用 derived state 表达。
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- open 切换为 true 时的动作驱动重置，无法用派生 state 表达
       setActiveIndex(idx >= 0 ? idx : 0);
     }
   }, [open, flatOptions, value]);
@@ -230,8 +229,7 @@ export function ProviderModelSelect({
   // Clear stale query whenever the search input is hidden, so a later
   // showSearch flip back to true cannot resurface a forgotten query.
   useEffect(() => {
-    // 动作驱动的重置，无法用 derived state 表达。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- showSearch 关闭时的动作驱动重置，无法用派生 state 表达
     if (!showSearch) setQuery("");
   }, [showSearch]);
 
@@ -375,10 +373,7 @@ export function ProviderModelSelect({
       {open && (
         <FloatingPortal>
           <div
-            // floating-ui 的 setFloating 是 stable callback ref：hooks/refs 误认为是
-            // 读取 ref.current；unbound-method 误认为是需要绑定 this 的原型方法，
-            // 而它是 useCallback 造的属性型函数、不访问 this。两条均安全。
-            // eslint-disable-next-line react-hooks/refs, @typescript-eslint/unbound-method
+            // eslint-disable-next-line react-hooks/refs, @typescript-eslint/unbound-method -- setFloating 是 floating-ui 的稳定回调 ref，不读 ref.current；它是不访问 this 的属性型函数，无需绑定
             ref={refs.setFloating}
             className={`isolate overflow-hidden rounded-[8px] border border-hairline shadow-xl ${UI_LAYERS.modal}`}
             style={{ ...floatingStyles, ...DROPDOWN_PANEL_STYLE }}

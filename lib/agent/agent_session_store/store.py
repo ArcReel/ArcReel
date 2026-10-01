@@ -6,8 +6,16 @@ import asyncio
 import logging
 import random
 import time
+from collections.abc import Mapping
 
-from claude_agent_sdk import fold_session_summary
+from claude_agent_sdk import (
+    SessionKey,
+    SessionListSubkeysKey,
+    SessionStoreEntry,
+    SessionStoreListEntry,
+    SessionSummaryEntry,
+    fold_session_summary,
+)
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -24,16 +32,17 @@ _MAX_APPEND_RETRY = 16
 _APPEND_BACKOFF_CAP_S = 0.05
 
 
-def _normalize_key(key: dict) -> tuple[str, str, str]:
+def _normalize_key(key: SessionKey) -> tuple[str, str, str]:
     return key["project_key"], key["session_id"], key.get("subpath", "") or ""
 
 
-def _entry_type(entry: dict) -> str:
+# 条目来自 SDK 或本地 JSONL 导入，字段类型不受校验，读取时按 object 看待。
+def _entry_type(entry: Mapping[str, object]) -> str:
     t = entry.get("type")
     return t if isinstance(t, str) else ""
 
 
-def _entry_uuid(entry: dict) -> str | None:
+def _entry_uuid(entry: Mapping[str, object]) -> str | None:
     u = entry.get("uuid")
     return u if isinstance(u, str) and u else None
 
@@ -56,7 +65,7 @@ class DbSessionStore:
 
     # --- required: append + load ---------------------------------------------
 
-    async def append(self, key: dict, entries: list[dict]) -> None:
+    async def append(self, key: SessionKey, entries: list[SessionStoreEntry]) -> None:
         if not entries:
             return
         project_key, session_id, subpath = _normalize_key(key)
@@ -103,7 +112,7 @@ class DbSessionStore:
         project_key: str,
         session_id: str,
         subpath: str,
-        entries: list[dict],
+        entries: list[SessionStoreEntry],
         now_ms: int,
     ) -> None:
         now_dt = utc_now()
@@ -156,7 +165,7 @@ class DbSessionStore:
         session,
         project_key: str,
         session_id: str,
-        entries: list[dict],
+        entries: list[SessionStoreEntry],
         now_ms: int,
         now_dt,
     ) -> None:
@@ -177,7 +186,7 @@ class DbSessionStore:
         prev_row = (await session.execute(stmt)).scalar_one_or_none()
 
         if prev_row is None:
-            prev: dict | None = None
+            prev: SessionSummaryEntry | None = None
         else:
             prev = {
                 "session_id": session_id,
@@ -187,8 +196,8 @@ class DbSessionStore:
 
         # SDK signature is (prev, key, entries) — fold returns mtime=0 placeholder
         # we overwrite with our own clock per SDK docstring guidance.
-        key_for_fold = {"project_key": project_key, "session_id": session_id}
-        folded = fold_session_summary(prev, key_for_fold, entries)  # type: ignore[arg-type]
+        key_for_fold: SessionKey = {"project_key": project_key, "session_id": session_id}
+        folded = fold_session_summary(prev, key_for_fold, entries)
         new_data = folded["data"] if folded else {}
 
         if prev_row is None:
@@ -234,7 +243,7 @@ class DbSessionStore:
             )
         await session.execute(stmt)
 
-    async def load(self, key: dict) -> list[dict] | None:
+    async def load(self, key: SessionKey) -> list[SessionStoreEntry] | None:
         project_key, session_id, subpath = _normalize_key(key)
         async with self._session_factory() as session:
             result = await session.execute(
@@ -253,7 +262,7 @@ class DbSessionStore:
 
     # --- optional: list_sessions / list_session_summaries -------------------
 
-    async def list_sessions(self, project_key: str) -> list[dict]:
+    async def list_sessions(self, project_key: str) -> list[SessionStoreListEntry]:
         async with self._session_factory() as session:
             stmt = (
                 select(
@@ -269,7 +278,7 @@ class DbSessionStore:
             result = await session.execute(stmt)
             return [{"session_id": r.session_id, "mtime": int(r.mtime)} for r in result.all()]
 
-    async def list_session_summaries(self, project_key: str) -> list[dict]:
+    async def list_session_summaries(self, project_key: str) -> list[SessionSummaryEntry]:
         async with self._session_factory() as session:
             stmt = select(AgentSessionSummary).where(
                 AgentSessionSummary.project_key == project_key,
@@ -281,7 +290,7 @@ class DbSessionStore:
 
     # --- optional: delete + list_subkeys -----------------------------------
 
-    async def delete(self, key: dict) -> None:
+    async def delete(self, key: SessionKey) -> None:
         project_key, session_id, subpath = _normalize_key(key)
         async with self._session_factory() as session:
             entry_stmt = sa_delete(AgentSessionEntry).where(
@@ -312,8 +321,8 @@ class DbSessionStore:
             sum_rows,
         )
 
-    async def list_subkeys(self, key: dict) -> list[str]:
-        project_key, session_id, _subpath = _normalize_key(key)
+    async def list_subkeys(self, key: SessionListSubkeysKey) -> list[str]:
+        project_key, session_id = key["project_key"], key["session_id"]
         async with self._session_factory() as session:
             result = await session.execute(
                 select(AgentSessionEntry.subpath)

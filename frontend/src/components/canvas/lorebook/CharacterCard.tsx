@@ -152,21 +152,18 @@ export function CharacterCard({
   };
 
   useEffect(() => {
-    // 上游角色变化时同步本地草稿字段
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游角色变化时同步本地草稿字段
     setDescription(character.description);
     setVoiceStyle(character.voice_style ?? "");
   }, [character.description, character.voice_style]);
 
   useEffect(() => {
-    // 角色立绘变化时重置图片加载错误标记
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 角色立绘变化时重置图片加载错误标记
     setImgError(false);
   }, [character.character_sheet, sheetFp]);
 
   useEffect(() => {
-    // 上游参考图变化时清空本地未提交的上传文件 + 释放 blob URL
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游参考图变化时清空本地未提交的上传文件并释放 blob URL
     setReferenceFile(null);
     setReferencePreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -183,9 +180,8 @@ export function CharacterCard({
   }, [referencePreview]);
 
   useEffect(() => {
-    // 上游参考音频变化时清空本地未提交的上传文件 + 释放 blob URL；
     // 同扩展名替换（如 wav 换 wav）路径字符串不变，靠 audioFp 才能感知内容已更新
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游参考音频变化时清空本地未提交的上传文件并释放 blob URL
     setAudioFile(null);
     setAudioPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -334,8 +330,7 @@ export function CharacterCard({
   const displayedAudioUrl = audioPreview ?? savedAudioUrl;
 
   useEffect(() => {
-    // 音源切换（更换/删除/上游变化）时复位播放状态，避免残留上一段的播放进度
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 音源切换时复位播放状态，避免残留上一段的播放进度
     setIsAudioPlaying(false);
     setAudioProgress(0);
     setAudioDuration(null);

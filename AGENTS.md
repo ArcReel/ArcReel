@@ -10,7 +10,7 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 uv run ruff check . && uv run ruff format . && uv run basedpyright --warnings && uv run lint-imports && uv run deptry lib server alembic scripts tests && uv run python -m pytest -n 4 --dist loadfile
 (cd packages/arcreel-market-core && uv run deptry src tests && uv run python -m pytest)   # 改动 packages/arcreel-market-core/ 时
 uv run python scripts/audit_tests.py --check   # 改动测试文件时
-uv run python scripts/audit_conventions.py --check   # 改动 docs/standards/、依赖清单、.pre-commit-config.yaml 或 .github/ 时
+uv run python scripts/audit_conventions.py --check   # 改动 docs/standards/、依赖清单、.pre-commit-config.yaml、.github/ 或新增豁免注释时
 uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-files zizmor   # 改动 .github/ 时
 (cd frontend && pnpm check)
 (cd website && pnpm check)

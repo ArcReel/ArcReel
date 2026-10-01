@@ -64,6 +64,7 @@ from claude_agent_sdk import ClaudeSDKClient
 from claude_agent_sdk.types import (
     PermissionResultAllow,
     PermissionResultDeny,
+    SettingSource,
 )
 
 from lib.backends.providers import PROVIDER_ANTHROPIC, CallPurpose, CallStatus
@@ -344,7 +345,7 @@ class SessionManager:
         "WebFetch",
         "AskUserQuestion",
     ]
-    DEFAULT_SETTING_SOURCES: ClassVar[list[str]] = ["project"]
+    DEFAULT_SETTING_SOURCES: ClassVar[list[SettingSource]] = ["project"]
 
     def __init__(
         self,
@@ -1207,8 +1208,8 @@ class SessionManager:
         managed.cancel_pending_questions("session completed")
         explicit = str(result_msg.get("session_status") or "").strip()
         final_status: SessionStatus = (
-            explicit  # type: ignore[assignment]
-            if explicit in {"idle", "running", "completed", "error", "interrupted"}
+            explicit
+            if explicit in ("idle", "running", "completed", "error", "interrupted")
             else self._resolve_result_status(
                 result_msg,
                 interrupt_requested=managed.interrupt_requested,

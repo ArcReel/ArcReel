@@ -58,7 +58,9 @@ def test_video_artifact_currency_round_trip_preserves_complete_verified_evidence
 def test_video_artifact_currency_rejects_component_input_and_route_knob_tampering() -> None:
     raw = _facts().to_dict()
     changed_visual = deepcopy(raw)
-    changed_visual["visual_basis"]["inputs"]["unit"] = "E1S02"  # type: ignore[index]
+    visual_basis = changed_visual["visual_basis"]
+    assert isinstance(visual_basis, dict)
+    visual_basis["inputs"]["unit"] = "E1S02"
     with pytest.raises(ValueError, match="self-verifying"):
         VideoArtifactCurrencyFacts.from_dict(changed_visual)
 

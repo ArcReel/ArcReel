@@ -207,3 +207,151 @@ def test_unrecognised_tool_declaration_is_reported_instead_of_passing(repo: Path
     _write(repo, ".github/workflows/test.yml", "jobs: {}\n")
 
     assert [v.rule for v in audit(repo)] == ["TOOL-VERSION", "TOOL-VERSION"]
+
+
+def _suppression_lines(root: Path) -> list[tuple[str, int]]:
+    return [(v.path.as_posix(), v.line) for v in audit(root) if v.rule == "SUPPRESSION-REASON"]
+
+
+def test_python_suppression_without_same_line_reason_is_reported(repo: Path) -> None:
+    _write(
+        repo,
+        "lib/demo.py",
+        """import os  # noqa: F401
+import sys  # noqa: F401 -- 理由
+a: int = ""  # type: ignore[assignment]
+b: int = ""  # type: ignore[assignment]  # 理由
+c = os.nope  # pyright: ignore[reportAttributeAccessIssue]
+d = os.nope  # pyright: ignore[reportAttributeAccessIssue]  # 理由
+import foo  # deptry: ignore[DEP001]
+import bar  # deptry: ignore[DEP001]  # 理由
+# 理由写在上一行不算
+e: int = ""  # type: ignore[assignment]
+s = "# noqa: F401"
+""",
+    )
+
+    assert _suppression_lines(repo) == [("lib/demo.py", n) for n in (1, 3, 5, 7, 10)]
+
+
+def test_registration_block_reason_covers_handlers_in_the_same_function_scope(repo: Path) -> None:
+    _write(
+        repo,
+        "server/handlers.py",
+        """def register(app, flag):
+    # 以下处理器由装饰器就地注册，reportUnusedFunction 是工具误报。
+    @app.get("/a")
+    async def _a():  # pyright: ignore[reportUnusedFunction]
+        return 1
+
+    if flag:
+
+        @app.get("/b")
+        async def _b():  # pyright: ignore[reportUnusedFunction]
+            return 2
+
+
+def register_without_reason(app):
+    @app.get("/c")
+    async def _c():  # pyright: ignore[reportUnusedFunction]
+        return 3
+
+
+@app.get("/d")
+async def _d():  # pyright: ignore[reportUnusedFunction]
+    return 4
+
+
+def register_with_empty_header(app):
+    #
+    @app.get("/e")
+    async def _e():  # pyright: ignore[reportUnusedFunction]
+        return 5
+""",
+    )
+
+    assert _suppression_lines(repo) == [
+        ("server/handlers.py", 16),
+        ("server/handlers.py", 21),
+        ("server/handlers.py", 28),
+    ]
+
+
+def test_frontend_and_workflow_suppressions_without_reason_are_reported(repo: Path) -> None:
+    _write(
+        repo,
+        "frontend/src/demo.tsx",
+        """// eslint-disable-next-line react-hooks/set-state-in-effect
+// eslint-disable-next-line react-hooks/set-state-in-effect -- mount-only 初始化
+/* eslint-disable react-hooks/refs */
+/* eslint-disable react-hooks/refs -- 理由 */
+{/* eslint-disable-next-line react-hooks/refs */}
+{/* eslint-disable-next-line react-hooks/refs -- 理由 */}
+/** @public */
+/** @public 供外部 Agent skill 动态导入 */
+/* eslint-enable react-hooks/refs */
+""",
+    )
+    _write(
+        repo,
+        ".github/workflows/demo.yml",
+        """on: # zizmor: ignore[dangerous-triggers]
+  push:
+jobs: # zizmor: ignore[excessive-permissions]  # 理由
+""",
+    )
+
+    assert _suppression_lines(repo) == [
+        (".github/workflows/demo.yml", 1),
+        ("frontend/src/demo.tsx", 1),
+        ("frontend/src/demo.tsx", 3),
+        ("frontend/src/demo.tsx", 5),
+        ("frontend/src/demo.tsx", 7),
+    ]
+
+
+def test_every_directive_comment_on_a_line_is_checked(repo: Path) -> None:
+    _write(
+        repo,
+        "frontend/src/pair.ts",
+        """/* eslint-disable-next-line no-alert -- 理由 */ /* eslint-disable-next-line no-console */
+/* eslint-disable-next-line no-alert -- 理由 */ /* eslint-disable-next-line no-console -- 理由 */
+""",
+    )
+
+    assert _suppression_lines(repo) == [("frontend/src/pair.ts", 1)]
+
+
+def test_directive_text_inside_string_literals_is_not_a_suppression(repo: Path) -> None:
+    _write(
+        repo,
+        "frontend/src/sample.ts",
+        """const a = "// eslint-disable-next-line no-console";
+const b = '/* eslint-disable no-console */';
+const c = `/** @public */`;
+/* 注释 */ const d = "// eslint-disable-next-line no-console";
+foo("it's"); // eslint-disable-line no-console
+const quote = /"/; console.log(quote); // eslint-disable-line no-console
+""",
+    )
+    _write(
+        repo,
+        ".github/workflows/sample.yml",
+        """sample: "# zizmor: ignore[dangerous-triggers]"
+other: 'it''s # zizmor: ignore[dangerous-triggers]'
+on: # zizmor: ignore[dangerous-triggers]
+""",
+    )
+
+    assert _suppression_lines(repo) == [
+        (".github/workflows/sample.yml", 3),
+        ("frontend/src/sample.ts", 5),
+        ("frontend/src/sample.ts", 6),
+    ]
+
+
+def test_dependency_and_build_directories_are_not_scanned(repo: Path) -> None:
+    _write(repo, "frontend/node_modules/pkg/index.js", "// eslint-disable-next-line no-console\n")
+    _write(repo, ".venv/lib/site.py", "import os  # noqa: F401\n")
+
+    assert _suppression_lines(repo) == []

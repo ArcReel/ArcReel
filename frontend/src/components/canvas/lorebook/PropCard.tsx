@@ -93,14 +93,12 @@ export function PropCard({
   const isDirty = description !== prop.description;
 
   useEffect(() => {
-    // 上游道具描述变化时同步本地草稿
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游道具描述变化时同步本地草稿
     setDescription(prop.description);
   }, [prop.description]);
 
   useEffect(() => {
-    // 道具立绘变化时重置图片加载错误标记
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 道具立绘变化时重置图片加载错误标记
     setImgError(false);
   }, [prop.prop_sheet, sheetFp]);
 

@@ -496,7 +496,7 @@ def resolve_references(
         seen.add(name)
         entry = catalog.resolve(name)
         if entry is not None:
-            refs.append(ReferenceResource(type=entry.asset_type, name=name))  # type: ignore[arg-type]
+            refs.append(ReferenceResource(type=entry.asset_type, name=name))  # type: ignore[arg-type]  # 目录条目的 asset_type 取自 ASSET_SPECS 的键，恒为四种资产类型之一，但以 str 承载
         else:
             missing.append(name)
     return refs, missing
