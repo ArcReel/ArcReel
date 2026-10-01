@@ -10,10 +10,12 @@ from server.tool_runtime import (
     EPISODE_META_FIELDS,
     PROJECT_OVERVIEW_FIELDS,
     PROJECT_SETTINGS,
+    MergeAssetRequest,
     NoArguments,
     PatchEpisodeMetaRequest,
     PatchProjectRequest,
     RenameAssetRequest,
+    merge_asset,
     patch_episode_meta,
     patch_project,
     rename_asset,
@@ -67,11 +69,28 @@ RENAME_ASSET = ToolDeclaration(
     handler=rename_asset,
 )
 
+MERGE_ASSET = ToolDeclaration(
+    name="merge_asset",
+    description=(
+        "合并同一身份被登记成的两个同表资产（characters / scenes / props）：全部剧集剧本与 script_plan 草稿中"
+        "指向 source 的引用（引用数组 / speaker / 正文与画面描述里的 @[名称]）一次改指 target。target 原样保留；"
+        "source 的名字与别名记为 target 的别名，source 名下的衍生迁到 target，与 target 已有衍生同名的并入已有的那个。"
+        "as_derivative=true（仅 characters）时 source 改为 target 的衍生：画面引用改写为 target/source，"
+        "speaker 改为 target，source 的名字不记为别名。source 的描述、资产图及版本历史、声音设置、原图与参考音频"
+        "都不保留，合并不可撤销：先用 dry_run=true 取得按集列出的影响，转述给用户并得到同意后再执行。"
+        "资产改名用 rename_asset。项目数据升级失败时仍可调用，用于修复。"
+    ),
+    request_model=MergeAssetRequest,
+    migration=_REPAIR_WRITE,
+    domain_key="asset_merge",
+    handler=merge_asset,
+)
+
 RETRY_PROJECT_MIGRATION = ToolDeclaration(
     name="retry_project_migration",
     description=(
         "重跑本项目的数据升级链（含产物补录）。升级失败时项目被阻断，阻断期仍可用的写入工具只有 patch_project / "
-        "patch_episode_meta / rename_asset；patch_episode_script 一律被拒。按失败明细用这三个工具修好被点名的集 / "
+        "patch_episode_meta / rename_asset / merge_asset；patch_episode_script 一律被拒。按失败明细用这些工具修好被点名的集 / "
         "文件，再调用本工具；它们改不到的位置（如剧本正文类违约）如实报告卡点给用户，不要反复重试。"
         "幂等：已是最新版本时直接返回成功。成功返回新的制作计划 workflow_plan；失败返回 project_migration_failed "
         "problem，params.details 中含结构化明细（episode / file / violation）。"
@@ -82,9 +101,10 @@ RETRY_PROJECT_MIGRATION = ToolDeclaration(
     handler=retry_project_migration,
 )
 
-REPAIR_CHANNEL_TOOLS = (PATCH_PROJECT, PATCH_EPISODE_META, RENAME_ASSET, RETRY_PROJECT_MIGRATION)
+REPAIR_CHANNEL_TOOLS = (PATCH_PROJECT, PATCH_EPISODE_META, RENAME_ASSET, MERGE_ASSET, RETRY_PROJECT_MIGRATION)
 
 __all__ = [
+    "MERGE_ASSET",
     "PATCH_EPISODE_META",
     "PATCH_PROJECT",
     "RENAME_ASSET",

@@ -89,7 +89,7 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
     """就地把剧本/草稿 payload 中指向 *old_name* 的名称引用改写为 *new_name*，返回改写数。
 
     落点集合由 :func:`lib.script.script_references.iter_reference_sites` 定义（引用数组、
-    ``speaker`` 字段、单元正文的 ``@[名称]`` 记号）；``character`` 另有旧式剧本内嵌的顶层
+    ``speaker`` 字段、单元正文与分镜画面描述里的 ``@[名称]`` 记号）；``character`` 另有旧式剧本内嵌的顶层
     ``characters`` 镜像 dict 要 re-key + 同步路径字段。
 
     *old_name* 可以是 ``角色/衍生`` 形态（衍生改名）：命中判定由
@@ -118,7 +118,7 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
                     count += rewrite_entry_paths(entry, ASSET_SPECS[asset_type], old_name, new_name)
 
     for kind, value, write in iter_reference_sites(payload, list_fields, with_speaker=asset_type == "character"):
-        if kind == "text":
+        if kind in ("text", "scene"):
             rewritten, changes = rewrite_mentions(value, old_name, new_name)
             if changes:
                 write(rewritten)
@@ -202,6 +202,24 @@ def rewrite_entry_paths(entry: dict, spec: AssetSpec, old_name: str, new_name: s
     return count
 
 
+def _named_file_dirs(project_dir: Path, spec: AssetSpec) -> list[tuple[Path, bool]]:
+    """按名命名的资产文件所在的目录，及该目录是否放行 ``名字_{序号}`` 形态。"""
+    base = project_dir / spec.subdir
+    sequenced_refs = "reference_images" in spec.extra_list_fields
+    candidates = ((base, False), (base / "refs", sequenced_refs), (base / "refs_audio", False))
+    return [(directory, allow_sequence) for directory, allow_sequence in candidates if directory.is_dir()]
+
+
+def asset_files_named(project_dir: Path, spec: AssetSpec, name: str) -> list[Path]:
+    """该资产类型落盘目录里以 *name* 命名的文件（资产图、原图、参考音频），与改名迁移同一范围。"""
+    return [
+        file
+        for directory, allow_sequence in _named_file_dirs(project_dir, spec)
+        for file in sorted(directory.iterdir())
+        if file.is_file() and renamed_file_stem(file.stem, name, name, allow_sequence=allow_sequence) is not None
+    ]
+
+
 def plan_asset_file_renames(
     project_dir: Path, spec: AssetSpec, old_name: str, new_name: str
 ) -> list[tuple[Path, Path]]:
@@ -232,13 +250,9 @@ def plan_asset_file_renames(
     Raises:
         AssetRenameFileCollisionError: 某个迁移目标路径已被他人占用或被同批另一次迁移占用。
     """
-    base = project_dir / spec.subdir
-    sequenced_refs = "reference_images" in spec.extra_list_fields
     moves: list[tuple[Path, Path]] = []
     planned: set[Path] = set()
-    for directory, allow_sequence in ((base, False), (base / "refs", sequenced_refs), (base / "refs_audio", False)):
-        if not directory.is_dir():
-            continue
+    for directory, allow_sequence in _named_file_dirs(project_dir, spec):
         for file in sorted(directory.iterdir()):
             if not file.is_file():
                 continue
@@ -260,6 +274,7 @@ __all__ = [
     "AssetRenameHistoryCollisionError",
     "AssetRenameNotFoundError",
     "AssetRenameReport",
+    "asset_files_named",
     "plan_asset_file_renames",
     "renamed_file_stem",
     "renamed_relpath",

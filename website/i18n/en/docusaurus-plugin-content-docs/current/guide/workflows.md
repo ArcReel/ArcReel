@@ -337,6 +337,16 @@ Confirm:
 - Merchandise;
 - Style references.
 
+#### Merge assets registered twice {#merge-assets}
+
+When the same person, place, or object is registered as two assets (for example, "Old Wang" and "Wang Jianguo"), open the menu on one of the asset cards, choose **Merge into…**, and pick the asset of the same type to keep. Only characters, scenes, and props can be merged.
+
+After the merge, references in every episode's script plan, final script, drafts, and prompt text point to the kept asset, and the merged asset's name and aliases become aliases of the kept asset. Derivatives of a merged character move to the kept character; a derivative with the same name as one the kept character already has merges into the existing one. The kept asset's description, sheet, and other settings do not change.
+
+For characters, you can also choose **Derivative**: the merged character becomes a derivative of the kept character, keeping its description, and the derivative sheet needs generating. Visual references point to that derivative, dialogue speakers change to the kept character, and the merged character's name is not recorded as an alias.
+
+The merged asset's description, sheet and version history, voice settings, reference image, and reference audio are not kept, and a merge can't be undone. Before you confirm, the dialog lists, per episode, how many references will be rewritten and how many storyboard images and videos will become stale. It also shows the merged asset's description so you can copy what you need into the kept asset.
+
 ### Stage 4: Small Sample {#stage-sample-clips}
 
 Start by producing:

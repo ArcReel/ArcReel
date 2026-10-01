@@ -14,6 +14,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
+import { MergeAssetMenu } from "./MergeAssetMenu";
 import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
@@ -228,6 +229,13 @@ export function SceneCard({
             resourceId={name}
             onRestore={onRestoreVersion}
             iconOnly
+            busy={generating || uploadingSheet}
+          />
+          <MergeAssetMenu
+            projectName={projectName}
+            assetType="scene"
+            name={name}
+            description={scene.description}
             busy={generating || uploadingSheet}
           />
         </div>
