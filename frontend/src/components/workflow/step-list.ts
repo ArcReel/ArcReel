@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import type { EpisodeEditOverview } from "@/types/edit-timeline";
 import type { DraftDocType } from "@/types/reference-video";
 import type { StoryboardBatchKind } from "@/types/storyboard-batch";
 import type {
@@ -52,6 +53,7 @@ export type StepIntent =
   | { type: "open_script_plan_over_draft" }
   | { type: "asset_batch"; episodeId: number }
   | { type: "storyboard_batch"; episodeId: number; kind: StoryboardBatchKind }
+  | { type: "create_edit_timeline" }
   | { type: "discard_draft"; docType: DraftDocType }
   | { type: "show_surface"; surface: EpisodeSurface }
   | { type: "view_unit"; unitId: string }
@@ -136,6 +138,8 @@ export interface StepListContext {
   canAuthorPrompts: boolean;
   /** 能否跳到画布上的某个单元。 */
   canViewUnit: boolean;
+  /** 本集的剪辑概况；还没取到或本集没有剪辑时间线时为 null。 */
+  editOverview: EpisodeEditOverview | null;
 }
 
 /** 状态里的草稿种类 → 草稿端点的 `doc_type`。 */
@@ -474,19 +478,62 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     steps: stepsFor(facts, ["video"]),
   });
 
-  const timelines = status.artifacts.edit_timelines?.timeline_ids;
-  const timelineCount = Array.isArray(timelines) ? timelines.length : 0;
-  rows.push({
-    key: "edit",
-    title: t("workflow:row_edit"),
-    tone: timelineCount > 0 ? "done" : "todo",
-    status: timelineCount > 0 ? t("workflow:status_edit_timelines", { count: timelineCount }) : t("workflow:status_none"),
-    notes: [],
-    acts: [],
-    steps: stepsFor(facts, ["edit"]),
-  });
+  rows.push(editRow(facts, ctx));
 
   return rows.map(withRunning);
+}
+
+/** 剪辑的两个入口：交给 Agent 剪辑为主，按脚本机械新建一条剪辑时间线为次；准入是本集至少有一个可用视频。 */
+function editActs(facts: Facts, ctx: StepListContext): StepAct[] {
+  const { t } = ctx;
+  const refusal = refusalReason(t, facts.plan.status.operations.create_edit_timeline);
+  return [
+    agentAct(t, t("workflow:agent_prefill_create_edit_timeline", { episodeRef: ctx.episodeRef }), t("workflow:act_agent_edit"), refusal),
+    {
+      key: "create-edit-timeline",
+      label: t("workflow:act_create_edit_timeline"),
+      kind: "ai",
+      intent: { type: "create_edit_timeline" },
+      disabledReason: refusal,
+    },
+  ];
+}
+
+function editRow(facts: Facts, ctx: StepListContext): StepRowView {
+  const { t } = ctx;
+  const { plan, content } = facts;
+  const overview = ctx.editOverview;
+  const ids = plan.status.artifacts.edit_timelines?.timeline_ids;
+  const count = overview?.timeline_count ?? (Array.isArray(ids) ? ids.length : 0);
+  const issues = overview?.latest?.issue_count ?? 0;
+  let status: string;
+  if (count === 0) status = t("workflow:status_edit_none");
+  else if (issues > 0) status = t("workflow:status_edit_timelines_with_issues", { count, issues });
+  else status = t("workflow:status_edit_timelines", { count });
+  const notes: StepNote[] = [];
+  const stale = overview?.stale_final_cuts ?? [];
+  if (stale.length > 0) {
+    notes.push({
+      key: "final-cut-stale",
+      tone: "warn",
+      text: t("workflow:note_final_cut_stale", {
+        count: stale.length,
+        names: formatNameList(stale.map((timeline) => timeline.name), ctx.lang),
+      }),
+    });
+  }
+  // 剪辑是下一步时入口就地展开在下一步里；其余时候有正式脚本条目就常驻在本行，准入不满足时置灰。
+  const hasItems = content.formal_script === "present" && (content.script_item_count ?? 0) > 0;
+  const acts = hasItems && plan.next_action.type !== "create_edit_timeline" ? editActs(facts, ctx) : [];
+  return {
+    key: "edit",
+    title: t("workflow:row_edit"),
+    tone: count > 0 ? "done" : "todo",
+    status,
+    notes,
+    acts,
+    steps: stepsFor(facts, ["edit"]),
+  };
 }
 
 function assetsRow(facts: Facts, ctx: StepListContext): StepRowView {
@@ -824,7 +871,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         ...base,
         detail: t("workflow:next_detail_create_edit_timeline"),
         instruction: { initial: "", persist: null },
-        primary: [agentAct(t, t("workflow:agent_prefill_create_edit_timeline", { episodeRef }), t("workflow:act_agent_edit"))],
+        primary: editActs(facts, ctx),
       };
     case "wait_for_task":
       if (rowKey === "source") {
@@ -902,7 +949,7 @@ export function buildStepList(plan: WorkflowPlan, ctx: StepListContext): StepLis
   const next = buildNext(facts, rows, ctx);
   const { t } = ctx;
   let summary: string;
-  const editDone = facts.steps.get("edit")?.state === "completed";
+  const editDone = content.episode_complete === true;
   if (next) {
     const row = rows.find((candidate) => candidate.key === next.rowKey);
     summary = row ? t("workflow:summary_row", { title: row.title, status: row.status }) : next.title;

@@ -205,6 +205,8 @@ def _owner_step(status: WorkflowStatus) -> str:
         return "final_script"
     if status.artifacts.get("storyboards", {}).get("state") == "blocked":
         return "storyboard"
+    if status.artifacts.get("videos", {}).get("state") == "blocked":
+        return "video"
     if any(issue.code == INVALID_EDIT_TIMELINES_CODE for issue in status.issues):
         return "edit"
     return "video"

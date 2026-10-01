@@ -28,6 +28,7 @@ from lib.workflow.workflow_state import WorkflowStateService
 from tests.integration.lib.workflow.test_workflow_state import (
     _complete_episode_media,
     _count_source_reads,
+    _create_edit_timeline,
     _make_project,
     _register_produced_artifacts,
     _valid_ad_shot,
@@ -68,8 +69,10 @@ def _add_character_with_sheet(pm: ProjectManager, project_path: Path, name: str 
     return sheet
 
 
-def _episode_with_media(pm: ProjectManager, project_path: Path, source_text: str = "完整原文") -> None:
-    """把项目推到「一集脚本已生成、分镜与视频齐备」的状态。"""
+def _episode_with_media(
+    pm: ProjectManager, project_path: Path, source_text: str = "完整原文", *, edit_timeline: bool = True
+) -> None:
+    """把项目推到「一集脚本已生成、分镜与视频齐备」的状态；``edit_timeline`` 时再按脚本新建一条剪辑时间线。"""
 
     _plan_one_episode(pm, project_path, source_text)
     _write_script_plan(project_path)
@@ -84,6 +87,8 @@ def _episode_with_media(pm: ProjectManager, project_path: Path, source_text: str
         },
     )
     _register_produced_artifacts(project_path)
+    if edit_timeline:
+        _create_edit_timeline(pm)
 
 
 def _count_artifact_opens(monkeypatch: pytest.MonkeyPatch, project_path: Path) -> dict[str, int]:
@@ -281,6 +286,27 @@ def test_all_artifacts_usable_reports_completed(tmp_path: Path) -> None:
         "in_production": 0,
         "completed": 1,
     }
+
+
+@pytest.mark.parametrize("currency", ["verified", "registered"])
+def test_episode_with_all_videos_completes_only_once_it_has_an_edit_timeline(tmp_path: Path, currency: str) -> None:
+    """一集完成 = 视频齐全且至少有一条剪辑时间线；视频齐全、还没剪辑的集仍在制作中。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source(pm, project_path, source_text)
+    _episode_with_media(pm, project_path, source_text, edit_timeline=False)
+    service = WorkflowStateService(pm)
+
+    before = service.get_project_summary("demo", currency=currency)
+    assert before.episodes[0].status == "in_production"
+    assert before.episodes_summary.completed == 0
+
+    _create_edit_timeline(pm)
+
+    after = service.get_project_summary("demo", currency=currency)
+    assert after.episodes[0].status == "completed"
+    assert after.episodes_summary.completed == 1
 
 
 def test_deleting_an_asset_sheet_drops_the_available_count_like_the_workbench(tmp_path: Path) -> None:

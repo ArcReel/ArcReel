@@ -82,6 +82,13 @@ class EditTimelineStore:
         documents.sort(key=lambda document: (document.episode, document.created_at, document.id))
         return documents
 
+    def has_documents(self, episode: int) -> bool:
+        """该集目录下有没有剪辑时间线文件；只看文件名，不解析内容，供只要计数口径的广度视图使用。"""
+        directory = self._episode_dir(episode)
+        if not directory.is_dir():
+            return False
+        return any(is_timeline_id(path.stem) for path in directory.glob("*.json"))
+
     def find(self, timeline_id: str) -> EditTimelineDocument:
         if is_timeline_id(timeline_id):
             for number, directory in self._episode_dirs():

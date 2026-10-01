@@ -248,6 +248,10 @@ export interface WorkflowContent {
   referenced_asset_sheets_stale: string[];
   /** 本集引用、缺描述因而不能生成资产图的资产；只陈述，不进建议的下一步。 */
   referenced_assets_without_description: string[];
+  /** 目标集已完成：视频齐全且至少有一条剪辑时间线。 */
+  episode_complete?: boolean;
+  /** 只在不指定集的查询里为 true：每集都完成，且整本源文没有剩余。 */
+  project_complete?: boolean;
 }
 
 /** 上一次跑完的项目迁移没能登记的一件产物及原因。 */

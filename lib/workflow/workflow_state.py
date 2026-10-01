@@ -63,6 +63,7 @@ from lib.workflow.operation_admission import (
     ad_inputs_present,
     admit_ad_script,
     admit_author_prompts,
+    admit_edit_timeline,
     admit_plan_episodes,
     admit_script_plan,
     episode_source_present,
@@ -191,6 +192,9 @@ class WorkflowContent(BaseModel):
 
     集级字段只在有目标集时有值。``episode_plan_stale`` 表示该集的集规划状态为 stale、
     脚本规划尚待重建：它只在现状里陈述，不进建议的下一步。
+
+    ``episode_complete`` 是目标集已完成（视频齐全且至少有一条剪辑时间线）；``project_complete``
+    只在不指定集的查询里出现：每集都完成、没有待重新规划的集，且整本源文没有剩余。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -216,6 +220,8 @@ class WorkflowContent(BaseModel):
     referenced_asset_sheets_stale: list[str] = Field(default_factory=list)
     #: 本集引用、缺描述因而不能生成资产图的资产（含衍生）。只陈述，不进建议的下一步。
     referenced_assets_without_description: list[str] = Field(default_factory=list)
+    episode_complete: bool = False
+    project_complete: bool = False
 
 
 class WorkflowStatus(BaseModel):
@@ -323,7 +329,8 @@ class ProjectSummary(BaseModel):
 
     与 ``WorkflowStatus`` 同源不同粒度——后者回答「这个项目下一步做什么」，本模型回答
     「几十个项目各自完成了几集、手上有多少可用产物」；项目的进度就是各集的进度。因此它只读
-    项目元数据、各集脚本与产物清单：源文正文与源文修订号（sha256）不参与，否则列出 N 个项目就要读 N 份小说。
+    项目元数据、各集脚本、产物清单与剪辑时间线的文件名：源文正文与源文修订号（sha256）不参与，否则列出
+    N 个项目就要读 N 份小说。剪辑时间线不解析内容，文件损坏只在制作状态里报 issue。
 
     代价是「源文是否已全部排布成集」不进入本投影，它只能由源文得出。因此本投影可能报告
     「已有的集全部完成」，而制作状态的下一步仍是继续分集规划。
@@ -429,8 +436,11 @@ def _episode_production_status(
     script_status: EpisodeScriptStatus,
     storyboards: ArtifactCount,
     videos: ArtifactCount,
+    *,
+    has_edit_timeline: bool,
 ) -> EpisodeProductionStatus:
     """分镜图与视频一起算：两者都是一集要交的产物，缺任何一件该集都还没做完。
+    产物齐全后还要至少有一条剪辑时间线才算完成（与制作状态的 ``episode_complete`` 同一口径）。
 
     参考生视频没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
     """
@@ -439,7 +449,7 @@ def _episode_production_status(
         return "draft"
     available = storyboards.available + videos.available
     total = storyboards.total + videos.total
-    if total > 0 and available >= total:
+    if total > 0 and available >= total and has_edit_timeline:
         return "completed"
     if available:
         return "in_production"
@@ -978,7 +988,12 @@ class WorkflowStateService:
         return EpisodeSummary(
             episode=number,
             script_status=script_status,
-            status=_episode_production_status(script_status, storyboards, videos),
+            status=_episode_production_status(
+                script_status,
+                storyboards,
+                videos,
+                has_edit_timeline=EditTimelineStore(self.pm, project_name).has_documents(number),
+            ),
             item_count=len(items),
             duration_seconds=script_duration_total(kind, items) if kind is not None else 0,
             storyboards=storyboards,
@@ -1240,7 +1255,14 @@ class WorkflowStateService:
                 update={"next_action": _action(WorkflowActionType.NONE, reason), "next_alternatives": []}
             )
         else:
-            next_action = _action(WorkflowActionType.NONE, ALL_EPISODES_COMPLETE_REASON)
+            content = first.content.model_copy(update={"project_complete": True}) if first.content else None
+            return first.model_copy(
+                update={
+                    "content": content,
+                    "next_action": _action(WorkflowActionType.NONE, ALL_EPISODES_COMPLETE_REASON),
+                    "next_alternatives": [],
+                }
+            )
         return first.model_copy(update={"next_action": next_action, "next_alternatives": []})
 
     def _planning_action(
@@ -1676,6 +1698,12 @@ class WorkflowStateService:
             )
         content.pending_authoring_ids = pending_ids
         content.needs_replan_ids = replan_ids
+        # 剪辑时间线只陈述这一类内容：视频是否齐全不影响列出已有的几条。
+        timeline_ids = self._edit_timeline_ids(project_name, number, artifacts, issues) if formal_present else []
+        videos = artifacts["videos"]
+        operations[WorkflowActionType.CREATE_EDIT_TIMELINE] = admit_edit_timeline(
+            available_videos=len(videos.get("current_ids", [])) + len(videos.get("stale_ids", []))
+        )
 
         operations[WorkflowActionType.PREPARE_SCRIPT_PLAN] = admit_script_plan(mode, episode_source=episode_source)
         operations[WorkflowActionType.GENERATE_SCRIPT] = admit_ad_script(
@@ -1828,7 +1856,6 @@ class WorkflowStateService:
                     ids=artifacts["videos"]["missing_ids"],
                 ),
             )
-        timeline_ids = self._edit_timeline_ids(project_name, number, artifacts, issues)
         if timeline_ids is None:
             return respond(target, _action(WorkflowActionType.NONE, "edit timelines cannot be read"))
         if not timeline_ids:
@@ -1836,6 +1863,7 @@ class WorkflowStateService:
                 target,
                 _action(WorkflowActionType.CREATE_EDIT_TIMELINE, "episode has no edit timeline", args=episode_args),
             )
+        content.episode_complete = True
         return respond(target, _action(WorkflowActionType.NONE, EPISODE_COMPLETE_REASON))
 
     @staticmethod

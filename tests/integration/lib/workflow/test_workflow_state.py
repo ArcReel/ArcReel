@@ -534,6 +534,11 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     _register_produced_artifacts(project_path)
     video = service.get_status("demo")
     assert video.next_action.type == "generate_videos"
+    # 剪辑的准入：本集至少有一个可用视频。
+    assert video.operations["create_edit_timeline"].model_dump(mode="json") == {
+        "state": "refused",
+        "reason": "no_available_video",
+    }
 
     script["segments"][0]["generated_assets"]["video_clip"] = _commit_media_version(project_path, "videos", "E1S01")
     atomic_write_json(script_path, script)
@@ -546,6 +551,9 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     assert editing.artifacts["edit_timelines"] == {"timeline_ids": []}
     assert editing.artifacts["audio"]["state"] == "not_applicable"
     assert editing.artifacts["audio"]["missing_ids"] == []
+    assert editing.operations["create_edit_timeline"].state == "admitted"
+    assert editing.content is not None
+    assert not editing.content.episode_complete
 
     timeline_id = _create_edit_timeline(pm)
     ready = service.get_status("demo")
@@ -554,6 +562,8 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     assert ready.blockers == []
     assert ready.issues == []
     assert ready.artifacts["edit_timelines"] == {"timeline_ids": [timeline_id]}
+    assert ready.content is not None
+    assert ready.content.episode_complete
 
     # 剪辑时间线目录读不了时停在「剪辑」一步并报 issue，不让整个状态查询失败。
     if os.geteuid() != 0:
@@ -715,6 +725,94 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type == "reset_episode_planning"
     assert status.next_action.args == {}
+
+
+def _one_complete_episode(pm: ProjectManager, project_path: Path, *, source_end: int | None = None) -> None:
+    """单集项目：整本源文切出第一集（``source_end`` 为切到的位置，缺省切完），脚本、分镜图与视频齐全。"""
+
+    source_text = "完整原文"
+    _write_source(pm, project_path, source_text)
+
+    def _plan(project: dict) -> None:
+        end = len(source_text) if source_end is None else source_end
+        project["episodes"] = [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "consumed",
+                "source_range": {"source_file": "source/novel.txt", "start": 0, "end": end},
+            }
+        ]
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
+
+    pm.update_project("demo", _plan)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    _write_episode_source(project_path, 1, source_text)
+    atomic_write_json(draft_dir / "script_plan_segments.json", {"episode": 1, "segments": []})
+    generated_assets = _complete_episode_media(project_path)
+    _write_registered_script(
+        project_path,
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [_valid_narration_segment(generated_assets=generated_assets)],
+        },
+    )
+    _register_produced_artifacts(project_path)
+
+
+def test_project_is_complete_once_every_episode_has_an_edit_timeline_and_no_source_remains(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _one_complete_episode(pm, project_path)
+    service = WorkflowStateService(pm)
+
+    before = service.get_status("demo")
+    assert before.next_action.type == "create_edit_timeline"
+    assert before.content is not None
+    assert not before.content.project_complete
+
+    _create_edit_timeline(pm)
+
+    project = service.get_status("demo")
+    assert project.next_action.type == "none"
+    assert project.content is not None
+    assert project.content.project_complete
+    # 按集查询只陈述这一集，项目是否全部完成不在集的口径里。
+    episode = service.get_status("demo", episode=1)
+    assert episode.content is not None
+    assert episode.content.episode_complete
+    assert not episode.content.project_complete
+
+
+def test_completed_episodes_with_source_remaining_are_not_a_complete_project(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    _one_complete_episode(pm, project_path, source_end=2)
+    _create_edit_timeline(pm)
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.next_action.type == "plan_episodes"
+    assert status.content is not None
+    assert not status.content.project_complete
+
+
+def test_edit_timelines_are_stated_before_the_videos_are_complete(tmp_path: Path) -> None:
+    """剪辑时间线只陈述本类内容：视频后来又缺了，已有的剪辑时间线照样列出，下一步回到补视频。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _one_complete_episode(pm, project_path)
+    timeline_id = _create_edit_timeline(pm)
+    (project_path / resource_relative_path("videos", "E1S01")).unlink()
+
+    status = WorkflowStateService(pm).get_status("demo", episode=1)
+
+    assert status.next_action.type == "generate_videos"
+    assert status.artifacts["edit_timelines"] == {"timeline_ids": [timeline_id]}
+    assert status.content is not None
+    assert not status.content.episode_complete
 
 
 def _create_edit_timeline(pm: ProjectManager, episode: int = 1) -> str:

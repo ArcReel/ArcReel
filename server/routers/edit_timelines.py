@@ -1,11 +1,14 @@
-"""剪辑时间线的 HTTP 入口：列表、读取、按脚本机械新建，以及成片与剪映草稿的提交、现状与下载。
+"""剪辑时间线的 HTTP 入口：列表、读取、按脚本机械新建、一集的剪辑概况，以及成片与剪映草稿的提交、现状与下载。
 
 行为全部在 lib 层剪辑时间线命令、成片服务与剪映草稿服务里；渲染作为 ``render`` 车道任务入队。
 """
 
 from __future__ import annotations
 
+import asyncio
 import shutil
+from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import jwt
@@ -25,13 +28,16 @@ from lib.edit_timeline import (
 from lib.edit_timeline.errors import edit_timeline_message
 from lib.final_cut.basis import DEFAULT_VARIANT
 from lib.final_cut.errors import FinalCutError
+from lib.final_cut.overview import EpisodeEditOverview, episode_edit_overview
 from lib.final_cut.service import FinalCutService, FinalCutStatus
 from lib.generation.generation_queue import ActiveTaskRequestConflict, GenerationQueue, get_generation_queue
-from lib.infra.api_errors import ApiError
+from lib.infra.api_errors import ApiError, UnprocessableError
 from lib.jianying_draft.basis import DraftNarration
 from lib.jianying_draft.errors import JianyingDraftError
 from lib.jianying_draft.results import JianyingDraftStatus
 from lib.project.project_manager import get_project_manager
+from lib.workflow.operation_admission import AdmissionState
+from lib.workflow.workflow_state import WorkflowActionType, WorkflowRequestError, WorkflowStateService
 from server.auth import CurrentUser, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
@@ -59,6 +65,21 @@ def get_final_cut_service() -> FinalCutService:
 
 
 FinalCutServiceDep = Annotated[FinalCutService, Depends(get_final_cut_service)]
+EpisodeEditOverviewReader = Callable[[str, int], Awaitable[EpisodeEditOverview]]
+
+
+def get_episode_edit_overview() -> EpisodeEditOverviewReader:
+    return partial(episode_edit_overview, get_project_manager())
+
+
+EpisodeEditOverviewDep = Annotated[EpisodeEditOverviewReader, Depends(get_episode_edit_overview)]
+
+
+def get_workflow_state_service() -> WorkflowStateService:
+    return WorkflowStateService(get_project_manager())
+
+
+WorkflowStateServiceDep = Annotated[WorkflowStateService, Depends(get_workflow_state_service)]
 GenerationQueueDep = Annotated[GenerationQueue, Depends(get_generation_queue)]
 
 
@@ -158,8 +179,24 @@ async def create_edit_timeline(
     episode: Annotated[int, PathParam(ge=1)],
     body: CreateEditTimelineRequest,
     service: EditTimelineServiceDep,
+    workflow: WorkflowStateServiceDep,
     user: CurrentUser,
+    _t: Translator,
 ) -> EditTimelineReadout:
+    """按脚本机械新建；准入与制作状态 ``operations.create_edit_timeline`` 同一份谓词：本集至少有一个可用视频。
+
+    读不出准入（项目或集不存在等）时不在这里拒绝，由命令报对应的领域错误。
+    """
+    try:
+        status = await asyncio.to_thread(workflow.get_status, project_name, episode)
+    except (FileNotFoundError, WorkflowRequestError):
+        status = None
+    admission = None
+    if status is not None and status.target is not None and status.target.episode == episode:
+        admission = status.operations.get(WorkflowActionType.CREATE_EDIT_TIMELINE)
+    if admission is not None and admission.state is AdmissionState.REFUSED:
+        reason = _t(f"operation_{admission.reason}", where=_t("operation_episode", episode=episode))
+        raise UnprocessableError("edit_timeline_refused", reason=reason)
     try:
         return await service.create_from_script(
             project_name,
@@ -167,6 +204,19 @@ async def create_edit_timeline(
             name=body.name,
             author=RevisionAuthor(kind="creator", user_id=user.id),
         )
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+
+
+@router.get("/projects/{project_name}/episodes/{episode}/edit-overview")
+async def read_episode_edit_overview(
+    project_name: str,
+    episode: Annotated[int, PathParam(ge=1)],
+    read_overview: EpisodeEditOverviewDep,
+) -> EpisodeEditOverview:
+    """一集的剪辑概况：剪辑时间线条数、最近修改那条的问题数，以及成片已落后的几条。"""
+    try:
+        return await read_overview(project_name, episode)
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
 

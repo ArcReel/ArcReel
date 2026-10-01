@@ -279,9 +279,7 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
             className="inline-flex items-center gap-2 rounded-[7px] px-4 py-2.5 text-[12px] font-semibold no-underline transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             style={ACCENT_BUTTON_STYLE}
           >
-            {progress === "completed"
-              ? t("dashboard:lobby_open_workspace_completed")
-              : t("dashboard:lobby_open_workspace")}
+            {t("dashboard:lobby_open_workspace")}
             <span aria-hidden>→</span>
           </Link>
         </div>
