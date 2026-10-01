@@ -36,7 +36,7 @@ function meta(episode: number): EpisodeMeta {
 }
 
 function view(overrides: Partial<EpisodesView>): EpisodesView {
-  return { unit: "chars", units: 0, cut_units: 0, files: [], episodes: [], unregistered: [], ...overrides };
+  return { unit: "chars", units: 0, cut_units: 0, files: [], episodes: [], unregistered: [], replan: null, ...overrides };
 }
 
 describe("episodes-view-model", () => {

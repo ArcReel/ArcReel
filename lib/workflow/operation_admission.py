@@ -41,6 +41,7 @@ class AdmissionReason(StrEnum):
 
     NOT_APPLICABLE = "operation_not_applicable"
     WHOLE_SOURCE_MISSING = "whole_source_missing"
+    REPLAN_CANDIDATE_PENDING = "replan_candidate_pending"
     EPISODE_SOURCE_MISSING = "episode_source_missing"
     FORMAL_SCRIPT_MISSING = "formal_script_missing"
     FORMAL_SCRIPT_EXISTS = "formal_script_exists"
@@ -127,11 +128,15 @@ def pending_authoring_entry_ids(items: Sequence[Any], kind: str | None) -> list[
 # ---------------------------------------------------------------------------
 
 
-def admit_plan_episodes(content_mode: object, *, whole_source: bool) -> OperationAdmission:
-    """AI 分集规划：有整本源文。"""
+def admit_plan_episodes(
+    content_mode: object, *, whole_source: bool, replan_pending: bool = False
+) -> OperationAdmission:
+    """AI 分集规划：有整本源文，且没有悬而未决的重新规划候选。"""
     if content_mode == "ad":
         return NOT_APPLICABLE
-    return ADMITTED if whole_source else _refused(AdmissionReason.WHOLE_SOURCE_MISSING)
+    if not whole_source:
+        return _refused(AdmissionReason.WHOLE_SOURCE_MISSING)
+    return _refused(AdmissionReason.REPLAN_CANDIDATE_PENDING) if replan_pending else ADMITTED
 
 
 def admit_script_plan(content_mode: object, *, episode_source: bool) -> OperationAdmission:

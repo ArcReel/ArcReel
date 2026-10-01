@@ -134,6 +134,8 @@ import type {
   EpisodesView,
   ManualSplitAction,
   ManualSplitResponse,
+  ReplanAdoptionResponse,
+  ReplanPreview,
   StopEpisodePlanningResponse,
   SourceKind,
   SourceKindChangeResult,
@@ -1874,6 +1876,56 @@ class API {
     return this.request(`/projects/${encodeURIComponent(projectName)}/episode-planning`, {
       method: "POST",
       body: JSON.stringify(gap === null ? { instructions } : { instructions, gap }),
+    });
+  }
+
+  /** 从这一集开始重新规划的范围：会被替换的切出集与其中已开始制作的集。不发起，不写入。 */
+  static async previewEpisodeReplan(projectName: string, episode: number): Promise<ReplanPreview> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episode-replan`, {
+      method: "POST",
+      body: JSON.stringify({ episode, dry_run: true }),
+    });
+  }
+
+  /**
+   * 从这一集开始重新规划：逐窗生成一份「新的分集方案」，分集账本在采纳前不变；提交即返首窗的生成批次。
+   * 已有方案或分集规划在进行时 409。附加指令随方案保存。
+   */
+  static async startEpisodeReplan(
+    projectName: string,
+    episode: number,
+    instructions: string | null
+  ): Promise<EpisodePlanningResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episode-replan`, {
+      method: "POST",
+      body: JSON.stringify({ episode, instructions }),
+    });
+  }
+
+  /**
+   * 采纳新的分集方案。不带 `revision` 时只返回服务端成文的后果；带上 `revision` 才采纳，
+   * 后果在两次调用之间变了时再次返回确认。`deleteRetired` 把保留为无原文的集连同产物一起删除。
+   */
+  static async adoptEpisodeReplan(
+    projectName: string,
+    candidateId: string,
+    options: { revision?: string | null; deleteRetired?: boolean } = {}
+  ): Promise<ReplanAdoptionResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episode-replan/adopt`, {
+      method: "POST",
+      body: JSON.stringify({
+        candidate_id: candidateId,
+        revision: options.revision ?? null,
+        delete_retired: options.deleteRetired ?? false,
+      }),
+    });
+  }
+
+  /** 放弃新的分集方案，分集账本不变。 */
+  static async discardEpisodeReplan(projectName: string, candidateId: string): Promise<void> {
+    await this.request(`/projects/${encodeURIComponent(projectName)}/episode-replan/discard`, {
+      method: "POST",
+      body: JSON.stringify({ candidate_id: candidateId }),
     });
   }
 

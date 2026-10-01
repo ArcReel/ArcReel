@@ -30,6 +30,7 @@ from server.tool_runtime import (
     execute_queued_text_task,
     plan_episodes,
     start_episode_planning,
+    start_episode_replan,
     stop_episode_planning,
 )
 from tests.factories import register_project_sources
@@ -288,3 +289,61 @@ async def test_the_gap_left_by_a_deleted_middle_episode_is_planned_back(
     assert episodes[1]["source_range"] == middle["source_range"]
     assert episodes[1]["episode"] > middle["episode"]
     assert "这段未切分的原文已全部规划完毕" in (tasks[-1].result_json or "")
+
+
+async def test_replanning_fills_a_candidate_window_by_window_and_leaves_the_ledger_alone(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    ledger = projects.load_project("planning")["episodes"]
+    generator = _Generator()
+    _use_generator(monkeypatch, generator)
+
+    outcome = await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest(instructions="节奏放慢")),
+        _scope(projects),
+        _WEB,
+        services,
+        episode=ledger[1]["episode"],
+    )
+
+    assert outcome.problem is None
+    tasks = await _wait_until_idle(session_factory)
+    assert [task.status for task in tasks] == ["succeeded"] * 5
+    project = projects.load_project("planning")
+    assert project["episodes"] == ledger
+    candidate = project["episode_replan"]
+    assert candidate["complete"] is True
+    assert [episode["source_range"] for episode in candidate["episodes"]] == [e["source_range"] for e in ledger[1:]]
+    assert all("节奏放慢" in prompt for prompt in generator.prompts)
+    assert "第一章" not in generator.prompts[0].rsplit("---", 2)[-2]
+
+
+async def test_a_pending_candidate_refuses_planning_and_another_replan(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    first = projects.load_project("planning")["episodes"][0]["episode"]
+    await start_episode_replan(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services, episode=first)
+    await _wait_until_idle(session_factory)
+
+    agent = await plan_episodes(
+        ToolRequest(PlanEpisodesRequest()),
+        _scope(projects),
+        CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
+        services,
+    )
+    again = await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services, episode=first
+    )
+
+    assert agent.problem is not None
+    assert agent.problem.params["reason"] == "replan_candidate_pending"
+    assert again.problem is not None
+    assert again.problem.params["reason"] in ("replan_candidate_pending", "candidate_pending")

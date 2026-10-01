@@ -5,7 +5,7 @@
 
 账本坐标绑定具体源文内容，源文被替换或账本被写坏后，规划入口会因坐标越界 / 范围无效而永久失败。
 全量重置（不指定集）是这种局面的唯一出路：**零前置校验**——不读旧坐标、不解析范围，账本处于任何
-损坏状态都必须执行成功，执行后切出集全部移出账本、源文指纹与快照清除，``plan_episodes`` 可从头
+损坏状态都必须执行成功，执行后切出集不再占用整本源文、源文指纹与快照清除，``plan_episodes`` 可从头
 重新规划。
 
 部分重置（指定播出顺序中第一个切出集之外的某个切出集）保留账本里它之前的集、清除它及其后的切出集，
@@ -13,8 +13,10 @@
 落在当前源文界内、沿源文位置前进——任一不满足都无法安全推算「保留到哪、退回到哪」，直接拒绝执行
 （账本不改动）并指引改用全量重置。接续规划的起点由账本推导，随之退到保留段最后一个切出集的结尾。
 
-两种重置都不回退项目历史最高号（``lib.episode.episode_ids``）：被清除的集 ID 不再分配，
-重新规划出的集取新 ID，旧 ID 的产物不会被新集认领。
+被清除的切出集按被替换的旧集处理：有产物的（账本标 consumed，或磁盘上已有剧本 / script_plan）转为无原文的集、
+标 stale，产物与产物清单里的登记都仍归它，按原相对顺序移到播出顺序末尾；没有产物的移出账本。两种重置都不回退
+项目历史最高号（``lib.episode.episode_ids``）：被清除的集 ID 不再分配，重新规划出的集取新 ID，旧 ID 的产物不会
+被新集认领。
 
 本模块刻意不依赖 :class:`lib.backends.text_generator.TextGenerator`：重置不调模型，
 逃生口不能因供应商未配置而失效。写入与 ``EpisodePlanner`` 共用同一把项目锁
@@ -23,7 +25,7 @@
 被清除的切出集的集文件按「是否可从账本重造」分流：带 ``source_range`` 的
 ``source/episode_N.txt`` 是派生物，直接删除；无 ``source_range`` 的集文件可能是
 老项目原件（含手工内容，无坐标可重造），改名留底而非删除。下游产物（剧本 JSON、
-script_plan 中间文件、媒体）一律不删。
+script_plan 中间文件、媒体）一律不删，产物清单不动。
 """
 
 from __future__ import annotations
@@ -34,12 +36,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lib.artifacts.artifact_manifest import (
-    ArtifactKey,
-    ArtifactManifestEntry,
-    ArtifactManifestError,
-    ProjectArtifactManifestAdapter,
-)
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
@@ -51,7 +47,9 @@ from lib.episode.episode_ledger import (
     parse_source_range,
 )
 from lib.episode.episode_sources import (
+    SOURCE_ORIGIN_FIELD,
     SOURCE_SNAPSHOTS_DIR,
+    SourceOrigin,
     archive_episode_file_path,
     discover_sources,
     episode_entry,
@@ -62,6 +60,7 @@ from lib.episode.episode_sources import (
     whole_source_files,
 )
 from lib.project.project_manager import ProjectManager
+from lib.script import script_review
 
 logger = logging.getLogger(__name__)
 
@@ -78,21 +77,30 @@ class EpisodeResetConflictError(EpisodeResetError):
 class ResetConfirmationRequired:
     """重置波及已消费集，需显式确认（``confirm_consumed=True``）后才执行。
 
-    返回本对象时未发生任何写入，``archived_files`` 供调用方向用户交代留底去向。
+    返回本对象时未发生任何写入。各字段供调用方向用户如实交代受影响的集与文件（相对项目根的 POSIX 路径）。
     """
 
     consumed_episodes: list[int]
     archived_files: list[str] = field(default_factory=list)
+    #: 账本里有产物、会转为无原文的集并标 stale 的集。
+    retired_episodes: list[int] = field(default_factory=list)
+    #: 账本里没有产物、会移出账本的集。
+    removed_episodes: list[int] = field(default_factory=list)
+    #: 会删除的派生集文件。
+    deleted_files: list[str] = field(default_factory=list)
 
 
 @dataclass
 class EpisodeResetResult:
-    """重置执行结果：清掉的集号与文件处置去向（相对项目根的 POSIX 路径）。"""
+    """重置执行结果：处置的集号与文件处置去向（相对项目根的 POSIX 路径）。"""
 
+    #: 移出账本的集（没有产物）。
     removed_episodes: list[int]
     deleted_files: list[str]
     archived_files: list[tuple[str, str]]  # (原路径, 留底路径)
     consumed_episodes: list[int]
+    #: 转为无原文的集并标 stale、移到播出顺序末尾的集（有产物）。
+    retired_episodes: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -376,7 +384,7 @@ def reset_episode_planning(
 
     两种模式都对波及已消费集（账本标 consumed 或磁盘已有剧本 / script_plan 产物）且未
     ``confirm_consumed`` 时不执行，返回 :class:`ResetConfirmationRequired` 等待
-    显式确认；确认后执行，下游产物一律保留。
+    显式确认；确认后执行，已消费集转为无原文的集并标 stale，下游产物与产物清单里的登记一律保留。
 
     Raises:
         EpisodeResetError: ``episode_id`` 非正整数、部分重置前置校验未通过、或
@@ -411,22 +419,24 @@ def reset_episode_planning(
     boundary = _boundary(project)
     plan = _scan(project_dir, project, retained=_retained(project, boundary))
     if plan.consumed and not confirm_consumed:
+        retired = [num for num in plan.episode_nums if num in plan.consumed and num > 0]
         return ResetConfirmationRequired(
             consumed_episodes=plan.consumed,
             archived_files=[_rel(project_dir, path) for path in plan.archives],
+            retired_episodes=retired,
+            removed_episodes=[num for num in plan.episode_nums if num not in retired],
+            deleted_files=[_rel(project_dir, path) for path in plan.deletes],
         )
 
     # 结果只能在锁内（按锁内复扫的实际处置）拼出，用闭包变量带回锁外
     committed: list[EpisodeResetResult] = []
     commit_plan: _ResetPlan | None = None
+    retired_nums: list[int] = []
     snapshot_texts: dict[str, str] = {}
     committed_project: dict[str, Any] = {}
-    manifest_expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
-    manifest_removals: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
-    recover_unreadable_manifest = False
 
     def _commit(p: dict[str, Any]) -> None:
-        nonlocal commit_plan, manifest_expected, manifest_removals, recover_unreadable_manifest, snapshot_texts
+        nonlocal commit_plan, retired_nums, snapshot_texts
         # 锁内重新校验/重新扫描：确认清单与前置校验都是锁外读取时刻的快照，期间源文件
         # 可能被外部改动、也可能出现清单之外的新消费集
         locked_boundary = _boundary(p)
@@ -435,31 +445,29 @@ def reset_episode_planning(
         if any(num not in plan.consumed for num in current.consumed):
             raise EpisodeResetConflictError("重置期间出现新的已消费集，需重新确认后再执行")
         raw_episodes = p.get("episodes")
-        p["episodes"] = [
-            entry
-            for entry in (raw_episodes if isinstance(raw_episodes, list) else [])
-            if isinstance(entry, Mapping) and parse_episode_num(entry.get("episode")) in retained
-        ]
+        consumed = set(current.consumed)
+        kept: list[Any] = []
+        retired: list[dict[str, Any]] = []
+        for entry in raw_episodes if isinstance(raw_episodes, list) else []:
+            if not isinstance(entry, Mapping):
+                continue
+            num = parse_episode_num(entry.get("episode"))
+            if num in retained:
+                kept.append(entry)
+            elif (
+                isinstance(entry, dict) and num is not None and num > 0 and num in consumed and num not in retired_nums
+            ):
+                # 有产物的切出集按被替换的旧集处理：转为无原文的集、标 stale，产物与登记仍归它
+                entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.NONE.value
+                entry.pop("source_range", None)
+                script_review.mark_ledger_stale(project_dir, p, entry, num)
+                retired.append(entry)
+                retired_nums.append(num)
+        p["episodes"] = [*kept, *retired]
         if locked_boundary is not None:
             snapshot_texts = dict(locked_boundary.texts)
         else:
             p.pop(SOURCE_FINGERPRINTS_KEY, None)
-        try:
-            snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
-        except ArtifactManifestError:
-            if locked_boundary is not None:
-                raise
-            # Full planning reset is the zero-precondition recovery path.
-            # An unreadable Manifest proves no current claim, so replace its
-            # complete state with an empty valid snapshot during commit.
-            recover_unreadable_manifest = True
-        else:
-            manifest_expected = {
-                key: entry
-                for key, entry in snapshot.items()
-                if key.episode_number is not None and key.episode_number not in retained
-            }
-            manifest_removals = dict.fromkeys(manifest_expected)
         commit_plan = current
         committed_project.update(p)
 
@@ -479,8 +487,6 @@ def reset_episode_planning(
             source_snapshot_path(project_dir, rel) for rel in whole_source_files(committed_project)
         )
 
-        from lib.artifacts.artifact_activation import register_artifact_entries_atomically
-
         with formal_write_transaction(*transaction_paths):
             deleted, archived = _apply_files(
                 project_dir,
@@ -488,20 +494,13 @@ def reset_episode_planning(
                 archive_targets=archive_targets,
             )
             sync_source_snapshots(project_dir, committed_project, snapshot_texts)
-            if manifest_removals:
-                register_artifact_entries_atomically(
-                    project_dir,
-                    manifest_removals,
-                    expected_entries=manifest_expected,
-                )
-            elif recover_unreadable_manifest:
-                ProjectArtifactManifestAdapter(project_dir).replace_unreadable_entries_atomically({})
         committed.append(
             EpisodeResetResult(
-                removed_episodes=commit_plan.episode_nums,
+                removed_episodes=[num for num in commit_plan.episode_nums if num not in retired_nums],
                 deleted_files=deleted,
                 archived_files=archived,
                 consumed_episodes=commit_plan.consumed,
+                retired_episodes=list(retired_nums),
             )
         )
 
@@ -510,10 +509,11 @@ def reset_episode_planning(
         raise EpisodeResetError("重置未执行：账本更新回调未被调用")
     result = committed[0]
     logger.info(
-        "分集规划已%s重置：项目 %s，清空 %d 集，删除派生文件 %d 个，留底 %d 个",
+        "分集规划已%s重置：项目 %s，移出 %d 集，转为无原文 %d 集，删除派生文件 %d 个，留底 %d 个",
         "全量" if partial_from is None else f"部分（从集 ID {partial_from} 起）",
         project_name,
         len(result.removed_episodes),
+        len(result.retired_episodes),
         len(result.deleted_files),
         len(result.archived_files),
     )

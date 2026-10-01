@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, get_args
@@ -323,6 +323,21 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
     # script_plan_* 匹配任意格式（结构化 .json / 旧版 .md / reference_units.md），format-agnostic 地
     # 覆盖所有 content_mode 的 script_plan 产物：只要拆过段就算已有下游，避免被重规划覆盖。
     return drafts_dir.is_dir() and any(drafts_dir.glob("script_plan_*"))
+
+
+def episode_has_products(
+    project_dir: Path, episode_num: int, entry: Mapping[str, Any], *, product_nums: Collection[int]
+) -> bool:
+    """一集有产物：账本标 consumed，或磁盘上已有剧本 / script_plan（含补零的剧本文件名）。
+
+    ``product_nums`` 取自 :func:`discover_product_episode_nums`，由调用方一次算好。手工切分、重新规划与重置按同一口径
+    判定被替换的旧切出集是转为无原文的集还是直接移除。
+    """
+    return (
+        entry.get("ledger_status") == "consumed"
+        or episode_num in product_nums
+        or has_downstream_products(project_dir, episode_num, entry)
+    )
 
 
 def parse_source_range(entry: Mapping[str, Any]) -> tuple[str, int, int] | None:

@@ -339,7 +339,7 @@ async def test_reset_episode_planning_full_reset_points_back_to_planning(fake_ct
     assert captured["args"][1:] == (None, False)
     assert value.confirmation_required is False
     assert value.removed_episodes == [1, 2]
-    assert "清空 2 个切出集" in value.message
+    assert "2 个切出集退回未规划" in value.message
     assert "source/_episode_2.txt.bak" in value.message
     assert "plan_episodes" in value.message
 
@@ -358,7 +358,9 @@ async def test_reset_episode_planning_asks_for_confirmation_before_touching_cons
 
 async def test_reset_episode_planning_forwards_the_confirmation(fake_ctx: ToolHarness) -> None:
     captured: dict[str, Any] = {}
-    result = EpisodeResetResult(removed_episodes=[1], deleted_files=[], archived_files=[], consumed_episodes=[1])
+    result = EpisodeResetResult(
+        removed_episodes=[], deleted_files=[], archived_files=[], consumed_episodes=[1], retired_episodes=[1]
+    )
 
     value = _reset_value(
         await run_declared_tool(
@@ -370,7 +372,8 @@ async def test_reset_episode_planning_forwards_the_confirmation(fake_ctx: ToolHa
     )
 
     assert captured["args"][1:] == (None, True)
-    assert "未删除" in value.message
+    assert value.retired_episodes == [1]
+    assert "产物与产物登记都保留" in value.message
 
 
 async def test_reset_episode_planning_partial_reset_reports_the_new_starting_point(fake_ctx: ToolHarness) -> None:
@@ -383,7 +386,7 @@ async def test_reset_episode_planning_partial_reset_reports_the_new_starting_poi
         await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {"episode_id": 2}, resetter=_fake_reset(result))
     )
 
-    for fragment in ("部分重置", "从 《下山》（第 2 个，id=2） 起清空 2 个切出集", "不复用被清除的集 ID"):
+    for fragment in ("部分重置", "从 《下山》（第 2 个，id=2） 起的 2 个切出集退回未规划", "不复用被清除的集 ID"):
         assert fragment in value.message
     assert "切出集已全部移出账本" not in value.message
 

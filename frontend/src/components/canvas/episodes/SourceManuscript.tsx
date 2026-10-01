@@ -184,6 +184,7 @@ export function SourceManuscript({
                   dimmed={dimmed}
                   caret={hosted}
                   hostRun={hosted ? hostRun : null}
+                  planBlocked={view.replan !== null ? t("dashboard:replan_pending_hint") : null}
                 />
               );
             })}
@@ -421,6 +422,7 @@ function UnsplitBlock({
   dimmed,
   caret,
   hostRun,
+  planBlocked,
 }: {
   fileIndex: number;
   sourceFile: string;
@@ -430,6 +432,8 @@ function UnsplitBlock({
   dimmed: boolean;
   caret: CaretMark;
   hostRun: number | null;
+  /** 不能规划这段原文的原因（有等待处理的新的分集方案）；可以时为 null。 */
+  planBlocked: string | null;
 }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -444,7 +448,7 @@ function UnsplitBlock({
           <span className="num text-[11px] text-text-4">{formatVolume(t, segment.units, unit)}</span>
           <span className="basis-full text-[11.5px] text-text-4">{t("episodes_view_gap_hint")}</span>
           <span className="mt-1 basis-full">
-            <PlanGapButton sourceFile={sourceFile} end={segment.end} />
+            <PlanGapButton sourceFile={sourceFile} end={segment.end} blocked={planBlocked} />
           </span>
         </div>
       ) : divider ? (

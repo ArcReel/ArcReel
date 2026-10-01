@@ -54,6 +54,7 @@ const VIEW: EpisodesViewData = {
     { episode: 3, origin: "own", placed: false, source_file: null, units: 8, spoken_seconds: 2, first_sentence: "", last_sentence: "", source_kind: null },
   ],
   unregistered: [],
+  replan: null,
 };
 
 function renderView(path = "/episodes") {
@@ -321,5 +322,99 @@ describe("EpisodesView", () => {
 
     await screen.findByRole("main", { name: "整本源文" });
     expect(screen.queryByRole("combobox", { name: /源文件类型/ })).not.toBeInTheDocument();
+  });
+  describe("replanning", () => {
+    const REPLAN: NonNullable<EpisodesViewData["replan"]> = {
+      id: "cand-1",
+      episode: 2,
+      instructions: "节奏放慢",
+      complete: true,
+      stale: null,
+      start: { source_file: "source/上卷.txt", offset: 10 },
+      end: { source_file: "source/上卷.txt", offset: 30 },
+      old_count: 1,
+      new_count: 2,
+      units: 20,
+      average_units: 10,
+      retired: [2],
+      removed: [],
+      needs_review: [2],
+      moved: [{ episode: 3, from: 3, to: 4 }],
+      episodes: [
+        { title: "新一", hook: "", source_file: "source/上卷.txt", start: 10, end: 20, units: 10, first_sentence: "第二集的原文。", last_sentence: "第二集的原文。", same_as: 2, overlaps: [2] },
+        { title: "新二", hook: "", source_file: "source/上卷.txt", start: 20, end: 30, units: 10, first_sentence: "", last_sentence: "", same_as: null, overlaps: [] },
+      ],
+    };
+
+    it("starts a replan from the selected cut episode after naming the started episodes", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      vi.spyOn(API, "previewEpisodeReplan").mockResolvedValue({
+        status: "preview",
+        episode: 2,
+        source_file: "source/上卷.txt",
+        offset: 10,
+        from_beginning: false,
+        source_replaced: false,
+        replaced: [2],
+        started: [2],
+      });
+      const start = vi.spyOn(API, "startEpisodeReplan").mockResolvedValue({
+        batch: { batch_id: "batch-1", members: [{ unit_id: "episode-planning", task_id: "plan-1" }] },
+      });
+      renderView("/episodes?episode=2");
+
+      const rail = await screen.findByRole("complementary", { name: "分集清单" });
+      fireEvent.click(within(rail).getByRole("button", { name: "从这一集开始重新规划" }));
+      const dialog = await screen.findByRole("dialog", { name: "从「转折」开始重新规划" });
+      expect(dialog).toHaveTextContent("采纳前现有分集不变");
+      expect(dialog).toHaveTextContent("其中已开始制作：转折。");
+      fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "节奏放慢" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "开始重新规划" }));
+
+      await waitFor(() => expect(start).toHaveBeenCalledWith("demo", 2, "节奏放慢"));
+    });
+
+    it("summarizes a pending plan in place of planning and adopts it with the retired episodes deleted", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: REPLAN });
+      const impact = {
+        candidate: "cand-1",
+        episode: 2,
+        old_count: 1,
+        new_count: 2,
+        retired: [2],
+        removed: [],
+        needs_review: [2],
+        moved: [{ episode: 3, from: 3, to: 4 }],
+        revision: "rev-1",
+        text: "服务端成文的后果",
+        delete_text: "服务端成文的丢失清单",
+      };
+      const adopt = vi
+        .spyOn(API, "adoptEpisodeReplan")
+        .mockResolvedValueOnce({ status: "confirmation_required", impact })
+        .mockResolvedValueOnce({ status: "adopted", episodes: [4, 5], deleted: [2] });
+      useProjectsStore.setState({ refreshProject: vi.fn().mockResolvedValue(undefined) });
+      renderView();
+
+      const panel = (await screen.findByRole("heading", { name: "新的分集方案" })).closest("section") as HTMLElement;
+      expect(within(panel).getByText("1 → 2")).toBeInTheDocument();
+      expect(within(panel).getByText("番外（第 3 → 4 集）")).toBeInTheDocument();
+      expect(within(panel).getByText("节奏放慢")).toBeInTheDocument();
+      expect(within(panel).getByText("与「转折」的原文相同")).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "继续 AI 分集规划" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/重置/)).not.toBeInTheDocument();
+
+      fireEvent.click(within(panel).getByRole("button", { name: "采纳新方案" }));
+      const dialog = await screen.findByRole("dialog", { name: "采纳新的分集方案" });
+      expect(dialog).toHaveTextContent("服务端成文的后果");
+      expect(dialog).not.toHaveTextContent("服务端成文的丢失清单");
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "一并删除" }));
+      expect(dialog).toHaveTextContent("服务端成文的丢失清单");
+      fireEvent.click(within(dialog).getByRole("button", { name: "采纳新方案" }));
+
+      await waitFor(() =>
+        expect(adopt).toHaveBeenLastCalledWith("demo", "cand-1", { revision: "rev-1", deleteRetired: true }),
+      );
+    });
   });
 });

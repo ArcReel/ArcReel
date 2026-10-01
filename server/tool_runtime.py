@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import functools
 import hashlib
@@ -40,12 +41,20 @@ from lib.episode.episode_paths import (
     episode_source_relpath,
 )
 from lib.episode.episode_planner import (
+    CandidatePlanResult,
     EpisodePlanner,
     EpisodePlanningError,
     LedgerStats,
     NoCutPointError,
     PlanningOutputTruncatedError,
     PlanResult,
+)
+from lib.episode.episode_replan import (
+    ReplanError,
+    create_replan_candidate,
+    discard_replan_candidate,
+    replan_candidate,
+    replan_scope,
 )
 from lib.episode.episode_reset import (
     EpisodeResetError,
@@ -2180,6 +2189,8 @@ class ResetEpisodePlanningResult(ToolMessage):
     deleted_files: list[str] = Field(default_factory=list)
     archived_files: list[str] | list[tuple[str, str]] = Field(default_factory=list)
     consumed_episodes: list[int] = Field(default_factory=list)
+    #: 转为无原文的集并标 stale 的集（确认清单里是将要转换的集）。
+    retired_episodes: list[int] = Field(default_factory=list)
 
 
 class PatchProjectRequest(BaseModel):
@@ -2505,7 +2516,9 @@ def _plan_episodes_preflight(projects: ProjectManager, project_name: str) -> Non
     require_admitted(
         "plan_episodes",
         admit_plan_episodes(
-            project.get("content_mode"), whole_source=whole_source_present(planning_docs(project, source))
+            project.get("content_mode"),
+            whole_source=whole_source_present(planning_docs(project, source)),
+            replan_pending=replan_candidate(project) is not None,
         ),
     )
 
@@ -2575,6 +2588,148 @@ async def start_episode_planning(
         caller=caller,
         services=services,
         conflict_resource_ids=EPISODE_PLANNING_SLOTS,
+    )
+
+
+class ReplanWindowResult(ToolMessage):
+    #: 本批追加的候选集数、候选的集数，以及候选是否已覆盖到整本源文结尾。
+    planned: int
+    total: int
+    complete: bool
+
+
+def _replan_refused(exc: ReplanError) -> ToolProblem:
+    return ToolProblem("episode_replan_refused", f"❌ 重新规划未能执行：{exc}", params={"reason": exc.code})
+
+
+async def _active_planning_windows(
+    scope: ProjectScope, caller: CallerContext, services: Services
+) -> list[dict[str, Any]]:
+    return await services.queue.get_active_tasks_for_resources(
+        project_name=scope.project_name,
+        task_type=_TEXT_EPISODE_PLAN,
+        resource_ids=list(EPISODE_PLANNING_SLOTS),
+        user_id=caller.user_id,
+    )
+
+
+async def episode_planning_active(scope: ProjectScope, caller: CallerContext, services: Services) -> bool:
+    """本项目有分集规划（含重新规划的候选生成）在排队或执行。"""
+    return bool(await _active_planning_windows(scope, caller, services))
+
+
+async def start_episode_replan(
+    request: ToolRequest[PlanEpisodesRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+    *,
+    episode: int,
+    dry_run: bool = False,
+) -> ToolOutcome[Any]:
+    """「从这一集开始重新规划」：登记一份候选，逐窗生成到整本源文结尾，每一窗是一个排队的文本任务。
+
+    候选写进项目，分集账本不动；附加指令随每一窗的任务载荷传递。``dry_run`` 时只返回重新规划的范围
+    （:class:`lib.episode.episode_replan.ReplanScope`），不登记候选。已有候选或分集规划在进行时拒绝。
+    """
+    if problem := await _plan_episodes_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    project_path = services.projects.get_project_path(scope.project_name)
+    try:
+        replan = await asyncio.to_thread(
+            replan_scope, project_path, services.projects.load_project(scope.project_name), episode
+        )
+    except ReplanError as exc:
+        return ToolOutcome(problem=_replan_refused(exc))
+    if dry_run:
+        return ToolOutcome(value=replan)
+    if active := await _active_planning_windows(scope, caller, services):
+        return ToolOutcome(
+            problem=ToolProblem(
+                "generation_active_task_conflict",
+                "generation_active_task_conflict",
+                action=GenerationAction.WAIT_FOR_TASK,
+                params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
+            )
+        )
+    try:
+        candidate_id = await _run_sync_transaction(
+            create_replan_candidate, project_path, episode=episode, instructions=request.value.instructions
+        )
+    except ReplanError as exc:
+        return ToolOutcome(problem=_replan_refused(exc))
+    payload: dict[str, Any] = {
+        **request.value.model_dump(mode="json"),
+        "continue_to_end": True,
+        "replan": candidate_id,
+    }
+    outcome = await _submit_text_task(
+        task_type=_TEXT_EPISODE_PLAN,
+        operation="plan_episodes",
+        unit_id=EPISODE_PLANNING_SLOT,
+        payload=payload,
+        scope=scope,
+        caller=caller,
+        services=services,
+        conflict_resource_ids=EPISODE_PLANNING_SLOTS,
+    )
+    if outcome.problem is not None:
+        # 首窗没能排进队列：候选还是空的，撤掉它，不留下挡住规划的空候选
+        with contextlib.suppress(ReplanError):
+            await _run_sync_transaction(discard_replan_candidate, project_path, candidate_id)
+    return outcome
+
+
+async def _execute_replan_window(
+    candidate_id: str,
+    instructions: object,
+    scope: ProjectScope,
+    services: Services,
+    *,
+    planner_cls: type[EpisodePlanner],
+    chain: _PlanningChain,
+) -> ToolOutcome[Any]:
+    """重新规划的一窗：从候选的结尾取窗口，产出的集追加到候选；还有原文待规划时排下一窗。"""
+    if problem := await migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    planning_instructions = instructions if isinstance(instructions, str) else None
+    try:
+        planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
+        result: CandidatePlanResult = await planner.plan_candidate(
+            candidate_id, planning_instructions, on_more_to_plan=chain.queue_next_window
+        )
+    except PlanningOutputTruncatedError as exc:
+        return ToolOutcome(
+            problem=ToolProblem(
+                "text_output_truncated",
+                f"❌ 重新规划失败：{exc}",
+                action=GenerationAction.CONFIGURE_PROVIDER,
+                params={"provider_id": exc.provider_id, "model": exc.model, "custom_model": exc.custom_model},
+            )
+        )
+    except NoCutPointError as exc:
+        return ToolOutcome(
+            problem=ToolProblem(
+                "episode_planning_no_cut_point",
+                f"❌ 重新规划失败：{exc}",
+                action=GenerationAction.FIX_INPUT,
+                params={"source_file": exc.source_file, "offset": exc.offset},
+            )
+        )
+    except (EpisodePlanningError, FileNotFoundError) as exc:
+        return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 重新规划失败：{exc}"))
+    except Exception as exc:
+        return ToolOutcome(problem=_unexpected("plan_episodes", exc))
+    finally:
+        _STOPPED_PLANNING_WINDOWS.discard(str(chain.task["task_id"]))
+    done = "，已覆盖到整本源文结尾" if result.source_exhausted else ""
+    return ToolOutcome(
+        value=ReplanWindowResult(
+            message=f"新的分集方案追加了 {len(result.episodes)} 集，共 {result.total} 集{done}。",
+            planned=len(result.episodes),
+            total=result.total,
+            complete=result.source_exhausted,
+        )
     )
 
 
@@ -2651,6 +2806,15 @@ async def execute_queued_text_task(
     task_type = task["task_type"]
     if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
         outcome = await _execute_draft_repair(RepairDraftRequest.model_validate(payload), scope, services)
+    elif task_type == _TEXT_EPISODE_PLAN and isinstance(payload.get("replan"), str):
+        outcome = await _execute_replan_window(
+            str(payload["replan"]),
+            payload.get("instructions"),
+            scope,
+            services,
+            planner_cls=planner_cls,
+            chain=_PlanningChain(task=task, services=services),
+        )
     elif task_type == _TEXT_EPISODE_PLAN:
         outcome = await _execute_plan_episodes(
             ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
@@ -2722,48 +2886,56 @@ async def reset_episode_planning(
 
     partial = value.episode_id is not None and value.episode_id != first_cut_episode_id(project_before)
     start = describe_episode_for_agent(project_before, value.episode_id) if value.episode_id is not None else ""
+    retired_note = "转为无原文的集并标 stale（原文已重新规划），移到播出顺序末尾，剧本、媒体等产物与产物登记都保留"
     if isinstance(result, ResetConfirmationRequired):
-        aftermath = (
-            f"这些集的账本条目被清除后需要重新规划，播出顺序中 {start} 之前的集保留不动"
+        scope_note = (
+            f"从 {start} 起的切出集退回未规划，播出顺序中它之前的集保留不动"
             if partial
-            else "切出集全部移出账本后需要重新规划"
+            else "全部切出集退回未规划，接续规划从整本源文开头读起"
         )
-        lines = [
-            f"⚠️ 本次重置会波及已消费集（已有 script_plan/剧本/媒体产物）：{_episodes(result.consumed_episodes)}。"
-            "尚未执行任何改动。",
-            "请把影响范围告知用户；用户确认后带 confirm_consumed=true 重新调用"
-            f"（剧本与媒体产物不会被删除，但{aftermath}）。",
-        ]
+        lines = [f"⚠️ 本次重置波及已有产物的集，尚未执行任何改动。确认后{scope_note}："]
+        if result.retired_episodes:
+            lines.append(f"- {_episodes(result.retired_episodes)}：{retired_note}")
+        if result.removed_episodes:
+            lines.append(f"- {_episodes(result.removed_episodes)}：还没有产物，移出账本")
+        if result.deleted_files:
+            lines.append(f"- 删除可按原文范围重造的集文件：{'、'.join(result.deleted_files)}")
         if result.archived_files:
-            lines.append(f"其中无原文范围记录的集文件会改名留底：{'、'.join(result.archived_files)}")
+            lines.append(f"- 没有原文范围记录的集文件改名留底：{'、'.join(result.archived_files)}")
+        lines.append("请把以上清单如实告知用户；用户确认后带 confirm_consumed=true 重新调用。")
         return ToolOutcome(
             value=ResetEpisodePlanningResult(
                 message="\n".join(lines),
                 confirmation_required=True,
                 archived_files=result.archived_files,
                 consumed_episodes=result.consumed_episodes,
+                removed_episodes=result.removed_episodes,
+                deleted_files=result.deleted_files,
+                retired_episodes=result.retired_episodes,
             )
         )
 
+    count = len(result.removed_episodes) + len(result.retired_episodes)
     if partial:
         lines = [
-            f"✅ 已部分重置分集规划：从 {start} 起清空 {len(result.removed_episodes)} 个切出集，"
+            f"✅ 已部分重置分集规划：从 {start} 起的 {count} 个切出集退回未规划，"
             "接续规划从保留段最后一个切出集的结尾读起。"
         ]
     else:
-        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 个切出集，下次规划从整本源文开头读起。"]
+        lines = [f"✅ 已全量重置分集规划：{count} 个切出集退回未规划，下次规划从整本源文开头读起。"]
+    if result.retired_episodes:
+        lines.append(f"{_episodes(result.retired_episodes)} {retired_note}。")
+    if result.removed_episodes:
+        lines.append(f"{_episodes(result.removed_episodes)} 还没有产物，已移出账本。")
     if result.deleted_files:
         lines.append(f"已删除可重造的派生集文件 {len(result.deleted_files)} 个。")
     if result.archived_files:
         archived = "、".join(f"{src} → {dst}" for src, dst in result.archived_files)
         lines.append(f"无原文范围记录的集文件已改名留底（内容保留）：{archived}")
-    if result.consumed_episodes:
-        lines.append(f"{_episodes(result.consumed_episodes)} 的剧本 / 媒体产物仍在磁盘，未删除。")
     lines.append(
         "请调用 plan_episodes 继续规划；新规划的集分配新的集 ID，不复用被清除的集 ID。"
         if partial
-        else "切出集已全部移出账本（自带原文与无原文的集保留不动），请调用 plan_episodes 从头重新规划；"
-        "新规划的集分配新的集 ID，不复用被清除的集 ID。"
+        else "自带原文与无原文的集保留不动，请调用 plan_episodes 从头重新规划；新规划的集分配新的集 ID，不复用被清除的集 ID。"
     )
     return ToolOutcome(
         value=ResetEpisodePlanningResult(
@@ -2773,6 +2945,7 @@ async def reset_episode_planning(
             deleted_files=result.deleted_files,
             archived_files=result.archived_files,
             consumed_episodes=result.consumed_episodes,
+            retired_episodes=result.retired_episodes,
         )
     )
 
