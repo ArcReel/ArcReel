@@ -19,17 +19,24 @@ describe("parseAppLink", () => {
     expect(link).toEqual({
       href: "/app/projects/demo/episodes/2?unit=E1U3&t=4.5",
       to: "/app/projects/demo/episodes/2",
-      unit: { id: "E1U3", seconds: 4.5 },
+      unit: { id: "E1U3", seconds: 4.5, project: "demo" },
     });
   });
 
   it("单元链接不带 t 时起始时间为 null", () => {
-    expect(parseAppLink("/app/projects/demo/episodes/2?unit=E1U3", ORIGIN)?.unit).toEqual({ id: "E1U3", seconds: null });
+    expect(parseAppLink("/app/projects/demo/episodes/2?unit=E1U3", ORIGIN)?.unit).toEqual({ id: "E1U3", seconds: null, project: "demo" });
   });
 
   it("项目名按路径段编码", () => {
     const link = parseAppLink("/app/projects/%E6%88%91%E7%9A%84%E9%A1%B9%E7%9B%AE/episodes/1?unit=E1U1", ORIGIN);
     expect(link?.to).toBe("/app/projects/%E6%88%91%E7%9A%84%E9%A1%B9%E7%9B%AE/episodes/1");
+  });
+
+  it("单元链接带出解码后的项目名，无法解码的项目名为 null", () => {
+    expect(parseAppLink("/app/projects/%E6%88%91%E7%9A%84%E9%A1%B9%E7%9B%AE/episodes/1?unit=E1U1", ORIGIN)?.unit?.project).toBe(
+      "我的项目",
+    );
+    expect(parseAppLink("/app/projects/%E0%A4%A/episodes/1?unit=E1U1", ORIGIN)?.unit?.project).toBeNull();
   });
 
   it("同源的绝对地址同样算应用内链接", () => {
