@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -103,6 +103,20 @@ describe("EpisodesView", () => {
     expect(screen.getByRole("dialog", { name: "上传原文" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /逐集原文/ })).toBeChecked();
     await waitFor(() => expect(location.history?.at(-1)).toBe("/episodes"));
+  });
+
+  it("opens the upload dialog again when the same address arrives a second time", async () => {
+    vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+    const { location } = renderView("/episodes?upload=whole_source");
+
+    await screen.findByRole("dialog", { name: "上传原文" });
+    await waitFor(() => expect(location.history?.at(-1)).toBe("/episodes"));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "上传原文" })).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "上传原文" })).not.toBeInTheDocument());
+
+    act(() => location.navigate("/episodes?upload=whole_source"));
+
+    expect(await screen.findByRole("dialog", { name: "上传原文" })).toBeInTheDocument();
   });
 
   it("selects the episode named in the address and scrolls to it", async () => {

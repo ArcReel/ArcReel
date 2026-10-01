@@ -65,7 +65,9 @@ export function projectNextGuide(
 ): ProjectNextGuide | null {
   const action = status.next_action;
   if (action.type === "none" || action.type === "retry_project_migration") return null;
+  // 落在某一集的备选（从空白开始、补充集原文等）在集页面板就地给出入口，顶栏不改写成「交给 Agent」
   const alternatives = status.next_alternatives
+    .filter((alternative) => episodeIdArg(alternative) === null)
     .map((alternative) => alternativeButton(t, alternative))
     .filter((button): button is GuideButton => button !== null);
   const agent = (prefill: string): GuideButton => ({
@@ -77,6 +79,17 @@ export function projectNextGuide(
   if (status.project.content_mode === "ad") {
     // 短片只有一集：跳到账本里唯一的那一集，不假定它的集 ID。
     const adEpisodeId = episodeIdArg(action) ?? episodes[0]?.episode ?? null;
+    if (action.type === "collect_project_input") {
+      // 缺创作灵感和商品时生成脚本不可做，先去概览页填写，与集页面板的提醒同一去处
+      return {
+        title: t("workflow:next_title_generate_script"),
+        detail: t("workflow:hint_fill_brief"),
+        instruction: false,
+        primary: [{ kind: "nav", label: t("workflow:act_fill_brief"), to: "/" }],
+        alternatives: [],
+        episodeId: adEpisodeId,
+      };
+    }
     return {
       title: actionPhrase(t, action.type),
       detail: t("dashboard:guide_ad_detail"),

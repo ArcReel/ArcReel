@@ -499,9 +499,9 @@ def register_project_sources(
 
     project_dir = projects.get_project_path(project_name)
     episode_ids: list[int] = []
-    with projects.locked_source_registration(project_name) as (source_dir, project):
+    with projects.locked_source_registration(project_name) as (source_dir, project, undo):
         for filename, text in (whole_source or {}).items():
             (source_dir / filename).write_text(text, encoding="utf-8")
             register_whole_source_file(project, f"source/{filename}")
-        episode_ids.extend(add_own_source_episode(project_dir, project, text) for text in own_episodes)
+        episode_ids.extend(add_own_source_episode(project_dir, project, text, undo=undo) for text in own_episodes)
     return episode_ids

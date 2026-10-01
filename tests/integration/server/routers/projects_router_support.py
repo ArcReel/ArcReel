@@ -4,7 +4,7 @@ import json
 import re
 import shutil
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
@@ -123,7 +123,7 @@ class _FakePM:
     @contextmanager
     def locked_source_registration(self, name):
         with self.locked_source_mutation(name) as source_dir:
-            yield source_dir, self.project_data.setdefault(name, {"episodes": []})
+            yield source_dir, self.project_data.setdefault(name, {"episodes": []}), ExitStack()
 
     def delete_project_directory(self, name):
         shutil.rmtree(self.get_project_path(name))

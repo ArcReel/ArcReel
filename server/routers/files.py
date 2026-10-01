@@ -17,7 +17,7 @@ from typing import Annotated, Literal
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Body, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.config.resolver import VisionCapabilityError
@@ -43,6 +43,7 @@ from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project.project_manager import ProjectManager, get_project_manager
+from lib.project.project_migration_guard import assert_project_migration_ok
 from lib.script import script_review
 from lib.script.source_loader import (
     ConflictError,
@@ -60,7 +61,9 @@ from lib.speech.audio_utils import (
     AUDIO_REFERENCE_MIN_SECONDS,
     probe_audio_duration_seconds,
 )
+from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
+from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._script_review_errors import raise_review_error
 from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
@@ -359,6 +362,8 @@ async def upload_file(
 
     # Source 分支早返 — 走 SourceLoader 规范化
     if upload_type == "source":
+        # 源文登记写的是当前 schema 的字段；迁移没完成的项目先写进去，重试迁移时会把旧整本源文漏登
+        await asyncio.to_thread(assert_project_migration_ok, project_name)
         if role == "episode":
             return await _handle_episode_source_upload(project_name=project_name, file=file, _t=_t)
         return await _handle_source_upload(
@@ -551,7 +556,7 @@ async def _handle_source_upload(
         try:
             with tmp_path.open("wb") as out:
                 shutil.copyfileobj(file.file, out)
-            with manager.locked_source_registration(project_name) as (source_dir, project):
+            with manager.locked_source_registration(project_name) as (source_dir, project, _undo):
                 result = SourceLoader.load(
                     tmp_path,
                     source_dir,
@@ -648,8 +653,8 @@ async def _handle_episode_source_upload(*, project_name: str, file: UploadFile, 
             extracted = SourceLoader.extract(tmp_path, original_filename=original_filename)
         finally:
             tmp_path.unlink(missing_ok=True)
-        with project_change_source("webui"), manager.locked_source_registration(project_name) as (_dir, project):
-            return add_own_source_episode(project_dir, project, extracted.text)
+        with project_change_source("webui"), manager.locked_source_registration(project_name) as (_dir, project, undo):
+            return add_own_source_episode(project_dir, project, extracted.text, undo=undo)
 
     try:
         episode = await asyncio.to_thread(_sync)
@@ -675,7 +680,7 @@ async def _handle_episode_source_upload(*, project_name: str, file: UploadFile, 
             status_code=422, detail=_t("source_corrupt_file", filename=exc.filename, reason=exc.reason)
         ) from exc
     except EpisodeSourceError as exc:
-        raise HTTPException(status_code=422, detail=_t(exc.code)) from exc
+        raise episode_source_http_error(exc, _t) from exc
 
     relative_path = episode_source_relpath(episode)
     return {
@@ -776,21 +781,26 @@ async def get_source_file(project_name: str, filename: str, _t: Translator):
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-@router.put("/projects/{project_name}/source/{filename}")
+@router.put("/projects/{project_name}/source/{filename}", dependencies=[Depends(require_project_migration_ok)])
 async def update_source_file(
     project_name: str,
     filename: str,
     _t: Translator,
     content: str = Body(..., media_type="text/plain"),
 ):
-    """更新或创建 source 文件；新建的文件登记为整本源文的文件，接在清单末尾。"""
+    """更新或创建 source 文件；新建的文件登记为整本源文的文件，接在清单末尾。
+
+    ``episode_N.txt`` 是集原文文件名，这里拒绝：集原文经集页填写，切出集的集原文由分集规划派生。
+    """
+    if is_derived_episode_name(filename):
+        raise HTTPException(status_code=400, detail=_t("source_name_reserved"))
     try:
 
         def _sync():
             manager = get_project_manager()
             project_dir = manager.get_project_path(project_name)
 
-            with manager.locked_source_registration(project_name) as (_source_dir, project):
+            with manager.locked_source_registration(project_name) as (_source_dir, project, _undo):
                 # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
                 try:
                     source_path = safe_join(project_dir, "source", filename)
@@ -815,37 +825,44 @@ async def update_source_file(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-@router.delete("/projects/{project_name}/source/{filename}")
+@router.delete("/projects/{project_name}/source/{filename}", dependencies=[Depends(require_project_migration_ok)])
 async def delete_source_file(project_name: str, filename: str, _t: Translator):
-    """删除 source 文件，并撤销它的登记：移出整本源文；是自带原文的集的集文件时，该集转为无原文。"""
+    """删除 source 文件，并撤销它的登记：移出整本源文；是自带原文的集的集文件时，该集转为无原文。
+
+    切出集的集文件由分集规划派生，这里拒绝删除。
+    """
     try:
 
         def _sync():
             manager = get_project_manager()
             project_dir = manager.get_project_path(project_name)
 
-            with manager.locked_source_registration(project_name) as (_source_dir, project):
+            with manager.locked_source_registration(project_name) as (_source_dir, project, undo):
                 # 安全检查：确保路径在项目目录内
                 try:
                     source_path = safe_join(project_dir, "source", filename)
                 except PathTraversalError as exc:
                     raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
+                if not source_path.exists():
+                    raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
+                unregister_source_file(project, f"source/{filename}")
+                content = source_path.read_bytes()
+                source_path.unlink()
+                undo.callback(source_path.write_bytes, content)
 
-                if source_path.exists():
-                    source_path.unlink()
-                    unregister_source_file(project, f"source/{filename}")
-                    # 级联删除原文件备份（同 stem，任意扩展名）
-                    raw_dir = project_dir / "source" / "raw"
-                    if raw_dir.exists():
-                        stem = source_path.stem
-                        for raw_file in raw_dir.iterdir():
-                            if raw_file.is_file() and raw_file.stem == stem:
-                                raw_file.unlink()
-                    return {"success": True}
-                raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
+            # 登记已写回后再级联删除原文件备份（同 stem，任意扩展名）
+            raw_dir = project_dir / "source" / "raw"
+            if raw_dir.exists():
+                stem = source_path.stem
+                for raw_file in raw_dir.iterdir():
+                    if raw_file.is_file() and raw_file.stem == stem:
+                        raw_file.unlink()
+            return {"success": True}
 
         return await asyncio.to_thread(_sync)
 
+    except EpisodeSourceError as exc:
+        raise episode_source_http_error(exc, _t, filename=filename) from exc
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:

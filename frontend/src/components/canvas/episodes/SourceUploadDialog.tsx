@@ -11,6 +11,7 @@ import { ICON_BTN_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { formatNameList } from "@/utils/list-format";
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_FORMATS_LABEL, isSupportedSourceFile } from "@/utils/source-files";
 
 import { isReservedEpisodeFileName, type SourceUploadMode } from "./episodes-view-model";
@@ -79,7 +80,7 @@ export function SourceUploadDialog({
   onClose,
   onUploaded,
 }: SourceUploadDialogProps) {
-  const { t } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
   const titleId = useId();
   const project = useProjectsStore((s) => s.currentProjectData);
   const episodeCount = project?.episodes?.length ?? 0;
@@ -142,7 +143,7 @@ export function SourceUploadDialog({
 
   const submit = async () => {
     const signal = unmountController.current?.signal;
-    const queue = mode === "whole_source" ? rows.filter((row) => row.kind === "new") : newRows;
+    const queue = newRows;
     let working = rows;
     const result: SourceUploadResult = { wholeSourceFiles: [], episodes: [] };
     const renamed: string[] = [];
@@ -195,7 +196,7 @@ export function SourceUploadDialog({
           : renamed.length > 0
             ? t("dashboard:source_upload_whole_done_renamed", {
                 count: result.wholeSourceFiles.length,
-                names: renamed.join("、"),
+                names: formatNameList(renamed, i18n.language),
               })
             : t("dashboard:source_upload_whole_done", { count: result.wholeSourceFiles.length }),
         "success",
@@ -407,7 +408,7 @@ export function SourceUploadDialog({
         </div>
         {skipped.length > 0 ? (
           <p role="status" className="mt-2 px-6 text-[11.5px] text-[var(--color-warm)]">
-            {t("dashboard:source_upload_skipped", { names: skipped.join("、") })}
+            {t("dashboard:source_upload_skipped", { names: formatNameList(skipped, i18n.language) })}
           </p>
         ) : null}
 

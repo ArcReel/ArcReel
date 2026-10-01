@@ -1026,6 +1026,13 @@ class TestEpisodeLedgerFields:
         )
         assert any("source_range" in e for e in result.errors)
 
+    def test_unhashable_source_origin_is_reported_not_raised(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            self._entry(source_origin=["own"], source_range={"source_file": "source/novel.txt", "start": 0, "end": 1}),
+        )
+        assert any("source_origin" in e for e in result.errors)
+
     def test_legacy_status_with_source_range_tolerated(self, tmp_path):
         """遗留状态值 + 合法 source_range 不再互斥校验：位置真相只看 source_range 本身。"""
         result = self._validate(

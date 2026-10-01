@@ -1053,6 +1053,25 @@ def test_partial_reset_skips_other_origin_episodes_in_the_retained_segment(tmp_p
     assert _planning_start(project_dir) == ("source/novel.txt", 30)
 
 
+@pytest.mark.parametrize("origin", ["own", "none"])
+def test_reset_from_an_episode_that_was_not_cut_is_refused(tmp_path: Path, origin: str) -> None:
+    """重置的边界只能是切出集：给自带原文或无原文的集时拒绝，账本不变，其后的切出集不被清除。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            {"episode": 2, "title": "番外", "script_file": "scripts/episode_2.json", "source_origin": origin},
+            _entry(3, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="不是切自整本源文的集"):
+        reset_episode_planning(project_dir, episode_id=2)
+
+    assert _load_project(project_dir) == before
+
+
 def test_partial_reset_rejects_zero_length_retained_range(tmp_path: Path) -> None:
     """保留段坐标 start == end（零长度）时拒绝：零长度区间不构成可信的保留段坐标，
     否则会保留一个空集并让游标退到起点，造成编号错位。"""

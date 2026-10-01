@@ -92,6 +92,7 @@ from lib.workflow.workflow_state import (
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
+from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import (
     execute_current_script_edit,
@@ -1907,12 +1908,7 @@ async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourc
     try:
         return await asyncio.to_thread(_sync)
     except EpisodeSourceError as exc:
-        if exc.code == "episode_not_found":
-            raise HTTPException(
-                status_code=404, detail=_t("episode_source_episode_not_found", episode=episode)
-            ) from exc
-        status = 409 if exc.code in {"episode_source_derived", "episode_source_symlink"} else 422
-        raise HTTPException(status_code=status, detail=_t(exc.code)) from exc
+        raise episode_source_http_error(exc, _t, episode=episode) from exc
     except (HTTPException, ApiError):
         raise
     except Exception as exc:
@@ -1923,7 +1919,7 @@ async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourc
 # ==================== 源文件管理 ====================
 
 
-@router.post("/projects/{name}/source")
+@router.post("/projects/{name}/source", dependencies=[Depends(require_project_migration_ok)])
 async def set_project_source(
     name: Annotated[str, FastAPIPath(pattern=r"^[a-zA-Z0-9_-]+$")],
     _t: Translator,
@@ -1967,7 +1963,7 @@ async def set_project_source(
         def _sync_write():
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-            with manager.locked_source_registration(name) as (source_dir, project):
+            with manager.locked_source_registration(name) as (source_dir, project, _undo):
                 if raw is not None:
                     safe_filename = Path(original_name).name
                     if is_derived_episode_name(safe_filename):

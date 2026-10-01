@@ -110,6 +110,9 @@ export function EpisodesView({ projectName }: { projectName: string }) {
       setSelected(request.episode);
       setScrollTarget({ episode: request.episode });
     }
+  } else if (request === null && consumedSearch !== null) {
+    // 参数已从地址去掉：清掉记录，同一地址再次到达时照常生效
+    setConsumedSearch(null);
   }
 
   useEffect(() => {
