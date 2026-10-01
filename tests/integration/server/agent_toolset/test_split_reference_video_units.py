@@ -559,6 +559,28 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
     assert "未引用场景" in text
 
 
+async def test_split_reference_video_units_counts_this_episodes_new_scenes_as_scene_references(
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
+) -> None:
+    """只引用本集新增场景的 unit 不算未引用场景：与内容确认页把新增项叠加在资产表上的结论一致。"""
+    rv_source(fake_ctx)
+    fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}
+    new_assets = [
+        {"type": "scene", "name": "码头", "decision": "register", "reason": "原文第一次出现", "description": "夜雾"}
+    ]
+    out = await run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [rv_unit("@[码头] 夜雾，@[张三] 上岸。"), rv_unit("@[张三] 起身。")],
+        new_assets=new_assets,
+    )
+
+    assert out.problem is None, out
+    text = said(out)
+    assert "unit E1U02：" in text
+    assert "unit E1U01：" not in text
+
+
 async def test_split_reference_video_units_reports_soft_violations_alongside_the_violation_report(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:

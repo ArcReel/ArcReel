@@ -290,4 +290,12 @@ export default {
   'problem_generation_post_processing_failed': 'Video đã tạo xong nhưng xử lý hậu kỳ thất bại.',
   'problem_reference_asset_unregistered': 'Đơn vị này tham chiếu đến tài nguyên chưa được đăng ký.',
   'problem_reference_asset_missing': 'Tài nguyên được tham chiếu chưa có ảnh tài nguyên.',
+  'problem_video_capability_unavailable': 'Không đọc được khả năng của mô hình video đã chọn. Hãy kiểm tra cấu hình nhà cung cấp và mô hình.',
+  'problem_video_supported_durations_missing': 'Mô hình video đã chọn chưa khai báo các mức thời lượng được hỗ trợ.',
+  'problem_video_supported_durations_invalid': 'Dữ liệu mức thời lượng của mô hình video đã chọn không hợp lệ.',
+  'problem_video_supported_durations_incompatible': 'Mô hình video đã chọn không có mức thời lượng tương thích với độ phân giải hiện tại.',
+  'problem_reference_capability_unavailable': 'Không đọc được khả năng của mô hình video đã chọn. Hãy kiểm tra cấu hình nhà cung cấp và mô hình.',
+  'problem_reference_supported_durations_missing': 'Mô hình video đã chọn chưa khai báo các mức thời lượng được hỗ trợ.',
+  'problem_reference_supported_durations_invalid': 'Dữ liệu mức thời lượng của mô hình video đã chọn không hợp lệ.',
+  'problem_reference_supported_durations_incompatible': 'Mô hình video đã chọn không có mức thời lượng tương thích với độ phân giải và ảnh tham chiếu hiện tại.',
 } satisfies Record<keyof typeof enWorkflow, string>;

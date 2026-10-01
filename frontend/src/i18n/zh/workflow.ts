@@ -290,4 +290,12 @@ export default {
   'problem_generation_post_processing_failed': '视频生成完成，但后期处理失败。',
   'problem_reference_asset_unregistered': '这个单元引用了未登记的资产名。',
   'problem_reference_asset_missing': '引用的资产还没有资产图。',
+  'problem_video_capability_unavailable': '无法读取所选视频模型的能力，请检查供应商与模型配置。',
+  'problem_video_supported_durations_missing': '所选视频模型没有声明可用的时长档位。',
+  'problem_video_supported_durations_invalid': '所选视频模型的时长档位声明无效。',
+  'problem_video_supported_durations_incompatible': '所选视频模型在当前分辨率下没有兼容的时长档位。',
+  'problem_reference_capability_unavailable': '无法读取所选视频模型的能力，请检查供应商与模型配置。',
+  'problem_reference_supported_durations_missing': '所选视频模型没有声明可用的时长档位。',
+  'problem_reference_supported_durations_invalid': '所选视频模型的时长档位声明无效。',
+  'problem_reference_supported_durations_incompatible': '所选视频模型在当前分辨率与参考图条件下没有兼容的时长档位。',
 } satisfies Record<keyof typeof enWorkflow, string>;

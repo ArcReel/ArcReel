@@ -52,6 +52,7 @@ from lib.script.draft_quarantine import (
     read_quarantine,
     write_quarantine,
 )
+from server import draft_repair as draft_repair_module
 from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
     CallerContext,
@@ -332,6 +333,30 @@ async def test_failed_queued_draft_repair_fails_the_task_with_a_localizable_reas
     assert problem.code == "draft_revision_conflict"
 
 
+@pytest.mark.usefixtures("video_request_facts")
+async def test_draft_repair_failing_before_the_write_back_does_not_claim_the_draft_was_saved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+
+    def unreadable_source(*_args, **_kwargs):
+        raise PermissionError("source/novel.txt")
+
+    monkeypatch.setattr(draft_repair_module, "load_novel_source", unreadable_source)
+    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
+    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = decode_generation_problem(str(raised.value))
+    assert problem is not None
+    assert problem.code == "draft_repair_failed"
+    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    assert draft is not None
+    assert draft_revision(draft) == revision
+
+
 async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state(
     tmp_path: Path,
     file_db_factory,
@@ -553,6 +578,7 @@ async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_
     problem = problem_from_task_failure(str(raised.value))
     assert problem.code == "episode_planning_failed"
     assert problem.action is GenerationAction.RETRY
+    assert problem.detail == "invalid source window"
 
 
 @pytest.mark.parametrize(

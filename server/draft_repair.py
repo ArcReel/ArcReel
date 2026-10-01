@@ -192,13 +192,25 @@ class DraftRepair:
     ) -> dict[str, Any]:
         """修复并按保存口径重判；返回值同 ``DraftWorkflow.save``。
 
-        违约已清零的草稿不调用模型，直接采用。模型调用失败或回复形状不符时抛 ``draft_repair_failed``，
-        草稿不变。
+        违约已清零的草稿不调用模型，直接采用。写回草稿之前的任何失败（读源文、调用模型、回复形状
+        不符等）都抛 ``draft_repair_failed``，草稿不变；写回之后的失败照常抛出保存阶段的错误码。
         """
+        try:
+            content = await self._repaired_content(episode, doc_type, base_revision, instructions)
+        except DraftWorkflowError:
+            raise
+        except Exception as exc:
+            raise DraftWorkflowError("draft_repair_failed", f"AI 修复未完成：{exc}") from exc
+        return await self.workflow.save(episode, doc_type, content, base_revision)
+
+    async def _repaired_content(
+        self, episode: int, doc_type: str, base_revision: str, instructions: str | None
+    ) -> dict[str, Any]:
+        """待写回的草稿正文：违约已清零时原样返回，否则交给模型修复并合并回原稿。"""
         kind, draft = await self.check(episode, doc_type, base_revision)
         violations = await self._violations(episode, kind, draft)
         if not violations:
-            return await self.workflow.save(episode, doc_type, draft.content, base_revision)
+            return draft.content
 
         scope = repair_scope(kind, draft.content, violations)
         prompt = build_repair_prompt(
@@ -209,18 +221,14 @@ class DraftRepair:
             source_text=await self._source_text(episode, kind, draft),
             instructions=(instructions or "").strip() or None,
         )
-        try:
-            generator = await TextGenerator.create(
-                TextTaskType.SCRIPT, self.ctx.project_name, purpose=CallPurpose.SCRIPT_GENERATION
-            )
-            result = await generator.generate(
-                BackendTextGenerationRequest(prompt=prompt, max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS),
-                project_name=self.ctx.project_name,
-            )
-            merged = merge_repair(draft.content, scope, json.loads(strip_json_code_fences(result.text)))
-        except Exception as exc:
-            raise DraftWorkflowError("draft_repair_failed", f"AI 修复未完成：{exc}") from exc
-        return await self.workflow.save(episode, doc_type, merged, base_revision)
+        generator = await TextGenerator.create(
+            TextTaskType.SCRIPT, self.ctx.project_name, purpose=CallPurpose.SCRIPT_GENERATION
+        )
+        result = await generator.generate(
+            BackendTextGenerationRequest(prompt=prompt, max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS),
+            project_name=self.ctx.project_name,
+        )
+        return merge_repair(draft.content, scope, json.loads(strip_json_code_fences(result.text)))
 
     async def _violations(self, episode: int, kind: str, draft: QuarantinedDraft) -> list[dict[str, Any]]:
         """修复所依据的违约：脚本规划草稿按现值重判，提示词编写草稿取快照（它没有只读重判器）。"""
