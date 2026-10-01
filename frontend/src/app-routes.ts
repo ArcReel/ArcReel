@@ -25,6 +25,15 @@ export const WORKSPACE_ROUTE_PROPS = "props";
 export const WORKSPACE_ROUTE_PRODUCTS = "products";
 export const WORKSPACE_ROUTE_EPISODES = "episodes";
 
+/** 集页的视图查询参数：`?view=edit` 打开剪辑视图，缺省为分镜视图。 */
+export const EPISODE_VIEW_PARAM = "view";
+export const EPISODE_VIEW_EDIT = "edit";
+
+/** 项目工作区内打开某集剪辑视图的相对路径。 */
+export function episodeEditViewPath(episode: number): string {
+  return `/${WORKSPACE_ROUTE_EPISODES}/${episode}?${EPISODE_VIEW_PARAM}=${EPISODE_VIEW_EDIT}`;
+}
+
 /** 无子路径、直接匹配的工作区叶子路由段。`episodes` 除了「分集」视图本身还接受 `/:episodeId`（集页），
  *  在下面的正则里额外拼一条 `episodes/[^/]+` 分支覆盖后者。 */
 const WORKSPACE_STATIC_LEAF_ROUTES = [
