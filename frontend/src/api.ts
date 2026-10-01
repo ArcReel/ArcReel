@@ -724,6 +724,26 @@ class API {
     );
   }
 
+  /** 重命名剪辑时间线：只改显示名，不产生修订。 */
+  static async renameEditTimeline(
+    projectName: string,
+    timelineId: string,
+    name: string,
+  ): Promise<EditTimelineSummary> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`,
+      { method: "PATCH", body: JSON.stringify({ name }) },
+    );
+  }
+
+  /** 删除剪辑时间线及其成片与剪映草稿；仍有渲染任务在排队或执行时服务端拒绝。 */
+  static async deleteEditTimeline(projectName: string, timelineId: string): Promise<void> {
+    await this.request(
+      `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`,
+      { method: "DELETE" },
+    );
+  }
+
   static async importProject(
     file: File,
     conflictPolicy: ImportConflictPolicy = "prompt"

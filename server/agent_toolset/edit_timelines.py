@@ -1,4 +1,4 @@
-"""剪辑时间线工具的声明：按脚本新建、列出、读取与批量编辑。"""
+"""剪辑时间线工具的声明：新建（按脚本或复制）、列出、读取、批量编辑、改名、修订历史与回滚。"""
 
 from __future__ import annotations
 
@@ -6,25 +6,38 @@ from server.agent_toolset.declaration import BLOCKED, ToolDeclaration
 from server.media_tools.edit_timelines import (
     CreateTimelineRequest,
     EditTimelineRequest,
+    ListRevisionsRequest,
     ListTimelinesRequest,
     ReadTimelineRequest,
+    RenameTimelineRequest,
+    RestoreRevisionRequest,
     create_timeline,
     edit_timeline,
+    list_revisions,
     list_timelines,
     read_timeline,
+    rename_timeline,
+    restore_revision,
+    revision_history_summary,
     timeline_list_summary,
     timeline_readout_summary,
+    timeline_renamed_summary,
     timeline_write_summary,
 )
 
 CREATE_TIMELINE = ToolDeclaration(
     name="create_timeline",
     description=(
-        "为一集新建一条具名剪辑时间线，作为剪辑的起点。from=script 按当前脚本顺序排列每个视频单元："
-        "整段使用、全部硬切，画外音单位原声 0.3、台词与无人声单位 1.0，旁白挂在该单元的第一个片段上。"
-        "剪辑片段的画面一律取视频单元的 current 视频版本。剪辑时间线不随脚本自动变化，"
-        "脚本改动后在 issues 里看到差异。同一集可以有多条剪辑时间线，显示名不能重名，"
-        "重名返回 timeline_name_conflict；集不存在返回 episode_not_found。结果与 read_timeline 同形。"
+        "新建一条具名剪辑时间线，同一集可以有多条，显示名不能重名（timeline_name_conflict）。"
+        "from=script：为 episode 集按当前脚本顺序排列每个视频单元，作为剪辑的起点："
+        "整段使用、全部硬切，画外音单位原声 0.3、台词与无人声单位 1.0，旁白挂在该单元的第一个片段上；"
+        "集不存在返回 episode_not_found。"
+        "from=timeline：复制 timeline 的 revision 修订（省略时为最新修订）到同一集的新时间线，"
+        "内容原样带过去（顺序、截取、原声音量、定格、转场、旁白落点、BGM），片段 ID 不变，新时间线从修订 1 起；"
+        "适合大规模重构前留一份退路，或并排做出另一种剪法；源时间线不受影响，"
+        "revision 不存在返回 revision_not_found。"
+        "剪辑片段的画面一律取视频单元的 current 视频版本；剪辑时间线不随脚本自动变化，脚本改动后在 issues 里看到差异。"
+        "结果与 read_timeline 同形。"
     ),
     request_model=CreateTimelineRequest,
     migration=BLOCKED,
@@ -97,6 +110,69 @@ EDIT_TIMELINE = ToolDeclaration(
     summary=timeline_write_summary,
 )
 
-EDIT_TIMELINE_TOOLS = (CREATE_TIMELINE, LIST_TIMELINES, READ_TIMELINE, EDIT_TIMELINE)
+RENAME_TIMELINE = ToolDeclaration(
+    name="rename_timeline",
+    description=(
+        "修改一条剪辑时间线的显示名，同一集内不能重名（timeline_name_conflict）。"
+        "只改名字：剪辑内容、修订历史与时间线 ID 都不变，不产生新修订，已渲染的成片与剪映草稿也不因此过期。"
+    ),
+    request_model=RenameTimelineRequest,
+    migration=BLOCKED,
+    domain_key="edit_timeline_summary",
+    handler=rename_timeline,
+    summary=timeline_renamed_summary,
+)
 
-__all__ = ["CREATE_TIMELINE", "EDIT_TIMELINE", "EDIT_TIMELINE_TOOLS", "LIST_TIMELINES", "READ_TIMELINE"]
+LIST_REVISIONS = ToolDeclaration(
+    name="list_revisions",
+    description=(
+        "列出一条剪辑时间线的修订历史，按修订号从旧到新：number、parent、author（creator 创作者、arcreel_agent、"
+        "external_agent）、summary（改动摘要）、created_at、clip_count、changed_clip_ids（该修订改动过的剪辑片段，"
+        "没有记录时为 null）与 restored_from（回滚产生的修订，值为它还原到的修订号）。只读，无副作用；"
+        "ID 不存在返回 timeline_not_found。要复制或回滚到某个修订时，先在这里确认修订号。"
+    ),
+    request_model=ListRevisionsRequest,
+    migration=BLOCKED,
+    domain_key="edit_timeline_revisions",
+    handler=list_revisions,
+    summary=revision_history_summary,
+)
+
+RESTORE_REVISION = ToolDeclaration(
+    name="restore_revision",
+    description=(
+        "把一条剪辑时间线回滚到某个旧修订：以那个修订的内容追加一个新修订（restored_from 记录来源），"
+        "历史不改写，回滚前的最新修订仍可再回滚回去。回滚总是作用在最新修订上，会整段替换当前内容，"
+        "所以回滚前先用 list_revisions 与 read_timeline 确认目标修订和当前内容。"
+        "目标修订的内容与最新修订相同时返回 revision_unchanged，修订不存在返回 revision_not_found。"
+        "之后基于回滚前修订的 edit_timeline 会按被回滚改动的片段判定冲突。"
+        "结果与 edit_timeline 同形：新 revision、message、受影响片段 clips（回滚后的状态）、"
+        "deleted_clip_ids（回滚后不再存在的片段）、duration 与 issues。"
+    ),
+    request_model=RestoreRevisionRequest,
+    migration=BLOCKED,
+    domain_key="timeline_edit",
+    handler=restore_revision,
+    summary=timeline_write_summary,
+)
+
+EDIT_TIMELINE_TOOLS = (
+    CREATE_TIMELINE,
+    LIST_TIMELINES,
+    READ_TIMELINE,
+    EDIT_TIMELINE,
+    RENAME_TIMELINE,
+    LIST_REVISIONS,
+    RESTORE_REVISION,
+)
+
+__all__ = [
+    "CREATE_TIMELINE",
+    "EDIT_TIMELINE",
+    "EDIT_TIMELINE_TOOLS",
+    "LIST_REVISIONS",
+    "LIST_TIMELINES",
+    "READ_TIMELINE",
+    "RENAME_TIMELINE",
+    "RESTORE_REVISION",
+]

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
-from lib.artifacts.rendered_artifact import RENDERS_DIRNAME
+from lib.artifacts.rendered_artifact import timeline_renders_dir
 from lib.edit_timeline.model import EditTimelineContent, TimelineRevision
 from lib.infra.content_digest import canonical_json_bytes, prefixed
 from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
@@ -37,7 +37,7 @@ def jianying_draft_key(episode: int, timeline_id: str, narration: DraftNarration
 
 def jianying_draft_artifact_path(episode: int, timeline_id: str, narration: DraftNarration) -> str:
     """剪映草稿产物的正式路径；每个产物身份只保留最新一份。"""
-    return f"{RENDERS_DIRNAME}/episode_{episode}/{timeline_id}/jianying_draft.{narration}.zip"
+    return f"{timeline_renders_dir(episode, timeline_id)}/jianying_draft.{narration}.zip"
 
 
 def timeline_render_fingerprint(content: EditTimelineContent) -> str:

@@ -690,6 +690,8 @@ MESSAGES = {
     "edit_timeline_name_invalid": "Tên dòng thời gian dựng phải dài từ 1 đến 40 ký tự",
     "edit_timeline_script_invalid": "Không phân tích được kịch bản của tập (id={episode}), nên không thể tạo dòng thời gian dựng từ kịch bản",
     "edit_timeline_invalid": "Tệp dòng thời gian dựng bị hỏng, không đọc được: {file}",
+    "edit_timeline_revision_unchanged": "Phiên bản sửa {revision} có nội dung giống phiên bản mới nhất, nên không cần khôi phục",
+    "edit_timeline_render_in_progress": "Dòng thời gian dựng này có tác vụ kết xuất bản dựng hoàn chỉnh hoặc bản nháp Jianying đang chờ hoặc đang chạy ({task_id}); hãy xóa sau khi tác vụ kết thúc",
     # Final cut
     "final_cut_variant_unsupported": "Hiện chỉ có thể kết xuất video thành phẩm không có lời dẫn và không ghi phụ đề vào hình",
     "final_cut_blocked": "Dòng thời gian dựng có vấn đề chặn việc kết xuất video thành phẩm, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi kết xuất lại",

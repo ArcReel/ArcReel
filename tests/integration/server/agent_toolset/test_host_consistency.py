@@ -42,7 +42,14 @@ from server.agent_toolset.declaration import (
     UnscopedToolDeclaration,
     tool_description,
 )
-from server.agent_toolset.edit_timelines import CREATE_TIMELINE, EDIT_TIMELINE, READ_TIMELINE
+from server.agent_toolset.edit_timelines import (
+    CREATE_TIMELINE,
+    EDIT_TIMELINE,
+    LIST_REVISIONS,
+    READ_TIMELINE,
+    RENAME_TIMELINE,
+    RESTORE_REVISION,
+)
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
@@ -135,6 +142,9 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
         "summary": "压低开场原声",
         "operations": [{"op": "set_volume", "clip": "c1", "volume": 0.5}],
     },
+    "rename_timeline": {"timeline": "tl-0000abcd", "name": "定稿"},
+    "list_revisions": {"timeline": "tl-0000abcd"},
+    "restore_revision": {"timeline": "tl-0000abcd", "revision": 1},
     "render_final_cut": {"timeline": "tl-0000abcd"},
     "export_jianying_draft": {"timeline": "tl-0000abcd"},
 }
@@ -526,6 +536,9 @@ _PROBLEM_ON_SAMPLE = frozenset(
         SELECT_VIDEO_VERSION.name,
         READ_TIMELINE.name,
         EDIT_TIMELINE.name,
+        RENAME_TIMELINE.name,
+        LIST_REVISIONS.name,
+        RESTORE_REVISION.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
     }
 )

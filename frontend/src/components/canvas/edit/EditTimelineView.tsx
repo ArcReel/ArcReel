@@ -9,6 +9,7 @@ import { formatRelativeTime } from "@/utils/date-format";
 import type { PreviewAspect } from "@/utils/preview-aspect";
 
 import { ClipInspector, ISSUE_LIST_HEADING_ID, IssueList } from "./EditTimelineDetails";
+import { EditTimelineMenu } from "./EditTimelineMenu";
 import { EditTimelinePlayer } from "./EditTimelinePlayer";
 import { EditTimelineTracks } from "./EditTimelineTracks";
 import { buildPlaybackPlan, type PlaybackPlan, type PlaybackSegment } from "./playback-schedule";
@@ -52,7 +53,7 @@ interface EditTimelineViewProps {
 type Loaded<T> = { key: string; value: T } | { key: string; error: string };
 
 /**
- * 集页的剪辑视图：只读预览一条剪辑时间线。上方播放器按剪辑时间线实时拼接播放，下方横向时间线；
+ * 集页的剪辑视图：只读预览一条剪辑时间线，标签菜单可重命名与删除。上方播放器按剪辑时间线实时拼接播放，下方横向时间线；
  * 项目有变更（含 Agent 写入新修订）时重新读取。
  */
 export function EditTimelineView({
@@ -70,6 +71,11 @@ export function EditTimelineView({
   const [list, setList] = useState<Loaded<EditTimelineSummary[]> | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const reload = useCallback(() => setRetry((n) => n + 1), []);
+  // 删除后选中的标签回落到默认那条（最近修改的）。
+  const handleDeleted = useCallback(() => {
+    setChosenId(null);
+    setRetry((n) => n + 1);
+  }, []);
   const showIssues = useCallback(() => {
     const heading = document.getElementById(ISSUE_LIST_HEADING_ID);
     heading?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -145,25 +151,29 @@ export function EditTimelineView({
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto px-6 py-5">
       <div className="flex flex-wrap items-center gap-3">
-        <div
-          role="tablist"
-          aria-label={t("edit_view_timelines_aria")}
-          className="flex flex-wrap rounded-[9px] border border-hairline bg-bg-grad-a/55 p-0.5"
-        >
-          {timelines.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={item.id === selected.id}
-              onClick={() => setChosenId(item.id)}
-              className={`focus-ring rounded-[7px] px-3 py-1.5 text-[12.5px] transition-colors ${
-                item.id === selected.id ? "bg-accent-dim text-text" : "text-text-3 hover:text-text"
-              }`}
-            >
-              {item.name}
-            </button>
-          ))}
+        <div className="flex items-center rounded-[9px] border border-hairline bg-bg-grad-a/55 p-0.5">
+          <div role="tablist" aria-label={t("edit_view_timelines_aria")} className="flex flex-wrap">
+            {timelines.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={item.id === selected.id}
+                onClick={() => setChosenId(item.id)}
+                className={`focus-ring rounded-[7px] px-3 py-1.5 text-[12.5px] transition-colors ${
+                  item.id === selected.id ? "bg-accent-dim text-text" : "text-text-3 hover:text-text"
+                }`}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+          <EditTimelineMenu
+            projectName={projectName}
+            timeline={selected}
+            onRenamed={reload}
+            onDeleted={handleDeleted}
+          />
         </div>
         <span className="text-[12px] text-text-4">
           {t("edit_view_updated", { author: authorName, time: updatedAt })}

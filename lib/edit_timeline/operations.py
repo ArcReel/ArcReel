@@ -501,6 +501,18 @@ def diff_content(before: EditTimelineContent, after: EditTimelineContent) -> Con
     )
 
 
+def restore_changed_clip_ids(before: EditTimelineContent, after: EditTimelineContent) -> frozenset[str]:
+    """整段内容替换改动过的片段。
+
+    相对顺序变了时，哪个片段「被移动」没有唯一答案，因此两份内容共有的片段一律计入，宁可让基于旧修订的
+    编辑多报冲突，也不放过被改排的片段。
+    """
+    diff = diff_content(before, after)
+    if not diff.moved:
+        return diff.changed
+    return diff.changed | ({clip.id for clip in after.clips} & {clip.id for clip in before.clips})
+
+
 def sorted_clip_ids(clip_ids: set[str] | frozenset[str]) -> tuple[str, ...]:
     return tuple(sorted(clip_ids, key=clip_number))
 
@@ -528,5 +540,6 @@ __all__ = [
     "apply_operations",
     "default_source_volume",
     "diff_content",
+    "restore_changed_clip_ids",
     "sorted_clip_ids",
 ]
