@@ -152,6 +152,7 @@ describe("StreamMarkdown 应用内链接", () => {
   afterEach(() => {
     window.history.replaceState(null, "", "/");
     useAppStore.setState({ scrollTarget: null, playbackStart: null });
+    useProjectsStore.setState({ currentProjectName: null, currentProjectData: null });
     vi.restoreAllMocks();
   });
 
@@ -191,7 +192,7 @@ describe("StreamMarkdown 应用内链接", () => {
   });
 
   it("单元链接跳到该集、选中单元并请求从起始时间播放，一次性参数不留在地址栏", async () => {
-    useProjectsStore.setState({ currentProjectData: { generation_mode: "reference_video" } as never });
+    useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: { generation_mode: "reference_video" } as never });
     const { container } = await renderLoaded("[E1U3 的问题](/app/projects/demo/episodes/2?unit=E1U3&t=4.5)");
     fireEvent.click(container.querySelector("a")!);
     expect(window.location.pathname + window.location.search).toBe("/app/projects/demo/episodes/2");
@@ -204,7 +205,7 @@ describe("StreamMarkdown 应用内链接", () => {
   });
 
   it("不带时间点的单元链接只请求打开单元预览，不指定起始时间", async () => {
-    useProjectsStore.setState({ currentProjectData: { generation_mode: "storyboard" } as never });
+    useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: { generation_mode: "storyboard" } as never });
     const { container } = await renderLoaded("[问题](/app/projects/demo/episodes/1?unit=E1S02)");
     fireEvent.click(container.querySelector("a")!);
     expect(useAppStore.getState().playbackStart).toMatchObject({
@@ -215,11 +216,35 @@ describe("StreamMarkdown 应用内链接", () => {
   });
 
   it("分镜图生视频项目的单元链接按分镜单元处理", async () => {
-    useProjectsStore.setState({ currentProjectData: { generation_mode: "storyboard" } as never });
+    useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: { generation_mode: "storyboard" } as never });
     const { container } = await renderLoaded("[问题](/app/projects/demo/episodes/1?unit=E1S02&t=1)");
     fireEvent.click(container.querySelector("a")!);
     expect(useAppStore.getState().scrollTarget).toMatchObject({ type: "segment", id: "E1S02" });
     expect(useAppStore.getState().playbackStart).toMatchObject({ resource_type: "videos", resource_id: "E1S02" });
+  });
+
+  it("链接指向其他项目时只跳转，不按当前项目的生成模式发聚焦与起播请求", async () => {
+    useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: { generation_mode: "storyboard" } as never });
+    const { container } = await renderLoaded("[问题](/app/projects/other/episodes/2?unit=E1U3&t=4.5)");
+    fireEvent.click(container.querySelector("a")!);
+    expect(window.location.pathname + window.location.search).toBe("/app/projects/other/episodes/2");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+    expect(useAppStore.getState().playbackStart).toBeNull();
+  });
+
+  it("项目名带编码时按解码后的名称与当前项目比较", async () => {
+    useProjectsStore.setState({ currentProjectName: "我的项目", currentProjectData: { generation_mode: "storyboard" } as never });
+    const { container } = await renderLoaded("[问题](/app/projects/%E6%88%91%E7%9A%84%E9%A1%B9%E7%9B%AE/episodes/1?unit=E1S02)");
+    fireEvent.click(container.querySelector("a")!);
+    expect(useAppStore.getState().scrollTarget).toMatchObject({ type: "segment", id: "E1S02" });
+  });
+
+  it("当前没有打开任何项目时只跳转", async () => {
+    const { container } = await renderLoaded("[问题](/app/projects/demo/episodes/1?unit=E1S02)");
+    fireEvent.click(container.querySelector("a")!);
+    expect(window.location.pathname).toBe("/app/projects/demo/episodes/1");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+    expect(useAppStore.getState().playbackStart).toBeNull();
   });
 
   it.each(["//example.com/app/projects/x", "https://example.com/app/projects/x", "/api/v1/projects/x/export"])(

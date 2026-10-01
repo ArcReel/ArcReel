@@ -27,8 +27,8 @@ export interface AppLink {
   href: string;
   /** 要跳转的路径与查询。单元链接的 `unit`、`t` 在这里已去掉：它们是一次性的定位指令，不留在地址栏里。 */
   to: string;
-  /** 链接指向的视频单元；起始时间缺省为 null。 */
-  unit: { id: string; seconds: number | null } | null;
+  /** 链接指向的视频单元；起始时间缺省为 null。`project` 是链接所在项目的名称（已解码），项目名无法解码时为 null。 */
+  unit: { id: string; seconds: number | null; project: string | null } | null;
 }
 
 /** 非负的十进制秒数；其余写法（负数、科学计数法、空串）一律视为没有写。 */
@@ -36,6 +36,16 @@ export function parseSeconds(value: string | null): number | null {
   if (value === null || !/^\d+(\.\d+)?$/.test(value)) return null;
   const seconds = Number(value);
   return Number.isFinite(seconds) ? seconds : null;
+}
+
+/** 取集页路径 `/app/projects/{项目名}/...` 里的项目名并解码；解码失败返回 null。 */
+function decodeProjectSegment(pathname: string): string | null {
+  const segment = pathname.split("/")[3] ?? "";
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
 }
 
 /** 同源且在 `/app` 之下的链接才算应用内链接；其余（含协议相对地址、其他域名）返回 null，由调用方按外链处理。 */
@@ -54,7 +64,7 @@ export function parseAppLink(href: string, origin: string): AppLink | null {
   let unit: AppLink["unit"] = null;
   const unitId = params.get(LINK_UNIT_PARAM);
   if (unitId && EPISODE_PATH.test(url.pathname) && params.get(EPISODE_VIEW_PARAM) !== EPISODE_VIEW_EDIT) {
-    unit = { id: unitId, seconds: parseSeconds(params.get(LINK_TIME_PARAM)) };
+    unit = { id: unitId, seconds: parseSeconds(params.get(LINK_TIME_PARAM)), project: decodeProjectSegment(url.pathname) };
     params.delete(LINK_UNIT_PARAM);
     params.delete(LINK_TIME_PARAM);
   }
