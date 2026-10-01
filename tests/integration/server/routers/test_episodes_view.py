@@ -215,9 +215,37 @@ class TestManualSplit:
         assert applied.json() == {
             "status": "applied",
             "episode": 2,
-            "impact": {"restaled": [1], "retired": [], "removed": []},
+            "impact": {"restaled": [1], "retired": [], "removed": [], "merged_units": 0},
         }
         assert [e["episode"] for e in pm.load_project("demo")["episodes"]] == [1, 2]
+
+    def test_merge_over_unsplit_text_states_its_volume_and_applies_once_confirmed(self, tmp_path, monkeypatch):
+        novel = {"source_file": "source/novel.txt"}
+        client, pm, source_dir = _client(
+            monkeypatch,
+            tmp_path,
+            whole_source_files=[novel],
+            episodes=[
+                _entry(1, "whole_source", source_range={**novel, "start": 0, "end": 5}),
+                _entry(2, "whole_source", source_range={**novel, "start": 10, "end": 15}),
+            ],
+            episode_id_high_water=2,
+        )
+        (source_dir / "novel.txt").write_text("少年下山。城里起火。夜雨未停。", encoding="utf-8")
+        body = {"action": "merge_next", "episode": 1}
+
+        with client:
+            pending = client.post("/api/v1/projects/demo/episodes-view/manual-split", json=body)
+            applied = client.post(
+                "/api/v1/projects/demo/episodes-view/manual-split", json={**body, "confirm_merged_units": 5}
+            )
+
+        assert pending.json()["status"] == "confirmation_required"
+        assert pending.json()["impact"]["merged_units"] == 5
+        assert pending.json()["impact"]["text"].splitlines()[0] == "两集之间有 5 字未切分的原文，合并后会并入这一集。"
+        assert applied.json()["status"] == "applied"
+        merged = pm.load_project("demo")["episodes"]
+        assert [(e["episode"], e["source_range"]["end"]) for e in merged] == [(1, 15)]
 
     def test_change_is_refused_while_a_displaced_episode_has_active_tasks(self, tmp_path, monkeypatch):
         novel = {"source_file": "source/novel.txt"}

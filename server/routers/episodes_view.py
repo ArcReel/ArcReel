@@ -128,6 +128,8 @@ class MoveBoundaryRequest(_ManualSplitBase):
 class MergeNextRequest(_ManualSplitBase):
     action: Literal["merge_next"]
     episode: int
+    #: 创作者在确认清单里看过的并入体量；与锁内复核出的体量不一致时退回确认。
+    confirm_merged_units: int = 0
 
 
 class ClearAfterRequest(_ManualSplitBase):
@@ -155,7 +157,9 @@ def _run_manual_split(project_dir: Path, req: _ManualSplitBody) -> ManualSplitOu
     if isinstance(req, MoveBoundaryRequest):
         return move_episode_boundary(project_dir, req.episode, at=req.at, **options)
     if isinstance(req, MergeNextRequest):
-        return merge_with_next_episode(project_dir, req.episode, **options)
+        return merge_with_next_episode(
+            project_dir, req.episode, confirm_merged_units=req.confirm_merged_units, **options
+        )
     return clear_cuts_after(project_dir, req.episode, **options)
 
 
@@ -166,9 +170,9 @@ def _run_manual_split(project_dir: Path, req: _ManualSplitBody) -> ManualSplitOu
 async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> dict[str, Any]:
     """手工切分：切分、拆分、移动分界、与下一集合并、清除之后的切分，直接写入分集账本。
 
-    波及有产物的集（或 ``dry_run``）时返回 ``status=confirmation_required`` 与服务端成文的确认清单 ``impact.text``，
-    不写入；创作者确认后带上 ``confirm_episodes`` 重新提交。要移除或转为无原文的集有排队或执行中的任务时
-    返回 409，不写入。
+    波及有产物的集、合并会并入两集之间未切分的原文（或 ``dry_run``）时返回 ``status=confirmation_required`` 与
+    服务端成文的确认清单 ``impact.text``，不写入；创作者确认后带上 ``confirm_episodes`` 与 ``confirm_merged_units``
+    重新提交。要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
     """
 
     def _displaced_episodes() -> list[int]:

@@ -88,6 +88,8 @@ export interface ManualSplitImpact {
   retired: number[];
   /** 没有产物，直接移除。 */
   removed: number[];
+  /** 与下一集合并时并入的两集之间未切分原文的体量（阅读单位）；其余动作为 0。 */
+  merged_units: number;
 }
 
 export type ManualSplitResponse =

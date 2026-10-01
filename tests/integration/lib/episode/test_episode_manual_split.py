@@ -295,6 +295,23 @@ class TestMerge:
 
         assert excinfo.value.code == "merge_across_files"
 
+    def test_unsplit_text_between_the_two_episodes_needs_confirmation_of_its_volume(self, tmp_path: Path):
+        meet = A.index("遇见老人")
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, meet), _cut(2, "a.txt", CH2, CH3)])
+
+        pending = merge_with_next_episode(project_dir, 1)
+        assert pending == ManualSplitConfirmationRequired(impact=ManualSplitImpact(removed=[2], merged_units=5))
+        assert _range(project_dir, 1) == ("source/a.txt", 0, meet)
+
+        stale = merge_with_next_episode(project_dir, 1, confirm_merged_units=3)
+        assert isinstance(stale, ManualSplitConfirmationRequired)
+
+        result = merge_with_next_episode(project_dir, 1, confirm_merged_units=5)
+
+        assert result == ManualSplitResult(impact=ManualSplitImpact(removed=[2], merged_units=5))
+        assert _range(project_dir, 1) == ("source/a.txt", 0, CH3)
+        assert _episode_text(project_dir, 1) == A[:CH3]
+
 
 class TestClearAfter:
     def test_cuts_after_the_episode_retire_or_are_removed(self, tmp_path: Path):
@@ -362,3 +379,24 @@ def test_confirmation_text_names_episodes_by_title_or_position():
         "转为无原文的集，标为「原文已重新规划」，移到播出顺序末尾：第 2 集",
         "还没有产物，直接移除：第 3 集",
     ]
+
+
+def test_confirmation_text_states_the_volume_of_unsplit_text_merged_in():
+    project = {"source_language": "zh", "episodes": [{"episode": 2, "title": "雨夜"}]}
+    impact = ManualSplitImpact(removed=[2], merged_units=120).to_dict()
+
+    text = render_manual_split_impact_text(impact, project, i18n_message)
+
+    assert text.splitlines() == [
+        "两集之间有 120 字未切分的原文，合并后会并入这一集。",
+        "还没有产物，直接移除：雨夜",
+    ]
+
+
+def test_confirmation_text_counts_words_for_projects_counted_by_words():
+    project = {"source_language": "en", "episodes": [{"episode": 2, "title": "Rain"}]}
+    impact = ManualSplitImpact(removed=[2], merged_units=1).to_dict()
+
+    text = render_manual_split_impact_text(impact, project, i18n_message)
+
+    assert text.splitlines()[0] == "两集之间有 1 词未切分的原文，合并后会并入这一集。"

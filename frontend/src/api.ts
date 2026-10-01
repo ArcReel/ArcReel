@@ -1843,19 +1843,20 @@ class API {
   }
 
   /**
-   * 手工切分，直接写入分集账本。波及有产物的集（或 `dryRun`）时返回确认清单、不写入；
-   * 确认后把清单里的集 ID 放进 `confirmEpisodes` 重新提交。
+   * 手工切分，直接写入分集账本。波及有产物的集、合并会并入未切分的原文（或 `dryRun`）时返回确认清单、不写入；
+   * 确认后把清单里的集 ID 放进 `confirmEpisodes`、并入体量放进 `confirmMergedUnits` 重新提交。
    */
   static async manualSplit(
     projectName: string,
     action: ManualSplitAction,
-    options: { confirmEpisodes?: number[]; dryRun?: boolean } = {}
+    options: { confirmEpisodes?: number[]; confirmMergedUnits?: number; dryRun?: boolean } = {}
   ): Promise<ManualSplitResponse> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/episodes-view/manual-split`, {
       method: "POST",
       body: JSON.stringify({
         ...action,
         confirm_episodes: options.confirmEpisodes ?? [],
+        ...(options.confirmMergedUnits ? { confirm_merged_units: options.confirmMergedUnits } : {}),
         dry_run: options.dryRun ?? false,
       }),
     });
