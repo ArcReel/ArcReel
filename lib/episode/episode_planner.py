@@ -54,12 +54,15 @@ from lib.episode.episode_sources import (
     SOURCE_ORIGIN_FIELD,
     SourceOrigin,
     archive_episode_file_path,
+    cut_episode_placements,
+    cut_insert_index,
     discover_sources,
     is_cut_episode,
     legacy_cut_episode_ids,
     planning_start,
     source_snapshot_path,
     sync_source_snapshots,
+    unsplit_range_ending_at,
     whole_source_files,
 )
 from lib.episode.episode_target_volume import EpisodeTargetVolume, resolve_episode_target_volume
@@ -449,6 +452,7 @@ class EpisodePlanner:
         instructions: str | None = None,
         *,
         on_more_to_plan: Callable[[], Awaitable[None]] | None = None,
+        gap: tuple[str, int] | None = None,
     ) -> PlanResult:
         """规划下一批集：从账本推导的规划起点取窗口，产出剧情弧完整的集并提交账本。
 
@@ -458,6 +462,10 @@ class EpisodePlanner:
         ``on_more_to_plan`` 在本批之后整本源文还有待规划的原文时调用一次：窗口不含整本源文的结尾时，
         在请求模型之前调用；含结尾时，在模型给出的本批没有规划到结尾（如被每批集数上限截断）时调用。
         源文已全部规划完毕、或本批报错时不调用。
+
+        ``gap`` 是一段未切分原文的终点 ``(源文件, 偏移)``：只规划以它为终点的那段未切分原文（删除切出集等留下的空段），
+        起点是同一文件里前面最近的切出集的结尾，终点之后不再规划；新集按源文位置插入，不替换任何集。
+        ``source_exhausted=True`` 此时表示这段原文已全部规划完毕。
 
         ``instructions`` 是可选的用户分集附加指令（如按章节对齐切分），strip 后为空视同未传；
         非空则原样注入规划 prompt 的中性「附加指令」分节，遵循强度由附加指令正文自行表达。规划按窗口
@@ -481,13 +489,19 @@ class EpisodePlanner:
         used_fingerprints = compute_source_fingerprints(pre_call_sources)
         source_order = [doc.rel_path for doc in pre_call_sources]
 
-        start_ref = self._effective_start(project, pre_call_sources)
+        start_ref = (
+            self._effective_start(project, pre_call_sources)
+            if gap is None
+            else _gap_start(project, pre_call_sources, gap)
+        )
         source_rel, start = start_ref
         text = next(doc.text for doc in pre_call_sources if doc.rel_path == source_rel)
         if start > len(text):
             raise EpisodePlanningError(f"规划起点越界：{source_rel} 长度 {len(text)}，起点 {start}；请检查账本")
-        while not text[start:].strip():
-            next_rel = _next_source_rel(source_order, source_rel)
+        # 规划在当前文件里的终点：规划空段时是空段结尾，否则是文件末尾
+        limit = len(text) if gap is None else gap[1]
+        while not text[start:limit].strip():
+            next_rel = None if gap is not None else _next_source_rel(source_order, source_rel)
             if next_rel is None:
                 project = await self._backfill_source_fingerprints_if_missing(
                     project,
@@ -502,14 +516,18 @@ class EpisodePlanner:
                 )
             source_rel, start = next_rel, 0
             text = next(doc.text for doc in pre_call_sources if doc.rel_path == source_rel)
+            limit = len(text)
         # 全局进度只在有附加指令时注入 prompt；后续文件的体量在释放原文前算好
         later_units = (
             sum(
                 count_reading_units(doc.text, _language_of(project))
                 for doc in pre_call_sources[source_order.index(source_rel) + 1 :]
             )
-            if planning_instructions
+            if planning_instructions and gap is None
             else 0
+        )
+        context_entries = (
+            _context_entries(project) if gap is None else _gap_context_entries(project, pre_call_sources, start_ref)
         )
         pre_call_sources = []  # 之后只需 used_fingerprints（摘要）与本批实际使用的 text，显式释放原文引用
 
@@ -518,14 +536,14 @@ class EpisodePlanner:
         window_chars = self.window_chars
         content_mode = "drama" if project.get("content_mode") == "drama" else "narration"
         max_episodes = episodes_per_batch(self.generator.max_output_tokens, content_mode)
-        remaining_chars = len(text) - start
+        remaining_chars = limit - start
         # 窗口弹性：剩余全文不足 1.2 倍窗口时直接吃到底，避免下一批只剩孤儿残余
         # 被迫单独成集（畸小集的机械成因）。系数 1.2 换来的浮动幅度足够小，
         # 不会让常规批次显著超出窗口设置的预期体量。
-        window_end = len(text) if remaining_chars <= window_chars * 1.2 else start + window_chars
+        window_end = limit if remaining_chars <= window_chars * 1.2 else start + window_chars
         window = text[start:window_end]
-        window_is_final = window_end >= len(text)
-        window_reaches_end = window_is_final and _next_source_rel(source_order, source_rel) is None
+        window_is_final = window_end >= limit
+        window_reaches_end = window_is_final and (gap is not None or _next_source_rel(source_order, source_rel) is None)
         if on_more_to_plan is not None and not window_reaches_end:
             await on_more_to_plan()
         draft_model: type[NarrationPlanDraft | DramaPlanDraft] = (
@@ -539,7 +557,7 @@ class EpisodePlanner:
         if planning_instructions:
             progress = _PlanningProgress(
                 planned_count=_count_planned_episodes(project),
-                remaining_units=count_reading_units(text[start:], language) + later_units,
+                remaining_units=count_reading_units(text[start:limit], language) + later_units,
                 window_units=count_reading_units(window, language),
             )
 
@@ -552,9 +570,10 @@ class EpisodePlanner:
                 source_kind=source_kind,
                 window=window,
                 window_is_final=window_is_final,
+                followed_by_episode=gap is not None and window_is_final,
                 max_episodes=max_episodes,
                 content_mode=content_mode,
-                context_entries=_context_entries(project),
+                context_entries=context_entries,
                 instructions=planning_instructions,
                 progress=progress,
                 failure=failure,
@@ -584,7 +603,10 @@ class EpisodePlanner:
             self._check_source_ranges(p)
             current_sources = discover_sources(self.project_path, p)
             self._check_source_fingerprints(p, sources=current_sources)
-            if self._effective_start(p, current_sources) != start_ref:
+            locked_start = (
+                self._effective_start(p, current_sources) if gap is None else _gap_start(p, current_sources, gap)
+            )
+            if locked_start != start_ref:
                 raise PlanningConflictError("规划期间账本进度被并发修改，本次结果作废；请重新调用规划")
             # 指纹比对只覆盖「已记录」的文件，存量项目补记路径上恒为空；而切分坐标与派生
             # 文件都基于本次调用读入的 used_fingerprints，故直接比指纹堵住补记路径裸露的窗口——
@@ -594,15 +616,22 @@ class EpisodePlanner:
             if changed:
                 raise _source_changed_error(changed)
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
-            # 新集一律分配历史最高号之后的集 ID，紧接在最后一个切出集之后（没有切出集时排在末尾）
-            insert_at = next(
-                (
-                    index + 1
-                    for index in range(len(episodes_list) - 1, -1, -1)
-                    if isinstance(episodes_list[index], Mapping) and is_cut_episode(episodes_list[index])
-                ),
-                len(episodes_list),
-            )
+            # 新集一律分配历史最高号之后的集 ID，紧接在最后一个切出集之后（没有切出集时排在末尾）；
+            # 规划空段时按源文位置插在空段两侧的切出集之间
+            if gap is None:
+                insert_at = next(
+                    (
+                        index + 1
+                        for index in range(len(episodes_list) - 1, -1, -1)
+                        if isinstance(episodes_list[index], Mapping) and is_cut_episode(episodes_list[index])
+                    ),
+                    len(episodes_list),
+                )
+            else:
+                file_index = next(i for i, doc in enumerate(current_sources) if doc.rel_path == source_rel)
+                insert_at = cut_insert_index(
+                    episodes_list, cut_episode_placements(p, current_sources), (file_index, start)
+                )
             new_entries: list[dict[str, Any]] = []
             new_ids = allocate_episode_ids(p, len(drafts))
             if new_ids != protected_ids:
@@ -641,8 +670,8 @@ class EpisodePlanner:
             committed["cursor"] = {"source_file": source_rel, "offset": start + ends[-1]}
             committed["exhausted"] = (
                 window_is_final
-                and not text[start + ends[-1] :].strip()
-                and _next_source_rel(source_order, source_rel) is None
+                and not text[start + ends[-1] : limit].strip()
+                and (gap is not None or _next_source_rel(source_order, source_rel) is None)
             )
 
         existing_derived = set(discover_episode_files(self.project_path).values())
@@ -970,6 +999,35 @@ def _next_source_rel(source_order: list[str], rel: str) -> str | None:
     return source_order[index + 1] if index + 1 < len(source_order) else None
 
 
+def _gap_start(project: Mapping[str, Any], sources: list[SourceDoc], gap: tuple[str, int]) -> tuple[str, int]:
+    """以 ``gap`` 为终点的那段未切分原文的起点；它已不是未切分的原文时拒绝。"""
+    rel, end = gap
+    index = next((i for i, doc in enumerate(sources) if doc.rel_path == rel), None)
+    if index is None:
+        raise EpisodePlanningError(f"整本源文里没有这个可读的文件：{rel}")
+    if not 0 < end <= len(sources[index].text):
+        raise EpisodePlanningError(f"未切分原文的终点越界：{rel} 长度 {len(sources[index].text)}，终点 {end}")
+    found = unsplit_range_ending_at(cut_episode_placements(project, sources), file_index=index, end=end)
+    if found is None:
+        raise EpisodePlanningError("这段原文已经切成集，不再是未切分的原文；请刷新后重试")
+    return rel, found[0]
+
+
+def _gap_context_entries(
+    project: Mapping[str, Any], sources: list[SourceDoc], start_ref: tuple[str, int]
+) -> list[dict[str, Any]]:
+    """规划空段时的续写上下文：按源文位置排在空段之前的末尾若干个切出集。"""
+    placements = cut_episode_placements(project, sources)
+    index = next(i for i, doc in enumerate(sources) if doc.rel_path == start_ref[0])
+    before = sorted((p for p in placements.values() if p.position < (index, start_ref[1])), key=lambda p: p.position)
+    by_id = {
+        parse_episode_num(entry.get("episode")): entry
+        for entry in project.get("episodes") or []
+        if isinstance(entry, dict)
+    }
+    return [by_id[p.episode] for p in before[-_CONTEXT_EPISODES_LIMIT:] if p.episode in by_id]
+
+
 def _count_planned_episodes(project: Mapping[str, Any]) -> int:
     """账本现算已切出的集数（含全部 ledger_status），供全局进度提示使用；其他来源的集不计。"""
     return sum(
@@ -1003,6 +1061,7 @@ def _build_planning_prompt(
     window: str,
     window_is_final: bool,
     max_episodes: int | None,
+    followed_by_episode: bool = False,
     content_mode: str,
     context_entries: list[dict[str, Any]],
     instructions: str | None,
@@ -1043,6 +1102,7 @@ def _build_planning_prompt(
         instructions=instructions or None,
         progress=None if progress is None else asdict(progress),
         window_is_final=window_is_final,
+        followed_by_episode=followed_by_episode,
         failure=failure or None,
         window=window,
     )

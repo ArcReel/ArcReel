@@ -522,7 +522,7 @@ async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_
         async def create(cls, _project_path):
             return cls()
 
-        async def plan(self, instructions=None):
+        async def plan(self, instructions=None, gap=None):
             assert instructions == "按章节"
             return PlanResult(
                 episodes=[
@@ -545,7 +545,7 @@ async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_
     assert result["episodes"][0]["last_sentence"] == "最后一句。"
 
     class FailingPlanner(Planner):
-        async def plan(self, instructions=None):
+        async def plan(self, instructions=None, gap=None):
             raise EpisodePlanningError("invalid source window")
 
     with pytest.raises(RuntimeError) as raised:
@@ -589,7 +589,7 @@ async def test_queued_plan_failure_carries_the_way_out(
         async def create(cls, _project_path):
             return cls()
 
-        async def plan(self, instructions=None):
+        async def plan(self, instructions=None, gap=None):
             raise failure
 
     task = {"task_id": "task-plan", "project_name": "planning", "task_type": "text_episode_plan", "payload": {}}

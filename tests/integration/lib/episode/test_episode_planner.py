@@ -1880,3 +1880,101 @@ class TestReconcileFailFast:
             planner._reconcile_derived_files(project, {})
 
         assert outside.read_text(encoding="utf-8") == "外部文件"  # 链接目标未被覆写
+
+
+class TestPlanGap:
+    """规划这段未切分的原文：删掉中间一个切出集留下的空段，以空段结尾为终点，不替换任何集。"""
+
+    @staticmethod
+    def _gap_project(tmp_path: Path) -> Path:
+        """第 1、3 集在，中间第 2 集被删，[a, b) 是空段；第 9 集是自带原文的集，排在两集之间。"""
+        a, b = _end_of(ANCHOR_EP1), _end_of(ANCHOR_EP2)
+        own = {"episode": 9, "title": "番外", "script_file": "scripts/episode_9.json", "source_origin": "own"}
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, a), own, _entry(3, b, len(SOURCE))],
+            extra={"episode_id_high_water": 9},
+        )
+        (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:a], encoding="utf-8")
+        (project_dir / "source" / "episode_3.txt").write_text(SOURCE[b:], encoding="utf-8")
+        (project_dir / "source" / "episode_9.txt").write_text("番外原文。", encoding="utf-8")
+        return project_dir
+
+    async def test_gap_is_planned_up_to_its_end_and_inserted_by_source_position(self, tmp_path: Path):
+        project_dir = self._gap_project(tmp_path)
+        a, b = _end_of(ANCHOR_EP1), _end_of(ANCHOR_EP2)
+        # 锚点取在空段中间，剩下的空白之外原文贴齐空段结尾
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "辞别", "hook": "钩", "end_anchor": "踏上去往青云城的路。"},
+                        {"title": "遇袭", "hook": "钩", "end_anchor": ANCHOR_EP2},
+                    ]
+                )
+            ]
+        )
+        more = []
+
+        async def _more() -> None:
+            more.append(True)
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan(
+            gap=("source/novel.txt", b), on_more_to_plan=_more
+        )
+
+        eps = _load_project(project_dir)["episodes"]
+        assert [e["episode"] for e in eps] == [1, 10, 11, 9, 3]
+        mid = _end_of("踏上去往青云城的路。")
+        assert eps[1]["source_range"] == {"source_file": "source/novel.txt", "start": a, "end": mid}
+        assert eps[2]["source_range"] == {"source_file": "source/novel.txt", "start": mid, "end": b}
+        assert (project_dir / "source" / "episode_11.txt").read_text(encoding="utf-8") == SOURCE[mid:b]
+        # 第 3 集原样保留
+        assert eps[4] == _entry(3, b, len(SOURCE))
+        assert result.source_exhausted is True
+        assert more == []
+        prompt = fake.requests[0].prompt
+        assert SOURCE[a:b] in prompt
+        assert SOURCE[b:] not in prompt
+        assert "之后紧接着已经规划好的下一集" in prompt
+
+    async def test_gap_before_the_first_cut_episode_goes_before_it(self, tmp_path: Path):
+        a = _end_of(ANCHOR_EP1)
+        project_dir = _write_project(tmp_path, episodes=[_entry(5, a, len(SOURCE))], extra={"episode_id_high_water": 5})
+        (project_dir / "source" / "episode_5.txt").write_text(SOURCE[a:], encoding="utf-8")
+        fake = _FakeTextGenerator([_plan_response([{"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1}])])
+
+        await EpisodePlanner(project_dir, generator=fake).plan(gap=("source/novel.txt", a))
+
+        eps = _load_project(project_dir)["episodes"]
+        assert [e["episode"] for e in eps] == [6, 5]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": a}
+
+    async def test_gap_that_is_no_longer_unsplit_is_rejected(self, tmp_path: Path):
+        project_dir = _planned_three(tmp_path)
+        before = (project_dir / "project.json").read_text(encoding="utf-8")
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError):
+            await EpisodePlanner(project_dir, generator=fake).plan(gap=("source/novel.txt", _end_of(ANCHOR_EP2) - 2))
+
+        assert fake.requests == []
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+
+    async def test_a_large_gap_queues_the_next_window(self, tmp_path: Path):
+        project_dir = self._gap_project(tmp_path)
+        b = _end_of(ANCHOR_EP2)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "辞别", "hook": "钩", "end_anchor": "踏上去往青云城的路。"}])]
+        )
+        more = []
+
+        async def _more() -> None:
+            more.append(True)
+
+        planner = EpisodePlanner(project_dir, generator=fake, window_chars=30)
+        result = await planner.plan(gap=("source/novel.txt", b), on_more_to_plan=_more)
+
+        assert more == [True]
+        assert result.source_exhausted is False
+        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 10, 9, 3]

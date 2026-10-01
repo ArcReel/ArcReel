@@ -22,7 +22,8 @@ slots:
   context_entries: 已规划末尾若干集，键齐全的对象列表 {episode, title, hook}，标题缺失时 title 为 null；无时传空列表
   instructions: 附加指令正文；无时传 null
   progress: 全局进度，键齐全的对象 {planned_count, remaining_units, window_units}；仅在有附加指令时传入，否则传 null
-  window_is_final: 本窗口是否已含全文结尾
+  window_is_final: 本窗口是否已含全文结尾（规划一段未切分的原文时，是否已含这段原文的结尾）
+  followed_by_episode: 本窗口结尾之后紧接着已规划的集（规划一段未切分的原文且本窗口已含其结尾时为 true）
   failure: 上一轮输出未通过校验的原因列表；首轮传 null
   window: 本批源文窗口正文
 protected: false
@@ -70,7 +71,9 @@ protected: false
 {{ variant("text/episode_plan/author_division_rule", source_kind) }}
 {{ variant("text/episode_plan/outline_rule", content_mode) }}
 - 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。
-{% if window_is_final %}
+{% if window_is_final and followed_by_episode %}
+- 这段原文之后紧接着已经规划好的下一集：请规划到这段原文的结尾，最后一集的 end_anchor 取这段原文结尾处的片段，不要留尾巴。
+{% elif window_is_final %}
 - 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。
 {% else %}
 - 这段原文只是全文的一个窗口：窗口尾部剧情弧不完整的内容不要硬凑成集，留给下一批规划即可。

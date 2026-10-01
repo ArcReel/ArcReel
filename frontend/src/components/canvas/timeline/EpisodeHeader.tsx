@@ -1,10 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
+import { EpisodeDeleteButton } from "@/components/canvas/episodes/EpisodeDeleteButton";
 import type { EpisodeMeta } from "@/types";
 import type { EpisodeCost } from "@/types";
 import { totalBreakdown, currentScriptBreakdown, formatCost } from "@/utils/cost-format";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
-import { episodePosition } from "@/utils/episode-display";
+import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
 interface EpisodeHeaderProps {
   ep: EpisodeMeta;
@@ -27,7 +28,8 @@ export function EpisodeHeader({
   canEditTitle,
 }: EpisodeHeaderProps) {
   const { t } = useTranslation("dashboard");
-  const position = episodePosition(useEpisodeLedger(), ep.episode);
+  const ledger = useEpisodeLedger();
+  const position = episodePosition(ledger, ep.episode);
   const isActive = ep.status === "in_production";
   // 进度与剧集卡同口径：视频产物的可用数 / 总数（可用 = current ∪ stale）。
   const progress =
@@ -92,9 +94,11 @@ export function EpisodeHeader({
               </span>
             </>
           )}
+          <EpisodeDeleteButton episode={ep.episode} />
         </div>
         <EditableEpisodeTitle
           title={ep.title}
+          placeholder={episodeDisplayName(ledger, ep.episode, t)}
           canEdit={Boolean(canEditTitle && onSaveTitle)}
           onSave={onSaveTitle ?? (async () => {})}
           headingClassName="display-serif m-0 truncate text-[26px] font-medium"

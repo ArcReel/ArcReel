@@ -14,7 +14,10 @@ import { SourceManuscript } from "./SourceManuscript";
 import { SourceUploadDialog } from "./SourceUploadDialog";
 import { ManualSplitToolbar, caretColor } from "./ManualSplitToolbar";
 import { useManualSplit } from "./useManualSplit";
+import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
+import { useDeleteEpisode } from "./useDeleteEpisode";
 import {
+  EPISODES_VIEW_CREATE_PARAM,
   EPISODES_VIEW_EPISODE_PARAM,
   EPISODES_VIEW_UPLOAD_PARAM,
   episodesViewPath,
@@ -30,15 +33,19 @@ function scrollIntoViewTop(el: HTMLElement | undefined) {
 }
 
 /** 解析地址上的打开请求；没有可识别的参数时返回 null。 */
-function parseViewRequest(search: string): { upload: SourceUploadMode | null; episode: number | null } | null {
+function parseViewRequest(
+  search: string,
+): { upload: SourceUploadMode | null; episode: number | null; create: boolean } | null {
   const params = new URLSearchParams(search);
   const uploadParam = params.get(EPISODES_VIEW_UPLOAD_PARAM);
   const episodeParam = params.get(EPISODES_VIEW_EPISODE_PARAM);
-  if (uploadParam === null && episodeParam === null) return null;
+  const create = params.get(EPISODES_VIEW_CREATE_PARAM) !== null;
+  if (uploadParam === null && episodeParam === null && !create) return null;
   const episode = Number(episodeParam);
   return {
     upload: uploadParam === "whole_source" || uploadParam === "episode" ? uploadParam : null,
     episode: episodeParam !== null && Number.isInteger(episode) && episode > 0 ? episode : null,
+    create,
   };
 }
 
@@ -74,7 +81,8 @@ function useEpisodesViewData(projectName: string) {
 /**
  * 项目层「分集」视图：左栏是整本源文全文、按集分段，右栏是上传、源文进度与集清单。
  *
- * 查询参数 `upload=whole_source|episode` 打开上传对话框，`episode=<集 ID>` 选中这一集并滚动到它。
+ * 查询参数 `upload=whole_source|episode` 打开上传对话框，`episode=<集 ID>` 选中这一集并滚动到它，
+ * `create` 打开新建一集对话框。
  */
 export function EpisodesView({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
@@ -83,6 +91,11 @@ export function EpisodesView({ projectName }: { projectName: string }) {
   const [, setLocation] = useLocation();
   const [selected, setSelected] = useState<number | null>(null);
   const [upload, setUpload] = useState<SourceUploadMode | null>(null);
+  /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
+  const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
+  const deletion = useDeleteEpisode(projectName, (episode) => {
+    if (selected === episode) setSelected(null);
+  });
   const episodeHeaders = useRef(new Map<number, HTMLElement>());
   const fileBars = useRef(new Map<string, HTMLElement>());
 
@@ -108,6 +121,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
   if (request !== null && search !== consumedSearch) {
     setConsumedSearch(search);
     if (request.upload !== null) setUpload(request.upload);
+    if (request.create) setCreateAfter(null);
     if (request.episode !== null) {
       setSelected(request.episode);
       setScrollTarget({ episode: request.episode });
@@ -204,11 +218,26 @@ export function EpisodesView({ projectName }: { projectName: string }) {
           splitBusy={split.busy}
           onMergeWithNext={split.mergeWithNext}
           onClearAfter={split.clearAfter}
+          onCreate={setCreateAfter}
+          onDelete={(episode) => void deletion.requestDelete(episode)}
         />
       </aside>
       {upload !== null ? (
         <SourceUploadDialog projectName={projectName} initialMode={upload} onClose={() => setUpload(null)} />
       ) : null}
+      {createAfter !== undefined ? (
+        <CreateEpisodeDialog
+          projectName={projectName}
+          initialAfter={createAfter}
+          onClose={() => setCreateAfter(undefined)}
+          onCreated={(episode) => {
+            setCreateAfter(undefined);
+            setSelected(episode);
+            reload();
+          }}
+        />
+      ) : null}
+      {deletion.dialog}
       {split.dialog}
     </div>
   );

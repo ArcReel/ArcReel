@@ -30,11 +30,21 @@ from server.tool_runtime import (
 router = APIRouter()
 
 
+class PlanningGap(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_file: str
+    end: Annotated[int, Field(gt=0)]
+
+
 class EpisodePlanningRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instructions: Annotated[str, Field(max_length=MAX_INSTRUCTIONS_LEN)] | None = Field(
         default=None, description="附加指令原文；空白视同未传"
+    )
+    gap: PlanningGap | None = Field(
+        default=None, description="只规划以这一点为终点的那段未切分原文；缺省时从规划起点规划到整本源文结尾"
     )
 
 
@@ -61,10 +71,17 @@ def _context(project_name: str, user_id: str) -> tuple[ProjectScope, CallerConte
 
 @router.post("/projects/{project_name}/episode-planning")
 async def plan_episodes_to_end(project_name: str, req: EpisodePlanningRequest, user: CurrentUser, _t: Translator):
-    """提交 AI 分集规划，从规划起点逐窗规划到整本源文结尾，返回首窗的生成批次。"""
+    """提交 AI 分集规划，从规划起点逐窗规划到整本源文结尾，返回首窗的生成批次。
+
+    带 ``gap`` 时是「规划这段未切分的原文」：只规划到这段原文的结尾，新集按源文位置插入。
+    """
     scope, caller, services = _context(project_name, user.id)
     outcome = await start_episode_planning(
-        ToolRequest(PlanEpisodesRequest(instructions=req.instructions)), scope, caller, services
+        ToolRequest(PlanEpisodesRequest(instructions=req.instructions)),
+        scope,
+        caller,
+        services,
+        gap=None if req.gap is None else (req.gap.source_file, req.gap.end),
     )
     if outcome.problem is not None:
         _raise_problem(outcome.problem, _t)

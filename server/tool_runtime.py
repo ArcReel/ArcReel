@@ -2360,9 +2360,11 @@ def _render_ledger_stats(stats: LedgerStats, project: Mapping[str, Any]) -> list
     return lines
 
 
-def _format_plan(result: PlanResult, project: Mapping[str, Any]) -> str:
+def _format_plan(result: PlanResult, project: Mapping[str, Any], *, gap: bool = False) -> str:
+    # 规划未切分的空段时，``source_exhausted`` 只表示这段原文规划完了，整本源文后面可能还有未规划的原文
+    done = "这段未切分的原文已全部规划完毕" if gap else "源文已全部规划完毕"
     if not result.episodes and result.source_exhausted:
-        lines = ["源文已全部规划完毕，没有可规划的新内容。"]
+        lines = [f"{done}，没有可规划的新内容。"]
         if result.ledger_stats is not None:
             lines += _render_ledger_stats(result.ledger_stats, project)
         return "\n".join(lines)
@@ -2376,7 +2378,7 @@ def _format_plan(result: PlanResult, project: Mapping[str, Any]) -> str:
         lines.append(f"  首句：{episode.first_sentence}")
         lines.append(f"  尾句：{episode.last_sentence}")
     if result.source_exhausted:
-        lines.append("源文已全部规划完毕。")
+        lines.append(f"{done}。")
     elif result.cursor:
         lines.append(f"下一批规划起点：{result.cursor.get('source_file')} 偏移 {result.cursor.get('offset')}")
     if result.ledger_stats is not None:
@@ -2424,16 +2426,17 @@ async def _execute_plan_episodes(
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
     chain: _PlanningChain | None = None,
+    gap: tuple[str, int] | None = None,
 ) -> ToolOutcome[Any]:
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     try:
         planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
         if chain is None:
-            result = await planner.plan(instructions=request.value.instructions)
+            result = await planner.plan(instructions=request.value.instructions, gap=gap)
         else:
             result = await planner.plan(
-                instructions=request.value.instructions, on_more_to_plan=chain.queue_next_window
+                instructions=request.value.instructions, on_more_to_plan=chain.queue_next_window, gap=gap
             )
     except PlanningOutputTruncatedError as exc:
         return ToolOutcome(
@@ -2459,7 +2462,7 @@ async def _execute_plan_episodes(
         return ToolOutcome(problem=_unexpected("plan_episodes", exc))
     project = services.projects.load_project(scope.project_name)
     value = PlanEpisodesResult(
-        message=_format_plan(result, project),
+        message=_format_plan(result, project, gap=gap is not None),
         episodes=[
             {
                 "episode_id": episode.episode,
@@ -2533,24 +2536,42 @@ async def start_episode_planning(
     scope: ProjectScope,
     caller: CallerContext,
     services: Services,
+    *,
+    gap: tuple[str, int] | None = None,
 ) -> ToolOutcome[Any]:
     """「AI 规划分集」：从规划起点逐窗规划到整本源文结尾，每一窗是一个排队的文本任务。
 
     已完成的窗口各自提交，停止（:func:`stop_episode_planning`）或某一窗失败后，已切出的集保留；再次调用
     从账本推导的规划起点继续。附加指令随每一窗的任务载荷传递，不写进项目。
+
+    ``gap`` 是一段未切分原文的终点 ``(源文件, 偏移)``：「规划这段未切分的原文」只逐窗规划到这段原文的结尾，
+    新集按源文位置插入，不替换任何集。
     """
     if problem := await _plan_episodes_gate(scope, services):
         return ToolOutcome(problem=problem)
+    payload: dict[str, Any] = {**request.value.model_dump(mode="json"), "continue_to_end": True}
+    if gap is not None:
+        payload["gap"] = {"source_file": gap[0], "end": gap[1]}
     return await _submit_text_task(
         task_type=_TEXT_EPISODE_PLAN,
         operation="plan_episodes",
         unit_id=EPISODE_PLANNING_SLOT,
-        payload={**request.value.model_dump(mode="json"), "continue_to_end": True},
+        payload=payload,
         scope=scope,
         caller=caller,
         services=services,
         conflict_resource_ids=EPISODE_PLANNING_SLOTS,
     )
+
+
+def _planning_gap(raw: object) -> tuple[str, int] | None:
+    """任务载荷里的空段终点；缺省或形状不对时按整本规划处理。"""
+    if not isinstance(raw, Mapping):
+        return None
+    source_file, end = raw.get("source_file"), raw.get("end")
+    if isinstance(source_file, str) and isinstance(end, int) and not isinstance(end, bool):
+        return source_file, end
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2622,6 +2643,7 @@ async def execute_queued_text_task(
             services,
             planner_cls=planner_cls,
             chain=_PlanningChain(task=task, services=services) if payload.get("continue_to_end") else None,
+            gap=_planning_gap(payload.get("gap")),
         )
     else:
         request = TextGenerationRequest(

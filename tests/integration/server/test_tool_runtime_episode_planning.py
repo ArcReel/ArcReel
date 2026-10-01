@@ -15,6 +15,7 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.task import Task
+from lib.episode.episode_deletion import EpisodeDeletionConfirmationRequired, delete_episode
 from lib.episode.episode_planner import EpisodePlanner
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
@@ -233,3 +234,35 @@ async def test_a_running_web_planning_refuses_another_planning_request(
     assert web_again.problem.code == "generation_active_task_conflict"
     assert agent.problem is not None
     assert agent.problem.code == "generation_active_task_conflict"
+
+
+async def test_the_gap_left_by_a_deleted_middle_episode_is_planned_back(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    middle = projects.load_project("planning")["episodes"][1]
+    preview = delete_episode(projects, "planning", middle["episode"])
+    assert isinstance(preview, EpisodeDeletionConfirmationRequired)
+    delete_episode(projects, "planning", middle["episode"], revision=preview.impact.revision)
+
+    # 一键规划不回填空段：账本推导的规划起点仍在结尾
+    again = await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    assert again.problem is None
+    await _wait_until_idle(session_factory)
+    assert _titles(projects) == ["第1集", "第3集"]
+
+    gap_end = middle["source_range"]["end"]
+    outcome = await start_episode_planning(
+        ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services, gap=("source/novel.txt", gap_end)
+    )
+
+    assert outcome.problem is None
+    tasks = await _wait_until_idle(session_factory)
+    episodes = projects.load_project("planning")["episodes"]
+    assert [episode["title"] for episode in episodes] == ["第1集", "第2集", "第3集"]
+    assert episodes[1]["source_range"] == middle["source_range"]
+    assert episodes[1]["episode"] > middle["episode"]
+    assert "这段未切分的原文已全部规划完毕" in (tasks[-1].result_json or "")

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
-import { ArrowUpRight, Combine, FileText, ListX, Upload } from "lucide-react";
+import { ArrowUpRight, Combine, FilePlus, FileText, ListX, Plus, Trash2, Upload } from "lucide-react";
 
 import { EPISODE_PLANNING_SLOTS } from "@/actions/generation";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
@@ -14,6 +14,7 @@ import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode } from "@/types";
 import { episodePosition } from "@/utils/episode-display";
 
 import { EpisodePlanningPanel } from "./EpisodePlanningPanel";
+import { PlanGapButton } from "./PlanGapButton";
 import { ReplannedBadge } from "./ReplannedBadge";
 import { cutEpisodeActions } from "./manual-split-model";
 import { UnregisteredFilesPanel } from "./UnregisteredFilesPanel";
@@ -39,6 +40,15 @@ interface EpisodesRailProps {
   splitBusy: boolean;
   onMergeWithNext: (episode: number) => void;
   onClearAfter: (episode: number) => void;
+  /** 新建一集：插在这一集之后，null 放在末尾。 */
+  onCreate: (after: number | null) => void;
+  onDelete: (episode: number) => void;
+}
+
+/** 选中一集后就地展开的集管理操作。 */
+interface EpisodeActions {
+  onCreate: (after: number | null) => void;
+  onDelete: (episode: number) => void;
 }
 
 /** 选中切出集后就地展开的单集操作。 */
@@ -81,8 +91,11 @@ export function EpisodesRail({
   splitBusy,
   onMergeWithNext,
   onClearAfter,
+  onCreate,
+  onDelete,
 }: EpisodesRailProps) {
   const cutActions: CutActions = { busy: splitBusy, onMergeWithNext, onClearAfter };
+  const episodeActions: EpisodeActions = { onCreate, onDelete };
   const { t } = useTranslation(["dashboard", "common"]);
   const groups = railFileGroups(view, episodes);
   const others = otherEpisodes(view, episodes);
@@ -103,6 +116,10 @@ export function EpisodesRail({
           {t("dashboard:episodes_view_episode_count", { count: episodes.length })}
         </span>
         <span className="flex-1" />
+        <button type="button" className={GHOST_BTN_CLS} onClick={() => onCreate(null)}>
+          <FilePlus className="h-3.5 w-3.5" aria-hidden />
+          {t("dashboard:episode_create_title")}
+        </button>
         <PrimaryButton size="sm" onClick={onUpload} leadingIcon={<Upload className="h-3.5 w-3.5" aria-hidden />}>
           {t("dashboard:source_upload_title")}
         </PrimaryButton>
@@ -165,6 +182,7 @@ export function EpisodesRail({
                       fresh={row.kind === "episode" && fresh.has(row.episode.episode)}
                       onSelect={onSelect}
                       cutActions={cutActions}
+                      episodeActions={episodeActions}
                     />
                   </li>
                 ))}
@@ -191,6 +209,7 @@ export function EpisodesRail({
                   episodes={episodes}
                   selected={selected === episode.episode}
                   onSelect={onSelect}
+                  episodeActions={episodeActions}
                   origin
                 />
               </li>
@@ -219,6 +238,7 @@ function RailRowView({
   fresh,
   onSelect,
   cutActions,
+  episodeActions,
 }: {
   row: RailRow;
   view: EpisodesView;
@@ -227,15 +247,17 @@ function RailRowView({
   fresh: boolean;
   onSelect: (episode: number) => void;
   cutActions: CutActions;
+  episodeActions: EpisodeActions;
 }) {
   const { t } = useTranslation("dashboard");
   if (row.kind === "gap") {
     return (
       <div
-        className="rounded-md px-2.5 py-1.5 text-[11.5px] text-text-4"
+        className="space-y-1.5 rounded-md px-2.5 py-1.5 text-[11.5px] text-text-4"
         style={{ border: "1px dashed var(--color-accent-soft)" }}
       >
-        {t("episodes_view_gap_row", { volume: formatVolume(t, row.units, view.unit) })}
+        <p>{t("episodes_view_gap_row", { volume: formatVolume(t, row.units, view.unit) })}</p>
+        <PlanGapButton sourceFile={row.sourceFile} end={row.end} />
       </div>
     );
   }
@@ -249,6 +271,7 @@ function RailRowView({
       fresh={fresh}
       onSelect={onSelect}
       cutActions={cutActions}
+      episodeActions={episodeActions}
     />
   );
 }
@@ -263,6 +286,7 @@ function EpisodeCard({
   onSelect,
   origin = false,
   cutActions,
+  episodeActions,
 }: {
   episode: EpisodeMeta;
   info: EpisodesViewEpisode | null;
@@ -274,6 +298,7 @@ function EpisodeCard({
   onSelect: (episode: number) => void;
   origin?: boolean;
   cutActions?: CutActions;
+  episodeActions: EpisodeActions;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, setLocation] = useLocation();
@@ -347,6 +372,20 @@ function EpisodeCard({
             <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
             {t("dashboard:episodes_view_open_episode")}
           </button>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" className={GHOST_BTN_CLS} onClick={() => episodeActions.onCreate(id)}>
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              {t("dashboard:episode_menu_create_after")}
+            </button>
+            <button
+              type="button"
+              className={`${GHOST_BTN_CLS} hover:!text-[var(--color-warm)]`}
+              onClick={() => episodeActions.onDelete(id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              {t("dashboard:episode_menu_delete")}
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

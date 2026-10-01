@@ -116,7 +116,10 @@ import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
 import type {
   AdoptSourceFileTarget,
+  CreateEpisodeBody,
+  EpisodeDeletionResponse,
   EpisodePlanningResponse,
+  PlanningGap,
   EpisodeSourceWriteResult,
   EpisodesView,
   ManualSplitAction,
@@ -1730,10 +1733,45 @@ class API {
    * AI 规划分集：从规划起点逐窗规划到整本源文结尾，每一窗是一个排队的文本任务；提交即返首窗的生成批次。
    * 已有进行中的分集规划时 409，没有整本源文等准入不成立时 422。附加指令不写进项目。
    */
-  static async planEpisodes(projectName: string, instructions: string | null): Promise<EpisodePlanningResponse> {
+  static async planEpisodes(
+    projectName: string,
+    instructions: string | null,
+    gap: PlanningGap | null = null
+  ): Promise<EpisodePlanningResponse> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/episode-planning`, {
       method: "POST",
-      body: JSON.stringify({ instructions }),
+      body: JSON.stringify(gap === null ? { instructions } : { instructions, gap }),
+    });
+  }
+
+  /** 新建一集：插在 `after` 之后，缺省放在播出顺序末尾；带原文时是自带原文的集。返回新集 ID。 */
+  static async createEpisode(projectName: string, body: CreateEpisodeBody): Promise<{ episode: number }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** 调整播出顺序：把这一集移到 `after` 之后，`after` 为 null 时移到最前。切出集之间违背源文顺序时 409。 */
+  static async moveEpisode(projectName: string, episode: number, after: number | null): Promise<void> {
+    await this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/move`, {
+      method: "POST",
+      body: JSON.stringify({ after }),
+    });
+  }
+
+  /**
+   * 删除一集。不带 `revision` 时只返回服务端成文的丢失清单；带上清单的 `revision` 才删除，
+   * 清单在两次调用之间变了时再次返回确认。
+   */
+  static async deleteEpisode(
+    projectName: string,
+    episode: number,
+    revision: string | null = null
+  ): Promise<EpisodeDeletionResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/delete`, {
+      method: "POST",
+      body: JSON.stringify({ revision }),
     });
   }
 

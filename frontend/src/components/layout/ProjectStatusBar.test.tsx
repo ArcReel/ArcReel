@@ -187,9 +187,23 @@ describe("ProjectStatusBar", () => {
       "请为整本源文规划分集，一直规划到源文结尾。\n附加指令：每集 90 秒",
     );
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
-    expect(screen.getByRole("button", { name: "交给 Agent 新建一集" })).toBeInTheDocument();
     // 只预填不发送
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("opens the create-episode dialog in the episodes view as the alternative to planning", async () => {
+    setProject({ ...SUMMARY, episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 } }, []);
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(
+      workflowStatus(action("plan_episodes"), {
+        next_alternatives: [action("create_episode")],
+      }),
+    );
+    const location = renderBar();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /AI 分集规划/ }));
+    await user.click(screen.getByRole("button", { name: "新建一集" }));
+    expect(location.history?.at(-1)).toBe("/episodes?create=1");
   });
 
   it("shows short-film progress without an episode list for ad projects", () => {

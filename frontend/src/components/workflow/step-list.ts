@@ -621,6 +621,16 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
   const alternatives = plan.next_alternatives.flatMap((alt): StepAct[] => {
     if (alt.type === "provide_episode_source" && !facts.isAd) return [provideSourceAct(t)];
     if (alt.type === "start_blank_script") return [blankScriptAct(t)];
+    if (alt.type === "create_episode") {
+      return [
+        {
+          key: "create-episode",
+          label: t("workflow:action_create_episode"),
+          kind: "nav",
+          intent: { type: "route", path: episodesViewPath({ create: true }) },
+        },
+      ];
+    }
     return [];
   });
 

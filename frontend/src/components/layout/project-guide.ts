@@ -42,11 +42,7 @@ function episodeIdArg(action: WorkflowNextAction): number | null {
 
 function alternativeButton(t: TFunction, action: WorkflowNextAction): GuideButton | null {
   if (action.type === "create_episode") {
-    return {
-      kind: "agent",
-      label: t("dashboard:guide_alt_create_episode"),
-      prefill: t("dashboard:guide_prefill_create_episode"),
-    };
+    return { kind: "nav", label: t("dashboard:guide_alt_create_episode"), to: episodesViewPath({ create: true }) };
   }
   if (action.type === "none") return null;
   return {

@@ -66,6 +66,7 @@ from server.routers import (
     edit_timelines,
     end_frames,
     episode_drafts,
+    episode_management,
     episode_planning,
     episodes_view,
     files,
@@ -619,6 +620,9 @@ app.include_router(
 )
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
 app.include_router(episodes_view.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["分集视图"])
+app.include_router(
+    episode_management.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["集管理"]
+)
 app.include_router(
     generate.router,
     prefix="/api/v1",
