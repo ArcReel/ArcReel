@@ -59,9 +59,9 @@ async def _inspect(ctx: ToolHarness, arguments: dict[str, Any]) -> tuple[Any, To
 
 def _dominant(jpeg: bytes) -> str:
     """纯色素材的联系表里画面占绝大部分面积：按整张图的平均色判断画面是红还是蓝。"""
-    red, _green, blue = (
-        Image.open(io.BytesIO(jpeg)).convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
-    )  # type: ignore[misc]
+    pixel = Image.open(io.BytesIO(jpeg)).convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
+    assert isinstance(pixel, tuple)
+    red, _green, blue = pixel
     return "red" if red > blue else "blue"
 
 
