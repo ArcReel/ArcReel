@@ -560,6 +560,19 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         raise_for_status_redacted(resp)
         return resp.json()
 
+    async def _query_video_once(self, client: httpx.AsyncClient, video_id: str) -> dict:
+        """单次按 ``video_id`` 查询；重试由调用方选择内层装饰器或外层轮询统一承担。"""
+        params = {"video_id": video_id}
+        if _uses_v25_contract(self._model):
+            params["model_name"] = self._model
+        resp = await client.get(
+            f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
+            params=params,
+            headers=agnes_headers(self._api_key),
+        )
+        raise_for_status_redacted(resp)
+        return resp.json()
+
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,
         backoff_seconds=DEFAULT_BACKOFF_SECONDS,
@@ -580,16 +593,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         """
 
         async def fetch() -> dict:
-            params = {"video_id": video_id}
-            if _uses_v25_contract(self._model):
-                params["model_name"] = self._model
-            resp = await client.get(
-                f"{self._host}{_VIDEO_QUERY_ENDPOINT}",
-                params=params,
-                headers=agnes_headers(self._api_key),
-            )
-            raise_for_status_redacted(resp)
-            return resp.json()
+            return await self._query_video_once(client, video_id)
 
         if not record:
             return await fetch()
@@ -630,7 +634,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> VideoGenerationResult:
         async def poll_fn() -> dict:
             if _uses_v25_contract(self._model):
-                return await self._query_video(client, task_id, request, record=False)
+                return await self._query_video_once(client, task_id)
             return await self._poll_once(client, task_id)
 
         gated_poll = resume_expiry_gate(

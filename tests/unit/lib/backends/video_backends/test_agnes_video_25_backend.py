@@ -12,7 +12,11 @@ import httpx
 import pytest
 import respx
 
-from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
+from arcreel_market_core.video_backend_contract import (
+    ResumeExpiredError,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+)
 from lib.backends.video_backends.agnes import AgnesVideoBackend
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
@@ -186,6 +190,32 @@ class TestV25RequestBodies:
                 }
 
         assert result.duration_seconds == 12
+
+    async def test_transient_poll_error_uses_outer_retry(self, tmp_path: Path):
+        with _agnes_api() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_queued())
+            routes.query.mock(
+                side_effect=[
+                    _json({"error": "busy"}, status_code=503),
+                    _completed(),
+                ]
+            )
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4"))
+
+            result = await _backend().generate(_request(tmp_path))
+
+        assert routes.query.call_count == 2
+        assert result.duration_seconds == 4
+
+    async def test_resume_404_bypasses_inner_retry(self, tmp_path: Path):
+        with _agnes_api() as routes:
+            routes.query.mock(return_value=_json({"error": "not found"}, status_code=404))
+
+            with pytest.raises(ResumeExpiredError) as exc:
+                await _backend().resume_video("vid-404", _request(tmp_path))
+
+        assert exc.value.job_id == "vid-404"
+        assert routes.query.call_count == 1
 
 
 class TestV25PreSubmitValidation:
