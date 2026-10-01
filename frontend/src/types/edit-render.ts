@@ -4,7 +4,7 @@
  * 对应后端 server/routers/edit_timelines.py 的响应形态。
  */
 
-import type { EditTimelineIssue } from "./edit-timeline";
+import type { EditTimelineIssue, TimelineNarration } from "./edit-timeline";
 
 /** 产物相对于剪辑时间线的时效；stale 仍可下载。 */
 export type RenderArtifactStatus = "current" | "stale" | "missing" | "blocked";
@@ -28,24 +28,18 @@ interface RenderArtifactStatusBase {
 }
 
 export interface FinalCutStatus extends RenderArtifactStatusBase {
-  narration: string;
+  narration: TimelineNarration;
   subtitles: string;
   /** 只在文件存在时给出；走匿名媒体路由，可直接下载。 */
   download_url: string | null;
 }
 
 export interface JianyingDraftStatus extends RenderArtifactStatusBase {
-  narration: "without_narration" | "with_narration";
+  narration: TimelineNarration;
 }
 
 export interface RenderSubmission {
   task_id: string;
   deduped: boolean;
   artifact_path: string;
-}
-
-/** 新建剪辑时间线的响应只取出片入口用到的身份字段。 */
-export interface CreatedEditTimeline {
-  timeline: { id: string; name: string; episode: number };
-  revision: number;
 }

@@ -93,6 +93,8 @@ export default {
   'act_agent': 'Hand to Agent',
   'act_agent_edit': 'Hand to Agent to edit',
   'act_create_edit_timeline': 'New edit timeline',
+  'act_open_edit_view': 'Open edit view',
+  'act_go_render': 'Go to render',
   'act_agent_plan_script': 'Hand to Agent to plan the script',
   'act_author_prompts': 'AI write',
   'act_asset_batch_one': 'Generate {{count}} asset sheet',

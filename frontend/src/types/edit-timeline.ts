@@ -3,6 +3,9 @@
  * 时间一律以秒为单位，最多三位小数；绝对起点与时长由服务端算好。
  */
 
+/** 成片、剪映草稿与预览按带不带旁白分两个版本。 */
+export type TimelineNarration = "with_narration" | "without_narration";
+
 export type EditTimelineAuthorKind = "creator" | "arcreel_agent" | "external_agent";
 
 export interface EditTimelineAuthor {
@@ -138,6 +141,6 @@ export interface EditPreviewUnitMedia {
 export interface EditTimelinePreviewMedia {
   timeline_id: string;
   revision: number;
-  narration: "with_narration" | "without_narration";
+  narration: TimelineNarration;
   units: EditPreviewUnitMedia[];
 }

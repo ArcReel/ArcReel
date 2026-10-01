@@ -87,6 +87,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * 一个剪辑时间线某种交付物的出片状态：产物现状、提交与任务进度。
  *
  * 取消域是「项目 × 剪辑时间线 × 交付物」：任一变化或卸载时作废在途的读取与轮询。
+ * 调用方以这三者为 key 挂载使用方组件，切换时整体重新挂载，本地状态不跨交付物残留。
  * 读到产物现状后，若同一产物已有在途任务（如对话框关闭前提交的，或由 Agent 提交的），接着跟踪它。
  * 任务成功后补拉一次产物现状，失败时展示任务的失败原因。
  */
@@ -162,11 +163,6 @@ export function useRenderArtifact(
   useEffect(() => {
     const controller = new AbortController();
     scopeRef.current = controller;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换交付物或剪辑时间线时清掉上一份的现状与任务，是有意的状态重置
-    setArtifact(null);
-    setTask(null);
-    setSubmitError(null);
-    setSubmitting(false);
     void (async () => {
       const loaded = await load(controller.signal);
       if (loaded === null || controller.signal.aborted) return;

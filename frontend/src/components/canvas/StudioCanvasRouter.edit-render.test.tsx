@@ -7,6 +7,8 @@ import { episodeEditViewPath } from "@/app-routes";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useWorkflowStore } from "@/stores/workflow-store";
+import { makePlan, makeStatus } from "@/test/factories";
 import type { EpisodeScript, ProjectData } from "@/types";
 import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 
@@ -117,6 +119,7 @@ describe("StudioCanvasRouter edit view mounts", () => {
   beforeEach(() => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useAppStore.setState(useAppStore.getInitialState(), true);
+    useWorkflowStore.setState({ plan: null, planKey: null });
     vi.restoreAllMocks();
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
   });
@@ -125,24 +128,23 @@ describe("StudioCanvasRouter edit view mounts", () => {
     vi.spyOn(API, "listEditTimelines")
       .mockResolvedValueOnce({ timelines: [] })
       .mockResolvedValue({ timelines: [SUMMARY] });
-    const create = vi.spyOn(API, "createEditTimelineFromScript").mockResolvedValue({
-      timeline: { id: SUMMARY.id, name: SUMMARY.name, episode: 1 },
-      revision: 1,
-    });
+    const create = vi.spyOn(API, "createEditTimeline").mockResolvedValue(readout([]));
     vi.spyOn(API, "getEditTimeline").mockResolvedValue(readout([]));
 
     renderEditView(makeScript("videos/scene_SEG-1.mp4"));
 
     fireEvent.click(await screen.findByRole("button", { name: "新建剪辑时间线" }));
 
-    await waitFor(() => expect(create).toHaveBeenCalledWith("demo", 1, "初剪"));
+    await waitFor(() => expect(create).toHaveBeenCalledWith("demo", 1, "完整版"));
     expect(await screen.findByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByRole("button", { name: "出片" })).toBeEnabled();
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
-  it("disables the empty-state actions when the episode has no usable video", async () => {
+  it("disables the empty-state actions when the workflow refuses to create an edit timeline", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({ timelines: [] });
+    const status = makeStatus({ operations: { create_edit_timeline: { state: "refused", reason: "no_available_video" } } });
+    useWorkflowStore.setState({ plan: makePlan({ status }), planKey: "demo::1" });
 
     renderEditView(makeScript(null));
 

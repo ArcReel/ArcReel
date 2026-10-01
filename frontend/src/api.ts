@@ -11,7 +11,6 @@ import type {
   ProjectSummary,
   ImportConflictPolicy,
   ImportProjectResponse,
-  CreatedEditTimeline,
   ExportDiagnostics,
   FinalCutStatus,
   JianyingDraftStatus,
@@ -612,16 +611,12 @@ class API {
 
   // ==================== 剪辑时间线与出片 ====================
 
-  /** 按当前脚本机械新建一条剪辑时间线：每个视频单元整段使用、全部硬切。 */
-  static async createEditTimelineFromScript(
-    projectName: string,
-    episode: number,
-    name: string
-  ): Promise<CreatedEditTimeline> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${encodeURIComponent(episode)}/edit-timelines`,
-      { method: "POST", body: JSON.stringify({ from: "script", name }) }
-    );
+  /** 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切）；显示名在集内重名时 409，本集没有可用视频时 422。 */
+  static async createEditTimeline(projectName: string, episode: number, name: string): Promise<EditTimelineReadout> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/edit-timelines`, {
+      method: "POST",
+      body: JSON.stringify({ from: "script", name }),
+    });
   }
 
   private static editTimelinePath(projectName: string, timelineId: string): string {
@@ -724,7 +719,7 @@ class API {
     options: { signal?: AbortSignal } = {},
   ): Promise<EditTimelineReadout> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`,
+      this.editTimelinePath(projectName, timelineId),
       { signal: options.signal },
     );
   }
@@ -736,7 +731,7 @@ class API {
     name: string,
   ): Promise<EditTimelineSummary> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`,
+      this.editTimelinePath(projectName, timelineId),
       { method: "PATCH", body: JSON.stringify({ name }) },
     );
   }
@@ -744,7 +739,7 @@ class API {
   /** 删除剪辑时间线及其成片与剪映草稿；仍有渲染任务在排队或执行时服务端拒绝。 */
   static async deleteEditTimeline(projectName: string, timelineId: string): Promise<void> {
     await this.request(
-      `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`,
+      this.editTimelinePath(projectName, timelineId),
       { method: "DELETE" },
     );
   }
@@ -756,7 +751,7 @@ class API {
     options: { signal?: AbortSignal } = {},
   ): Promise<EditTimelinePreviewMedia> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}/preview-media`,
+      `${this.editTimelinePath(projectName, timelineId)}/preview-media`,
       { signal: options.signal },
     );
   }
@@ -1777,14 +1772,6 @@ class API {
   ): Promise<{ episodes: EpisodeNextStep[] }> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status/episodes`, {
       signal: options.signal,
-    });
-  }
-
-  /** 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切）；显示名在集内重名时 409。 */
-  static async createEditTimeline(projectName: string, episode: number, name: string): Promise<EditTimelineReadout> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/edit-timelines`, {
-      method: "POST",
-      body: JSON.stringify({ from: "script", name }),
     });
   }
 

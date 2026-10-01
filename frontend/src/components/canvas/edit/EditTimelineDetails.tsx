@@ -6,6 +6,7 @@ import type { EditClip, EditTimelineIssue, EditTimelineIssueCode } from "@/types
 import { formatNameList } from "@/utils/list-format";
 
 import { formatClock, formatSeconds } from "./timeline-view";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 const ISSUE_DOT: Record<EditTimelineIssueCode, string> = {
   trim_ignored: "bg-warn",
@@ -42,7 +43,7 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
       )}
       <div className="min-w-0 flex-1">
         <h3 className="text-[14px] font-medium text-text">
-          {clip.id} <span className="text-text-3">· {clip.unit_id}</span>
+          {clip.id} <span className="text-text-3">· {itemIdWithinEpisode(clip.unit_id)}</span>
         </h3>
         <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
           <dt className="text-text-4">{t("edit_view_field_position")}</dt>
@@ -133,7 +134,7 @@ export function IssueList({ issues, onSelectClip }: IssueListProps) {
             const params = {
               ...issue.params,
               clip: formatNameList(issue.clip_ids, i18n.language),
-              unit: issue.unit_id ?? "",
+              unit: issue.unit_id ? itemIdWithinEpisode(issue.unit_id) : "",
               code: issue.code,
             };
             const text = t(`edit_view_issue_${issue.code}`, {

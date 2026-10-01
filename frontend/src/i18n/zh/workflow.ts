@@ -95,6 +95,8 @@ export default {
   'act_agent': '交给 Agent',
   'act_agent_edit': '交给 Agent 剪辑',
   'act_create_edit_timeline': '新建剪辑时间线',
+  'act_open_edit_view': '打开剪辑视图',
+  'act_go_render': '去出片',
   'act_agent_plan_script': '交给 Agent 规划脚本',
   'act_author_prompts': 'AI 编写',
   'act_asset_batch_one': '生成 {{count}} 张资产图',

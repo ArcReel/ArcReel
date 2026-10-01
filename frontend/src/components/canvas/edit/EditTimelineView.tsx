@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "wouter";
 
@@ -62,8 +62,8 @@ interface EditTimelineViewProps {
   aspect: PreviewAspect;
   /** 标签行右侧的操作区；不传时不渲染。 */
   renderActions?: (context: EditTimelineActionsContext) => ReactNode;
-  /** 本集没有剪辑时间线时的空状态；不传时显示说明文字。 */
-  renderEmptyState?: (context: EditTimelineEmptyStateContext) => ReactNode;
+  /** 本集没有剪辑时间线时的空状态。 */
+  renderEmptyState: (context: EditTimelineEmptyStateContext) => ReactNode;
 }
 
 /** 应用内链接带来的一次性定位：打开哪条剪辑时间线（缺省为当前选中的）、定位到全局时间的哪一秒（缺省为不动播放头）。 */
@@ -93,6 +93,8 @@ export function EditTimelineView({
   const [list, setList] = useState<Loaded<EditTimelineSummary[]> | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const reload = useCallback(() => setRetry((n) => n + 1), []);
+  const tabIdPrefix = useId();
+  const tabs = useRef(new Map<string, HTMLButtonElement>());
 
   // 链接参数 tl / t 读入后立刻从地址栏去掉：它们是一次性的定位指令，刷新页面不应再次跳走。
   const [searchParams, setSearchParams] = useSearchParams();
@@ -215,17 +217,27 @@ export function EditTimelineView({
   }
   if (!timelines) return <Centered>{t("edit_view_loading")}</Centered>;
   if (timelines.length === 0 || !selected) {
-    return renderEmptyState ? (
-      renderEmptyState({ reload })
-    ) : (
-      <Centered>
-        <p className="text-[14px] font-medium text-text">{t("edit_view_empty_title")}</p>
-        <p className="mt-1 text-[12.5px] text-text-3">{t("edit_view_empty_hint")}</p>
-      </Centered>
-    );
+    return renderEmptyState({ reload });
   }
 
   const current = readout?.timelineId === selected.id ? readout : null;
+  const tabId = (timelineId: string) => `${tabIdPrefix}-tab-${timelineId}`;
+  const panelId = `${tabIdPrefix}-panel`;
+  const choose = (timelineId: string) => {
+    setChosenId(timelineId);
+    // 手动切换标签后放弃尚未完成的链接定位。
+    setJump(null);
+  };
+  // tablist 的键盘约定：Tab 进出控件组，方向键在组内切换。
+  const onTabKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const index = timelines.findIndex((item) => item.id === selected.id);
+    const next = timelines[(index + step + timelines.length) % timelines.length];
+    choose(next.id);
+    tabs.current.get(next.id)?.focus();
+  };
   const authorName = t(`edit_view_author_${selected.updated_by.kind}`);
   const updatedAt = formatRelativeTime(selected.updated_at, i18n.language) ?? selected.updated_at;
 
@@ -237,14 +249,18 @@ export function EditTimelineView({
             {timelines.map((item) => (
               <button
                 key={item.id}
+                ref={(node) => {
+                  if (node) tabs.current.set(item.id, node);
+                  else tabs.current.delete(item.id);
+                }}
                 type="button"
                 role="tab"
+                id={tabId(item.id)}
                 aria-selected={item.id === selected.id}
-                onClick={() => {
-                  setChosenId(item.id);
-                  // 手动切换标签后放弃尚未完成的链接定位。
-                  setJump(null);
-                }}
+                aria-controls={panelId}
+                tabIndex={item.id === selected.id ? 0 : -1}
+                onClick={() => choose(item.id)}
+                onKeyDown={onTabKeyDown}
                 className={`focus-ring rounded-[7px] px-3 py-1.5 text-[12.5px] transition-colors ${
                   item.id === selected.id ? "bg-accent-dim text-text" : "text-text-3 hover:text-text"
                 }`}
@@ -275,22 +291,29 @@ export function EditTimelineView({
         )}
       </div>
 
-      {current && "value" in current ? (
-        <TimelinePreview
-          key={selected.id}
-          projectName={projectName}
-          readout={current.value}
-          media={previewMedia?.timelineId === selected.id ? previewMedia.value : null}
-          script={script}
-          aspect={aspect}
-          seekRequest={jump && (jump.timelineId === null || jump.timelineId === selected.id) ? jump : null}
-          onSeekHandled={handleJumpApplied}
-        />
-      ) : current && "error" in current ? (
-        <LoadFailed message={current.error} onRetry={reload} />
-      ) : (
-        <Centered>{t("edit_view_loading")}</Centered>
-      )}
+      <div
+        role="tabpanel"
+        id={panelId}
+        aria-labelledby={tabId(selected.id)}
+        className="flex flex-1 flex-col gap-4"
+      >
+        {current && "value" in current ? (
+          <TimelinePreview
+            key={selected.id}
+            projectName={projectName}
+            readout={current.value}
+            media={previewMedia?.timelineId === selected.id ? previewMedia.value : null}
+            script={script}
+            aspect={aspect}
+            seekRequest={jump && (jump.timelineId === null || jump.timelineId === selected.id) ? jump : null}
+            onSeekHandled={handleJumpApplied}
+          />
+        ) : current && "error" in current ? (
+          <LoadFailed message={current.error} onRetry={reload} />
+        ) : (
+          <Centered>{t("edit_view_loading")}</Centered>
+        )}
+      </div>
     </div>
   );
 }

@@ -25,13 +25,16 @@ export const WORKSPACE_ROUTE_PROPS = "props";
 export const WORKSPACE_ROUTE_PRODUCTS = "products";
 export const WORKSPACE_ROUTE_EPISODES = "episodes";
 
-/** 集页的视图查询参数：`?view=edit` 打开剪辑视图，缺省为分镜视图。 */
+/** 集页的视图查询参数：`?view=edit` 打开剪辑视图，缺省为分镜视图；`tl` 指定打开哪条剪辑时间线。 */
 export const EPISODE_VIEW_PARAM = "view";
 export const EPISODE_VIEW_EDIT = "edit";
+export const EPISODE_VIEW_TIMELINE_PARAM = "tl";
 
-/** 项目工作区内打开某集剪辑视图的相对路径。 */
-export function episodeEditViewPath(episode: number): string {
-  return `/${WORKSPACE_ROUTE_EPISODES}/${episode}?${EPISODE_VIEW_PARAM}=${EPISODE_VIEW_EDIT}`;
+/** 项目工作区内打开某集（集 ID）剪辑视图的相对路径；给出 `timelineId` 时切到那条剪辑时间线。 */
+export function episodeEditViewPath(episode: number, timelineId?: string): string {
+  const query = new URLSearchParams({ [EPISODE_VIEW_PARAM]: EPISODE_VIEW_EDIT });
+  if (timelineId) query.set(EPISODE_VIEW_TIMELINE_PARAM, timelineId);
+  return `/${WORKSPACE_ROUTE_EPISODES}/${episode}?${query.toString()}`;
 }
 
 /** 无子路径、直接匹配的工作区叶子路由段。`episodes` 除了「分集」视图本身还接受 `/:episodeId`（集页），

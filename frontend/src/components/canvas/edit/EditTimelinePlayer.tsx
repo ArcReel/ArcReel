@@ -8,6 +8,7 @@ import { transitionOpacity, type PlaybackPlan } from "./playback-schedule";
 import { subtitleAt, subtitleLayout, type PlacedSubtitle } from "./preview-tracks";
 import { formatClock } from "./timeline-view";
 import type { TimelinePlayback } from "./useTimelinePlayback";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 /** 系统自带的中文黑体，近似成片字幕用的思源黑体粗体。 */
 const SUBTITLE_FONT =
@@ -97,7 +98,7 @@ export function EditTimelinePlayer({
         {current && (
           <div className="pointer-events-none absolute left-2.5 top-2.5 flex flex-wrap gap-1.5 text-[11px]">
             <span className="rounded-[4px] bg-black/60 px-1.5 py-0.5 tabular-nums text-white/90">
-              {current.id} · {current.unit_id}
+              {current.id} · {itemIdWithinEpisode(current.unit_id)}
             </span>
             {trimIgnored && (
               <span className="inline-flex items-center gap-1 rounded-[4px] bg-warn/90 px-1.5 py-0.5 text-black">

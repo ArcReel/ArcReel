@@ -38,6 +38,9 @@ export interface TimelinePlayback {
 /** 动画帧停摆时推进播放头的兜底间隔。 */
 const FALLBACK_TICK_MS = 200;
 
+/** 距上一动画帧超过这个时长才算停摆，由兜底定时器推进。 */
+const FRAME_STALL_MS = 100;
+
 /** 与出点、入点的差距超过这个值才重新定位，避免对已预载好的元素重复 seek。 */
 const RESEEK_TOLERANCE = 0.05;
 
@@ -61,6 +64,19 @@ interface Runtime {
 interface AudioEntry {
   element: HTMLAudioElement;
   url: string;
+}
+
+/**
+ * 按全局时间 `at` 设置一段音频的缓冲：进入预载窗口才挂上地址。
+ * `preload="none"` 拦不住 `play()` 触发的拉取，只靠它节制不了点播放时的解锁。
+ */
+function bufferAudio({ element: media, url }: AudioEntry, placement: AudioPlacement, at: number): void {
+  const preload = audioPreload(placement, at);
+  if (media.preload !== preload) media.preload = preload;
+  const src = media.getAttribute("src");
+  if (preload === "auto" && src !== url) media.src = url;
+  // 窗口外换了地址（如旁白重新生成）时卸下旧地址，免得解锁时拉取过期的音频。
+  else if (preload === "none" && src !== null && src !== url) media.removeAttribute("src");
 }
 
 function blockedByPolicy(error: unknown): boolean {
@@ -213,9 +229,8 @@ export function useTimelinePlayback(
   /** 只缓冲 `at` 附近要放的音频。 */
   const preloadAudioAround = useCallback((at: number) => {
     for (const placement of audioRef.current) {
-      const media = audioPool.current.get(placement.id)?.element;
-      const preload = audioPreload(placement, at);
-      if (media && media.preload !== preload) media.preload = preload;
+      const entry = audioPool.current.get(placement.id);
+      if (entry) bufferAudio(entry, placement, at);
     }
   }, []);
 
@@ -310,12 +325,14 @@ export function useTimelinePlayback(
     state.lastFrame = performance.now();
     seek(state.t >= currentPlan.duration ? 0 : state.t);
     // 趁这次点击把其余媒体元素各播一下再停住：Safari 之后才允许它们在切换片段、旁白开始时自动出声。
-    const others: (HTMLMediaElement | null)[] = [
-      element(state.slot === 0 ? 1 : 0),
+    // 还没进预载窗口的音频没有地址，同样在这里解锁；解锁跟着元素走，之后挂上地址仍可自动出声。
+    const idle = element(state.slot === 0 ? 1 : 0);
+    const others: HTMLMediaElement[] = [
+      ...(idle?.getAttribute("src") ? [idle] : []),
       ...Array.from(audioPool.current.values(), (entry) => entry.element),
     ];
     for (const media of others) {
-      if (!media || unlocked.current.has(media) || !media.getAttribute("src")) continue;
+      if (unlocked.current.has(media)) continue;
       unlocked.current.add(media);
       const attempt = media.play();
       media.pause();
@@ -345,10 +362,9 @@ export function useTimelinePlayback(
       wanted.add(placement.id);
       const entry = pool.get(placement.id);
       if (entry?.url === url) continue;
-      const media = entry?.element ?? new Audio();
-      media.preload = audioPreload(placement, runtime.current.t);
-      media.src = url;
-      pool.set(placement.id, { element: media, url });
+      const next = { element: entry?.element ?? new Audio(), url };
+      pool.set(placement.id, next);
+      bufferAudio(next, placement, runtime.current.t);
     }
     for (const [id, entry] of pool) {
       if (wanted.has(id)) continue;
@@ -450,13 +466,18 @@ export function useTimelinePlayback(
       syncAudioTo(result.t, true);
       setT(result.t);
     };
+    let lastFrameAt = performance.now();
     const onFrame = (now: number) => {
+      lastFrameAt = performance.now();
       frame = requestAnimationFrame(onFrame);
       step(now);
     };
     frame = requestAnimationFrame(onFrame);
-    // 后台标签页里动画帧停摆而视频照常播放，低频定时器兜底推进，片段不会越过出点。
-    const fallback = window.setInterval(() => step(performance.now()), FALLBACK_TICK_MS);
+    // 后台标签页里动画帧停摆而视频照常播放，低频定时器兜底推进，片段不会越过出点；动画帧正常时不重复推进。
+    const fallback = window.setInterval(() => {
+      const now = performance.now();
+      if (now - lastFrameAt >= FRAME_STALL_MS) step(now);
+    }, FALLBACK_TICK_MS);
     return () => {
       cancelAnimationFrame(frame);
       window.clearInterval(fallback);

@@ -409,7 +409,7 @@ describe("PresentationPlayer", () => {
     it("元数据到达后定位到起始时间并开始播放", async () => {
       const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
       const { onStartApplied } = renderAt({ seconds: 2.5, requestId: "r1" });
-      const video = await screen.findByLabelText("E1S01 成片预览");
+      const video = await screen.findByLabelText("S01 成片预览");
       expect(play).not.toHaveBeenCalled();
 
       fireEvent.loadedMetadata(video);
@@ -422,7 +422,7 @@ describe("PresentationPlayer", () => {
     it("超出可播放范围时夹到范围内", async () => {
       vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
       renderAt({ seconds: 99, requestId: "r1" });
-      const video = await screen.findByLabelText("E1S01 成片预览");
+      const video = await screen.findByLabelText("S01 成片预览");
 
       fireEvent.loadedMetadata(video);
 
@@ -432,7 +432,7 @@ describe("PresentationPlayer", () => {
     it("浏览器拦截自动播放时停在起始位置，不抛错", async () => {
       vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(new DOMException("blocked", "NotAllowedError"));
       renderAt({ seconds: 1, requestId: "r1" });
-      const video = await screen.findByLabelText("E1S01 成片预览");
+      const video = await screen.findByLabelText("S01 成片预览");
 
       fireEvent.loadedMetadata(video);
 
@@ -443,7 +443,7 @@ describe("PresentationPlayer", () => {
       const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
       const onStartApplied = vi.fn();
       const view = renderAt({ seconds: 2, requestId: "r1" }, onStartApplied);
-      const video = await screen.findByLabelText("E1S01 成片预览");
+      const video = await screen.findByLabelText("S01 成片预览");
       fireEvent.loadedMetadata(video);
       expect(play).toHaveBeenCalledTimes(1);
 
@@ -477,7 +477,7 @@ describe("PresentationPlayer", () => {
     it("没有 startAt 时不自动播放", async () => {
       const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
       render(<PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />);
-      const video = await screen.findByLabelText("E1S01 成片预览");
+      const video = await screen.findByLabelText("S01 成片预览");
       fireEvent.loadedMetadata(video);
       expect(play).not.toHaveBeenCalled();
     });

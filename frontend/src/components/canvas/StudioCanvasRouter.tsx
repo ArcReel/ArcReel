@@ -33,8 +33,13 @@ import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { EditTimelineView } from "./edit/EditTimelineView";
 import { EditTimelineEmptyState } from "./edit-render/EditTimelineEmptyState";
 import { RenderButton } from "./edit-render/RenderButton";
-import { scriptHasUsableVideo } from "./edit-render/edit-render-model";
-import { EpisodeViewSwitch, episodeViewOf, type EpisodeView } from "./EpisodeViewSwitch";
+import {
+  EPISODE_VIEW_PANEL_ID,
+  EpisodeViewSwitch,
+  episodeViewOf,
+  episodeViewTabId,
+  type EpisodeView,
+} from "./EpisodeViewSwitch";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
 import { API } from "@/api";
 import { PromptAuthoringHost } from "@/components/canvas/shared/PromptAuthoringDialog";
@@ -769,7 +774,12 @@ export function StudioCanvasRouter() {
                 />
               )}
               {canEdit && <EpisodeViewSwitch view={episodeView} onChange={setEpisodeView} />}
-              <div className="min-h-0 flex-1">
+              <div
+                className="min-h-0 flex-1"
+                role={canEdit ? "tabpanel" : undefined}
+                id={canEdit ? EPISODE_VIEW_PANEL_ID : undefined}
+                aria-labelledby={canEdit ? episodeViewTabId(episodeView) : undefined}
+              >
                 {showEditView ? (
                   <EditTimelineView
                     key={`${currentProjectName}::${epNum}`}
@@ -793,7 +803,6 @@ export function StudioCanvasRouter() {
                       <EditTimelineEmptyState
                         projectName={currentProjectName}
                         episode={epNum}
-                        hasUsableVideo={scriptHasUsableVideo(script)}
                         onCreated={reload}
                       />
                     )}

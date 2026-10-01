@@ -39,7 +39,15 @@ function readoutOf(id: string, name: string): EditTimelineReadout {
 }
 
 function renderView() {
-  return render(<EditTimelineView projectName="demo" episode={1} script={{ episode: 1, video_units: [] }} aspect="16:9" />);
+  return render(
+    <EditTimelineView
+      projectName="demo"
+      episode={1}
+      script={{ episode: 1, video_units: [] }}
+      aspect="16:9"
+      renderEmptyState={() => <p>no timeline</p>}
+    />,
+  );
 }
 
 async function openMenu(name: string) {
