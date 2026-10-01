@@ -74,13 +74,21 @@ class InspectedUnit:
     #: 该单元现有的全部视频版本号，用来发现还没看过的候选版本。
     available_versions: tuple[int, ...] = ()
 
+    @property
+    def frame_count(self) -> int:
+        return sum(len(sheet.frames) for sheet in self.sheets)
+
 
 @dataclass(frozen=True, slots=True)
 class InspectVideoUnitsResult:
-    frames_per_unit: int
+    frame_budget_per_unit: int
     units: tuple[InspectedUnit, ...]
     model_review: None = field(default=None)
     """预留给服务端原生视频 MLLM 审阅；目前恒为 None。"""
+
+    @property
+    def total_frames(self) -> int:
+        return sum(unit.frame_count for unit in self.units)
 
 
 def _snapshot_of(
@@ -197,7 +205,7 @@ async def inspect_video_units(
             )
         )
         units = [replace(unit, available_versions=tuple(available_by_unit[unit.unit_id])) for unit in units]
-        return ToolOutcome(value=InspectVideoUnitsResult(frames_per_unit=frames, units=tuple(units)))
+        return ToolOutcome(value=InspectVideoUnitsResult(frame_budget_per_unit=frames, units=tuple(units)))
     except FfmpegUnavailableError as exc:
         return tool_problem(f"随包 ffmpeg 不可用，无法出联系表：{exc}", code="ffmpeg_unavailable")
     except Exception as exc:
@@ -241,6 +249,7 @@ def inspect_video_units_projection(value: InspectVideoUnitsResult) -> dict[str, 
             "version": unit.version,
             "available_versions": list(unit.available_versions),
             "status": unit.status,
+            "frame_count": unit.frame_count,
             "sheets": sheets,
         }
         if unit.signals is not None:
@@ -250,7 +259,8 @@ def inspect_video_units_projection(value: InspectVideoUnitsResult) -> dict[str, 
         units.append(entry)
     return {
         "inspect_video_units": {
-            "frames_per_unit": value.frames_per_unit,
+            "frame_budget_per_unit": value.frame_budget_per_unit,
+            "total_frames": value.total_frames,
             "units": units,
             "model_review": value.model_review,
         }
@@ -264,7 +274,7 @@ def inspect_video_units_images(value: InspectVideoUnitsResult) -> list[ToolImage
 def inspect_video_units_summary(value: InspectVideoUnitsResult) -> str:
     sheets = len(_sheets_in_order(value))
     unseen = [unit.unit_id for unit in value.units if unit.status != "ok"]
-    text = f"已为 {len(value.units) - len(unseen)} 个视频单元出 {sheets} 张联系表（每单元至多 {value.frames_per_unit} 帧），图片按 image 序号附在后面"
+    text = f"已为 {len(value.units) - len(unseen)} 个视频单元出 {sheets} 张联系表，共 {value.total_frames} 帧（每单元预算 {value.frame_budget_per_unit} 帧，镜头多的单元会超出预算），图片按 image 序号附在后面"
     return f"{text}；没有可看的画面：{', '.join(unseen)}" if unseen else text
 
 
