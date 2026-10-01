@@ -477,7 +477,9 @@ def use_reference_route(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
 
 
-def rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
+def rv_generator_returning(
+    units: list[dict], captured: dict[str, Any] | None = None, *, new_assets: list[dict] | None = None
+):
     """构造返回指定扁平 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
     class _FakeGenerator:
@@ -486,7 +488,7 @@ def rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = 
                 captured["generate_project_name"] = project_name
 
             class _R:
-                text = json.dumps({"units": units}, ensure_ascii=False)
+                text = json.dumps({"units": units, "new_assets": new_assets or []}, ensure_ascii=False)
 
             return _R()
 
@@ -556,11 +558,13 @@ def rv_script_plan_path(fake_ctx: ToolHarness):
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_reference_units.json"
 
 
-async def run_rv_split(fake_ctx: ToolHarness, monkeypatch, units: list[dict], **caps_kwargs) -> ToolOutcome[Any]:
+async def run_rv_split(
+    fake_ctx: ToolHarness, monkeypatch, units: list[dict], *, new_assets: list[dict] | None = None, **caps_kwargs
+) -> ToolOutcome[Any]:
     from server import text_generation as mod
 
     use_fake_caps(fake_ctx, **caps_kwargs)
-    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units))
+    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units, new_assets=new_assets))
     return await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
 
@@ -624,7 +628,9 @@ def nr_source(fake_ctx: ToolHarness) -> None:
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
 
 
-def nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None = None):
+def nr_generator_returning(
+    segments: list[dict], captured: dict[str, Any] | None = None, *, new_assets: list[dict] | None = None
+):
     """构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
     class _FakeGenerator:
@@ -633,7 +639,9 @@ def nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None
                 captured["generate_project_name"] = project_name
 
             class _R:
-                text = json.dumps({"episode": 1, "segments": segments}, ensure_ascii=False)
+                text = json.dumps(
+                    {"episode": 1, "segments": segments, "new_assets": new_assets or []}, ensure_ascii=False
+                )
 
             return _R()
 
@@ -665,7 +673,8 @@ _DRAMA_NOVEL = "三年后，阿离回到山门。"
 
 
 def drama_project(fake_ctx: ToolHarness) -> None:
-    """把项目声明成 drama + 分镜图生视频，并铺好源文——正式 script_plan 的写禁与草稿通道以此为前提。"""
+    """把项目声明成 drama + 分镜图生视频，登记 ``drama_scene`` 引用的角色，并铺好源文——正式 script_plan
+    的写禁与草稿通道以此为前提。"""
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(
             {
@@ -679,6 +688,7 @@ def drama_project(fake_ctx: ToolHarness) -> None:
     )
     fake_ctx.pm.project_payload["content_mode"] = "drama"
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["characters"]["阿离"] = {"description": "少女，青衣"}
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True, exist_ok=True)
     (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")

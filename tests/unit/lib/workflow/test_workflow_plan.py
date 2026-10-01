@@ -63,7 +63,6 @@ def _status(
             ),
             "gates": {"script_plan_review": {"state": "confirmed", "revision": "sha256-v1:script_plan"}},
             "artifacts": {
-                "asset_inventory": {"state": "current" if content_mode != "ad" else "not_applicable"},
                 "asset_sheets": {},
                 "script_plan": {"state": "current" if content_mode != "ad" else "not_applicable"},
                 "script": {"state": "current", "path": "scripts/episode_1.json"},
@@ -361,7 +360,6 @@ def test_steps_state_their_own_content_instead_of_their_position() -> None:
     assert _step(plan, "final_script").action == status.next_action
     assert _step(plan, "storyboard").state is WorkflowStepState.COMPLETED
     assert _step(plan, "video").state is WorkflowStepState.COMPLETED
-    assert _step(plan, "asset_inventory").state is WorkflowStepState.SKIPPED
 
 
 def test_branch_alternatives_travel_with_the_unchanged_next_action() -> None:

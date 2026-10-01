@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Container
+from collections.abc import Collection, Container
 from typing import Any
 
+from lib.project.asset_types import asset_name_comparison_key
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script.draft_violation import (
     DraftViolation,
@@ -205,12 +206,16 @@ def validate_unit_text(
     *,
     unit_id: str | None = None,
     max_refs: int | None,
+    tolerated_speakers: Collection[str] = (),
 ) -> list[ReferenceResource]:
     """校验一个 unit 的正文并机械派生参考图引用。
 
     覆盖四类阻断违约：正文为空或只有发声记号、引用语法误用（花括号、写坏的引用、缺花
     括号的台词）、``@[名称]`` 未登记（含台词记号的说话人位与它写下的衍生）、参考图数超模型
     上限。正文是唯一落盘物，派生结果只服务本次校验与能力判定，不写回。
+
+    ``tolerated_speakers`` 里的说话人不要求已登记：正式正文里确认过的说话人可以是未登记的
+    群演，执行时该行不绑声音、按原文发送。
     """
     if not text.strip():
         raise DraftViolation(f"{label} 的正文为空", code="empty_text", label=label)
@@ -239,8 +244,9 @@ def validate_unit_text(
         )
 
     # 说话人位问的不是「能不能引用」而是「是不是一条角色资产」：它决定该句台词绑哪段参考音频。
+    tolerated = {asset_name_comparison_key(name) for name in tolerated_speakers}
     registered_speakers = catalog.asset_names("character")
-    bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in registered_speakers})
+    bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in registered_speakers and s not in tolerated})
     if bad_speakers:
         raise DraftViolation(
             f"{label} 的台词说话人未登记为角色资产: {bad_speakers}；说话人决定该句台词绑哪段参考音频，必须是登记角色",
@@ -251,7 +257,9 @@ def validate_unit_text(
     # 本体已登记，说话人位仍不在引用名里，只可能是那个角色没有这个衍生。分成两条违约：一条
     # 该去登记角色，一条该去登记衍生或改名，合成一句会指错修复方向。
     character_references = catalog.reference_names("character")
-    bad_forms = sorted({name for name in speech_speaker_references(text) if name not in character_references})
+    bad_forms = sorted(
+        {name for name in speech_speaker_references(text) if name not in character_references and name not in tolerated}
+    )
     if bad_forms:
         raise DraftViolation(
             f"{label} 的台词说话人写了该角色没有的衍生: {bad_forms}；"

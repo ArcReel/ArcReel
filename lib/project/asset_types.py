@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -75,6 +75,10 @@ class AssetSpec:
         return frozenset(fields)
 
 
+#: 角色、场景、道具的别名列表字段：源文中的其他叫法、改名前的旧名与合并掉的名字，只作 AI
+#: 规划或生成脚本时认出同一资产的参考，不参与程序匹配，不写进引用（见 ``docs/adr/0092``）。
+ALIASES_FIELD = "aliases"
+
 ASSET_SPECS: dict[str, AssetSpec] = {
     "character": AssetSpec(
         asset_type="character",
@@ -94,7 +98,8 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         # 与之比较的 voice_updated_at 不在此列——只由系统在 reference_audio 实际变更时机械戳写
         # （update_character_reference_audio 与全局资产库导入），不开放任意 PATCH 覆写
         # （否则该比较可被客户端绕过）。
-        agent_editable_extra_fields=("voice_style",),
+        extra_list_fields=(ALIASES_FIELD,),
+        agent_editable_extra_fields=("voice_style", ALIASES_FIELD),
         supports_derivatives=True,
     ),
     "scene": AssetSpec(
@@ -106,7 +111,8 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         namespace_priority=1,
         reference_list_fields=("scenes",),
         extra_string_fields=(),
-        agent_editable_extra_fields=(),
+        extra_list_fields=(ALIASES_FIELD,),
+        agent_editable_extra_fields=(ALIASES_FIELD,),
     ),
     "prop": AssetSpec(
         asset_type="prop",
@@ -117,7 +123,8 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         namespace_priority=2,
         reference_list_fields=("props",),
         extra_string_fields=(),
-        agent_editable_extra_fields=(),
+        extra_list_fields=(ALIASES_FIELD,),
+        agent_editable_extra_fields=(ALIASES_FIELD,),
     ),
     "product": AssetSpec(
         asset_type="product",
@@ -221,6 +228,51 @@ def asset_name_comparison_key(name: str) -> str:
     这一坐标系仅用于名称空间判等，不做 case-fold；项目资产名大小写敏感。
     """
     return normalize_asset_name(name.strip())
+
+
+def build_asset_entry(asset_type: str, description: str, source: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """按 ASSET_SPECS 构造新条目：description + sheet 字段为空 + extra 字段从 source 取或默认。
+
+    source 为 None 时只写入 spec 中声明的 extra 字段默认值（字符串字段空串、列表字段空列表）；
+    source 提供时同时允许覆盖 sheet 字段。source 中的非法类型不在此处修正，由落盘前的结构校验
+    fail-loud。开启 ``supports_derivatives`` 的类型一律初始化为空衍生表。
+    """
+    spec = ASSET_SPECS[asset_type]
+    data = source or {}
+    entry: dict[str, Any] = {"description": description, spec.sheet_field: data.get(spec.sheet_field, "")}
+    for field in spec.extra_string_fields:
+        entry[field] = data.get(field, "")
+    for field in spec.extra_list_fields:
+        value = data.get(field)
+        if isinstance(value, list):
+            entry[field] = list(value)  # 复制，避免 entry 与调用方共享同一列表对象
+        elif value is None:
+            entry[field] = []
+        else:
+            entry[field] = value  # 非法类型透传，由落盘前结构校验 fail-loud
+    if spec.supports_derivatives:
+        entry[DERIVATIVES_FIELD] = {}
+    return entry
+
+
+def record_asset_aliases(entry: dict[str, Any], aliases: Iterable[str], *, asset_name: str) -> None:
+    """把称呼并入资产条目的别名列表：按判等键去重，与资产名相同的称呼不记，资产名本身移出别名。
+
+    已有的非字符串元素原样保留，交给落盘前的结构校验报出。
+    """
+    name_key = asset_name_comparison_key(asset_name)
+    raw = entry.get(ALIASES_FIELD)
+    current = list(raw) if isinstance(raw, list) else []
+    kept = [item for item in current if not isinstance(item, str) or asset_name_comparison_key(item) != name_key]
+    seen = {asset_name_comparison_key(item) for item in kept if isinstance(item, str)}
+    for alias in aliases:
+        key = asset_name_comparison_key(alias)
+        if not key or key == name_key or key in seen:
+            continue
+        seen.add(key)
+        kept.append(key)
+    if kept or ALIASES_FIELD in entry:
+        entry[ALIASES_FIELD] = kept
 
 
 def find_project_asset_name(

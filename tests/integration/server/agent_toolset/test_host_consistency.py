@@ -60,7 +60,7 @@ from server.agent_toolset.script_authoring import (
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
 from server.agent_toolset.video_versions import SELECT_VIDEO_VERSION
-from server.agent_toolset.workflow_completion import COMPLETE_ASSET_INVENTORY, COMPLETE_SCRIPT_PLAN_REBUILD
+from server.agent_toolset.workflow_completion import COMPLETE_SCRIPT_PLAN_REBUILD
 from server.remote_mcp import build_remote_mcp_server
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import (
@@ -123,10 +123,6 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "split_grids": {"grid_ids": ["grid_000000000000"]},
     "plan_episodes": {"instructions": "按章节对齐切分"},
     "reset_episode_planning": {},
-    "complete_asset_inventory": {
-        "scope": {"kind": "all", "files": []},
-        "expected_source_revision": "sha256-v1:" + "0" * 64,
-    },
     "complete_script_plan_rebuild": {"episode_id": 1, "expected_stale_script_plan_revision": None},
     "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
     "select_video_version": {"unit_id": "E1S01", "version": 1},
@@ -530,7 +526,6 @@ _PROBLEM_ON_SAMPLE = frozenset(
         SELECT_VIDEO_VERSION.name,
         READ_TIMELINE.name,
         EDIT_TIMELINE.name,
-        COMPLETE_ASSET_INVENTORY.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
     }
 )

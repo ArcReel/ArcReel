@@ -54,7 +54,6 @@ class _Planner:
                 "blockers": [],
                 "gates": {"script_plan_review": {"state": "not_applicable", "revision": None}},
                 "artifacts": {
-                    "asset_inventory": {"state": "not_applicable"},
                     "asset_sheets": {},
                     "script_plan": {"state": "not_applicable"},
                     "script": {"state": "missing"},
@@ -342,7 +341,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "patch_episode_meta",
         "rename_asset",
         "retry_project_migration",
-        "complete_asset_inventory",
         "complete_script_plan_rebuild",
     }
     readers = {

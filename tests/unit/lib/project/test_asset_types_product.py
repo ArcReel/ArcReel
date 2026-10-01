@@ -50,9 +50,9 @@ class TestProductProjectLayout:
 
 
 class TestExistingSpecsUnchanged:
-    def test_list_fields_default_empty_for_existing_types(self):
+    def test_existing_types_only_list_aliases(self):
         for asset_type in ("character", "scene", "prop"):
-            assert ASSET_SPECS[asset_type].extra_list_fields == ()
+            assert ASSET_SPECS[asset_type].extra_list_fields == ("aliases",)
 
     def test_existing_types_stay_in_global_library(self):
         for asset_type in ("character", "scene", "prop"):

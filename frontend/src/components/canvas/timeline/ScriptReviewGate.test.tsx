@@ -6,8 +6,17 @@ import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useTasksStore } from "@/stores/tasks-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { makeScriptOverwrite, makeScriptOverwriteEntry, makeTask } from "@/test/factories";
-import type { ScriptReviewQuarantine, ScriptReviewState, TaskItem, VideoCapabilities } from "@/types";
+import type {
+  NarrationScriptPlanDraft,
+  PlanNewAsset,
+  ProjectData,
+  ScriptReviewQuarantine,
+  ScriptReviewState,
+  TaskItem,
+  VideoCapabilities,
+} from "@/types";
 
 const VIDEO_CAPS = {
   provider_id: "gemini",
@@ -815,5 +824,101 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
     expect(screen.queryByText("无法加载脚本规划结果")).not.toBeInTheDocument();
     expect(get).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ScriptReviewGate new assets", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+  });
+
+  function withRegistered(characters: Record<string, { description: string }>) {
+    useProjectsStore.setState({
+      currentProjectData: { characters, scenes: {}, props: {} } as unknown as ProjectData,
+    });
+  }
+
+  function newAsset(overrides: Partial<PlanNewAsset>): PlanNewAsset {
+    return {
+      type: "character",
+      name: "将军",
+      decision: "register",
+      reason: "第一段首次出场",
+      description: "银甲",
+      aliases: [],
+      target: "",
+      asset_name: "",
+      ...overrides,
+    };
+  }
+
+  function stateWithNewAssets(items: PlanNewAsset[], overrides: Partial<ScriptReviewState> = {}) {
+    const base = narrationState(overrides);
+    const content = base.content as NarrationScriptPlanDraft;
+    return {
+      ...base,
+      content: {
+        ...content,
+        segments: [{ ...content.segments[0], characters_in_segment: ["裴与", "将军"] }],
+        new_assets: items,
+      },
+    };
+  }
+
+  it("lists each new asset with the AI's decision, its reason and where it appears", async () => {
+    withRegistered({ 裴与: { description: "将军" } });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      stateWithNewAssets([newAsset({}), newAsset({ name: "路人", decision: "skip", description: "" })]),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    expect(await screen.findByText("本集新增资产")).toBeInTheDocument();
+    expect(screen.getByText("登记为新资产「将军」")).toBeInTheDocument();
+    expect(screen.getByText("不登记，只用文字描述")).toBeInTheDocument();
+    expect(screen.getAllByText("依据：第一段首次出场")).toHaveLength(2);
+    expect(screen.getByText("出场 1 处")).toBeInTheDocument();
+  });
+
+  it("saves a decision changed to merging into a registered asset", async () => {
+    withRegistered({ 裴与: { description: "将军" } });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(stateWithNewAssets([newAsset({})]));
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(stateWithNewAssets([]));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+    fireEvent.change(await screen.findByLabelText("「将军」的处理方式"), { target: { value: "merge" } });
+    fireEvent.change(screen.getByLabelText("归到"), { target: { value: "裴与" } });
+
+    expect(screen.getByText("归到「裴与」，「将军」记为别名")).toBeInTheDocument();
+    fireEvent.click(await screen.findByText("修复后保存"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][2]).toMatchObject({ new_assets: [{ name: "将军", decision: "merge", target: "裴与" }] });
+  });
+
+  it.each(["register", "skip"] as const)(
+    "explains that a new asset named like a registered one merges into it (%s)",
+    async (decision) => {
+      withRegistered({ 将军: { description: "银甲" } });
+      vi.spyOn(API, "getScriptReview").mockResolvedValue(
+        stateWithNewAssets([newAsset({ name: " 将军", decision })]),
+      );
+
+      render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+      expect(
+        await screen.findByText("1 项与已登记的同类资产同名，确认时自动归到该资产，不新建资产。"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("与已登记的「将军」同名，确认时自动归到该资产")).toBeInTheDocument();
+    },
+  );
+
+  it("shows the decisions read-only once confirmed", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(stateWithNewAssets([newAsset({})], CONFIRMED));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    expect(await screen.findByText("登记为新资产「将军」")).toBeInTheDocument();
+    expect(screen.queryByLabelText("「将军」的处理方式")).not.toBeInTheDocument();
   });
 });

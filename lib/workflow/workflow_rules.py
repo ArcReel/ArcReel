@@ -29,7 +29,6 @@ class WorkflowRule:
 _STEP_IDS: tuple[str, ...] = (
     "project_input",
     "selling_points",
-    "asset_inventory",
     "episode_plan",
     "script_plan_content",
     "script_plan_review",

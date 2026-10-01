@@ -133,9 +133,9 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["Novel / Screenplay"] --> B["Character, Scene & Prop Extraction"]
-    B --> C["Episode Planning"]
-    C --> D["Structured Script"]
+    A["Novel / Screenplay"] --> B["Episode Planning"]
+    B --> C["Structured Script & New Assets"]
+    C --> D["Content Review & Asset Registration"]
     D --> E["Character / Scene Assets"]
     E --> F["Storyboards"]
     F --> G["Video"]
@@ -313,8 +313,10 @@ Confirm:
 - The sequence of plot points or selling points;
 - Episode boundaries;
 - The purpose of each shot;
-- The scope of characters, scenes, and props;
+- Characters, scenes, and props that first appear in each episode, and how the AI proposes to handle them;
 - Content that must not be rewritten.
+
+When the AI plans the script for each episode, it compares the characters, scenes, and props in the episode with the names, aliases, and descriptions of registered assets. Unregistered assets are listed in the **New assets in this episode** section of the content review page, each with the AI's proposed handling and reason: register as new asset, merge into existing asset, register as derivative, or do not register. You can change any item before confirming. When you confirm, these assets are registered together with the final script. Aliases on asset cards help the AI recognize other names for the same asset.
 
 ### Stage 3: Reference Assets {#stage-reference-assets}
 
@@ -379,7 +381,7 @@ ArcReel's advantage is not “skipping review,” but placing review where the c
 
 | Review Point | What to Do When It Fails | What Not to Do |
 |---|---|---|
-| Content analysis | Correct the characters, scenes, props, and episode plan | Continue generating all character images |
+| Content review | Correct the episode plan, shot content, and handling of new assets | Continue generating all character images |
 | Character assets | Redo the character design or description | Batch-generate storyboards with an incorrect character |
 | Small storyboard sample | Correct composition and style | Generate the entire episode's videos immediately |
 | Small video sample | Adjust the model, parameters, and action descriptions | Repeatedly test expensive models without a plan |

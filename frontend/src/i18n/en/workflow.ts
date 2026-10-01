@@ -245,7 +245,6 @@ export default {
   'action_start_blank_script': 'start the formal script from blank',
   'action_provide_episode_source': "add this episode's source text",
   'action_add_script_items': 'add shots',
-  'action_analyze_assets': 'analyse the source for characters, scenes and props',
   'action_reset_episode_planning': 'reset episode planning so new source text is covered',
   'action_plan_episodes': 'plan the episodes',
   'action_draft_selling_points': 'draft the selling points',

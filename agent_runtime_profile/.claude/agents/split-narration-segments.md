@@ -20,8 +20,19 @@ description: "旁白/解说单集分镜拆分子智能体（content_mode=narrati
 
 1. **写盘一律经工具**：首次生成调 `mcp__arcreel__generate_script_plan`（项目配置的文本模型，产出结构化分镜 JSON）；修改已有内容经「取回草稿 → 改草稿 → 晋升」。正式 `script_plan_segments.json` **不可用 Write/Edit 直改**——它与 Web 端保存、迁移共享一把文件锁，你的文件工具取不到这把锁，直改会与并发的保存互相丢失更新（写禁由运行时强制，直改会被拒）
 2. **保留原文**：`novel_text` 逐字保留小说原文，不改编 / 不删减 / 不添加 / 不改标点（后期配音的真相源）
-3. **资产登记**：每个分镜登记其 `novel_text` 中实际出现的已登记角色 / 场景 / 道具（取自 project.json），不发明候选之外的名称
+3. **资产登记**：每个分镜登记其 `novel_text` 中实际出现的角色 / 场景 / 道具，写登记名或 `new_assets` 里的称呼（见「本集新增资产」）
 4. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认
+
+## 本集新增资产（`new_assets`）
+
+脚本规划同时负责资产识别。引用资产前先对照 `project.json` 已登记资产的名字、别名（`aliases`）与描述认人，认得出就写登记名。认不出的角色 / 场景 / 道具，引用处写原文称呼，并在顶层 `new_assets` 里列一项：`type`、`name`（引用处的称呼）、`decision`、一句 `reason`，以及按决定填写的字段：
+
+- `register` 登记为新资产：`description` 依据原文写外观，`aliases` 写原文里的其他称呼，需要更正式的登记名时填 `asset_name`
+- `merge` 归到已有资产：`target` 填同类登记名或另一项新增的称呼，称呼确认后记为别名
+- `derivative` 登记为角色衍生：`target` 填本体登记名，`asset_name` 填衍生名，`description` 只写相对本体的变化
+- `skip` 不登记：一次性出场，只用文字描述
+
+已登记资产的描述保持原样。生成与晋升都按「已登记或在 `new_assets` 中」校验引用，新增项的处理须解析得出（归入目标、衍生本体存在）。用户在内容确认时审定这些处理，确认时随正式脚本一并登记。
 
 ## 分集节奏建议
 
@@ -72,7 +83,7 @@ mcp__arcreel__get_video_capabilities({})
 mcp__arcreel__generate_script_plan({"episode_id": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
 ```
 
-> dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化分镜 JSON，并在写盘前校验 segment_id 唯一、时长取自 `supported_durations`、资产名已登记、分镜正文逐字覆盖源文。
+> dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化分镜 JSON，并在写盘前校验 segment_id 唯一、时长取自 `supported_durations`、资产名已登记或列在 `new_assets` 中、新增项的处理解析得出、分镜正文逐字覆盖源文。
 >
 > 校验不过时产出**不会丢弃**：它连同逐条违约报告落到待修复草稿 `drafts/episode_{N}/script_plan_segments.invalid.json`，正式文件一步不动。此时按情况 B 的 Step 2 / Step 3 就地改草稿再晋升，不要重跑本工具重抽——这次已付费的产出就在盘上，改它比重生更省也更收敛。
 
@@ -116,7 +127,7 @@ mcp__arcreel__open_draft({"episode_id": N, "doc_type": "narration_script_plan", 
 - `novel_text` 必须逐字保留原文（含标点），对话分镜含完整说话内容与引导语。全部分镜按序拼接后须与源文逐字相同——晋升时按此机械重判，删减 / 改写 / 重排一律拒。用户的修改要求若针对原文文字本身，本子智能体改不动：晋升会一律判它覆盖不全，改草稿只是白跑一轮。停下来把这一点报告给主 Agent，由其决定是否先改 `source/episode_N.txt` 再重跑拆分
 - `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值
 - `segment_id` 保持 `E{集 ID}S{两位序号}` 格式（如 `E1S01`）、全集唯一，前缀须为本集集 ID N
-- `characters_in_segment` / `scenes` / `props` 只引用 `project.json` 已登记名称（不确定就 Read `project.json` 确认），无对应资产时显式写空数组 `[]`
+- `characters_in_segment` / `scenes` / `props` 引用 `project.json` 已登记名称（不确定就 Read `project.json` 确认）或 `content.new_assets` 里的称呼，无对应资产时显式写空数组 `[]`；改动引用的称呼时同步改 `new_assets` 里对应的项
 - 角色有衍生（同一角色的另一套外观，见 `project.json` 角色条目的 `derivatives` 表）时，`characters_in_segment` 按该分镜的剧情状态写：此刻处于该形态写 `本体/衍生`，回到本体描述的常态写本体名
 - `segment_break` 只在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`
 
@@ -165,6 +176,9 @@ mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "narration_script_plan
       "scenes": ["府门"],
       "props": ["书信"]
     }
+  ],
+  "new_assets": [
+    {"type": "character", "name": "老管家", "decision": "register", "reason": "第二段首次出场，有台词", "description": "年过六旬，灰布长衫，背微驼", "aliases": [], "target": "", "asset_name": ""}
   ]
 }
 ```
@@ -186,6 +200,7 @@ mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "narration_script_plan
 | 总字数 | XXXX 字 |
 | 预计时长 | X 分 X 秒 |
 | segment_break 标记 | XX 个 |
+| 本集新增资产 | XX 项（登记 a / 归并 b / 衍生 c / 不登记 d） |
 
 **文件已保存**: `drafts/episode_{N}/script_plan_segments.json`
 

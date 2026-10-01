@@ -21,7 +21,6 @@ from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
-from lib.references.reference_catalog import build_reference_catalog
 from lib.script import script_review
 from lib.script.draft_quarantine import (
     DOC_TYPE_TO_QUARANTINE_KIND,
@@ -46,6 +45,7 @@ from lib.script.draft_quarantine import (
     write_quarantine,
 )
 from lib.script.draft_violation import DraftViolation, schema_violations
+from lib.script.plan_new_assets import NEW_ASSETS_FIELD, dedupe_new_assets, planning_project, with_new_assets
 from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import (
     NarrationScriptPlanDraft,
@@ -58,6 +58,7 @@ from server.text_generation import (
     ReferenceSplitCaps,
     SoftViolation,
     _build_reference_units_from_flat,
+    _collect_drama_violations,
     _collect_narration_violations,
     _collect_reference_flat_violations,
     _commit_single_script_plan,
@@ -174,6 +175,8 @@ class ReferenceDraftRevalidation(NamedTuple):
     ``soft_violations`` 是软违约（声音降级、未引用场景）的结构化条目，与 ``violations``
     分属两个字段而非合流：软违约不阻断晋升、不进待修复草稿的违约条目，合成一个列表迟早会有一处
     按「非空即挡下」判定，把降级提示变成硬违约。schema 没过时为空——正文尚未收编，无从逐 unit 判。
+
+    ``new_assets`` 是收编并去重后的本集新增项，随 ``flat_units`` 一起回写草稿或落盘。
     """
 
     violations: list[DraftViolation]
@@ -182,6 +185,11 @@ class ReferenceDraftRevalidation(NamedTuple):
     schema_failed: bool
     basis: ArtifactBasis | None
     soft_violations: list[SoftViolation]
+    new_assets: list[dict[str, Any]]
+
+    def flat_content(self) -> dict[str, Any]:
+        """收编后的扁平草稿内容。"""
+        return with_new_assets({"units": self.flat_units}, self.new_assets)
 
 
 async def revalidate_reference_script_plan_draft(
@@ -236,6 +244,7 @@ async def revalidate_reference_script_plan_draft(
     schema = build_reference_units_script_plan_model(split_caps.durations)
     violations: list[DraftViolation] = []
     flat_units: list[dict[str, Any]] = []
+    new_assets: list[dict[str, Any]] = []
     if not isinstance(raw_units, list) or not raw_units:
         logger.debug("草稿 content.units 形状非法: %s", type(raw_units).__name__)
         violations = [
@@ -246,12 +255,17 @@ async def revalidate_reference_script_plan_draft(
         ]
     else:
         try:
-            flat_units = schema.model_validate({"units": raw_units}).model_dump()["units"]
+            flat = schema.model_validate(
+                {"units": raw_units, NEW_ASSETS_FIELD: draft.content.get(NEW_ASSETS_FIELD, [])}
+            ).model_dump()
         except ValidationError as exc:
             violations = schema_violations(exc, draft.content, "units")
+        else:
+            flat_units = flat["units"]
+            new_assets = dedupe_new_assets(flat[NEW_ASSETS_FIELD])
     if violations:
         return ReferenceDraftRevalidation(
-            violations, [], split_caps, schema_failed=True, basis=script_plan_basis, soft_violations=[]
+            violations, [], split_caps, schema_failed=True, basis=script_plan_basis, soft_violations=[], new_assets=[]
         )
 
     source_language = project.get("source_language")
@@ -263,12 +277,13 @@ async def revalidate_reference_script_plan_draft(
         novel_text=novel_text,
         caps=split_caps,
         source_language=source_language,
+        new_assets=new_assets,
     )
     # 软违约与硬违约在同一次重判里一并产出：有硬违约时也要算，晋升被挡下时的报告同样带着它们，
     # 否则 Agent 修草稿的每一轮都看不见降级提示，直到最后一轮晋升成功才第一次读到。
     soft_violations = reference_soft_violations(
         [str(flat["text"]) for flat in flat_units],
-        project,
+        planning_project(project, new_assets),
         episode=episode,
         voice=split_caps.voice,
     )
@@ -279,6 +294,7 @@ async def revalidate_reference_script_plan_draft(
         schema_failed=False,
         basis=script_plan_basis,
         soft_violations=soft_violations,
+        new_assets=new_assets,
     )
 
 
@@ -420,13 +436,18 @@ async def _promote_reference_script_plan(
             project_path,
             episode,
             QUARANTINE_KIND_SCRIPT_PLAN,
-            {"units": flat_units},
+            revalidation.flat_content(),
             violations,
             draft.meta,
         )
         raise DraftWorkflowError("draft_invalid", report + _soft_violation_section(revalidation), draft_refreshed=True)
 
-    units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
+    units = _build_reference_units_from_flat(
+        flat_units,
+        planning_project(project, revalidation.new_assets),
+        episode=episode,
+        max_refs=split_caps.max_refs,
+    )
     # 写盘经单一出口（lib.script.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
     # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
     # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 Agent 合并，
@@ -437,7 +458,7 @@ async def _promote_reference_script_plan(
             _commit_reference_script_plan,
             project_path,
             episode,
-            {"units": units},
+            with_new_assets({"units": units}, revalidation.new_assets),
             expected,
             revalidation.basis,
             before_commit,
@@ -551,12 +572,17 @@ def _flatten_reference_script_plan_units(units: list[Any]) -> list[dict[str, Any
     return flat
 
 
+def _new_assets_of(content: dict[str, Any]) -> dict[str, Any]:
+    """正式 script_plan 里的本集新增项，原样带进草稿；没有该键时不添。"""
+    return {NEW_ASSETS_FIELD: content[NEW_ASSETS_FIELD]} if NEW_ASSETS_FIELD in content else {}
+
+
 def _reference_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
     """正式参考 script_plan 内容 → 扁平草稿结构；不是合法 script_plan 时返回 None。"""
     units = content.get("units")
     if not isinstance(units, list) or not units:
         return None
-    return {"units": _flatten_reference_script_plan_units(units)}
+    return {"units": _flatten_reference_script_plan_units(units), **_new_assets_of(content)}
 
 
 def _drama_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | None:
@@ -575,7 +601,7 @@ def _drama_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any] | 
         {k: v for k, v in scene.items() if k != "needs_replan"} if isinstance(scene, dict) else scene
         for scene in scenes
     ]
-    return {"title": content.get("title", ""), "scenes": flat}
+    return {"title": content.get("title", ""), "scenes": flat, **_new_assets_of(content)}
 
 
 class SingleScriptPlanDraftRevalidation(NamedTuple):
@@ -648,7 +674,9 @@ async def revalidate_drama_script_plan_draft(
             scene.pop("needs_replan", None)
         else:
             scene["needs_replan"] = True
-    return SingleScriptPlanDraftRevalidation([], content, schema_failed=False, basis=script_plan_basis)
+    content = with_new_assets(content, content[NEW_ASSETS_FIELD])
+    violations = _collect_drama_violations(raw_scenes, project=project, new_assets=content.get(NEW_ASSETS_FIELD))
+    return SingleScriptPlanDraftRevalidation(violations, content, schema_failed=False, basis=script_plan_basis)
 
 
 async def _promote_drama_script_plan(
@@ -818,12 +846,14 @@ async def revalidate_narration_script_plan_draft(
             schema_failed=True,
             basis=script_plan_basis,
         )
+    content = with_new_assets(content, content[NEW_ASSETS_FIELD])
 
     violations = _collect_narration_violations(
         content["segments"],
         episode=episode,
         supported_durations=supported_durations,
-        catalog=build_reference_catalog(project),
+        project=project,
+        new_assets=content.get(NEW_ASSETS_FIELD),
         novel_text=novel_text,
         # 重判用的源文范围来自草稿自己的 meta.source：取回时未指定 source
         # 的草稿记的是 null（本集派生源文），若本集正式 script_plan 当初是按别的源文件产出的，这里会把
@@ -842,13 +872,13 @@ def _narration_script_plan_draft_shape(content: dict[str, Any]) -> dict[str, Any
     """正式 narration script_plan 内容 → 草稿装的分镜结构；不是合法 script_plan 时返回 None。
 
     该变体没有机器派生字段可剥（``segment_id`` 是模型自己写的对齐锚、不由序号派生），草稿层与
-    落盘层同形，只丢掉 ``segments`` 之外的顶层键。分镜项原样带过、包括非 dict 的项：跳过会让
+    落盘层同形，只保留 ``segments`` 与本集新增项。分镜项原样带过、包括非 dict 的项：跳过会让
     数组变短，若剩余分镜恰好都能过校验，晋升会悄悄覆盖正式文件、丢掉这一段而无人知晓。
     """
     segments = content.get("segments")
     if not isinstance(segments, list) or not segments:
         return None
-    return {"segments": list(segments)}
+    return {"segments": list(segments), **_new_assets_of(content)}
 
 
 async def _promote_narration_script_plan(
@@ -1020,7 +1050,7 @@ async def revalidate_script_plan_draft(
             draft,
             config_resolver=config_resolver,
         )
-        content = None if reference.schema_failed else {"units": reference.flat_units}
+        content = None if reference.schema_failed else reference.flat_content()
         return ScriptPlanDraftRevalidation(reference.violations, content, tuple(reference.soft_violations))
     revalidator = _SINGLE_SCRIPT_PLAN_REVALIDATORS.get(draft.kind)
     if revalidator is None:

@@ -7,6 +7,7 @@ import type {
   DramaSceneContent,
   NarrationScriptPlanDraft,
   NarrationScriptPlanSegment,
+  PlanNewAsset,
   ScriptReviewState,
   ScriptReviewViolation,
   Utterance,
@@ -30,6 +31,7 @@ import {
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
+import { NewAssetsSection, hasValidNewAssets, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
@@ -297,13 +299,13 @@ function isNarrationSegment(value: unknown): value is NarrationScriptPlanSegment
  */
 function narrowDramaDraft(content: Record<string, unknown> | null): ReviewDraft | null {
   const scenes = content?.scenes;
-  if (!Array.isArray(scenes) || !scenes.every(isDramaScene)) return null;
+  if (!Array.isArray(scenes) || !scenes.every(isDramaScene) || !hasValidNewAssets(content)) return null;
   return content as unknown as DramaNormalizedScript;
 }
 
 function narrowNarrationDraft(content: Record<string, unknown> | null): ReviewDraft | null {
   const segments = content?.segments;
-  if (!Array.isArray(segments) || !segments.every(isNarrationSegment)) return null;
+  if (!Array.isArray(segments) || !segments.every(isNarrationSegment) || !hasValidNewAssets(content)) return null;
   return content as unknown as NarrationScriptPlanDraft;
 }
 
@@ -312,6 +314,27 @@ function reviewItems(content: ReviewDraft | null): { id: string }[] {
   return "scenes" in content
     ? content.scenes.map((scene) => ({ id: scene.scene_id }))
     : content.segments.map((segment) => ({ id: segment.segment_id }));
+}
+
+/** 各条目引用到的名字与原文片段，供「本集新增资产」区展开出场位置。 */
+function newAssetEntries(content: ReviewDraft | null): NewAssetEntryRefs[] {
+  if (content == null) return [];
+  return "scenes" in content
+    ? content.scenes.map((scene) => ({
+        id: scene.scene_id,
+        names: [
+          ...scene.characters_in_scene,
+          ...scene.scenes,
+          ...scene.props,
+          ...scene.utterances.flatMap((u) => (u.kind === "dialogue" ? [u.speaker] : [])),
+        ],
+        snippet: scene.source_text,
+      }))
+    : content.segments.map((segment) => ({
+        id: segment.segment_id,
+        names: [...segment.characters_in_segment, ...segment.scenes, ...segment.props],
+        snippet: segment.novel_text,
+      }));
 }
 
 /**
@@ -383,6 +406,12 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
       "segments" in prev
         ? { ...prev, segments: prev.segments.map((s, i) => (i === index ? { ...s, ...patch } : s)) }
         : prev;
+    if (quarantine != null) draftEditor.setContent(apply);
+    else setDraft((prev) => (prev ? apply(prev) : prev));
+  };
+
+  const updateNewAssets = (items: PlanNewAsset[]) => {
+    const apply = (prev: ReviewDraft): ReviewDraft => ({ ...prev, new_assets: items });
     if (quarantine != null) draftEditor.setContent(apply);
     else setDraft((prev) => (prev ? apply(prev) : prev));
   };
@@ -492,6 +521,15 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
             episodeLevelRef.current = el;
           }}
         />
+        {content != null && (
+          <NewAssetsSection
+            items={content.new_assets ?? []}
+            entries={newAssetEntries(content)}
+            readOnly={false}
+            disabled={draftBusy}
+            onChange={updateNewAssets}
+          />
+        )}
         {content != null && (
           <div className="flex flex-col gap-2.5">
             {"scenes" in content
@@ -626,6 +664,16 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
         totalSeconds={sumItemDuration(draft == null ? [] : "scenes" in draft ? draft.scenes : draft.segments)}
         targetSeconds={state?.episode_target_duration ?? null}
       />
+
+      {draft != null && (
+        <NewAssetsSection
+          items={draft.new_assets ?? []}
+          entries={newAssetEntries(draft)}
+          readOnly={readOnly}
+          disabled={busy}
+          onChange={updateNewAssets}
+        />
+      )}
 
       <div className="flex flex-col gap-2.5">
         {contentMode === "drama" && draft != null && "scenes" in draft

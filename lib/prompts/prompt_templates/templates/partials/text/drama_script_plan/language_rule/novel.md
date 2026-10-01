@@ -1,1 +1,1 @@
-例外（逐字保留、不翻译）：资产引用字段（`characters_in_scene[]` / `scenes[]` / `props[]`，须逐字等于 project.json 登记名）、说话人引用 `utterances[].speaker`（须等于 characters_in_scene 中登记的角色名）与逐字原文锚 `source_text`。
+例外（逐字保留、不翻译）：资产引用字段（`characters_in_scene[]` / `scenes[]` / `props[]`，须逐字等于 project.json 登记名或 `new_assets` 里的称呼）、说话人引用 `utterances[].speaker`（须等于 characters_in_scene 中的角色名）与逐字原文锚 `source_text`。

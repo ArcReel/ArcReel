@@ -22,7 +22,8 @@ user-invocable: false
 
 经 `mcp__arcreel__patch_project` 工具写入（项目名由 session 绑定，无需传参）。按 table 分别调用，
 每个 entry 以 name 为键 upsert：name 不存在则新增、存在则合并改字段。**修订已有资产描述需用户显式
-意图驱动**（避免静默覆盖人工编辑过的字段）;新增提取由 analyze-assets 子智能体负责并默认 skip 已存在的。
+意图驱动**（避免静默覆盖人工编辑过的字段）。本集新出现的资产由脚本规划带出、内容确认时登记，不需要在这里预先写入。
+`aliases`（别名）是字符串列表，只供脚本规划认人，不能写进引用。
 
 ```text
 mcp__arcreel__patch_project({"table": "characters", "entries": {"角色名": {"description": "...", "voice_style": "..."}}})

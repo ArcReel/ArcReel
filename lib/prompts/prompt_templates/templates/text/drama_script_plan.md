@@ -21,6 +21,7 @@ slots:
   target_language: 输出语言，取项目源语言
   project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
   style: 项目画风
+  assets: 已登记资产，对象 {characters, scenes, props}，每项是 [{name, aliases, appearance}] 列表（尖括号已中和；衍生写作「本体/衍生」）
   character_names: 可引用的角色名，衍生写作「本体/衍生」
   scene_names: 可引用的场景名
   prop_names: 可引用的道具名
@@ -58,7 +59,7 @@ protected: false
 {{ style }}
 </style>
 
-{{ partial("shared/lists/asset_name_blocks") }}
+{{ partial("shared/lists/asset_registry_blocks") }}
 
 ## 源文
 
@@ -108,7 +109,7 @@ protected: false
   - 候选 characters：[{{ character_names | join(", ") or "（暂无）" }}]
   - 候选 scenes：[{{ scene_names | join(", ") or "（暂无）" }}]
   - 候选 props：[{{ prop_names | join(", ") or "（暂无）" }}]
-  - 不要发明候选之外的名称；泛指群演（如「老人甲」「村民若干」）不进 characters_in_scene。
+  - 候选里没有的资产写原文称呼，并列进 `new_assets`（见下文）；泛指群演（如「老人甲」「村民若干」）不进 characters_in_scene。
 - **scene_description**：{{ variant("text/drama_script_plan/scene_rule", source_kind) }}
 
 ## 逐字内容（内容真相源，定稿后原样保留、不再改写）
@@ -117,6 +118,8 @@ protected: false
 - **utterances**：{{ variant("text/drama_script_plan/utterances_rule", source_kind) }}
 
 每个分镜应为一个独立的视觉画面、可在指定时长内完成；避免在一个分镜内安排多个动作或画面切换。
+
+{{ partial("shared/new_assets_rule") }}
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

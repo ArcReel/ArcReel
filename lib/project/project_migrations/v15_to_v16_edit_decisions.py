@@ -64,6 +64,10 @@
   不变。参考生视频的脚本规划此前不分类型、按小说出稿，剧本项目的这类登记改后读为过期。已冻结的产出
   来源不改写。
 
+**资产清单退役（ADR 0092）**
+
+- 删去 ``project.json`` 的 ``workflow.asset_inventory`` 标记，``workflow`` 随之变空时整个删去。
+
 除上传产物的补登外，本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
@@ -668,6 +672,20 @@ def _narration_delivery_fields(project_dir: Path, project: Mapping[str, Any]) ->
 # ---------------------------------------------------------------------------
 
 
+def _without_asset_inventory_marker(project: Mapping[str, Any]) -> dict[str, Any]:
+    """删去已退役的资产清单标记；``workflow`` 随之变空时整个删去，其他形态原样保留。"""
+
+    migrated = dict(project)
+    workflow = migrated.get("workflow")
+    if isinstance(workflow, Mapping) and "asset_inventory" in workflow:
+        remaining = {key: value for key, value in workflow.items() if key != "asset_inventory"}
+        if remaining:
+            migrated["workflow"] = remaining
+        else:
+            migrated.pop("workflow")
+    return migrated
+
+
 def migrate_v15_to_v16(
     project_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None
 ) -> ArtifactBackfillOutcome | None:
@@ -692,7 +710,9 @@ def migrate_v15_to_v16(
             project_dir, _narration_delivery_fields(project_dir, project)
         )
         migrated_project = {
-            **_with_episode_id_high_water(project_dir, _with_source_kinds(with_sources), recorded_episode_ids),
+            **_without_asset_inventory_marker(
+                _with_episode_id_high_water(project_dir, _with_source_kinds(with_sources), recorded_episode_ids)
+            ),
             "schema_version": TARGET_SCHEMA_VERSION,
         }
         after = _plan_after_rewrite(project_dir, migrated_project)

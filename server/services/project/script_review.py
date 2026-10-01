@@ -41,6 +41,7 @@ from lib.script.draft_quarantine import (
     read_quarantine,
     violation_entries,
 )
+from lib.script.plan_new_assets import NEW_ASSETS_FIELD, NewAssetsError, resolve_new_assets
 from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
@@ -433,6 +434,8 @@ class ScriptReviewService:
             for scene in validated["scenes"]:
                 if scene.get("needs_replan") is not True:
                     scene.pop("needs_replan", None)
+        if not validated.get(NEW_ASSETS_FIELD):
+            validated.pop(NEW_ASSETS_FIELD, None)
         # 入参的 None 表示「调用方无基线、不比对」；比对语义里的 None 另有含义（取基线时文件不存在），
         # 两者在此一次性转换，三个变体共用同一个 expected。
         expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
@@ -528,6 +531,8 @@ class ScriptReviewService:
             # 先于下面的 ValueError 分支：绑定失联而规范路径上是别集剧本时，转换在写盘前被拒，
             # 既不重建那一集的剧本也不改本集的绑定，提示要指向可操作的那一处。
             raise ScriptReviewError("foreign_formal_script", str(exc), script_filename=exc.filename) from exc
+        except NewAssetsError as exc:
+            raise ScriptReviewError("invalid_new_assets", str(exc)) from exc
         except (ValueError, FileNotFoundError) as exc:
             raise ScriptReviewError("conversion_refused", str(exc)) from exc
 
@@ -571,6 +576,10 @@ class ScriptReviewService:
                 validated = model.model_validate(content)
             except ValidationError as exc:
                 raise ScriptReviewError("invalid_content", str(exc)) from exc
+            try:
+                resolve_new_assets(project, validated.model_dump().get(NEW_ASSETS_FIELD))
+            except NewAssetsError as exc:
+                raise ScriptReviewError("invalid_new_assets", str(exc)) from exc
 
             marked_shape = {
                 "drama": ("scenes", "scenes"),

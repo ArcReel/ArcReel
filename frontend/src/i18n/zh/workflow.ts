@@ -247,7 +247,6 @@ export default {
   'action_start_blank_script': '从空白开始写正式脚本',
   'action_provide_episode_source': '补充本集原文',
   'action_add_script_items': '添加分镜',
-  'action_analyze_assets': '从原文中分析角色、场景与道具',
   'action_reset_episode_planning': '重置分集规划，让新增原文进入排布',
   'action_plan_episodes': '规划分集',
   'action_draft_selling_points': '提炼卖点',

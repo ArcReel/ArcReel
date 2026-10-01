@@ -122,7 +122,6 @@ class WorkflowActionType(StrEnum):
     COLLECT_PROJECT_INPUT = "collect_project_input"
     CREATE_EPISODE = "create_episode"
     DRAFT_SELLING_POINTS = "draft_selling_points"
-    ANALYZE_ASSETS = "analyze_assets"
     PLAN_EPISODES = "plan_episodes"
     RESET_EPISODE_PLANNING = "reset_episode_planning"
     RESOLVE_DRAFT = "resolve_draft"
@@ -364,7 +363,6 @@ class _SharedWorkflowFacts:
     source: SourceRevisionResult | None
     planning_sources: tuple[SourceDoc, ...]
     planning_complete: bool
-    inventory: dict[str, Any]
     sheets: dict[str, dict[str, Any]]
     episodes: list[tuple[int, dict[str, Any]]]
     currency: ArtifactCurrencyResolver | None
@@ -514,67 +512,15 @@ class WorkflowStateService:
         else:
             collection[f"{state}_ids"].append(resource_id)
 
-    def _source_inventory(
-        self,
-        project_path: Path,
-        project: dict[str, Any],
-        mode: str,
-        issues: list[WorkflowBlocker],
-    ) -> tuple[SourceRevisionResult | None, dict[str, Any]]:
+    @staticmethod
+    def _source_revision(
+        project_path: Path, project: dict[str, Any], mode: str, issues: list[WorkflowBlocker]
+    ) -> SourceRevisionResult | None:
         if mode == "ad":
-            return None, {"state": "not_applicable"}
-
+            return None
         source = compute_source_revision(project_path, project, SourceScope(kind="all"))
         issues.extend(WorkflowBlocker(code=item.code, path=item.path, reason=item.reason) for item in source.blockers)
-        marker: object = None
-        workflow = project.get("workflow")
-        if workflow is not None and not isinstance(workflow, Mapping):
-            issues.append(
-                WorkflowBlocker(
-                    code="invalid_workflow",
-                    path="workflow",
-                    reason="workflow must be an object",
-                )
-            )
-        elif isinstance(workflow, Mapping):
-            marker = workflow.get("asset_inventory")
-
-        artifact: dict[str, Any] = {"state": "missing"}
-        if marker is None:
-            return source, artifact
-        if not isinstance(marker, Mapping):
-            issues.append(
-                WorkflowBlocker(
-                    code="invalid_asset_inventory",
-                    path="workflow.asset_inventory",
-                    reason="asset inventory marker must be an object",
-                )
-            )
-            return source, {"state": "blocked"}
-        try:
-            recorded_scope = SourceScope.model_validate(marker.get("scope"))
-        except ValueError as exc:
-            issues.append(
-                WorkflowBlocker(
-                    code="invalid_source_scope",
-                    path="workflow.asset_inventory.scope",
-                    reason=str(exc),
-                )
-            )
-            return source, {"state": "blocked"}
-
-        artifact["recorded_scope"] = recorded_scope.model_dump(mode="json")
-        artifact["recorded_revision"] = marker.get("source_revision")
-        if recorded_scope.kind != "all":
-            artifact["state"] = "partial"
-            return source, artifact
-        if source.blockers:
-            artifact["state"] = "blocked"
-        elif marker.get("source_revision") == source.revision:
-            artifact["state"] = "current"
-        else:
-            artifact["state"] = "stale"
-        return source, artifact
+        return source
 
     def _asset_sheets(
         self,
@@ -1200,7 +1146,7 @@ class WorkflowStateService:
                     reason="; ".join(asset_validation.errors),
                 )
             )
-        source, inventory = self._source_inventory(project_path, project, str(mode), issues)
+        source = self._source_revision(project_path, project, str(mode), issues)
         planning_sources = planning_docs(project, source) if mode != "ad" else ()
         planning_complete = self._planning_complete(project, planning_sources)
         sheets = self._asset_sheets(project_path, project, issues, currency)
@@ -1209,7 +1155,6 @@ class WorkflowStateService:
             source=source,
             planning_sources=planning_sources,
             planning_complete=planning_complete,
-            inventory=inventory,
             sheets=sheets,
             episodes=episodes,
             currency=currency,
@@ -1338,7 +1283,6 @@ class WorkflowStateService:
     def _base_artifacts(project: Mapping[str, Any], shared: _SharedWorkflowFacts) -> dict[str, dict[str, Any]]:
         is_ad = project.get("content_mode") == "ad"
         return {
-            "asset_inventory": shared.inventory,
             "asset_sheets": shared.sheets,
             "script_plan": {"state": "not_applicable" if is_ad else "missing"},
             "script": {"state": "missing"},
@@ -1954,7 +1898,6 @@ class WorkflowStateService:
             content=None,
             gates={},
             artifacts={
-                "asset_inventory": {},
                 "asset_sheets": {},
                 "script_plan": {"state": "missing"},
                 "script": {"state": "missing"},

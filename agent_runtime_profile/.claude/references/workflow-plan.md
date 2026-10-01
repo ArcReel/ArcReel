@@ -102,7 +102,6 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `collect_project_input` | 引导用户在 Web 端补齐项目输入（上传整本源文；ad 填创作灵感或登记商品） |
 | `create_episode` | 引导用户在 Web 端新建一集 |
 | `draft_selling_points` | 用户要求时起草卖点，经 `mcp__arcreel__patch_project` 写回（ad） |
-| `analyze_assets` | 用户要求时 dispatch `analyze-assets` 子智能体 |
 | `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 原样传参（无 `episode_id` 即全量重置） |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
 | `resolve_draft` | 目标集上有草稿（`args.draft_kind`）：`args.needs_repair` 为真时是写入失败留下的待修复草稿，向用户说明并按其对应操作重跑；为假时是 Agent 的可编辑草稿，按对应 skill 接着完成 |

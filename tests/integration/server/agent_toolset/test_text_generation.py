@@ -1143,6 +1143,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
+    fake_ctx.pm.project_payload["characters"]["阿离"] = {"description": "少女，青衣"}
     source_dir = project_path / "source"
     source_dir.mkdir(parents=True)
     (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")

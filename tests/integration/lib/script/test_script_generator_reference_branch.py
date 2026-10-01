@@ -624,6 +624,32 @@ async def test_script_generator_rejects_prompt_authoring_unregistered_mention(re
 
 
 @pytest.mark.asyncio
+async def test_prompt_authoring_keeps_an_unregistered_speaker_from_the_formal_unit(reference_project: Path):
+    """确认时选为「不登记」的说话人留在正式正文里：提示词编写逐字保留它，不因未登记而拒绝。"""
+    _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "text": "路人 拦住 @[主角]\n@[路人]{借过。}"}])
+    gen = ScriptGenerator(
+        reference_project,
+        generator=_fake_prompt_authoring_generator("镜头1：中景。路人 拦住 @[主角] 的去路\n@[路人]{借过。}"),
+    )
+
+    await gen.generate(episode=1)
+
+    assert _formal_units(reference_project)["E1U01"]["text"].endswith("@[路人]{借过。}")
+
+
+@pytest.mark.asyncio
+async def test_prompt_authoring_refuses_a_speaker_the_formal_unit_did_not_have(reference_project: Path):
+    _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "text": "@[主角] 推门\n@[主角]{我来了。}"}])
+    gen = ScriptGenerator(
+        reference_project,
+        generator=_fake_prompt_authoring_generator("镜头1：@[主角] 推门\n@[主角]{我来了。}\n@[路人乙]{谁？}"),
+    )
+
+    with pytest.raises(ValueError, match="说话人"):
+        await gen.generate(episode=1)
+
+
+@pytest.mark.asyncio
 async def test_script_plan_conversion_inherits_drama_content_mode(tmp_path: Path):
     """drama 项目下转换出的参考生视频剧本 content_mode 必须为 drama。
 

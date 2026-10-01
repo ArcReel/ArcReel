@@ -36,7 +36,7 @@ from tests.integration.lib.workflow.test_workflow_state import (
     _write_artifact,
     _write_episode_source,
     _write_registered_script,
-    _write_source_and_complete,
+    _write_source,
 )
 
 
@@ -175,7 +175,7 @@ def test_project_without_episodes_has_an_empty_episode_summary(tmp_path: Path) -
 def test_planned_episode_without_script_is_segmented(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _plan_one_episode(pm, project_path, source_text)
     _write_script_plan(project_path)
     register_current_artifact(project_path, ArtifactKey.episode_script_plan(1))
@@ -189,7 +189,7 @@ def test_planned_episode_without_script_is_segmented(tmp_path: Path) -> None:
 def test_script_without_media_reports_a_scripted_episode(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _plan_one_episode(pm, project_path, source_text)
     _write_script_plan(project_path)
     _write_registered_script(
@@ -219,7 +219,7 @@ def test_item_count_reports_the_storyboard_count_on_the_storyboard_route(tmp_pat
 
     pm, project_path = _make_project(tmp_path, "ad")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _plan_one_episode(pm, project_path, source_text)
     _write_registered_script(
         project_path,
@@ -243,7 +243,7 @@ def test_item_count_reports_the_video_unit_count_on_the_reference_route(tmp_path
 
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _plan_one_episode(pm, project_path, source_text)
     draft_dir = project_path / "drafts" / "episode_1"
     draft_dir.mkdir(parents=True, exist_ok=True)
@@ -270,7 +270,7 @@ def test_item_count_reports_the_video_unit_count_on_the_reference_route(tmp_path
 def test_all_artifacts_usable_reports_completed(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
 
     summary = WorkflowStateService(pm).get_project_summary("demo")
@@ -288,7 +288,7 @@ def test_deleting_an_asset_sheet_drops_the_available_count_like_the_workbench(tm
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     sheet = _add_character_with_sheet(pm, project_path)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
@@ -307,7 +307,7 @@ def test_deleting_an_asset_sheet_drops_the_available_count_like_the_workbench(tm
 def test_deleting_a_video_drops_the_episode_out_of_completed(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
     assert service.get_project_summary("demo").episodes[0].status == "completed"
@@ -326,7 +326,7 @@ def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
 
     def _mark_stale(project: dict) -> None:
@@ -344,7 +344,7 @@ def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -
 def test_stale_artifacts_stay_available_and_are_counted_separately(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     sheet = _add_character_with_sheet(pm, project_path)
     _episode_with_media(pm, project_path, source_text)
 
@@ -369,7 +369,7 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
 
     revision_calls: list[Path] = []
@@ -414,7 +414,7 @@ def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
     assert service.get_project_summary("demo").episodes_summary.completed == 1
@@ -438,7 +438,7 @@ def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) 
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
 
@@ -469,7 +469,7 @@ def test_registered_currency_counts_stale_artifacts_as_current(tmp_path: Path) -
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _add_character_with_sheet(pm, project_path)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
@@ -493,7 +493,7 @@ def test_registered_currency_still_requires_registration_and_presence(tmp_path: 
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
     assert service.get_project_summary("demo", currency="registered").episodes_summary.completed == 1
@@ -520,7 +520,7 @@ def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkey
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _add_character_with_sheet(pm, project_path)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
@@ -546,7 +546,7 @@ def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path)
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
 

@@ -25,8 +25,8 @@ _ERROR_STATUS: dict[str, int] = {
     "speech_admission": 409,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 raise_review_error 单独处理。
-# 只读拒绝（script_plan_confirmed）与确认转换的错误码（overwrite_required / conversion_refused / conversion_conflict /
-# video_request_facts / foreign_formal_script）
+# 只读拒绝（script_plan_confirmed）与确认转换的错误码（overwrite_required / invalid_new_assets / conversion_refused /
+# conversion_conflict / video_request_facts / foreign_formal_script）
 # 带诊断或专用状态，同样在 raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
@@ -42,6 +42,8 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         raise ConflictError("script_review_overwrite_required").with_diagnostic(
             {"script_overwrite": overwrite_with_text(exc.overwrite, _t)}
         )
+    if exc.code == "invalid_new_assets":
+        raise UnprocessableError("script_review_invalid_new_assets").with_diagnostic(exc.message)
     if exc.code == "conversion_refused":
         raise UnprocessableError("script_review_conversion_refused").with_diagnostic(exc.message)
     if exc.code == "video_request_facts" and exc.problem is not None:
@@ -60,6 +62,7 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         detail = exc.admission.to_dict()
     elif exc.code == "invalid_content":
         detail = _t("script_review_invalid_content", details=exc.message)
+
     elif exc.code == "episode_not_found":
         detail = _t("episode_not_found", episode=episode)
     else:

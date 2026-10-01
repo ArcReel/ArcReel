@@ -584,6 +584,9 @@ class DataValidator:
                             value=repr(voice_updated_at),
                         )
                     )
+                self._validate_asset_list_fields(
+                    char_data, char_spec.extra_list_fields, _asset("character"), char_name, errors
+                )
                 if char_spec.supports_derivatives:
                     self._validate_derivatives(char_data, "character", char_name, errors)
 
@@ -661,6 +664,45 @@ class DataValidator:
                         )
                     )
 
+    @staticmethod
+    def _validate_asset_list_fields(
+        data: dict,
+        list_fields: tuple[str, ...],
+        kind: MessageRef,
+        name: str,
+        errors: list[ValidationMessage],
+    ) -> None:
+        for field_name in list_fields:
+            # spec 声明的 extra_list_fields（aliases / reference_images / selling_points 等）若存在
+            # 须为字符串列表：下游把元素当路径拼接 / 当文本注入 prompt，混入非 str 会
+            # 运行时崩。None 视为「未设置」放行，其余类型 fail-loud。
+            val = data.get(field_name)
+            if val is None:
+                continue
+            if not isinstance(val, list):
+                errors.append(
+                    _m(
+                        "val_asset_field_must_be_string_list",
+                        asset_type=kind,
+                        name=name,
+                        field=field_name,
+                        actual=type(val).__name__,
+                    )
+                )
+                continue
+            for idx, item in enumerate(val):
+                if not isinstance(item, str):
+                    errors.append(
+                        _m(
+                            "val_asset_field_item_must_be_string",
+                            asset_type=kind,
+                            name=name,
+                            field=field_name,
+                            index=idx,
+                            actual=type(item).__name__,
+                        )
+                    )
+
     def _validate_project_catalog(
         self,
         catalog: Any,
@@ -695,36 +737,7 @@ class DataValidator:
                             actual=type(val).__name__,
                         )
                     )
-            for field_name in extra_list_fields:
-                # spec 声明的 extra_list_fields（reference_images / selling_points 等）若存在
-                # 须为字符串列表：下游把元素当路径拼接 / 当文本注入 prompt，混入非 str 会
-                # 运行时崩。None 视为「未设置」放行，其余类型 fail-loud。
-                val = data.get(field_name)
-                if val is None:
-                    continue
-                if not isinstance(val, list):
-                    errors.append(
-                        _m(
-                            "val_asset_field_must_be_string_list",
-                            asset_type=kind,
-                            name=name,
-                            field=field_name,
-                            actual=type(val).__name__,
-                        )
-                    )
-                    continue
-                for idx, item in enumerate(val):
-                    if not isinstance(item, str):
-                        errors.append(
-                            _m(
-                                "val_asset_field_item_must_be_string",
-                                asset_type=kind,
-                                name=name,
-                                field=field_name,
-                                index=idx,
-                                actual=type(item).__name__,
-                            )
-                        )
+            self._validate_asset_list_fields(data, extra_list_fields, kind, name, errors)
 
     def _unregistered_refs(self, refs: list[Any], registered: Container[str]) -> list[Any]:
         """按 ``lib.project.asset_types`` 的比对坐标系（NFC）挑出未登记的资产引用。

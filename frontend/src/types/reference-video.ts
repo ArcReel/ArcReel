@@ -7,7 +7,7 @@
  */
 
 import type { DurationExclusionReason, VideoCapabilityProblem } from "./project";
-import type { RenderedPromptPreview } from "./script";
+import type { PlanNewAsset, RenderedPromptPreview } from "./script";
 import type {
   AdmissionProblem,
   WorkflowAdmission,
@@ -221,6 +221,7 @@ export interface ReferenceScriptPlanUnit {
 
 export interface ReferenceScriptPlanDraft {
   units: ReferenceScriptPlanUnit[];
+  new_assets?: PlanNewAsset[];
 }
 
 /**
