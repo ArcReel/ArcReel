@@ -2,7 +2,7 @@
 
 走 apihub 网关上的 OpenAI 兼容 ``/images/generations`` 同步端点：单次 POST 直接返回图片
 URL 或 base64，立即落地为本地资产。T2I 与 I2I 共用同一端点，I2I 把参考图随请求体下发。
-尺寸按 ADR 0011 aspect_size 精确算出并显式下发 ``size``（不依赖上游默认横屏尺寸）。
+2.1 按 ADR 0011 aspect_size 精确算出并显式下发 ``size: WxH``；2.5 改发 ``size`` 档位 + ``ratio``。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "agnes-image-2.1-flash"
+DEFAULT_MODEL = "agnes-image-2.5-flash"
 
 _IMAGE_ENDPOINT = "/images/generations"
 
@@ -104,16 +104,19 @@ class AgnesImageBackend:
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
         # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
-        width, height = self._resolve_dimensions(request)
-
         # 不发 response_format：上游 litellm 网关对该参数报 UnsupportedParamsError；
         # 响应默认同时带 url 与 b64_json，由 _persist_image 优先取 url。
         payload: dict = {
             "model": self._model,
             "prompt": request.prompt,
             "n": 1,
-            "size": f"{width}x{height}",
         }
+        if self._uses_v25_contract():
+            payload["size"] = (request.image_size or "1K").upper()
+            payload["ratio"] = request.aspect_ratio
+        else:
+            width, height = self._resolve_dimensions(request)
+            payload["size"] = f"{width}x{height}"
         if request.reference_images:
             # I2I 参考图随同一请求体下发 data-URI 列表（image 字段）。读盘 + base64 编码
             # （可能数 MB）offload 到线程，避免阻塞事件循环。
@@ -129,6 +132,9 @@ class AgnesImageBackend:
             model=self._model,
             image_uri=image_uri,
         )
+
+    def _uses_v25_contract(self) -> bool:
+        return self._model.startswith("agnes-image-2.5")
 
     @with_retry_async(retry_if=should_retry_submit)
     async def _submit(self, payload: dict) -> dict:

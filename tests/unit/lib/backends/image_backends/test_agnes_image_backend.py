@@ -69,7 +69,7 @@ class TestCapabilities:
     def test_default_model_when_unset(self):
         from lib.backends.image_backends.agnes import AgnesImageBackend
 
-        assert AgnesImageBackend(api_key="sk").model == "agnes-image-2.1-flash"
+        assert AgnesImageBackend(api_key="sk").model == "agnes-image-2.5-flash"
 
     def test_registered_in_factory(self):
         from lib.backends.image_backends import create_backend, get_registered_backends
@@ -116,6 +116,43 @@ class TestTextToImage:
 
         assert str(only_request(route).url) == _ENDPOINT
 
+    async def test_v25_request_build_uses_size_tier_and_ratio(self, tmp_path: Path):
+        download = AsyncMock()
+        with _generate_route(_img_response(), download) as route:
+            from lib.backends.image_backends.agnes import AgnesImageBackend
+
+            backend = AgnesImageBackend(api_key="sk", model="agnes-image-2.5-flash")
+            result = await backend.generate(
+                ImageGenerationRequest(
+                    prompt="a fox",
+                    output_path=tmp_path / "o.png",
+                    aspect_ratio="16:9",
+                    image_size="2K",
+                )
+            )
+
+        body = request_json(only_request(route))
+        assert body == {
+            "model": "agnes-image-2.5-flash",
+            "prompt": "a fox",
+            "n": 1,
+            "size": "2K",
+            "ratio": "16:9",
+        }
+        assert result.model == "agnes-image-2.5-flash"
+
+    async def test_v25_default_size_is_1k(self, tmp_path: Path):
+        download = AsyncMock()
+        with _generate_route(_img_response(), download) as route:
+            from lib.backends.image_backends.agnes import AgnesImageBackend
+
+            backend = AgnesImageBackend(api_key="sk", model="agnes-image-2.5-flash")
+            await backend.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
+
+        body = request_json(only_request(route))
+        assert body["size"] == "1K"
+        assert body["ratio"] == "9:16"
+
 
 class TestDimensions:
     async def _size(self, tmp_path: Path, **req_kwargs) -> str:
@@ -123,7 +160,7 @@ class TestDimensions:
         with _generate_route(_img_response(), download) as route:
             from lib.backends.image_backends.agnes import AgnesImageBackend
 
-            b = AgnesImageBackend(api_key="sk")
+            b = AgnesImageBackend(api_key="sk", model="agnes-image-2.1-flash")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", **req_kwargs))
         return request_json(only_request(route))["size"]
 
@@ -169,8 +206,25 @@ class TestImageToImage:
         assert isinstance(images, list)
         assert len(images) == 2
         assert all(item.startswith("data:image/png;base64,") for item in images)
-        # I2I 仍显式下发 size
-        assert "size" in body
+        # I2I 仍显式下发新契约的 size 档位
+        assert body["size"] == "1K"
+        assert body["ratio"] == "9:16"
+
+    async def test_legacy_i2i_keeps_pixel_size_and_data_uri_list(self, tmp_path: Path):
+        download = AsyncMock()
+        refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(2)]
+        with _generate_route(_img_response(), download) as route:
+            from lib.backends.image_backends.agnes import AgnesImageBackend
+
+            backend = AgnesImageBackend(api_key="sk", model="agnes-image-2.1-flash")
+            await backend.generate(
+                ImageGenerationRequest(prompt="hero", output_path=tmp_path / "o.png", reference_images=refs)
+            )
+
+        body = request_json(only_request(route))
+        assert body["size"] == "1152x2048"
+        assert "ratio" not in body
+        assert all(item.startswith("data:image/png;base64,") for item in body["image"])
 
     async def test_missing_ref_raises_unreadable(self, tmp_path: Path):
         from lib.backends.image_backends.agnes import AgnesImageBackend
@@ -321,13 +375,16 @@ class TestRetryScope:
 
 
 class TestPricing:
-    def test_per_image_flat_usd(self):
+    def test_legacy_image_by_resolution_usd(self):
         from lib.billing.pricing.lookup import lookup_pricing
         from lib.billing.pricing.strategies import PricingParams, calculate_pricing
-        from lib.billing.pricing.types import PerImageFlat
+        from lib.billing.pricing.types import PerImageByResolution
 
         pricing = lookup_pricing(PROVIDER_AGNES, "agnes-image-2.1-flash", "image")
-        assert isinstance(pricing, PerImageFlat)
-        amount, currency = calculate_pricing(pricing, PricingParams(call_type="image", model="agnes-image-2.1-flash"))
-        assert amount == pytest.approx(0.003)
+        assert isinstance(pricing, PerImageByResolution)
+        amount, currency = calculate_pricing(
+            pricing,
+            PricingParams(call_type="image", model="agnes-image-2.1-flash", resolution="1K"),
+        )
+        assert amount == pytest.approx(0.010)
         assert currency == "USD"

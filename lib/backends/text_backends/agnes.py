@@ -11,10 +11,15 @@ from __future__ import annotations
 
 from lib.backends.agnes_shared import agnes_base_url, resolve_agnes_api_key
 from lib.backends.providers import PROVIDER_AGNES
-from lib.backends.text_backends.base import TextCapability
+from lib.backends.text_backends.base import (
+    TextCapability,
+    TextGenerationRequest,
+    TextGenerationResult,
+    strip_json_code_fence,
+)
 from lib.backends.text_backends.openai import OpenAITextBackend
 
-DEFAULT_MODEL = "agnes-2.0-flash"
+DEFAULT_MODEL = "agnes-3.0-flash"
 
 
 class AgnesTextBackend(OpenAITextBackend):
@@ -35,5 +40,13 @@ class AgnesTextBackend(OpenAITextBackend):
             base_url=agnes_base_url(base_url),
             provider_name=PROVIDER_AGNES,
         )
-        # agnes-2.0-flash 仅声明文本生成与结构化输出；vision 未实测，不纳入能力集（父类默认含 VISION）。
+        # Agnes 文本模型仅声明文本生成与结构化输出；vision 未实测，不纳入能力集（父类默认含 VISION）。
         self._capabilities = {TextCapability.TEXT_GENERATION, TextCapability.STRUCTURED_OUTPUT}
+
+    async def _generate_native(
+        self, request: TextGenerationRequest, messages: list[dict]
+    ) -> TextGenerationResult | None:
+        result = await super()._generate_native(request, messages)
+        if result is not None and request.response_schema:
+            result.text = strip_json_code_fence(result.text)
+        return result
