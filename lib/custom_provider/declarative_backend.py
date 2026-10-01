@@ -27,6 +27,7 @@ from arcreel_market_core.endpoint_definition import (
     RenderedRequest,
     TemplateRenderError,
     build_context,
+    definition_media_type,
     encode_inputs,
     extract_value,
     map_status,
@@ -186,8 +187,23 @@ class JobState:
 
     body: object
     status: ProviderJobStatus
+    #: 供应商原样回报的状态串。状态由 ``failure`` 判定或由调用方给定时为 ``None``。
+    provider_status: str | None
     error: str | None
     result_id: str | None
+
+
+def _failure_reason(state: JobState) -> str:
+    """供应商判负时给用户看的理由：优先取定义读出的错误信息，没有就报出供应商的原样状态。
+
+    状态映射会把 ``failed`` / ``cancelled`` 之类折进同一个 ``failed`` 档位，只报「供应商判负」
+    分不清是供应商拒绝还是任务被取消。
+    """
+    if state.error:
+        return state.error
+    if state.provider_status:
+        return f"provider reported failure (status: {state.provider_status})"
+    return "provider reported failure"
 
 
 @dataclass(frozen=True)
@@ -215,14 +231,20 @@ def extract_job_status(
     *,
     status_map: Mapping[str, str] | None = None,
     status: ProviderJobStatus | None = None,
-) -> ProviderJobStatus:
+) -> tuple[ProviderJobStatus, str | None]:
     """按 ``extract`` 的 ``status`` / ``failure`` 读任务状态：命中 ``failure`` 一律判失败。
 
-    ``status`` 给定时（二次取件节只在轮询判成功之后才发得出去）不再读状态路径。
+    返回状态档位与供应商原样状态串；原样状态串只在档位由它映射而来时给出。``status`` 给定时
+    （二次取件节只在轮询判成功之后才发得出去）不再读状态路径。
     """
     failure = extract_value(extract["failure"], body) if "failure" in extract else None
-    mapped = status or map_status(extract_value(extract.get("status"), body), status_map)
-    return ProviderJobStatus.FAILED if failure is not None else mapped
+    if status is not None:
+        return (ProviderJobStatus.FAILED if failure is not None else status), None
+    raw = extract_value(extract.get("status"), body)
+    mapped = map_status(raw, status_map)
+    if failure is not None:
+        return ProviderJobStatus.FAILED, None
+    return mapped, text_or_none(raw)
 
 
 def extract_provider_state(
@@ -239,9 +261,11 @@ def extract_provider_state(
     场合给出反的结论。
     """
     with response_extract_guard():
+        job_status, provider_status = extract_job_status(body, extract, status_map=status_map, status=status)
         return ProviderState(
             body=body,
-            status=extract_job_status(body, extract, status_map=status_map, status=status),
+            status=job_status,
+            provider_status=provider_status,
             video_url=extract_text(extract.get("video_url"), body),
             error=extract_text(extract.get("error"), body),
             result_id=extract_text(extract.get("result_id"), body),
@@ -395,6 +419,7 @@ class DeclarativeJobEngine[StateT: JobState]:
                 },
                 encoded,
                 self._definition.get("defaults"),
+                media_type=definition_media_type(self._definition),
             )
         except TemplateRenderError as exc:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=exc.message) from exc
@@ -579,9 +604,7 @@ class DeclarativeJobEngine[StateT: JobState]:
             is_done=lambda state: state.status is ProviderJobStatus.SUCCEEDED,
             # 终态失败必须给出非空理由：返回 None 会让 poll_with_retry 认为任务仍在进行，
             # 一路轮询到 max_wait 才超时，而供应商早已判负。
-            is_failed=lambda state: (
-                (state.error or "provider reported failure") if state.status is ProviderJobStatus.FAILED else None
-            ),
+            is_failed=lambda state: _failure_reason(state) if state.status is ProviderJobStatus.FAILED else None,
             max_wait=call.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label=self._provider,

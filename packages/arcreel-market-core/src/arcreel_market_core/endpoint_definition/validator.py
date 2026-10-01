@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, fields
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -45,11 +46,13 @@ from arcreel_market_core.definition_schema_errors import most_specific, translat
 from arcreel_market_core.video_backend_contract import (
     ProviderJobStatus,
     ReferenceAudioMode,
+    VideoCapabilities,
     audio_capability_pair_is_coherent,
 )
 
 from .jsonpath_subset import JsonPathSubsetError, parse_json_path
 from .kinds import COMFYUI_KIND, DECLARATIVE_KIND
+from .media_type import definition_media_type
 from .template_engine import enum_map_key
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
@@ -57,7 +60,7 @@ SCHEMA_PATH = Path(__file__).parent / "schema.json"
 #: 定义格式自身的版本；写入时不改写文件里的 ``schema_version``，校验器也不做定义迁移。
 CURRENT_SCHEMA_VERSION = "1.1.0"
 
-#: 请求模板里随时可用的保留变量。``width`` / ``height`` 由比例与分辨率派生，不接受参数。
+#: 视频定义请求模板里随时可用的保留变量。``width`` / ``height`` 由比例与分辨率派生，不接受参数。
 BASE_VARIABLES = frozenset(
     {
         "base_url",
@@ -73,12 +76,12 @@ BASE_VARIABLES = frozenset(
     }
 )
 
-#: 只能做枚举映射的变量：供应商侧改名的都是这几个档位参数，prompt 之类改名没有意义。
+#: 视频定义里只能做枚举映射的变量：供应商侧改名的都是这几个档位参数，prompt 之类改名没有意义。
 ENUM_MAP_VARIABLES = frozenset({"duration", "aspect_ratio", "resolution", "generate_audio"})
 
-#: 可声明缺省值的变量与各自的宿主类型：调用方可以不填的那几个档位参数。base_url / model /
-#: prompt 每次调用都带，width / height 由比例与分辨率派生，给它们声明缺省值只会掩盖真正的
-#: 缺参。类型即 ArcReel 侧参数类型——缺省值渲染前原样进上下文，错型的 aspect_ratio /
+#: 视频定义里可声明缺省值的变量与各自的宿主类型：调用方可以不填的那几个档位参数。base_url /
+#: model / prompt 每次调用都带，width / height 由比例与分辨率派生，给它们声明缺省值只会掩盖
+#: 真正的缺参。类型即 ArcReel 侧参数类型——缺省值渲染前原样进上下文，错型的 aspect_ratio /
 #: resolution 会让宽高派生拿不到档位（引用 {{ width }} 的定义每次未指定参数都渲染失败），
 #: 错型的 duration / generate_audio 则把整值占位符保留原生类型的语义带歪。
 DEFAULT_VALUE_TYPES: dict[str, type] = {
@@ -89,6 +92,64 @@ DEFAULT_VALUE_TYPES: dict[str, type] = {
     "seed": int,
 }
 DEFAULTABLE_VARIABLES = frozenset(DEFAULT_VALUE_TYPES)
+
+#: 视频定义的能力字段，与 ``VideoCapabilities`` 同名同义。
+VIDEO_CAPABILITY_FIELDS = frozenset(field.name for field in fields(VideoCapabilities))
+
+
+@dataclass(frozen=True)
+class MediaTypeRules:
+    """一种媒体类型的定义可用的字段集合。
+
+    ``schema.json`` 收各媒体类型的并集，本表按定义声明的 ``media_type`` 收窄：写了另一种媒体
+    类型才有的字段，报 ``media_type_field_not_allowed`` 而不是笼统的未知字段或未声明变量，
+    写定义的人才知道错在媒体类型上。
+    """
+
+    #: 请求模板可引用的保留变量。
+    variables: frozenset[str]
+    #: 可做枚举映射的变量。
+    enum_map_variables: frozenset[str]
+    #: 可声明缺省值的变量与各自的宿主类型。
+    default_value_types: Mapping[str, type]
+    #: ``inputs.*.source`` 可取的素材来源。
+    input_sources: frozenset[str]
+    #: ``capabilities`` 节可写的字段。
+    capabilities: frozenset[str]
+    #: 产物提取键，按运行时取用的先后排列。产物所在节（无 ``result`` 节时为 ``poll``，否则为
+    #: ``result``）的 ``extract`` 至少写一项。
+    artifact_keys: tuple[str, ...]
+    #: 至少一项须声明为真的能力；为空表示不要求。
+    required_capabilities: tuple[str, ...]
+
+
+#: ``media_type`` → 该媒体类型的字段集合。
+MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
+    "video": MediaTypeRules(
+        variables=BASE_VARIABLES,
+        enum_map_variables=ENUM_MAP_VARIABLES,
+        default_value_types=DEFAULT_VALUE_TYPES,
+        input_sources=frozenset({"start_image", "end_image", "reference_images", "reference_audio_files"}),
+        capabilities=VIDEO_CAPABILITY_FIELDS,
+        artifact_keys=("video_url",),
+        required_capabilities=(),
+    ),
+    "image": MediaTypeRules(
+        variables=frozenset({"base_url", "model", "prompt", "aspect_ratio", "resolution", "seed", "width", "height"}),
+        enum_map_variables=frozenset({"aspect_ratio", "resolution"}),
+        default_value_types={"aspect_ratio": str, "resolution": str, "seed": int},
+        input_sources=frozenset(),
+        capabilities=frozenset({"text_to_image"}),
+        artifact_keys=("image_url",),
+        required_capabilities=("text_to_image",),
+    ),
+}
+
+#: 任一媒体类型可用的保留变量：不在其中的名字才是真正未声明的变量。
+_ALL_VARIABLES = frozenset().union(*(rules.variables for rules in MEDIA_TYPE_RULES.values()))
+_ALL_ENUM_MAP_VARIABLES = frozenset().union(*(rules.enum_map_variables for rules in MEDIA_TYPE_RULES.values()))
+_ALL_DEFAULTABLE_VARIABLES = frozenset().union(*(rules.default_value_types for rules in MEDIA_TYPE_RULES.values()))
+_ALL_ARTIFACT_KEYS = frozenset().union(*(rules.artifact_keys for rules in MEDIA_TYPE_RULES.values()))
 
 #: 列表型素材来源：只能经 ``$each`` 展开，直接内插会把整个列表串化进请求。
 LIST_INPUT_SOURCES = frozenset({"reference_images", "reference_audio_files"})
@@ -145,7 +206,6 @@ REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "source": "val_ce_removed_reason_extract_source",
     "duration_seconds": "val_ce_removed_reason_extract_usage_keys",
     "mime_types": "val_ce_removed_reason_mime_types",
-    "media_type": "val_ce_removed_reason_media_type",
 }
 
 
@@ -260,6 +320,8 @@ class _SemanticChecker:
 
     def __init__(self, document: Mapping[str, Any]) -> None:
         self._document = document
+        self._media_type = definition_media_type(document)
+        self._rules = MEDIA_TYPE_RULES[self._media_type]
         self._inputs: Mapping[str, Any] = document.get("inputs") or {}
         self._auth: Mapping[str, Any] = document.get("auth") or {}
         self._list_inputs = {name for name, decl in self._inputs.items() if decl.get("source") in LIST_INPUT_SOURCES}
@@ -276,12 +338,21 @@ class _SemanticChecker:
         self._check_defaults()
         self._check_status_map()
         self._check_inputs_referenced()
+        self._check_input_sources()
+        self._check_artifact_extract()
         self._check_capabilities()
 
     # ---- 记录 ----
 
     def _error(self, path: str, code: DefinitionErrorCode, **params: Any) -> None:
         self.errors.append(DefinitionIssue(path, code, params))
+
+    def _media_type_mismatch(self, path: str, name: str) -> DefinitionIssue:
+        return DefinitionIssue(
+            path,
+            DefinitionErrorCode.MEDIA_TYPE_FIELD_NOT_ALLOWED,
+            {"name": name, "media_type": self._media_type},
+        )
 
     def _warn(self, path: str, code: DefinitionErrorCode, **params: Any) -> None:
         self.warnings.append(DefinitionIssue(path, code, params))
@@ -339,6 +410,8 @@ class _SemanticChecker:
     def _check_extract(self, section: str, extract: Mapping[str, Any]) -> None:
         base = join_path(section, "extract")
         for key, spec in extract.items():
+            if key in _ALL_ARTIFACT_KEYS and key not in self._rules.artifact_keys:
+                self.errors.append(self._media_type_mismatch(join_path(base, key), key))
             if key == "usage":
                 for usage_key, usage_spec in spec.items():
                     self._check_extract_spec(usage_spec, join_path(join_path(base, "usage"), usage_key))
@@ -437,10 +510,12 @@ class _SemanticChecker:
             return DefinitionIssue(path, DefinitionErrorCode.TASK_ID_OUT_OF_SCOPE)
         if name == "result_id":
             return self._result_id_issue(path, scope)
-        if name in scope.locals or name in BASE_VARIABLES:
+        if name in scope.locals or name in self._rules.variables:
             return None
         if name.startswith("inputs."):
             return self._input_reference_issue(name.removeprefix("inputs."), path, scope)
+        if name in _ALL_VARIABLES:
+            return self._media_type_mismatch(path, name)
         return DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": name})
 
     def _result_id_issue(self, path: str, scope: _Scope) -> DefinitionIssue | None:
@@ -464,28 +539,38 @@ class _SemanticChecker:
     # ---- 字典与能力 ----
 
     def _check_enum_maps(self) -> None:
+        allowed = self._rules.enum_map_variables
         for name in self._document.get("enum_maps") or {}:
-            if name in ENUM_MAP_VARIABLES:
+            if name in allowed:
+                continue
+            path = join_path("enum_maps", name)
+            if name in _ALL_ENUM_MAP_VARIABLES:
+                self.errors.append(self._media_type_mismatch(path, name))
                 continue
             self._error(
-                join_path("enum_maps", name),
+                path,
                 DefinitionErrorCode.ENUM_MAP_VARIABLE_NOT_ALLOWED,
                 variable=name,
-                allowed=" / ".join(sorted(ENUM_MAP_VARIABLES)),
+                allowed=" / ".join(sorted(allowed)),
             )
 
     def _check_defaults(self) -> None:
         enum_maps: Mapping[str, Mapping[str, Any]] = self._document.get("enum_maps") or {}
+        value_types = self._rules.default_value_types
         for name, value in (self._document.get("defaults") or {}).items():
-            if name not in DEFAULTABLE_VARIABLES:
+            if name not in value_types:
+                path = join_path("defaults", name)
+                if name in _ALL_DEFAULTABLE_VARIABLES:
+                    self.errors.append(self._media_type_mismatch(path, name))
+                    continue
                 self._error(
-                    join_path("defaults", name),
+                    path,
                     DefinitionErrorCode.DEFAULT_VARIABLE_NOT_ALLOWED,
                     variable=name,
-                    allowed=" / ".join(sorted(DEFAULTABLE_VARIABLES)),
+                    allowed=" / ".join(sorted(value_types)),
                 )
                 continue
-            expected = DEFAULT_VALUE_TYPES[name]
+            expected = value_types[name]
             # bool 是 int 的子类：True 会冒充合法的 duration / seed，反向单判。
             if not isinstance(value, expected) or (isinstance(value, bool) and expected is not bool):
                 self._error(
@@ -523,8 +608,42 @@ class _SemanticChecker:
             if name not in self._referenced_inputs:
                 self._error(join_path("inputs", name), DefinitionErrorCode.INPUT_NOT_REFERENCED)
 
+    def _check_input_sources(self) -> None:
+        for name, declaration in self._inputs.items():
+            source = str(declaration.get("source"))
+            if source not in self._rules.input_sources:
+                self.errors.append(self._media_type_mismatch(join_path(join_path("inputs", name), "source"), source))
+
+    def _check_artifact_extract(self) -> None:
+        """产物所在节至少写一项本媒体类型的产物提取键。
+
+        视频定义的这条规则由 ``schema.json`` 在结构层兜住，这里对视频不会再命中。
+        """
+        section = "result" if "result" in self._document else "poll"
+        extract: Mapping[str, Any] = self._document[section].get("extract") or {}
+        if not any(key in extract for key in self._rules.artifact_keys):
+            self._error(
+                join_path(section, "extract"),
+                DefinitionErrorCode.ARTIFACT_EXTRACT_MISSING,
+                keys=" / ".join(self._rules.artifact_keys),
+            )
+
     def _check_capabilities(self) -> None:
         capabilities: Mapping[str, Any] = self._document.get("capabilities") or {}
+        for name in capabilities:
+            if name not in self._rules.capabilities:
+                self.errors.append(self._media_type_mismatch(join_path("capabilities", name), name))
+        required = self._rules.required_capabilities
+        if required and not any(capabilities.get(name) is True for name in required):
+            self._error(
+                "capabilities",
+                DefinitionErrorCode.CAPABILITY_NOT_DECLARED,
+                allowed=" / ".join(required),
+            )
+        if self._media_type == "video":
+            self._check_video_capabilities(capabilities)
+
+    def _check_video_capabilities(self, capabilities: Mapping[str, Any]) -> None:
         used_sources = {decl.get("source") for name, decl in self._inputs.items() if name in self._referenced_inputs}
         for capability, source in CAPABILITY_SOURCE_PAIRS:
             declared = _capability_is_on(capability, capabilities.get(capability))

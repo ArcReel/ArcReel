@@ -41,7 +41,7 @@
 
 - `auth` 可为空；非空时至少一处引用 `{{ api_key }}`，凭证只能出现在 `auth.headers` 或
   `auth.query`。普通 request headers、body 与 URL 不得另写凭证。
-- 模板变量包括 `base_url`、`api_key`（仅 auth）、`model`、`prompt`、`duration`、
+- 视频定义的模板变量包括 `base_url`、`api_key`（仅 auth）、`model`、`prompt`、`duration`、
   `duration_seconds`、`aspect_ratio`、`resolution`、`generate_audio`、`seed`、`width`、`height`、
   `task_id`、`result_id` 与 `inputs.<name>`。整串单占位符保留原类型；值为 null 时删除所在字段。
 - 素材在 `inputs` 声明，`source` 取 `start_image`、`end_image`、`reference_images` 或
@@ -53,6 +53,10 @@
   `{"path":"$.data","json_decode":true,"then":["$.id"]}`。
 - `status_map` 的目标只取 `queued`、`running`、`succeeded`、`failed`。若成功后还需二次取件，
   在 poll 提取 `result_id`，并增加 `result` 节从 `task_id` / `result_id` 获取 `video_url`。
+- 图片定义写 `"media_type": "image"`，不写即视频。图片定义的模板变量只有 `base_url`、`api_key`（仅 auth）、
+  `model`、`prompt`、`aspect_ratio`、`resolution`、`seed`、`width`、`height`、`task_id` 与 `result_id`；
+  `capabilities` 写 `{"text_to_image": true}`；取图路径写在 `image_url`，有 `result` 节时写在
+  `result.extract`。图片定义里出现时长、音频、首尾帧等视频专用项时校验失败。
 
 ## 测试输入
 

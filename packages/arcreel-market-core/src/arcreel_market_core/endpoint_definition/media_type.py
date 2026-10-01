@@ -1,4 +1,4 @@
-"""按 ``kind`` 读一份定义的媒体类型：索引投影、端点投影与镜像列共用这一份实现。"""
+"""读一份定义的媒体类型：索引投影、端点投影与镜像列共用这一份实现。"""
 
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ from typing import Any
 
 from .kinds import COMFYUI_KIND, DECLARATIVE_KIND
 
-#: 声明式定义描述的是「JSON in/out + 提交/轮询」的视频协议，媒体类型恒为 video。
-DECLARATIVE_MEDIA_TYPE = "video"
+#: 声明式定义不写 ``media_type`` 时的媒体类型。该字段晚于视频定义加入格式，已有定义与随版定义
+#: 都不写它，缺省必须是视频。
+DEFAULT_DECLARATIVE_MEDIA_TYPE = "video"
 
-#: ``kind`` → 从定义读媒体类型。一份 ComfyUI workflow 产图还是产视频由它自己声明。
+#: ``kind`` → 从定义读媒体类型。两种 kind 都由定义自己声明，ComfyUI 定义必须写。
 _MEDIA_TYPE_BY_KIND: Mapping[str, Callable[[Mapping[str, Any]], str]] = {
-    DECLARATIVE_KIND: lambda _definition: DECLARATIVE_MEDIA_TYPE,
+    DECLARATIVE_KIND: lambda definition: str(definition.get("media_type", DEFAULT_DECLARATIVE_MEDIA_TYPE)),
     COMFYUI_KIND: lambda definition: str(definition["media_type"]),
 }
 

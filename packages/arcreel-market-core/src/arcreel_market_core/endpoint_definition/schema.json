@@ -15,6 +15,11 @@
       "description": "本定义遵循的格式版本（semver）。入库保留原值，不做迁移。",
       "$ref": "#/$defs/semver"
     },
+    "media_type": {
+      "description": "定义产出的媒体类型，缺省为 video。可用的模板变量、素材来源、能力字段与产物提取键按媒体类型分集合，由校验器检查。",
+      "enum": ["image", "video"],
+      "default": "video"
+    },
     "meta": { "$ref": "#/$defs/meta" },
     "auth": { "$ref": "#/$defs/auth" },
     "inputs": {
@@ -52,11 +57,19 @@
   },
   "allOf": [
     {
-      "$comment": "产物地址必须有出处：没有二次取件节时由轮询取，有则由 result 节取（result.extract 自带该必填）。",
-      "if": { "not": { "required": ["result"] } },
-      "then": {
-        "properties": {
-          "poll": { "properties": { "extract": { "required": ["video_url"] } } }
+      "$comment": "视频定义的产物地址必须有出处：没有二次取件节时由轮询取，有则由 result 节取。图片定义的产物提取由校验器按媒体类型检查。",
+      "if": { "required": ["media_type"], "properties": { "media_type": { "const": "image" } } },
+      "else": {
+        "if": { "not": { "required": ["result"] } },
+        "then": {
+          "properties": {
+            "poll": { "properties": { "extract": { "required": ["video_url"] } } }
+          }
+        },
+        "else": {
+          "properties": {
+            "result": { "properties": { "extract": { "required": ["video_url"] } } }
+          }
         }
       }
     }
@@ -319,6 +332,7 @@
               "properties": {
                 "status": { "$ref": "#/$defs/extractSpec" },
                 "video_url": { "$ref": "#/$defs/extractSpec" },
+                "image_url": { "$ref": "#/$defs/extractSpec" },
                 "error": { "$ref": "#/$defs/extractSpec" },
                 "failure": {
                   "description": "状态串之外的失败判据：任一路径产生可接受命中即判 failed，错误信息按 error 取。",
@@ -350,10 +364,10 @@
         "headers": { "$ref": "#/$defs/headerMap" },
         "extract": {
           "type": "object",
-          "required": ["video_url"],
           "additionalProperties": false,
           "properties": {
             "video_url": { "$ref": "#/$defs/extractSpec" },
+            "image_url": { "$ref": "#/$defs/extractSpec" },
             "error": { "$ref": "#/$defs/extractSpec" },
             "usage": {
               "type": "object",
@@ -365,11 +379,12 @@
       }
     },
     "capabilities": {
-      "description": "协议级能力声明，与 arcreel_market_core/video_backend_contract.py 的 VideoCapabilities 同名同义，是能力的唯一来源；模型行沿用 capability_overrides 覆盖。校验器与 submit 实际引用到的 inputs 做两向一致性检查。整节可省略（全部取默认值，即无素材输入）。",
+      "description": "协议级能力声明，是能力的唯一来源。视频定义的字段与 arcreel_market_core/video_backend_contract.py 的 VideoCapabilities 同名同义，模型行沿用 capability_overrides 覆盖，校验器与 submit 实际引用到的 inputs 做两向一致性检查，整节可省略（全部取默认值，即无素材输入）。图片定义写 text_to_image，至少声明一项图片能力。字段按媒体类型分集合，由校验器检查。",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "text_to_video": { "type": "boolean", "default": true },
+        "text_to_image": { "type": "boolean", "default": false },
         "first_frame": { "type": "boolean", "default": false },
         "last_frame": { "type": "boolean", "default": false },
         "max_reference_images": { "type": "integer", "minimum": 0, "default": 0 },

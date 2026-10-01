@@ -75,6 +75,7 @@ export interface EndpointPollSpec {
   extract: {
     status?: EndpointExtractSpec;
     video_url?: EndpointExtractSpec;
+    image_url?: EndpointExtractSpec;
     error?: EndpointExtractSpec;
     failure?: EndpointExtractSpec;
     result_id?: EndpointExtractSpec;
@@ -88,13 +89,16 @@ export interface EndpointResultSpec {
   headers?: Record<string, string>;
   extract: {
     video_url?: EndpointExtractSpec;
+    image_url?: EndpointExtractSpec;
     error?: EndpointExtractSpec;
     usage?: Record<string, EndpointExtractSpec>;
   };
 }
 
+/** 能力字段按媒体类型分集合：视频定义写 VideoCapabilities 同名字段，图片定义写 text_to_image。 */
 export interface EndpointCapabilities {
   text_to_video?: boolean;
+  text_to_image?: boolean;
   first_frame?: boolean;
   last_frame?: boolean;
   max_reference_images?: number;
@@ -112,6 +116,8 @@ export interface EndpointCapabilities {
 export interface EndpointDefinition {
   kind: "declarative";
   schema_version: string;
+  /** 定义产出的媒体类型，不写即视频。 */
+  media_type?: "image" | "video";
   meta: EndpointMeta;
   auth: EndpointAuth;
   inputs?: Record<string, EndpointInputSpec>;
@@ -436,6 +442,7 @@ export interface EndpointStageReport {
   raw_status?: unknown;
   status?: EndpointStandardStatus | null;
   video_url?: string | null;
+  image_url?: string | null;
   error?: string | null;
   result_id?: string | null;
   duration_seconds?: number | null;
