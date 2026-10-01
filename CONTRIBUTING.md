@@ -4,7 +4,7 @@
 
 以推广某项商业服务为主要目的的贡献（例如新增某家服务的接入，或在文档中加入服务推荐与链接）不走 PR 流程，这类 PR 会被关闭；合作请联系 support@arc-reel.com。
 
-ArcReel 默认你用 coding agent 开发。仓库根的 `AGENTS.md`（`CLAUDE.md` 是指向它的链接）是 agent 的入口，闸门命令、测试选择与代码规范都从那里指出；本文只讲贡献者本人需要知道的部分。
+ArcReel 假定贡献者用 coding Agent 开发。仓库根的 `AGENTS.md`（`CLAUDE.md` 是指向它的链接）是 Agent 的入口，闸门命令、测试选择与代码规范都从它链接出去；本文只讲贡献者本人需要知道的部分。
 
 ## 本地开发环境
 
@@ -62,28 +62,15 @@ pnpm check-consistency
 
 ## 测试
 
-```bash
-# 后端完整测试
-uv run python -m pytest -n 4 --dist loadfile
-
-# workspace 子包 arcreel-market-core 的测试（自带 pytest 配置，与应用测试分开收集）
-uv run python -m pytest packages/arcreel-market-core/tests
-
-# 前端 typecheck + lint + 测试
-cd frontend && pnpm check
-```
-
-开发循环先跑与改动相关的测试，push 前跑受影响域的完整闸门；选择相关测试的规则见 [`docs/agents/testing.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/testing.md)。测试的分档、替身与断言规范见 [`docs/standards/testing.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/testing.md)，结构类规则由 `uv run python scripts/audit_tests.py --check` 强制。覆盖率（Codecov）与变异得分只作信号，不是闸门。
+开发循环与 push 前的完整闸门见 [`AGENTS.md`](https://github.com/ArcReel/ArcReel/blob/main/AGENTS.md)「工具链与校验」和 [`docs/agents/testing.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/testing.md)；CI 跑同一套检查。
 
 ## 代码质量
 
-push 前的完整闸门命令列在 [`AGENTS.md`](https://github.com/ArcReel/ArcReel/blob/main/AGENTS.md)「工具链与校验」，CI 跑同一套检查；pre-commit 钩子在提交时先跑其中的快速部分。工具报出的问题一律改代码，豁免只用于确认过的误报，并且每一处都写明理由。
-
-代码规范的入口是 [`CODING_STANDARDS.md`](https://github.com/ArcReel/ArcReel/blob/main/CODING_STANDARDS.md)：按改动路径索引到 `docs/standards/` 下的领域规范，只收工具替代不了、需要判断的项目约定。本地审查与 PR 上的 AI reviewer 都按它审查。
+代码规范的入口是 [`CODING_STANDARDS.md`](https://github.com/ArcReel/ArcReel/blob/main/CODING_STANDARDS.md)：按改动路径索引到 `docs/standards/` 下的领域规范，只收工具替代不了、需要判断的项目约定。本地审查和 PR 上的 AI reviewer 都以它为依据。
 
 ### 依赖管理
 
-新增或升级依赖用 `uv add` / `pnpm add`，不手写版本号；新依赖要归入 `.github/dependabot.yml` 中语义对应的分组。完整步骤见 [`docs/agents/dependencies.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/dependencies.md)。
+新增或升级依赖的步骤见 [`docs/agents/dependencies.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/dependencies.md)。
 
 ## 文档维护
 
@@ -202,7 +189,7 @@ feat(grid): 支持 grid_12 布局
 将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成通过 `/agent-installation-guide.md` 获取当前安装入口、不依赖版本号；变更外部 Agent 的安装方式时同步更新 `public/agent-installation-guide.md`。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正按 merge 方式处理：普通 squash PR 编辑正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，等待下一次 main push 或手动重跑 workflow；AFK rebase stage 则在最后一次 main push 更新 Release PR 后，直接校正其版本与 changelog 产物并通过完整性校验，再合并 Release PR。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
+**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成通过 `/agent-installation-guide.md` 获取当前安装入口、不依赖版本号。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正按 merge 方式处理：普通 squash PR 编辑正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，等待下一次 main push 或手动重跑 workflow；AFK rebase stage 则在最后一次 main push 更新 Release PR 后，直接校正其版本与 changelog 产物并通过完整性校验，再合并 Release PR。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
 
 以下语法说明仅用于识别误标。**破坏性变更**有两种等价写法：
 

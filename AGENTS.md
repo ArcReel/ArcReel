@@ -4,12 +4,13 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 
 ## 工具链与校验
 
-后端使用 `uv`，前端与文档站使用 `pnpm`。修改代码或测试时，先按 `docs/agents/testing.md` 选择并运行相关测试；任务完成和 push 前执行受影响域的全量闸门：
+后端使用 `uv`，前端与文档站使用 `pnpm`。修改代码或测试时，先按 `docs/agents/testing.md` 选择并运行相关测试；任务完成和 push 前执行受影响域的完整闸门：
 
 ```bash
-uv run ruff check . && uv run ruff format . && uv run basedpyright --warnings && uv run lint-imports && uv run deptry lib server alembic scripts tests && uv run python scripts/audit_conventions.py --check && uv run python -m pytest -n 4 --dist loadfile
+uv run ruff check . && uv run ruff format . && uv run basedpyright --warnings && uv run lint-imports && uv run deptry lib server alembic scripts tests && uv run python -m pytest -n 4 --dist loadfile
 (cd packages/arcreel-market-core && uv run deptry src tests && uv run python -m pytest)   # 改动 packages/arcreel-market-core/ 时
-uv run python scripts/audit_tests.py --check   # 改动测试文件时；同时扫后端 tests/、子包 tests/ 与前端 *.test.*
+uv run python scripts/audit_tests.py --check   # 改动测试文件时
+uv run python scripts/audit_conventions.py --check   # 改动 docs/standards/、依赖清单、.pre-commit-config.yaml 或 .github/ 时
 uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-files zizmor   # 改动 .github/ 时
 (cd frontend && pnpm check)
 (cd website && pnpm check)
@@ -19,7 +20,7 @@ uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-file
 
 ## Code Review Rules
 
-审查 diff 时按 `CODING_STANDARDS.md` 的索引读取改动路径命中的规范，引用「文件 + 规则标题」报告违规。
+写代码或审查 diff 时，按 `CODING_STANDARDS.md` 的索引读取改动路径命中的规范；审查时引用「文件 + 规则标题」报告违规。
 
 ## 架构
 

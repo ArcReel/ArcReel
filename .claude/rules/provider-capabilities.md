@@ -21,5 +21,3 @@ paths:
 # 供应商能力与契约
 
 修改 provider、endpoint、供应商 API 契约、能力、参数约束或计费前，先读 `docs/api-docs/AGENTS.md`，并同步对应官方文档索引。
-
-能力字段的真相源、提示词模板不持有能力数值、registry 与 backend 白名单的同步见 `docs/standards/providers.md`，改动能力数据或模板前先读。

@@ -693,7 +693,7 @@ def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]
 
 @contextmanager
 def patched_instructor_from_openai(patched: Any = None, **patch_kwargs: Any) -> Generator[Any]:
-    """在 SDK 边界替换 ``instructor.from_openai``，产出该替身以便断言包装参数。
+    """在 SDK 边界替换 ``instructor.from_openai``，yield 该替身，供测试断言传给 ``from_openai`` 的参数。
 
     *patched* 是 ``from_openai`` 返回的 instructor 客户端；省略时返回默认替身。
     其余关键字参数（``return_value`` / ``side_effect``）原样交给 ``patch``。

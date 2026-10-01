@@ -3,8 +3,8 @@
 inheritance: true
 knowledge_base:
   code_guidelines:
-    # docs/standards/ 下各领域规范按 frontmatter 的 paths 作用到对应源码。
-    # 标记之间由 `uv run python scripts/audit_conventions.py --fix` 生成。
+    # docs/standards/ 下各领域规范按 frontmatter 的 paths 应用到对应源码。
+    # standards:start 与 standards:end 之间由 `uv run python scripts/audit_conventions.py --fix` 生成，不手工修改。
     filePatterns:
       # standards:start
       - files: "docs/standards/agent-runtime.md"
@@ -12,7 +12,7 @@ knowledge_base:
       - files: "docs/standards/backend.md"
         applyTo: "lib/**,server/**,scripts/**,alembic/**,packages/**"
       - files: "docs/standards/docs.md"
-        applyTo: "website/docs/**,README.md,README.en.md"
+        applyTo: "website/docs/**,README.md,README.en.md,CONTRIBUTING.md"
       - files: "docs/standards/frontend-async.md"
         applyTo: "frontend/src/**"
       - files: "docs/standards/frontend-ui.md"
@@ -24,5 +24,5 @@ knowledge_base:
       - files: "docs/standards/testing.md"
         applyTo: "tests/**,packages/*/tests/**,frontend/src/**/*.test.*,frontend/src/test/**,frontend/src/__mocks__/**"
       - files: "docs/standards/windows.md"
-        applyTo: "lib/**,server/**"
+        applyTo: "lib/**,server/**,packages/*/src/**"
       # standards:end
