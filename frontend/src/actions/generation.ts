@@ -519,6 +519,26 @@ export async function enqueueEpisodePlanning(
   return { taskIds, deduped };
 }
 
+/**
+ * 发起重新规划：从这一集开始逐窗生成「新的分集方案」，与分集规划占同一对槽。已有方案或分集规划在进行时，
+ * 服务端的错误原样抛出。附加指令随方案保存。
+ */
+export async function enqueueEpisodeReplan(
+  projectName: string,
+  episode: number,
+  instructions: string | null,
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_episode_plan", EPISODE_PLANNING_SLOTS[0], "text_episode_plan")],
+    () => API.startEpisodeReplan(projectName, episode, instructions),
+    (response) => memberTaskIds(response.batch),
+  );
+  const taskIds = memberTaskIds(res.batch);
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(deduped, null);
+  return { taskIds, deduped };
+}
+
 /** 草稿 AI 修复任务的占用槽：一份草稿一个，resource_id 与服务端 `episode-{N}-{doc_type}` 一致。 */
 export function draftRepairResourceId(episode: number, docType: DraftDocType): string {
   return `episode-${episode}-${docType}`;

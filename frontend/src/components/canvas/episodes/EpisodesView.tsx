@@ -16,6 +16,7 @@ import { ManualSplitToolbar, caretColor } from "./ManualSplitToolbar";
 import { useManualSplit } from "./useManualSplit";
 import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
 import { useDeleteEpisode } from "./useDeleteEpisode";
+import { useReplanEpisode } from "./useReplanEpisode";
 import {
   EPISODES_VIEW_CREATE_PARAM,
   EPISODES_VIEW_EPISODE_PARAM,
@@ -96,6 +97,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
   const deletion = useDeleteEpisode(projectName, (episode) => {
     if (selected === episode) setSelected(null);
   });
+  const replan = useReplanEpisode(projectName);
   const episodeHeaders = useRef(new Map<number, HTMLElement>());
   const fileBars = useRef(new Map<string, HTMLElement>());
 
@@ -220,6 +222,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
           onClearAfter={split.clearAfter}
           onCreate={setCreateAfter}
           onDelete={(episode) => void deletion.requestDelete(episode)}
+          onReplan={(episode) => void replan.requestReplan(episode)}
         />
       </aside>
       {upload !== null ? (
@@ -238,6 +241,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
         />
       ) : null}
       {deletion.dialog}
+      {replan.dialog}
       {split.dialog}
     </div>
   );

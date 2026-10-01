@@ -28,6 +28,7 @@ from lib.episode.episode_ledger import (
     parse_positive_episode_num,
 )
 from lib.episode.episode_paths import episode_source_relpath
+from lib.episode.episode_replan import replan_candidate
 from lib.episode.episode_sources import legacy_cut_episode_ids, unplanned_text_remains, whole_source_files
 from lib.infra.content_digest import prefixed_canonical_json_digest
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_table, split_derivative_artifact_id
@@ -1335,7 +1336,9 @@ class WorkflowStateService:
             content=self._project_content(project, shared),
             operations={
                 WorkflowActionType.PLAN_EPISODES: admit_plan_episodes(
-                    project.get("content_mode"), whole_source=shared.whole_source
+                    project.get("content_mode"),
+                    whole_source=shared.whole_source,
+                    replan_pending=replan_candidate(project) is not None,
                 )
             },
             gates={},
@@ -1567,7 +1570,9 @@ class WorkflowStateService:
         }
         content = self._project_content(project, shared)
         operations: dict[str, OperationAdmission] = {
-            WorkflowActionType.PLAN_EPISODES: admit_plan_episodes(mode, whole_source=shared.whole_source),
+            WorkflowActionType.PLAN_EPISODES: admit_plan_episodes(
+                mode, whole_source=shared.whole_source, replan_pending=replan_candidate(project) is not None
+            ),
         }
 
         def respond(

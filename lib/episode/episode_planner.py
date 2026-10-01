@@ -7,8 +7,9 @@ plan() 从账本推导的规划起点（按源文位置排在最后的切出集�
 集不占用整本源文，也不挡规划；新切出的集紧接在最后一个切出集之后，账本里还没有切出集时排在末尾。
 窗口内找不到剧情弧完整的切分点时，模型返回空列表，这一批以 :class:`NoCutPointError` 报错。
 
-写入阶段在同一把项目锁内完成：写账本 + 按账本重写切出集的派生集文件 + 清理账本之外的残留派生文件
-（含余文文件）+ 同步源文快照，下游读到的 ``source/episode_N.txt`` 永远与账本一致。窗口固定取
+写入阶段在同一把项目锁内完成：写账本 + 写本批新集的集文件（其他集的集文件不动）+ 清理余文文件 + 同步源文
+快照。重新规划的候选由 :meth:`EpisodePlanner.plan_candidate` 逐窗生成，写进候选而不写账本（见
+:mod:`lib.episode.episode_replan`）。窗口固定取
 :data:`PLANNING_WINDOW_CHARS`，每批集数由文本模型实际生效的输出上限推导（见 :func:`episodes_per_batch`），
 二者都不是创作者参数，项目设置不能覆盖（见 docs/adr/0032、0044）。新提交的集 ID 若在磁盘上已有下游产物
 （历史残留），标 stale 而非直接覆盖状态，产物不删除。
@@ -43,13 +44,20 @@ from lib.episode.episode_ledger import (
     SourceDoc,
     compute_source_fingerprints,
     discover_episode_file_aliases,
-    discover_episode_files,
     has_downstream_products,
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_episode_num,
+    parse_source_range,
 )
 from lib.episode.episode_paths import episode_script_relpath, episode_source_path
+from lib.episode.episode_replan import (
+    ReplanError,
+    candidate_cursor,
+    candidate_episodes,
+    candidate_start,
+    replan_candidate,
+)
 from lib.episode.episode_sources import (
     SOURCE_ORIGIN_FIELD,
     SourceOrigin,
@@ -178,6 +186,49 @@ class _PlanningProgress:
     planned_count: int
     remaining_units: int
     window_units: int
+
+
+@dataclass(frozen=True)
+class CandidateEpisodeSummary:
+    """候选集摘要：尚未分配集 ID。"""
+
+    title: str
+    hook: str
+    reading_units: int
+    first_sentence: str
+    last_sentence: str
+
+
+@dataclass
+class CandidatePlanResult:
+    """候选生成一批的结果：本批追加的候选集、候选是否已覆盖到整本源文结尾，以及候选的集数。"""
+
+    episodes: list[CandidateEpisodeSummary]
+    source_exhausted: bool
+    total: int
+
+
+@dataclass(frozen=True)
+class _Window:
+    """本批要读的源文：一个文件里从 ``start`` 到 ``limit`` 的原文，窗口从 ``start`` 起取。"""
+
+    source_rel: str
+    text: str
+    start: int
+    limit: int
+    #: ``limit`` 之后再没有待规划的原文：整本源文的最后一个文件，或规划空段时的空段结尾。
+    reaches_end: bool
+    #: ``limit`` 之后紧接着已有的集（规划空段）：最后一窗要规划到 ``limit``，不留尾巴。
+    followed_by_episode: bool = False
+
+    def end(self, window_chars: int) -> int:
+        # 窗口弹性：剩余全文不足 1.2 倍窗口时直接吃到底，避免下一批只剩孤儿残余
+        # 被迫单独成集（畸小集的机械成因）。系数 1.2 换来的浮动幅度足够小，
+        # 不会让常规批次显著超出窗口设置的预期体量。
+        return self.limit if self.limit - self.start <= window_chars * 1.2 else self.start + window_chars
+
+    def is_final(self, window_chars: int) -> bool:
+        return self.end(window_chars) >= self.limit
 
 
 _DRAFT_CONFIG = ConfigDict(extra="forbid")
@@ -391,16 +442,37 @@ def _ledger_entry_from_draft(
     return entry
 
 
+def _candidate_entry_from_draft(
+    draft_ep: NarrationEpisodeDraft, *, source_rel: str, start: int, end: int
+) -> dict[str, Any]:
+    """把单集草稿物化为候选集：与账本条目同样的标题、钩子、原文范围与分集大纲，集 ID 留到采纳时分配。"""
+    entry: dict[str, Any] = {
+        "title": draft_ep.title,
+        "hook": draft_ep.hook,
+        "source_range": {"source_file": source_rel, "start": start, "end": end},
+    }
+    if isinstance(draft_ep, DramaEpisodeDraft):
+        entry["outline"] = {
+            "story_beats": list(draft_ep.story_beats),
+            "next_episode_teaser": draft_ep.next_episode_teaser,
+        }
+    return entry
+
+
 def _language_of(project: Mapping[str, Any]) -> str | None:
     language = project.get("source_language")
     return language if isinstance(language, str) else None
+
+
+#: 从第一个切出集起重新规划的两个入口：Web 与 Agent 都会看到规划失败的原因。
+_REPLAN_FROM_FIRST = "在「分集」视图选中第一个切出集，选「从这一集开始重新规划」；或由 Agent 调用 reset_episode_planning（不带 episode_id）"
 
 
 def _source_changed_error(paths: list[str]) -> EpisodePlanningError:
     """构造源文已变动的拒绝错误：指名变动文件并指路全量重置。"""
     return EpisodePlanningError(
         f"源文件已被修改或移除：{'、'.join(paths)}。账本坐标绑定的是修改前的原文内容，继续规划会静默切出"
-        "错误内容；请先调用 reset_episode_planning 做全量重置，再重新规划。"
+        f"错误内容；需要从第一个切出集起重新规划：{_REPLAN_FROM_FIRST}。"
     )
 
 
@@ -412,8 +484,8 @@ def _missing_source_range_error(nums: list[int]) -> EpisodePlanningError:
     return EpisodePlanningError(
         f"账本中集 ID 为 {listed} 的切出集没有原文范围记录（source_range），无法据此续接规划——它们由旧拆分"
         "流程切出，物理集文件就是它们的最终记录，既无法重造也无法确定下一批的起点。这些集照常可以做脚本"
-        "规划；确需重新切分时才调用 reset_episode_planning 做全量重置（这些集的集文件会改名留底、下游产物"
-        "不删），再重新规划。"
+        f"规划；确需重新切分时才从第一个切出集起重新规划：{_REPLAN_FROM_FIRST}（这些集的集文件会改名留底、"
+        "下游产物不删）。"
     )
 
 
@@ -531,65 +603,25 @@ class EpisodePlanner:
         )
         pre_call_sources = []  # 之后只需 used_fingerprints（摘要）与本批实际使用的 text，显式释放原文引用
 
-        if self.generator is None:
-            raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
-        window_chars = self.window_chars
-        content_mode = "drama" if project.get("content_mode") == "drama" else "narration"
-        max_episodes = episodes_per_batch(self.generator.max_output_tokens, content_mode)
-        remaining_chars = limit - start
-        # 窗口弹性：剩余全文不足 1.2 倍窗口时直接吃到底，避免下一批只剩孤儿残余
-        # 被迫单独成集（畸小集的机械成因）。系数 1.2 换来的浮动幅度足够小，
-        # 不会让常规批次显著超出窗口设置的预期体量。
-        window_end = limit if remaining_chars <= window_chars * 1.2 else start + window_chars
-        window = text[start:window_end]
-        window_is_final = window_end >= limit
-        window_reaches_end = window_is_final and (gap is not None or _next_source_rel(source_order, source_rel) is None)
-        if on_more_to_plan is not None and not window_reaches_end:
-            await on_more_to_plan()
-        draft_model: type[NarrationPlanDraft | DramaPlanDraft] = (
-            DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
+        window = _Window(
+            source_rel=source_rel,
+            text=text,
+            start=start,
+            limit=limit,
+            reaches_end=gap is not None or _next_source_rel(source_order, source_rel) is None,
+            followed_by_episode=gap is not None,
+        )
+        drafts, ends = await self._draft_window(
+            project,
+            window,
+            context_entries=context_entries,
+            instructions=planning_instructions,
+            planned_count=_count_planned_episodes(project),
+            later_units=later_units,
+            on_more_to_plan=on_more_to_plan,
         )
         language = _language_of(project)
-        # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
-        # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无附加指令路径行为可复现，
-        # 注入全局进度会改写 prompt，因此只在有 instructions 时才计算并注入。
-        progress: _PlanningProgress | None = None
-        if planning_instructions:
-            progress = _PlanningProgress(
-                planned_count=_count_planned_episodes(project),
-                remaining_units=count_reading_units(text[start:limit], language) + later_units,
-                window_units=count_reading_units(window, language),
-            )
-
-        # 窗口只取一个文件里的原文，一个窗口内只有一种源文件类型
-        source_kind = whole_source_file_kind(project, source_rel) or DEFAULT_SOURCE_KIND
-
-        def _prompt(failure: list[str] | None) -> str:
-            return _build_planning_prompt(
-                project=project,
-                source_kind=source_kind,
-                window=window,
-                window_is_final=window_is_final,
-                followed_by_episode=gap is not None and window_is_final,
-                max_episodes=max_episodes,
-                content_mode=content_mode,
-                context_entries=context_entries,
-                instructions=planning_instructions,
-                progress=progress,
-                failure=failure,
-            )
-
-        drafts, ends = await self._request_validated_drafts(
-            draft_model,
-            _prompt,
-            window,
-            snap_whitespace_tail=window_is_final,
-            max_episodes=max_episodes,
-        )
-        if not drafts:
-            raise NoCutPointError(source_file=source_rel, offset=start)
-        if on_more_to_plan is not None and window_reaches_end and window[ends[-1] :].strip():
-            await on_more_to_plan()
+        window_is_final = window.is_final(self.window_chars)
 
         summaries: list[EpisodePlanSummary] = []
         committed: dict[str, Any] = {"stale": []}
@@ -665,7 +697,7 @@ class EpisodePlanner:
             p["episodes"] = [*episodes_list[:insert_at], *new_entries, *episodes_list[insert_at:]]
             p[SOURCE_FINGERPRINTS_KEY] = current_fingerprints
             text_cache = {source_rel: text}
-            self._reconcile_derived_files(p, text_cache, new_ids=frozenset(new_ids))
+            self._write_new_episode_files(p, text_cache, new_ids=frozenset(new_ids))
             sync_source_snapshots(self.project_path, p, text_cache)
             committed["cursor"] = {"source_file": source_rel, "offset": start + ends[-1]}
             committed["exhausted"] = (
@@ -674,16 +706,9 @@ class EpisodePlanner:
                 and (gap is not None or _next_source_rel(source_order, source_rel) is None)
             )
 
-        existing_derived = set(discover_episode_files(self.project_path).values())
-        ledger_nums = {
-            parse_episode_num(entry.get("episode"))
-            for entry in project.get("episodes") or []
-            if isinstance(entry, Mapping)
-        }
-        ledger_nums = {num for num in ledger_nums if num is not None and num > 0}
-        formal_paths = existing_derived | {
-            episode_source_path(self.project_path, num) for num in (*sorted(ledger_nums), *protected_ids)
-        }
+        aliases = discover_episode_file_aliases(self.project_path)
+        formal_paths = {episode_source_path(self.project_path, num) for num in protected_ids}
+        formal_paths.update(path for num in protected_ids for path in aliases.get(num, []))
         formal_paths.add(self.project_path / "source" / "_remaining.txt")
         formal_paths.update(source_snapshot_path(self.project_path, rel) for rel in whole_source_files(project))
         final_project = await self._update_project(_commit, formal_paths=tuple(sorted(formal_paths)))
@@ -698,6 +723,193 @@ class EpisodePlanner:
             # 避免主 Agent 上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
             ledger_stats=self._compute_ledger_stats(final_project) if exhausted else None,
         )
+
+    # ------------------------------------------------------------ candidate
+
+    async def plan_candidate(
+        self,
+        candidate_id: str,
+        instructions: str | None = None,
+        *,
+        on_more_to_plan: Callable[[], Awaitable[None]] | None = None,
+    ) -> CandidatePlanResult:
+        """为重新规划的候选生成下一批集：从候选的结尾取窗口，产出的集追加到候选，分集账本不动。
+
+        候选见 :mod:`lib.episode.episode_replan`。候选不在了（已放弃或已采纳）、被并发追加过，或整本源文在
+        候选生成后有改动时拒绝。账本里旧拆分流程的存量集与已记录的源文指纹不挡候选生成：这两种情况下候选从
+        整本源文开头起。``on_more_to_plan`` 与 :meth:`plan` 同义；候选已覆盖到整本源文结尾时标记候选完成。
+        """
+        planning_instructions = (instructions or "").strip() or None
+        project = self.pm.load_project(self.project_name)
+        candidate = _require_candidate(project, candidate_id)
+        sources = discover_sources(self.project_path, project)
+        _check_candidate_sources(candidate, sources)
+        fingerprints = compute_source_fingerprints(sources)
+        cursor = _candidate_cursor(candidate)
+        source_order = [doc.rel_path for doc in sources]
+        source_rel, start = cursor
+        if source_rel not in source_order:
+            raise EpisodePlanningError(f"整本源文里没有这个可读的文件：{source_rel}")
+        text = sources[source_order.index(source_rel)].text
+        while not text[start:].strip():
+            next_rel = _next_source_rel(source_order, source_rel)
+            if next_rel is None:
+                total = await self._commit_candidate(
+                    candidate_id, cursor, entries=[], complete=True, fingerprints=fingerprints
+                )
+                return CandidatePlanResult(episodes=[], source_exhausted=True, total=total)
+            source_rel, start = next_rel, 0
+            text = sources[source_order.index(source_rel)].text
+        language = _language_of(project)
+        later_units = (
+            sum(count_reading_units(doc.text, language) for doc in sources[source_order.index(source_rel) + 1 :])
+            if planning_instructions
+            else 0
+        )
+        before = _candidate_context_before(project, sources, candidate)
+        drafted = candidate_episodes(candidate)
+        numbered = [
+            {"episode": index, "title": entry.get("title"), "hook": entry.get("hook")}
+            for index, entry in enumerate([*before, *drafted], start=1)
+        ]
+        sources = []  # 之后只需本批实际使用的 text，显式释放原文引用
+
+        window = _Window(
+            source_rel=source_rel,
+            text=text,
+            start=start,
+            limit=len(text),
+            reaches_end=_next_source_rel(source_order, source_rel) is None,
+        )
+        drafts, ends = await self._draft_window(
+            project,
+            window,
+            context_entries=numbered[-_CONTEXT_EPISODES_LIMIT:],
+            instructions=planning_instructions,
+            planned_count=len(numbered),
+            later_units=later_units,
+            on_more_to_plan=on_more_to_plan,
+        )
+        entries: list[dict[str, Any]] = []
+        summaries: list[CandidateEpisodeSummary] = []
+        prev = start
+        for draft_ep, rel_end in zip(drafts, ends, strict=True):
+            abs_end = start + rel_end
+            entries.append(_candidate_entry_from_draft(draft_ep, source_rel=source_rel, start=prev, end=abs_end))
+            segment = text[prev:abs_end]
+            first_sentence, last_sentence = edge_sentences(segment)
+            summaries.append(
+                CandidateEpisodeSummary(
+                    title=draft_ep.title,
+                    hook=draft_ep.hook,
+                    reading_units=count_reading_units(segment, language),
+                    first_sentence=first_sentence,
+                    last_sentence=last_sentence,
+                )
+            )
+            prev = abs_end
+        exhausted = window.is_final(self.window_chars) and not text[prev:].strip() and window.reaches_end
+        total = await self._commit_candidate(
+            candidate_id, cursor, entries=entries, complete=exhausted, fingerprints=fingerprints
+        )
+        return CandidatePlanResult(episodes=summaries, source_exhausted=exhausted, total=total)
+
+    async def _commit_candidate(
+        self,
+        candidate_id: str,
+        cursor: tuple[str, int],
+        *,
+        entries: list[dict[str, Any]],
+        complete: bool,
+        fingerprints: Mapping[str, str],
+    ) -> int:
+        """在项目锁内把本批追加到候选，返回候选的集数。"""
+        committed: dict[str, int] = {}
+
+        def _commit(p: dict) -> None:
+            locked = _require_candidate(p, candidate_id)
+            if _candidate_cursor(locked) != cursor:
+                raise PlanningConflictError("新的分集方案在生成期间被并发追加，本批结果作废")
+            current = compute_source_fingerprints(discover_sources(self.project_path, p))
+            if locked.get("source_fingerprints") != current or current != dict(fingerprints):
+                raise _candidate_source_changed_error()
+            locked["episodes"] = [*candidate_episodes(locked), *entries]
+            locked["complete"] = complete
+            committed["total"] = len(locked["episodes"])
+
+        await self._update_project(_commit)
+        return committed["total"]
+
+    async def _draft_window(
+        self,
+        project: Mapping[str, Any],
+        window: _Window,
+        *,
+        context_entries: list[dict[str, Any]],
+        instructions: str | None,
+        planned_count: int,
+        later_units: int,
+        on_more_to_plan: Callable[[], Awaitable[None]] | None,
+    ) -> tuple[list[NarrationEpisodeDraft], list[int]]:
+        """取窗口、请求模型并校验，返回本批的集草稿与各集在窗口内的结尾偏移。
+
+        窗口内找不到剧情弧完整的切分点时抛 :class:`NoCutPointError`。``on_more_to_plan`` 的调用时机见 :meth:`plan`。
+        """
+        if self.generator is None:
+            raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
+        content_mode = "drama" if project.get("content_mode") == "drama" else "narration"
+        max_episodes = episodes_per_batch(self.generator.max_output_tokens, content_mode)
+        window_end = window.end(self.window_chars)
+        window_text = window.text[window.start : window_end]
+        window_is_final = window_end >= window.limit
+        window_reaches_end = window_is_final and window.reaches_end
+        if on_more_to_plan is not None and not window_reaches_end:
+            await on_more_to_plan()
+        draft_model: type[NarrationPlanDraft | DramaPlanDraft] = (
+            DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
+        )
+        language = _language_of(project)
+        # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
+        # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无附加指令路径行为可复现，
+        # 注入全局进度会改写 prompt，因此只在有 instructions 时才计算并注入。
+        progress: _PlanningProgress | None = None
+        if instructions:
+            progress = _PlanningProgress(
+                planned_count=planned_count,
+                remaining_units=count_reading_units(window.text[window.start : window.limit], language) + later_units,
+                window_units=count_reading_units(window_text, language),
+            )
+
+        # 窗口只取一个文件里的原文，一个窗口内只有一种源文件类型
+        source_kind = whole_source_file_kind(project, window.source_rel) or DEFAULT_SOURCE_KIND
+
+        def _prompt(failure: list[str] | None) -> str:
+            return _build_planning_prompt(
+                project=project,
+                source_kind=source_kind,
+                window=window_text,
+                window_is_final=window_is_final,
+                followed_by_episode=window.followed_by_episode and window_is_final,
+                max_episodes=max_episodes,
+                content_mode=content_mode,
+                context_entries=context_entries,
+                instructions=instructions,
+                progress=progress,
+                failure=failure,
+            )
+
+        drafts, ends = await self._request_validated_drafts(
+            draft_model,
+            _prompt,
+            window_text,
+            snap_whitespace_tail=window_is_final,
+            max_episodes=max_episodes,
+        )
+        if not drafts:
+            raise NoCutPointError(source_file=window.source_rel, offset=window.start)
+        if on_more_to_plan is not None and window_reaches_end and window_text[ends[-1] :].strip():
+            await on_more_to_plan()
+        return drafts, ends
 
     # ------------------------------------------------------------- helpers
 
@@ -862,21 +1074,16 @@ class EpisodePlanner:
             formal_paths=formal_paths,
         )
 
-    def _reconcile_derived_files(
-        self, project: Mapping[str, Any], text_cache: dict[str, str], *, new_ids: frozenset[int] = frozenset()
+    def _write_new_episode_files(
+        self, project: Mapping[str, Any], text_cache: dict[str, str], *, new_ids: frozenset[int]
     ) -> None:
-        """按账本全量对账派生集文件：重写每个切出集的集文件。
+        """写本次新规划的集的派生集文件，其他集的集文件不动。
 
-        切出集此刻必然都带 source_range（提交前经 ``_check_source_ranges`` 门禁），缺记录仍按损坏
-        中止提交。自带原文与无原文的集不重写其集文件：自带原文的集文件就是它的源文。账本之外的
-        ``episode_N.txt`` 没有登记，不是任何一集的原文，原样不动；只有与本次新分配的集 ID
-        （``new_ids``）同名时先改名留底，再写新集的派生文件。余文文件 ``_remaining.txt`` 不是源文，也不记录
-        规划进度，一并清理。每次提交全量对账使中途崩溃后重跑即可自愈。
+        新集 ID 上已有的同名文件不在账本里，不是任何一集的原文，先改名留底，再写新集的派生文件。余文文件
+        ``_remaining.txt`` 不是源文，也不记录规划进度，一并清理。
 
-        两阶段执行：先全量校验并构建写入计划，全部通过后再统一落盘——锚定集
-        原文范围非法或源文不可读时在校验阶段抛错中止提交（账本写回随之回滚，
-        派生文件未动），保证"提交成功 ⇒ 账本内每一集的派生文件已按账本重写"；
-        落盘阶段的环境性失败（磁盘等）靠重跑自愈。
+        两阶段执行：先校验并构建写入计划，全部通过后再统一落盘——原文范围非法或源文不可读时在校验阶段抛错中止
+        提交（账本写回随之回滚，集文件未动）。
         """
         source_dir = self.project_path / "source"
         # source/ 是符号链接时拒绝写入：派生文件会落到链接目标（可能在项目外）
@@ -887,44 +1094,26 @@ class EpisodePlanner:
             if not isinstance(entry, dict):
                 continue
             num = parse_episode_num(entry.get("episode"))
-            if num is None:
+            if num is None or num not in new_ids:
                 continue
-            if not is_cut_episode(entry):
-                continue
-            source_range = entry.get("source_range")
-            if not isinstance(source_range, Mapping):
-                raise EpisodePlanningError(f"集（id={num}）缺少原文范围记录，无法完成派生文件对账，提交已中止")
-            rel = source_range.get("source_file")
-            seg_start = source_range.get("start")
-            seg_end = source_range.get("end")
-            if (
-                not isinstance(rel, str)
-                or not isinstance(seg_start, int)
-                or not isinstance(seg_end, int)
-                or isinstance(seg_start, bool)
-                or isinstance(seg_end, bool)
-            ):
-                raise EpisodePlanningError(f"集（id={num}）原文范围记录非法，无法完成派生文件对账，提交已中止")
+            coords = parse_source_range(entry)
+            if coords is None:
+                raise EpisodePlanningError(f"集（id={num}）原文范围记录非法，无法写入集文件，提交已中止")
+            rel, seg_start, seg_end = coords
             text = text_cache.get(rel)
             if text is None:
                 try:
                     text = self._load_normalized_source(rel)
                 except EpisodePlanningError as exc:
-                    raise EpisodePlanningError(f"集（id={num}）派生文件重写失败，提交已中止：{exc}") from exc
+                    raise EpisodePlanningError(f"集（id={num}）集文件写入失败，提交已中止：{exc}") from exc
                 text_cache[rel] = text
             # Python 切片对负值/越界静默容忍，脏坐标会写出与账本不符的内容，必须显式拦截
             if not 0 <= seg_start <= seg_end <= len(text):
                 raise EpisodePlanningError(
                     f"集（id={num}）原文范围越界（start={seg_start}，end={seg_end}，源文长度 {len(text)}），"
-                    "无法完成派生文件对账，提交已中止"
+                    "无法写入集文件，提交已中止"
                 )
-            episode_path = episode_source_path(self.project_path, num)
-            # 文件级符号链接同样拒绝：write_text 会跟随链接把内容写到链接目标（可能在项目外）；
-            # 新分配集 ID 的同名文件不在账本里，落盘前先改名留底，不在此拒绝
-            if episode_path.is_symlink() and num not in new_ids:
-                raise EpisodePlanningError(f"集（id={num}）派生文件是符号链接，拒绝写入，提交已中止")
-            writes.append((episode_path, text[seg_start:seg_end]))
-        # 校验全部通过后统一落盘：校验类失败不会留下按新布局部分重写的派生文件
+            writes.append((episode_source_path(self.project_path, num), text[seg_start:seg_end]))
         source_dir.mkdir(exist_ok=True)
         for num, aliases in discover_episode_file_aliases(self.project_path).items():
             if num in new_ids:
@@ -1026,6 +1215,52 @@ def _gap_context_entries(
         if isinstance(entry, dict)
     }
     return [by_id[p.episode] for p in before[-_CONTEXT_EPISODES_LIMIT:] if p.episode in by_id]
+
+
+def _candidate_source_changed_error() -> EpisodePlanningError:
+    return EpisodePlanningError("整本源文在生成新的分集方案后有改动，这份方案已过时；请放弃后重新规划")
+
+
+def _require_candidate(project: Mapping[str, Any], candidate_id: str) -> dict[str, Any]:
+    candidate = replan_candidate(project)
+    if candidate is None or candidate.get("id") != candidate_id:
+        raise PlanningConflictError("这份新的分集方案已经被采纳或放弃，本批结果作废")
+    return candidate
+
+
+def _candidate_cursor(candidate: Mapping[str, Any]) -> tuple[str, int]:
+    try:
+        return candidate_cursor(candidate)
+    except ReplanError as exc:
+        raise EpisodePlanningError(str(exc)) from exc
+
+
+def _check_candidate_sources(candidate: Mapping[str, Any], sources: list[SourceDoc]) -> None:
+    if candidate.get("source_fingerprints") != compute_source_fingerprints(sources):
+        raise _candidate_source_changed_error()
+
+
+def _candidate_context_before(
+    project: Mapping[str, Any], sources: list[SourceDoc], candidate: Mapping[str, Any]
+) -> list[Mapping[str, Any]]:
+    """候选起点之前的切出集，按源文位置；从整本源文开头重新规划时为空。"""
+    if candidate.get("from_beginning"):
+        return []
+    try:
+        source_file, offset = candidate_start(candidate)
+    except ReplanError as exc:
+        raise EpisodePlanningError(str(exc)) from exc
+    index = next((i for i, doc in enumerate(sources) if doc.rel_path == source_file), None)
+    if index is None:
+        return []
+    placements = cut_episode_placements(project, sources)
+    before = sorted((p for p in placements.values() if p.position < (index, offset)), key=lambda p: p.position)
+    by_id = {
+        parse_episode_num(entry.get("episode")): entry
+        for entry in project.get("episodes") or []
+        if isinstance(entry, dict)
+    }
+    return [by_id[p.episode] for p in before if p.episode in by_id]
 
 
 def _count_planned_episodes(project: Mapping[str, Any]) -> int:

@@ -66,7 +66,90 @@ export interface EpisodesView {
   files: EpisodesViewFile[];
   episodes: EpisodesViewEpisode[];
   unregistered: UnregisteredSourceFile[];
+  /** 尚未采纳或放弃的重新规划候选；没有时为 null。 */
+  replan: ReplanSummary | null;
 }
+
+/** 整本源文里的一个位置：文件与文件内的码位偏移。 */
+export interface SourcePoint {
+  source_file: string;
+  offset: number;
+}
+
+/** 候选里的一集。`same_as` 是原文范围一模一样的现有集，`overlaps` 是原文范围与它重叠的被替换集。 */
+export interface ReplanCandidateEpisode {
+  title: string;
+  hook: string;
+  source_file: string;
+  start: number;
+  end: number;
+  units: number;
+  first_sentence: string;
+  last_sentence: string;
+  same_as: number | null;
+  overlaps: number[];
+}
+
+/**
+ * 「新的分集方案」：重新规划生成的候选与采纳后的变化。分集账本在采纳前不变，集 ID 都是现有集的。
+ * `stale` 非 null 时生成之后分集或源文有改动，候选只能放弃，变化清单为空。
+ */
+export interface ReplanSummary {
+  id: string;
+  /** 从哪一集开始重新规划。 */
+  episode: number;
+  instructions: string | null;
+  /** 已生成到整本源文结尾。 */
+  complete: boolean;
+  stale: "ledger_changed" | "source_changed" | null;
+  start: SourcePoint;
+  /** 已生成到的位置。 */
+  end: SourcePoint;
+  /** 被替换的切出集数；候选过时或还没有集时为 null。 */
+  old_count: number | null;
+  new_count: number;
+  units: number;
+  average_units: number | null;
+  /** 已开始制作，采纳后保留为无原文的集。 */
+  retired: number[];
+  /** 没有产物，采纳后移除。 */
+  removed: number[];
+  /** 保留为无原文、且新方案里找不到原文范围一模一样的集。 */
+  needs_review: number[];
+  /** 播出位置会变的其他集。 */
+  moved: { episode: number; from: number; to: number }[];
+  episodes: ReplanCandidateEpisode[];
+}
+
+/** 重新规划的范围：`replaced` 是会被替换的切出集，`started` 是其中已开始制作的集。 */
+export interface ReplanPreview {
+  status: "preview";
+  episode: number;
+  source_file: string;
+  offset: number;
+  /** 分集规划之后源文有改动或有旧的切出集，只能从第一个切出集起重新规划。 */
+  from_beginning: boolean;
+  source_replaced: boolean;
+  replaced: number[];
+  started: number[];
+}
+
+/** 采纳的后果。`text` 与 `delete_text` 只在等待确认时出现，是服务端成文的确认文本。 */
+export interface ReplanAdoptionImpact {
+  candidate: string;
+  episode: number;
+  old_count: number;
+  new_count: number;
+  retired: number[];
+  removed: number[];
+  needs_review: number[];
+  moved: { episode: number; from: number; to: number }[];
+  revision: string;
+}
+
+export type ReplanAdoptionResponse =
+  | { status: "adopted"; episodes: number[]; deleted: number[] }
+  | { status: "confirmation_required"; impact: ReplanAdoptionImpact & { text: string; delete_text: string } };
 
 export type AdoptSourceFileTarget =
   | { target: "whole_source" }

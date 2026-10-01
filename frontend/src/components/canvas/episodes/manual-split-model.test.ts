@@ -29,6 +29,7 @@ const view: EpisodesView = {
   cut_units: 0,
   episodes: [],
   unregistered: [],
+  replan: null,
   files: [
     file("a.txt", 30, [
       segment({ kind: "episode", episode: 1, start: 0, end: 10 }),

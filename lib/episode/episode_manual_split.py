@@ -33,6 +33,7 @@ from lib.episode.episode_ledger import (
     SourceDoc,
     compute_source_fingerprints,
     discover_product_episode_nums,
+    episode_has_products,
     has_downstream_products,
     parse_positive_episode_num,
 )
@@ -279,15 +280,11 @@ def _impact(project_dir: Path, layout: _Layout, edit: _Edit) -> ManualSplitImpac
     retired: list[int] = []
     removed: list[int] = []
     placements = layout.placements
-    # 有产物：账本标 consumed，或磁盘上已有剧本 / script_plan（含补零的剧本文件名），与重置同一口径
+    # 有产物的口径见 episode_has_products，与重新规划、重置一致
     product_nums = discover_product_episode_nums(project_dir)
 
     def _has_products(entry: Mapping[str, Any], episode: int) -> bool:
-        return (
-            entry.get("ledger_status") == "consumed"
-            or episode in product_nums
-            or has_downstream_products(project_dir, episode, entry)
-        )
+        return episode_has_products(project_dir, episode, entry, product_nums=product_nums)
 
     for entry in layout.entries:
         episode = parse_positive_episode_num(entry.get("episode"))

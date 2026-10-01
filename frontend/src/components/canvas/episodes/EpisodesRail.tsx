@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
-import { ArrowUpRight, Combine, FilePlus, FileText, ListX, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowUpRight, Combine, FilePlus, FileText, ListX, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 
 import { EPISODE_PLANNING_SLOTS } from "@/actions/generation";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
@@ -15,6 +15,7 @@ import { episodePosition } from "@/utils/episode-display";
 
 import { EpisodePlanningPanel } from "./EpisodePlanningPanel";
 import { PlanGapButton } from "./PlanGapButton";
+import { ReplanCandidatePanel } from "./ReplanCandidatePanel";
 import { ReplannedBadge } from "./ReplannedBadge";
 import { cutEpisodeActions } from "./manual-split-model";
 import { UnregisteredFilesPanel } from "./UnregisteredFilesPanel";
@@ -43,6 +44,8 @@ interface EpisodesRailProps {
   /** 新建一集：插在这一集之后，null 放在末尾。 */
   onCreate: (after: number | null) => void;
   onDelete: (episode: number) => void;
+  /** 从这一集开始重新规划。 */
+  onReplan: (episode: number) => void;
 }
 
 /** 选中一集后就地展开的集管理操作。 */
@@ -54,6 +57,9 @@ interface EpisodeActions {
 /** 选中切出集后就地展开的单集操作。 */
 interface CutActions {
   busy: boolean;
+  /** 不能发起重新规划的原因：分集规划在进行或已有新的分集方案；可以时为 null。 */
+  replanBlocked: string | null;
+  onReplan: (episode: number) => void;
   onMergeWithNext: (episode: number) => void;
   onClearAfter: (episode: number) => void;
 }
@@ -93,9 +99,8 @@ export function EpisodesRail({
   onClearAfter,
   onCreate,
   onDelete,
+  onReplan,
 }: EpisodesRailProps) {
-  const cutActions: CutActions = { busy: splitBusy, onMergeWithNext, onClearAfter };
-  const episodeActions: EpisodeActions = { onCreate, onDelete };
   const { t } = useTranslation(["dashboard", "common"]);
   const groups = railFileGroups(view, episodes);
   const others = otherEpisodes(view, episodes);
@@ -104,7 +109,15 @@ export function EpisodesRail({
   const assistantFloating = !useAppStore((s) => s.assistantPanelOpen);
   const activePlanning = useActiveResourceIds("text_episode_plan", projectName);
   const planning = EPISODE_PLANNING_SLOTS.some((slot) => activePlanning.has(slot));
-  const fresh = useFreshEpisodes(planning, episodes);
+  const fresh = useFreshEpisodes(planning && view.replan === null, episodes);
+  const replanBlocked =
+    view.replan !== null
+      ? t("dashboard:replan_pending_hint")
+      : planning
+        ? t("dashboard:episode_planning_busy")
+        : null;
+  const cutActions: CutActions = { busy: splitBusy, replanBlocked, onReplan, onMergeWithNext, onClearAfter };
+  const episodeActions: EpisodeActions = { onCreate, onDelete };
 
   return (
     <div className="space-y-5 px-4 py-5 pb-24">
@@ -156,7 +169,18 @@ export function EpisodesRail({
         </section>
       ) : null}
 
-      <EpisodePlanningPanel projectName={projectName} view={view} active={planning} />
+      {view.replan !== null ? (
+        <ReplanCandidatePanel
+          projectName={projectName}
+          view={view}
+          replan={view.replan}
+          episodes={episodes}
+          generating={planning}
+          onChanged={onChanged}
+        />
+      ) : (
+        <EpisodePlanningPanel projectName={projectName} view={view} active={planning} />
+      )}
 
       {groups.length > 0 ? (
         <RailSection title={t("dashboard:episodes_view_cut_section")}>
@@ -257,7 +281,7 @@ function RailRowView({
         style={{ border: "1px dashed var(--color-accent-soft)" }}
       >
         <p>{t("episodes_view_gap_row", { volume: formatVolume(t, row.units, view.unit) })}</p>
-        <PlanGapButton sourceFile={row.sourceFile} end={row.end} />
+        <PlanGapButton sourceFile={row.sourceFile} end={row.end} blocked={cutActions.replanBlocked} />
       </div>
     );
   }
@@ -425,6 +449,16 @@ function CutEpisodeActions({ view, episode, actions }: { view: EpisodesView; epi
         >
           <ListX className="h-3.5 w-3.5" aria-hidden />
           {t("manual_split_clear_after")}
+        </button>
+        <button
+          type="button"
+          className={GHOST_BTN_CLS}
+          disabled={actions.replanBlocked !== null}
+          title={actions.replanBlocked ?? undefined}
+          onClick={() => actions.onReplan(episode)}
+        >
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+          {t("replan_start_action")}
         </button>
       </div>
     </>

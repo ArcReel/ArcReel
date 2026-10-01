@@ -1809,77 +1809,32 @@ class TestSourceFingerprintGate:
         assert SOURCE_FINGERPRINTS_KEY not in project
 
 
-class TestReconcileFailFast:
-    """派生文件对账（``_reconcile_derived_files``）的错误分支必须中止：提交成功 ⇒ 对账完成。
+class TestEpisodeFileWrites:
+    """提交只写本批新集的集文件，其他集的集文件不动。"""
 
-    直接调用该 helper（而非经 plan()）：这些场景考的是「账本里已有一条损坏/越界条目」，
-    与 plan() 从由账本推导的规划起点续接新一批无关——plan() 的提交路径已由 TestPlan 覆盖。
-    """
-
-    def test_commit_aborts_when_anchored_entry_has_invalid_source_range(self, tmp_path: Path):
-        """账本中锚定集的原文范围类型非法：对账中止，派生文件零变更。"""
-        project_dir = _planned_three(tmp_path)
-        project = _load_project(project_dir)
-        project["episodes"][0]["source_range"]["start"] = "0"
-        planner = EpisodePlanner(project_dir)
-
-        with pytest.raises(EpisodePlanningError, match="对账"):
-            planner._reconcile_derived_files(project, {})
-
-        assert (project_dir / "source" / "episode_3.txt").exists()  # 旧文件未被清理
-
-    def test_commit_aborts_when_source_range_out_of_bounds(self, tmp_path: Path):
-        """账本中锚定集的原文范围越界（end 超源文长度）：对账中止。"""
-        project_dir = _planned_three(tmp_path)
-        project = _load_project(project_dir)
-        project["episodes"][0]["source_range"]["end"] = len(SOURCE) + 999
-        planner = EpisodePlanner(project_dir)
-
-        with pytest.raises(EpisodePlanningError, match="越界"):
-            planner._reconcile_derived_files(project, {})
-
-    def test_commit_aborts_when_entry_source_file_missing(self, tmp_path: Path):
-        """账本引用的源文件缺失：派生文件重写失败中止对账。"""
-        project_dir = _planned_three(tmp_path)
-        project = _load_project(project_dir)
-        project["episodes"][0]["source_range"]["source_file"] = "source/gone.txt"
-        planner = EpisodePlanner(project_dir)
-
-        with pytest.raises(EpisodePlanningError, match="重写失败"):
-            planner._reconcile_derived_files(project, {})
-
-        assert (project_dir / "source" / "episode_3.txt").exists()
-
-    def test_commit_validation_failure_leaves_derived_files_untouched(self, tmp_path: Path):
-        """校验类失败中止时不得留下部分重写的派生文件：全部校验通过后才统一落盘。"""
-        project_dir = _planned_three(tmp_path)
-        sentinel = "哨兵旧内容"
+    async def test_continuing_writes_only_the_new_episode_file(self, tmp_path: Path):
+        a = _end_of(ANCHOR_EP1)
+        project_dir = _write_project(tmp_path, episodes=[_entry(1, 0, a)])
+        sentinel = "创作者改过的集文件"
         (project_dir / "source" / "episode_1.txt").write_text(sentinel, encoding="utf-8")
-        project = _load_project(project_dir)
-        project["episodes"][1]["source_range"]["end"] = len(SOURCE) + 999  # 第 2 集越界，对账时居第 1 集之后
-        planner = EpisodePlanner(project_dir)
+        fake = _FakeTextGenerator([_plan_response([{"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP3}])])
 
-        with pytest.raises(EpisodePlanningError, match="越界"):
-            planner._reconcile_derived_files(project, {})
+        await EpisodePlanner(project_dir, generator=fake).plan()
 
-        # 排序在前的第 1 集合法，但因第 2 集校验失败，其派生文件不得被提前重写
         assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == sentinel
+        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == SOURCE[a:]
 
-    def test_commit_aborts_when_derived_episode_file_is_symlink(self, tmp_path: Path):
-        """派生集文件是符号链接：写入会跟随链接落到项目外，必须中止对账。"""
-        project_dir = _planned_three(tmp_path)
+    async def test_a_symlinked_file_on_the_new_episode_id_is_archived_not_followed(self, tmp_path: Path):
+        project_dir = _write_project(tmp_path, episodes=[])
         outside = tmp_path / "outside.txt"
         outside.write_text("外部文件", encoding="utf-8")
-        target = project_dir / "source" / "episode_2.txt"
-        target.unlink()
-        target.symlink_to(outside)
-        project = _load_project(project_dir)
-        planner = EpisodePlanner(project_dir)
+        (project_dir / "source" / "episode_1.txt").symlink_to(outside)
+        fake = _FakeTextGenerator([_plan_response(_THREE_EPISODE_DRAFT)])
 
-        with pytest.raises(EpisodePlanningError, match="符号链接"):
-            planner._reconcile_derived_files(project, {})
+        await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert outside.read_text(encoding="utf-8") == "外部文件"  # 链接目标未被覆写
+        assert outside.read_text(encoding="utf-8") == "外部文件"
+        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == SOURCE[: _end_of(ANCHOR_EP1)]
 
 
 class TestPlanGap:

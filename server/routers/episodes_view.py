@@ -23,6 +23,7 @@ from lib.episode.episode_manual_split import (
     render_manual_split_impact_text,
     split_episode,
 )
+from lib.episode.episode_replan import replan_candidate_summary
 from lib.episode.episode_source_commands import (
     EpisodeSourceError,
     adopt_source_file_as_episode,
@@ -45,14 +46,22 @@ router = APIRouter()
 
 @router.get("/projects/{name}/episodes-view")
 async def get_episodes_view(name: str, _t: Translator) -> dict[str, Any]:
-    """整本源文按集分段、每集的体量与首尾句，以及 ``source/`` 里没有登记的文本文件。"""
+    """整本源文按集分段、每集的体量与首尾句、``source/`` 里没有登记的文本文件，以及新的分集方案 ``replan``。
+
+    ``replan`` 是悬而未决的重新规划候选的摘要与逐集变化（见 :func:`lib.episode.episode_replan.replan_candidate_summary`），
+    没有候选时为 null。
+    """
 
     def _sync() -> dict[str, Any]:
         manager = get_project_manager()
         if not manager.project_exists(name):
             raise NotFoundError("project_not_found", name=name)
         project = manager.load_project(name)
-        return asdict(build_episode_layout(manager.get_project_path(name), project))
+        project_dir = manager.get_project_path(name)
+        return {
+            **asdict(build_episode_layout(project_dir, project)),
+            "replan": replan_candidate_summary(project_dir, project),
+        }
 
     try:
         return await asyncio.to_thread(_sync)

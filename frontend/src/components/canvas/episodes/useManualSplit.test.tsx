@@ -13,6 +13,7 @@ const view: EpisodesView = {
   cut_units: 0,
   episodes: [],
   unregistered: [],
+  replan: null,
   files: [
     {
       source_file: "source/a.txt",
