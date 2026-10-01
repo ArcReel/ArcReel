@@ -1,19 +1,23 @@
-"""把剪辑时间线的一个修订摆成剪映草稿里的片段：纯函数，时间一律是整数微秒。
+"""把剪辑时间线的一个修订摆成片段：纯函数，时间一律是整数微秒。剪映草稿与成片共用这份摆放。
 
 剪辑片段首尾相接排在主视频轨上，截取只对其依据的视频版本有效；定格延长以出点帧静帧接在片段之后。
 转场挂在前一片段上，只保留到下一个参与导出的片段之间的切点：最后一个参与导出的片段上的转场没有效果。
 旁白从承载片段的起点开始；字幕在带旁白的单元上跟随旁白，否则按源素材时间保留、只显示落在入出点之内的部分。
-草稿只有一条旁白轨和一条字幕轨，同一条轨内的片段不能重叠：后一段开始时前一段截止，超出时间线末尾的部分截断。
-剪辑视图预览的字幕摆放（frontend/src/components/canvas/edit/preview-tracks.ts ``placeSubtitles``）与这里同口径，改动摆放规则时一并修改。
+旁白与字幕如实保留彼此的重叠，只把超出时间线末尾的部分截断；剪映草稿用 :func:`stack_tracks` 把重叠的
+分到不同的轨上，成片里重叠的旁白同时响起、字幕交给 libass 推开。
+剪辑视图预览的字幕摆放（frontend/src/components/canvas/edit/preview-tracks.ts ``placeSubtitles``）取同一组字幕，
+同一时刻只显示一条，改动摆放规则时一并修改。
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from typing import Protocol
 
 from lib.edit_timeline.model import EditClip, EditTimelineContent, Transition
 from lib.edit_timeline.readout import effective_source_range_us
+from lib.jianying_draft.basis import DraftNarration, DraftUnitBasis
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +55,33 @@ class UnitMaterial:
 
 
 @dataclass(frozen=True, slots=True)
+class UnitMaterials:
+    """一个修订引用的各视频单元的素材层，以及进生成依据的素材层指纹。"""
+
+    materials: Mapping[str, UnitMaterial]
+    bases: tuple[DraftUnitBasis, ...]
+
+
+class UnitMaterialUnavailableError(Exception):
+    """某个视频单元当前投影不出素材层（如视频没有可证明的来源）。"""
+
+    def __init__(self, unit_id: str, message: str) -> None:
+        super().__init__(message)
+        self.unit_id = unit_id
+
+
+class UnitMaterialSource(Protocol):
+    """按旁白版本取一个修订引用的视频单元的素材层；取不出时抛 :class:`UnitMaterialUnavailableError`。
+
+    素材层取自各单元当前的呈现模型，由服务端实现并注入。
+    """
+
+    async def __call__(
+        self, project_name: str, *, episode: int, content: EditTimelineContent, narration: DraftNarration
+    ) -> UnitMaterials: ...
+
+
+@dataclass(frozen=True, slots=True)
 class PlacedClip:
     """主视频轨上的一个剪辑片段；``hold_us`` 大于 0 时其后接一段出点帧静帧，``transition_to_next`` 是到下一片段的转场。"""
 
@@ -80,12 +111,20 @@ class PlacedNarration:
     start_us: int
     duration_us: int
 
+    @property
+    def end_us(self) -> int:
+        return self.start_us + self.duration_us
+
 
 @dataclass(frozen=True, slots=True)
 class PlacedSubtitle:
     start_us: int
     duration_us: int
     text: str
+
+    @property
+    def end_us(self) -> int:
+        return self.start_us + self.duration_us
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,22 +154,26 @@ def _clip_subtitles(clip: PlacedClip, unit: UnitMaterial, *, carries: bool) -> l
     return placed
 
 
-def _without_overlap[T: (PlacedNarration, PlacedSubtitle)](items: list[T], duration_us: int) -> tuple[T, ...]:
-    """同一条轨内按起点排列，后一段开始时前一段截止，超出时间线末尾的部分截断，截成空的丢弃。"""
-    ordered = sorted(items, key=lambda item: item.start_us)
+def _within_timeline[T: (PlacedNarration, PlacedSubtitle)](items: list[T], duration_us: int) -> tuple[T, ...]:
+    """按起点排列，超出时间线末尾的部分截断，截成空的丢弃；彼此的重叠保留。"""
     kept: list[T] = []
-    for index, item in enumerate(ordered):
-        limit = ordered[index + 1].start_us if index + 1 < len(ordered) else duration_us
-        end = min(item.start_us + item.duration_us, limit, duration_us)
+    for item in sorted(items, key=lambda item: item.start_us):
+        end = min(item.end_us, duration_us)
         if end > item.start_us:
-            kept.append(_with_duration(item, end - item.start_us))
+            kept.append(replace(item, duration_us=end - item.start_us))
     return tuple(kept)
 
 
-def _with_duration[T: (PlacedNarration, PlacedSubtitle)](item: T, duration_us: int) -> T:
-    if isinstance(item, PlacedNarration):
-        return PlacedNarration(item.clip_id, item.audio_path, item.start_us, duration_us)
-    return PlacedSubtitle(item.start_us, duration_us, item.text)
+def stack_tracks[T: (PlacedNarration, PlacedSubtitle)](items: Sequence[T]) -> tuple[tuple[T, ...], ...]:
+    """把可能重叠的片段分到尽量少的轨上，每条轨内不重叠：按起点依次放进第一条已空出的轨，都不空就新开一条。"""
+    tracks: list[list[T]] = []
+    for item in sorted(items, key=lambda item: item.start_us):
+        track = next((track for track in tracks if track[-1].end_us <= item.start_us), None)
+        if track is None:
+            tracks.append([item])
+        else:
+            track.append(item)
+    return tuple(tuple(track) for track in tracks)
 
 
 def place_timeline(content: EditTimelineContent, units: Mapping[str, UnitMaterial]) -> DraftPlacement:
@@ -165,8 +208,8 @@ def place_timeline(content: EditTimelineContent, units: Mapping[str, UnitMateria
     return DraftPlacement(
         duration_us=cursor,
         clips=tuple(clips),
-        narrations=_without_overlap(narrations, cursor),
-        subtitles=_without_overlap(subtitles, cursor),
+        narrations=_within_timeline(narrations, cursor),
+        subtitles=_within_timeline(subtitles, cursor),
     )
 
 
@@ -177,5 +220,9 @@ __all__ = [
     "PlacedSubtitle",
     "UnitCue",
     "UnitMaterial",
+    "UnitMaterialSource",
+    "UnitMaterialUnavailableError",
+    "UnitMaterials",
     "place_timeline",
+    "stack_tracks",
 ]

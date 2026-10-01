@@ -2,19 +2,23 @@
 
 画面按硬切边界分段渲染：段内每个片段按项目画布缩放补边、规整到固定帧率，取定帧数的源画面后用
 边缘帧的静帧补足定格延长与转场借帧的余量缺口，非重叠型转场在片段两端淡入淡出，重叠型转场用
-``xfade`` 在切点窗口内交叉过渡；各段用同一组编码参数输出，最后以 ``-c copy`` 无损拼接。音频不分段：整集原声
-按片段音量与帧边界一次混音、一次编码，再与拼好的画面封装，避免各段 AAC 编码的前置填充在段边界
-产生缝隙与累积偏差。
+``xfade`` 在切点窗口内交叉过渡；烧入字幕时各段把画面时间平移回成片时间，交给 libass 按整集的 ASS 文档
+渲染。各段用同一组编码参数输出，最后以 ``-c copy`` 无损拼接。音频不分段：整集原声按片段音量与帧边界、
+旁白配音（仅带旁白版本）按承载片段的起点一次混音、一次编码，再与拼好的画面封装，避免各段 AAC 编码的
+前置填充在段边界产生缝隙与累积偏差。旁白越界如实渲染：重叠处同时响起，超出末尾的部分随成片截止。
 """
 
 from __future__ import annotations
 
 import asyncio
+import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.render_plan import PlannedClip, RenderPlan, RenderSegment
+from lib.final_cut.subtitles import BurnedSubtitle, ass_document
 from lib.infra.ffmpeg import local_file_input
 from lib.infra.media_probe import MediaProbeError, probe_media
 from lib.infra.subprocess_deadline import (
@@ -23,11 +27,16 @@ from lib.infra.subprocess_deadline import (
     SubprocessDeadlineExceeded,
     run_with_deadline,
 )
+from lib.subtitle_style.font import SUBTITLE_FONT_FILE
 
 AUDIO_SAMPLE_RATE = 48_000
 
 ACCEPTANCE_TOLERANCE_SECONDS = 0.1
 """验收时音视频流时长与剪辑时间线时长之间允许的最大偏差。"""
+
+SUBTITLE_DOCUMENT = "subtitles.ass"
+SUBTITLE_FONTS_DIR = "fonts"
+"""烧入字幕时 ASS 文档与字体在工作目录里的相对路径；画面渲染以工作目录为当前目录，滤镜参数不必转义路径。"""
 
 _STDERR_TAIL = 2000
 
@@ -84,8 +93,21 @@ def _clip_chain(index: int, planned: PlannedClip, plan: RenderPlan) -> str:
     return f"[{index}:v:0]{','.join(filters)}[v{index}]"
 
 
-def segment_args(ffmpeg: str, segment: RenderSegment, plan: RenderPlan, output: Path) -> list[str]:
-    """一段片段的画面渲染参数：只含画面，按帧数精确截止。"""
+@dataclass(frozen=True, slots=True)
+class NarrationInput:
+    """混进整集音频的一段旁白配音：从成片时间 ``start_us`` 起整段播放。"""
+
+    path: Path
+    start_us: int
+
+
+def segment_args(
+    ffmpeg: str, segment: RenderSegment, plan: RenderPlan, output: Path, *, burn_subtitles: bool = False
+) -> list[str]:
+    """一段片段的画面渲染参数：只含画面，按帧数精确截止。
+
+    ``burn_subtitles`` 时按相对路径引用工作目录里的 ASS 文档与字体，须以工作目录为当前目录运行。
+    """
     fps = plan.profile.fps
     inputs: list[str] = []
     chains: list[str] = []
@@ -105,6 +127,14 @@ def segment_args(ffmpeg: str, segment: RenderSegment, plan: RenderPlan, output: 
             f":offset={_frames_seconds(crossfade.offset_frames, fps)}{joined}"
         )
         label = joined
+    if burn_subtitles:
+        # libass 按画面时间取字幕：先把段内时间平移到成片时间，烧入后再移回段内时间。
+        offset = _frames_seconds(segment.start_frame, fps)
+        chains.append(
+            f"{label}setpts=PTS+{offset}/TB,subtitles=f={SUBTITLE_DOCUMENT}:fontsdir={SUBTITLE_FONTS_DIR},"
+            "setpts=PTS-STARTPTS[subtitled]"
+        )
+        label = "[subtitled]"
     return [
         *_base_args(ffmpeg),
         *inputs,
@@ -141,8 +171,11 @@ def _audible(planned: PlannedClip) -> bool:
     return planned.clip.has_audio and planned.clip.source_volume > 0 and planned.source_frames > 0
 
 
-def audio_mix_args(ffmpeg: str, plan: RenderPlan, output: Path) -> list[str]:
-    """整集原声混音参数：以静音垫底，每个有声片段按帧边界落位、按原声音量缩放。"""
+def audio_mix_args(
+    ffmpeg: str, plan: RenderPlan, output: Path, *, narrations: Sequence[NarrationInput] = ()
+) -> list[str]:
+    """整集混音参数：以静音垫底，每个有声片段按帧边界落位、按原声音量缩放；旁白配音从起点所在的帧边界起
+    原音量叠加，整体截到成片时长。"""
     fps = plan.profile.fps
     total_samples = _samples(plan.total_frames, fps)
     inputs: list[str] = ["-f", "lavfi", "-i", f"anullsrc=r={AUDIO_SAMPLE_RATE}:cl=stereo"]
@@ -156,6 +189,15 @@ def audio_mix_args(ffmpeg: str, plan: RenderPlan, output: Path) -> list[str]:
             f"atrim=end_sample={_samples(planned.source_frames, fps)},asetpts=PTS-STARTPTS,"
             f"volume={planned.clip.source_volume:.4f},"
             f"adelay=delays={_samples(planned.start_frame, fps)}S:all=1[a{index}]"
+        )
+        labels.append(f"[a{index}]")
+    for narration in narrations:
+        index = len(labels)
+        inputs += local_file_input(narration.path)
+        start = _samples(plan.profile.frame_at(narration.start_us), fps)
+        chains.append(
+            f"[{index}:a:0]aresample={AUDIO_SAMPLE_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"asetpts=PTS-STARTPTS,adelay=delays={start}S:all=1[a{index}]"
         )
         labels.append(f"[a{index}]")
     if len(labels) == 1:
@@ -208,10 +250,18 @@ def mux_args(ffmpeg: str, concat_list: Path, audio: Path, output: Path) -> list[
     ]
 
 
-async def _run(args: list[str], *, deadline: float, grace: float, spawn: Spawner | None, output: Path) -> None:
+async def _run(
+    args: list[str], *, deadline: float, grace: float, spawn: Spawner | None, output: Path, cwd: Path | None = None
+) -> None:
     try:
         result = await run_with_deadline(
-            args, deadline_seconds=deadline, grace=grace, capture_stderr=True, cleanup_paths=(output,), spawn=spawn
+            args,
+            deadline_seconds=deadline,
+            grace=grace,
+            capture_stderr=True,
+            cleanup_paths=(output,),
+            spawn=spawn,
+            cwd=cwd,
         )
     except SubprocessDeadlineExceeded:
         raise FinalCutError("final_cut_render_failed", f"ffmpeg 渲染超时：{output.name}") from None
@@ -230,25 +280,34 @@ async def render_plan_to_file(
     output: Path,
     workspace: Path,
     *,
+    narrations: Sequence[NarrationInput] = (),
+    subtitles: Sequence[BurnedSubtitle] | None = None,
     deadlines: RenderDeadlines = DEFAULT_RENDER_DEADLINES,
     spawn: Spawner | None = None,
 ) -> None:
-    """执行渲染规划：逐段渲染画面、整集混音，再拼接封装到 ``output``；中间文件只写在 ``workspace``。"""
+    """执行渲染规划：逐段渲染画面、整集混音，再拼接封装到 ``output``；中间文件只写在 ``workspace``。
+
+    ``subtitles`` 不为 None 时烧入字幕（可以为空），``narrations`` 是要混进整集音频的旁白配音。
+    """
     fps = plan.profile.fps
+    burn = subtitles is not None
+    if subtitles is not None:
+        await asyncio.to_thread(_stage_subtitles, workspace, ass_document(subtitles, plan.profile))
     segment_files: list[Path] = []
     for index, segment in enumerate(plan.segments):
         segment_file = workspace / f"segment_{index:04d}.mp4"
         await _run(
-            segment_args(ffmpeg, segment, plan, segment_file),
+            segment_args(ffmpeg, segment, plan, segment_file, burn_subtitles=burn),
             deadline=deadlines.for_seconds(segment.frames / fps),
             grace=deadlines.grace,
             spawn=spawn,
             output=segment_file,
+            cwd=workspace if burn else None,
         )
         segment_files.append(segment_file)
     audio_file = workspace / "audio.m4a"
     await _run(
-        audio_mix_args(ffmpeg, plan, audio_file),
+        audio_mix_args(ffmpeg, plan, audio_file, narrations=narrations),
         deadline=deadlines.for_seconds(plan.duration_seconds),
         grace=deadlines.grace,
         spawn=spawn,
@@ -265,6 +324,18 @@ async def render_plan_to_file(
         spawn=spawn,
         output=output,
     )
+
+
+def _stage_subtitles(workspace: Path, document: str) -> None:
+    """把 ASS 文档与随包字体放进工作目录；字体优先硬链接，跨卷时复制。"""
+    (workspace / SUBTITLE_DOCUMENT).write_text(document, encoding="utf-8")
+    fonts = workspace / SUBTITLE_FONTS_DIR
+    fonts.mkdir(exist_ok=True)
+    target = fonts / SUBTITLE_FONT_FILE.name
+    try:
+        target.hardlink_to(SUBTITLE_FONT_FILE)
+    except OSError:
+        shutil.copyfile(SUBTITLE_FONT_FILE, target)
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,6 +388,7 @@ __all__ = [
     "AUDIO_SAMPLE_RATE",
     "DEFAULT_RENDER_DEADLINES",
     "FinalCutAcceptance",
+    "NarrationInput",
     "RenderDeadlines",
     "accept_final_cut",
     "audio_mix_args",

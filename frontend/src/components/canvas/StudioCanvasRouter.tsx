@@ -808,6 +808,7 @@ export function StudioCanvasRouter() {
                           timelineId={timelineId}
                           timelineName={timelineName}
                           issues={issues}
+                          narrationAvailable={currentProjectData?.narration_delivery === "use_tts"}
                           onShowIssues={showIssues}
                         />
                       )

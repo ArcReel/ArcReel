@@ -22,11 +22,15 @@ from lib.speech.speech_composition import SpeechMode, admit_script_unit
 
 @dataclass(frozen=True, slots=True)
 class ScriptUnit:
-    """脚本里的一个视频单元及其发声归属；归属判不出（混合发声、待重新规划）时为 None。"""
+    """脚本里的一个视频单元及其发声归属；归属判不出（混合发声、待重新规划）时为 None。
+
+    ``subtitle_text`` 是该单元台词与画外音的原文，字幕草稿由它切分而来。
+    """
 
     unit_id: str
     speech_mode: SpeechMode | None
     scripted_duration_us: int
+    subtitle_text: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +99,7 @@ def load_episode_script_units(projects: ProjectManager, project_name: str, episo
                 unit_id=unit_id,
                 speech_mode=admission.mode,
                 scripted_duration_us=seconds_to_microseconds(item_duration(kind, item)),
+                subtitle_text="\n".join(utterance.text for utterance in admission.preparation.utterances),
             )
         )
     return EpisodeScriptUnits(episode=episode, kind=kind, units=tuple(units))

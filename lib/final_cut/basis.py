@@ -5,6 +5,10 @@
 各片段所用视频单元 current 视频的版本、内容指纹与供应商原声开关，以及输出画布。修订号标识本次剪辑决策快照；剪辑理由不单独进入依据；
 截取所依据的版本已不是 current 时截取被忽略，依据里也记为整段使用。
 
+带旁白或烧入字幕的版本还消费各视频单元的素材层（与剪映草稿同源，见 :mod:`lib.jianying_draft.placement`），
+依据另收各单元的素材层指纹：其中含字幕草稿，带旁白版本还含旁白配音。不带旁白、不烧入字幕的版本不收，
+旁白配音与字幕草稿的变化不让它过期。
+
 渲染任务开始时按指定修订取依据快照，产物时效判定按最新修订重建依据，两处共用
 :func:`resolve_final_cut_inputs` 与 :func:`final_cut_basis`。
 """
@@ -14,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
 from lib.artifacts.rendered_artifact import timeline_renders_dir
@@ -22,31 +26,59 @@ from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionMan
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.edit_timeline.model import EditClip, EditTimelineDocument, TimelineRevision
 from lib.final_cut.render_plan import OutputProfile, output_profile_for_aspect_ratio
+from lib.jianying_draft.basis import DraftNarration, DraftUnitBasis, default_draft_narration
 from lib.project.resource_paths import resource_relative_path
 
 FINAL_CUT_BASIS_KIND = "final-cut/episode"
 FINAL_CUT_BASIS_VERSION = 1
 
-WITHOUT_NARRATION = "without_narration"
-NO_SUBTITLES = "no_subtitles"
+type SubtitleMode = Literal["burned_subtitles", "no_subtitles"]
+"""成片的字幕方式：烧入字幕，或不烧入、得到干净的画面。"""
+
+WITHOUT_NARRATION: DraftNarration = "without_narration"
+WITH_NARRATION: DraftNarration = "with_narration"
+NO_SUBTITLES: SubtitleMode = "no_subtitles"
+BURNED_SUBTITLES: SubtitleMode = "burned_subtitles"
 
 
 @dataclass(frozen=True, slots=True)
 class FinalCutVariant:
-    """成片的旁白版本与字幕烧入方式。"""
+    """成片的旁白版本与字幕方式；旁白版本的取值与剪映草稿相同。"""
 
-    narration: str = WITHOUT_NARRATION
-    subtitles: str = NO_SUBTITLES
+    narration: DraftNarration = WITHOUT_NARRATION
+    subtitles: SubtitleMode = NO_SUBTITLES
 
     @property
     def slug(self) -> str:
         return f"{self.narration}.{self.subtitles}"
 
+    @property
+    def with_narration(self) -> bool:
+        return self.narration == WITH_NARRATION
 
-DEFAULT_VARIANT = FinalCutVariant()
+    @property
+    def burns_subtitles(self) -> bool:
+        return self.subtitles == BURNED_SUBTITLES
 
-SUPPORTED_VARIANTS = frozenset({DEFAULT_VARIANT})
-"""当前能渲染的组合：不带旁白、不烧入字幕。"""
+    @property
+    def consumes_unit_materials(self) -> bool:
+        """带旁白或烧入字幕的版本要取各视频单元的素材层（旁白配音与字幕）。"""
+        return self.with_narration or self.burns_subtitles
+
+
+FINAL_CUT_VARIANTS = tuple(
+    FinalCutVariant(narration, subtitles)
+    for narration in (WITHOUT_NARRATION, WITH_NARRATION)
+    for subtitles in (BURNED_SUBTITLES, NO_SUBTITLES)
+)
+"""成片的全部产物身份组合；带旁白版本只对 TTS 配音项目开放。"""
+
+
+def resolve_final_cut_variant(
+    project: Mapping[str, Any], *, narration: DraftNarration | None = None, subtitles: SubtitleMode | None = None
+) -> FinalCutVariant:
+    """补齐省略的选项：旁白版本 TTS 配音项目默认带旁白、其余不带旁白（与剪映草稿相同），字幕默认烧入。"""
+    return FinalCutVariant(narration or default_draft_narration(project), subtitles or BURNED_SUBTITLES)
 
 
 def final_cut_key(episode: int, timeline_id: str, variant: FinalCutVariant) -> ArtifactKey:
@@ -144,6 +176,8 @@ class FinalCutInputs:
     profile: OutputProfile
     clips: tuple[ConsumedClip, ...]
     missing_video_units: tuple[str, ...]
+    units: tuple[DraftUnitBasis, ...] = ()
+    """各视频单元的素材层指纹；只在 :attr:`FinalCutVariant.consumes_unit_materials` 时收录。"""
 
 
 def resolve_final_cut_inputs(
@@ -206,36 +240,38 @@ def final_cut_basis(inputs: FinalCutInputs) -> ArtifactBasis:
     """成片的生成依据；登记与时效比对都经这里构造。"""
     if inputs.missing_video_units:
         raise ValueError(f"final cut inputs lack usable videos: {', '.join(inputs.missing_video_units)}")
-    return ArtifactBasis.build(
-        FINAL_CUT_BASIS_KIND,
-        kind_version=FINAL_CUT_BASIS_VERSION,
-        inputs={
-            "timeline_id": inputs.timeline_id,
-            "revision": inputs.revision,
-            "narration": inputs.variant.narration,
-            "subtitles": inputs.variant.subtitles,
-            "output": {"width": inputs.profile.width, "height": inputs.profile.height, "fps": inputs.profile.fps},
-            "clips": [_clip_input(item) for item in inputs.clips],
-        },
-    )
+    basis_inputs: dict[str, object] = {
+        "timeline_id": inputs.timeline_id,
+        "revision": inputs.revision,
+        "narration": inputs.variant.narration,
+        "subtitles": inputs.variant.subtitles,
+        "output": {"width": inputs.profile.width, "height": inputs.profile.height, "fps": inputs.profile.fps},
+        "clips": [_clip_input(item) for item in inputs.clips],
+    }
+    if inputs.variant.consumes_unit_materials:
+        basis_inputs["units"] = {unit.unit_id: unit.to_input() for unit in inputs.units}
+    return ArtifactBasis.build(FINAL_CUT_BASIS_KIND, kind_version=FINAL_CUT_BASIS_VERSION, inputs=basis_inputs)
 
 
 __all__ = [
-    "DEFAULT_VARIANT",
+    "BURNED_SUBTITLES",
     "FINAL_CUT_BASIS_KIND",
     "FINAL_CUT_BASIS_VERSION",
+    "FINAL_CUT_VARIANTS",
     "NO_SUBTITLES",
-    "SUPPORTED_VARIANTS",
     "WITHOUT_NARRATION",
+    "WITH_NARRATION",
     "ConsumedClip",
     "CurrentVideo",
     "FinalCutInputs",
     "FinalCutVariant",
+    "SubtitleMode",
     "current_video",
     "final_cut_artifact_path",
     "final_cut_basis",
     "final_cut_key",
     "output_profile_for_project",
     "resolve_final_cut_inputs",
+    "resolve_final_cut_variant",
     "video_resource_type_for",
 ]

@@ -88,7 +88,8 @@ export type EditTimelineIssueCode =
   | "hold_too_long"
   | "narration_missing"
   | "narration_overrun"
-  | "narration_source_collision";
+  | "narration_source_collision"
+  | "subtitle_missing_glyphs";
 
 export interface EditTimelineIssue {
   code: EditTimelineIssueCode;

@@ -29,7 +29,7 @@ from lib.edit_timeline import (
     TimelineSummary,
 )
 from lib.edit_timeline.errors import edit_timeline_message
-from lib.final_cut.basis import DEFAULT_VARIANT
+from lib.final_cut.basis import SubtitleMode
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.overview import EpisodeEditOverview, episode_edit_overview
 from lib.final_cut.service import FinalCutService, FinalCutStatus
@@ -129,7 +129,7 @@ def edit_timeline_api_error(exc: EditTimelineError) -> ApiError:
 
 
 _FINAL_CUT_STATUS: dict[str, int] = {
-    "final_cut_variant_unsupported": 422,
+    "final_cut_narration_unavailable": 422,
     "final_cut_blocked": 409,
     "final_cut_content_unsupported": 422,
     "final_cut_empty": 422,
@@ -180,6 +180,9 @@ class RenderFinalCutBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     revision: int | None = Field(default=None, ge=1)
+    # 省略时按项目补齐：TTS 配音项目带旁白、其余不带旁白；字幕默认烧入。
+    narration: DraftNarration | None = None
+    subtitles: SubtitleMode | None = None
 
 
 class FinalCutSubmission(BaseModel):
@@ -379,16 +382,22 @@ async def render_final_cut(
     user: CurrentUser,
     body: RenderFinalCutBody | None = None,
 ) -> FinalCutSubmission:
-    """先检查阻断问题再入队；``revision`` 省略时渲染提交时的最新修订。"""
-    revision = body.revision if body is not None else None
+    """先按所选版本检查阻断问题再入队；``revision`` 省略时渲染提交时的最新修订。"""
+    request_body = body or RenderFinalCutBody()
     try:
-        check = await service.check(project_name, timeline_id, revision=revision, variant=DEFAULT_VARIANT)
+        check = await service.check(
+            project_name,
+            timeline_id,
+            revision=request_body.revision,
+            narration=request_body.narration,
+            subtitles=request_body.subtitles,
+        )
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
     except FinalCutError as exc:
         raise final_cut_api_error(exc) from exc
     request = final_cut_task_request(
-        episode=check.episode, timeline_id=check.timeline_id, revision=check.revision, variant=DEFAULT_VARIANT
+        episode=check.episode, timeline_id=check.timeline_id, revision=check.revision, variant=check.variant
     )
     try:
         enqueued = await queue.enqueue_task(
@@ -406,10 +415,12 @@ async def read_final_cut(
     project_name: str,
     timeline_id: str,
     service: FinalCutServiceDep,
+    narration: DraftNarration | None = Query(None, description="旁白版本；省略时按项目取默认版本"),
+    subtitles: SubtitleMode | None = Query(None, description="字幕方式；省略时为烧入字幕"),
 ) -> FinalCutStatusResponse:
     """成片现状；stale 的成片仍可下载，``download_url`` 只在文件存在时给出。"""
     try:
-        status = await service.status(project_name, timeline_id, variant=DEFAULT_VARIANT)
+        status = await service.status(project_name, timeline_id, narration=narration, subtitles=subtitles)
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
     download_url = (

@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from lib.artifacts.artifact_manifest import ProjectArtifactManifestAdapter
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.edit_timeline.operations import SetReason
-from lib.final_cut.basis import DEFAULT_VARIANT, final_cut_key
+from lib.final_cut.basis import FinalCutVariant, final_cut_key
 from lib.final_cut.service import FinalCutService
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
 from lib.project.project_manager import ProjectManager
@@ -161,10 +161,12 @@ async def test_delete_clears_the_rendered_final_cut_and_its_claim(
     for unit_id in ("E1U1", "E1U2"):
         _install(timeline_project, tmp_path, unit_id)
     timeline_id = await _create(timeline_client)
-    rendered = await FinalCutService(timeline_project).render("demo", timeline_id)
+    rendered = await FinalCutService(timeline_project).render(
+        "demo", timeline_id, narration="without_narration", subtitles="no_subtitles"
+    )
     project_dir = timeline_project.get_project_path("demo")
     adapter = ProjectArtifactManifestAdapter(project_dir)
-    key = final_cut_key(1, timeline_id, DEFAULT_VARIANT)
+    key = final_cut_key(1, timeline_id, FinalCutVariant())
     assert (project_dir / rendered.artifact_path).is_file()
     assert adapter.get_entry(key) is not None
 

@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any, Literal
 
 type FinalCutErrorCode = Literal[
-    "final_cut_variant_unsupported",
+    "final_cut_narration_unavailable",
+    "final_cut_presentation_unavailable",
     "final_cut_blocked",
     "final_cut_content_unsupported",
     "final_cut_empty",

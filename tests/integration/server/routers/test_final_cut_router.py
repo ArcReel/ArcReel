@@ -65,10 +65,11 @@ async def test_submit_queues_a_render_task_and_status_reads_missing_until_render
     _install(timeline_project, tmp_path, "E1U2")
     timeline_id = await _timeline(timeline_project)
     url = f"/api/v1/projects/demo/edit-timelines/{timeline_id}/final-cut"
+    clean = {"subtitles": "no_subtitles"}
 
-    submitted = await final_cut_client.post(url)
-    again = await final_cut_client.post(url)
-    pinned = await final_cut_client.post(url, json={"revision": 1})
+    submitted = await final_cut_client.post(url, json=clean)
+    again = await final_cut_client.post(url, json=clean)
+    pinned = await final_cut_client.post(url, json={**clean, "revision": 1})
     await EditTimelineService(timeline_project).edit(
         "demo",
         timeline_id,
@@ -78,8 +79,8 @@ async def test_submit_queues_a_render_task_and_status_reads_missing_until_render
         author=RevisionAuthor(kind="arcreel_agent"),
     )
     # 省略 revision 的请求按提交时的最新修订入队：时间线前进后不再去重到旧修订的任务。
-    conflicting = await final_cut_client.post(url)
-    before = await final_cut_client.get(url)
+    conflicting = await final_cut_client.post(url, json=clean)
+    before = await final_cut_client.get(url, params=clean)
 
     assert submitted.status_code == 202
     assert again.json() == pinned.json() == {**submitted.json(), "deduped": True}
@@ -87,12 +88,34 @@ async def test_submit_queues_a_render_task_and_status_reads_missing_until_render
     assert submitted.json()["task_id"] in conflicting.json()["detail"]
     assert (before.json()["status"], before.json()["download_url"]) == ("missing", None)
 
-    rendered = await FinalCutService(timeline_project).render("demo", timeline_id)
-    after = await final_cut_client.get(url)
+    rendered = await FinalCutService(timeline_project).render(
+        "demo", timeline_id, narration="without_narration", subtitles="no_subtitles"
+    )
+    after = await final_cut_client.get(url, params=clean)
 
     assert after.json()["status"] == "current"
     assert after.json()["artifact_path"] == submitted.json()["artifact_path"] == rendered.artifact_path
     assert after.json()["download_url"] == f"/api/v1/files/demo/{rendered.artifact_path}?v=1"
+
+
+async def test_omitted_options_follow_the_project_and_burn_subtitles_while_narration_needs_tts(
+    tmp_path: Path, timeline_project: ProjectManager, final_cut_client: AsyncClient
+) -> None:
+    _install(timeline_project, tmp_path, "E1U1")
+    _install(timeline_project, tmp_path, "E1U2")
+    timeline_id = await _timeline(timeline_project)
+    url = f"/api/v1/projects/demo/edit-timelines/{timeline_id}/final-cut"
+
+    defaulted = await final_cut_client.post(url)
+    status = await final_cut_client.get(url)
+    narrated = await final_cut_client.post(url, json={"narration": "with_narration"})
+
+    # 后期配音项目省略旁白版本时不带旁白；字幕默认烧入。
+    assert defaulted.status_code == 202
+    assert defaulted.json()["artifact_path"].endswith("/final_cut.without_narration.burned_subtitles.mp4")
+    assert (status.json()["narration"], status.json()["subtitles"]) == ("without_narration", "burned_subtitles")
+    assert narrated.status_code == 422
+    assert narrated.json()["detail"]
 
 
 async def test_blocking_issues_answer_409_naming_the_units(

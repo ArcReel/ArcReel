@@ -83,7 +83,7 @@ async def test_embedded_agent_waits_for_a_downloadable_final_cut(
     outcome = await run_declared_tool(
         RENDER_FINAL_CUT,
         ToolHarness("demo", tmp_path, timeline_project, caller=EMBEDDED, queue=render_queue),
-        {"timeline": timeline_id},
+        {"timeline": timeline_id, "burn_subtitles": False},
     )
 
     assert outcome.problem is None
@@ -126,7 +126,8 @@ async def test_external_agent_gets_a_batch_handle_to_poll(
     assert isinstance(outcome.value, GenerationBatchReadModel)
     assert outcome.value.operation == "render_final_cut"
     [member] = outcome.value.members
-    assert member.unit_id == f"{timeline_id}.without_narration.no_subtitles"
+    # 省略的选项按项目补齐：后期配音项目不带旁白，字幕默认烧入。
+    assert member.unit_id == f"{timeline_id}.without_narration.burned_subtitles"
 
 
 async def test_blocking_issues_are_refused_before_anything_is_queued(

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import type { FinalCutStatus, JianyingDraftStatus, TaskItem } from "@/types";
+import type { EditTimelineIssueRef, FinalCutStatus, JianyingDraftStatus, TaskItem } from "@/types";
 import { RenderButton } from "./RenderButton";
 import { RenderDialog } from "./RenderDialog";
 
@@ -12,9 +12,9 @@ function finalCut(overrides: Partial<FinalCutStatus> = {}): FinalCutStatus {
     episode: 1,
     timeline_id: "tl-1",
     narration: "without_narration",
-    subtitles: "burned",
+    subtitles: "burned_subtitles",
     status: "missing",
-    artifact_path: "renders/episode_1/tl-1/final_cut.mp4",
+    artifact_path: "renders/episode_1/tl-1/final_cut.without_narration.burned_subtitles.mp4",
     version: null,
     rendered_at: null,
     download_url: null,
@@ -39,7 +39,17 @@ function task(status: TaskItem["status"], overrides: Partial<TaskItem> = {}): Ta
   return { task_id: "task-1", task_type: "render_final_cut", status, error_message: null, ...overrides } as TaskItem;
 }
 
-function renderDialog(blockedReason: string | null = null) {
+const NARRATION_MISSING: EditTimelineIssueRef = {
+  code: "narration_missing",
+  severity: "blocking",
+  applies_to: "with_narration",
+  unit_id: "E1S04",
+};
+
+function renderDialog({
+  issues = [],
+  narrationAvailable = false,
+}: { issues?: EditTimelineIssueRef[]; narrationAvailable?: boolean } = {}) {
   return render(
     <RenderDialog
       open
@@ -47,7 +57,8 @@ function renderDialog(blockedReason: string | null = null) {
       projectName="demo"
       timelineId="tl-1"
       timelineName="初剪"
-      blockedReason={blockedReason}
+      issues={issues}
+      narrationAvailable={narrationAvailable}
     />,
   );
 }
@@ -110,7 +121,7 @@ describe("RenderDialog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "渲染成片" }));
 
     expect(await screen.findByText("正在渲染成片…")).toBeInTheDocument();
-    expect(submit).toHaveBeenCalledWith("demo", "tl-1");
+    expect(submit).toHaveBeenCalledWith("demo", "tl-1", { narration: "without_narration", subtitles: "burned_subtitles" });
     expect(API.getTask).toHaveBeenCalledWith("task-1");
     expect(screen.getByRole("button", { name: "渲染成片" })).toBeDisabled();
   });
@@ -119,7 +130,7 @@ describe("RenderDialog", () => {
     vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
     const submit = vi.spyOn(API, "renderFinalCut");
     vi.spyOn(API, "getTask").mockResolvedValue(task("running", { task_id: "task-9" }));
-    const payload = { timeline_id: "tl-1", narration: "without_narration", subtitles: "burned" };
+    const payload = { timeline_id: "tl-1", narration: "without_narration", subtitles: "burned_subtitles" };
     vi.mocked(API.listTasks).mockImplementation(async ({ status } = {}) => {
       const items =
         status === "running"
@@ -198,7 +209,7 @@ describe("RenderDialog", () => {
     expect(token).toHaveBeenCalledWith("demo", "current");
     expect(downloads[0].href).toBe(
       "/api/v1/projects/demo/edit-timelines/tl-1/jianying-draft/download" +
-        "?draft_path=%2FUsers%2Fme%2FDrafts&download_token=tok&jianying_version=5",
+        "?draft_path=%2FUsers%2Fme%2FDrafts&download_token=tok&jianying_version=5&narration=without_narration",
     );
     expect(localStorage.getItem("arcreel_jianying_draft_path")).toBe("/Users/me/Drafts");
   });
@@ -231,17 +242,79 @@ describe("RenderDialog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "导出剪映草稿" }));
 
     expect(await screen.findByText("正在导出剪映草稿…")).toBeInTheDocument();
-    expect(exportDraft).toHaveBeenCalledWith("demo", "tl-1");
+    expect(exportDraft).toHaveBeenCalledWith("demo", "tl-1", { narration: "without_narration" });
   });
 
   it("对话框打开期间出现阻断级 issue 时不能出片", async () => {
     vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
 
-    renderDialog("当前剪辑时间线有 1 个问题阻断出片，处理后才能出片");
+    renderDialog({ issues: [{ code: "video_missing", severity: "blocking", applies_to: "all", unit_id: null }] });
 
     expect(await screen.findByRole("button", { name: "渲染成片" })).toBeDisabled();
     expect(screen.getByText("当前剪辑时间线有 1 个问题阻断出片，处理后才能出片")).toBeInTheDocument();
     expect(anchorClick).not.toHaveBeenCalled();
+  });
+
+  it("后期配音项目不给旁白版本选项，剪映草稿不给烧入字幕选项", async () => {
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
+    vi.spyOn(API, "getJianyingDraftStatus").mockResolvedValue(draft());
+
+    renderDialog({ issues: [NARRATION_MISSING] });
+
+    expect(await screen.findByRole("button", { name: "渲染成片" })).toBeEnabled();
+    expect(screen.queryByLabelText("旁白版本")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /烧入字幕/ })).toBeChecked();
+    await userEvent.click(screen.getByRole("radio", { name: /剪映草稿/ }));
+    expect(screen.queryByRole("checkbox", { name: /烧入字幕/ })).not.toBeInTheDocument();
+  });
+
+  it("不烧入字幕的成片是另一份产物，按所选版本读取现状并提交", async () => {
+    const status = vi
+      .spyOn(API, "getFinalCutStatus")
+      .mockImplementation(async (_project, _timeline, { subtitles } = {}) =>
+        subtitles === "no_subtitles"
+          ? finalCut({ subtitles, status: "current", version: 1, download_url: "/api/v1/files/demo/b.mp4?v=1" })
+          : finalCut(),
+      );
+    const submit = vi
+      .spyOn(API, "renderFinalCut")
+      .mockResolvedValue({ task_id: "task-1", deduped: false, artifact_path: "a" });
+    vi.spyOn(API, "getTask").mockResolvedValue(task("running"));
+
+    renderDialog();
+    expect(await screen.findByText("尚未生成")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: /烧入字幕/ }));
+
+    expect(await screen.findByText("已是最新")).toBeInTheDocument();
+    expect(status).toHaveBeenLastCalledWith("demo", "tl-1", expect.objectContaining({ subtitles: "no_subtitles" }));
+    await userEvent.click(screen.getByRole("button", { name: "重新渲染" }));
+    expect(submit).toHaveBeenCalledWith("demo", "tl-1", { narration: "without_narration", subtitles: "no_subtitles" });
+  });
+
+  it("TTS 配音项目默认带旁白，缺旁白配音只阻断带旁白版本", async () => {
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
+    vi.spyOn(API, "getJianyingDraftStatus").mockResolvedValue(draft());
+
+    renderDialog({ issues: [NARRATION_MISSING], narrationAvailable: true });
+
+    expect(screen.getByLabelText("旁白版本")).toHaveValue("with_narration");
+    expect(await screen.findByRole("button", { name: "渲染成片" })).toBeDisabled();
+    expect(screen.getByText("当前剪辑时间线有 1 个问题阻断出片，涉及 S04，处理后才能出片")).toBeInTheDocument();
+    expect(API.getFinalCutStatus).toHaveBeenCalledWith(
+      "demo",
+      "tl-1",
+      expect.objectContaining({ narration: "with_narration", subtitles: "burned_subtitles" }),
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText("旁白版本"), "without_narration");
+    expect(await screen.findByRole("button", { name: "渲染成片" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("radio", { name: /剪映草稿/ }));
+    expect(screen.getByLabelText("旁白版本")).toHaveValue("without_narration");
+    expect(API.getJianyingDraftStatus).toHaveBeenCalledWith(
+      "demo",
+      "tl-1",
+      expect.objectContaining({ narration: "without_narration" }),
+    );
   });
 });
 
@@ -261,6 +334,7 @@ describe("RenderButton", () => {
           { code: "video_missing", severity: "blocking", applies_to: "all", unit_id: "E1S03" },
           { code: "trim_ignored", severity: "info", applies_to: "all", unit_id: "E1S01" },
         ]}
+        narrationAvailable={false}
         onShowIssues={onShowIssues}
       />,
     );
@@ -274,7 +348,7 @@ describe("RenderButton", () => {
     expect(onShowIssues).toHaveBeenCalled();
   });
 
-  it("没有阻断级 issue 时打开当前剪辑时间线的出片对话框", async () => {
+  it("没有阻断全部交付物的 issue 时打开当前剪辑时间线的出片对话框", async () => {
     vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
     vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 });
     render(
@@ -282,7 +356,11 @@ describe("RenderButton", () => {
         projectName="demo"
         timelineId="tl-1"
         timelineName="初剪"
-        issues={[{ code: "hold_too_long", severity: "warning", applies_to: "all", unit_id: "E1S02" }]}
+        issues={[
+          { code: "hold_too_long", severity: "warning", applies_to: "all", unit_id: "E1S02" },
+          { code: "narration_missing", severity: "blocking", applies_to: "with_narration", unit_id: "E1S04" },
+        ]}
+        narrationAvailable
         onShowIssues={vi.fn()}
       />,
     );

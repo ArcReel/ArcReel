@@ -51,14 +51,14 @@ Both entries require at least one generated video in the episode. Rendering neve
 
 1. In the tabs at the top of the edit view, select the edit timeline to export
 2. Click **Render** to open the "Render · <edit timeline name>" dialog
-3. Select **Jianying draft**
-4. The dialog shows the status of this edit timeline's existing Jianying draft:
+3. Select **Jianying draft**. TTS voiceover projects can also choose **With narration** or **Without narration** under **Narration version**; the default is with narration, and each version is exported and kept separately
+4. The dialog shows the status of this edit timeline's existing Jianying draft for the selected version:
    - **Up to date**: download it directly; there is no need to export again
    - **Behind the edit timeline**: the edit timeline or its media changed after the export; you can still download the old draft, and exporting again replaces it
    - **Not created yet**: click **Export Jianying draft** to start the export
 5. The export runs in the background. The dialog shows its progress, and you can download the draft when it finishes
 
-When the current edit timeline has issues that block rendering (for example, a video unit has no usable video yet), the **Render** button is disabled. Hover over the button to see why, and click **View issues** next to it to jump to the issue list.
+When the current edit timeline has issues that block rendering (for example, a video unit has no usable video yet), the **Render** button is disabled. Hover over the button to see why, and click **View issues** next to it to jump to the issue list. When a video unit has no narration audio yet, only the version with narration is blocked: the dialog shows the reason while that version is selected, and switching to the version without narration lets you export.
 
 ### 4. Enter the download parameters and download {#export-parameters}
 
@@ -97,7 +97,9 @@ The Jianying draft is generated from a revision of the edit timeline and follows
 
 - **Video track**: clips appear in the edit timeline's order, keeping trims, source volume, and holds; each clip uses the video version currently selected for its video unit
 - **Subtitle track**: subtitles are generated from narration and dialogue, and their style, position, and timing remain adjustable in Jianying
-- **Narration track**: appears only in the version with narration. TTS narration projects export the version with narration by default; other projects export the version without narration
+- **Narration track**: appears only in the version with narration. TTS narration projects export the version with narration by default and can switch to the version without narration; other projects export only the version without narration
+
+Narration starts at its carrier clip and plays for the actual length of its audio. A narration longer than its clip keeps its full length; it is not shortened, and later narrations are not shifted. Only the part that runs past the end of the edit timeline is cut off. When narrations or subtitles overlap in time, the draft adds tracks such as "旁白 2" (narration 2) and "字幕 2" (subtitles 2) as needed so every overlapping part is kept; each extra subtitle track is raised by a fixed distance to stay clear of the subtitles on the first track.
 
 A manually uploaded video has no generation provenance, so it is exported unchanged and is explicitly marked as having unavailable provenance. ArcReel does not generate TTS or subtitles for it. The uploaded video is finished content itself: editing prompts does not make it stale.
 

@@ -1,4 +1,4 @@
-"""剪映草稿片段摆放：截取依据版本、定格、旁白落点与字幕窗口，以及单轨不重叠的截断规则。"""
+"""剪辑时间线的片段摆放：截取依据版本、定格、旁白落点与字幕窗口、末尾截断，以及剪映草稿按需分轨。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from lib.jianying_draft.placement import (
     UnitCue,
     UnitMaterial,
     place_timeline,
+    stack_tracks,
 )
 
 S = 1_000_000
@@ -82,7 +83,7 @@ def test_deleted_units_are_skipped_and_volume_follows_the_provider_audio_switch(
     ]
 
 
-def test_narration_starts_at_its_carrying_clip_and_is_cut_at_the_next_one_and_the_end() -> None:
+def test_narration_starts_at_its_carrying_clip_keeps_its_overlap_and_is_cut_at_the_end() -> None:
     content = EditTimelineContent(
         clips=(
             _clip("c1", "U1", carries_narration=True),
@@ -98,8 +99,9 @@ def test_narration_starts_at_its_carrying_clip_and_is_cut_at_the_next_one_and_th
     placement = place_timeline(content, units)
 
     assert placement.duration_us == 5 * S
+    # 旁白越界如实保留：c1 的 3 秒旁白压到 c2 的旁白上，c2 的旁白截到时间线末尾。
     assert placement.narrations == (
-        PlacedNarration("c1", "versions/audio/U1_v1.wav", 0, 2 * S),
+        PlacedNarration("c1", "versions/audio/U1_v1.wav", 0, 3 * S),
         PlacedNarration("c2", "versions/audio/U2_v1.wav", 2 * S, 3 * S),
     )
 
@@ -152,3 +154,19 @@ def test_transitions_stay_on_the_previous_clip_and_only_reach_the_next_exported_
     # c2 的视频单元已删除，c1 的转场衔接到 c3；c3 之后没有参与导出的片段，它的转场没有效果。
     assert [(clip.clip_id, clip.transition_to_next) for clip in placement.clips] == [("c1", dissolve), ("c3", None)]
     assert placement.duration_us == 8 * S
+
+
+def test_overlapping_items_are_stacked_onto_the_fewest_tracks_without_overlap_inside_a_track() -> None:
+    subtitles = (
+        PlacedSubtitle(0, 3 * S, "甲"),
+        PlacedSubtitle(1 * S, 3 * S, "乙"),
+        PlacedSubtitle(2 * S, 1 * S, "丙"),
+        PlacedSubtitle(3 * S, 1 * S, "丁"),
+        PlacedSubtitle(3_500_000, 1 * S, "戊"),
+    )
+
+    tracks = stack_tracks(subtitles)
+
+    # 首尾相接不算重叠：丁在甲结束时接上第一条轨；戊开始时只有第三条轨已空出。
+    assert [[item.text for item in track] for track in tracks] == [["甲", "丁"], ["乙"], ["丙", "戊"]]
+    assert stack_tracks(()) == ()

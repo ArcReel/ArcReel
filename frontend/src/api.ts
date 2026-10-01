@@ -15,7 +15,9 @@ import type {
   FinalCutStatus,
   JianyingDraftStatus,
   JianyingVersion,
+  RenderOptions,
   RenderSubmission,
+  SubtitleMode,
   ImportFailureDiagnostics,
   EpisodeScript,
   TaskItem,
@@ -124,6 +126,7 @@ import type {
   EditTimelineReadout,
   EditTimelineSummary,
   EpisodeEditOverview,
+  TimelineNarration,
 } from "@/types/edit-timeline";
 import type {
   AdoptSourceFileTarget,
@@ -632,40 +635,54 @@ class API {
     return `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`;
   }
 
+  /** 成片现状；旁白版本省略时按项目默认，字幕省略时烧入。 */
   static async getFinalCutStatus(
     projectName: string,
     timelineId: string,
-    options: { signal?: AbortSignal } = {}
+    options: { narration?: TimelineNarration; subtitles?: SubtitleMode; signal?: AbortSignal } = {}
   ): Promise<FinalCutStatus> {
-    return this.request(`${this.editTimelinePath(projectName, timelineId)}/final-cut`, {
+    const query = new URLSearchParams();
+    if (options.narration) query.set("narration", options.narration);
+    if (options.subtitles) query.set("subtitles", options.subtitles);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/final-cut${suffix}`, {
       signal: options.signal,
     });
   }
 
   /** 入队渲染成片（最新修订）。组件经 actions/render 调用。 */
-  static async renderFinalCut(projectName: string, timelineId: string): Promise<RenderSubmission> {
+  static async renderFinalCut(
+    projectName: string,
+    timelineId: string,
+    options: Partial<RenderOptions> = {}
+  ): Promise<RenderSubmission> {
     return this.request(`${this.editTimelinePath(projectName, timelineId)}/final-cut`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(options),
     });
   }
 
-  /** 剪映草稿现状；旁白版本按项目默认。 */
+  /** 剪映草稿现状；旁白版本省略时按项目默认。 */
   static async getJianyingDraftStatus(
     projectName: string,
     timelineId: string,
-    options: { signal?: AbortSignal } = {}
+    options: { narration?: TimelineNarration; signal?: AbortSignal } = {}
   ): Promise<JianyingDraftStatus> {
-    return this.request(`${this.editTimelinePath(projectName, timelineId)}/jianying-draft`, {
+    const suffix = options.narration ? `?${new URLSearchParams({ narration: options.narration }).toString()}` : "";
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/jianying-draft${suffix}`, {
       signal: options.signal,
     });
   }
 
-  /** 入队导出剪映草稿（最新修订，旁白版本按项目默认）。组件经 actions/render 调用。 */
-  static async exportJianyingDraft(projectName: string, timelineId: string): Promise<RenderSubmission> {
+  /** 入队导出剪映草稿（最新修订，旁白版本省略时按项目默认）。组件经 actions/render 调用。 */
+  static async exportJianyingDraft(
+    projectName: string,
+    timelineId: string,
+    options: { narration?: TimelineNarration } = {}
+  ): Promise<RenderSubmission> {
     return this.request(`${this.editTimelinePath(projectName, timelineId)}/jianying-draft`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(options),
     });
   }
 
@@ -675,12 +692,14 @@ class API {
     timelineId: string,
     draftPath: string,
     downloadToken: string,
-    jianyingVersion: JianyingVersion
+    jianyingVersion: JianyingVersion,
+    narration?: TimelineNarration
   ): string {
     const query = new URLSearchParams({
       draft_path: draftPath,
       download_token: downloadToken,
       jianying_version: jianyingVersion,
+      ...(narration ? { narration } : {}),
     });
     return `${API_BASE}${this.editTimelinePath(projectName, timelineId)}/jianying-draft/download?${query.toString()}`;
   }

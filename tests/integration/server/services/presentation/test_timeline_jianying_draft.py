@@ -110,6 +110,59 @@ async def test_with_narration_draft_maps_trim_volume_hold_narration_and_subtitle
     assert all(material["path"].startswith(PLACEHOLDER) for material in [*videos.values(), *audios.values()])
 
 
+async def test_overlapping_narrations_and_subtitles_get_extra_tracks_and_extra_subtitle_tracks_are_raised(
+    tmp_path: Path,
+) -> None:
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+    # 去掉 c1 的定格后 c1 只剩 1 秒，S01 的 1.2 秒旁白压到 c2 从 1 秒起的旁白上。
+    await EditTimelineService(pm).edit(
+        "demo",
+        timeline_id,
+        base_revision=2,
+        summary="去掉定格",
+        operations=[SetHold(op="set_hold", clip="c1", hold=0)],
+        author=CREATOR,
+    )
+
+    result = await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="with_narration")
+
+    content = _draft_content(project_path / result.artifact_path)
+    audios = _materials(content, "audios")
+    assert [
+        (
+            track["name"],
+            [
+                (_timing(segment), audios[segment["material_id"]]["name"].split("_v")[0])
+                for segment in track["segments"]
+            ],
+        )
+        for track in content["tracks"]
+        if track["type"] == "audio"
+    ] == [
+        ("旁白", [((0, 1_200_000), "E1S01")]),
+        ("旁白 2", [((1_000_000, 1_500_000), "E1S02")]),
+    ]
+    texts = _materials(content, "texts")
+    assert [
+        (
+            track["name"],
+            [
+                (json.loads(texts[segment["material_id"]]["content"])["text"], *_timing(segment))
+                for segment in track["segments"]
+            ],
+            [round(segment["clip"]["transform"]["y"], 6) for segment in track["segments"]],
+        )
+        for track in content["tracks"]
+        if track["type"] == "text"
+    ] == [
+        ("字幕", [("旁白一句", 0, 1_200_000)], [-0.75]),
+        # 新增的字幕轨整轨上移 0.2（剪映纵向位置，半个画布高为 1）
+        ("字幕 2", [("第二段", 1_000_000, 1_500_000)], [-0.55]),
+    ]
+    assert {issue.code for issue in result.warnings} == {"narration_overrun"}
+
+
 async def test_without_narration_draft_has_no_narration_track_and_keeps_source_time_subtitles(
     tmp_path: Path,
 ) -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import struct
 import subprocess
 import wave
 from collections.abc import Callable
@@ -24,14 +26,22 @@ def make_translator(locale: str = "zh") -> Callable[..., str]:
     return translate
 
 
-def wav_bytes(duration_seconds: float, sample_rate: int = 8000) -> bytes:
-    """纯 stdlib 生成 wav 字节（不依赖 ffmpeg），供不要求真实音频编解码的用例使用。"""
+def wav_bytes(duration_seconds: float, sample_rate: int = 8000, *, tone_hz: float | None = None) -> bytes:
+    """纯 stdlib 生成 wav 字节（不依赖 ffmpeg）：默认静音；给出 ``tone_hz`` 时是该频率的正弦音，供需要听得见的用例使用。"""
+    frames = int(duration_seconds * sample_rate)
+    if tone_hz is None:
+        samples = b"\x00\x00" * frames
+    else:
+        samples = b"".join(
+            struct.pack("<h", round(12000 * math.sin(2 * math.pi * tone_hz * index / sample_rate)))
+            for index in range(frames)
+        )
     buf = BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
-        wf.writeframes(b"\x00\x00" * int(duration_seconds * sample_rate))
+        wf.writeframes(samples)
     return buf.getvalue()
 
 

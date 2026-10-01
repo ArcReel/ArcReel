@@ -9,7 +9,16 @@ import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { errMsg } from "@/utils/async";
 import { formatRelativeTime } from "@/utils/date-format";
 import { triggerBrowserDownload } from "@/utils/download";
-import type { JianyingVersion, RenderArtifactStatus, RenderKind, TaskItem } from "@/types";
+import type {
+  EditTimelineIssueRef,
+  JianyingVersion,
+  RenderArtifactStatus,
+  RenderKind,
+  SubtitleMode,
+  TaskItem,
+} from "@/types";
+import type { TimelineNarration } from "@/types/edit-timeline";
+import { useBlockedReason } from "./useBlockedReason";
 import { useRenderArtifact, type RenderArtifactView } from "./useRenderArtifact";
 
 const DRAFT_PATH_STORAGE_KEY = "arcreel_jianying_draft_path";
@@ -34,13 +43,17 @@ interface RenderDialogProps {
   projectName: string;
   timelineId: string;
   timelineName: string;
-  /** 当前修订有阻断级 issue 时的原因；对话框打开期间出现阻断时，出片按钮随之不可点。 */
-  blockedReason: string | null;
+  /** 当前修订的 issues；按所选旁白版本筛出阻断，对话框打开期间出现阻断时，出片按钮随之不可点。 */
+  issues: readonly EditTimelineIssueRef[];
+  /** 项目用 TTS 配音时可以选旁白版本；否则只出不带旁白版本。 */
+  narrationAvailable: boolean;
 }
 
 /**
  * 「出片 · <剪辑时间线名称>」对话框：以剪辑视图当前标签的剪辑时间线为准，
- * 选成片或剪映草稿，查看已有产物的时效，直接下载或重新渲染，提交后显示任务进度。
+ * 选成片或剪映草稿及其版本，查看已有产物的时效，直接下载或重新渲染，提交后显示任务进度。
+ *
+ * 旁白版本默认带旁白（TTS 配音项目），成片默认烧入字幕；各版本是独立的产物。
  */
 export function RenderDialog({
   open,
@@ -48,7 +61,8 @@ export function RenderDialog({
   projectName,
   timelineId,
   timelineName,
-  blockedReason,
+  issues,
+  narrationAvailable,
 }: RenderDialogProps) {
   const { t } = useTranslation("dashboard");
   const titleId = useId();
@@ -58,6 +72,11 @@ export function RenderDialog({
   const [jianyingVersion, setJianyingVersion] = useState<JianyingVersion>(() =>
     localStorage.getItem(JIANYING_VERSION_STORAGE_KEY) === "5" ? "5" : "6",
   );
+  const [chosenNarration, setNarration] = useState<TimelineNarration>("with_narration");
+  const [burnSubtitles, setBurnSubtitles] = useState(true);
+  const narration: TimelineNarration = narrationAvailable ? chosenNarration : "without_narration";
+  const subtitles: SubtitleMode = burnSubtitles ? "burned_subtitles" : "no_subtitles";
+  const { reason: blockedReason } = useBlockedReason(issues, narration);
 
   return (
     <GlassModal open={open} onClose={onClose} labelledBy={titleId} widthClassName="w-full max-w-lg">
@@ -74,12 +93,16 @@ export function RenderDialog({
       {open && (
         <div className="px-5 pb-5">
           <RenderPanelBody
-            key={`${projectName}::${timelineId}::${kind}`}
+            key={`${projectName}::${timelineId}::${kind}::${narration}::${subtitles}`}
             projectName={projectName}
             timelineId={timelineId}
             timelineName={timelineName}
             kind={kind}
             onKindChange={setKind}
+            narration={narrationAvailable ? narration : null}
+            onNarrationChange={setNarration}
+            burnSubtitles={burnSubtitles}
+            onBurnSubtitlesChange={setBurnSubtitles}
             draftPath={draftPath}
             onDraftPathChange={setDraftPath}
             jianyingVersion={jianyingVersion}
@@ -98,6 +121,10 @@ function RenderPanelBody({
   timelineName,
   kind,
   onKindChange,
+  narration,
+  onNarrationChange,
+  burnSubtitles,
+  onBurnSubtitlesChange,
   draftPath,
   onDraftPathChange,
   jianyingVersion,
@@ -109,6 +136,11 @@ function RenderPanelBody({
   timelineName: string;
   kind: RenderKind;
   onKindChange: (kind: RenderKind) => void;
+  /** 所选旁白版本；项目不能选旁白版本时为 null，按不带旁白版本出片。 */
+  narration: TimelineNarration | null;
+  onNarrationChange: (narration: TimelineNarration) => void;
+  burnSubtitles: boolean;
+  onBurnSubtitlesChange: (burn: boolean) => void;
   draftPath: string;
   onDraftPathChange: (path: string) => void;
   jianyingVersion: JianyingVersion;
@@ -116,7 +148,13 @@ function RenderPanelBody({
   blockedReason: string | null;
 }) {
   const { t, i18n } = useTranslation("dashboard");
-  const state = useRenderArtifact(projectName, timelineId, kind);
+  const state = useRenderArtifact(
+    projectName,
+    timelineId,
+    kind,
+    narration ?? "without_narration",
+    burnSubtitles ? "burned_subtitles" : "no_subtitles",
+  );
   const { artifact, submitting } = state;
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -141,7 +179,14 @@ function RenderPanelBody({
     try {
       const { download_token } = await API.requestExportToken(projectName, "current");
       triggerBrowserDownload(
-        API.getJianyingDraftDownloadUrl(projectName, timelineId, root, download_token, jianyingVersion),
+        API.getJianyingDraftDownloadUrl(
+          projectName,
+          timelineId,
+          root,
+          download_token,
+          jianyingVersion,
+          narration ?? "without_narration",
+        ),
       );
     } catch (err) {
       setDownloadError(errMsg(err));
@@ -201,6 +246,45 @@ function RenderPanelBody({
           hint={t("edit_render_kind_jianying_draft_hint")}
         />
       </div>
+
+      {(narration !== null || !isDraft) && (
+        <div className="flex flex-col gap-3">
+          {narration !== null && (
+            <Field htmlFor="edit-render-narration" label={t("edit_render_narration_label")}>
+              <select
+                id="edit-render-narration"
+                value={narration}
+                disabled={submitting}
+                onChange={(event) =>
+                  onNarrationChange(event.target.value === "with_narration" ? "with_narration" : "without_narration")
+                }
+                className="focus-ring w-full rounded-md px-2.5 py-1.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                style={FIELD_STYLE}
+              >
+                <option value="with_narration">{t("edit_render_narration_with")}</option>
+                <option value="without_narration">{t("edit_render_narration_without")}</option>
+              </select>
+            </Field>
+          )}
+          {!isDraft && (
+            <label className="flex cursor-pointer items-start gap-2 text-[12.5px]" style={{ color: "var(--color-text-2)" }}>
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={burnSubtitles}
+                disabled={submitting}
+                onChange={(event) => onBurnSubtitlesChange(event.target.checked)}
+              />
+              <span>
+                {t("edit_render_burn_subtitles")}
+                <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--color-text-4)" }}>
+                  {t("edit_render_burn_subtitles_hint")}
+                </span>
+              </span>
+            </label>
+          )}
+        </div>
+      )}
 
       <ArtifactStatusRow
         artifact={artifact}

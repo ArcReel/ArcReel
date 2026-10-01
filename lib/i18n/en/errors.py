@@ -745,7 +745,8 @@ MESSAGES = {
     "edit_timeline_revision_unchanged": "Revision {revision} has the same content as the latest revision, so there is nothing to restore",
     "edit_timeline_render_in_progress": "A final-cut or Jianying draft render is queued or running for this edit timeline ({task_id}); delete it after the render finishes",
     # Final cut
-    "final_cut_variant_unsupported": "Final cuts can currently only be rendered without narration and without burned-in subtitles",
+    "final_cut_narration_unavailable": "Only TTS voiceover projects can render the final cut version with narration",
+    "final_cut_presentation_unavailable": "Narration audio or subtitles for video unit {unit_id} cannot be used in the final cut; check the narration audio, then render again",
     "final_cut_blocked": "The edit timeline has issues that block rendering the final cut, in video units: {units}. Resolve them, then submit the render again",
     "final_cut_content_unsupported": "Final cuts do not support BGM yet; only edit timelines without BGM can be rendered",
     "final_cut_empty": "The edit timeline has no clips to render",
