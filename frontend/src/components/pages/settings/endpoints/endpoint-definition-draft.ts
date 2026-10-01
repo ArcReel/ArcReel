@@ -12,12 +12,59 @@ import type {
 // 这里只提供「读出 UI 需要的形状」与「写回时保留未知字段」的转换，不做校验——
 // 校验是服务端 POST /custom-endpoints/validate 的唯一职责。
 
-export const INPUT_SOURCES: EndpointInputSource[] = [
-  "start_image",
-  "end_image",
-  "reference_images",
-  "reference_audio_files",
-];
+/** 声明式定义的媒体类型；定义不写 `media_type` 即视频。 */
+export type EndpointMediaType = "image" | "video";
+
+export function definitionMediaType(definition: EndpointDefinition): EndpointMediaType {
+  return definition.media_type ?? "video";
+}
+
+/** 产物取值键：轮询或二次取件节里读出产物地址的那一项。 */
+export type EndpointArtifactKey = "video_url" | "image_url";
+
+/**
+ * 一种媒体类型在表单上的差异，与后端校验器的 MEDIA_TYPE_RULES 对应：
+ * 可选的素材来源、产物取值键（按运行时取用的先后排列）、可插入请求体的生成参数变量。
+ */
+export interface MediaTypeFormProfile {
+  inputSources: EndpointInputSource[];
+  artifactKeys: EndpointArtifactKey[];
+  /** 变量名与说明文案的 i18n key。 */
+  generationVariables: { name: string; descKey: string }[];
+}
+
+const variable = (name: string, descKey = `ce_var_${name}`) => ({ name, descKey });
+
+export const MEDIA_TYPE_FORM_PROFILES: Record<EndpointMediaType, MediaTypeFormProfile> = {
+  video: {
+    inputSources: ["start_image", "end_image", "reference_images", "reference_audio_files"],
+    artifactKeys: ["video_url"],
+    generationVariables: [
+      variable("prompt"),
+      variable("model"),
+      variable("duration"),
+      variable("duration_seconds"),
+      variable("resolution"),
+      variable("aspect_ratio"),
+      variable("width"),
+      variable("height"),
+      variable("generate_audio"),
+    ],
+  },
+  image: {
+    inputSources: [],
+    artifactKeys: ["image_url"],
+    generationVariables: [
+      variable("prompt"),
+      variable("model"),
+      variable("resolution", "ce_var_resolution_image"),
+      variable("aspect_ratio"),
+      variable("width"),
+      variable("height"),
+      variable("seed"),
+    ],
+  },
+};
 
 export const INPUT_ENCODINGS: EndpointInputEncoding[] = ["data_uri", "base64"];
 

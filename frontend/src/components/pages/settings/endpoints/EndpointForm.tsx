@@ -11,10 +11,12 @@ import type {
   EndpointStandardStatus,
 } from "@/types";
 import {
+  type EndpointArtifactKey,
   HTTP_METHODS,
   INPUT_ENCODINGS,
-  INPUT_SOURCES,
+  MEDIA_TYPE_FORM_PROFILES,
   STANDARD_STATUSES,
+  definitionMediaType,
   readPaths,
   renameKey,
   writePaths,
@@ -39,24 +41,17 @@ interface EndpointFormProps {
   readOnly: boolean;
 }
 
-/** 生成参数变量。素材变量按 inputs 声明动态派生，声明前不出现。 */
-const GENERATION_VARIABLES = [
-  "prompt",
-  "model",
-  "duration",
-  "duration_seconds",
-  "resolution",
-  "aspect_ratio",
-  "width",
-  "height",
-  "generate_audio",
-] as const;
-
 export function EndpointForm({ definition, onChange, readOnly }: EndpointFormProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
 
   const patch = (partial: Partial<EndpointDefinition>) => onChange({ ...definition, ...partial });
+
+  // 媒体类型决定可选素材、产物取值键、可插入的变量与能力字段；视频专属的说明文案在图片定义下换成 `_image` 版本。
+  const mediaType = definitionMediaType(definition);
+  const isImage = mediaType === "image";
+  const profile = MEDIA_TYPE_FORM_PROFILES[mediaType];
+  const mediaCopy = (key: string) => t(isImage ? `${key}_image` : key);
 
   const inputs = useMemo(() => definition.inputs ?? {}, [definition.inputs]);
   const statusMap = definition.status_map ?? {};
@@ -66,16 +61,16 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
   const noAuth = Object.keys(authHeaders).length === 0 && Object.keys(authQuery).length === 0;
 
   const submitVariables = useMemo(() => {
-    const generation = GENERATION_VARIABLES.map((name) => ({
+    const generation = profile.generationVariables.map(({ name, descKey }) => ({
       token: `{{ ${name} }}`,
-      desc: t(`ce_var_${name}`),
+      desc: t(descKey),
     }));
     const assets = Object.entries(inputs).map(([name, spec]) => ({
       token: `{{ inputs.${name} }}`,
       desc: t(`ce_input_source_${spec.source}`),
     }));
     return [...generation, ...assets];
-  }, [inputs, t]);
+  }, [inputs, profile, t]);
 
   const patchCapabilities = (partial: EndpointCapabilities) =>
     patch({ capabilities: { ...capabilities, ...partial } });
@@ -92,7 +87,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
     });
 
   const setPollPaths = (
-    field: "status" | "video_url" | "error" | "failure" | "result_id",
+    field: "status" | EndpointArtifactKey | "error" | "failure" | "result_id",
     paths: EndpointPathItem[],
   ) =>
     patch({
@@ -285,7 +280,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                 }
                 className={selectCls}
               >
-                {INPUT_SOURCES.map((s) => (
+                {profile.inputSources.map((s) => (
                   <option key={s} value={s}>
                     {t(`ce_input_source_${s}`)}
                   </option>
@@ -332,14 +327,14 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             </div>
           ))}
         </div>
-        {!readOnly && (
+        {!readOnly && profile.inputSources.length > 0 && (
           <AddRowButton
             label={t("ce_input_add")}
             disabled={"" in inputs}
             disabledHint={t("ce_row_name_first")}
             onClick={() =>
               patch({
-                inputs: { ...inputs, "": { source: "start_image", encoding: "data_uri" } },
+                inputs: { ...inputs, "": { source: profile.inputSources[0], encoding: "data_uri" } },
               })
             }
           />
@@ -403,7 +398,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
       </FormSection>
 
       {/* 5 查询进度与结果 */}
-      <FormSection id="poll" step={5} title={t("ce_section_poll")} desc={t("ce_section_poll_desc")}>
+      <FormSection id="poll" step={5} title={t("ce_section_poll")} desc={mediaCopy("ce_section_poll_desc")}>
         <div className="grid grid-cols-[120px_1fr] gap-3">
           <label className="block">
             <span className={LABEL_CLS}>{t("ce_request_method")}</span>
@@ -437,25 +432,30 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             readOnly={readOnly}
             onChange={(paths) => setPollPaths("status", paths)}
           />
-          <PathsEditor
-            label={t("ce_poll_video_url")}
-            paths={readPaths(definition.poll.extract.video_url)}
-            readOnly={readOnly}
-            onChange={(paths) => setPollPaths("video_url", paths)}
-          />
+          {profile.artifactKeys.map((key) => (
+            <PathsEditor
+              key={key}
+              label={t(`ce_poll_${key}`)}
+              paths={readPaths(definition.poll.extract[key])}
+              readOnly={readOnly}
+              onChange={(paths) => setPollPaths(key, paths)}
+            />
+          ))}
           <PathsEditor
             label={t("ce_poll_error")}
             paths={readPaths(definition.poll.extract.error)}
             readOnly={readOnly}
             onChange={(paths) => setPollPaths("error", paths)}
           />
-          <PathsEditor
-            label={t("ce_poll_usage")}
-            paths={readPaths(usageSpec)}
-            readOnly={readOnly}
-            hint={t("ce_poll_usage_hint")}
-            onChange={setUsagePaths}
-          />
+          {!isImage && (
+            <PathsEditor
+              label={t("ce_poll_usage")}
+              paths={readPaths(usageSpec)}
+              readOnly={readOnly}
+              hint={t("ce_poll_usage_hint")}
+              onChange={setUsagePaths}
+            />
+          )}
         </div>
         <div className="mt-4 border-t border-hairline-soft pt-3.5">
           <CheckboxField
@@ -465,12 +465,12 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             onChange={(checked) =>
               patch({
                 result: checked
-                  ? { method: "GET", url: "{{ base_url }}/", extract: { video_url: [] } }
+                  ? { method: "GET", url: "{{ base_url }}/", extract: { [profile.artifactKeys[0]]: [] } }
                   : undefined,
               })
             }
           />
-          <span className={HINT_CLS}>{t("ce_result_hint")}</span>
+          <span className={HINT_CLS}>{mediaCopy("ce_result_hint")}</span>
           {definition.result && (
             <div className="mt-3 space-y-3 rounded-[8px] border border-hairline-soft bg-bg-grad-a/30 p-3.5">
               <TextField
@@ -483,23 +483,26 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                   definition.result && patch({ result: { ...definition.result, url } })
                 }
               />
-              <PathsEditor
-                label={t("ce_result_video_url")}
-                paths={readPaths(definition.result.extract.video_url)}
-                readOnly={readOnly}
-                onChange={(paths) =>
-                  definition.result &&
-                  patch({
-                    result: {
-                      ...definition.result,
-                      extract: {
-                        ...definition.result.extract,
-                        video_url: writePaths(definition.result.extract.video_url, paths),
+              {profile.artifactKeys.map((key) => (
+                <PathsEditor
+                  key={key}
+                  label={t(`ce_result_${key}`)}
+                  paths={readPaths(definition.result?.extract[key])}
+                  readOnly={readOnly}
+                  onChange={(paths) =>
+                    definition.result &&
+                    patch({
+                      result: {
+                        ...definition.result,
+                        extract: {
+                          ...definition.result.extract,
+                          [key]: writePaths(definition.result.extract[key], paths),
+                        },
                       },
-                    },
-                  })
-                }
-              />
+                    })
+                  }
+                />
+              ))}
               <PathsEditor
                 label={t("ce_poll_result_id")}
                 paths={readPaths(definition.poll.extract.result_id)}
@@ -509,7 +512,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
               />
             </div>
           )}
-          <span className={HINT_CLS}>{t("ce_download_policy")}</span>
+          <span className={HINT_CLS}>{mediaCopy("ce_download_policy")}</span>
         </div>
       </FormSection>
 
@@ -582,68 +585,81 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
         title={t("ce_section_capabilities")}
         desc={t("ce_section_capabilities_desc")}
       >
-        <div className="flex flex-wrap gap-x-6 gap-y-2.5">
-          <CheckboxField
-            label={t("ce_cap_text_to_video")}
-            checked={capabilities.text_to_video ?? true}
-            disabled={readOnly}
-            onChange={(text_to_video) => patchCapabilities({ text_to_video })}
-          />
-          <CheckboxField
-            label={t("ce_cap_first_frame")}
-            checked={capabilities.first_frame ?? false}
-            disabled={readOnly}
-            onChange={(first_frame) => patchCapabilities({ first_frame })}
-          />
-          <CheckboxField
-            label={t("ce_cap_last_frame")}
-            checked={capabilities.last_frame ?? false}
-            disabled={readOnly}
-            onChange={(last_frame) => patchCapabilities({ last_frame })}
-          />
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="block">
-            <span className={LABEL_CLS}>{t("ce_cap_max_reference_images")}</span>
-            <input
-              type="number"
-              min={0}
-              value={capabilities.max_reference_images ?? 0}
-              readOnly={readOnly}
-              onChange={(e) =>
-                patchCapabilities({ max_reference_images: Number(e.target.value) || 0 })
-              }
-              className={INPUT_CLS}
-            />
-          </label>
-          <label className="block">
-            <span className={LABEL_CLS}>{t("ce_cap_reference_audio_mode")}</span>
-            <select
-              value={capabilities.reference_audio_mode ?? "none"}
+        {isImage ? (
+          <div className="flex flex-wrap gap-x-6 gap-y-2.5">
+            <CheckboxField
+              label={t("ce_cap_text_to_image")}
+              checked={capabilities.text_to_image ?? false}
               disabled={readOnly}
-              onChange={(e) =>
-                patchCapabilities({ reference_audio_mode: e.target.value as "none" | "direct" })
-              }
-              className={selectCls}
-            >
-              <option value="none">{t("ce_cap_audio_mode_none")}</option>
-              <option value="direct">{t("ce_cap_audio_mode_direct")}</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className={LABEL_CLS}>{t("ce_cap_max_reference_audio_count")}</span>
-            <input
-              type="number"
-              min={0}
-              value={capabilities.max_reference_audio_count ?? 0}
-              readOnly={readOnly}
-              onChange={(e) =>
-                patchCapabilities({ max_reference_audio_count: Number(e.target.value) || 0 })
-              }
-              className={INPUT_CLS}
+              onChange={(text_to_image) => patchCapabilities({ text_to_image })}
             />
-          </label>
-        </div>
+          </div>
+        ) : (
+          <>
+          <div className="flex flex-wrap gap-x-6 gap-y-2.5">
+            <CheckboxField
+              label={t("ce_cap_text_to_video")}
+              checked={capabilities.text_to_video ?? true}
+              disabled={readOnly}
+              onChange={(text_to_video) => patchCapabilities({ text_to_video })}
+            />
+            <CheckboxField
+              label={t("ce_cap_first_frame")}
+              checked={capabilities.first_frame ?? false}
+              disabled={readOnly}
+              onChange={(first_frame) => patchCapabilities({ first_frame })}
+            />
+            <CheckboxField
+              label={t("ce_cap_last_frame")}
+              checked={capabilities.last_frame ?? false}
+              disabled={readOnly}
+              onChange={(last_frame) => patchCapabilities({ last_frame })}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="block">
+              <span className={LABEL_CLS}>{t("ce_cap_max_reference_images")}</span>
+              <input
+                type="number"
+                min={0}
+                value={capabilities.max_reference_images ?? 0}
+                readOnly={readOnly}
+                onChange={(e) =>
+                  patchCapabilities({ max_reference_images: Number(e.target.value) || 0 })
+                }
+                className={INPUT_CLS}
+              />
+            </label>
+            <label className="block">
+              <span className={LABEL_CLS}>{t("ce_cap_reference_audio_mode")}</span>
+              <select
+                value={capabilities.reference_audio_mode ?? "none"}
+                disabled={readOnly}
+                onChange={(e) =>
+                  patchCapabilities({ reference_audio_mode: e.target.value as "none" | "direct" })
+                }
+                className={selectCls}
+              >
+                <option value="none">{t("ce_cap_audio_mode_none")}</option>
+                <option value="direct">{t("ce_cap_audio_mode_direct")}</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className={LABEL_CLS}>{t("ce_cap_max_reference_audio_count")}</span>
+              <input
+                type="number"
+                min={0}
+                value={capabilities.max_reference_audio_count ?? 0}
+                readOnly={readOnly}
+                onChange={(e) =>
+                  patchCapabilities({ max_reference_audio_count: Number(e.target.value) || 0 })
+                }
+                className={INPUT_CLS}
+              />
+            </label>
+          </div>
+          </>
+        )}
         <span className={HINT_CLS}>{t("ce_capabilities_hint")}</span>
       </FormSection>
     </div>

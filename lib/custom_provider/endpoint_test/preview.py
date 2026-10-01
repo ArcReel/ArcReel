@@ -17,6 +17,7 @@ from arcreel_market_core.endpoint_definition import (
     RenderedRequest,
     TemplateRenderError,
     build_context,
+    definition_media_type,
     render_request,
 )
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
@@ -82,6 +83,41 @@ def preview_request(
     api_key = masked_api_key(credentials.api_key) if credentials else UNRESOLVED_API_KEY
     base_url = _preview_base_url(definition, credentials)
     inputs = asset_summaries(definition.get("inputs") or {}, assets, placeholder_missing=placeholder_missing_assets)
+    media_type = definition_media_type(definition)
+    generation = (
+        _video_variables(definition, parameters, inputs)
+        if media_type == "video"
+        else {
+            "prompt": parameters.prompt,
+            "aspect_ratio": parameters.aspect_ratio,
+            "resolution": parameters.resolution,
+            "seed": None,
+        }
+    )
+    context = build_context(
+        {
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": parameters.model,
+            **generation,
+            "task_id": UNRESOLVED_TASK_ID,
+            "result_id": UNRESOLVED_RESULT_ID,
+        },
+        inputs,
+        definition.get("defaults"),
+        media_type=media_type,
+    )
+    return RequestPreview(
+        submit=_preview_section(definition, "submit", context),
+        poll=_preview_section(definition, "poll", context),
+        result=_preview_section(definition, "result", context) if "result" in definition else None,
+    )
+
+
+def _video_variables(
+    definition: Mapping[str, Any], parameters: EndpointTestParameters, inputs: Mapping[str, object]
+) -> dict[str, object]:
+    """视频定义的生成参数变量。"""
     # 渲染出的请求要与真发的一致：声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上
     # 只接受 adaptive，按实际渲进请求的首帧有无施加同一条覆盖。
     aspect_ratio = resolve_first_frame_aspect_ratio(
@@ -93,29 +129,15 @@ def preview_request(
             if declaration.get("source") == "start_image"
         ),
     )
-    context = build_context(
-        {
-            "api_key": api_key,
-            "base_url": base_url,
-            "model": parameters.model,
-            "prompt": parameters.prompt,
-            "duration": parameters.duration_seconds,
-            "duration_seconds": parameters.duration_seconds,
-            "aspect_ratio": aspect_ratio,
-            "resolution": parameters.resolution,
-            "generate_audio": parameters.generate_audio,
-            "seed": None,
-            "task_id": UNRESOLVED_TASK_ID,
-            "result_id": UNRESOLVED_RESULT_ID,
-        },
-        inputs,
-        definition.get("defaults"),
-    )
-    return RequestPreview(
-        submit=_preview_section(definition, "submit", context),
-        poll=_preview_section(definition, "poll", context),
-        result=_preview_section(definition, "result", context) if "result" in definition else None,
-    )
+    return {
+        "prompt": parameters.prompt,
+        "duration": parameters.duration_seconds,
+        "duration_seconds": parameters.duration_seconds,
+        "aspect_ratio": aspect_ratio,
+        "resolution": parameters.resolution,
+        "generate_audio": parameters.generate_audio,
+        "seed": None,
+    }
 
 
 def asset_summaries(

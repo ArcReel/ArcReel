@@ -22,7 +22,7 @@ from lib.custom_provider.endpoint_resolution import (
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, get_endpoint_spec
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.generation.task_failure import FAILURE_CODE_KEYS
-from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition, image_endpoint_definition
 
 if TYPE_CHECKING:
     from lib.db.models.custom_endpoint import CustomEndpoint
@@ -88,6 +88,36 @@ class TestSpecFromRow:
         assert spec.reference_audio_capable is True
         assert spec.video_caps_for_model is not None
         assert spec.video_caps_for_model("m").reference_audio_mode is ReferenceAudioMode.DIRECT
+
+
+class TestDeclarativeImageProjection:
+    """图片定义投影成图片端点：媒体类型与能力都读定义的显式声明，装出图片通道。"""
+
+    def test_mirror_columns_carry_the_declared_image_media_type(self):
+        assert derive_mirror_columns(image_endpoint_definition()).media_type == "image"
+
+    def test_declared_text_to_image_becomes_the_endpoint_image_capability(self):
+        row = SimpleNamespace(id=7, definition=image_endpoint_definition())
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+
+        assert spec.media_type == "image"
+        assert spec.image_capabilities == frozenset({ImageCapability.TEXT_TO_IMAGE})
+        assert spec.video_caps_for_model is None
+
+    def test_an_image_spec_builds_the_image_channel(self):
+        from lib.custom_provider.backends import CustomImageBackend
+
+        row = SimpleNamespace(id=7, definition=image_endpoint_definition())
+        provider = SimpleNamespace(provider_id="custom-1", base_url="https://relay.test", api_key="sk")
+
+        backend = endpoint_spec_from_row(cast("CustomEndpoint", row)).build_backend(
+            cast("Any", provider), "gpt-image-2"
+        )
+
+        assert isinstance(backend, CustomImageBackend)
+        assert (backend.name, backend.model) == ("custom-1", "gpt-image-2")
+        assert backend.capabilities == {ImageCapability.TEXT_TO_IMAGE}
 
 
 class TestKindDispatch:

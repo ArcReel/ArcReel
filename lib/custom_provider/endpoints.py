@@ -62,6 +62,7 @@ from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, bin
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
+from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend, image_capabilities_from_definition
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -575,14 +576,18 @@ def declarative_requires_api_key(definition: Mapping[str, Any]) -> bool:
     return bool(definition.get("auth"))
 
 
+def _require_declarative_base_url(definition: Mapping[str, Any], provider: CustomProvider) -> None:
+    if declarative_requires_base_url(definition) and not provider.base_url:
+        raise ValueError("声明式调用端点需要 base_url")
+
+
 def _build_declarative_video(
     definition: Mapping[str, Any],
 ) -> Callable[[CustomProvider, str], CustomVideoBackend]:
-    """声明式端点的 backend 构造闭包。"""
+    """声明式视频端点的 backend 构造闭包。"""
 
     def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
-        if declarative_requires_base_url(definition) and not provider.base_url:
-            raise ValueError("声明式调用端点需要 base_url")
+        _require_declarative_base_url(definition, provider)
         delegate = DeclarativeVideoBackend(
             api_key=provider.api_key,
             base_url=provider.base_url,
@@ -591,6 +596,25 @@ def _build_declarative_video(
             provider=provider.provider_id,
         )
         return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+    return build
+
+
+def _build_declarative_image(
+    definition: Mapping[str, Any],
+) -> Callable[[CustomProvider, str], CustomImageBackend]:
+    """声明式图片端点的 backend 构造闭包。"""
+
+    def build(provider: CustomProvider, model_id: str) -> CustomImageBackend:
+        _require_declarative_base_url(definition, provider)
+        delegate = DeclarativeImageBackend(
+            api_key=provider.api_key,
+            base_url=provider.base_url,
+            model=model_id,
+            definition=definition,
+            provider=provider.provider_id,
+        )
+        return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
     return build
 
@@ -607,25 +631,30 @@ def declarative_endpoint_spec(
     定义的表达力一样，两份实现只会在能力缺省这类地方悄悄分叉。差别只在 ``source`` 决定的家族归属
     ——随版端点的家族取键首段（协议出处），用户端点的协议由定义自身描述、没有可归属的外部家族。
 
-    媒体类型经 :func:`definition_media_type` 读，与市场索引、镜像列同一读法。
+    媒体类型经 :func:`definition_media_type` 读，与市场索引、镜像列同一读法，并决定 backend 走
+    图片还是视频通道。
 
-    能力由定义显式全量声明，与 model 无关，故走 video_caps_for_model 这条「四字段全量声明」的
-    通路（返回同一份常量），而不是只能表达参考图上限的 video_max_reference_images。
+    能力由定义显式全量声明，与 model 无关。视频走 video_caps_for_model 这条「四字段全量声明」的
+    通路（返回同一份常量），而不是只能表达参考图上限的 video_max_reference_images；图片的能力
+    与 backend 共读 :func:`image_capabilities_from_definition`，生成前的闸门与这里投影的不会分叉。
     """
-    caps = declarative_video_capabilities(definition)
+    media_type = definition_media_type(definition)
+    is_video = media_type == "video"
+    caps = declarative_video_capabilities(definition) if is_video else None
     spec = EndpointSpec(
         key=key,
-        media_type=definition_media_type(definition),
+        media_type=media_type,
         family=CUSTOM_ENDPOINT_FAMILY if source == "custom" else declarative_family(key),
         # 声明式端点的显示名取 meta.name，不进 i18n 目录（见 EndpointSpec.display_name）。
         display_name_key="",
         source=source,
         request_method=definition["submit"]["method"],
         request_path_template=declarative_request_path(definition),
-        build_backend=_build_declarative_video(definition),
-        video_caps_for_model=lambda _model_id: caps,
-        end_image_capable=caps.last_frame,
-        reference_audio_capable=caps.reference_audio_mode is not ReferenceAudioMode.NONE,
+        build_backend=_build_declarative_video(definition) if is_video else _build_declarative_image(definition),
+        image_capabilities=None if is_video else image_capabilities_from_definition(definition),
+        video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
+        end_image_capable=caps.last_frame if caps is not None else False,
+        reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
         definition=definition,
     )
     # 内置注册表在 import 期逐条过同一条不变式（见 _validate_registry）；用户定义现构造、没有

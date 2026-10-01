@@ -16,10 +16,9 @@ PROJECTED_META_FIELDS = ("name", "author", "version", "description", "homepage",
 
 
 def project_meta(definition: Mapping[str, Any]) -> dict[str, Any]:
-    """一份定义在索引条目里的投影：``meta`` 里出现的那些字段，加上按 ``kind`` 读出的媒体类型。
+    """一份定义在索引条目里的投影：``meta`` 里出现的那些字段，加上定义声明的媒体类型。
 
-    媒体类型不是固定值：``kind: comfyui`` 的定义自己声明产图还是产视频，声明式定义描述的恒是
-    视频协议。读法与端点投影、镜像列共用 ``definition_media_type`` 一份实现——市场索引上的
+    媒体类型不是固定值：定义自己声明产图还是产视频，声明式定义不写时为视频。读法与端点投影、镜像列共用 ``definition_media_type`` 一份实现——市场索引上的
     ``media_type`` 就是这份定义装进库以后镜像列会写下的那个值，两处对不上会让一个图像端点在市场
     里显示成视频。
 

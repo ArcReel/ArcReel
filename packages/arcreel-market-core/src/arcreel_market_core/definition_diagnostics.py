@@ -76,6 +76,11 @@ class DefinitionErrorCode(StrEnum):
     CAPABILITY_DECLARED_WITHOUT_INPUT = "capability_declared_without_input"
     CAPABILITY_INPUT_WITHOUT_DECLARATION = "capability_input_without_declaration"
     CAPABILITY_INCOHERENT = "capability_incoherent"
+    CAPABILITY_NOT_DECLARED = "capability_not_declared"
+
+    # ---- 媒体类型 ----
+    MEDIA_TYPE_FIELD_NOT_ALLOWED = "media_type_field_not_allowed"
+    ARTIFACT_EXTRACT_MISSING = "artifact_extract_missing"
 
     # ---- JSONPath 子集 ----
     JSONPATH_NOT_A_STRING = "jsonpath_not_a_string"

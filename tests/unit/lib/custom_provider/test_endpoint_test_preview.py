@@ -15,7 +15,7 @@ from lib.custom_provider.endpoint_test import (
     preview_request,
 )
 from lib.i18n import _
-from tests.factories import custom_endpoint_definition
+from tests.factories import custom_endpoint_definition, image_endpoint_definition
 from tests.http_capture import capture_http
 
 PARAMETERS = EndpointTestParameters(model="demo-v1", prompt="一只猫", duration_seconds=5, aspect_ratio="9:16")
@@ -207,3 +207,28 @@ class TestCheckResponse:
         assert issue.to_payload(lambda key, **params: _(key, locale="en", **params))["message"] == (
             "Could not evaluate extraction path: $[?@.a == 1e400]"
         )
+
+
+class TestImageDefinition:
+    """图片定义的预览与验证：按图片的变量渲染请求，按图片的产物字段判读响应。"""
+
+    def test_preview_renders_the_image_request_with_image_resolution_tiers(self):
+        parameters = EndpointTestParameters(model="gpt-image-2", prompt="一座灯塔", aspect_ratio="1:1", resolution="2K")
+
+        preview = preview_request(image_endpoint_definition(), parameters, credentials=CREDENTIALS)
+
+        assert preview.submit.url == "https://api.example.com/v1/images/generations"
+        assert preview.submit.body == {"model": "gpt-image-2", "prompt": "一座灯塔", "size": "1440x1440"}
+        assert preview.poll.url == "https://api.example.com/v1/tasks/{{ task_id }}"
+
+    def test_check_reads_the_image_url_and_maps_the_task_status(self):
+        body = {
+            "code": 200,
+            "data": {"status": "completed", "result": {"images": [{"url": ["https://cdn.test/a.png"]}]}},
+        }
+
+        report = check_response(image_endpoint_definition(), "poll", body)
+
+        assert report.status == "succeeded"
+        assert report.image_url == "https://cdn.test/a.png"
+        assert report.video_url is None
