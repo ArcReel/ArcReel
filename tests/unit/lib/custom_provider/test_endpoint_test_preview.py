@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import json
+
 import pytest
 
 from arcreel_market_core.endpoint_definition import AssetData
@@ -13,9 +16,11 @@ from lib.custom_provider.endpoint_test import (
     check_response,
     parse_response_body,
     preview_request,
+    stage_report_payload,
 )
 from lib.i18n import _
 from tests.factories import custom_endpoint_definition, image_endpoint_definition
+from tests.fakes import PNG_BYTES
 from tests.http_capture import capture_http
 
 PARAMETERS = EndpointTestParameters(model="demo-v1", prompt="一只猫", duration_seconds=5, aspect_ratio="9:16")
@@ -232,3 +237,29 @@ class TestImageDefinition:
         assert report.status == "succeeded"
         assert report.image_url == "https://cdn.test/a.png"
         assert report.video_url is None
+
+    @pytest.mark.parametrize("prefix", ["", "data:image/png;base64,"])
+    def test_check_reports_a_base64_image_by_its_size_only(self, prefix: str):
+        definition = image_endpoint_definition()
+        definition["poll"]["extract"]["image_b64"] = ["$.data.result.images[0].b64_json"]
+        encoded = base64.b64encode(PNG_BYTES).decode("ascii")
+        body = {"data": {"status": "completed", "result": {"images": [{"b64_json": prefix + encoded}]}}}
+
+        payload = stage_report_payload(check_response(definition, "poll", body))
+
+        image_field = next(field for field in payload["fields"] if field["key"] == "image_b64")
+        assert image_field["value"] == {"image_bytes": len(PNG_BYTES)}
+        assert [attempt["value"] for attempt in image_field["attempts"]] == [{"image_bytes": len(PNG_BYTES)}]
+        assert payload["image_bytes"] == len(PNG_BYTES)
+        assert encoded not in json.dumps(payload)
+
+    def test_check_flags_a_base64_hit_that_is_not_an_image(self):
+        definition = image_endpoint_definition()
+        definition["poll"]["extract"]["image_b64"] = ["$.data.b64_json"]
+        body = {"data": {"status": "completed", "b64_json": "not base64!"}}
+
+        payload = stage_report_payload(check_response(definition, "poll", body))
+
+        image_field = next(field for field in payload["fields"] if field["key"] == "image_b64")
+        assert image_field["value"] == {"image_bytes": None}
+        assert payload["image_bytes"] is None

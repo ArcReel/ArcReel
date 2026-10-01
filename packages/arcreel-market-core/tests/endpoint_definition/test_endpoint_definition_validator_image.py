@@ -48,6 +48,10 @@ def _with_video_url_extract(definition: dict[str, Any]) -> None:
     definition["poll"]["extract"]["video_url"] = ["$.data.result.video"]
 
 
+def _with_usage_extract(definition: dict[str, Any]) -> None:
+    definition["poll"]["extract"]["usage"] = {"duration_seconds": ["$.data.usage.seconds"]}
+
+
 def _with_duration_enum_map(definition: dict[str, Any]) -> None:
     definition["enum_maps"] = {"duration": {"5": 5}}
 
@@ -64,6 +68,7 @@ def _with_audio_default(definition: dict[str, Any]) -> None:
         (_with_first_frame_input, "inputs.first_frame.source"),
         (_with_first_frame_capability, "capabilities.first_frame"),
         (_with_video_url_extract, "poll.extract.video_url"),
+        (_with_usage_extract, "poll.extract.usage"),
         (_with_duration_enum_map, "enum_maps.duration"),
         (_with_audio_default, "defaults.generate_audio"),
     ],
@@ -83,11 +88,16 @@ def _with_image_url_extract(definition: dict[str, Any]) -> None:
     definition["poll"]["extract"]["image_url"] = ["$.image"]
 
 
+def _with_image_b64_extract(definition: dict[str, Any]) -> None:
+    definition["poll"]["extract"]["image_b64"] = ["$.b64_json"]
+
+
 @pytest.mark.parametrize(
     ("mutate", "path"),
     [
         (_with_text_to_image_capability, "capabilities.text_to_image"),
         (_with_image_url_extract, "poll.extract.image_url"),
+        (_with_image_b64_extract, "poll.extract.image_b64"),
     ],
 )
 def test_image_only_fields_in_a_video_definition_are_rejected(mutate, path: str):
@@ -102,6 +112,14 @@ def test_image_definition_without_an_image_path_in_poll_is_rejected():
     del definition["poll"]["extract"]["image_url"]
 
     assert ("poll.extract", "artifact_extract_missing") in _codes(validate_definition(definition))
+
+
+def test_image_definition_may_read_the_image_from_base64_alone():
+    definition = image_endpoint_definition()
+    del definition["poll"]["extract"]["image_url"]
+    definition["poll"]["extract"]["image_b64"] = ["$.data.result.images[0].b64_json"]
+
+    assert validate_definition(definition).valid
 
 
 def test_image_definition_reads_the_image_from_the_result_request_when_it_has_one():

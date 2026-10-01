@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import time
@@ -134,6 +135,26 @@ class TestImageDefinitionTrialRun:
         async with db_factory() as session:
             rows = (await session.execute(select(ApiCall))).scalars().all()
         assert [row.call_type for row in rows] == ["image"]
+
+    async def test_a_base64_image_lands_as_the_artifact_and_is_reported_by_size(self, trial_runs: TrialRunManager):
+        definition = image_endpoint_definition()
+        definition["poll"]["extract"]["image_b64"] = ["$.data.result.images[0].b64_json"]
+        encoded = base64.b64encode(PNG_BYTES * 64).decode("ascii")
+        with capture_http() as router, bounded_poll_clock():
+            _mock_image_submit(router)
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_image_task("completed", result={"images": [{"b64_json": encoded}]})
+            )
+            started = await trial_runs.start(
+                declarative_target(definition, CREDENTIALS, IMAGE_PARAMETERS), IMAGE_PARAMETERS
+            )
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.SUCCEEDED
+        assert trial_runs.artifact_path(run.id).read_bytes() == PNG_BYTES * 64
+        assert run.extractions["poll"]["image_bytes"] == len(PNG_BYTES * 64)
+        assert run.video_url is None
+        assert encoded not in json.dumps(run.extractions)
 
     @pytest.mark.parametrize(
         ("poll_body", "reason"),

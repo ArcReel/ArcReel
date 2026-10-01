@@ -333,6 +333,10 @@
                 "status": { "$ref": "#/$defs/extractSpec" },
                 "video_url": { "$ref": "#/$defs/extractSpec" },
                 "image_url": { "$ref": "#/$defs/extractSpec" },
+                "image_b64": {
+                  "description": "图片产物的 base64 内容，裸 base64 与 data:image/...;base64, 两种形态都认。与 image_url 都写时先取 URL。",
+                  "$ref": "#/$defs/extractSpec"
+                },
                 "error": { "$ref": "#/$defs/extractSpec" },
                 "failure": {
                   "description": "状态串之外的失败判据：任一路径产生可接受命中即判 failed，错误信息按 error 取。",
@@ -368,6 +372,7 @@
           "properties": {
             "video_url": { "$ref": "#/$defs/extractSpec" },
             "image_url": { "$ref": "#/$defs/extractSpec" },
+            "image_b64": { "$ref": "#/$defs/extractSpec" },
             "error": { "$ref": "#/$defs/extractSpec" },
             "usage": {
               "type": "object",

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Loader2, Play } from "lucide-react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
@@ -12,6 +13,7 @@ import {
 import type {
   CustomProviderInfo,
   EndpointDefinition,
+  EndpointExtractionField,
   EndpointInputSource,
   EndpointPreviewResponse,
   EndpointStageReport,
@@ -22,6 +24,17 @@ import type {
 import { FormSection, HINT_CLS, LABEL_CLS, MONO_INPUT_CLS } from "./endpoint-form-primitives";
 import { RequestPreview, TestCard } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
+
+/** 命中值的展示文案。`image_b64` 的命中值是后端给的字节数摘要 `{ image_bytes }`，不是原串。 */
+function fieldValueText(field: EndpointExtractionField, t: TFunction): string {
+  const { value } = field;
+  if (field.key !== "image_b64" || typeof value !== "object" || value === null || !("image_bytes" in value)) {
+    return JSON.stringify(value);
+  }
+  return typeof value.image_bytes === "number"
+    ? t("ce_check_image_bytes", { count: value.image_bytes })
+    : t("ce_check_image_b64_invalid");
+}
 
 function StageReportTable({ report }: { report: EndpointStageReport }) {
   const { t } = useTranslation("dashboard");
@@ -46,7 +59,7 @@ function StageReportTable({ report }: { report: EndpointStageReport }) {
             </span>
             <span className="shrink-0 font-mono text-[10.5px] text-good/85">{hit?.path ?? "—"}</span>
             <span className="min-w-0 flex-1 truncate text-[11.5px] text-text-3">
-              {hit ? JSON.stringify(field.value) : t("ce_check_no_match")}
+              {hit ? fieldValueText(field, t) : t("ce_check_no_match")}
             </span>
           </div>
         );

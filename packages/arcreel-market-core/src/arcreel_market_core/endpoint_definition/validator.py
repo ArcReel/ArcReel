@@ -119,6 +119,8 @@ class MediaTypeRules:
     #: 产物提取键，按运行时取用的先后排列。产物所在节（无 ``result`` 节时为 ``poll``，否则为
     #: ``result``）的 ``extract`` 至少写一项。
     artifact_keys: tuple[str, ...]
+    #: ``extract`` 可否写 ``usage``（计费时长）。
+    usage_extract: bool
     #: 至少一项须声明为真的能力；为空表示不要求。
     required_capabilities: tuple[str, ...]
 
@@ -132,6 +134,7 @@ MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
         input_sources=frozenset({"start_image", "end_image", "reference_images", "reference_audio_files"}),
         capabilities=VIDEO_CAPABILITY_FIELDS,
         artifact_keys=("video_url",),
+        usage_extract=True,
         required_capabilities=(),
     ),
     "image": MediaTypeRules(
@@ -140,7 +143,8 @@ MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
         default_value_types={"aspect_ratio": str, "resolution": str, "seed": int},
         input_sources=frozenset({"reference_images"}),
         capabilities=frozenset({"text_to_image", "image_to_image", "max_reference_images"}),
-        artifact_keys=("image_url",),
+        artifact_keys=("image_url", "image_b64"),
+        usage_extract=False,
         required_capabilities=("text_to_image", "image_to_image"),
     ),
 }
@@ -413,6 +417,8 @@ class _SemanticChecker:
             if key in _ALL_ARTIFACT_KEYS and key not in self._rules.artifact_keys:
                 self.errors.append(self._media_type_mismatch(join_path(base, key), key))
             if key == "usage":
+                if not self._rules.usage_extract:
+                    self.errors.append(self._media_type_mismatch(join_path(base, key), key))
                 for usage_key, usage_spec in spec.items():
                     self._check_extract_spec(usage_spec, join_path(join_path(base, "usage"), usage_key))
                 continue

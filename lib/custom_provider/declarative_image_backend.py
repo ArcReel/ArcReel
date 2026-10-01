@@ -1,12 +1,16 @@
 """声明式图片定义的调用通道：在 :class:`DeclarativeJobEngine` 上组装图片的请求与产物语义。
 
 与视频通道共用提交、轮询、状态映射、二次取件与产物下载；图片一侧只多出自己的模板变量、
-能力声明与产物字段。图片没有续跑协议：服务重启时在途的图片任务由重启恢复记为重启丢失，
+能力声明与产物字段：产物可以是地址，也可以是响应体里内联的 base64。图片没有续跑协议：服务重启时在途的图片任务由重启恢复记为重启丢失，
 所以这里不落供应商任务 id。
 """
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import binascii
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,9 +55,33 @@ def image_capabilities_from_definition(definition: Mapping[str, Any]) -> frozens
 
 @dataclass(frozen=True)
 class ImageJobState(JobState):
-    """图片定义的判读结果：在 :class:`JobState` 之上加产物地址。"""
+    """图片定义的判读结果：在 :class:`JobState` 之上加产物地址与内联的 base64 产物。"""
 
     image_url: str | None
+    #: 按 ``image_b64`` 取到的原文，未解码。两者都取到时以 ``image_url`` 为准。
+    image_b64: str | None
+
+
+_DATA_URI_PREFIX = re.compile(r"^data:image/[\w.+-]+;base64,", re.IGNORECASE)
+
+
+def decode_image_b64(text: str) -> bytes:
+    """把 ``image_b64`` 取到的原文解成图片字节，裸 base64 与 ``data:image/...;base64,`` 都认。
+
+    Raises:
+        ValueError: 不是合法的 base64，解出来为空，或超出图片产物的体积上限。
+    """
+    payload = "".join(_DATA_URI_PREFIX.sub("", text.strip(), count=1).split())
+    # 先按编码长度估算体积再解码：超限的串不值得花内存解出来。
+    if len(payload) // 4 * 3 > IMAGE_ARTIFACT_MAX_BYTES:
+        raise ValueError(f"inline image exceeds {IMAGE_ARTIFACT_MAX_BYTES} bytes")
+    try:
+        image = base64.b64decode(payload + "=" * (-len(payload) % 4), validate=True)
+    except binascii.Error as exc:
+        raise ValueError("image_b64 is not valid base64") from exc
+    if not image:
+        raise ValueError("image_b64 decoded to an empty image")
+    return image
 
 
 def extract_image_state(
@@ -71,6 +99,7 @@ def extract_image_state(
             status=job_status,
             provider_status=provider_status,
             image_url=extract_text(extract.get("image_url"), body),
+            image_b64=extract_text(extract.get("image_b64"), body),
             error=extract_text(extract.get("error"), body),
             result_id=extract_text(extract.get("result_id"), body),
         )
@@ -141,10 +170,8 @@ class DeclarativeImageBackend:
             outcome = await self._engine.poll(client, job_id, call, context=context, is_resume=False)
             final = outcome.result_state or outcome.poll_state
             if not final.image_url:
-                raise DeclarativeRuntimeError(
-                    "declarative_response_extract_failed",
-                    detail=final.error or "provider reported success but no image URL matched the definition",
-                )
+                await _write_inline_image(final, request.output_path)
+                return self._result(request, image_uri=None)
             await self._engine.download(
                 client,
                 final.image_url,
@@ -154,10 +181,34 @@ class DeclarativeImageBackend:
                 max_wait=ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
                 trusted_origins=outcome.trusted_origins,
             )
+        return self._result(request, image_uri=final.image_url)
+
+    def _result(self, request: ImageGenerationRequest, *, image_uri: str | None) -> ImageGenerationResult:
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=self._provider,
             model=self._model,
-            image_uri=final.image_url,
+            image_uri=image_uri,
             seed=request.seed,
         )
+
+
+async def _write_inline_image(state: ImageJobState, output_path: Path) -> None:
+    """URL 没取到时落盘 base64 产物；两者都没有或解不出图片即判取件失败。"""
+    if not state.image_b64:
+        raise DeclarativeRuntimeError(
+            "declarative_response_extract_failed",
+            detail=state.error or "provider reported success but no image matched the definition",
+        )
+    encoded = state.image_b64
+
+    def decode_and_save() -> None:
+        image = decode_image_b64(encoded)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(image)
+
+    try:
+        # 解码大图是 CPU 密集操作，放到线程里免得卡住事件循环。
+        await asyncio.to_thread(decode_and_save)
+    except ValueError as exc:
+        raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc

@@ -19,8 +19,8 @@ export function definitionMediaType(definition: EndpointDefinition): EndpointMed
   return definition.media_type ?? "video";
 }
 
-/** 产物取值键：轮询或二次取件节里读出产物地址的那一项。 */
-export type EndpointArtifactKey = "video_url" | "image_url";
+/** 产物取值键：轮询或二次取件节里读出产物（地址或内联 base64）的那一项。 */
+export type EndpointArtifactKey = "video_url" | "image_url" | "image_b64";
 
 /**
  * 一种媒体类型在表单上的差异，与后端校验器的 MEDIA_TYPE_RULES 对应：
@@ -53,7 +53,7 @@ export const MEDIA_TYPE_FORM_PROFILES: Record<EndpointMediaType, MediaTypeFormPr
   },
   image: {
     inputSources: ["reference_images"],
-    artifactKeys: ["image_url"],
+    artifactKeys: ["image_url", "image_b64"],
     generationVariables: [
       variable("prompt"),
       variable("model"),
