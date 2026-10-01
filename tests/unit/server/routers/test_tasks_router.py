@@ -215,6 +215,24 @@ class TestTaskErrorLocalization:
                 assert "{" not in row["error_message"]
                 assert (row["error_code"], row["error_params"]) == (code, params)
 
+    def test_episode_planning_failure_is_localized_without_the_diagnostic_detail(self, monkeypatch):
+        from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
+
+        problem = GenerationProblem(
+            code="episode_planning_failed", detail="源文件不存在：source/a.txt", action=GenerationAction.RETRY
+        )
+        items = [{"task_id": "plan", "error_message": encode_generation_problem(problem)}]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        rendered = {
+            locale: client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"][0]["error_message"]
+            for locale in ("zh", "en", "vi")
+        }
+        assert rendered == {
+            "zh": "出现错误，请重试；反复失败时，可以交给 Agent 排查",
+            "en": "An error occurred. Try again, or hand it to the Agent if it keeps failing",
+            "vi": "Đã xảy ra lỗi. Hãy thử lại, hoặc giao cho Agent nếu vẫn thất bại",
+        }
+
     def test_list_tasks_passthrough_raw_and_legacy(self, monkeypatch):
         items = [
             {"task_id": "raw", "error_message": "RuntimeError: provider 500"},

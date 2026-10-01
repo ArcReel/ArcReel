@@ -266,6 +266,7 @@ MESSAGES = {
     "episode_planning_task_active": "Đang lập kế hoạch phân tập. Hãy đợi hoàn tất hoặc dừng lại rồi gửi lại",
     "episode_planning_refused": "Không thể gửi yêu cầu lập kế hoạch phân tập: {reason}",
     "episode_planning_no_cut_point": "Không tìm thấy điểm cắt có mạch truyện trọn vẹn trong đoạn văn bản nguồn này. Hãy cắt đoạn này thủ công rồi tiếp tục lập kế hoạch bằng AI",
+    "episode_planning_failed": "Đã xảy ra lỗi. Hãy thử lại, hoặc giao cho Agent nếu vẫn thất bại",
     "text_output_truncated": "Đầu ra của mô hình văn bản {model} vượt quá độ dài đầu ra tối đa nên không đầy đủ",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_invalid_new_assets": "Một số tài sản mới của tập này không thể xử lý theo lựa chọn nên kế hoạch chưa được xác nhận; hãy kiểm tra tài sản được gộp vào và nhân vật gốc của biến thể rồi thử lại",

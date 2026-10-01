@@ -288,4 +288,12 @@ export default {
   'problem_generation_post_processing_failed': 'The video was generated but post-processing failed.',
   'problem_reference_asset_unregistered': 'This unit references assets that are not registered.',
   'problem_reference_asset_missing': 'A referenced asset has no asset sheet yet.',
+  'problem_video_capability_unavailable': "Could not read the selected video model's capabilities. Check the provider and model configuration.",
+  'problem_video_supported_durations_missing': 'The selected video model does not declare supported duration tiers.',
+  'problem_video_supported_durations_invalid': "The selected video model's duration tier metadata is invalid.",
+  'problem_video_supported_durations_incompatible': 'The selected video model has no compatible duration tier for the current resolution.',
+  'problem_reference_capability_unavailable': "Could not read the selected video model's capabilities. Check the provider and model configuration.",
+  'problem_reference_supported_durations_missing': 'The selected video model does not declare supported duration tiers.',
+  'problem_reference_supported_durations_invalid': "The selected video model's duration tier metadata is invalid.",
+  'problem_reference_supported_durations_incompatible': 'The selected video model has no compatible duration tier for the current resolution and reference images.',
 };

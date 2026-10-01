@@ -266,6 +266,7 @@ MESSAGES = {
     "episode_planning_task_active": "Episode planning is in progress. Wait for it to finish or stop it before submitting again",
     "episode_planning_refused": "Episode planning could not be submitted: {reason}",
     "episode_planning_no_cut_point": "No cut point with a complete story arc was found in this part of the source text. Cut this part manually, then continue AI planning",
+    "episode_planning_failed": "An error occurred. Try again, or hand it to the Agent if it keeps failing",
     "text_output_truncated": "The output of text model {model} exceeded its maximum output length and is incomplete",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_invalid_new_assets": "Some new assets in this episode cannot be handled as chosen, so the plan was not confirmed; check the assets they are merged into and the base characters of derivatives, then retry",

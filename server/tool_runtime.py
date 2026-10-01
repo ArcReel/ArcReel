@@ -1486,9 +1486,12 @@ async def repair_draft(
     )
 
 
-#: 草稿命令错误码 → 任务失败的文案 key，与草稿 REST 的错误映射一致；其余错误归为保存未完成。
+#: 草稿命令错误码 → 任务失败的文案 key，与草稿 REST 的错误映射一致。写回草稿之前的失败已归为
+#: ``draft_repair_failed``；未列出的错误来自正文写回草稿之后的重判与晋升，归为保存未完成。
 _DRAFT_REPAIR_FAILURE_KEYS: dict[str, str] = {
     "draft_not_found": "draft_not_found",
+    "invalid_request": "draft_doc_type_not_applicable",
+    "doc_type_not_applicable": "draft_doc_type_not_applicable",
     "revision_conflict": "draft_revision_conflict",
     "formal_revision_conflict": "draft_formal_revision_conflict",
     "draft_agent_owned": "draft_agent_owned",
@@ -2465,7 +2468,7 @@ async def _execute_plan_episodes(
             )
         )
     except (EpisodePlanningError, FileNotFoundError) as exc:
-        return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
+        return ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc)))
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("plan_episodes", exc))
     finally:
