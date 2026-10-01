@@ -19,6 +19,7 @@ import type {
   EndpointValidateResponse,
   MarketEntry,
 } from "@/types";
+import imageTemplate from "@/data/example-templates/generic-image-submit-poll.json";
 import { MARKET_CONTRIBUTING_URL } from "../market/market-links";
 import { EndpointsSection } from "./EndpointsSection";
 
@@ -251,6 +252,22 @@ describe("EndpointsSection", () => {
     expect(await screen.findByDisplayValue("Example Video API")).toBeEnabled();
     expect(screen.getByRole("button", { name: "保存更改" })).toBeInTheDocument();
     expect(screen.getByText("提交生成任务")).toBeInTheDocument();
+  });
+
+  it("prefills a new endpoint from the image example template and saves it as an image definition", async () => {
+    const create = vi.spyOn(API, "createCustomEndpoint").mockResolvedValue(MINE);
+    renderSection();
+    await userEvent.click(await screen.findByRole("button", { name: "新建" }));
+
+    await userEvent.selectOptions(screen.getByLabelText("示例模板"), "图片：提交 + 轮询");
+
+    expect(screen.getByRole("checkbox", { name: "图生图" })).toBeChecked();
+    expect(screen.queryByText("视频地址")).not.toBeInTheDocument();
+    const save = screen.getByRole("button", { name: "保存更改" });
+    await waitFor(() => expect(save).toBeEnabled());
+    await userEvent.click(save);
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    expect(create.mock.calls[0][0]).toEqual(imageTemplate);
   });
 
   it("surfaces validation errors on the diagnostics card and blocks saving", async () => {

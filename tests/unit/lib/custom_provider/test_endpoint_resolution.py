@@ -105,6 +105,16 @@ class TestDeclarativeImageProjection:
         assert spec.image_capabilities == frozenset({ImageCapability.TEXT_TO_IMAGE})
         assert spec.video_caps_for_model is None
 
+    def test_declared_image_to_image_joins_text_to_image_in_the_endpoint_capabilities(self):
+        definition = image_endpoint_definition(
+            capabilities={"text_to_image": True, "image_to_image": True, "max_reference_images": 4}
+        )
+        row = SimpleNamespace(id=7, definition=definition)
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+
+        assert spec.image_capabilities == frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE})
+
     def test_an_image_spec_builds_the_image_channel(self):
         from lib.custom_provider.backends import CustomImageBackend
 

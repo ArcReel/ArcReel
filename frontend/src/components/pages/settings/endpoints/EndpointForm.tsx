@@ -119,6 +119,20 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
     return renamed;
   };
 
+  const maxReferenceImagesField = (
+    <label className="block">
+      <span className={LABEL_CLS}>{t("ce_cap_max_reference_images")}</span>
+      <input
+        type="number"
+        min={0}
+        value={capabilities.max_reference_images ?? 0}
+        readOnly={readOnly}
+        onChange={(e) => patchCapabilities({ max_reference_images: Number(e.target.value) || 0 })}
+        className={INPUT_CLS}
+      />
+    </label>
+  );
+
   return (
     <div
       className={
@@ -586,14 +600,23 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
         desc={t("ce_section_capabilities_desc")}
       >
         {isImage ? (
-          <div className="flex flex-wrap gap-x-6 gap-y-2.5">
-            <CheckboxField
-              label={t("ce_cap_text_to_image")}
-              checked={capabilities.text_to_image ?? false}
-              disabled={readOnly}
-              onChange={(text_to_image) => patchCapabilities({ text_to_image })}
-            />
-          </div>
+          <>
+            <div className="flex flex-wrap gap-x-6 gap-y-2.5">
+              <CheckboxField
+                label={t("ce_cap_text_to_image")}
+                checked={capabilities.text_to_image ?? false}
+                disabled={readOnly}
+                onChange={(text_to_image) => patchCapabilities({ text_to_image })}
+              />
+              <CheckboxField
+                label={t("ce_cap_image_to_image")}
+                checked={capabilities.image_to_image ?? false}
+                disabled={readOnly}
+                onChange={(image_to_image) => patchCapabilities({ image_to_image })}
+              />
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">{maxReferenceImagesField}</div>
+          </>
         ) : (
           <>
           <div className="flex flex-wrap gap-x-6 gap-y-2.5">
@@ -617,19 +640,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             />
           </div>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <label className="block">
-              <span className={LABEL_CLS}>{t("ce_cap_max_reference_images")}</span>
-              <input
-                type="number"
-                min={0}
-                value={capabilities.max_reference_images ?? 0}
-                readOnly={readOnly}
-                onChange={(e) =>
-                  patchCapabilities({ max_reference_images: Number(e.target.value) || 0 })
-                }
-                className={INPUT_CLS}
-              />
-            </label>
+            {maxReferenceImagesField}
             <label className="block">
               <span className={LABEL_CLS}>{t("ce_cap_reference_audio_mode")}</span>
               <select
