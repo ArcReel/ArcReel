@@ -680,7 +680,7 @@ def test_wrap_bash_command_skips_when_sandbox_disabled(tmp_path: Path) -> None:
     且包装后的命令以 ``env -u`` 开头，会让白名单永远匹配不上——返回 None 表示
     不包装，原始命令落到 can_use_tool 做白名单匹配。"""
     policy = _make_policy(tmp_path, sandbox_enabled=False)
-    assert policy.wrap_bash_command_for_env_scrub("ffmpeg -i in.mp4 out.mp4") is None
+    assert policy.wrap_bash_command_for_env_scrub("python .claude/skills/x/scripts/run.py") is None
 
 
 def test_wrap_bash_command_handles_single_quotes(tmp_path: Path) -> None:

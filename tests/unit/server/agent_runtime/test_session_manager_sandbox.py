@@ -139,7 +139,7 @@ async def test_bash_env_scrub_hook_skips_wrap_when_sandbox_disabled(tmp_path: Pa
     （包装后命令以 ``env -u`` 开头，会让白名单永远匹配不上）。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
     result = await sm._options_assembler._bash_env_scrub_hook(
-        {"tool_name": "Bash", "tool_input": {"command": "ffmpeg -i in.mp4 out.mp4"}},
+        {"tool_name": "Bash", "tool_input": {"command": "python .claude/skills/x/scripts/run.py"}},
         None,
         None,
     )
@@ -207,10 +207,8 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
             "python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py validate",
             "PermissionResultAllow",
         ),
-        ("ffmpeg -i in.mp4 out.mp4", "PermissionResultAllow"),
-        ("ffprobe in.mp4", "PermissionResultAllow"),
         # `..` 在文件名内部（非路径段）不触发穿越拦截，合法命令照常放行
-        ("ffmpeg -i my..clip.mp4 out.mp4", "PermissionResultAllow"),
+        ("python .claude/skills/adapt-custom-endpoint/scripts/my..script.py validate", "PermissionResultAllow"),
         # 归一化容错：带引号的脚本路径、Windows 反斜杠分隔符的合法命令不误拒
         (
             'python ".claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py" validate',
@@ -222,6 +220,10 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
         ),
         ("cat /etc/passwd", "PermissionResultDeny"),
         ("ls -la", "PermissionResultDeny"),
+        # ffmpeg / ffprobe 不在白名单：Agent 经 Bash 跑不了，媒体处理走工具集
+        ("ffmpeg -i in.mp4 out.mp4", "PermissionResultDeny"),
+        ("ffprobe in.mp4", "PermissionResultDeny"),
+        ("ffmpeg", "PermissionResultDeny"),
     ],
 )
 async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, command: str, expected: str) -> None:
@@ -237,6 +239,13 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
             assert prefix in result.message
 
 
+def test_windows_bash_whitelist_has_no_media_tool_prefixes() -> None:
+    assert AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST == ("python .claude/skills/",)
+    deny_message = AgentAccessPolicy.format_bash_whitelist_deny_message("ffmpeg -i in.mp4 out.mp4")
+    assert "  - ffmpeg" not in deny_message
+    assert "  - ffprobe" not in deny_message
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "command",
@@ -244,26 +253,25 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
         # 白名单前缀 + metachar 链：尾部命令在 Windows 上无 sandbox denyWrite
         # 兜底，可直写 protected JSON，必须整串拒
         'python .claude/skills/manage-project/scripts/peek_split_point.py; python -c "evil"',
-        "ffmpeg -i in.mp4 out.mp4 && python -c \"open('project.json','w')\"",
-        "ffprobe in.mp4 | tee scripts/episode_1.json",
-        "ffmpeg -i in.mp4 $(evil) out.mp4",
-        "ffmpeg -i in.mp4 `evil` out.mp4",
-        "ffmpeg -i in.mp4 -f json > scripts/episode_1.json",
-        "ffprobe < secret.txt",
-        "ffmpeg -i in.mp4 out.mp4\npython -c evil",
-        # 命令名前缀碰撞：ffmpegX 以 ffmpeg 开头但不是 ffmpeg
-        "ffmpegX --evil",
-        "ffprobe2 in.mp4",
+        "python .claude/skills/x/scripts/run.py && python -c \"open('project.json','w')\"",
+        "python .claude/skills/x/scripts/run.py | tee scripts/episode_1.json",
+        "python .claude/skills/x/scripts/run.py $(evil)",
+        "python .claude/skills/x/scripts/run.py `evil`",
+        "python .claude/skills/x/scripts/run.py > scripts/episode_1.json",
+        "python .claude/skills/x/scripts/run.py < secret.txt",
+        "python .claude/skills/x/scripts/run.py\npython -c evil",
+        # 命令名前缀碰撞：python3 不是 python
+        "python3 .claude/skills/x/scripts/run.py",
         # 路径穿越：满足 python .claude/skills/ 前缀且不含 metachar，但 .. 逃出
         # skills 目录跑任意脚本——Windows 回退无 sandbox 兜底，必须拒
         "python .claude/skills/../../../tmp/evil.py",
         "python .claude/skills/../../arcreel_secrets_dumper.py",
-        "ffmpeg -i ../../other_project/secret.mp4 out.mp4",
+        "python .claude/skills/x/scripts/run.py ../../other_project/secret.json",
         # 路径穿越混淆绕过：shell 会把 ".." / .\. 还原成 ..，归一化后必须拒
         'python .claude/skills/dir/".."/".."/evil.py',
         "python .claude/skills/dir/'..'/'..'/evil.py",
         "python .claude/skills/dir/.\\./.\\./evil.py",
-        'ffmpeg -i ".."/".."/secret.mp4 out.mp4',
+        'python .claude/skills/x/scripts/run.py ".."/".."/secret.json',
         # Windows 反斜杠分隔符下的 .. 穿越同样要拒（归一化后 ../ 命中）
         "python .claude\\skills\\..\\..\\evil.py",
         # python 入口必须是 <skill>/scripts/<script>.py：skills 目录下任意其它
@@ -276,7 +284,7 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
 )
 async def test_windows_bash_whitelist_blocks_metachar_chains(tmp_path: Path, command: str) -> None:
     """白名单前缀 + shell metachar（; && | $() ` 重定向 换行）的复合命令必须拒；
-    命令名按 token 边界匹配，挡 ffmpegX 这类前缀碰撞；.. 路径穿越整串拒。"""
+    命令名按 token 边界匹配，挡 python3 这类前缀碰撞；.. 路径穿越整串拒。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=False)
     callback = await sm._build_can_use_tool_callback("test_sid", [None])
     result = await callback("Bash", {"command": command}, None)
