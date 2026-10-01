@@ -38,6 +38,9 @@ class GenerationBatchRequestedItem(BaseModel):
     artifact_key: str | None = None
     artifact_path: str | None = None
     artifact_status: ArtifactStatus | None = None
+    prior_artifact_key: str | None = None
+    prior_artifact_path: str | None = None
+    prior_artifact_status: ArtifactStatus | None = None
     admission: dict[str, Any] = Field(default_factory=dict)
     #: 同批内的前置成员：它的任务成功后本成员才执行，失败则本成员不提交给供应商。
     depends_on: str | None = None
@@ -173,6 +176,9 @@ def build_generation_batch_admission(
                 ),
                 artifact_path=state.artifact_path if state else item.artifact_path if item else None,
                 artifact_status=state.status if state else item.artifact_status if item else None,
+                prior_artifact_key=(state.prior_artifact_key.encode() if state and state.prior_artifact_key else None),
+                prior_artifact_path=state.prior_artifact_path if state else None,
+                prior_artifact_status=state.prior_artifact_status if state else None,
                 admission=admission_by_id.get(unit_id, {}),
                 depends_on=(dependencies or {}).get(unit_id),
             )
@@ -191,6 +197,34 @@ def build_generation_batch_admission(
     )
 
 
+def _failure_artifact_report(
+    requested: GenerationBatchRequestedItem,
+    *,
+    fallback_path: str | None,
+    resolver: ArtifactCurrencyResolver | None,
+) -> tuple[str | None, str | None, ArtifactStatus | None]:
+    """Report the artifact that survives this failure, if the request recorded one."""
+
+    has_prior_artifact = (
+        requested.prior_artifact_key is not None
+        or requested.prior_artifact_path is not None
+        or requested.prior_artifact_status is not None
+    )
+    if not has_prior_artifact:
+        return requested.artifact_key, fallback_path, requested.artifact_status
+
+    artifact_key = requested.prior_artifact_key
+    artifact_path = requested.prior_artifact_path
+    artifact_status = requested.prior_artifact_status
+    if resolver is not None and artifact_key is not None:
+        artifact_status, _blocker = observe_artifact_status(
+            resolver=resolver,
+            key=ArtifactKey.decode(artifact_key),
+            artifact_path=artifact_path,
+        )
+    return artifact_key, artifact_path, artifact_status
+
+
 def _terminal_result(
     operation: str,
     snapshot: GenerationBatchRequestSnapshot,
@@ -206,12 +240,17 @@ def _terminal_result(
             continue
         task = tasks.get(unit_id)
         if task is None:
+            artifact_key, artifact_path, artifact_status = _failure_artifact_report(
+                requested,
+                fallback_path=requested.artifact_path,
+                resolver=resolver,
+            )
             items.append(
                 GenerationItemResult(
                     unit_id=unit_id,
-                    artifact_key=requested.artifact_key,
-                    artifact_path=requested.artifact_path,
-                    artifact_status=requested.artifact_status,
+                    artifact_key=artifact_key,
+                    artifact_path=artifact_path,
+                    artifact_status=artifact_status,
                     state=GenerationItemState.FAILED,
                     task_state=GenerationTaskState.NOT_QUEUED,
                     problem=dependency_failure_problem(
@@ -225,24 +264,22 @@ def _terminal_result(
         status = task["status"]
         task_result = task.get("result") or {}
         unit_result = (task_result.get("unit_results") or {}).get(unit_id) or {}
-        common = {
-            "unit_id": unit_id,
-            "artifact_key": requested.artifact_key,
-            "artifact_path": unit_result.get("file_path") or task_result.get("file_path") or requested.artifact_path,
-            "task_id": task["task_id"],
-            "provider_checkpoint": provider_checkpoint_from_task(task),
-        }
+        task_artifact_path = unit_result.get("file_path") or task_result.get("file_path") or requested.artifact_path
         if status == "succeeded" and not unit_result.get("problem"):
             artifact_status = None
             if resolver is not None and requested.artifact_key is not None:
                 artifact_status, _blocker = observe_artifact_status(
                     resolver=resolver,
                     key=ArtifactKey.decode(requested.artifact_key),
-                    artifact_path=common["artifact_path"],
+                    artifact_path=task_artifact_path,
                 )
             items.append(
                 GenerationItemResult(
-                    **common,
+                    unit_id=unit_id,
+                    artifact_key=requested.artifact_key,
+                    artifact_path=task_artifact_path,
+                    task_id=task["task_id"],
+                    provider_checkpoint=provider_checkpoint_from_task(task),
                     state=GenerationItemState.SUCCEEDED,
                     task_state=GenerationTaskState.SUCCEEDED,
                     artifact_status=artifact_status,
@@ -250,9 +287,18 @@ def _terminal_result(
                 )
             )
         else:
+            artifact_key, artifact_path, artifact_status = _failure_artifact_report(
+                requested,
+                fallback_path=task_artifact_path,
+                resolver=resolver,
+            )
             items.append(
                 GenerationItemResult(
-                    **common,
+                    unit_id=unit_id,
+                    artifact_key=artifact_key,
+                    artifact_path=artifact_path,
+                    task_id=task["task_id"],
+                    provider_checkpoint=provider_checkpoint_from_task(task),
                     state=GenerationItemState.FAILED,
                     task_state=(
                         GenerationTaskState.SUCCEEDED
@@ -261,7 +307,7 @@ def _terminal_result(
                         if status == "cancelled"
                         else GenerationTaskState.FAILED
                     ),
-                    artifact_status=requested.artifact_status,
+                    artifact_status=artifact_status,
                     problem=(
                         GenerationProblem.model_validate(unit_result["problem"])
                         if unit_result.get("problem")
