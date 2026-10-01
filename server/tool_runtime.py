@@ -12,7 +12,7 @@ import os
 import re
 import stat
 import tempfile
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
@@ -24,6 +24,8 @@ from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
 from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
+from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.episode.episode_ids import describe_episode_for_agent, episode_position
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
@@ -37,7 +39,14 @@ from lib.episode.episode_paths import (
     SCRIPT_PLAN_LEGACY_FILENAMES,
     episode_source_relpath,
 )
-from lib.episode.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
+from lib.episode.episode_planner import (
+    EpisodePlanner,
+    EpisodePlanningError,
+    LedgerStats,
+    NoCutPointError,
+    PlanningOutputTruncatedError,
+    PlanResult,
+)
 from lib.episode.episode_reset import (
     EpisodeResetError,
     ResetConfirmationRequired,
@@ -156,6 +165,9 @@ from lib.speech.narration_config import (
 from lib.speech.speech_composition import SpeechProblemCode
 from lib.workflow.operation_admission import admit_plan_episodes, whole_source_present
 from lib.workflow.workflow_plan import (
+    EPISODE_PLANNING_NEXT_SLOT,
+    EPISODE_PLANNING_SLOT,
+    EPISODE_PLANNING_SLOTS,
     TEXT_DRAFT_REPAIR_TASK_TYPE,
     WorkflowPlan,
     WorkflowPlanRequest,
@@ -638,20 +650,32 @@ async def _submit_text_task(
     scope: ProjectScope,
     caller: CallerContext,
     services: Services,
+    conflict_resource_ids: Sequence[str] = (),
 ) -> ToolOutcome[Any]:
+    """提交一个文本任务。``conflict_resource_ids`` 是与 ``unit_id`` 互斥的其他占用槽：其中有在途任务时一律冲突；
+    ``unit_id`` 上的在途任务只在请求事实不同时冲突，相同时并入它。"""
     active = await services.queue.get_active_tasks_for_resources(
         project_name=scope.project_name,
         task_type=task_type,
-        resource_ids=[unit_id],
+        resource_ids=list(dict.fromkeys([unit_id, *conflict_resource_ids])),
         user_id=caller.user_id,
     )
-    if active and text_task_request_facts(active[0].get("payload")) != text_task_request_facts(payload):
+    conflicting = next(
+        (
+            task
+            for task in active
+            if task.get("resource_id") != unit_id
+            or text_task_request_facts(task.get("payload")) != text_task_request_facts(payload)
+        ),
+        None,
+    )
+    if conflicting is not None:
         return ToolOutcome(
             problem=ToolProblem(
                 "generation_active_task_conflict",
                 "generation_active_task_conflict",
                 action=GenerationAction.WAIT_FOR_TASK,
-                params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
+                params={"task_id": conflicting["task_id"], "status": conflicting["status"]},
             )
         )
     snapshot = GenerationBatchRequestSnapshot(
@@ -2086,8 +2110,6 @@ PROJECT_SETTINGS = (
     EPISODE_TARGET_DURATION_FIELD,
     "source_language",
     "brief",
-    "planning_window_chars",
-    "planning_max_episodes",
     "narration_voice",
     "narration_speed",
     "character_voice_binding",
@@ -2096,7 +2118,7 @@ PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
 EPISODE_META_FIELDS = ("title",)
 
 _SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
-_POSITIVE_INT_SETTINGS = (EPISODE_TARGET_UNITS_FIELD, "planning_window_chars", "planning_max_episodes")
+_POSITIVE_INT_SETTINGS = (EPISODE_TARGET_UNITS_FIELD,)
 
 
 class ToolMessage(BaseModel):
@@ -2389,18 +2411,69 @@ def _format_plan(result: PlanResult, project: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+@dataclass(frozen=True, slots=True)
+class _PlanningChain:
+    """Web 逐窗串联中正在执行的那一窗：本批之后还有原文待规划时，把下一窗排进另一个占用槽，
+    依赖本窗成功后才执行。窗口不含结尾时在请求模型之前排入，停止规划即可取消它。"""
+
+    task: Mapping[str, Any]
+    services: Services
+
+    async def queue_next_window(self) -> None:
+        slot = (
+            EPISODE_PLANNING_NEXT_SLOT
+            if self.task.get("resource_id") == EPISODE_PLANNING_SLOT
+            else EPISODE_PLANNING_SLOT
+        )
+        # 下一窗由正在执行的 worker 排入，worker 必然在线
+        await self.services.queue.enqueue_task(
+            project_name=str(self.task["project_name"]),
+            task_type=_TEXT_EPISODE_PLAN,
+            media_type="text",
+            resource_id=slot,
+            payload=dict(self.task.get("payload") or {}),
+            source=str(self.task.get("source") or "webui"),
+            user_id=str(self.task.get("user_id") or DEFAULT_USER_ID),
+            dependency_task_id=str(self.task["task_id"]),
+        )
+
+
 async def _execute_plan_episodes(
     request: ToolRequest[PlanEpisodesRequest],
     scope: ProjectScope,
     services: Services,
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
+    chain: _PlanningChain | None = None,
 ) -> ToolOutcome[Any]:
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     try:
         planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
-        result = await planner.plan(instructions=request.value.instructions)
+        if chain is None:
+            result = await planner.plan(instructions=request.value.instructions)
+        else:
+            result = await planner.plan(
+                instructions=request.value.instructions, on_more_to_plan=chain.queue_next_window
+            )
+    except PlanningOutputTruncatedError as exc:
+        return ToolOutcome(
+            problem=ToolProblem(
+                "text_output_truncated",
+                f"❌ 分集规划失败：{exc}",
+                action=GenerationAction.CONFIGURE_PROVIDER,
+                params={"provider_id": exc.provider_id, "model": exc.model, "custom_model": exc.custom_model},
+            )
+        )
+    except NoCutPointError as exc:
+        return ToolOutcome(
+            problem=ToolProblem(
+                "episode_planning_no_cut_point",
+                f"❌ 分集规划失败：{exc}",
+                action=GenerationAction.FIX_INPUT,
+                params={"source_file": exc.source_file, "offset": exc.offset},
+            )
+        )
     except (EpisodePlanningError, FileNotFoundError) as exc:
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
     except Exception as exc:
@@ -2441,6 +2514,16 @@ def _plan_episodes_preflight(projects: ProjectManager, project_name: str) -> Non
     )
 
 
+async def _plan_episodes_gate(scope: ProjectScope, services: Services) -> ToolProblem | None:
+    if problem := await migration_gate(scope, services):
+        return problem
+    try:
+        await asyncio.to_thread(_plan_episodes_preflight, services.projects, scope.project_name)
+    except OperationNotAdmittedError as exc:
+        return _not_admitted_problem(exc)
+    return None
+
+
 async def plan_episodes(
     request: ToolRequest[PlanEpisodesRequest],
     scope: ProjectScope,
@@ -2449,23 +2532,80 @@ async def plan_episodes(
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
 ) -> ToolOutcome[Any]:
-    if problem := await migration_gate(scope, services):
+    """规划一批：从规划起点读一个窗口，提交其中剧情弧完整的集。"""
+    if problem := await _plan_episodes_gate(scope, services):
         return ToolOutcome(problem=problem)
-    try:
-        await asyncio.to_thread(_plan_episodes_preflight, services.projects, scope.project_name)
-    except OperationNotAdmittedError as exc:
-        return ToolOutcome(problem=_not_admitted_problem(exc))
     if planner_cls is not EpisodePlanner:
         return await _execute_plan_episodes(request, scope, services, planner_cls=planner_cls)
     return await _submit_text_task(
         task_type=_TEXT_EPISODE_PLAN,
         operation="plan_episodes",
-        unit_id="episode-planning",
+        unit_id=EPISODE_PLANNING_SLOT,
         payload=request.value.model_dump(mode="json"),
         scope=scope,
         caller=caller,
         services=services,
+        conflict_resource_ids=EPISODE_PLANNING_SLOTS,
     )
+
+
+async def start_episode_planning(
+    request: ToolRequest[PlanEpisodesRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[Any]:
+    """「AI 规划分集」：从规划起点逐窗规划到整本源文结尾，每一窗是一个排队的文本任务。
+
+    已完成的窗口各自提交，停止（:func:`stop_episode_planning`）或某一窗失败后，已切出的集保留；再次调用
+    从账本推导的规划起点继续。附加指令随每一窗的任务载荷传递，不写进项目。
+    """
+    if problem := await _plan_episodes_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    return await _submit_text_task(
+        task_type=_TEXT_EPISODE_PLAN,
+        operation="plan_episodes",
+        unit_id=EPISODE_PLANNING_SLOT,
+        payload={**request.value.model_dump(mode="json"), "continue_to_end": True},
+        scope=scope,
+        caller=caller,
+        services=services,
+        conflict_resource_ids=EPISODE_PLANNING_SLOTS,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class StopEpisodePlanningResult:
+    #: 被取消的排队中窗口。
+    cancelled: list[str]
+    #: 仍在执行的窗口：执行中的窗口不可取消，会照常完成并提交。
+    running: list[str]
+
+
+async def stop_episode_planning(
+    scope: ProjectScope, caller: CallerContext, services: Services
+) -> StopEpisodePlanningResult:
+    """停止分集规划：取消排队中的窗口；执行中的那一窗照常完成，它切出的集保留。"""
+    active = await services.queue.get_active_tasks_for_resources(
+        project_name=scope.project_name,
+        task_type=_TEXT_EPISODE_PLAN,
+        resource_ids=list(EPISODE_PLANNING_SLOTS),
+        user_id=caller.user_id,
+    )
+    cancelled: list[str] = []
+    running: list[str] = []
+    for task in active:
+        task_id = str(task["task_id"])
+        if task.get("status") != "queued":
+            running.append(task_id)
+            continue
+        try:
+            await services.queue.cancel_task(task_id)
+        except TaskNotCancellableError:
+            running.append(task_id)
+        else:
+            cancelled.append(task_id)
+    return StopEpisodePlanningResult(cancelled=cancelled, running=running)
 
 
 def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
@@ -2477,16 +2617,22 @@ def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
 
 
 async def execute_queued_text_task(
-    task: dict[str, Any], *, planner_cls: type[EpisodePlanner] = EpisodePlanner
+    task: dict[str, Any],
+    *,
+    planner_cls: type[EpisodePlanner] = EpisodePlanner,
+    services: Services | None = None,
 ) -> dict[str, Any]:
-    """Execute one durable text task through the same host-independent handlers."""
+    """Execute one durable text task through the same host-independent handlers.
+
+    ``services`` 缺省时按当前配置解析（全局生成队列）；嵌入式宿主登记过的任务沿用提交方的协作者。
+    """
     payload = task.get("payload") or {}
     registered = _TEXT_TASK_SERVICES.pop(str(task["task_id"]), None)
     if registered is not None:
         scope, services = registered
     else:
         scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
-        services = Services.defaults(ProjectManager(scope.data_root))
+        services = services or Services.defaults(ProjectManager(scope.data_root))
     task_type = task["task_type"]
     if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
         outcome = await _execute_draft_repair(RepairDraftRequest.model_validate(payload), scope, services)
@@ -2496,6 +2642,7 @@ async def execute_queued_text_task(
             scope,
             services,
             planner_cls=planner_cls,
+            chain=_PlanningChain(task=task, services=services) if payload.get("continue_to_end") else None,
         )
     else:
         request = TextGenerationRequest(

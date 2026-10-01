@@ -169,6 +169,7 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
     ("stage", "content_mode", "generation_mode", "task_type", "step_id", "resource_id"),
     [
         ("episode_plan", "narration", "storyboard", "text_episode_plan", "episode_plan", "episode-planning"),
+        ("episode_plan", "narration", "storyboard", "text_episode_plan", "episode_plan", "episode-planning-next"),
         ("script_plan", "narration", "storyboard", "text_narration_script_plan", "script_plan_content", "episode-1"),
         ("script_plan", "drama", "storyboard", "text_drama_script_plan", "script_plan_content", "episode-1"),
         (

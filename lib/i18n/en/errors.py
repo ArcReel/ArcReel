@@ -262,6 +262,10 @@ MESSAGES = {
     "prompt_authoring_refused": "Prompt writing could not be submitted: {reason}",
     "script_plan_task_active": "A script-planning task for this episode is already running. Wait for it to finish before submitting again",
     "script_plan_refused": "Script planning could not be submitted: {reason}",
+    "episode_planning_task_active": "Episode planning is in progress. Wait for it to finish or stop it before submitting again",
+    "episode_planning_refused": "Episode planning could not be submitted: {reason}",
+    "episode_planning_no_cut_point": "No cut point with a complete story arc was found in this part of the source text. Cut this part manually, then continue AI planning",
+    "text_output_truncated": "The output of text model {model} exceeded its maximum output length and is incomplete",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_foreign_formal_script": (
         "The script file bound to episode (id={episode}) is gone and the canonical path scripts/{filename} holds another "

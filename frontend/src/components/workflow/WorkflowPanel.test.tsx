@@ -526,6 +526,31 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     expect(within(row).getByText("下一步：等待生成完成")).toBeInTheDocument();
   });
 
+  it("分集规划在跑时下一步落在原文行，给出查看规划进度的入口", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("wait_for_task", { args: {} }),
+        steps: [
+          makeStep({
+            id: "episode_plan",
+            state: "active",
+            tasks: [
+              {
+                unit_id: "episode-planning-next",
+                task_id: "t1",
+                task_type: "text_episode_plan",
+                status: "queued",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+    const row = screen.getByTestId("workflow-row-source");
+    expect(within(row).getByText("下一步：分集规划进行中")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "查看规划进度" })).toBeInTheDocument();
+  });
+
   it("整批准入交回的下一步可以交给 Agent", async () => {
     await renderPanel(scenario({ next: nextAction("retry") }));
     fireEvent.click(await screen.findByRole("button", { name: "交给 Agent" }));

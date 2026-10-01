@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.backends.providers import CallPurpose
-from lib.backends.text_backends.base import TextGenerationRequest, TextGenerationResult
+from lib.backends.text_backends.base import TextGenerationRequest, TextGenerationResult, TextOutputTruncatedError
 from lib.backends.text_generator import TextGenerator
 from lib.billing.ledger import Ledger
 from lib.db.models.api_call import ApiCall
@@ -105,3 +105,47 @@ class TestTextGenerator:
         assert len(calls) == 1
         item = calls[0]
         assert item.project_name == ""
+
+
+class TestOutputTokenCeiling:
+    """文本请求的输出上限取 min(登记值, 64000)，未登记按 64000。"""
+
+    @pytest.mark.parametrize(
+        ("registered", "requested", "sent"),
+        [
+            (8192, 64000, 8192),
+            (8192, None, 8192),
+            (None, None, 64000),
+            (None, 64000, 64000),
+            (128000, 64000, 64000),
+            (128000, None, 64000),
+            (8192, 4000, 4000),
+        ],
+    )
+    async def test_request_carries_effective_ceiling(self, wired, registered, requested, sent):
+        backend = _make_backend()
+        gen = TextGenerator(
+            backend,
+            wired.ledger,
+            "gemini-aistudio",
+            purpose=CallPurpose.SCRIPT_GENERATION,
+            registered_max_output_tokens=registered,
+        )
+
+        await gen.generate(TextGenerationRequest(prompt="测试", max_output_tokens=requested))
+
+        assert backend.generate.await_args.args[0].max_output_tokens == sent
+
+    async def test_truncation_reports_the_resolved_provider(self, wired):
+        backend = _make_backend()
+        backend.generate = AsyncMock(
+            side_effect=TextOutputTruncatedError(provider="openai", model="my-model", output_tokens=8192)
+        )
+        gen = TextGenerator(backend, wired.ledger, "custom-7", purpose=CallPurpose.EPISODE_PLANNING, custom_model=True)
+
+        with pytest.raises(TextOutputTruncatedError) as caught:
+            await gen.generate(TextGenerationRequest(prompt="测试", response_schema={"type": "object"}))
+
+        assert caught.value.provider_id == "custom-7"
+        assert caught.value.model == "gemini-3-flash-preview"
+        assert caught.value.custom_model is True

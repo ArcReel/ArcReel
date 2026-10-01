@@ -6,7 +6,9 @@ import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { EpisodesView as EpisodesViewData, ProjectData } from "@/types";
+import { useTasksStore } from "@/stores/tasks-store";
+import { makeTask } from "@/test/factories";
+import type { EpisodesView as EpisodesViewData, ProjectData, TaskItem } from "@/types";
 
 import { EpisodesView } from "./EpisodesView";
 
@@ -69,6 +71,7 @@ describe("EpisodesView", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT });
+    useTasksStore.setState(useTasksStore.getInitialState(), true);
     Element.prototype.scrollIntoView = vi.fn();
   });
 
@@ -142,5 +145,57 @@ describe("EpisodesView", () => {
     renderView();
 
     expect(await screen.findByText("读取分集失败：网络错误")).toBeInTheDocument();
+  });
+
+  describe("AI planning", () => {
+    function truncatedPlanning(params: Record<string, unknown>): TaskItem {
+      return makeTask({
+        project_name: "demo",
+        task_type: "text_episode_plan",
+        resource_id: "episode-planning",
+        status: "failed",
+        error_message: "文本模型 my-llm 的输出超出了最大输出长度，内容不完整",
+        error_code: "text_output_truncated",
+        error_params: params,
+      });
+    }
+
+    it("plans the remaining source in one click with the instruction", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      const plan = vi.spyOn(API, "planEpisodes").mockResolvedValue({
+        batch: { batch_id: "batch-1", members: [{ unit_id: "episode-planning", task_id: "plan-1" }] },
+      });
+      renderView();
+
+      fireEvent.change(await screen.findByLabelText("附加指令（可选，只用于这次请求，不保存）"), {
+        target: { value: "按章节切" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "AI 规划剩余内容" }));
+
+      await waitFor(() => expect(plan).toHaveBeenCalledWith("demo", "按章节切"));
+    });
+
+    it("sends a truncated custom model to its entry in settings", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      useTasksStore.setState({
+        tasks: [truncatedPlanning({ provider_id: "custom-7", model: "my-llm", custom_model: true })],
+      });
+      const { location } = renderView();
+
+      fireEvent.click(await screen.findByRole("button", { name: "去登记最大输出长度" }));
+
+      expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
+    });
+
+    it("asks to switch models when a built-in model is truncated", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      useTasksStore.setState({
+        tasks: [truncatedPlanning({ provider_id: "gemini-aistudio", model: "gemini-pro", custom_model: false })],
+      });
+      renderView();
+
+      expect(await screen.findByText(/请在设置中换一个文本模型后再试/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "去登记最大输出长度" })).not.toBeInTheDocument();
+    });
   });
 });

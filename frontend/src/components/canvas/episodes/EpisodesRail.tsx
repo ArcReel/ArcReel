@@ -1,16 +1,19 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { ArrowUpRight, Combine, FileText, ListX, Upload } from "lucide-react";
 
+import { EPISODE_PLANNING_SLOTS } from "@/actions/generation";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { useAppStore } from "@/stores/app-store";
+import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode } from "@/types";
 import { episodePosition } from "@/utils/episode-display";
 
+import { EpisodePlanningPanel } from "./EpisodePlanningPanel";
 import { ReplannedBadge } from "./ReplannedBadge";
 import { cutEpisodeActions } from "./manual-split-model";
 import { UnregisteredFilesPanel } from "./UnregisteredFilesPanel";
@@ -45,8 +48,25 @@ interface CutActions {
   onClearAfter: (episode: number) => void;
 }
 
+const EMPTY_FRESH: ReadonlySet<number> = new Set();
+
 /**
- * 「分集」视图右栏：上传、源文进度、按文件分组的切出集清单与其他集。
+ * 一次分集规划开始之后新出现的集：规划开始时记下已有的集，之后多出来的就是这次规划出的。
+ * 规划结束后保留到下一次规划开始，离开「分集」视图即清空。
+ */
+function useFreshEpisodes(planning: boolean, episodes: EpisodeMeta[]): ReadonlySet<number> {
+  const [wasPlanning, setWasPlanning] = useState(false);
+  const [baseline, setBaseline] = useState<ReadonlySet<number> | null>(null);
+  if (planning !== wasPlanning) {
+    setWasPlanning(planning);
+    if (planning) setBaseline(new Set(episodes.map((episode) => episode.episode)));
+  }
+  if (baseline === null) return EMPTY_FRESH;
+  return new Set(episodes.map((episode) => episode.episode).filter((id) => !baseline.has(id)));
+}
+
+/**
+ * 「分集」视图右栏：上传、源文进度、AI 规划分集、按文件分组的切出集清单与其他集。
  * 选中某一集时左栏滚动到这一集（由调用方处理）。
  */
 export function EpisodesRail({
@@ -69,6 +89,9 @@ export function EpisodesRail({
   const percent = view.units === 0 ? 0 : Math.round((view.cut_units / view.units) * 100);
   // 助手面板收起时右上角浮着 Agent 球，标题行右端的上传按钮要给它让出位置。
   const assistantFloating = !useAppStore((s) => s.assistantPanelOpen);
+  const activePlanning = useActiveResourceIds("text_episode_plan", projectName);
+  const planning = EPISODE_PLANNING_SLOTS.some((slot) => activePlanning.has(slot));
+  const fresh = useFreshEpisodes(planning, episodes);
 
   return (
     <div className="space-y-5 px-4 py-5 pb-24">
@@ -116,6 +139,8 @@ export function EpisodesRail({
         </section>
       ) : null}
 
+      <EpisodePlanningPanel projectName={projectName} view={view} active={planning} />
+
       {groups.length > 0 ? (
         <RailSection title={t("dashboard:episodes_view_cut_section")}>
           {groups.map((group) => (
@@ -137,6 +162,7 @@ export function EpisodesRail({
                       view={view}
                       episodes={episodes}
                       selected={row.kind === "episode" && selected === row.episode.episode}
+                      fresh={row.kind === "episode" && fresh.has(row.episode.episode)}
                       onSelect={onSelect}
                       cutActions={cutActions}
                     />
@@ -190,6 +216,7 @@ function RailRowView({
   view,
   episodes,
   selected,
+  fresh,
   onSelect,
   cutActions,
 }: {
@@ -197,6 +224,7 @@ function RailRowView({
   view: EpisodesView;
   episodes: EpisodeMeta[];
   selected: boolean;
+  fresh: boolean;
   onSelect: (episode: number) => void;
   cutActions: CutActions;
 }) {
@@ -218,6 +246,7 @@ function RailRowView({
       view={view}
       episodes={episodes}
       selected={selected}
+      fresh={fresh}
       onSelect={onSelect}
       cutActions={cutActions}
     />
@@ -230,6 +259,7 @@ function EpisodeCard({
   view,
   episodes,
   selected,
+  fresh = false,
   onSelect,
   origin = false,
   cutActions,
@@ -239,6 +269,8 @@ function EpisodeCard({
   view: EpisodesView;
   episodes: EpisodeMeta[];
   selected: boolean;
+  /** 这次分集规划新规划出的集。 */
+  fresh?: boolean;
   onSelect: (episode: number) => void;
   origin?: boolean;
   cutActions?: CutActions;
@@ -256,6 +288,7 @@ function EpisodeCard({
       style={{
         borderLeft: `3px solid ${color}`,
         background: selected ? "var(--color-accent-dim)" : "oklch(0.2 0.011 265 / 0.55)",
+        boxShadow: fresh ? "inset 0 0 0 1px var(--color-accent-soft)" : undefined,
       }}
     >
       <button
@@ -275,6 +308,11 @@ function EpisodeCard({
             </span>
           ) : null}
           {episode.ledger_status === "stale" ? <ReplannedBadge /> : null}
+          {fresh ? (
+            <span className="rounded border border-accent-soft bg-accent-dim px-1 py-px text-[10.5px] text-accent-2">
+              {t("dashboard:episode_planning_fresh")}
+            </span>
+          ) : null}
         </span>
         {info?.units != null ? (
           <span className="num mt-0.5 block text-[10.5px] text-text-4">

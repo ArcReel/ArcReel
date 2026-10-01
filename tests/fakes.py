@@ -178,6 +178,9 @@ class FakeTextGenerator:
     ``generate`` 抛出，模拟供应商调用失败。
     """
 
+    #: 与 ``TextGenerator.max_output_tokens`` 同名：未登记最大输出长度时的生效上限。
+    max_output_tokens = 64000
+
     def __init__(self, *responses: str | BaseException):
         self._responses = list(responses)
         self.requests: list[Any] = []

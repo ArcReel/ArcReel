@@ -1408,27 +1408,16 @@ class TestPatchProjectSettings:
         assert out.problem is not None
         assert "episode_target_units" not in ctx.pm.load_project("demo")
 
-    @pytest.mark.parametrize("key", ["episode_target_units", "planning_window_chars", "planning_max_episodes"])
-    async def test_positive_int_setting_accepts_digit_string(self, ctx: ToolHarness, key: str) -> None:
+    async def test_positive_int_setting_accepts_digit_string(self, ctx: ToolHarness) -> None:
         """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；数字字符串按落盘用 int 容忍。"""
-        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: "10"}})
+        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"episode_target_units": "10"}})
         assert out.problem is None
-        assert ctx.pm.load_project("demo")[key] == 10
+        assert ctx.pm.load_project("demo")["episode_target_units"] == 10
 
     @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
-    async def test_set_and_clear_planning_overrides(self, ctx: ToolHarness, key: str) -> None:
-        """分集规划的窗口字数 / 每批集数覆盖项：正整数写入，null 清除回内部默认。"""
+    async def test_planning_window_and_batch_size_are_not_settings(self, ctx: ToolHarness, key: str) -> None:
+        """分集规划的窗口字数与每批集数不是创作者参数，项目设置不接受。"""
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: 12}})
-        assert out.problem is None
-        assert ctx.pm.load_project("demo")[key] == 12
-        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: None}})
-        assert out.problem is None
-        assert key not in ctx.pm.load_project("demo")
-
-    @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
-    @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True, "10.5", "10.0", "abc", ""])
-    async def test_invalid_planning_override_rejected(self, ctx: ToolHarness, key: str, bad_value: Any) -> None:
-        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: bad_value}})
         assert out.problem is not None
         assert key not in ctx.pm.load_project("demo")
 

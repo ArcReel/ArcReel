@@ -294,14 +294,16 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
       !present && formal !== "present" && nextType !== "start_blank_script" && nextType !== "provide_episode_source"
         ? [provideSourceAct(t)]
         : [];
+    const planningSteps = stepsFor(facts, ["episode_plan"]);
+    const planning = planningSteps.some((step) => step.state === "active");
     rows.push({
       key: "source",
       title: t("workflow:row_source"),
-      tone: content.episode_plan_stale ? "warn" : present ? "done" : "todo",
+      tone: planning ? "running" : content.episode_plan_stale ? "warn" : present ? "done" : "todo",
       status: present ? t("workflow:status_source_present") : t("workflow:status_source_absent"),
       notes,
       acts,
-      steps: [],
+      steps: planningSteps,
     });
 
     const planDraft = draftOf(content, false);
@@ -815,6 +817,21 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         primary: [agentAct(t, t("workflow:agent_prefill_create_edit_timeline", { episodeRef }), t("workflow:act_agent_edit"))],
       };
     case "wait_for_task":
+      if (rowKey === "source") {
+        return {
+          ...base,
+          title: t("workflow:next_title_wait_for_episode_planning"),
+          detail: t("workflow:next_detail_wait_for_episode_planning"),
+          primary: [
+            {
+              key: "view-planning",
+              label: t("workflow:act_view_planning_progress"),
+              kind: "nav",
+              intent: { type: "route", path: episodesViewPath() },
+            },
+          ],
+        };
+      }
       return { ...base, detail: t("workflow:next_detail_wait_for_task") };
     case "configure_provider":
       return {

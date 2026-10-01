@@ -14,12 +14,20 @@ from sqlalchemy import func, select
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.backends.text_backends.base import TextGenerationResult as BackendTextGenerationResult
+from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.task import GenerationBatch
-from lib.episode.episode_planner import EpisodePlanner, EpisodePlanningError, EpisodePlanSummary, PlanResult
+from lib.episode.episode_planner import (
+    EpisodePlanner,
+    EpisodePlanningError,
+    EpisodePlanSummary,
+    NoCutPointError,
+    PlanningOutputTruncatedError,
+    PlanResult,
+)
 from lib.generation.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import wait_for_task
@@ -547,6 +555,51 @@ async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_
     assert problem.action is GenerationAction.RETRY
 
 
+@pytest.mark.parametrize(
+    ("failure", "code", "action", "params"),
+    [
+        (
+            PlanningOutputTruncatedError(
+                TextOutputTruncatedError(
+                    provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
+                )
+            ),
+            "text_output_truncated",
+            GenerationAction.CONFIGURE_PROVIDER,
+            {"provider_id": "custom-3", "model": "my-llm", "custom_model": True},
+        ),
+        (
+            NoCutPointError(source_file="source/novel.txt", offset=120),
+            "episode_planning_no_cut_point",
+            GenerationAction.FIX_INPUT,
+            {"source_file": "source/novel.txt", "offset": 120},
+        ),
+    ],
+)
+async def test_queued_plan_failure_carries_the_way_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: Exception, code: str, action, params: dict
+) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    projects.create_project("planning", content_mode="narration")
+    projects.create_project_metadata("planning", "Planning", "", "narration")
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
+
+    class Planner:
+        @classmethod
+        async def create(cls, _project_path):
+            return cls()
+
+        async def plan(self, instructions=None):
+            raise failure
+
+    task = {"task_id": "task-plan", "project_name": "planning", "task_type": "text_episode_plan", "payload": {}}
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task, planner_cls=Planner)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (code, action, params)
+
+
 async def test_cancel_during_started_episode_script_commit_leaves_member_running_to_success(
     tmp_path: Path, file_db_factory, monkeypatch
 ) -> None:
@@ -649,6 +702,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
 
     class Generator:
         model = "fake-model"
+        max_output_tokens = 64000
 
         async def generate(self, _request, project_name=None):
             return BackendTextGenerationResult(

@@ -349,6 +349,24 @@ class TestDiscoverModelsGoogle:
         assert result[0]["model_id"] == "gemini-3-flash"
         assert result[0]["display_name"] == "gemini-3-flash"
 
+    async def test_text_models_prefill_output_token_limit(self):
+        """文本模型用 outputTokenLimit 预填最大输出长度；其他媒体类型与缺这一项的模型不预填。"""
+        from lib.custom_provider.discovery import discover_models
+
+        models = [
+            SimpleNamespace(name="models/gemini-3-flash", output_token_limit=65536),
+            SimpleNamespace(name="models/gemini-3-pro", output_token_limit=None),
+            SimpleNamespace(name="models/gemini-3-flash-image-preview", output_token_limit=32768),
+        ]
+        with _recorded_genai_clients(models):
+            result = await discover_models(discovery_format="google", base_url=None, api_key="test-key")
+
+        assert {m["model_id"]: m["max_output_tokens"] for m in result} == {
+            "gemini-3-flash": 65536,
+            "gemini-3-pro": None,
+            "gemini-3-flash-image-preview": None,
+        }
+
     async def test_no_base_url(self):
         """base_url 为 None 时不传 http_options。"""
         from lib.custom_provider.discovery import discover_models

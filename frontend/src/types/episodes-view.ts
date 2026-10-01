@@ -87,3 +87,14 @@ export type ManualSplitResponse =
   | { status: "applied"; episode: number | null; impact: ManualSplitImpact }
   /** `impact.text` 是服务端成文的确认清单。 */
   | { status: "confirmation_required"; impact: ManualSplitImpact & { text: string } };
+
+/** AI 规划分集的提交结果：首窗的生成批次。之后每一窗由执行中的上一窗排进队列。 */
+export interface EpisodePlanningResponse {
+  batch: { batch_id: string; members: { unit_id: string; task_id: string | null; deduped?: boolean }[] };
+}
+
+/** 停止分集规划：`cancelled` 是取消掉的排队窗口，`running` 是正在执行、会照常完成的窗口。 */
+export interface StopEpisodePlanningResponse {
+  cancelled: string[];
+  running: string[];
+}

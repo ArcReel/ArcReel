@@ -116,9 +116,11 @@ import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
 import type {
   AdoptSourceFileTarget,
+  EpisodePlanningResponse,
   EpisodesView,
   ManualSplitAction,
   ManualSplitResponse,
+  StopEpisodePlanningResponse,
 } from "@/types/episodes-view";
 import type {
   AssetRegenerationImpact,
@@ -1710,6 +1712,22 @@ class API {
         dry_run: options.dryRun ?? false,
       }),
     });
+  }
+
+  /**
+   * AI 规划分集：从规划起点逐窗规划到整本源文结尾，每一窗是一个排队的文本任务；提交即返首窗的生成批次。
+   * 已有进行中的分集规划时 409，没有整本源文等准入不成立时 422。附加指令不写进项目。
+   */
+  static async planEpisodes(projectName: string, instructions: string | null): Promise<EpisodePlanningResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episode-planning`, {
+      method: "POST",
+      body: JSON.stringify({ instructions }),
+    });
+  }
+
+  /** 停止分集规划：取消排队中的窗口，执行中的那一窗照常完成，已切出的集保留。 */
+  static async stopEpisodePlanning(projectName: string): Promise<StopEpisodePlanningResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episode-planning/stop`, { method: "POST" });
   }
 
   /** 处置 source/ 里没有登记的文件：加入整本源文，或用作一集的原文（原文件随即删除）。 */

@@ -1965,3 +1965,57 @@ class TestSupportedDurationsAutoFill:
         resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
         model = resp.json()["models"][0]
         assert model["supported_durations"] is None
+
+
+class TestMaxOutputTokens:
+    @staticmethod
+    def _create(client: TestClient, models: list[dict[str, Any]]):
+        return client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Relay",
+                "discovery_format": "openai",
+                "base_url": "https://relay.test/v1",
+                "api_key": "sk-relay-12345678",
+                "models": models,
+            },
+        )
+
+    def test_text_model_keeps_its_registered_limit(self, custom_providers_client: TestClient):
+        resp = self._create(
+            custom_providers_client,
+            [
+                {"model_id": "my-llm", "display_name": "My LLM", "endpoint": "openai-chat", "max_output_tokens": 8192},
+                {"model_id": "bare-llm", "display_name": "Bare", "endpoint": "openai-chat"},
+            ],
+        )
+
+        assert resp.status_code == 201
+        detail = custom_providers_client.get(f"/api/v1/custom-providers/{resp.json()['id']}").json()
+        limits = {m["model_id"]: m["max_output_tokens"] for m in detail["models"]}
+        assert limits == {"my-llm": 8192, "bare-llm": None}
+
+    def test_non_text_model_drops_the_limit(self, custom_providers_client: TestClient):
+        resp = self._create(
+            custom_providers_client,
+            [
+                {
+                    "model_id": "dall-e-3",
+                    "display_name": "DALL-E 3",
+                    "endpoint": "openai-images",
+                    "max_output_tokens": 4096,
+                }
+            ],
+        )
+
+        assert resp.status_code == 201
+        assert resp.json()["models"][0]["max_output_tokens"] is None
+
+    @pytest.mark.parametrize("bad", [0, -1])
+    def test_non_positive_limit_is_rejected(self, custom_providers_client: TestClient, bad: int):
+        resp = self._create(
+            custom_providers_client,
+            [{"model_id": "my-llm", "display_name": "My LLM", "endpoint": "openai-chat", "max_output_tokens": bad}],
+        )
+
+        assert resp.status_code == 422
