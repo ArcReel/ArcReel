@@ -22,7 +22,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.backends.providers import CallPurpose
-from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextTaskType
+from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutputTruncatedError, TextTaskType
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
 from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver
@@ -897,7 +897,7 @@ async def generate_drama_script_plan(
                 ) from exc
 
         return TextGenerationResult(_drama_script_plan_result_text(script_plan_path, raw_scenes, action="生成"))
-    except TextGenerationError:
+    except (TextGenerationError, TextOutputTruncatedError):
         raise
     except VideoRequestFactsError as exc:
         raise TextGenerationError(_video_facts_failure_text(exc.failure)) from exc
@@ -1632,7 +1632,7 @@ async def generate_reference_script_plan(
                 action="拆分",
             )
         )
-    except TextGenerationError:
+    except (TextGenerationError, TextOutputTruncatedError):
         raise
     except VideoRequestFactsError as exc:
         raise TextGenerationError(_video_facts_failure_text(exc.failure)) from exc
@@ -1771,7 +1771,7 @@ async def generate_narration_script_plan(
                 ) from exc
 
         return TextGenerationResult(_narration_script_plan_result_text(script_plan_path, raw_segments, action="拆分"))
-    except TextGenerationError:
+    except (TextGenerationError, TextOutputTruncatedError):
         raise
     except VideoRequestFactsError as exc:
         raise TextGenerationError(_video_facts_failure_text(exc.failure)) from exc

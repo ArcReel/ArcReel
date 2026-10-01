@@ -109,7 +109,7 @@ class TestGenerate:
         assert exc_info.value.provider == "gemini"
 
     async def test_free_text_truncation_only_warns(self, backend, caplog):
-        """自由文本（无 response_schema）被截断时维持 log-only 告警，不抛错。"""
+        """自由文本（无 response_schema）被截断时告警并在结果上标记截断，不抛错。"""
         import logging
 
         mock_resp = SimpleNamespace(
@@ -123,6 +123,7 @@ class TestGenerate:
             result = await backend.generate(TextGenerationRequest(prompt="gen"))
 
         assert result.text == "partial"
+        assert result.truncated is True
         assert any("被截断" in r.message for r in caplog.records)
 
     async def test_structured_output_pydantic_class_resolved_to_response_schema(self, backend):

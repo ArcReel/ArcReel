@@ -149,3 +149,23 @@ class TestOutputTokenCeiling:
         assert caught.value.provider_id == "custom-7"
         assert caught.value.model == "gemini-3-flash-preview"
         assert caught.value.custom_model is True
+
+    async def test_truncated_free_text_raises_only_when_the_caller_needs_it_whole(self, wired):
+        backend = _make_backend()
+        backend.generate = AsyncMock(
+            return_value=TextGenerationResult(
+                text='{"segments": [', provider="openai", model="my-model", output_tokens=8192, truncated=True
+            )
+        )
+        gen = TextGenerator(backend, wired.ledger, "custom-7", purpose=CallPurpose.SCRIPT_GENERATION, custom_model=True)
+
+        result = await gen.generate(TextGenerationRequest(prompt="测试"))
+        assert result.truncated is True
+
+        with pytest.raises(TextOutputTruncatedError) as caught:
+            await gen.generate(TextGenerationRequest(prompt="测试"), require_complete=True)
+
+        assert caught.value.provider_id == "custom-7"
+        assert caught.value.model == "gemini-3-flash-preview"
+        assert caught.value.output_tokens == 8192
+        assert caught.value.custom_model is True

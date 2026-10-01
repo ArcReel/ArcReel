@@ -804,7 +804,7 @@ class TestMaxOutputTokens:
 
 
 class TestTruncation:
-    """结构化输出被截断时抛 TextOutputTruncatedError；自由文本仅告警（见 docs/adr/0044）。"""
+    """结构化输出被截断时抛 TextOutputTruncatedError；自由文本告警并在结果上标记截断（见 docs/adr/0044）。"""
 
     async def test_structured_truncation_raises(self):
 
@@ -843,4 +843,5 @@ class TestTruncation:
                 result = await backend.generate(TextGenerationRequest(prompt="hi"))
 
         assert result.text == "partial"
+        assert result.truncated is True
         assert any("被截断" in r.message for r in caplog.records)

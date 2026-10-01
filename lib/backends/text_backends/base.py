@@ -32,8 +32,8 @@ def warn_if_truncated(
     """检测模型响应是否因 token 上限被截断，若是则 logger.warning。
 
     返回 True 表示被截断（供调用方用于进一步处理）。自由文本（无 response_schema）
-    的截断处理到此为止，仅告警不抛错；结构化输出的截断须走 :func:`check_truncation`
-    升级为硬错误。
+    的截断只告警不抛错，由结果的 ``truncated`` 标记带给调用方；结构化输出的截断须走
+    :func:`check_truncation` 升级为硬错误。
     """
     if finish_reason is None:
         return False
@@ -51,10 +51,11 @@ def warn_if_truncated(
 
 
 class TextOutputTruncatedError(NonRetryableError):
-    """结构化输出被模型输出上限截断，结果不完整、不可直接使用。
+    """文本模型输出被输出上限截断，结果不完整、不可直接使用。
 
-    仅在请求带 response_schema（结构化输出诉求）时抛出；自由文本截断维持
-    ``warn_if_truncated`` 的 log-only 告警，不升级为本异常（见 docs/adr/0044）。
+    backend 只在请求带 response_schema（结构化输出诉求）时抛出；自由文本截断只告警并在结果上
+    标记 ``truncated``（见 docs/adr/0044），调用方要求完整输出时由
+    :meth:`lib.backends.text_generator.TextGenerator.generate` 升级为本异常。
 
     继承 NonRetryableError（而非直接 RuntimeError）：消息内嵌的 output_tokens 是任意
     整数，其十进制文本可能偶然包含 with_retry_async 瞬态错误模式的子串（如 429/500/
@@ -159,8 +160,8 @@ def check_truncation(
     structured: bool,
     output_tokens: int | None = None,
     truncation_values: tuple[str, ...] = ("length", "MAX_TOKENS", "max_tokens"),
-) -> None:
-    """检测输出截断：结构化输出（``structured=True``）截断是硬错误，自由文本仅告警。
+) -> bool:
+    """检测输出截断：结构化输出（``structured=True``）截断是硬错误，自由文本告警并返回 True。
 
     ``structured`` 由调用方按本次 ``generate()`` 的原始请求是否带 response_schema 传入——
     判断口径是"这次生成诉求"而非"这次具体 wire 调用是否真的带了 schema 参数"，故内部降级
@@ -179,6 +180,7 @@ def check_truncation(
     )
     if truncated and structured:
         raise TextOutputTruncatedError(provider=provider, model=model, output_tokens=output_tokens)
+    return truncated
 
 
 class TextCapability(StrEnum):
@@ -244,13 +246,18 @@ class TextGenerationRequest:
 
 @dataclass
 class TextGenerationResult:
-    """通用文本生成结果。"""
+    """通用文本生成结果。
+
+    ``truncated`` 标明自由文本输出被模型输出上限截断（结构化输出截断直接抛
+    :class:`TextOutputTruncatedError`，不会带着这个标记返回）。
+    """
 
     text: str
     provider: str
     model: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+    truncated: bool = False
 
 
 def merge_billed_tokens(kept: int | None, discarded: int | None) -> int | None:

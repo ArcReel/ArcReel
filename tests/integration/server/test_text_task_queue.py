@@ -357,6 +357,36 @@ async def test_draft_repair_failing_before_the_write_back_does_not_claim_the_dra
     assert draft_revision(draft) == revision
 
 
+@pytest.mark.usefixtures("video_request_facts")
+async def test_truncated_draft_repair_fails_with_the_way_out_and_keeps_the_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AI 修复的回复被截断：任务以分集规划同一个问题码失败，带出路参数，草稿不变。"""
+    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+    model = FakeTextGenerator(
+        TextOutputTruncatedError(
+            provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
+        )
+    )
+    monkeypatch.setattr(TextGenerator, "create", model.create)
+    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
+    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "text_output_truncated",
+        GenerationAction.CONFIGURE_PROVIDER,
+        {"provider_id": "custom-3", "model": "my-llm", "custom_model": True},
+    )
+    assert model.require_complete == [True]
+    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    assert draft is not None
+    assert draft_revision(draft) == revision
+
+
 async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state(
     tmp_path: Path,
     file_db_factory,
@@ -624,6 +654,8 @@ async def test_queued_plan_failure_carries_the_way_out(
 
     problem = problem_from_task_failure(str(raised.value))
     assert (problem.code, problem.action, problem.params) == (code, action, params)
+    if code == "text_output_truncated":
+        assert problem.detail == str(failure)
 
 
 async def test_cancel_during_started_episode_script_commit_leaves_member_running_to_success(

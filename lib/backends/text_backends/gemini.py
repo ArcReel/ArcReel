@@ -270,10 +270,11 @@ class GeminiTextBackend:
             output_tokens = getattr(response.usage_metadata, "candidates_token_count", None)
 
         candidates = getattr(response, "candidates", None) or []
+        truncated = False
         if candidates:
             finish_reason = getattr(candidates[0], "finish_reason", None)
             # Gemini finish_reason 可能是枚举对象，转 str 后再比对
-            check_truncation(
+            truncated = check_truncation(
                 str(finish_reason).rsplit(".", 1)[-1] if finish_reason is not None else None,
                 provider=PROVIDER_GEMINI,
                 model=self._model,
@@ -287,6 +288,7 @@ class GeminiTextBackend:
             model=self._model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            truncated=truncated,
         )
 
     async def _prompt_json_fallback(self, request: TextGenerationRequest) -> TextGenerationResult:

@@ -184,14 +184,17 @@ class FakeTextGenerator:
     def __init__(self, *responses: str | BaseException):
         self._responses = list(responses)
         self.requests: list[Any] = []
+        #: 每次调用传入的 ``require_complete``，与 ``requests`` 一一对应。
+        self.require_complete: list[bool] = []
 
     async def create(self, _task_type: object, _project_name: str | None = None, **_kwargs: Any) -> FakeTextGenerator:
         return self
 
-    async def generate(self, request: Any, project_name: str | None = None) -> Any:
+    async def generate(self, request: Any, project_name: str | None = None, *, require_complete: bool = False) -> Any:
         from lib.backends.text_backends.base import TextGenerationResult
 
         self.requests.append(request)
+        self.require_complete.append(require_complete)
         response = self._responses.pop(0)
         if isinstance(response, BaseException):
             raise response

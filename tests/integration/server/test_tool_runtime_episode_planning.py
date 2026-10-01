@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 
-from lib.backends.text_backends.base import TextGenerationResult
+from lib.backends.text_backends.base import TextGenerationResult, TextOutputTruncatedError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -18,6 +18,7 @@ from lib.db.models.task import Task
 from lib.episode.episode_deletion import EpisodeDeletionConfirmationRequired, delete_episode
 from lib.episode.episode_planner import EpisodePlanner
 from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_result import GenerationAction, problem_from_task_failure
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.infra.app_data_dir import reset_for_tests
 from lib.project.project_manager import ProjectManager
@@ -347,3 +348,32 @@ async def test_a_pending_candidate_refuses_planning_and_another_replan(
     assert agent.problem.params["reason"] == "replan_candidate_pending"
     assert again.problem is not None
     assert again.problem.params["reason"] in ("replan_candidate_pending", "candidate_pending")
+
+
+async def test_a_truncated_replan_window_fails_with_the_way_out(planning, monkeypatch: pytest.MonkeyPatch) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    ledger = projects.load_project("planning")["episodes"]
+
+    class _Truncating(_Generator):
+        async def generate(self, request: Any, project_name: str | None = None) -> TextGenerationResult:
+            raise TextOutputTruncatedError(
+                provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
+            )
+
+    _use_generator(monkeypatch, _Truncating())
+    outcome = await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services, episode=ledger[1]["episode"]
+    )
+
+    assert outcome.problem is None
+    tasks = await _wait_until_idle(session_factory)
+    (failed,) = [task for task in tasks if task.status == "failed" and task.resource_id == "episode-planning"]
+    problem = problem_from_task_failure(failed.error_message)
+    assert (problem.code, problem.action, problem.params) == (
+        "text_output_truncated",
+        GenerationAction.CONFIGURE_PROVIDER,
+        {"provider_id": "custom-3", "model": "my-llm", "custom_model": True},
+    )

@@ -126,14 +126,18 @@ class NoCutPointError(EpisodePlanningError):
         )
 
 
-class PlanningOutputTruncatedError(EpisodePlanningError):
-    """文本模型的结构化输出被输出上限截断，带出解析层 provider_id、模型 ID 与是否为自定义供应商的模型。"""
+class PlanningOutputTruncatedError(EpisodePlanningError, TextOutputTruncatedError):
+    """分集规划中文本模型的输出被截断：同时是规划失败与 :class:`TextOutputTruncatedError`，字段沿用后者。"""
 
     def __init__(self, cause: TextOutputTruncatedError):
-        self.provider_id = cause.provider_id or cause.provider
-        self.model = cause.model
-        self.custom_model = cause.custom_model
-        super().__init__(str(cause))
+        TextOutputTruncatedError.__init__(
+            self,
+            provider=cause.provider,
+            model=cause.model,
+            output_tokens=cause.output_tokens,
+            provider_id=cause.provider_id,
+            custom_model=cause.custom_model,
+        )
 
 
 def episodes_per_batch(max_output_tokens: int, content_mode: str) -> int:

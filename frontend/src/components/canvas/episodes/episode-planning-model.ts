@@ -1,9 +1,8 @@
-import { ROUTE_APP_SETTINGS } from "@/app-routes";
 import type { EpisodesView, TaskItem } from "@/types";
+import { outputTruncationOf, type OutputTruncation } from "@/utils/output-truncation";
 
 const EPISODE_PLAN_TASK_TYPE = "text_episode_plan";
 const CASCADE_FAILURE_CODE = "cascade_blocked_dependency";
-const CUSTOM_PROVIDER_PREFIX = "custom-";
 
 /** 规划起点之后还没分集的原文体量：各文件最后一个切出集之后的部分，不含夹在切出集之间的未切分原文。 */
 export function remainingUnits(view: EpisodesView): number {
@@ -19,19 +18,12 @@ export function remainingUnits(view: EpisodesView): number {
 export interface PlanningFailure {
   code: string | null;
   message: string;
-  /** 输出被截断时的模型；`custom` 为自定义供应商的模型，可以去设置里登记最大输出长度。 */
-  truncated: { providerId: string; model: string; custom: boolean } | null;
+  /** 输出被截断时的模型。 */
+  truncated: OutputTruncation | null;
 }
 
 function failureOf(task: TaskItem): PlanningFailure {
-  const params = task.error_params ?? {};
-  const providerId = params.provider_id;
-  const model = params.model;
-  const truncated =
-    task.error_code === "text_output_truncated" && typeof providerId === "string" && typeof model === "string"
-      ? { providerId, model, custom: params.custom_model === true }
-      : null;
-  return { code: task.error_code ?? null, message: task.error_message ?? "", truncated };
+  return { code: task.error_code ?? null, message: task.error_message ?? "", truncated: outputTruncationOf(task) };
 }
 
 /**
@@ -56,15 +48,6 @@ export function lastPlanningFailure(tasks: TaskItem[], projectName: string): Pla
     root = parent;
   }
   return failureOf(root);
-}
-
-/** 自定义供应商模型在设置页的位置：打开这个供应商的编辑表单并定位到这个模型。内置供应商返回 null。 */
-export function customModelSettingsPath(providerId: string, model: string): string | null {
-  if (!providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) return null;
-  const id = providerId.slice(CUSTOM_PROVIDER_PREFIX.length);
-  if (!/^\d+$/.test(id)) return null;
-  const params = new URLSearchParams({ section: "providers", custom: id, model });
-  return `${ROUTE_APP_SETTINGS}?${params.toString()}`;
 }
 
 /** 整本源文分集后的体量统计：集数、中位体量与中位朗读时长。 */

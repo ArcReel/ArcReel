@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Anchor, ChevronDown, Loader2, PencilLine } from "lucide-react";
+import { Anchor, ChevronDown, Loader2, PencilLine } from "lucide-react";
 import { API } from "@/api";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
@@ -116,36 +116,25 @@ function EpisodeHeader({
 }
 
 // ---------------------------------------------------------------------------
-// AI 规划脚本的任务进度：排队 / 生成中，或上一次失败的原因
+// AI 规划脚本的任务进度：排队 / 生成中。上一次失败的原因由集页顶部的文本任务失败条呈现
 // ---------------------------------------------------------------------------
 
 function ScriptPlanProgress({ projectName, episode }: { projectName: string; episode: number }) {
   const { t } = useTranslation("dashboard");
   const { busy, latestTask } = useScriptPlanEntry(projectName, episode);
-  if (busy) {
-    return (
-      <div
-        role="status"
-        className="mt-4 flex items-center gap-2.5 rounded-xl px-4 py-3 text-[12.5px]"
-        style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)", color: "var(--color-text-2)" }}
-      >
-        <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--color-accent-2)" }} aria-hidden />
-        <span>
-          {latestTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}
-          {" "}
-          <span style={{ color: "var(--color-text-4)" }}>{t("script_plan_progress_hint")}</span>
-        </span>
-      </div>
-    );
-  }
-  if (latestTask?.status !== "failed") return null;
+  if (!busy) return null;
   return (
     <div
-      role="alert"
-      className="mt-4 flex items-start gap-2.5 rounded-xl border border-red-500/35 px-4 py-3 text-[12.5px] text-red-300"
+      role="status"
+      className="mt-4 flex items-center gap-2.5 rounded-xl px-4 py-3 text-[12.5px]"
+      style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)", color: "var(--color-text-2)" }}
     >
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-      <span>{t("script_plan_failed", { reason: latestTask.error_message ?? t("script_plan_failed_unknown") })}</span>
+      <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--color-accent-2)" }} aria-hidden />
+      <span>
+        {latestTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}
+        {" "}
+        <span style={{ color: "var(--color-text-4)" }}>{t("script_plan_progress_hint")}</span>
+      </span>
     </div>
   );
 }
