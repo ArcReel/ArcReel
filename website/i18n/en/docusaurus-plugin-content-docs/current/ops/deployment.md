@@ -378,6 +378,8 @@ The same upgrade makes the project register episode source text and whole-source
 - Each whole-source file that episodes were cut from gets a normalized text snapshot under `source/snapshots/`.
 - After the upgrade, a file placed directly in `source/` without being registered through an upload is not source text: it takes no part in episode planning and does not change any episode's source text. The **Episodes** view lists these files under "N files not in use yet", where each one can be added to the whole source, used as an episode's source text, or deleted.
 
+The same upgrade moves the source type of drama projects (novel or screenplay) from the project settings onto each piece of source text: the migration gives every whole-source file and every episode with its own source text the project's previous type, and other content modes drop the setting. Afterwards, change the type of a whole-source file on its file bar in the **Episodes** view, and the type of an episode with its own source text while editing that text on the episode page. Script plans of drama storyboard projects stay current after the upgrade. Reference-video script plans did not distinguish source types before and were always planned as a novel, so in screenplay projects they show as outdated after the upgrade; formal scripts are not affected.
+
 One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
 
 - Free space is checked before the migration starts. If it cannot hold the copy, that project fails with a "disk space is insufficient" error and its directory is left untouched; free up space and restart to continue.

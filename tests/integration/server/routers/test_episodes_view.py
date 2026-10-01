@@ -233,3 +233,94 @@ class TestManualSplit:
 
         assert resp.status_code == 422
         assert resp.json()["detail"] == zh_errors.MESSAGES["manual_split_position_invalid"]
+
+
+class TestSourceFileKind:
+    def _drama(self, monkeypatch, tmp_path: Path, *, with_script_plan: bool):
+        client, pm, source_dir = _client(
+            monkeypatch,
+            tmp_path,
+            content_mode="drama",
+            whole_source_files=[
+                {"source_file": "source/a.txt", "source_kind": "novel"},
+                {"source_file": "source/b.txt", "source_kind": "novel"},
+            ],
+            episodes=[
+                _entry(1, "whole_source", source_range={"source_file": "source/a.txt", "start": 0, "end": 5}),
+                _entry(2, "whole_source", source_range={"source_file": "source/b.txt", "start": 0, "end": 5}),
+            ],
+            source_fingerprints={"source/a.txt": "f" * 64},
+            episode_id_high_water=2,
+        )
+        (source_dir / "a.txt").write_text("少年下山。", encoding="utf-8")
+        (source_dir / "b.txt").write_text("城里起火。", encoding="utf-8")
+        if with_script_plan:
+            for episode in (1, 2):
+                plan = (
+                    pm.get_project_path("demo") / "drafts" / f"episode_{episode}" / "script_plan_normalized_script.json"
+                )
+                plan.parent.mkdir(parents=True)
+                plan.write_text("{}", encoding="utf-8")
+        return client, pm
+
+    def test_change_without_started_episodes_applies_directly(self, tmp_path, monkeypatch):
+        client, pm = self._drama(monkeypatch, tmp_path, with_script_plan=False)
+        before = pm.load_project("demo")
+
+        with client:
+            resp = client.put(
+                "/api/v1/projects/demo/source-files/a.txt/source-kind", json={"source_kind": "screenplay"}
+            )
+            layout = client.get("/api/v1/projects/demo/episodes-view").json()
+
+        assert resp.json() == {"success": True, "applied": True, "needs_confirmation": False, "affected_episodes": []}
+        after = pm.load_project("demo")
+        assert after["whole_source_files"][0] == {"source_file": "source/a.txt", "source_kind": "screenplay"}
+        assert after["episodes"] == before["episodes"]
+        assert after["source_fingerprints"] == before["source_fingerprints"]
+        assert [f["source_kind"] for f in layout["files"]] == ["screenplay", "novel"]
+        assert [e["source_kind"] for e in layout["episodes"]] == ["screenplay", "novel"]
+
+    def test_change_that_stales_started_episodes_waits_for_confirmation(self, tmp_path, monkeypatch):
+        client, pm = self._drama(monkeypatch, tmp_path, with_script_plan=True)
+
+        with client:
+            asked = client.put(
+                "/api/v1/projects/demo/source-files/a.txt/source-kind", json={"source_kind": "screenplay"}
+            )
+            unchanged = pm.load_project("demo")["whole_source_files"][0]["source_kind"]
+            confirmed = client.put(
+                "/api/v1/projects/demo/source-files/a.txt/source-kind",
+                json={"source_kind": "screenplay", "confirm": True},
+            )
+
+        assert asked.json() == {"success": True, "applied": False, "needs_confirmation": True, "affected_episodes": [1]}
+        assert unchanged == "novel"
+        assert confirmed.json()["applied"] is True
+        assert pm.load_project("demo")["whole_source_files"][0]["source_kind"] == "screenplay"
+
+    def test_same_kind_is_a_no_op(self, tmp_path, monkeypatch):
+        client, _pm = self._drama(monkeypatch, tmp_path, with_script_plan=True)
+
+        with client:
+            resp = client.put("/api/v1/projects/demo/source-files/a.txt/source-kind", json={"source_kind": "novel"})
+
+        assert resp.json() == {"success": True, "applied": False, "needs_confirmation": False, "affected_episodes": []}
+
+    def test_non_drama_project_and_unknown_file_are_refused(self, tmp_path, monkeypatch):
+        client, _pm, source_dir = _client(monkeypatch, tmp_path, whole_source_files=[{"source_file": "source/a.txt"}])
+        (source_dir / "a.txt").write_text("正文", encoding="utf-8")
+
+        with client:
+            narration = client.put(
+                "/api/v1/projects/demo/source-files/a.txt/source-kind", json={"source_kind": "screenplay"}
+            )
+        drama_client, _drama_pm = self._drama(monkeypatch, tmp_path / "drama", with_script_plan=False)
+        with drama_client:
+            unknown = drama_client.put(
+                "/api/v1/projects/demo/source-files/c.txt/source-kind", json={"source_kind": "screenplay"}
+            )
+
+        assert narration.status_code == 409
+        assert narration.json()["detail"] == zh_errors.MESSAGES["source_kind_not_applicable"]
+        assert unknown.status_code == 404

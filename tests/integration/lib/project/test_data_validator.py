@@ -1573,30 +1573,41 @@ class TestAdReferenceVideoUnitsValidation:
 
 
 class TestSourceKindValidation:
-    """source_kind 顶层枚举校验：缺省 novel（缺失放行），仅拦非法值；并锁泛指 speaker 回归。"""
+    """源文件类型随源文件记录：缺失按小说放行，只拦非法值；并锁泛指 speaker 回归。"""
 
     def _validate(self, tmp_path, project):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", project)
         return DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
+    def _payload(self, file_kind: object = None, episode_kind: object = None) -> dict:
+        payload = _project_payload("drama")
+        payload["whole_source_files"] = [
+            {"source_file": "source/novel.txt", **({} if file_kind is None else {"source_kind": file_kind})}
+        ]
+        payload["episodes"] = [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/episode_1.json",
+                "source_origin": "own",
+                **({} if episode_kind is None else {"source_kind": episode_kind}),
+            }
+        ]
+        return payload
+
     def test_missing_source_kind_is_valid(self, tmp_path):
-        # 存量项目无 source_kind 字段：缺省 novel，不报错
-        result = self._validate(tmp_path, _project_payload("drama"))
+        result = self._validate(tmp_path, self._payload())
         assert result.valid, result.errors
-        assert not any("source_kind" in e for e in result.errors)
 
     @pytest.mark.parametrize("kind", ["novel", "screenplay"])
     def test_valid_source_kind_passes(self, tmp_path, kind):
-        payload = _project_payload("drama")
-        payload["source_kind"] = kind
-        result = self._validate(tmp_path, payload)
+        result = self._validate(tmp_path, self._payload(kind, kind))
         assert result.valid, result.errors
 
-    def test_invalid_source_kind_rejected(self, tmp_path):
-        payload = _project_payload("drama")
-        payload["source_kind"] = "screen_play"
-        result = self._validate(tmp_path, payload)
+    @pytest.mark.parametrize(("file_kind", "episode_kind"), [("screen_play", None), (None, "screen_play")])
+    def test_invalid_source_kind_rejected(self, tmp_path, file_kind, episode_kind):
+        result = self._validate(tmp_path, self._payload(file_kind, episode_kind))
         assert not result.valid
         assert any("source_kind" in e for e in result.errors)
 
@@ -1607,8 +1618,7 @@ class TestSourceKindValidation:
         screenplay 提取出的群演台词（speaker=老人甲）须能过校验、不被强行注册。
         """
         project_dir = tmp_path / "projects" / "demo"
-        payload = _project_payload("drama")
-        payload["source_kind"] = "screenplay"
+        payload = self._payload("screenplay")
         _write_json(project_dir / "project.json", payload)
         _write_json(
             project_dir / "scripts" / "episode_1.json",

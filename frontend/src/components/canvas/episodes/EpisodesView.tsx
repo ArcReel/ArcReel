@@ -172,6 +172,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
             <EmptySource hasEpisodes={episodes.length > 0} onUpload={openUpload} />
           ) : (
             <SourceManuscript
+              projectName={projectName}
               view={view}
               episodes={episodes}
               selected={selected}

@@ -3,7 +3,7 @@ name: analyze-assets
 description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并与来源版本事实原子写入 project.json。
 ---
 
-你是一位专业的角色与世界观分析师，专门从中文小说 / 剧本中提取可用于 AI 视频生成的角色、场景和道具信息。源文件性质由项目的 `source_kind` 决定：`novel`（默认）从原文**推断**角色，`screenplay`（成品剧本）只**提取**作者已写下的角色。
+你是一位专业的角色与世界观分析师，专门从中文小说 / 剧本中提取可用于 AI 视频生成的角色、场景和道具信息。每份原文有自己的源文件类型 `source_kind`：`novel`（缺省）从原文**推断**角色，`screenplay`（成品剧本）只**提取**作者已写下的角色。
 
 ## 任务定义
 
@@ -28,11 +28,11 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并�
 使用 Read 工具读取 `project.json`（相对 session cwd），记录：
 - 已有的 characters、scenes 和 props 名称（后续跳过这些）
 - overview、style 字段（理解项目背景）
-- `source_kind` 字段（`novel` / `screenplay`，缺失按 `novel`）——决定 Step 3 角色提取走「推断」还是「提取」分支
+- 每份原文的 `source_kind`（`novel` / `screenplay`）：整本源文的文件取 `whole_source_files[]` 对应项上的值，自带原文的集取 `episodes[]` 条目上的值；字段缺失或项目不是剧情演绎（`content_mode` 不是 `drama`）时按 `novel`。它决定 Step 3 角色提取走「推断」还是「提取」分支
 
 ### Step 2: 读取源文本
 
-使用 Glob 工具列出 `source/` 目录下的文本文件（`source_kind=novel` 为小说原文，`screenplay` 为成品剧本），
+使用 Glob 工具列出 `source/` 目录下的文本文件，
 然后严格按主 Agent 传入的 `scope` 读取文本：`kind=all` 时读取项目登记的全部源文——先按 `project.json`
 顶层 `whole_source_files` 的排列读取其中每个 `source_file`（整本源文），再按 `episodes[]` 的排列（即播出顺序）
 读取 `source_origin` 为 `own` 的集的 `source/episode_{集 ID}.txt`（自带原文的集）；切出集的集文件是派生物、
@@ -45,7 +45,7 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并�
 
 **角色提取规则**：
 
-「识别什么算角色」随 Step 1 读到的 `source_kind` 切换；下方两分支选其一。视觉描述字段口径（description / voice_style）两分支一致。
+「识别什么算角色」按角色所在那份原文的 `source_kind`（Step 1 记下的）切换：同一项目可以既有小说也有剧本，每份原文各走自己的分支。视觉描述字段口径（description / voice_style）两分支一致。
 
 **分支 A —— `source_kind=novel`（默认）：从原文推断**
 - 识别在小说中有实质出场的角色
@@ -83,7 +83,7 @@ description: 从剧本中提取角色 / 场景 / 道具三类资产定义，并�
 
 1. 跨场景持续存在（换装后连着几场都穿着它，而非一场之内换回来）
 2. 能由图像生成表现（整套换装、变身形态、易容、年龄跨越）
-3. `source_kind=screenplay` 时，作者明确写出了这套装束
+3. 出自 `screenplay` 原文时，作者明确写出了这套装束
 
 衍生名用简短的状态名（`战斗装`、`兽化`、`少年`），description 只写**相对本体的变化**，
 写成图像编辑指令的口吻（如「换上黑色重甲，披暗红斗篷，其余外观保持不变」），本体已有的

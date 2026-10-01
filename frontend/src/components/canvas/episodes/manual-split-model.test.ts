@@ -18,6 +18,7 @@ function file(name: string, length: number, segments: EpisodesViewSegment[]): Ep
     units: 0,
     cut_units: 0,
     segments,
+    source_kind: null,
   };
 }
 

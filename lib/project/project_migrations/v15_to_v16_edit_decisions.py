@@ -56,6 +56,14 @@
 - 登记过切出集的文件补记规范化文本快照；文件内容与已记录的源文指纹不一致时不补记，指纹不一致仍由
   规划入口拦下。快照先于 ``project.json`` 写入，重跑时按原样覆盖。
 
+**源文件类型随源文件记录（ADR 0036）**
+
+- 剧情演绎项目按原来的项目级 ``source_kind``（缺失或非法时按小说）给整本源文清单的每一项、自带原文的集
+  补记类型；已有合法记录的不动。其他创作类型直接删去项目级字段。
+- 项目级类型此前只进剧情演绎分镜图生视频的脚本规划依据；改前目标态按补记后的类型规划，因此这些依据
+  不变。参考生视频的脚本规划此前不分类型、按小说出稿，剧本项目的这类登记改后读为过期。已冻结的产出
+  来源不改写。
+
 除上传产物的补登外，本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
@@ -111,8 +119,10 @@ from lib.episode.episode_sources import (
     WHOLE_SOURCE_FILES_KEY,
     SourceOrigin,
     cut_episode_source_files,
+    episode_source_origin,
     sync_source_snapshots,
 )
+from lib.episode.source_kinds import DEFAULT_SOURCE_KIND, SOURCE_KIND_FIELD, is_source_kind, source_kind_applies
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migration_report import ArtifactBackfillOutcome
@@ -160,13 +170,16 @@ def _load_object(path: Path) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-def _plan_before_rewrite(project_dir: Path, project: Mapping[str, Any]) -> ArtifactTargetStatePlan:
-    """改前目标态。在本步任何写入之前规划，兼作只读预检：输入损坏时项目目录不被改动。"""
+def _plan_before_rewrite(project_dir: Path, view: Mapping[str, Any]) -> ArtifactTargetStatePlan:
+    """改前目标态。在本步任何写入之前规划，兼作只读预检：输入损坏时项目目录不被改动。
+
+    ``view`` 是旧项目在新字段位置上的投影：集原文来源、整本源文清单与源文件类型由当前代码按新位置读取。
+    """
 
     project_bytes = (project_dir / "project.json").read_bytes()
     plan = TargetStatePlanner(
         project_dir,
-        project_bytes=json.dumps(project).encode(),
+        project_bytes=json.dumps(view).encode(),
         allow_stale_formal_targets=True,
         legacy_audio_entries=ProjectArtifactManifestAdapter(project_dir).snapshot_entries(),
     ).plan()
@@ -419,6 +432,41 @@ def _with_explicit_episode_sources(
 
 
 # ---------------------------------------------------------------------------
+# 子步：源文件类型随源文件记录
+# ---------------------------------------------------------------------------
+
+
+def _with_source_kinds(project: Mapping[str, Any]) -> dict[str, Any]:
+    """剧情演绎项目按项目级类型给整本源文文件与自带原文的集补记类型；删去项目级字段。"""
+    migrated = dict(project)
+    legacy = migrated.pop(SOURCE_KIND_FIELD, None)
+    if not source_kind_applies(migrated):
+        return migrated
+    kind = legacy if is_source_kind(legacy) else DEFAULT_SOURCE_KIND
+
+    def _with_kind(item: Mapping[str, Any]) -> dict[str, Any]:
+        updated = dict(item)
+        if not is_source_kind(updated.get(SOURCE_KIND_FIELD)):
+            updated[SOURCE_KIND_FIELD] = kind
+        return updated
+
+    raw_files = migrated.get(WHOLE_SOURCE_FILES_KEY)
+    if isinstance(raw_files, list):
+        migrated[WHOLE_SOURCE_FILES_KEY] = [
+            _with_kind(item) if isinstance(item, Mapping) else item for item in raw_files
+        ]
+    raw_episodes = migrated.get("episodes")
+    if isinstance(raw_episodes, list):
+        migrated["episodes"] = [
+            _with_kind(entry)
+            if isinstance(entry, Mapping) and episode_source_origin(entry) is SourceOrigin.OWN
+            else entry
+            for entry in raw_episodes
+        ]
+    return migrated
+
+
+# ---------------------------------------------------------------------------
 # 子步：转场移出脚本
 # ---------------------------------------------------------------------------
 
@@ -636,13 +684,15 @@ def migrate_v15_to_v16(
         return None
 
     with project_metadata_lock(project_dir):
-        before = _plan_before_rewrite(project_dir, project)
+        before = _plan_before_rewrite(
+            project_dir, _with_source_kinds(_with_explicit_episode_sources(project_dir, project)[0])
+        )
         _move_transitions_out_of_scripts(project_dir, project)
         with_sources, snapshot_texts = _with_explicit_episode_sources(
             project_dir, _narration_delivery_fields(project_dir, project)
         )
         migrated_project = {
-            **_with_episode_id_high_water(project_dir, with_sources, recorded_episode_ids),
+            **_with_episode_id_high_water(project_dir, _with_source_kinds(with_sources), recorded_episode_ids),
             "schema_version": TARGET_SCHEMA_VERSION,
         }
         after = _plan_after_rewrite(project_dir, migrated_project)

@@ -166,14 +166,12 @@ class _FakePM:
         extras=None,
         target_duration=None,
         brief=None,
-        source_kind=None,
         narration=None,
     ):
         payload = {
             "title": (title or name),
             "style": style or "",
             "content_mode": content_mode,
-            "source_kind": source_kind or "novel",
             "aspect_ratio": aspect_ratio,
             "episodes": [],
         }

@@ -56,6 +56,7 @@ from lib.episode.episode_target_duration import (
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
+from lib.episode.source_kinds import project_overview_source_kind
 from lib.infra.app_data_dir import app_data_dir
 from lib.infra.content_digest import canonical_json_digest
 from lib.infra.data_root_layout import PROJECT_FILENAME, PROJECT_NAME_PATTERN, DataRootLayout, list_project_dirs
@@ -109,13 +110,6 @@ PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 # 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
 VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
 _DEFAULT_GENERATION_MODE = "storyboard"
-
-# 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
-# 顶层字段，创建时确定、之后不可变。novel（默认，现状改编链路）/ screenplay（成品剧本，
-# drama 链路翻为提取优先）。详见 docs/adr/0036 与 CONTEXT.md「源文件类型」词条。
-SourceKind = Literal["novel", "screenplay"]
-VALID_SOURCE_KINDS: frozenset[str] = frozenset({"novel", "screenplay"})
-DEFAULT_SOURCE_KIND: SourceKind = "novel"
 
 
 class _Unset:
@@ -215,14 +209,6 @@ def is_reference_video_project(project: Mapping[str, Any]) -> bool:
     （见 ``script_generator``），只看剧本判不出参考生视频。
     """
     return project.get("generation_mode") == "reference_video"
-
-
-def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
-    """项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。"""
-    value = project.get("source_kind")
-    if isinstance(value, str) and value in VALID_SOURCE_KINDS:
-        return cast(SourceKind, value)
-    return DEFAULT_SOURCE_KIND
 
 
 def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[Any]:
@@ -2363,7 +2349,6 @@ class ProjectManager:
         extras: dict | None = None,
         target_duration: int | None = None,
         brief: str | None = None,
-        source_kind: str | None = None,
         narration: Mapping[str, object] | None = None,
     ) -> dict:
         """
@@ -2380,18 +2365,12 @@ class ProjectManager:
         `episode_target_duration` 为单集目标时长（秒），取值区间见
         `lib.episode.episode_target_duration`；软偏好，只注入脚本规划提示词与审核面板对比，不做阻断。
 
-        `source_kind` 为源文件性质（novel / screenplay），缺省 novel，创建即定、之后不可变
-        （可变性守卫在路由 PATCH 层，与 content_mode 同性质）。
-
         `narration` 是旁白交付配置字段（交付方式与 TTS 快照，见 `lib.speech.narration_config`），
         缺省为后期配音；TTS 配音必须带完整快照。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
         resolved_mode = content_mode or "narration"
-        resolved_source_kind = DEFAULT_SOURCE_KIND if source_kind is None else source_kind
-        if resolved_source_kind not in VALID_SOURCE_KINDS:
-            raise ValueError(f"source_kind 值无效: {source_kind!r}，必须是 {sorted(VALID_SOURCE_KINDS)}")
 
         # 数据层守卫：模式专属字段互斥。路由层已返回 400，这里再兜一道防非路由调用方。
         if resolved_mode == "ad":
@@ -2419,7 +2398,6 @@ class ProjectManager:
             # 风格的 project_name 固化为用户可见的标题。
             "title": project_title,
             "content_mode": resolved_mode,
-            "source_kind": resolved_source_kind,
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
@@ -3741,10 +3719,10 @@ class ProjectManager:
             TextTaskType.OVERVIEW, project_name, purpose=CallPurpose.PROJECT_OVERVIEW
         )
 
-        # 调用 TextGenerator（Structured Outputs）。source_kind=screenplay 时翻为「提取优先」：
-        # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳（novel 行为不变）。
+        # 调用 TextGenerator（Structured Outputs）。全部源文都是剧本时翻为「提取优先」：
+        # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳；混合时按小说口径。
         project_data = self.load_project(project_name)
-        source_kind = resolve_source_kind(project_data)
+        source_kind = project_overview_source_kind(project_data)
         # source_language 来自 project.json，可能是非字符串脏数据；非字符串或空串回退默认语言
         raw_source_language = project_data.get("source_language")
         target_language = (

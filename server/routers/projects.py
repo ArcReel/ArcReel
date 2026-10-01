@@ -55,6 +55,7 @@ from lib.episode.episode_target_duration import (
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
+from lib.episode.source_kinds import SourceKind
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
@@ -62,7 +63,7 @@ from lib.infra.json_io import domain_error_on_value_error
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_change_hints import project_change_source
-from lib.project.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.project.project_manager import EmptySourceError, EpisodeScriptReboundError, get_project_manager
 from lib.prompts.style_templates import is_known_template, resolve_template_prompt
 from lib.script.blank_script import BlankScriptError, start_blank_script
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
@@ -254,8 +255,6 @@ class CreateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = ""  # 保留但不再是用户入口
     content_mode: ContentMode | None = "narration"
-    # 源文件性质（novel / screenplay），缺省 novel；创建即定、之后不可变。
-    source_kind: SourceKind | None = None
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
     # 单集目标时长（秒）：可选软偏好，非 ad 项目适用；区间校验在 _validated_episode_target_duration。
@@ -801,14 +800,13 @@ async def create_project(
                     extras=extras or None,
                     target_duration=req.target_duration,
                     brief=req.brief,
-                    source_kind=req.source_kind,
                     narration=narration_fields,
                 )
             return {"success": True, "name": project_name, "project": project}
 
         return await asyncio.to_thread(_sync)
     except ValueError as e:
-        # 项目名 / source_kind / duration / brief 等配置校验失败，str(e) 只进日志
+        # 项目名 / duration / brief 等配置校验失败，str(e) 只进日志
         logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
         raise BadRequestError("project_config_invalid") from e
     except (HTTPException, ApiError):
@@ -1746,6 +1744,10 @@ class UpdateEpisodeRequest(BaseModel):
 
 class UpdateEpisodeSourceRequest(BaseModel):
     text: str
+    #: 剧情演绎项目这一集原文的源文件类型；缺省时保留已有类型，没有记录时记为小说。其他创作类型忽略。
+    source_kind: SourceKind | None = None
+    #: 已确认改类型会让本集已有的脚本规划判 stale。
+    confirm: bool = False
 
 
 @router.patch("/projects/{name}/segments/{segment_id}", dependencies=[Depends(require_project_migration_ok)])
@@ -1885,15 +1887,28 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
 
 @router.put("/projects/{name}/episodes/{episode}/source", dependencies=[Depends(require_project_migration_ok)])
 async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourceRequest, _t: Translator):
-    """集页填写或改写本集原文：无原文的集填上后转为自带原文的集。切出集的原文由分集规划派生，这里拒绝。"""
+    """集页填写或改写本集原文：无原文的集填上后转为自带原文的集。切出集的原文由分集规划派生，这里拒绝。
+
+    改类型会让本集已有的脚本规划判 stale 而 ``confirm`` 为 false 时，原文与类型都不写入，返回
+    ``needs_confirmation`` 与受影响的集 ID（``affected_episodes``）。
+    """
 
     def _sync() -> dict[str, Any]:
         manager = get_project_manager()
         if not manager.project_exists(name):
             raise NotFoundError("project_not_found", name=name)
         with project_change_source("webui"):
-            origin = set_episode_source_text(manager, name, episode, req.text)
-        return {"success": True, "episode": episode, "source_origin": origin.value}
+            written = set_episode_source_text(
+                manager, name, episode, req.text, source_kind=req.source_kind, confirm=req.confirm
+            )
+        return {
+            "success": True,
+            "episode": episode,
+            "source_origin": written.origin.value,
+            "applied": written.applied,
+            "needs_confirmation": not written.applied,
+            "affected_episodes": written.affected_episodes,
+        }
 
     try:
         return await asyncio.to_thread(_sync)

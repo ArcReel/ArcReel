@@ -66,6 +66,7 @@ from lib.episode.episode_target_duration import (
     is_valid_episode_target_duration,
 )
 from lib.episode.episode_target_volume import EPISODE_TARGET_UNITS_FIELD
+from lib.episode.source_kinds import SourceKind
 from lib.generation.generation_batch import (
     GenerationBatchReadModel,
     GenerationBatchRequestedItem,
@@ -115,7 +116,7 @@ from lib.project.asset_inventory import (
     complete_asset_inventory as complete_asset_inventory_service,
 )
 from lib.project.asset_types import ASSET_SPECS
-from lib.project.project_manager import ProjectManager, SourceKind, is_reference_video_project
+from lib.project.project_manager import ProjectManager, is_reference_video_project
 from lib.project.project_migration_failure import (
     MigrationFailureRecord,
     ProjectMigrationError,
@@ -1551,7 +1552,6 @@ class CreateProjectToolRequest(BaseModel):
     content_mode: ContentMode = Field(
         default="narration", description="内容模式：narration 说书解说、drama 剧集、ad 广告/短片"
     )
-    source_kind: SourceKind = Field(default="novel", description="源文类型：novel 小说、screenplay 剧本")
     generation_mode: Literal["storyboard", "reference_video"] = Field(
         default="storyboard", description="生成模式：storyboard 先出分镜图再生视频、reference_video 参考图直接生视频"
     )
@@ -1607,6 +1607,13 @@ class UploadSourceRequest(BaseModel):
         description=(
             "whole_source：登记为整本源文的文件，接在文件清单末尾，供分集规划切分；"
             "episode：登记为一集自带原文的集，接在播出顺序末尾，分配新集 ID，逐集直接做脚本规划"
+        ),
+    )
+    source_kind: SourceKind | None = Field(
+        default=None,
+        description=(
+            "源文件类型，只对剧情演绎项目生效，其他创作类型忽略：novel 小说（缺省），由 AI 改编；"
+            "screenplay 用户写好的成品剧本，分集、台词与画外音照用作者原文。替换已登记的同名整本源文文件时保留它原有的类型"
         ),
     )
 
@@ -1683,7 +1690,6 @@ async def create_project(
                 },
                 target_duration=value.target_duration,
                 brief=value.brief,
-                source_kind=value.source_kind,
                 narration=narration,
             )
         except Exception:
@@ -1729,7 +1735,9 @@ async def upload_source(
                 extracted = SourceLoader.extract(source_path, original_filename=value.filename)
                 project_dir = services.projects.get_project_path(scope.project_name)
                 with services.projects.locked_source_registration(scope.project_name) as (_dir, project, undo):
-                    episode = add_own_source_episode(project_dir, project, extracted.text, undo=undo)
+                    episode = add_own_source_episode(
+                        project_dir, project, extracted.text, undo=undo, source_kind=value.source_kind
+                    )
                     described = describe_episode_for_agent(project, episode)
                 return {
                     "episode_id": episode,
@@ -1751,7 +1759,9 @@ async def upload_source(
                     original_filename=value.filename,
                     on_conflict=value.on_conflict,
                 )
-                register_whole_source_file(project, f"source/{result.normalized_path.name}")
+                register_whole_source_file(
+                    project, f"source/{result.normalized_path.name}", source_kind=value.source_kind
+                )
         finally:
             if source_path is not None:
                 source_path.unlink(missing_ok=True)

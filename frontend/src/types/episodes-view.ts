@@ -5,6 +5,9 @@
 
 export type EpisodeSourceOrigin = "whole_source" | "own" | "none";
 
+/** 源文件类型：只有剧情演绎项目有。 */
+export type SourceKind = "novel" | "screenplay";
+
 export interface EpisodesViewSegment {
   kind: "episode" | "unsplit";
   start: number;
@@ -29,6 +32,8 @@ export interface EpisodesViewFile {
   units: number;
   cut_units: number;
   segments: EpisodesViewSegment[];
+  /** 非剧情演绎项目为 null。 */
+  source_kind: SourceKind | null;
 }
 
 export interface EpisodesViewEpisode {
@@ -42,6 +47,8 @@ export interface EpisodesViewEpisode {
   spoken_seconds: number | null;
   first_sentence: string;
   last_sentence: string;
+  /** 自带原文的集取自身记录，切出集取原文范围起点所在文件；无原文的集与非剧情演绎项目为 null。 */
+  source_kind: SourceKind | null;
 }
 
 export interface UnregisteredSourceFile {
@@ -97,4 +104,18 @@ export interface EpisodePlanningResponse {
 export interface StopEpisodePlanningResponse {
   cancelled: string[];
   running: string[];
+}
+
+/** 改整本源文文件类型的结果：`needs_confirmation` 时没有写入，`affected_episodes` 是会让脚本规划判 stale 的集。 */
+export interface SourceKindChangeResult {
+  success: boolean;
+  applied: boolean;
+  needs_confirmation: boolean;
+  affected_episodes: number[];
+}
+
+/** 集页写本集原文的结果；`needs_confirmation` 时原文与类型都没有写入。 */
+export interface EpisodeSourceWriteResult extends SourceKindChangeResult {
+  episode: number;
+  source_origin: EpisodeSourceOrigin;
 }

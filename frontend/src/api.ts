@@ -117,10 +117,13 @@ import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus
 import type {
   AdoptSourceFileTarget,
   EpisodePlanningResponse,
+  EpisodeSourceWriteResult,
   EpisodesView,
   ManualSplitAction,
   ManualSplitResponse,
   StopEpisodePlanningResponse,
+  SourceKind,
+  SourceKindChangeResult,
 } from "@/types/episodes-view";
 import type {
   AssetRegenerationImpact,
@@ -1131,17 +1134,21 @@ class API {
 
   /**
    * 集页填写或改写本集原文。无原文的集保存后转为自带原文的集；切自整本源文的集返回 409。
+   * `sourceKind` 只对剧情演绎项目生效，缺省时保留已有类型。改类型会让本集已有的脚本规划判 stale 时，
+   * 不带 `confirm` 不写入，返回 `needs_confirmation` 与受影响的集。
    */
   static async updateEpisodeSource(
     projectName: string,
     episode: number,
-    text: string
-  ): Promise<SuccessResponse> {
+    text: string,
+    sourceKind?: SourceKind,
+    confirm = false
+  ): Promise<EpisodeSourceWriteResult> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/source`,
       {
         method: "PUT",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify(sourceKind ? { text, source_kind: sourceKind, confirm } : { text, confirm }),
       }
     );
   }
@@ -1447,6 +1454,8 @@ class API {
       role?: "whole_source" | "episode";
       /** 仅 source 的 whole_source：登记后文件在整本源文清单里的下标，缺省接在末尾。 */
       insertAt?: number;
+      /** 仅 source：剧情演绎项目这份原文的源文件类型，缺省为小说。 */
+      sourceKind?: SourceKind;
       signal?: AbortSignal;
     } = {}
   ): Promise<{
@@ -1475,6 +1484,9 @@ class API {
     }
     if (uploadType === "source" && options.insertAt !== undefined) {
       qsParts.push(`insert_at=${options.insertAt}`);
+    }
+    if (uploadType === "source" && options.sourceKind) {
+      qsParts.push(`source_kind=${options.sourceKind}`);
     }
     const qs = qsParts.join("&");
     const url = `/projects/${encodeURIComponent(projectName)}/upload/${uploadType}${qs ? "?" + qs : ""}`;
@@ -1739,6 +1751,22 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/adopt`,
       { method: "POST", body: JSON.stringify(target) }
+    );
+  }
+
+  /**
+   * 改整本源文文件的源文件类型（只对剧情演绎开放）。会让已开始制作的集的脚本规划判 stale 时，
+   * 不带 `confirm` 不写入，返回 `needs_confirmation` 与这些集。
+   */
+  static async setSourceFileKind(
+    projectName: string,
+    filename: string,
+    sourceKind: SourceKind,
+    confirm = false
+  ): Promise<SourceKindChangeResult> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/source-kind`,
+      { method: "PUT", body: JSON.stringify({ source_kind: sourceKind, confirm }) }
     );
   }
 

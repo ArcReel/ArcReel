@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from lib import PROJECT_ROOT
 from lib.agent.profile_manifest import ContentMode
-from lib.project.project_manager import SourceKind
+from lib.episode.source_kinds import SourceKind
 
 # ---------------------------------------------------------------------------
 # Agent 安装指引内容验证

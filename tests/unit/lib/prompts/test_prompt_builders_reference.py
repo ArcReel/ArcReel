@@ -368,3 +368,16 @@ def test_reference_prompts_keep_every_empty_asset_block():
     for prompt in (_split_prompt(), _prompt_authoring_prompt(characters={})):
         for tag in ("characters", "scenes", "props"):
             assert f"<{tag}>\n（暂无）\n</{tag}>" in prompt
+
+
+def test_split_prompt_screenplay_branch_extracts_instead_of_adapting():
+    """剧本走提取分支：照用场次、台词逐字照搬、群演台词写成画外音；其余取值按小说渲染。"""
+    screenplay = _split_prompt(source_kind="screenplay")
+    novel = _split_prompt(source_kind="novel")
+
+    assert "<screenplay>" in screenplay
+    assert "沿用剧本自带的场次" in screenplay
+    assert "群演" in screenplay
+    assert "<novel>" in novel
+    assert "沿用剧本自带的场次" not in novel
+    assert _split_prompt(source_kind="screen_play") == novel == _split_prompt()

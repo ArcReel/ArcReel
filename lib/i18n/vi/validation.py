@@ -32,7 +32,7 @@ MESSAGES = {
     "val_path_must_be_relative": "{field} phải là đường dẫn tương đối trong dự án: {path}",
     # ---- trường cấp dự án ----
     "val_content_mode_invalid": "content_mode không hợp lệ: '{value}', phải thuộc {allowed}",
-    "val_source_kind_invalid": "source_kind không hợp lệ: '{value}', phải thuộc {allowed}",
+    "val_source_kind_invalid": "{prefix}: source_kind không hợp lệ: '{value}', phải thuộc {allowed}",
     "val_generation_mode_invalid": "generation_mode không hợp lệ: '{value}', phải thuộc {allowed}",
     "val_deprecated_clues": (
         "project.json chứa trường clues đã ngừng dùng; hãy chờ di trú tự động hoặc khởi động lại dịch vụ"

@@ -8,9 +8,12 @@ import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
 import { useAppStore } from "@/stores/app-store";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { SourceKindSelect } from "@/components/canvas/episodes/SourceKindSelect";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { EpisodeMeta } from "@/types";
+import type { SourceKind } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
-import { episodePosition } from "@/utils/episode-display";
+import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
 /**
  * 已选集但既没有脚本规划也没有正式脚本时的画布视图：呈现本集原文与分集元信息（边界、节拍、
@@ -18,7 +21,8 @@ import { episodePosition } from "@/utils/episode-display";
  * 适用 narration/drama 全部生成路径；ad 恒单集无源文切片，由 StudioCanvasRouter 排除。
  *
  * 本集原文按来源区分：切自整本源文的集只读（集文件由分集规划派生）；自带原文的集可改写；
- * 无原文的集直接给出填写框，保存后转为自带原文的集。
+ * 无原文的集直接给出填写框，保存后转为自带原文的集。剧情演绎项目填写或改写时一并选源文件类型；
+ * 改类型会让本集已有的脚本规划过期时，先请创作者确认再保存。
  */
 
 type SourceOrigin = NonNullable<EpisodeMeta["source_origin"]>;
@@ -234,20 +238,24 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
 
 function SourceEditor({
   initialText,
+  initialKind,
   saving,
   focusToken,
   onSave,
   onCancel,
 }: {
   initialText: string;
+  /** 源文件类型的初始值；null 时不提供类型选择（非剧情演绎项目）。 */
+  initialKind: SourceKind | null;
   saving: boolean;
   /** 每次变化都把焦点移到填写框（制作进度面板的「补充集原文」）。 */
   focusToken: number;
-  onSave: (text: string) => void;
+  onSave: (text: string, sourceKind: SourceKind | undefined) => void;
   onCancel: (() => void) | null;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [draft, setDraft] = useState(initialText);
+  const [kind, setKind] = useState<SourceKind | null>(initialKind);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const blank = draft.trim() === "";
 
@@ -278,6 +286,17 @@ function SourceEditor({
         }}
       />
       <div className="flex items-center justify-end gap-2">
+        {kind !== null ? (
+          <label className="mr-auto flex items-center gap-2 text-[12px]" style={{ color: "var(--color-text-3)" }}>
+            {t("dashboard:source_kind")}
+            <SourceKindSelect
+              value={kind}
+              onChange={setKind}
+              disabled={saving}
+              label={t("dashboard:source_kind")}
+            />
+          </label>
+        ) : null}
         {onCancel ? (
           <button
             type="button"
@@ -291,7 +310,7 @@ function SourceEditor({
         ) : null}
         <button
           type="button"
-          onClick={() => onSave(draft)}
+          onClick={() => onSave(draft, kind ?? undefined)}
           disabled={saving || blank}
           className="arc-btn-primary focus-ring rounded-lg px-4 py-1.5 text-[12.5px] font-semibold disabled:opacity-50"
         >
@@ -320,6 +339,7 @@ export function EpisodeSourceReview({
   const [fetched, setFetched] = useState<{ key: string; text: string | null } | null>(null);
 
   const meta = episodes.find((e) => e.episode === episode);
+  const isDrama = useProjectsStore((s) => s.currentProjectData?.content_mode === "drama");
 
   const origin = sourceOriginOf(meta);
   // 无原文的集没有集原文文件：盘上同名的 episode_N.txt 是未登记文件，不当作本集原文读取
@@ -355,11 +375,22 @@ export function EpisodeSourceReview({
     setFocusToken((value) => value + 1);
   });
 
+  const [pendingSave, setPendingSave] = useState<{
+    draft: string;
+    sourceKind: SourceKind | undefined;
+    episodes: number[];
+  } | null>(null);
+
   const handleSave = useCallback(
-    async (draft: string) => {
+    async (draft: string, sourceKind: SourceKind | undefined, confirm = false) => {
       setSaving(true);
       try {
-        await API.updateEpisodeSource(projectName, episode, draft);
+        const result = await API.updateEpisodeSource(projectName, episode, draft, sourceKind, confirm);
+        if (result.needs_confirmation) {
+          setPendingSave({ draft, sourceKind, episodes: result.affected_episodes });
+          return;
+        }
+        setPendingSave(null);
         setFetched({ key: `${projectName}::${episode}`, text: draft });
         setEditingKey(null);
         useAppStore.getState().pushToast(t("episode_workspace_source_saved"), "success");
@@ -417,9 +448,10 @@ export function EpisodeSourceReview({
               <SourceEditor
                 key={fetchKey}
                 initialText={text ?? ""}
+                initialKind={isDrama ? (meta?.source_kind ?? "novel") : null}
                 saving={saving}
                 focusToken={focusToken}
-                onSave={(draft) => void handleSave(draft)}
+                onSave={(draft, sourceKind) => void handleSave(draft, sourceKind)}
                 onCancel={text ? () => setEditingKey(null) : null}
               />
             ) : text ? (
@@ -452,6 +484,31 @@ export function EpisodeSourceReview({
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={pendingSave !== null}
+        title={t("source_kind_change_episode_title")}
+        description={
+          <>
+            <span className="block">{t("source_kind_change_episode_desc")}</span>
+            <ul className="mt-2 list-disc space-y-0.5 pl-5">
+              {(pendingSave?.episodes ?? []).map((affected) => (
+                <li key={affected}>
+                  {t("source_kind_change_episode", {
+                    position: episodePosition(episodes, affected) ?? "?",
+                    name: episodeDisplayName(episodes, affected, t),
+                  })}
+                </li>
+              ))}
+            </ul>
+          </>
+        }
+        confirmLabel={t("source_kind_change_episode_confirm")}
+        loading={saving}
+        onConfirm={() => {
+          if (pendingSave) void handleSave(pendingSave.draft, pendingSave.sourceKind, true);
+        }}
+        onCancel={() => setPendingSave(null)}
+      />
     </div>
   );
 }

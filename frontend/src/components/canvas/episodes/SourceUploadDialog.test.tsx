@@ -143,4 +143,55 @@ describe("SourceUploadDialog", () => {
     expect(screen.getByText("以下文件的格式不支持，已跳过：cover.png")).toBeInTheDocument();
     expect(listedNames()).toEqual(["a.txt", "b.txt", "x.txt"]);
   });
+
+  it("records the source kind chosen for each file in a drama project, novel by default", async () => {
+    useProjectsStore.setState({ currentProjectData: makeProject({ content_mode: "drama" }) });
+    const upload = vi
+      .spyOn(API, "uploadFile")
+      .mockResolvedValueOnce({ success: true, path: "source/x.txt", filename: "x.txt" })
+      .mockResolvedValueOnce({ success: true, path: "source/y.txt", filename: "y.txt" });
+    const { onClose } = renderDialog({ initialFiles: [txt("x.txt"), txt("y.txt")] });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "y.txt 的源文件类型" }), { target: { value: "screenplay" } });
+    fireEvent.click(screen.getByRole("button", { name: "上传 2 个文件" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(upload.mock.calls.map((call) => [call[2].name, call[4]?.sourceKind])).toEqual([
+      ["x.txt", "novel"],
+      ["y.txt", "screenplay"],
+    ]);
+  });
+
+  it("applies one batch source kind to every per-episode file and still allows changing one", async () => {
+    useProjectsStore.setState({ currentProjectData: makeProject({ content_mode: "drama" }) });
+    const upload = vi
+      .spyOn(API, "uploadFile")
+      .mockResolvedValueOnce({ success: true, path: "source/episode_2.txt", episode: 2 })
+      .mockResolvedValueOnce({ success: true, path: "source/episode_3.txt", episode: 3 })
+      .mockResolvedValueOnce({ success: true, path: "source/episode_4.txt", episode: 4 });
+    const { onClose } = renderDialog({ initialMode: "episode", initialFiles: [txt("一.txt"), txt("二.txt")] });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "这批文件的源文件类型" }), { target: { value: "screenplay" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "二.txt 的源文件类型" }), { target: { value: "novel" } });
+    fireEvent.change(screen.getByLabelText("选择文件"), { target: { files: [txt("三.txt")] } });
+    fireEvent.click(screen.getByRole("button", { name: "添加为第 2–4 集" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(upload.mock.calls.map((call) => [call[2].name, call[4]?.sourceKind])).toEqual([
+      ["一.txt", "screenplay"],
+      ["二.txt", "novel"],
+      ["三.txt", "screenplay"],
+    ]);
+  });
+
+  it("offers no source kind outside drama projects", async () => {
+    const upload = vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "source/x.txt", filename: "x.txt" });
+    const { onClose } = renderDialog({ initialFiles: [txt("x.txt")] });
+
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(upload.mock.calls[0][4]?.sourceKind).toBeUndefined();
+  });
 });

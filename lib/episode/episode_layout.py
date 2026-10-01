@@ -35,6 +35,7 @@ from lib.episode.episode_sources import (
     is_whole_source_file_path,
     whole_source_files,
 )
+from lib.episode.source_kinds import SourceKind, entry_source_kind, whole_source_file_kind
 from lib.infra.text_metrics import count_reading_units, reading_unit_noun
 from lib.speech.speech_rate import estimate_spoken_seconds, project_speech_rate_override
 
@@ -72,6 +73,8 @@ class LayoutFile:
     units: int
     cut_units: int
     segments: list[LayoutSegment] = field(default_factory=list)
+    #: 源文件类型；只有剧情演绎项目有。
+    source_kind: SourceKind | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +92,8 @@ class LayoutEpisode:
     spoken_seconds: float | None
     first_sentence: str
     last_sentence: str
+    #: 源文件类型：自带原文的集取条目记录，切出集取范围起点所在文件；无原文的集与非剧情演绎项目为 None。
+    source_kind: SourceKind | None = None
 
 
 @dataclass(frozen=True)
@@ -228,7 +233,14 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
         if rel not in readable or index is None:
             files.append(
                 LayoutFile(
-                    source_file=rel, name=name, original_filename=original, missing=True, length=0, units=0, cut_units=0
+                    source_file=rel,
+                    name=name,
+                    original_filename=original,
+                    missing=True,
+                    length=0,
+                    units=0,
+                    cut_units=0,
+                    source_kind=whole_source_file_kind(project, rel),
                 )
             )
             continue
@@ -255,6 +267,7 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
                 units=count_reading_units(doc.text, language),
                 cut_units=sum(s.units for s in segments if s.kind == "episode"),
                 segments=segments,
+                source_kind=whole_source_file_kind(project, rel),
             )
         )
 
@@ -289,6 +302,7 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
                 spoken_seconds=None if text is None else estimate_spoken_seconds(text, language, rate_override),
                 first_sentence=first,
                 last_sentence=last_sentence,
+                source_kind=entry_source_kind(project, entry),
             )
         )
 

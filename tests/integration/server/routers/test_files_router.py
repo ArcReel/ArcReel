@@ -153,6 +153,48 @@ class TestFilesRouter:
         summary = WorkflowStateService(pm).get_project_summary("demo")
         assert [episode.episode for episode in summary.episodes] == [4, 5]
 
+    def test_drama_upload_records_the_chosen_source_kind_on_each_source(self, tmp_path, monkeypatch):
+        """剧情演绎上传时逐个记源文件类型，缺省为小说；其他创作类型不记。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        pm.update_project("demo", lambda project: project.update(content_mode="drama"))
+
+        with client:
+            for query, name in (("?source_kind=screenplay", "剧本.txt"), ("", "小说.txt")):
+                resp = client.post(
+                    f"/api/v1/projects/demo/upload/source{query}", files={"file": (name, "正文", "text/plain")}
+                )
+                assert resp.status_code == 200
+            resp = client.post(
+                "/api/v1/projects/demo/upload/source?role=episode&source_kind=screenplay",
+                files={"file": ("番外.txt", "番外原文", "text/plain")},
+            )
+            assert resp.status_code == 200
+
+        project = pm.load_project("demo")
+        assert project["whole_source_files"] == [
+            {"source_file": "source/剧本.txt", "source_kind": "screenplay"},
+            {"source_file": "source/小说.txt", "source_kind": "novel"},
+        ]
+        assert project["episodes"][-1]["source_kind"] == "screenplay"
+
+    def test_non_drama_upload_records_no_source_kind(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+
+        with client:
+            whole = client.post(
+                "/api/v1/projects/demo/upload/source?source_kind=screenplay",
+                files={"file": ("剧本.txt", "正文", "text/plain")},
+            )
+            episode = client.post(
+                "/api/v1/projects/demo/upload/source?role=episode&source_kind=screenplay",
+                files={"file": ("番外.txt", "番外原文", "text/plain")},
+            )
+
+        assert (whole.status_code, episode.status_code) == (200, 200)
+        project = pm.load_project("demo")
+        assert project["whole_source_files"] == [{"source_file": "source/剧本.txt"}]
+        assert "source_kind" not in project["episodes"][-1]
+
     def test_episode_role_upload_keeps_an_unregistered_file_with_the_new_id(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         pm.update_project("demo", lambda project: project.update(episode_id_high_water=4))

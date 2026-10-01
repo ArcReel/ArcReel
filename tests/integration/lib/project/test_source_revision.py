@@ -12,7 +12,7 @@ from lib.project.source_revision import SourceScope, compute_source_revision
 def _project(*whole_source: str, own: tuple[int, ...] = (), cut: tuple[int, ...] = ()) -> dict[str, object]:
     """``whole_source`` 按顺序登记为整本源文；``own`` / ``cut`` 是自带原文与切出集的集 ID。"""
     return {
-        "source_kind": "novel",
+        "content_mode": "drama",
         "source_language": "zh",
         "whole_source_files": [{"source_file": f"source/{name}"} for name in whole_source],
         "episodes": [{"episode": n, "source_origin": "own"} for n in own]
@@ -129,7 +129,12 @@ def test_revision_changes_with_raw_bytes_path_and_source_semantics(tmp_path: Pat
     changed_path = compute_source_revision(tmp_path, project, SourceScope(kind="all"))
     changed_semantics = compute_source_revision(
         tmp_path,
-        {**project, "source_kind": "screenplay"},
+        {
+            **project,
+            "whole_source_files": [
+                {"source_file": f"source/{name}", "source_kind": "screenplay"} for name in ("a.txt", "b.txt")
+            ],
+        },
         SourceScope(kind="all"),
     )
 

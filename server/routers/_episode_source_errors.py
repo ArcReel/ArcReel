@@ -16,6 +16,7 @@ _STATUS: dict[str, int] = {
     "episode_source_present": 409,
     "episode_source_derived": 409,
     "episode_source_symlink": 409,
+    "source_kind_not_applicable": 409,
 }
 
 

@@ -87,11 +87,12 @@ class TestProjectsRouter:
             delete_ok = client.delete("/api/v1/projects/remove-me")
             assert delete_ok.status_code == 200
 
-    def test_create_persists_source_kind_and_defaults_novel(self, tmp_path, monkeypatch):
-        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
+    def test_create_does_not_record_a_project_level_source_kind(self, tmp_path, monkeypatch):
+        """源文件类型随源文件记录：创建项目不接受、也不写入项目级类型。"""
+        fake_pm = _FakePM(tmp_path)
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
-            # 显式 screenplay 持久化于 project.json 顶层
-            screenplay = client.post(
+            created = client.post(
                 "/api/v1/projects",
                 json={
                     "generation_mode": "storyboard",
@@ -101,29 +102,8 @@ class TestProjectsRouter:
                     "source_kind": "screenplay",
                 },
             )
-            assert screenplay.status_code == 200
-            assert screenplay.json()["project"]["source_kind"] == "screenplay"
-
-            # 缺省 source_kind 落 novel
-            default_novel = client.post(
-                "/api/v1/projects",
-                json={"generation_mode": "storyboard", "name": "nov", "title": "默认项目", "content_mode": "drama"},
-            )
-            assert default_novel.status_code == 200
-            assert default_novel.json()["project"]["source_kind"] == "novel"
-
-            # 非法值被 Pydantic 拒（422，不是 500）
-            invalid = client.post(
-                "/api/v1/projects",
-                json={
-                    "generation_mode": "storyboard",
-                    "name": "bad",
-                    "title": "X",
-                    "content_mode": "drama",
-                    "source_kind": "screen_play",
-                },
-            )
-            assert invalid.status_code == 422
+            assert created.status_code == 200
+            assert "source_kind" not in created.json()["project"]
 
     def test_source_kind_silently_ignored_on_patch(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)

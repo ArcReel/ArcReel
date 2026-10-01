@@ -134,6 +134,8 @@ export interface EpisodeMeta {
    * 缺省按有无 source_range 推断。
    */
   source_origin?: "whole_source" | "own" | "none";
+  /** 自带原文的集的源文件类型，只有剧情演绎项目记录。 */
+  source_kind?: "novel" | "screenplay";
   /**
    * 集规划状态。只有 stale 对创作者有意义：这一集的原文已被重新规划或删改，
    * 与产物过期（storyboards / videos 的 stale）是两件事。
@@ -175,8 +177,6 @@ export interface ModelSettingEntry {
 export interface ProjectData {
   title: string;
   content_mode: "narration" | "drama" | "ad";
-  /** 源文件性质：novel（默认，AI 改编）/ screenplay（成品剧本，逐字提取）。创建即定、不可变。 */
-  source_kind?: "novel" | "screenplay";
   style: string;
   style_template_id?: string | null;
   style_image?: string;
@@ -191,7 +191,7 @@ export interface ProjectData {
   brief?: string;
   schema_version?: number;
   /** 整本源文的文件清单，按创作者排定的顺序。 */
-  whole_source_files?: { source_file: string }[];
+  whole_source_files?: { source_file: string; source_kind?: "novel" | "screenplay" }[];
   episodes: EpisodeMeta[];
   characters: Record<string, Character>;
   scenes?: Record<string, Scene>;

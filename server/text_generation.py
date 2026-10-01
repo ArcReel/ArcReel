@@ -1439,6 +1439,7 @@ async def generate_reference_script_plan(
             max_reference_images=split_caps.max_refs,
             default_duration=split_caps.default_duration,
             episode=episode,
+            source_kind=cast(str | None, prompt_inputs["source_kind"]) or "novel",
             target_language=cast(str, prompt_inputs["target_language"]),
             source_language=cast(str | None, prompt_inputs["source_language"]),
             speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),

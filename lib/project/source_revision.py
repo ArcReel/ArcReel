@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES, parse_positive_episode_num
 from lib.episode.episode_paths import episode_source_relpath
 from lib.episode.episode_sources import SourceOrigin, episode_source_origin, whole_source_files
+from lib.episode.source_kinds import project_overview_source_kind
 from lib.infra.content_digest import prefixed_canonical_json_digest
 
 
@@ -264,7 +265,8 @@ def compute_source_revision(
     canonical_fingerprints = sorted(reads, key=lambda item: item[0].rel_path)
     payload = {
         "files": [{"path": read.rel_path, "sha256": digest} for read, digest in canonical_fingerprints],
-        "source_kind": project.get("source_kind", "novel"),
+        # 与项目概览同一口径：全部源文同一类型时取该类型，否则按小说
+        "source_kind": project_overview_source_kind(project),
         "source_language": project.get("source_language"),
     }
     revision = prefixed_canonical_json_digest(payload)
