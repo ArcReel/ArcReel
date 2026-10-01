@@ -671,7 +671,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
           </div>
           </>
         )}
-        <span className={HINT_CLS}>{t("ce_capabilities_hint")}</span>
+        <span className={HINT_CLS}>{mediaCopy("ce_capabilities_hint")}</span>
       </FormSection>
     </div>
   );

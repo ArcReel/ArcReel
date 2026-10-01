@@ -246,3 +246,29 @@ class TestDeclarativeImageBackend:
 
         assert caught.value.code == "declarative_response_extract_failed"
         assert not (tmp_path / "out.png").exists()
+
+    async def test_exhausted_image_download_asks_for_regeneration_not_a_download_retry(self, tmp_path: Path):
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(return_value=_completed())
+            router.get("https://cdn.test/img/first.png").mock(return_value=httpx.Response(503))
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await _backend().generate(_request(tmp_path))
+
+        assert caught.value.code == "declarative_image_save_failed"
+
+    async def test_inline_image_that_cannot_be_written_fails_with_a_stable_code(self, tmp_path: Path):
+        (tmp_path / "blocked").write_bytes(b"")
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_task("completed", result={"images": [{"b64_json": PNG_B64}]})
+            )
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await _backend(_base64_only_definition()).generate(
+                    _request(tmp_path, output_path=tmp_path / "blocked" / "out.png")
+                )
+
+        assert caught.value.code == "declarative_image_save_failed"

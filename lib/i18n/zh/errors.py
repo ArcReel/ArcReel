@@ -92,6 +92,7 @@ MESSAGES = {
     "task_fail_resume_endpoint_changed_detail": "该模型的接口已更换，无法接续提交前发起的生成：{detail}",
     "task_fail_declarative_template_render_failed": "调用端点请求渲染失败：{detail}",
     "task_fail_declarative_response_extract_failed": "调用端点响应提取失败：{detail}",
+    "task_fail_declarative_image_save_failed": "供应商已生成图片，但没能取回到本地；重新生成会再次计费：{detail}",
     "task_fail_comfyui_image_drop_unsupported": "这份 workflow 的成片链路依赖节点 {node} 读入的图，参考图或首尾帧不足时无法改图，请补齐图片或改用别的 workflow",
     "task_fail_comfyui_upload_failed": "素材上传到 ComfyUI 失败：{detail}",
     "task_fail_comfyui_node_errors": "ComfyUI 拒收这份 workflow，共 {nodes} 个节点报错，首条：{summary}",

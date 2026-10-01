@@ -2578,6 +2578,7 @@ export default {
   'ce_cap_audio_mode_direct': '随请求发送',
   'ce_cap_max_reference_audio_count': '参考音频数量上限',
   'ce_capabilities_hint': '声明了却未在请求体中引用是错误，反之亦然。',
+  'ce_capabilities_hint_image': '声明了图生图却未在请求体中引用参考图是错误，反之亦然。',
   'ce_section_test': '测试',
   'ce_section_test_desc': '保存前验证定义。仅「测试连接」会发起真实调用。',
   'ce_test_check': '验证响应',

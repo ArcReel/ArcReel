@@ -2579,6 +2579,7 @@ export default {
   'ce_cap_audio_mode_direct': 'Sent with the request',
   'ce_cap_max_reference_audio_count': 'Reference audio files (max)',
   'ce_capabilities_hint': 'A feature declared here but unused in the request body is an error, and so is the reverse.',
+  'ce_capabilities_hint_image': 'Declaring image-to-image without referencing reference images in the request body is an error, and so is the reverse.',
   'ce_section_test': 'Test',
   'ce_section_test_desc': 'Check the definition before saving. Only Test connection makes a real call.',
   'ce_test_check': 'Check a response',
