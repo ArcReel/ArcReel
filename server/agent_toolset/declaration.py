@@ -11,7 +11,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+import base64
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -89,6 +90,18 @@ def request_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     return schema
 
 
+@dataclass(frozen=True, slots=True)
+class ToolImage:
+    """结果里的一张图片：两宿主都以 MCP 图片内容块交给 Agent，不交文件路径。"""
+
+    data: bytes
+    mime_type: str
+
+    @property
+    def base64_data(self) -> str:
+        return base64.b64encode(self.data).decode("ascii")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolDeclaration[RequestT: BaseModel, ResultT]:
     """作用于某个既有项目的 Agent 工具。
@@ -97,7 +110,8 @@ class ToolDeclaration[RequestT: BaseModel, ResultT]:
 
     - ``summary``：人类可读的摘要文本，返回空值时不出摘要块；
     - ``projection``：结构化结果，缺省为 ``{domain_key: 值的 JSON 投影}``；
-    - ``is_error``：值本身表示失败时（如批次全部被阻断）返回 True，缺省恒为 False。
+    - ``is_error``：值本身表示失败时（如批次全部被阻断）返回 True，缺省恒为 False；
+    - ``images``：随结果交给 Agent 看的图片，排在文本块之后，缺省没有图片。
     """
 
     name: str
@@ -110,6 +124,7 @@ class ToolDeclaration[RequestT: BaseModel, ResultT]:
     summary: Callable[[ResultT], str | None] | None = None
     projection: Callable[[ResultT], dict[str, Any]] | None = None
     is_error: Callable[[ResultT], bool] | None = None
+    images: Callable[[ResultT], Sequence[ToolImage]] | None = None
 
     @property
     def input_schema(self) -> dict[str, Any]:
@@ -215,6 +230,7 @@ __all__ = [
     "ReadCheck",
     "ScopedHandler",
     "ToolDeclaration",
+    "ToolImage",
     "UnscopedHandler",
     "UnscopedToolDeclaration",
     "invalid_request_problem",

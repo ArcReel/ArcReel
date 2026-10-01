@@ -2094,6 +2094,7 @@ export default {
   'tool_name_split_grids': 'Tách phân cảnh đa lưới vào khung hình',
   'tool_name_generate_videos': 'Tạo video',
   'tool_name_select_video_version': 'Chọn phiên bản video',
+  'tool_name_inspect_video_units': 'Xem hình ảnh đơn vị video',
   'tool_name_create_timeline': 'Tạo dòng thời gian dựng',
   'tool_name_list_timelines': 'Liệt kê dòng thời gian dựng',
   'tool_name_read_timeline': 'Đọc dòng thời gian dựng',

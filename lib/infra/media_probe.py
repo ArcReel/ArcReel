@@ -2,7 +2,8 @@
 
 ffmpeg 以 ``-c copy -f framecrc`` 只解复用、不解码地逐包输出时间戳，流时长取未标记丢弃的
 包所覆盖的区间；容器格式取 ffmpeg 输入信息里 ``Input #0, <格式>, from`` 一行。
-单元预览、素材包、剪映草稿导出与音频上传校验都经 :func:`probe_media` 取得探测结果。
+单元预览、素材包、剪映草稿导出与音频上传校验都经 :func:`probe_media` 取得探测结果；
+需要逐帧时刻时（如联系表按帧抽图）经 :func:`probe_video_frame_times`。
 """
 
 from __future__ import annotations
@@ -194,3 +195,79 @@ async def probe_media(
     except (ValueError, ZeroDivisionError) as exc:
         raise MediaProbeError(f"无法解析 ffmpeg 输出：{path.name}") from exc
     return _build_probe(container_formats, accumulators)
+
+
+def _parse_frame_times(output: str) -> tuple[float, ...]:
+    time_base: Fraction | None = None
+    pts_values: list[int] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            header = _HEADER_RE.match(line)
+            if header is not None and header.group(1) == "tb":
+                numerator, _, denominator = header.group(3).partition("/")
+                time_base = Fraction(int(numerator), int(denominator))
+            continue
+        fields = line.split(",")
+        if len(fields) < 6:
+            raise ValueError(f"framecrc 行字段不足：{line!r}")
+        pts = int(fields[2])
+        if pts == _AV_NOPTS_VALUE or _parse_packet_flags(fields) & _AV_PKT_FLAG_DISCARD:
+            continue
+        pts_values.append(pts)
+    if time_base is None or not pts_values:
+        return ()
+    pts_values.sort()
+    first = pts_values[0]
+    return tuple(float((pts - first) * time_base) for pts in pts_values)
+
+
+async def probe_video_frame_times(
+    path: Path,
+    *,
+    deadline_seconds: float = DEFAULT_PROBE_DEADLINE_SECONDS,
+    grace: float = DEFAULT_TERMINATE_GRACE_SECONDS,
+    spawn: Spawner | None = None,
+) -> tuple[float, ...]:
+    """首个视频流每一帧的起始时刻（秒），按播放顺序排列，以首帧为 0。
+
+    只解复用、不解码：时刻取自视频包的 pts，第 n 个时刻对应解码后按播放顺序的第 n 帧。
+
+    Raises:
+        FfmpegUnavailableError: 随包 ffmpeg 不可用。
+        MediaProbeError: 文件无法解析、没有视频帧，或探测超时。
+        OSError: 无法启动 ffmpeg 子进程。
+    """
+    args = [
+        ffmpeg_executable(),
+        "-hide_banner",
+        "-nostdin",
+        "-nostats",
+        "-v",
+        "error",
+        *local_file_input(path),
+        "-map",
+        "0:v:0",
+        "-c",
+        "copy",
+        "-f",
+        "framecrc",
+        "-",
+    ]
+    try:
+        result = await run_with_deadline(
+            args, deadline_seconds=deadline_seconds, grace=grace, capture_stdout=True, spawn=spawn
+        )
+    except SubprocessDeadlineExceeded:
+        raise MediaProbeError(f"媒体探测超时：{path.name}") from None
+    if result.returncode != 0:
+        raise MediaProbeError(f"媒体文件无法解析：{path.name}")
+    try:
+        times = _parse_frame_times(result.stdout.decode(errors="replace"))
+    except (ValueError, ZeroDivisionError) as exc:
+        raise MediaProbeError(f"无法解析 ffmpeg 输出：{path.name}") from exc
+    if not times:
+        raise MediaProbeError(f"没有视频帧：{path.name}")
+    return times

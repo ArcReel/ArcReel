@@ -3,7 +3,8 @@
 结构化结果只有一份：成功为 ``{domain_key: 值}``（声明带 ``projection`` 时由它给出），失败为
 ``{"problem": {code, detail, action?, params?}}``。
 文本块为「摘要（如有）+ 这份结构化结果的 JSON」；内嵌宿主把文本块写进 content，远程宿主另把
-结构化结果写进 ``structuredContent``。
+结构化结果写进 ``structuredContent``。声明带 ``images`` 时，图片作为 MCP 图片内容块排在文本块之后，
+两宿主相同。
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any
 
 from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE
-from server.agent_toolset.declaration import AgentToolDeclaration, ToolDeclaration
+from server.agent_toolset.declaration import AgentToolDeclaration, ToolDeclaration, ToolImage
 from server.tool_runtime import ToolOutcome, ToolProblem
 
 _PROBLEM_SUMMARIES: dict[str, str] = {
@@ -43,6 +44,7 @@ class ToolEnvelope:
     structured: dict[str, Any]
     texts: tuple[str, ...]
     is_error: bool
+    images: tuple[ToolImage, ...] = ()
 
 
 def problem_summary(problem: ToolProblem) -> str | None:
@@ -50,6 +52,7 @@ def problem_summary(problem: ToolProblem) -> str | None:
 
 
 def encode_outcome(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any]) -> ToolEnvelope:
+    images: tuple[ToolImage, ...] = ()
     if outcome.problem is not None:
         structured = {"problem": outcome.problem.model_dump(mode="json")}
         summary = problem_summary(outcome.problem)
@@ -64,11 +67,14 @@ def encode_outcome(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any])
         )
         summary = declaration.summary(value) if declaration.summary is not None else None
         is_error = scoped.is_error(value) if scoped is not None and scoped.is_error is not None else False
+        if scoped is not None and scoped.images is not None:
+            images = tuple(scoped.images(value))
     encoded = json.dumps(structured, ensure_ascii=False)
     return ToolEnvelope(
         structured=structured,
         texts=(summary, encoded) if summary else (encoded,),
         is_error=is_error,
+        images=images,
     )
 
 

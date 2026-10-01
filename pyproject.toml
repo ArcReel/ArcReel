@@ -269,6 +269,7 @@ source_modules = [
     "server.agent_toolset.script_authoring",
     "server.agent_toolset.script_editing",
     "server.agent_toolset.toolset",
+    "server.agent_toolset.video_review",
     "server.agent_toolset.workflow_completion",
     "server.media_tools.assets",
     "server.media_tools.context",
@@ -276,6 +277,7 @@ source_modules = [
     "server.media_tools.image_edits",
     "server.media_tools.narration_audio",
     "server.media_tools.storyboards",
+    "server.media_tools.video_review",
     "server.media_tools.videos",
     "server.tool_runtime",
 ]

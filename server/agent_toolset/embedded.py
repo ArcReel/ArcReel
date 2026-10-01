@@ -1,7 +1,7 @@
 """ArcReel Agent（内嵌 Claude Agent SDK）adapter。
 
 项目由会话决定，schema 不含 ``project``；无 scope 声明不接会话项目。SDK 只把 ``content`` 与 ``isError`` 交给模型，
-因此结构化结果以 JSON 文本块写进 content，排在摘要之后。
+因此结构化结果以 JSON 文本块写进 content，排在摘要之后；图片块（如有）排在最后，SDK 原样转给模型。
 
 内嵌 server 关闭 MCP 层的 inputSchema 预校验：已声明工具的参数一律由请求模型校验，
 坏参数与远程宿主一样得到 ``invalid_request`` problem，而不是 MCP 的纯文本校验错误。
@@ -30,7 +30,13 @@ from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutco
 def embedded_result(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any]) -> types.CallToolResult:
     envelope = encode_outcome(declaration, outcome)
     return types.CallToolResult(
-        content=[types.TextContent(type="text", text=text) for text in envelope.texts],
+        content=[
+            *(types.TextContent(type="text", text=text) for text in envelope.texts),
+            *(
+                types.ImageContent(type="image", data=image.base64_data, mimeType=image.mime_type)
+                for image in envelope.images
+            ),
+        ],
         isError=envelope.is_error,
     )
 
