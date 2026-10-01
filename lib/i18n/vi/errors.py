@@ -552,6 +552,8 @@ MESSAGES = {
     "manual_split_episode_source_symlink": "Tệp nguyên văn của tập này là liên kết tượng trưng, không thể ghi",
     "manual_split_tasks_active": "Một tập mà lần điều chỉnh này sẽ xóa hoặc chuyển thành tập không có nguyên văn vẫn còn tác vụ tạo đang chờ hoặc đang chạy. Hãy đợi chúng kết thúc hoặc hủy chúng rồi mới điều chỉnh",
     "manual_split_impact_separator": ", ",
+    "manual_split_impact_merged_chars": "Giữa hai tập có {count} ký tự nguyên văn chưa cắt, sẽ được gộp vào tập này.",
+    "manual_split_impact_merged_words": "Giữa hai tập có {count} từ nguyên văn chưa cắt, sẽ được gộp vào tập này.",
     "manual_split_impact_summary": "Lần điều chỉnh này ảnh hưởng {count} tập đã bắt đầu sản xuất; các sản phẩm hiện có của chúng đều được giữ lại.",
     "manual_split_impact_restaled": "Phạm vi nguyên văn thay đổi, đánh dấu «Nguyên văn đã lập kế hoạch lại»: {episodes}",
     "manual_split_impact_retired": "Chuyển thành tập không có nguyên văn, đánh dấu «Nguyên văn đã lập kế hoạch lại» và chuyển xuống cuối thứ tự phát sóng: {episodes}",

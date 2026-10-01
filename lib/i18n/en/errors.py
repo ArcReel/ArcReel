@@ -550,6 +550,8 @@ MESSAGES = {
     "manual_split_episode_source_symlink": "This episode's source file is a symbolic link and cannot be written",
     "manual_split_tasks_active": "An episode this change would remove or turn into an episode without source still has queued or running generation tasks. Wait for them to finish or cancel them, then try again",
     "manual_split_impact_separator": ", ",
+    "manual_split_impact_merged_chars": "{count} character(s) of unsplit source text lie between the two episodes and will be merged into this episode.",
+    "manual_split_impact_merged_words": "{count} word(s) of unsplit source text lie between the two episodes and will be merged into this episode.",
     "manual_split_impact_summary": "This adjustment affects {count} episode(s) already in production. Their existing outputs are kept.",
     "manual_split_impact_restaled": 'Source range changes; marked "Source re-planned": {episodes}',
     "manual_split_impact_retired": 'Becomes an episode without source, marked "Source re-planned" and moved to the end of the episode order: {episodes}',

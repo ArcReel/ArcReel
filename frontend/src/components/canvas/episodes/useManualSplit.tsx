@@ -15,6 +15,7 @@ interface PendingConfirm {
   title: string;
   text: string;
   episodes: number[];
+  mergedUnits: number;
 }
 
 export interface ManualSplitState {
@@ -49,7 +50,7 @@ function isKeyedControl(target: EventTarget | null): boolean {
 
 /**
  * 「分集」视图的手工切分：插入光标、←/→ 微调（Shift 一次 10 字）、Enter 确认、Esc 取消，
- * 以及波及有产物的集时由服务端成文的确认清单。`onApplied` 收到切分或拆分出的新集 ID。
+ * 以及波及有产物的集或合并会并入未切分的原文时由服务端成文的确认清单。`onApplied` 收到切分或拆分出的新集 ID。
  */
 export function useManualSplit(
   projectName: string,
@@ -84,13 +85,17 @@ export function useManualSplit(
   );
 
   const submit = useCallback(
-    async (request: ManualSplitAction, dialogTitle: string, options: { confirmEpisodes?: number[]; dryRun?: boolean }) => {
+    async (
+      request: ManualSplitAction,
+      dialogTitle: string,
+      options: { confirmEpisodes?: number[]; confirmMergedUnits?: number; dryRun?: boolean },
+    ) => {
       setBusy(true);
       try {
         const response = await API.manualSplit(projectName, request, options);
         if (response.status === "confirmation_required") {
-          const { restaled, retired, text } = response.impact;
-          setConfirm({ action: request, title: dialogTitle, text, episodes: [...restaled, ...retired] });
+          const { restaled, retired, merged_units: mergedUnits, text } = response.impact;
+          setConfirm({ action: request, title: dialogTitle, text, episodes: [...restaled, ...retired], mergedUnits });
         } else {
           await finish(response);
         }
@@ -206,7 +211,12 @@ export function useManualSplit(
       loading={busy}
       onCancel={() => setConfirm(null)}
       onConfirm={() => {
-        if (confirm) void submit(confirm.action, confirm.title, { confirmEpisodes: confirm.episodes });
+        if (confirm) {
+          void submit(confirm.action, confirm.title, {
+            confirmEpisodes: confirm.episodes,
+            confirmMergedUnits: confirm.mergedUnits,
+          });
+        }
       }}
     />
   );

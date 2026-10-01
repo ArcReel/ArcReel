@@ -487,6 +487,8 @@ MESSAGES = {
     "manual_split_episode_source_symlink": "这一集的集原文文件是符号链接，无法写入",
     "manual_split_tasks_active": "这次调整要移除或转为无原文的集还有排队或进行中的生成任务，等它们结束或取消后再调整",
     "manual_split_impact_separator": "、",
+    "manual_split_impact_merged_chars": "两集之间有 {count} 字未切分的原文，合并后会并入这一集。",
+    "manual_split_impact_merged_words": "两集之间有 {count} 词未切分的原文，合并后会并入这一集。",
     "manual_split_impact_summary": "这次调整波及 {count} 个已开始制作的集，它们已有的产物都会保留。",
     "manual_split_impact_restaled": "原文范围会改变，标为「原文已重新规划」：{episodes}",
     "manual_split_impact_retired": "转为无原文的集，标为「原文已重新规划」，移到播出顺序末尾：{episodes}",

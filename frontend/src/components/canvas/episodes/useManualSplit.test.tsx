@@ -1,4 +1,4 @@
-import { act, fireEvent, renderHook } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
@@ -88,5 +88,48 @@ describe("useManualSplit keyboard", () => {
     });
 
     expect(split).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useManualSplit confirmation", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function MergeHarness() {
+    const split = useManualSplit("p", view, () => {});
+    return (
+      <>
+        <button type="button" onClick={() => split.mergeWithNext(1)}>
+          merge
+        </button>
+        {split.dialog}
+      </>
+    );
+  }
+
+  it("resubmits a merge with the volume of unsplit text the dialog stated", async () => {
+    const split = vi
+      .spyOn(API, "manualSplit")
+      .mockResolvedValueOnce({
+        status: "confirmation_required",
+        impact: { restaled: [], retired: [], removed: [2], merged_units: 5, text: "两集之间有 5 字未切分的原文" },
+      })
+      .mockReturnValueOnce(new Promise(() => {}));
+    render(<MergeHarness />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "merge" }));
+    });
+    expect(screen.getByText("两集之间有 5 字未切分的原文")).toBeInTheDocument();
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "确认调整" }));
+    });
+
+    expect(split).toHaveBeenLastCalledWith(
+      "p",
+      { action: "merge_next", episode: 1 },
+      { confirmEpisodes: [], confirmMergedUnits: 5 },
+    );
   });
 });

@@ -7,7 +7,8 @@
 - **拆分**（:func:`split_episode`）：在切出集内落点，前一段保留集 ID，后一段分配新集 ID，紧接在前一段之后。
 - **移动分界**（:func:`move_episode_boundary`）：移动一集与紧接其后的切出集之间的分界，两侧保留集 ID。
 - **与下一集合并**（:func:`merge_with_next_episode`）：前一集保留集 ID 并延伸到下一集的结尾；下一集按被替换的
-  旧集处理，夹在两集之间的其他集原位不动，落在合并后的集之后。
+  旧集处理，夹在两集之间的其他集原位不动，落在合并后的集之后。两集之间未切分的原文一并并入，并入的体量
+  （阅读单位，与「分集」视图同一口径）大于 0 时先返回确认，创作者确认后带上确认过的体量重新调用，体量变了时退回确认。
 - **清除之后的切分**（:func:`clear_cuts_after`）：按源文位置排在这一集之后的切出集全部按被替换的旧集处理。
 
 被替换的旧集有产物的转为无原文的集、标 stale，产物仍归它，按原相对顺序移到播出顺序末尾；没有产物的直接移除。
@@ -21,7 +22,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,7 @@ from lib.episode.episode_sources import (
     sync_source_snapshots,
     whole_source_files,
 )
+from lib.infra.text_metrics import count_reading_units, reading_unit_noun
 from lib.project.project_manager import ProjectManager
 from lib.script import script_review
 
@@ -72,13 +74,20 @@ class ManualSplitImpact:
     retired: list[int] = field(default_factory=list)
     #: 被替换下来、没有产物，直接移除。
     removed: list[int] = field(default_factory=list)
+    #: 与下一集合并时并入的两集之间未切分原文的体量（阅读单位）；其余命令为 0。
+    merged_units: int = 0
 
     @property
     def episodes_with_products(self) -> list[int]:
         return [*self.restaled, *self.retired]
 
-    def to_dict(self) -> dict[str, list[int]]:
-        return {"restaled": list(self.restaled), "retired": list(self.retired), "removed": list(self.removed)}
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "restaled": list(self.restaled),
+            "retired": list(self.retired),
+            "removed": list(self.removed),
+            "merged_units": self.merged_units,
+        }
 
 
 @dataclass(frozen=True)
@@ -113,6 +122,8 @@ class _Edit:
     insert_before: int = 0
     #: 被替换下来的旧切出集，按播出顺序。
     dropped: list[int] = field(default_factory=list)
+    #: 并入的未切分原文的体量（阅读单位）。
+    merged_units: int = 0
 
 
 class _NeedsConfirmation(Exception):
@@ -131,6 +142,7 @@ class _Layout:
     docs: list[SourceDoc]
     entries: list[dict[str, Any]]
     placements: dict[int, CutPlacement]
+    language: str | None = None
 
     def doc_index(self, source_file: str) -> int:
         index = next((i for i, doc in enumerate(self.docs) if doc.rel_path == source_file), None)
@@ -161,7 +173,17 @@ def _layout(project_dir: Path, project: Mapping[str, Any]) -> _Layout:
     if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
         raise ManualSplitError("ledger_invalid", "分集账本的形状异常，不能手工切分")
     docs = discover_sources(project_dir, project)
-    return _Layout(docs=docs, entries=list(raw), placements=cut_episode_placements(project, docs))
+    return _Layout(
+        docs=docs,
+        entries=list(raw),
+        placements=cut_episode_placements(project, docs),
+        language=_language(project),
+    )
+
+
+def _language(project: Mapping[str, Any]) -> str | None:
+    raw = project.get("source_language")
+    return raw if isinstance(raw, str) else None
 
 
 def _require_text(doc: SourceDoc, start: int, end: int) -> None:
@@ -228,10 +250,12 @@ def _plan_merge(layout: _Layout, *, episode: int) -> _Edit:
     nxt = following[0]
     if nxt.file_index != placement.file_index:
         raise ManualSplitError("merge_across_files", f"集（id={episode}）的下一集在另一个文件里")
+    doc = layout.docs[placement.file_index]
     return _Edit(
-        source=layout.docs[placement.file_index],
+        source=doc,
         ranges={episode: (placement.start, nxt.end)},
         dropped=[nxt.episode],
+        merged_units=count_reading_units(doc.text[placement.end : nxt.start], layout.language),
     )
 
 
@@ -276,7 +300,7 @@ def _impact(project_dir: Path, layout: _Layout, edit: _Edit) -> ManualSplitImpac
             changed = edit.ranges[episode] != (placement.start, placement.end)
             if changed and _has_products(entry, episode):
                 restaled.append(episode)
-    return ManualSplitImpact(restaled=restaled, retired=retired, removed=removed)
+    return ManualSplitImpact(restaled=restaled, retired=retired, removed=removed, merged_units=edit.merged_units)
 
 
 def _check_fingerprint(project: dict[str, Any], doc: SourceDoc) -> None:
@@ -365,6 +389,7 @@ def _run(
     *,
     confirm_episodes: Collection[int],
     dry_run: bool,
+    confirm_merged_units: int = 0,
 ) -> ManualSplitOutcome:
     project_dir = Path(project_path)
     pm = ProjectManager.for_project_dir(project_dir)
@@ -372,6 +397,8 @@ def _run(
     confirmed = frozenset(confirm_episodes)
 
     def _needs_confirmation(impact: ManualSplitImpact) -> bool:
+        if impact.merged_units and impact.merged_units != confirm_merged_units:
+            return True
         return any(episode not in confirmed for episode in impact.episodes_with_products)
 
     # 锁外预演只为确认与快速失败：拒绝或需要确认时零写入返回
@@ -477,14 +504,19 @@ def merge_with_next_episode(
     episode: int,
     *,
     confirm_episodes: Collection[int] = (),
+    confirm_merged_units: int = 0,
     dry_run: bool = False,
 ) -> ManualSplitOutcome:
-    """把这一集与按源文位置紧接其后的切出集合并：这一集保留集 ID，下一集按被替换的旧集处理。"""
+    """把这一集与按源文位置紧接其后的切出集合并：这一集保留集 ID，下一集按被替换的旧集处理。
+
+    两集之间未切分的原文一并并入；``confirm_merged_units`` 是创作者在确认清单里看过的并入体量。
+    """
     return _run(
         project_path,
         lambda layout: _plan_merge(layout, episode=episode),
         confirm_episodes=confirm_episodes,
         dry_run=dry_run,
+        confirm_merged_units=confirm_merged_units,
     )
 
 
@@ -516,7 +548,7 @@ _IMPACT_LINES = (
 
 
 def render_manual_split_impact_text(
-    impact: Mapping[str, Iterable[int]], project: Mapping[str, Any], translate: Callable[..., str]
+    impact: Mapping[str, Any], project: Mapping[str, Any], translate: Callable[..., str]
 ) -> str:
     """把波及清单渲染成确认文本：集以标题或播出位置指称。Web 确认框只呈现这份文本。"""
 
@@ -530,7 +562,13 @@ def render_manual_split_impact_text(
     separator = translate("manual_split_impact_separator")
     groups = {key: [name(episode) for episode in impact.get(key) or ()] for key, _ in _IMPACT_LINES}
     with_products = len(groups["restaled"]) + len(groups["retired"])
-    lines = [translate("manual_split_impact_summary", count=with_products)] if with_products else []
+    lines: list[str] = []
+    merged = impact.get("merged_units")
+    if isinstance(merged, int) and merged > 0:
+        unit = "words" if reading_unit_noun(_language(project)) == "词" else "chars"
+        lines.append(translate(f"manual_split_impact_merged_{unit}", count=merged))
+    if with_products:
+        lines.append(translate("manual_split_impact_summary", count=with_products))
     lines.extend(
         translate(line_key, episodes=separator.join(names)) for key, line_key in _IMPACT_LINES if (names := groups[key])
     )
