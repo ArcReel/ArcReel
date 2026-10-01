@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Film, Loader2, Sparkles, RotateCcw, AlertTriangle } from "lucide-react";
 import { API } from "@/api";
+import { usePlaybackStart } from "@/hooks/usePlaybackStart";
 import { useProjectsStore } from "@/stores/projects-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
@@ -88,6 +89,7 @@ export function UnitPreviewPanel({
   const clip = unit?.generated_assets?.video_clip ?? null;
   // 上传/还原后路径不变，靠 fingerprint cache-bust 让 <video> 重新拉取
   const clipFp = useProjectsStore((s) => (clip ? s.getAssetFingerprint(clip) : null));
+  const playbackStart = usePlaybackStart("reference_videos", unit?.unit_id ?? "");
 
   if (!unit) {
     return (
@@ -168,6 +170,7 @@ export function UnitPreviewPanel({
               projectName={projectName}
               resourceType="reference_videos"
               resourceId={unit.unit_id}
+              {...playbackStart}
             />
             <div
               className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[10px] text-white/85 backdrop-blur"

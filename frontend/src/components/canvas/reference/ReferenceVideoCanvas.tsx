@@ -840,6 +840,11 @@ export function ReferenceVideoCanvas({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅通知 store，触发后切 tab + 选中
       setTab("units");
       select(scrollTarget.id);
+      // 应用内链接要求打开该单元的预览时，窄屏下把预览子页签切到前台。
+      const start = useAppStore.getState().playbackStart;
+      if (start?.resource_type === "reference_videos" && start.resource_id === scrollTarget.id) {
+        setStackTab("preview");
+      }
       clearScrollTarget(requestId);
       return;
     }

@@ -2937,6 +2937,7 @@ export default {
   'edit_view_loading': '正在加载剪辑时间线…',
   'edit_view_load_failed': '剪辑时间线加载失败：{{message}}',
   'edit_view_retry': '重试',
+  'edit_view_link_timeline_missing': '链接指向的剪辑时间线已不存在，已打开当前剪辑时间线。',
   'edit_view_empty_title': '还没有剪辑时间线',
   'edit_view_empty_hint': '让 Agent 剪一版后，可以在这里预览播放。',
   'edit_view_player_aria': '剪辑预览',

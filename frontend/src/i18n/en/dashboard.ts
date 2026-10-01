@@ -2938,6 +2938,7 @@ export default {
   'edit_view_loading': 'Loading edit timelines…',
   'edit_view_load_failed': "Couldn't load edit timelines: {{message}}",
   'edit_view_retry': 'Retry',
+  'edit_view_link_timeline_missing': 'The edit timeline this link points to no longer exists. Showing the current one instead.',
   'edit_view_empty_title': 'No edit timelines yet',
   'edit_view_empty_hint': 'Once the agent makes a cut, you can preview it here.',
   'edit_view_player_aria': 'Edit preview',

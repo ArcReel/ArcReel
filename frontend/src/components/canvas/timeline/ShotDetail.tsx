@@ -480,6 +480,12 @@ export function ShotDetail({
   const narrationText = getNarrationText(segment, contentMode);
   const hasNarrationText = narrationText.trim().length > 0;
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
+  // 应用内链接要求打开本分镜的视频预览时，窄屏下把视频所在的右栏切到前台。
+  const videoStartRequestId = useAppStore((s) =>
+    s.playbackStart?.resource_type === "videos" && s.playbackStart.resource_id === segmentId
+      ? s.playbackStart.request_id
+      : null,
+  );
   const ip = segment.image_prompt;
   const vp = segment.video_prompt;
   const note = segment.note ?? "";
@@ -1419,6 +1425,7 @@ export function ShotDetail({
         left={leftColumn}
         mid={midColumn}
         right={rightColumn}
+        revealRightKey={videoStartRequestId}
       />
     </div>
   );

@@ -391,4 +391,95 @@ describe("PresentationPlayer", () => {
       createElementSpy.mockRestore();
     }
   });
+
+  describe("startAt", () => {
+    function renderAt(startAt: { seconds: number; requestId: string }, onStartApplied = vi.fn()) {
+      const view = render(
+        <PresentationPlayer
+          projectName="demo"
+          resourceType="videos"
+          resourceId="E1S01"
+          startAt={startAt}
+          onStartApplied={onStartApplied}
+        />,
+      );
+      return { ...view, onStartApplied };
+    }
+
+    it("元数据到达后定位到起始时间并开始播放", async () => {
+      const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+      const { onStartApplied } = renderAt({ seconds: 2.5, requestId: "r1" });
+      const video = await screen.findByLabelText("E1S01 成片预览");
+      expect(play).not.toHaveBeenCalled();
+
+      fireEvent.loadedMetadata(video);
+
+      expect(video).toHaveProperty("currentTime", 2.5);
+      expect(play).toHaveBeenCalledTimes(1);
+      expect(onStartApplied).toHaveBeenCalledWith("r1");
+    });
+
+    it("超出可播放范围时夹到范围内", async () => {
+      vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+      renderAt({ seconds: 99, requestId: "r1" });
+      const video = await screen.findByLabelText("E1S01 成片预览");
+
+      fireEvent.loadedMetadata(video);
+
+      expect(video).toHaveProperty("currentTime", 5.95);
+    });
+
+    it("浏览器拦截自动播放时停在起始位置，不抛错", async () => {
+      vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(new DOMException("blocked", "NotAllowedError"));
+      renderAt({ seconds: 1, requestId: "r1" });
+      const video = await screen.findByLabelText("E1S01 成片预览");
+
+      fireEvent.loadedMetadata(video);
+
+      expect(video).toHaveProperty("currentTime", 1);
+    });
+
+    it("同一个请求只生效一次，换请求再定位一次", async () => {
+      const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+      const onStartApplied = vi.fn();
+      const view = renderAt({ seconds: 2, requestId: "r1" }, onStartApplied);
+      const video = await screen.findByLabelText("E1S01 成片预览");
+      fireEvent.loadedMetadata(video);
+      expect(play).toHaveBeenCalledTimes(1);
+
+      // 视频已有元数据：下一个请求立即生效
+      Object.defineProperty(video, "readyState", { configurable: true, value: HTMLMediaElement.HAVE_METADATA });
+      view.rerender(
+        <PresentationPlayer
+          projectName="demo"
+          resourceType="videos"
+          resourceId="E1S01"
+          startAt={{ seconds: 2, requestId: "r1" }}
+          onStartApplied={onStartApplied}
+        />,
+      );
+      expect(play).toHaveBeenCalledTimes(1);
+
+      view.rerender(
+        <PresentationPlayer
+          projectName="demo"
+          resourceType="videos"
+          resourceId="E1S01"
+          startAt={{ seconds: 4, requestId: "r2" }}
+          onStartApplied={onStartApplied}
+        />,
+      );
+      expect(video).toHaveProperty("currentTime", 4);
+      expect(play).toHaveBeenCalledTimes(2);
+      expect(onStartApplied).toHaveBeenLastCalledWith("r2");
+    });
+
+    it("没有 startAt 时不自动播放", async () => {
+      const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+      render(<PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />);
+      const video = await screen.findByLabelText("E1S01 成片预览");
+      fireEvent.loadedMetadata(video);
+      expect(play).not.toHaveBeenCalled();
+    });
+  });
 });

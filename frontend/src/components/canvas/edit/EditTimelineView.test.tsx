@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { Route } from "wouter";
 
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
   EditClip,
@@ -330,5 +333,187 @@ describe("EditTimelineView", () => {
     expect(screen.getByText("旁白")).toBeInTheDocument();
     expect(screen.queryByText("BGM")).not.toBeInTheDocument();
     expect(screen.queryByText("转场效果以成片为准")).not.toBeInTheDocument();
+  });
+
+  describe("链接参数 tl / t", () => {
+    const OTHER_CUT: EditTimelineReadout = {
+      ...INITIAL_CUT,
+      timeline: { id: "tl-00000001", name: "按脚本顺序", episode: 1 },
+      duration: 4,
+      clips: [clip({ id: "d1", unit_id: "E1U1", start: 0, duration: 2 }), clip({ id: "d2", unit_id: "E1U3", start: 2, duration: 2 })],
+      issues: [],
+    };
+
+    function mockTimelines() {
+      vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+        timelines: [
+          summary("tl-00000001", "按脚本顺序", "2026-09-30T09:00:00Z"),
+          summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3),
+        ],
+      });
+      vi.spyOn(API, "getEditTimeline").mockImplementation((_project, id) =>
+        Promise.resolve(id === "tl-00000001" ? OTHER_CUT : INITIAL_CUT),
+      );
+    }
+
+    beforeEach(() => {
+      useAppStore.setState({ toast: null });
+    });
+
+    afterEach(() => {
+      window.history.replaceState(null, "", "/");
+    });
+
+    function playheadPercent(): number {
+      return parseFloat(screen.getByTestId("edit-playhead").style.left);
+    }
+
+    it("打开链接指向的剪辑时间线，播放头移到该时间并选中落在其中的片段，地址栏的一次性参数随即去掉", async () => {
+      mockTimelines();
+      window.history.replaceState(null, "", "/?view=edit&tl=tl-00000001&t=3");
+
+      renderView();
+
+      // 默认会打开最近修改的「初剪」，链接要求的是另一条
+      expect(await screen.findByRole("tab", { name: "按脚本顺序" })).toHaveAttribute("aria-selected", "true");
+      await waitFor(() => expect(screen.getByTestId("edit-clip-d2")).toHaveAttribute("aria-pressed", "true"));
+      expect(screen.getByTestId("edit-clip-d1")).toHaveAttribute("aria-pressed", "false");
+      expect(playheadPercent()).toBeCloseTo(75, 1);
+      expect(window.location.search).toBe("?view=edit");
+    });
+
+    it("只带时间点时在当前剪辑时间线上定位", async () => {
+      mockTimelines();
+      window.history.replaceState(null, "", "/?view=edit&t=5");
+
+      renderView();
+
+      await waitFor(() => expect(screen.getByTestId("edit-clip-c3")).toHaveAttribute("aria-pressed", "true"));
+      expect(screen.getByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
+      expect(playheadPercent()).toBeCloseTo((5 / 7.8) * 100, 1);
+    });
+
+    it("链接指向的剪辑时间线已不存在时提示，并停在默认的那条", async () => {
+      mockTimelines();
+      window.history.replaceState(null, "", "/?view=edit&tl=tl-gone&t=3");
+
+      renderView();
+
+      expect(await screen.findByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
+      await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("warning"));
+      expect(playheadPercent()).toBe(0);
+    });
+
+    it("时间点超出时长时夹到末尾，无法解析的时间点忽略", async () => {
+      mockTimelines();
+      window.history.replaceState(null, "", "/?view=edit&t=99");
+      const { unmount } = renderView();
+      await waitFor(() => expect(playheadPercent()).toBeCloseTo(100, 1));
+      unmount();
+
+      window.history.replaceState(null, "", "/?view=edit&t=abc");
+      renderView();
+      await screen.findByTestId("edit-clip-c1");
+      expect(playheadPercent()).toBe(0);
+    });
+
+    it("链接指向刚新建、列表还没刷新到的剪辑时间线时，等新列表到了再定位，不误报不存在", async () => {
+      const list = vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+        timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+      });
+      vi.spyOn(API, "getEditTimeline").mockImplementation((_project, id) =>
+        Promise.resolve(id === "tl-00000001" ? OTHER_CUT : INITIAL_CUT),
+      );
+      renderView();
+      await screen.findByTestId("edit-clip-c1");
+
+      let resolveList: (value: { timelines: EditTimelineSummary[] }) => void = () => {};
+      list.mockReturnValue(new Promise((resolve) => (resolveList = resolve)));
+      act(() => {
+        useProjectsStore.setState({ projectSnapshotRevisions: { demo: 1 } });
+        window.history.pushState(null, "", "/?view=edit&tl=tl-00000001&t=3");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+      act(() =>
+        resolveList({
+          timelines: [
+            summary("tl-00000001", "按脚本顺序", "2026-09-30T09:00:00Z"),
+            summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3),
+          ],
+        }),
+      );
+
+      await waitFor(() =>
+        expect(screen.getByRole("tab", { name: "按脚本顺序" })).toHaveAttribute("aria-selected", "true"),
+      );
+      await waitFor(() => expect(screen.getByTestId("edit-clip-d2")).toHaveAttribute("aria-pressed", "true"));
+      expect(useAppStore.getState().toast).toBeNull();
+    });
+
+    it("链接定位尚未完成时手动切换标签，之后列表刷新不会把标签切回链接那条", async () => {
+      mockTimelines();
+      const read = vi
+        .spyOn(API, "getEditTimeline")
+        .mockImplementation((_project, id) =>
+          id === "tl-00000001" ? new Promise(() => {}) : Promise.resolve(INITIAL_CUT),
+        );
+      window.history.replaceState(null, "", "/?view=edit&tl=tl-00000001&t=3");
+      renderView();
+      await waitFor(() =>
+        expect(screen.getByRole("tab", { name: "按脚本顺序" })).toHaveAttribute("aria-selected", "true"),
+      );
+
+      fireEvent.click(screen.getByRole("tab", { name: "初剪" }));
+      await screen.findByTestId("edit-clip-c1");
+      vi.mocked(API.listEditTimelines).mockResolvedValue({
+        timelines: [
+          summary("tl-00000001", "按脚本顺序", "2026-09-30T09:00:00Z"),
+          summary("tl-00000002", "初剪 v2", "2026-09-30T10:05:00Z", 4),
+        ],
+      });
+      act(() => useProjectsStore.setState({ projectSnapshotRevisions: { demo: 1 } }));
+
+      await screen.findByRole("tab", { name: "初剪 v2" });
+      await waitFor(() => expect(read).toHaveBeenLastCalledWith("demo", "tl-00000002", expect.anything()));
+      expect(screen.getByRole("tab", { name: "初剪 v2" })).toHaveAttribute("aria-selected", "true");
+      expect(playheadPercent()).toBe(0);
+    });
+
+    it("跳到别的项目时，参数留给切换后的那个项目的剪辑视图消费", async () => {
+      mockTimelines();
+      window.history.replaceState(null, "", "/app/projects/other/episodes/1?view=edit&tl=tl-00000001&t=3");
+      const inRoute = (projectName: string) => (
+        <Route path="/app/projects/:projectName" nest>
+          <EditTimelineView key={projectName} projectName={projectName} episode={1} script={SCRIPT} aspect="16:9" />
+        </Route>
+      );
+      const { rerender } = render(inRoute("demo"));
+      await screen.findByTestId("edit-clip-c1");
+      expect(window.location.search).toBe("?view=edit&tl=tl-00000001&t=3");
+
+      rerender(inRoute("other"));
+      await waitFor(() => expect(screen.getByTestId("edit-clip-d2")).toHaveAttribute("aria-pressed", "true"));
+      expect(screen.getByRole("tab", { name: "按脚本顺序" })).toHaveAttribute("aria-selected", "true");
+      expect(window.location.search).toBe("?view=edit");
+    });
+
+    it("已经在剪辑视图里时，再点同一条链接会重新定位", async () => {
+      mockTimelines();
+      renderView();
+      await screen.findByTestId("edit-clip-c1");
+
+      act(() => {
+        window.history.pushState(null, "", "/?view=edit&tl=tl-00000002&t=6");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+      await waitFor(() => expect(playheadPercent()).toBeCloseTo((6 / 7.8) * 100, 1));
+
+      act(() => {
+        window.history.pushState(null, "", "/?view=edit&tl=tl-00000002&t=1");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+      await waitFor(() => expect(playheadPercent()).toBeCloseTo((1 / 7.8) * 100, 1));
+      expect(screen.getByTestId("edit-clip-c1")).toHaveAttribute("aria-pressed", "true");
+    });
   });
 });
