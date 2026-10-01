@@ -7,6 +7,7 @@ import type { EditClip, EditTimelineReadout } from "@/types/edit-timeline";
 
 import type { AudioPlacement, NarrationSpan, PlacedSubtitle } from "./preview-tracks";
 import { formatSeconds, rulerStep, unitHue } from "./timeline-view";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 const LABEL_WIDTH = 56;
 
@@ -54,6 +55,7 @@ export function EditTimelineTracks({
   const percent = (seconds: number) => percentOf(seconds, duration);
 
   const seekFromPointer = (event: PointerEvent) => {
+    if (event.button !== 0) return;
     const box = trackRef.current?.getBoundingClientRect();
     if (!box || box.width <= 0) return;
     onSeek(((event.clientX - box.left) / box.width) * duration);
@@ -124,7 +126,7 @@ export function EditTimelineTracks({
                     className="h-4 w-7 rounded-[2px] object-cover"
                   />
                 )}
-                {unitId}
+                {itemIdWithinEpisode(unitId)}
               </span>
             );
           })}
@@ -261,7 +263,11 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect 
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      title={t("edit_view_clip_title", { clip: clip.id, unit: clip.unit_id, duration: formatSeconds(clip.duration) })}
+      title={t("edit_view_clip_title", {
+        clip: clip.id,
+        unit: itemIdWithinEpisode(clip.unit_id),
+        duration: formatSeconds(clip.duration),
+      })}
       data-testid={`edit-clip-${clip.id}`}
       data-trim-ignored={trimIgnored || undefined}
       className={`focus-ring absolute inset-y-1.5 overflow-hidden rounded-[5px] text-left ${border} ${outline}`}
@@ -274,7 +280,7 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect 
       <span className="flex h-full flex-col justify-between p-1 text-[10.5px] leading-none text-white">
         <span className="flex items-center gap-1 whitespace-nowrap">
           <b>{clip.id}</b>
-          <span className="opacity-80">{clip.unit_id}</span>
+          <span className="opacity-80">{itemIdWithinEpisode(clip.unit_id)}</span>
           {trimIgnored && <AlertTriangle aria-hidden className="h-3 w-3 shrink-0 text-warn" />}
         </span>
         <span className="tabular-nums opacity-75">{formatSeconds(clip.duration)}s</span>
@@ -297,9 +303,9 @@ const NarrationBlocks = memo(function NarrationBlocks({
     <>
       {spans.map((span) => {
         const title = span.missingAudio
-          ? t("edit_view_narration_missing", { unit: span.unitId, clip: span.clipId })
+          ? t("edit_view_narration_missing", { unit: itemIdWithinEpisode(span.unitId), clip: span.clipId })
           : t("edit_view_narration_title", {
-              unit: span.unitId,
+              unit: itemIdWithinEpisode(span.unitId),
               clip: span.clipId,
               start: formatSeconds(span.start),
               end: formatSeconds(span.end),
@@ -321,7 +327,7 @@ const NarrationBlocks = memo(function NarrationBlocks({
               background: span.missingAudio ? "transparent" : `oklch(0.5 0.08 ${unitHue(span.unitId)} / 0.75)`,
             }}
           >
-            {span.unitId}
+            {itemIdWithinEpisode(span.unitId)}
           </span>
         );
       })}

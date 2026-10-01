@@ -77,14 +77,14 @@ C:\Users\<用户名>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.d
 ```
 com.lveditor.draft/
 ├── ... (其他已有草稿)
-└── {项目标题}_第{N}集_{剪辑时间线名称}/   ← 解压出来的文件夹
+└── {两位播出位置}_{集标题}_{剪辑时间线名称}/   ← 解压出来的文件夹
     ├── draft_info.json        (剪映 6+) 或 draft_content.json (5.x)
     ├── draft_meta_info.json
     └── assets/
         └── ...                 (视频、音频与定格静帧)
 ```
 
-广告/短片项目只有一集，文件夹名不带「第{N}集」。带旁白版本的文件夹名另有「_带旁白」后缀。
+文件夹名开头是集在播出顺序中的位置（两位数字，如 `01`）和集标题，集没有标题时用「第 N 集」代替；接着是剪辑时间线名称。带旁白版本的文件夹名另有「_带旁白」后缀。
 
 ### 6. 在剪映中打开 {#open-in-jianying}
 

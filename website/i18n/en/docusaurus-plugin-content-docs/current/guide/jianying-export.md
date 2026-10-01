@@ -76,14 +76,14 @@ Extract the downloaded ZIP file into the Jianying draft directory entered above.
 ```
 com.lveditor.draft/
 ├── ... (other existing drafts)
-└── {项目标题}_第{N}集_{剪辑时间线名称}/   ← the extracted folder
+└── {two-digit airing position}_{episode title}_{edit timeline name}/   ← the extracted folder
     ├── draft_info.json        (Jianying 6+) or draft_content.json (5.x)
     ├── draft_meta_info.json
     └── assets/
         └── ...                 (video, audio, and hold frames)
 ```
 
-The folder is named after the project title, the episode, and the edit timeline name. Ad/short-film projects have a single episode, so their folder names omit the episode part. The version with narration adds a `_带旁白` suffix.
+The folder name starts with the episode's position in the airing order (two digits, such as `01`) and the episode title; an episode without a title uses `第 N 集` instead. The edit timeline name follows. The version with narration adds a `_带旁白` suffix.
 
 ### 6. Open in Jianying {#open-in-jianying}
 

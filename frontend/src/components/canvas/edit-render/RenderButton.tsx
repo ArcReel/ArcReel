@@ -6,6 +6,7 @@ import type { EditTimelineIssueRef } from "@/types";
 import { formatNameList } from "@/utils/list-format";
 import { blockingIssues, blockingUnitIds } from "./edit-render-model";
 import { RenderDialog } from "./RenderDialog";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 interface RenderButtonProps {
   projectName: string;
@@ -34,7 +35,7 @@ export function RenderButton({ projectName, timelineId, timelineName, issues, on
       units.length > 0
         ? t("edit_render_blocked_reason_units", {
             count: blocking.length,
-            units: formatNameList(units, i18n.language),
+            units: formatNameList(units.map(itemIdWithinEpisode), i18n.language),
           })
         : t("edit_render_blocked_reason", { count: blocking.length });
   }

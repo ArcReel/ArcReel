@@ -266,7 +266,7 @@ describe("RenderButton", () => {
     );
 
     const button = screen.getByRole("button", { name: "出片" });
-    const reason = "当前剪辑时间线有 1 个问题阻断出片，涉及 E1S03，处理后才能出片";
+    const reason = "当前剪辑时间线有 1 个问题阻断出片，涉及 S03，处理后才能出片";
     expect(button).toBeDisabled();
     expect(button.parentElement).toHaveAttribute("title", reason);
     expect(button).toHaveAccessibleDescription(reason);

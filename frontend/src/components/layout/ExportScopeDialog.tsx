@@ -10,8 +10,8 @@ interface ExportScopeDialogProps {
   onClose: () => void;
   onSelect: (scope: ExportScope) => void;
   anchorRef: RefObject<HTMLElement | null>;
-  /** 提示里「打开剪辑视图」链接指向的集（集 ID 与播出位置）；项目还没有集时为 null，只显示提示。 */
-  editViewEpisode: { episode: number; position: number } | null;
+  /** 提示里「打开剪辑视图」链接指向的集（集 ID 与集名）；项目还没有集时为 null，只显示提示。 */
+  editViewEpisode: { episode: number; name: string } | null;
   onOpenEditView: (episode: number) => void;
 }
 
@@ -116,7 +116,7 @@ export function ExportScopeDialog({
                   className="focus-ring rounded underline underline-offset-2"
                   style={{ color: "var(--color-accent-2)" }}
                 >
-                  {t("dashboard:export_open_edit_view", { position: editViewEpisode.position })}
+                  {t("dashboard:export_open_edit_view", { name: editViewEpisode.name })}
                 </button>
               </>
             )}

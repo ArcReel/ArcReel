@@ -12,6 +12,7 @@ import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
 import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
 import { ExportScopeDialog } from "./ExportScopeDialog";
+import { episodeDisplayName } from "@/utils/episode-display";
 import { ProjectMenu } from "./ProjectMenu";
 import { ProjectStatusBar } from "./ProjectStatusBar";
 
@@ -48,14 +49,13 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
-  // 「导出项目」提示里的剪辑视图链接：在集页时指向当前集，否则指向第一集；文案按播出位置称呼集。
+  // 「导出项目」提示里的剪辑视图链接：在集页时指向当前集，否则指向播出顺序上的第一集；文案用集名。
   const routeEpisode = /\/episodes\/(\d+)/.exec(location)?.[1];
   const projectEpisodes = currentProjectData?.episodes ?? [];
-  const editViewIndex =
-    routeEpisode !== undefined ? projectEpisodes.findIndex((ep) => ep.episode === Number(routeEpisode)) : 0;
+  const editViewEpisodeId = routeEpisode !== undefined ? Number(routeEpisode) : projectEpisodes[0]?.episode;
   const editViewEpisode =
-    editViewIndex >= 0 && editViewIndex < projectEpisodes.length
-      ? { episode: projectEpisodes[editViewIndex].episode, position: editViewIndex + 1 }
+    editViewEpisodeId !== undefined && projectEpisodes.some((ep) => ep.episode === editViewEpisodeId)
+      ? { episode: editViewEpisodeId, name: episodeDisplayName(projectEpisodes, editViewEpisodeId, t) }
       : null;
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
   // 数据升级失败时中段是唯一的重试入口，窄屏也要显示。

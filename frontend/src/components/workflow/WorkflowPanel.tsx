@@ -13,6 +13,7 @@ import {
 } from "@/actions/generation";
 import { AssetSheetBatchDialog } from "@/components/canvas/lorebook/AssetSheetBatchDialog";
 import { StoryboardBatchDialog } from "@/components/canvas/timeline/StoryboardBatchDialog";
+import { createScriptEditTimeline } from "@/components/canvas/edit-render/create-script-timeline";
 import { promptAuthoringHandoffText } from "@/components/canvas/shared/prompt-authoring-handoff";
 import { DiscardDraftDialog, draftFallbackText, draftFixRequestText, prefillAssistant } from "@/components/shared/DraftStatus";
 import { diagnosticCode } from "@/hooks/useDraftEditor";
@@ -67,16 +68,6 @@ function assetRouteIn(project: ProjectData | null, name: string): string | null 
     if (table && typeof table === "object" && owner in table) return `/${route}`;
   }
   return null;
-}
-
-/** 按脚本新建的剪辑时间线显示名：「完整版」，集内已有同名时依次加序号。 */
-function nextEditTimelineName(base: string, numbered: (n: number) => string, taken: string[]): string {
-  const names = new Set(taken.map((name) => name.toLocaleLowerCase()));
-  if (!names.has(base.toLocaleLowerCase())) return base;
-  for (let n = 2; ; n += 1) {
-    const candidate = numbered(n);
-    if (!names.has(candidate.toLocaleLowerCase())) return candidate;
-  }
 }
 
 /**
@@ -306,15 +297,8 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             await enqueueScriptPlan(projectName, episodeId, { instructions: instruction.trim() || null });
             break;
           case "create_edit_timeline": {
-            const { timelines } = await API.listEditTimelines(projectName, episodeId);
-            const name = nextEditTimelineName(
-              t("workflow:edit_timeline_default_name"),
-              (number) => t("workflow:edit_timeline_default_name_numbered", { number }),
-              timelines.map((timeline) => timeline.name),
-            );
-            await API.createEditTimeline(projectName, episodeId, name);
-            pushToast(t("workflow:edit_timeline_created", { name }), "success");
-            await useProjectsStore.getState().refreshProject(projectName);
+            const created = await createScriptEditTimeline(projectName, episodeId, t);
+            pushToast(t("workflow:edit_timeline_created", { name: created.timeline.name }), "success");
             void refreshPlan(projectName, episode);
             break;
           }

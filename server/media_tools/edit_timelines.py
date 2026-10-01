@@ -47,7 +47,9 @@ class CreateTimelineRequest(BaseModel):
         max_length=TIMELINE_NAME_MAX_LENGTH,
         description="显示名，同一集内不能重名，写成创作者一眼认得出的剪法，如「完整版」「快节奏版」",
     )
-    episode: PositiveEpisode | None = Field(default=None, description="集的集 ID（项目详情 episodes[].episode），不是第几集；from=script 时必填")
+    episode: PositiveEpisode | None = Field(
+        default=None, description="集的集 ID（项目详情 episodes[].episode），不是第几集；from=script 时必填"
+    )
     timeline: str | None = Field(
         default=None,
         min_length=1,

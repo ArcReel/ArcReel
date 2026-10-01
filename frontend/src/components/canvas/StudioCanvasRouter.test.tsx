@@ -677,6 +677,17 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "分镜" }));
     expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "分镜" })).toContainElement(screen.getByTestId("timeline-canvas"));
+
+    // 方向键在两个视图间切换，焦点跟着走，Tab 只停在选中的那个
+    const storyboard = screen.getByRole("tab", { name: "分镜" });
+    expect(storyboard).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: "剪辑" })).toHaveAttribute("tabindex", "-1");
+    fireEvent.keyDown(storyboard, { key: "ArrowRight" });
+    const edit = screen.getByRole("tab", { name: "剪辑" });
+    expect(edit).toHaveAttribute("aria-selected", "true");
+    expect(edit).toHaveFocus();
+    expect(screen.getByRole("tabpanel", { name: "剪辑" })).toContainElement(screen.getByTestId("edit-timeline-view"));
   });
 
   it("opens the edit view directly from its link", () => {

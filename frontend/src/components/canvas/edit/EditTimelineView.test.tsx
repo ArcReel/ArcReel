@@ -81,8 +81,12 @@ const INITIAL_CUT: EditTimelineReadout = {
 
 const SCRIPT = { episode: 1, video_units: [{ unit_id: "E1U1" }, { unit_id: "E1U3" }, { unit_id: "E1U4" }] };
 
+const NO_TIMELINE = () => <p>no timeline</p>;
+
 function renderView() {
-  return render(<EditTimelineView projectName="demo" episode={1} script={SCRIPT} aspect="16:9" />);
+  return render(
+    <EditTimelineView projectName="demo" episode={1} script={SCRIPT} aspect="16:9" renderEmptyState={NO_TIMELINE} />,
+  );
 }
 
 describe("EditTimelineView", () => {
@@ -136,11 +140,11 @@ describe("EditTimelineView", () => {
     expect(stale).toHaveAttribute("data-trim-ignored", "true");
     expect(screen.queryByTestId("edit-clip-c2")).not.toBeInTheDocument();
     expect(screen.getByTestId("edit-clip-deleted-c2")).toBeInTheDocument();
-    expect(screen.getByText("未使用").parentElement).toHaveTextContent("E1U4");
+    expect(screen.getByText("未使用").parentElement).toHaveTextContent("U4");
 
     const issues = screen.getByRole("heading", { name: "问题（3）" }).parentElement as HTMLElement;
     expect(within(issues).getByText("c2：素材已删除，已跳过")).toBeInTheDocument();
-    expect(within(issues).getByText("视频单元 E1U4 未使用")).toBeInTheDocument();
+    expect(within(issues).getByText("视频单元 U4 未使用")).toBeInTheDocument();
 
     fireEvent.click(within(issues).getByText("c3：素材已更新，暂用完整视频"));
     const inspector = screen.getByTestId("edit-clip-inspector");
@@ -214,6 +218,32 @@ describe("EditTimelineView", () => {
     expect(screen.getByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
   });
 
+  it("switches timelines with the arrow keys and labels the preview with the selected tab", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [
+        summary("tl-00000001", "按脚本顺序", "2026-09-30T09:00:00Z"),
+        summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3),
+      ],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+
+    renderView();
+
+    const cut = await screen.findByRole("tab", { name: "初剪" });
+    expect(screen.getByRole("tabpanel", { name: "初剪" })).toBeInTheDocument();
+    expect(cut).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: "按脚本顺序" })).toHaveAttribute("tabindex", "-1");
+
+    fireEvent.keyDown(cut, { key: "ArrowRight" });
+    const byScript = screen.getByRole("tab", { name: "按脚本顺序" });
+    expect(byScript).toHaveAttribute("aria-selected", "true");
+    expect(byScript).toHaveFocus();
+    expect(screen.getByRole("tabpanel", { name: "按脚本顺序" })).toBeInTheDocument();
+
+    fireEvent.keyDown(byScript, { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { name: "初剪" })).toHaveFocus();
+  });
+
   it("hands the current timeline and its issues to the actions area", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({
       timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
@@ -227,6 +257,7 @@ describe("EditTimelineView", () => {
         episode={1}
         script={SCRIPT}
         aspect="16:9"
+        renderEmptyState={NO_TIMELINE}
         renderActions={({ timelineId, timelineName, issues, showIssues }) => (
           <button type="button" onClick={showIssues}>
             {`${timelineName} ${timelineId} ${issues === null ? "…" : issues.length}`}
@@ -263,14 +294,6 @@ describe("EditTimelineView", () => {
     expect(await screen.findByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("explains the empty state when the episode has no edit timeline", async () => {
-    vi.spyOn(API, "listEditTimelines").mockResolvedValue({ timelines: [] });
-
-    renderView();
-
-    expect(await screen.findByText("还没有剪辑时间线")).toBeInTheDocument();
-  });
-
   it("shows narration over the clips it runs across, subtitles that can be hidden, and BGM once there is any", async () => {
     // c1 的旁白 4.5s，越过 c1 的出点延伸到 c3 上；c1 → c3 叠化
     const narrated: EditTimelineReadout = {
@@ -304,7 +327,7 @@ describe("EditTimelineView", () => {
     renderView();
 
     const span = await screen.findByTestId("edit-narration-c1");
-    expect(span).toHaveAttribute("title", "E1U1 的旁白，挂在 c1 上：0–4.5s");
+    expect(span).toHaveAttribute("title", "U1 的旁白，挂在 c1 上：0–4.5s");
     // 4.5 / 7.8 ≈ 57.69%，比 c1 自身的 2.8s 宽
     expect(span.style.width).toContain("57.69");
     expect(await screen.findByTestId("edit-player-subtitle")).toHaveTextContent("门后传来脚步声。");
@@ -333,6 +356,67 @@ describe("EditTimelineView", () => {
     expect(screen.getByText("旁白")).toBeInTheDocument();
     expect(screen.queryByText("BGM")).not.toBeInTheDocument();
     expect(screen.queryByText("转场效果以成片为准")).not.toBeInTheDocument();
+  });
+
+  it("unlocks every narration on play but only loads the ones about to be heard", async () => {
+    // c2 的旁白从 20s 开始，离播放起点超过预载窗口
+    const long: EditTimelineReadout = {
+      ...INITIAL_CUT,
+      duration: 25,
+      clips: [
+        clip({ id: "c1", unit_id: "E1U1", start: 0, duration: 20, carries_narration: true, narration: { start: 0, end: 3 } }),
+        clip({ id: "c2", unit_id: "E1U3", start: 20, duration: 5, carries_narration: true, narration: { start: 20, end: 23 } }),
+      ],
+      issues: [],
+    };
+    const narrationOf = (unit_id: string) => ({
+      unit_id,
+      narration_audio: { path: `audio/${unit_id}.mp3`, version: 1 },
+      subtitles_follow_narration: true,
+      subtitles: [],
+    });
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(long);
+    vi.spyOn(API, "getEditTimelinePreviewMedia").mockResolvedValue({
+      timeline_id: "tl-00000002",
+      revision: 3,
+      narration: "with_narration",
+      units: [narrationOf("E1U1"), narrationOf("E1U3")],
+    });
+
+    renderView();
+
+    await screen.findByTestId("edit-narration-c2");
+    await waitFor(() => expect(screen.getByRole("button", { name: "播放" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "播放" }));
+
+    const unlocked = vi
+      .mocked(HTMLMediaElement.prototype.play)
+      .mock.contexts.filter((media): media is HTMLAudioElement => media instanceof HTMLAudioElement);
+    expect(unlocked).toHaveLength(2);
+    expect(unlocked.map((media) => media.getAttribute("src"))).toEqual([expect.stringContaining("E1U1.mp3"), null]);
+  });
+
+  it("moves the playhead when the tracks are pressed with the primary button only", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+
+    renderView();
+
+    await screen.findByTestId("edit-clip-c1");
+    const tracks = screen.getByRole("group", { name: "时间线轨道，点击跳到对应时间" });
+    vi.spyOn(tracks, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 780, 100));
+    const playhead = () => parseFloat(screen.getByTestId("edit-playhead").style.left);
+
+    fireEvent.pointerDown(tracks, { button: 2, clientX: 390 });
+    expect(playhead()).toBe(0);
+
+    fireEvent.pointerDown(tracks, { button: 0, clientX: 390 });
+    await waitFor(() => expect(playhead()).toBeCloseTo(50, 1));
   });
 
   describe("链接参数 tl / t", () => {
@@ -484,7 +568,14 @@ describe("EditTimelineView", () => {
       window.history.replaceState(null, "", "/app/projects/other/episodes/1?view=edit&tl=tl-00000001&t=3");
       const inRoute = (projectName: string) => (
         <Route path="/app/projects/:projectName" nest>
-          <EditTimelineView key={projectName} projectName={projectName} episode={1} script={SCRIPT} aspect="16:9" />
+          <EditTimelineView
+            key={projectName}
+            projectName={projectName}
+            episode={1}
+            script={SCRIPT}
+            aspect="16:9"
+            renderEmptyState={NO_TIMELINE}
+          />
         </Route>
       );
       const { rerender } = render(inRoute("demo"));

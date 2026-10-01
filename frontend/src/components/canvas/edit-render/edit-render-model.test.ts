@@ -1,23 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { EditTimelineIssueRef, EpisodeScript } from "@/types";
-import { blockingIssues, blockingUnitIds, scriptHasUsableVideo } from "./edit-render-model";
-
-function scriptWith(field: string, clips: (string | null)[]): EpisodeScript {
-  return {
-    [field]: clips.map((clip, index) => ({ id: `E1S0${index + 1}`, generated_assets: { video_clip: clip } })),
-  } as unknown as EpisodeScript;
-}
-
-describe("scriptHasUsableVideo", () => {
-  it.each(["segments", "scenes", "shots", "video_units"])("%s 里有一个已生成的视频即满足准入", (field) => {
-    expect(scriptHasUsableVideo(scriptWith(field, [null, "videos/E1S02.mp4"]))).toBe(true);
-  });
-
-  it("没有任何已生成的视频时不满足准入", () => {
-    expect(scriptHasUsableVideo(scriptWith("segments", [null, null]))).toBe(false);
-    expect(scriptHasUsableVideo(null)).toBe(false);
-  });
-});
+import type { EditTimelineIssueRef } from "@/types";
+import { blockingIssues, blockingUnitIds } from "./edit-render-model";
 
 describe("blocking issues", () => {
   const issues: EditTimelineIssueRef[] = [

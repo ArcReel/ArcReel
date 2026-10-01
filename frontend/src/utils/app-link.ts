@@ -1,16 +1,22 @@
 /**
  * 应用内链接（Agent 回复里的「跳到这里看」）的格式与解析。链接是普通的应用内路径，新开标签页、复制地址都照常可用：
  *
- * - 剪辑视图：`/app/projects/{项目名}/episodes/{集号}?view=edit&tl={剪辑时间线ID}&t={秒}`
+ * - 剪辑视图：`/app/projects/{项目名}/episodes/{集 ID}?view=edit&tl={剪辑时间线ID}&t={秒}`
  *   `tl` 与 `t` 均可省略；`t` 是该剪辑时间线上的全局时间（秒），落在哪个片段由时间线决定。
- * - 视频单元预览：`/app/projects/{项目名}/episodes/{集号}?unit={单元ID}&t={秒}`
+ * - 视频单元预览：`/app/projects/{项目名}/episodes/{集 ID}?unit={单元ID}&t={秒}`
  *   打开该单元的预览；带 `t` 时从 `t` 开始播放。`t` 可省略，是该单元视频自身的时间（秒，从视频开头算起）；单元 ID 即脚本里的 `segment_id` / `shot_id` / `scene_id` / `unit_id`。
  *
- * 项目名按路径段做 URL 编码。两种格式不要混写：带 `view=edit` 时 `unit` 不生效，`t` 按剪辑时间线上的全局时间处理。
+ * 集 ID 是项目详情 `episodes[].episode`，不是播出位置。项目名按路径段做 URL 编码。两种格式不要混写：带 `view=edit` 时 `unit` 不生效，`t` 按剪辑时间线上的全局时间处理。
  */
-import { EPISODE_VIEW_EDIT, EPISODE_VIEW_PARAM, ROUTE_APP, WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
+import {
+  EPISODE_VIEW_EDIT,
+  EPISODE_VIEW_PARAM,
+  EPISODE_VIEW_TIMELINE_PARAM,
+  ROUTE_APP,
+  WORKSPACE_ROUTE_EPISODES,
+} from "@/app-routes";
 
-export const LINK_TIMELINE_PARAM = "tl";
+export const LINK_TIMELINE_PARAM = EPISODE_VIEW_TIMELINE_PARAM;
 export const LINK_TIME_PARAM = "t";
 export const LINK_UNIT_PARAM = "unit";
 

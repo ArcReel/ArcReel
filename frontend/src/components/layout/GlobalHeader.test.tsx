@@ -43,8 +43,9 @@ const PROJECT_WITH_EPISODES = {
   content_mode: "narration",
   style: "Anime",
   episodes: [
-    { episode: 1, title: "开端", script_file: "scripts/episode_1.json" },
-    { episode: 2, title: "转折", script_file: "scripts/episode_2.json" },
+    // 集 ID 与播出顺序不同：ID 3 排第一，ID 1 排第二且没有标题
+    { episode: 3, title: "开端", script_file: "scripts/episode_3.json" },
+    { episode: 1, title: "", script_file: "scripts/episode_1.json" },
   ],
   characters: {},
   scenes: {},
@@ -147,12 +148,12 @@ describe("GlobalHeader", () => {
   it("在集页时，提示里的链接跳到当前集的剪辑视图", async () => {
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT_WITH_EPISODES as never });
 
-    const location = renderHeader("/episodes/2");
+    const location = renderHeader("/episodes/1");
     screen.getByRole("button", { name: "导出项目归档" }).click();
-    (await screen.findByRole("button", { name: "打开第 2 集剪辑视图" })).click();
+    (await screen.findByRole("button", { name: "打开「第 2 集」的剪辑视图" })).click();
 
     await waitFor(() => {
-      expect(location.history?.at(-1)).toBe("/app/projects/demo/episodes/2?view=edit");
+      expect(location.history?.at(-1)).toBe("/app/projects/demo/episodes/1?view=edit");
     });
   });
 
@@ -161,10 +162,10 @@ describe("GlobalHeader", () => {
 
     const location = renderHeader();
     screen.getByRole("button", { name: "导出项目归档" }).click();
-    (await screen.findByRole("button", { name: "打开第 1 集剪辑视图" })).click();
+    (await screen.findByRole("button", { name: "打开「开端」的剪辑视图" })).click();
 
     await waitFor(() => {
-      expect(location.history?.at(-1)).toBe("/app/projects/demo/episodes/1?view=edit");
+      expect(location.history?.at(-1)).toBe("/app/projects/demo/episodes/3?view=edit");
     });
   });
 
