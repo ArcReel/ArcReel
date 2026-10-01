@@ -13,6 +13,8 @@ from lib.edit_timeline.service import (
     ConcurrentRevision,
     EditTimelineService,
     EditTimelineWriteResult,
+    RevisionHistory,
+    RevisionSummary,
     TimelineSummary,
 )
 
@@ -27,6 +29,8 @@ __all__ = [
     "IssueScope",
     "IssueSeverity",
     "RevisionAuthor",
+    "RevisionHistory",
+    "RevisionSummary",
     "TimelineIssue",
     "TimelineSummary",
 ]

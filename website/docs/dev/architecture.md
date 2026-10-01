@@ -369,9 +369,17 @@ ArcReel 使用 SQLAlchemy 2.0 异步 ORM。
 
 剪辑时间线是一集的一套具名剪辑决策，可以有多条，存放在项目目录的 `edit_timelines/episode_{N}/{timeline_id}.json`。每份文件保存稳定 ID、显示名、片段编号分配器与不可变修订序列；修订记作者、摘要、父修订和 Agent 轮次。它是正式内容，随项目归档导出和导入，不进入产物清单。
 
-`lib/edit_timeline/` 统一负责机械新建、列表和读取。HTTP 入口为 `POST /api/v1/projects/{project_name}/episodes/{episode}/edit-timelines`、`GET /api/v1/projects/{project_name}/edit-timelines` 与 `GET /api/v1/projects/{project_name}/edit-timelines/{timeline_id}`；Agent 工具 `create_timeline`、`list_timelines`、`read_timeline` 调用同一服务。集内写入持文件锁并原子落盘，Agent 禁止直接改写该目录。
+`lib/edit_timeline/` 统一负责新建、列表、读取、批量编辑和下述管理操作。HTTP 入口为 `POST /api/v1/projects/{project_name}/episodes/{episode}/edit-timelines`、`GET /api/v1/projects/{project_name}/edit-timelines` 与 `GET /api/v1/projects/{project_name}/edit-timelines/{timeline_id}`；Agent 工具 `create_timeline`、`list_timelines`、`read_timeline` 调用同一服务。集内写入持文件锁并原子落盘，Agent 禁止直接改写该目录。
 
 批量编辑由 Agent 工具 `edit_timeline` 调用服务的 `edit` 命令。服务在集内文件锁下读取最新修订，校验 `base_revision` 后整批应用按片段 ID 定位的操作，只追加一个修订。
+
+管理操作由同一服务提供，Agent 工具与 HTTP 入口共用：
+
+- **复制**：Agent 工具 `create_timeline`（`from: "timeline"`）与 `POST …/edit-timelines/{timeline_id}/copy`。把指定修订（缺省为最新修订）的内容原样复制成同一集的新剪辑时间线，片段编号与编号分配器一并带过去，新时间线从修订 1 起。
+- **改名**：`rename_timeline` 与 `PATCH …/edit-timelines/{timeline_id}`。只改文档头的显示名，不产生修订，成片与剪映草稿也不因此过期。
+- **修订历史**：`list_revisions` 与 `GET …/edit-timelines/{timeline_id}/revisions`。
+- **回滚**：`restore_revision` 与 `POST …/edit-timelines/{timeline_id}/restore`。以旧修订的内容追加新修订，`restored_from` 记录来源，历史不改写。回滚总是作用在最新修订上，不做乐观并发判定；改动记录取与最新修订之间的差异，相对顺序变化时两份内容共有的片段都计入，让基于旧修订的编辑宁可多报冲突。目标内容与最新修订相同时返回 `revision_unchanged`。
+- **删除**：只有 `DELETE …/edit-timelines/{timeline_id}`，不向 Agent 开放。时间线 ID 随机生成、不复用，成片与剪映草稿的产物身份挂在 ID 上，因此删除时同时清除这条时间线的成片与剪映草稿登记，并删除 `renders/episode_{N}/{timeline_id}/` 目录。当前用户提交的、以该时间线为对象的渲染任务仍在排队或执行时，端点以 `edit_timeline_render_in_progress` 拒绝。
 
 每个修订记录实际改动过的片段 ID。`base_revision` 落后时，服务累计期间每个修订的改动记录，并检查本批在基准修订和最新修订上的连带修改。涉及的片段都未被改过，且本批设置转场的片段在两个修订上接着同一个片段时，操作应用到最新修订；否则以 `revision_conflict` 拒绝。旧修订缺少改动记录时，由逐修订内容差异推断。
 

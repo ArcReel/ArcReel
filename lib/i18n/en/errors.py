@@ -688,6 +688,8 @@ MESSAGES = {
     "edit_timeline_name_invalid": "Edit timeline display names must be 1–40 characters long",
     "edit_timeline_script_invalid": "The script of episode (id={episode}) cannot be parsed, so no edit timeline can be created from it",
     "edit_timeline_invalid": "The edit timeline file is corrupted and cannot be read: {file}",
+    "edit_timeline_revision_unchanged": "Revision {revision} has the same content as the latest revision, so there is nothing to restore",
+    "edit_timeline_render_in_progress": "A final-cut or Jianying draft render is queued or running for this edit timeline ({task_id}); delete it after the render finishes",
     # Final cut
     "final_cut_variant_unsupported": "Final cuts can currently only be rendered without narration and without burned-in subtitles",
     "final_cut_blocked": "The edit timeline has issues that block rendering the final cut, in video units: {units}. Resolve them, then submit the render again",

@@ -625,6 +625,8 @@ MESSAGES = {
     "edit_timeline_name_invalid": "剪辑时间线显示名须为 1–40 个字符",
     "edit_timeline_script_invalid": "集（id={episode}）的脚本无法解析，无法按脚本新建剪辑时间线",
     "edit_timeline_invalid": "剪辑时间线文件已损坏，无法读取：{file}",
+    "edit_timeline_revision_unchanged": "修订 {revision} 的内容与最新修订相同，无需回滚",
+    "edit_timeline_render_in_progress": "这条剪辑时间线还有成片或剪映草稿的渲染任务在排队或执行（{task_id}），任务结束后再删除",
     # Final cut
     "final_cut_variant_unsupported": "成片暂只支持渲染不带旁白、不烧入字幕的版本",
     "final_cut_blocked": "剪辑时间线有阻止渲染成片的问题，涉及视频单元：{units}。处理这些问题后再提交渲染",

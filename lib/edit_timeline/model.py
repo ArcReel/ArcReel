@@ -192,6 +192,8 @@ class TimelineRevision(_Frozen):
     content: EditTimelineContent
     changed_clip_ids: tuple[Annotated[str, Field(pattern=CLIP_ID_PATTERN)], ...] | None = None
     """本修订实际改动的片段（含批内改后恢复）；旧修订缺省时由内容差异推断。"""
+    restored_from: int | None = Field(default=None, ge=1, strict=True)
+    """回滚产生的修订记录它还原到的修订号；内容取自那一修订，历史不改写。"""
 
 
 class EditTimelineDocument(_Frozen):

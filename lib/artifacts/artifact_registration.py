@@ -311,3 +311,13 @@ def forget_unbound_grid_artifacts(project_dir: Path, resource_id: str) -> bool:
         resource_id,
         kind=ArtifactKind.EPISODE_GRID,
     )
+
+
+def forget_timeline_render_artifacts(project_dir: Path, timeline_id: str) -> bool:
+    """Remove final-cut and Jianying-draft claims of a deleted edit timeline."""
+
+    forgotten = [
+        _forget_unbound_episode_artifacts(project_dir, timeline_id, kind=kind)
+        for kind in (ArtifactKind.EPISODE_FINAL_CUT, ArtifactKind.EPISODE_JIANYING_DRAFT)
+    ]
+    return any(forgotten)

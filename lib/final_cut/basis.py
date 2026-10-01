@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
-from lib.artifacts.rendered_artifact import RENDERS_DIRNAME
+from lib.artifacts.rendered_artifact import timeline_renders_dir
 from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.edit_timeline.model import EditClip, EditTimelineDocument, TimelineRevision
@@ -55,7 +55,7 @@ def final_cut_key(episode: int, timeline_id: str, variant: FinalCutVariant) -> A
 
 def final_cut_artifact_path(episode: int, timeline_id: str, variant: FinalCutVariant) -> str:
     """成片的正式路径；每个产物身份只保留这一份最新文件。"""
-    return f"{RENDERS_DIRNAME}/episode_{episode}/{timeline_id}/final_cut.{variant.slug}.mp4"
+    return f"{timeline_renders_dir(episode, timeline_id)}/final_cut.{variant.slug}.mp4"
 
 
 def video_resource_type_for(script_kind: str) -> str:

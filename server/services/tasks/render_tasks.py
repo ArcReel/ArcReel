@@ -12,12 +12,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.edit_timeline.errors import EditTimelineError
-from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_cut_key
+from lib.final_cut.basis import SUPPORTED_VARIANTS, FinalCutVariant, final_cut_artifact_path, final_cut_key
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutRender, FinalCutService
 from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
 from lib.generation.render_lane import RENDER_MEDIA_TYPE
-from lib.jianying_draft.basis import DraftNarration, jianying_draft_artifact_path, jianying_draft_key
+from lib.jianying_draft.basis import (
+    WITH_NARRATION,
+    WITHOUT_NARRATION,
+    DraftNarration,
+    jianying_draft_artifact_path,
+    jianying_draft_key,
+)
 from lib.jianying_draft.errors import JianyingDraftError
 from lib.project.project_manager import ProjectManager, get_project_manager
 
@@ -62,13 +68,31 @@ class RenderTaskRequest:
         }
 
 
+def final_cut_resource_id(timeline_id: str, variant: FinalCutVariant) -> str:
+    return f"{timeline_id}.{variant.slug}"
+
+
+def jianying_draft_resource_id(timeline_id: str, narration: DraftNarration) -> str:
+    return f"{timeline_id}.jianying_draft.{narration}"
+
+
+def timeline_render_resource_ids(timeline_id: str) -> dict[str, list[str]]:
+    """一条剪辑时间线可能占用的全部渲染任务身份，按任务类型分组。"""
+    return {
+        RENDER_FINAL_CUT_TASK_TYPE: [final_cut_resource_id(timeline_id, variant) for variant in SUPPORTED_VARIANTS],
+        RENDER_JIANYING_DRAFT_TASK_TYPE: [
+            jianying_draft_resource_id(timeline_id, narration) for narration in (WITHOUT_NARRATION, WITH_NARRATION)
+        ],
+    }
+
+
 def final_cut_task_request(
     *, episode: int, timeline_id: str, revision: int | None, variant: FinalCutVariant
 ) -> RenderTaskRequest:
     key = final_cut_key(episode, timeline_id, variant)
     return RenderTaskRequest(
         task_type=RENDER_FINAL_CUT_TASK_TYPE,
-        resource_id=f"{timeline_id}.{variant.slug}",
+        resource_id=final_cut_resource_id(timeline_id, variant),
         artifact_key=key.encode(),
         artifact_path=final_cut_artifact_path(episode, timeline_id, variant),
         payload={
@@ -89,7 +113,7 @@ def jianying_draft_task_request(
 ) -> RenderTaskRequest:
     return RenderTaskRequest(
         task_type=RENDER_JIANYING_DRAFT_TASK_TYPE,
-        resource_id=f"{timeline_id}.jianying_draft.{narration}",
+        resource_id=jianying_draft_resource_id(timeline_id, narration),
         artifact_key=jianying_draft_key(episode, timeline_id, narration).encode(),
         artifact_path=jianying_draft_artifact_path(episode, timeline_id, narration),
         payload={"timeline_id": timeline_id, "revision": revision, "narration": narration},
