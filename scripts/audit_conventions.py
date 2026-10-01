@@ -395,16 +395,17 @@ def _python_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
         out.append(Violation("SUPPRESSION-REASON", rel, token.start[0], guidance))
 
 
-def _in_code(prefix: str, *, yaml: bool) -> bool:
-    """逐字符扫描同一行内指令前的文本，判断指令起点是否位于代码中，而不是字符串字面量或注释正文里。
+def _inside_literal_or_comment(line: str, start: int, end: int, *, yaml: bool) -> bool:
+    """指令文本是否只是同一行的字面量或注释正文，而非真实指令。
 
-    只看单行：跨行的模板字符串、块注释与 YAML 块标量不在识别范围内。
+    字面量要求起点前的引号未闭合、且同一引号在指令之后闭合；起点前已进入行注释或未闭合的块注释时为注释正文。
+    判断偏向报告：无法确认是字面量时（正则字面量里的引号、跨行模板字符串、YAML 块标量）按真实指令检查。
     """
     quotes = "\"'" if yaml else "\"'`"
     quote: str | None = None
     i = 0
-    while i < len(prefix):
-        c = prefix[i]
+    while i < start:
+        c = line[i]
         if quote is not None:
             if c == "\\" and not (yaml and quote == "'"):
                 i += 1
@@ -413,17 +414,17 @@ def _in_code(prefix: str, *, yaml: bool) -> bool:
         elif c in quotes:
             quote = c
         elif yaml:
-            if c == "#" and (i == 0 or prefix[i - 1].isspace()):
-                return False
-        elif prefix.startswith("//", i):
-            return False
-        elif prefix.startswith("/*", i):
-            close = prefix.find("*/", i + 2)
+            if c == "#" and (i == 0 or line[i - 1].isspace()):
+                return True
+        elif line.startswith("//", i):
+            return True
+        elif line.startswith("/*", i):
+            close = line.find("*/", i + 2)
             if close < 0:
-                return False
+                return True
             i = close + 1
         i += 1
-    return quote is None
+    return quote is not None and quote in line[end:]
 
 
 def _text_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
@@ -442,7 +443,7 @@ def _text_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
     for n, line in enumerate(source.split("\n"), 1):
         for pattern, reason, guidance in checks:
             for match in pattern.finditer(line):
-                if not _in_code(line[: match.start()], yaml=yaml):
+                if _inside_literal_or_comment(line, match.start(), match.end(), yaml=yaml):
                     continue
                 rest = line[match.end() :].split("*/", 1)[0]
                 if not re.search(reason, rest):

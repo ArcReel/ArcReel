@@ -331,6 +331,7 @@ const b = '/* eslint-disable no-console */';
 const c = `/** @public */`;
 /* 注释 */ const d = "// eslint-disable-next-line no-console";
 foo("it's"); // eslint-disable-line no-console
+const quote = /"/; console.log(quote); // eslint-disable-line no-console
 """,
     )
     _write(
@@ -345,6 +346,7 @@ on: # zizmor: ignore[dangerous-triggers]
     assert _suppression_lines(repo) == [
         (".github/workflows/sample.yml", 3),
         ("frontend/src/sample.ts", 5),
+        ("frontend/src/sample.ts", 6),
     ]
 
 
