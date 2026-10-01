@@ -57,12 +57,13 @@ def _extract_first_str(payload: object, key: str) -> str | None:
 
 
 def _safe_body_for_log(body: dict) -> dict:
-    """生成安全日志视图：白名单标量 + prompt 仅长度 + image 仅计数。"""
+    """生成安全日志视图：白名单标量 + prompt 仅长度 + 参考图仅计数。"""
     view: dict = {key: body[key] for key in _SAFE_LOG_KEYS if key in body}
     prompt = body.get("prompt")
     if isinstance(prompt, str):
         view["prompt_len"] = len(prompt)
-    images = body.get("image")
+    extra = body.get("extra_body")
+    images = extra.get("image") if isinstance(extra, dict) else None
     if isinstance(images, list) and images:
         view["image"] = f"<{len(images)} ref>"
     return view
@@ -115,9 +116,12 @@ class AgnesImageBackend:
             "size": f"{width}x{height}",
         }
         if request.reference_images:
-            # I2I 参考图随同一请求体下发 data-URI 列表（image 字段）。读盘 + base64 编码
+            # I2I 参考图以 data-URI 列表放在 extra_body.image，与视频后端的多图约定一致；
+            # 放顶层 image 会被上游以 403 "Model is blocked" 拒绝。读盘 + base64 编码
             # （可能数 MB）offload 到线程，避免阻塞事件循环。
-            payload["image"] = await asyncio.to_thread(self._build_reference_images, request)
+            payload["extra_body"] = {
+                "image": await asyncio.to_thread(self._build_reference_images, request),
+            }
 
         data = await self._submit(payload)
         image_uri = await self._persist_image(data, request.output_path)
