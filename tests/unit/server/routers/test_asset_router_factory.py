@@ -208,6 +208,17 @@ class TestAssetRouterFactory:
             assert entry["voice_style"] == "strong"
             assert entry["reference_image"] == "characters/refs/Alice.png"
 
+    def test_character_patch_normalizes_aliases(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {"description": "old", "aliases": ["旧称"]}
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"aliases": [" 阿离 ", "阿离", "Alice", ""]},
+            )
+        assert resp.status_code == 200
+        assert fake_pm.projects["demo"]["characters"]["Alice"]["aliases"] == ["阿离"]
+
     def test_character_patch_rejects_non_string_value(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {

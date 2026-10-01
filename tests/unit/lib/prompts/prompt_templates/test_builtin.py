@@ -74,6 +74,7 @@ def test_builtin_templates_declare_stage_and_trigger_and_lock_structural_partial
         "shared/media_style",
         "shared/text_style",
         "shared/lists/asset_name_blocks",
+        "shared/lists/asset_registry_blocks",
         "shared/lists/asset_appearance_blocks",
         "shared/additional_instructions",
         "shared/writing_syntax",

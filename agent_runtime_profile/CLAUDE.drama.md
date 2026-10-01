@@ -104,10 +104,9 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   │  只持有：项目状态摘要 + 用户对话历史
   │  职责：查服务端计划、按受控动作决策、用户确认、dispatch 子智能体
   │
-  ├─ dispatch → analyze-assets               全局角色/场景/道具提取
-  ├─ dispatch → split-narration-segments     旁白/解说分镜拆分
-  ├─ dispatch → normalize-drama-script       剧情演绎规范化剧本
-  ├─ dispatch → split-reference-video-units  参考生视频的视频单元拆分
+  ├─ dispatch → split-narration-segments     旁白/解说分镜拆分（同时识别本集新增资产）
+  ├─ dispatch → normalize-drama-script       剧情演绎规范化剧本（同时识别本集新增资产）
+  ├─ dispatch → split-reference-video-units  参考生视频的视频单元拆分（同时识别本集新增资产）
   ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
   └─ dispatch → generate-assets              资产生成（角色/场景/道具/分镜/视频）
 ```
@@ -116,7 +115,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 | 类型 | 用途 | 示例 |
 |------|------|------|
-| **子智能体（聚焦任务）** | 需要大量上下文或推理分析 → 保护主 Agent context | analyze-assets、split-narration-segments |
+| **子智能体（聚焦任务）** | 需要大量上下文或推理分析 → 保护主 Agent context | split-narration-segments、normalize-drama-script |
 | **Skill（在子智能体内调用）** | 确定性脚本执行 → API 调用、文件生成 | generate-script、generate-storyboard |
 | **主 Agent 直接操作** | 仅限轻量操作 | 读项目状态、简单文件操作、用户交互 |
 

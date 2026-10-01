@@ -10,6 +10,7 @@
 """
 
 from lib.infra.text_metrics import reading_unit_noun
+from lib.project.asset_types import ALIASES_FIELD
 from lib.prompts.prompt_rules.asset_appearance import asset_reference_names, iter_asset_appearances
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.speech.speech_rate import speech_rate_units_per_second
@@ -213,11 +214,24 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
     return "\n\n".join(blocks)
 
 
+def _asset_aliases(bucket: dict | None, name: str) -> list[str]:
+    """资产表条目的别名；衍生引用名不是表里的键，取不到别名。"""
+    entry = (bucket or {}).get(name)
+    aliases = entry.get(ALIASES_FIELD) if isinstance(entry, dict) else None
+    if not isinstance(aliases, list):
+        return []
+    return [_neutralize_tags(alias) for alias in aliases if isinstance(alias, str) and alias.strip()]
+
+
 def _project_asset_appearances(characters: dict | None, scenes: dict | None, props: dict | None) -> dict:
-    """资产外观与引用名的键齐全投影；动态尖括号中和后作为模版数据。"""
+    """资产外观、别名与引用名的键齐全投影；动态尖括号中和后作为模版数据。"""
     return {
         key: [
-            {"name": _neutralize_tags(name), "appearance": _neutralize_tags(appearance) or None}
+            {
+                "name": _neutralize_tags(name),
+                "aliases": _asset_aliases(bucket, name),
+                "appearance": _neutralize_tags(appearance) or None,
+            }
             for name, appearance in iter_asset_appearances(asset_type, bucket)
         ]
         for key, asset_type, bucket in (
@@ -316,6 +330,7 @@ def build_normalize_prompt(
         target_language=target_language,
         project_overview=_overview_slot(project_overview),
         style=style,
+        assets=_project_asset_appearances(characters, scenes, props),
         character_names=asset_reference_names("character", characters),
         scene_names=asset_reference_names("scene", scenes),
         prop_names=asset_reference_names("prop", props),
@@ -371,6 +386,7 @@ def build_narration_split_prompt(
     return builtin_templates.render(
         "text/narration_script_plan",
         project_overview=_overview_slot(project_overview),
+        assets=_project_asset_appearances(characters, scenes, props),
         novel_text=novel_text,
         character_names=asset_reference_names("character", characters),
         scene_names=asset_reference_names("scene", scenes),

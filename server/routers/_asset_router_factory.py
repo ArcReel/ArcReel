@@ -32,10 +32,12 @@ from lib.project.asset_rename import (
     AssetRenameNotFoundError,
 )
 from lib.project.asset_types import (
+    ALIASES_FIELD,
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
     localize_asset_type,
+    record_asset_aliases,
     validate_asset_name,
 )
 from lib.project.project_change_hints import project_change_source
@@ -252,6 +254,11 @@ def build_asset_router(
                             # 存量过渡横幅感知不到变化，或已关闭后不再重现。
                             if field == "reference_audio" and req[field] != entry.get("reference_audio"):
                                 entry["voice_updated_at"] = datetime.now(UTC).isoformat()
+                            # 别名按名称判等规范化：去空白、去重、去掉与资产同名的一项。
+                            if field == ALIASES_FIELD:
+                                entry[field] = []
+                                record_asset_aliases(entry, req[field], asset_name=entry_name)
+                                continue
                             entry[field] = req[field]
 
                 with project_change_source("webui"):

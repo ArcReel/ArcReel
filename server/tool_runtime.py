@@ -106,15 +106,6 @@ from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.path_safety import safe_join
 from lib.infra.schema_guards import is_str
-from lib.project.asset_inventory import (
-    AssetInventoryError,
-    AssetInventoryInvalidRequest,
-    AssetInventoryRevisionConflict,
-    AssetInventorySourceBlocked,
-)
-from lib.project.asset_inventory import (
-    complete_asset_inventory as complete_asset_inventory_service,
-)
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, is_reference_video_project
 from lib.project.project_migration_failure import (
@@ -2301,28 +2292,6 @@ class RetryProjectMigrationResult(ToolMessage):
     workflow_plan: WorkflowPlan
 
 
-class CompleteAssetInventoryRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    scope: SourceScope = Field(description="本次资产分析覆盖的源文范围，原样取自制作计划 next_action.args.scope")
-    expected_source_revision: str = Field(
-        description="分析开始时的源文 revision，原样取自制作计划 next_action.args.expected_source_revision"
-    )
-    entries: dict[str, Any] | SkipJsonSchema[None] = Field(
-        default=None,
-        description=(
-            "本次新增资产：{characters/scenes/props: {名称: {description, voice_style?}}}；"
-            "角色可带 derivatives: {衍生名: {description}} 登记本体之外的另一套外观。缺省或三类全空都是合法的完成结果"
-        ),
-    )
-
-
-class CompleteAssetInventoryResult(BaseModel):
-    scope: SourceScope
-    source_revision: str
-    counts: dict[str, int]
-
-
 class CompleteScriptPlanRebuildRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -3076,61 +3045,6 @@ async def retry_project_migration(
     )
 
 
-async def complete_asset_inventory(
-    request: ToolRequest[CompleteAssetInventoryRequest],
-    scope: ProjectScope,
-    _caller: CallerContext,
-    services: Services,
-    *,
-    run_sync: Callable[..., Awaitable[Any]] = asyncio.to_thread,
-    complete: Callable[..., Any] = complete_asset_inventory_service,
-) -> ToolOutcome[CompleteAssetInventoryResult]:
-    if problem := await migration_gate(scope, services):
-        return ToolOutcome(problem=problem)
-    value = request.value
-    try:
-        completed = await run_sync(
-            complete,
-            services.projects,
-            scope.project_name,
-            value.scope,
-            value.expected_source_revision,
-            value.entries,
-        )
-    except AssetInventoryRevisionConflict as exc:
-        return ToolOutcome(
-            problem=ToolProblem(
-                "source_revision_conflict",
-                str(exc),
-                params={
-                    "expected_source_revision": exc.expected_revision,
-                    "actual_source_revision": exc.actual_revision,
-                },
-            )
-        )
-    except AssetInventorySourceBlocked as exc:
-        return ToolOutcome(
-            problem=ToolProblem(
-                "source_blocked",
-                str(exc),
-                params={"blockers": [blocker.model_dump(mode="json") for blocker in exc.blockers]},
-            )
-        )
-    except AssetInventoryInvalidRequest as exc:
-        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
-    except AssetInventoryError as exc:
-        return ToolOutcome(problem=ToolProblem("inventory_unavailable", str(exc)))
-    except Exception as exc:
-        return ToolOutcome(problem=_unexpected("complete_asset_inventory", exc))
-    return ToolOutcome(
-        value=CompleteAssetInventoryResult(
-            scope=completed.scope,
-            source_revision=completed.source_revision,
-            counts=completed.counts,
-        )
-    )
-
-
 async def complete_script_plan_rebuild(
     request: ToolRequest[CompleteScriptPlanRebuildRequest],
     scope: ProjectScope,
@@ -3166,7 +3080,6 @@ __all__ = [
     "PROJECT_OVERVIEW_FIELDS",
     "PROJECT_SETTINGS",
     "CallerContext",
-    "CompleteAssetInventoryRequest",
     "CompleteScriptPlanRebuildRequest",
     "ConfirmScriptReviewRequest",
     "CreateProjectToolRequest",
@@ -3210,7 +3123,6 @@ __all__ = [
     "ToolRequest",
     "UploadSourceRequest",
     "cancel_generation_batch",
-    "complete_asset_inventory",
     "complete_script_plan_rebuild",
     "confirm_script_review",
     "create_project",

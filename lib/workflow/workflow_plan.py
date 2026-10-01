@@ -114,7 +114,6 @@ class WorkflowPlan(BaseModel):
 
 
 _ARTIFACT_BY_STEP: dict[str, str] = {
-    "asset_inventory": "asset_inventory",
     "asset_sheets": "asset_sheets",
     "script_plan_content": "script_plan",
     "script_plan_review": "script_plan",
@@ -166,7 +165,6 @@ _ACTION_STEP: dict[WorkflowActionType, str] = {
     WorkflowActionType.COLLECT_PROJECT_INPUT: "project_input",
     WorkflowActionType.RETRY_PROJECT_MIGRATION: "project_input",
     WorkflowActionType.DRAFT_SELLING_POINTS: "selling_points",
-    WorkflowActionType.ANALYZE_ASSETS: "asset_inventory",
     WorkflowActionType.CREATE_EPISODE: "episode_plan",
     WorkflowActionType.PLAN_EPISODES: "episode_plan",
     WorkflowActionType.RESET_EPISODE_PLANNING: "episode_plan",
@@ -226,8 +224,6 @@ def _step_done(step_id: str, status: WorkflowStatus) -> bool:
         return content.whole_source == "present" or content.episode_count > 0
     if step_id == "selling_points":
         return not content.products_without_selling_points
-    if step_id == "asset_inventory":
-        return artifacts.get("asset_inventory", {}).get("state") == "current"
     if step_id == "episode_plan":
         return content.episode_count > 0 and not content.source_remaining
     if step_id == "script_plan_content":

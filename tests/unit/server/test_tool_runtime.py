@@ -124,7 +124,6 @@ def _status() -> WorkflowStatus:
             "blockers": [],
             "gates": {"script_plan_review": {"state": "not_applicable", "revision": None}},
             "artifacts": {
-                "asset_inventory": {"state": "not_applicable"},
                 "asset_sheets": {},
                 "script_plan": {"state": "not_applicable"},
                 "script": {"state": "missing"},

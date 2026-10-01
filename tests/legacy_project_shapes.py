@@ -855,7 +855,7 @@ def write_legacy_drama_storyboard_project(
 
 
 def _mark_asset_inventory_current(project_dir: Path) -> None:
-    """旧项目都跑过资产分析：清点标记与当前源文一致，制作状态越过资产清点门。"""
+    """旧项目都跑过全书资产提取：``project.json`` 留有与当时源文一致的资产清单标记。"""
 
     project_path = project_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))

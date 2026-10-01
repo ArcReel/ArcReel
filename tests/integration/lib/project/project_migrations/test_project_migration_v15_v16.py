@@ -129,6 +129,15 @@ def test_the_whole_chain_from_an_old_install_leaves_no_transition(tmp_path: Path
     assert (summary.episodes[0].videos.available, summary.episodes[0].videos.stale) == (2, 0)
 
 
+def test_the_whole_chain_drops_the_retired_asset_inventory_marker(tmp_path: Path) -> None:
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    assert "asset_inventory" in _read_json(project_dir / "project.json")["workflow"]
+
+    migrate_project_dir(project_dir)
+
+    assert "workflow" not in _read_json(project_dir / "project.json")
+
+
 @pytest.mark.parametrize("converted", [False, True], ids=["indexed-shots", "interrupted-conversion"])
 def test_schema6_ad_reference_upgrade_preserves_units_and_paid_videos(tmp_path: Path, converted: bool) -> None:
     project_dir = write_legacy_ad_reference_video_project(tmp_path / "projects", converted=converted)
@@ -371,7 +380,7 @@ def test_project_without_registered_narration_audio_becomes_post_production(tmp_
     project = _read_json(project_dir / "project.json")
     assert legacy["source_kind"] == "novel"
     assert project == {
-        **{key: value for key, value in legacy.items() if key != "source_kind"},
+        **{key: value for key, value in legacy.items() if key not in {"source_kind", "workflow"}},
         "episodes": [{**entry, "source_origin": "none"} for entry in legacy["episodes"]],
         "whole_source_files": [{"source_file": "source/1-7-0227.txt"}],
         "narration_delivery": "post_production",

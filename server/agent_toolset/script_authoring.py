@@ -63,7 +63,8 @@ GENERATE_EPISODE_SCRIPT = ToolDeclaration(
 GENERATE_SCRIPT_PLAN = ToolDeclaration(
     name="generate_script_plan",
     description=(
-        "按项目创作类型生成结构化 script_plan：剧情分镜、旁白分镜或参考生视频单元。"
+        "按项目创作类型生成结构化 script_plan：剧情分镜、旁白分镜或参考生视频单元，"
+        "同时在 new_assets 里带出本集未登记的资产与各自的处理决定。"
         "广告/短片项目无 script_plan。dry_run=true 时直接返回 prompt，不提交生成任务。"
     ),
     request_model=GenerateScriptPlanRequest,
@@ -77,7 +78,8 @@ GENERATE_SCRIPT_PLAN = ToolDeclaration(
 CONFIRM_SCRIPT_REVIEW = ToolDeclaration(
     name="confirm_script_review",
     description=(
-        "确认本集 script_plan：整份转为正式脚本（全部分镜待编写），放行 prompt_authoring 视觉生成。"
+        "确认本集 script_plan：整份转为正式脚本（全部分镜待编写），按 new_assets 的处理决定登记本集新增资产，"
+        "放行 prompt_authoring 视觉生成。"
         "仅在用户已明确认可进入视觉生成时调用。该集已有正式脚本时确认会整份覆盖它，未认可时返回"
         " script_overwrite_required，回执正文即服务端生成的丢失清单（与 Web 确认框同一份文本），"
         "params.script_overwrite.revision 是认可令牌；先向用户转述清单，得到同意后才以该 revision 作为 overwrite_revision 重新确认。"

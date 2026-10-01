@@ -267,6 +267,7 @@ MESSAGES = {
     "episode_planning_no_cut_point": "No cut point with a complete story arc was found in this part of the source text. Cut this part manually, then continue AI planning",
     "text_output_truncated": "The output of text model {model} exceeded its maximum output length and is incomplete",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
+    "script_review_invalid_new_assets": "Some new assets in this episode cannot be handled as chosen, so the plan was not confirmed; check the assets they are merged into and the base characters of derivatives, then retry",
     "script_review_foreign_formal_script": (
         "The script file bound to episode (id={episode}) is gone and the canonical path scripts/{filename} holds another "
         "episode's script, so the confirmation was not completed — writing there would rebuild that other episode; "

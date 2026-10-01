@@ -124,9 +124,37 @@ export interface DramaSceneContent {
   source_text: string;
 }
 
+/** 本集新增资产的类型：只有角色、场景、道具会在规划里新增。 */
+export type NewAssetType = "character" | "scene" | "prop";
+
+/** 新增项的处理决定：登记为新资产 / 归到已有资产 / 登记为角色衍生 / 不登记。 */
+export type NewAssetDecision = "register" | "merge" | "derivative" | "skip";
+
+/**
+ * 脚本规划带出的一项本集新增资产。映射后端 lib/script/script_models.py 的 PlanNewAsset：
+ * 规划条目里的引用写 `name`，确认时按 `decision` 改写并登记。
+ */
+export interface PlanNewAsset {
+  type: NewAssetType;
+  /** 规划条目里写的称呼。 */
+  name: string;
+  decision: NewAssetDecision;
+  /** AI 给出的一句依据。 */
+  reason: string;
+  /** register：外观描述；derivative：相对本体的变化描述。 */
+  description: string;
+  /** register：原文中的其他称呼。 */
+  aliases: string[];
+  /** merge：归入的同类资产名或本集另一新增项的称呼；derivative：本体角色名。 */
+  target: string;
+  /** register：登记名；derivative：衍生名；为空时取 `name`。 */
+  asset_name: string;
+}
+
 export interface DramaNormalizedScript {
   title: string;
   scenes: DramaSceneContent[];
+  new_assets?: PlanNewAsset[];
 }
 
 export interface NarrationScriptPlanSegment {
@@ -143,6 +171,7 @@ export interface NarrationScriptPlanSegment {
 export interface NarrationScriptPlanDraft {
   segments: NarrationScriptPlanSegment[];
   episode?: number;
+  new_assets?: PlanNewAsset[];
 }
 
 export type ScriptReviewStatus =

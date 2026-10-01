@@ -1106,8 +1106,7 @@ class TestPatchProject:
         assert "保温杯" not in ctx.pm.load_project("demo").get("products", {})
 
     async def test_response_distinguishes_added_and_merged(self, ctx: ToolHarness) -> None:
-        """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 Agent 验证是否符合预期策略
-        (如 analyze-assets 子智能体应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""
+        """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 Agent 验证是否符合预期策略。"""
         out1 = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1708,7 +1707,9 @@ class TestRenameAssetTool:
         )
 
         assert out.problem is None
-        assert ctx.pm.load_project("demo")["scenes"] == {"村口": {"description": "", "scene_sheet": ""}}
+        assert ctx.pm.load_project("demo")["scenes"] == {
+            "村口": {"description": "", "scene_sheet": "", "aliases": ["无描述场景"]}
+        }
 
     async def test_missing_old_name_error_hints_idempotency(self, rename_ctx: ToolHarness) -> None:
         await run_declared_tool(

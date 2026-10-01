@@ -13,10 +13,8 @@ from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import GenerationSelectionMode
 from lib.generation.video_request_facts import VideoRequestFactsFailure
-from lib.project.asset_inventory import complete_asset_inventory
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
 from lib.workflow.workflow_plan import WorkflowPlanRequest, WorkflowStepState
@@ -52,7 +50,6 @@ def _status(*, action: str = "generate_videos") -> WorkflowStatus:
             "blockers": [],
             "gates": {"script_plan_review": {"state": "confirmed", "revision": "script_plan"}},
             "artifacts": {
-                "asset_inventory": {"state": "current"},
                 "asset_sheets": {},
                 "script_plan": {"state": "current"},
                 "script": {"state": "current", "path": "scripts/episode_1.json"},
@@ -141,9 +138,6 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
     project_path = pm.get_project_path("demo")
     source = project_path / "source" / "novel.txt"
     source.write_text("完整原文", encoding="utf-8")
-    revision = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
-    assert revision is not None
-    complete_asset_inventory(pm, "demo", SourceScope(kind="all"), revision)
     if stage == "episode_plan":
         return pm
 

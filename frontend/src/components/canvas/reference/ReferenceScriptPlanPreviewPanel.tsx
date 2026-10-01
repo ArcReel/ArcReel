@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
 import type {
   DraftSoftViolation,
+  PlanNewAsset,
   ReferenceScriptPlanDraft,
   ReferenceScriptPlanFlatUnit,
   ReferenceUnitCapability,
@@ -37,7 +38,8 @@ import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScr
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
-import { extractMentions } from "@/utils/reference-mentions";
+import { dialogueSpeakers, extractMentions, normalizeAssetName } from "@/utils/reference-mentions";
+import { NewAssetsSection, hasValidNewAssets, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, itemIdsInEpisodeText, itemIdWithinEpisode } from "@/utils/episode-display";
 import { tierProblemText } from "./unit-tier-problem";
@@ -93,6 +95,7 @@ function structuredDisplayUnits(draft: ReferenceScriptPlanDraft): DisplayUnit[] 
 /** 待修复草稿的正文：扁平 unit 数组，unit ID 由集号与序号派生。 */
 interface FlatUnitsDraft {
   units: ReferenceScriptPlanFlatUnit[];
+  new_assets?: PlanNewAsset[];
 }
 
 function isFlatUnit(value: unknown): value is ReferenceScriptPlanFlatUnit {
@@ -107,8 +110,28 @@ function isFlatUnit(value: unknown): value is ReferenceScriptPlanFlatUnit {
  */
 function narrowFlatUnitsDraft(content: Record<string, unknown> | null): FlatUnitsDraft | null {
   const units = content?.units;
-  if (!Array.isArray(units) || !units.every(isFlatUnit)) return null;
+  if (!Array.isArray(units) || !units.every(isFlatUnit) || !hasValidNewAssets(content)) return null;
   return content as unknown as FlatUnitsDraft;
+}
+
+/** 各 unit 正文引用到的名字（画面位与说话人位）与原文片段，供「本集新增资产」区展开出场位置。 */
+function newAssetEntries(units: DisplayUnit[]): NewAssetEntryRefs[] {
+  return units.map((unit) => ({
+    id: unit.key,
+    names: [...extractMentions(unit.scriptText), ...dialogueSpeakers(unit.scriptText)],
+    snippet: unit.sourceText,
+  }));
+}
+
+/** 本集新增项的称呼与已登记名一样可以写进正文，高亮时按它的类型着色。 */
+function lookupWithNewAssets(lookup: MentionLookup, items: PlanNewAsset[]): MentionLookup {
+  if (items.length === 0) return lookup;
+  const merged: MentionLookup = Object.assign(Object.create(null) as MentionLookup, lookup);
+  for (const item of items) {
+    const name = normalizeAssetName(item.name);
+    if (!(name in merged)) merged[name] = item.type;
+  }
+  return merged;
 }
 
 function draftUnitKey(episode: number, index: number): string {
@@ -489,6 +512,14 @@ export function ReferenceScriptPlanPreviewPanel({
     [onDraft, setDraftContent, setDraft],
   );
 
+  const updateNewAssets = useCallback(
+    (items: PlanNewAsset[]) => {
+      if (onDraft) setDraftContent((prev) => ({ ...prev, new_assets: items }));
+      else setDraft((prev) => (prev ? { ...prev, new_assets: items } : prev));
+    },
+    [onDraft, setDraftContent, setDraft],
+  );
+
   const projectHasScene = useMemo(() => Object.values(lookup).some((kind) => kind === "scene"), [lookup]);
 
   const cardRefs = useRef(new Map<string, HTMLElement>());
@@ -558,6 +589,8 @@ export function ReferenceScriptPlanPreviewPanel({
     );
     const softByUnit = groupSoftViolations(quarantine.soft_violations, LIVE_SOFT_VIOLATION_CODES);
     const supportedDurations = state?.supported_durations ?? null;
+    const draftNewAssets = content?.new_assets ?? [];
+    const draftLookup = lookupWithNewAssets(lookup, draftNewAssets);
     return (
       <div className="flex flex-col gap-3">
         <InvalidDraftBar
@@ -597,6 +630,15 @@ export function ReferenceScriptPlanPreviewPanel({
             episodeLevelRef.current = el;
           }}
         />
+        {content != null && (
+          <NewAssetsSection
+            items={draftNewAssets}
+            entries={newAssetEntries(displayUnits)}
+            readOnly={false}
+            disabled={draftBusy}
+            onChange={updateNewAssets}
+          />
+        )}
         <div className="flex flex-col gap-2.5">
           {displayUnits.map((unit, i) => (
             <UnitCard
@@ -604,7 +646,7 @@ export function ReferenceScriptPlanPreviewPanel({
               unit={unit}
               violations={partitionViolations(groups.byItem.get(i) ?? [])}
               softViolations={softByUnit.get(i) ?? []}
-              lookup={lookup}
+              lookup={draftLookup}
               projectHasScene={projectHasScene}
               onScrollRef={setCardRef}
               editing={unit.editable && editingUnitKey === unit.key}
@@ -637,6 +679,8 @@ export function ReferenceScriptPlanPreviewPanel({
   const confirmLocked = confirmed && !scriptMissing;
   const videoModelBlocked = modelUnresolved && !confirmLocked;
   const displayUnits: DisplayUnit[] = draft ? structuredDisplayUnits(draft) : [];
+  const newAssets = draft?.new_assets ?? [];
+  const reviewLookup = lookupWithNewAssets(lookup, newAssets);
   const softByUnit = groupSoftViolations(state?.soft_violations ?? [], LIVE_SOFT_VIOLATION_CODES);
   // 收窄后的档位表若已不再包含某 unit 存量存盘的时长（模型 / 分辨率 / 参考图配置变化所致），
   // 该值仍保留展示（避免 select 静默跳首档），但不能放行确认——_assert_reference_script_plan_ready
@@ -791,6 +835,16 @@ export function ReferenceScriptPlanPreviewPanel({
         targetSeconds={state?.episode_target_duration ?? null}
       />
 
+      {draft != null && (
+        <NewAssetsSection
+          items={newAssets}
+          entries={newAssetEntries(displayUnits)}
+          readOnly={readOnly}
+          disabled={busy}
+          onChange={updateNewAssets}
+        />
+      )}
+
       <div className="flex flex-col gap-2.5">
         {displayUnits.map((unit, i) => {
           const capability = unitCapability(unit, durationTiers);
@@ -800,7 +854,7 @@ export function ReferenceScriptPlanPreviewPanel({
               unit={unit}
               violations={partitionViolations([])}
               softViolations={softByUnit.get(i) ?? []}
-              lookup={lookup}
+              lookup={reviewLookup}
               projectHasScene={projectHasScene}
               onScrollRef={setCardRef}
               editing={!readOnly && editingUnitKey === unit.key}

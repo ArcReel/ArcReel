@@ -323,6 +323,32 @@ class NarrationEpisodeScript(BaseModel):
 # 合并回 script_plan 已确认结构。novel_text 永不经 prompt_authoring 的 LLM 重出 → 消除扩写漂移。
 
 
+NewAssetType = Literal["character", "scene", "prop"]
+NewAssetDecision = Literal["register", "merge", "derivative", "skip"]
+
+
+class PlanNewAsset(BaseModel):
+    """脚本规划带出的一项本集新增资产与它的处理决定（见 ``docs/adr/0092``）。
+
+    规划条目里的引用一律写 ``name``，确认时按决定改写：``register`` 登记为新资产，``merge`` 归到
+    ``target``（已登记的同类资产或本集另一项新增资产）并把 ``name`` 记为别名，``derivative`` 登记为
+    ``target`` 角色的衍生，``skip`` 不登记、只用文字描述。处理决定由 :mod:`lib.script.plan_new_assets` 解析。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    type: NewAssetType = Field(description="资产类型：character / scene / prop")
+    name: str = Field(min_length=1, description="本集规划的引用里写的称呼，不含「/」")
+    decision: NewAssetDecision = Field(
+        description="处理决定：register 登记为新资产 / merge 归到已有资产 / derivative 登记为角色衍生 / skip 不登记"
+    )
+    reason: str = Field(description="一句话依据")
+    description: str = Field(default="", description="register：视觉外观描述；derivative：相对本体的外观变化；其余留空")
+    aliases: list[str] = Field(default_factory=list, description="register：原文中的其他称呼；其余留空")
+    target: str = Field(default="", description="merge：归入的同类资产名；derivative：本体角色名；其余留空")
+    asset_name: str = Field(default="", description="register：登记名；derivative：衍生名；留空即取 name")
+
+
 class NarrationScriptPlanSegment(BaseModel):
     """旁白/解说 script_plan（分镜拆分）产出的结构化分镜：内容层。
 
@@ -354,6 +380,9 @@ class NarrationScriptPlanDraft(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     segments: list[NarrationScriptPlanSegment] = Field(description="分镜列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 class NarrationVisualSegment(BaseModel):
@@ -599,6 +628,9 @@ class DramaNormalizedScript(BaseModel):
 
     title: str = Field(description="剧集标题")
     scenes: list[DramaSceneContent] = Field(description="分镜内容列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 class DramaSceneVisual(BaseModel):
@@ -905,6 +937,9 @@ class ReferenceScriptPlanDraft(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     units: list[ReferenceScriptPlanUnit] = Field(description="video_unit 列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -938,6 +973,9 @@ class ReferenceScriptPlanFlatDraft(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     units: list[ReferenceScriptPlanFlatUnit] = Field(min_length=1, description="按叙事顺序排列的 unit 列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 class ReferencePromptAuthoringFlatUnit(BaseModel):

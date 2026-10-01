@@ -365,6 +365,48 @@ def rewrite_mentions(text: str, old_name: str, new_name: str) -> tuple[str, int]
     return "".join(pieces), count
 
 
+def remap_mentions(text: str, remap: Callable[[str, bool], str | None]) -> str:
+    """按 *remap* 一次改写正文里的 ``@`` 引用，返回新正文。
+
+    *remap* 收到引用名（比对坐标系）与「是否在发声记号的说话人位」，返回替换这个引用的整段文本
+    （如 ``@[新名]``，或退为纯文本的名字），返回 ``None`` 保持原样。多个名字在一次遍历里同时改写，
+    互不串改。只重建有改动的行：重建的行经解析器入口归一，未改动的行逐字保留。
+    """
+    pieces: list[str] = []
+    for raw_line in text.splitlines(keepends=True):
+        content = raw_line.rstrip("\r\n")
+        ending = raw_line[len(content) :]
+        rebuilt = _remap_line(content, remap)
+        pieces.append((content if rebuilt is None else rebuilt) + ending)
+    return "".join(pieces)
+
+
+def _remap_line(line: str, remap: Callable[[str, bool], str | None]) -> str | None:
+    changed = False
+    out: list[str] = []
+    for part in split_speech_line(line):
+        if isinstance(part, SpeechMark):
+            raw = part.raw
+            first = next(_iter_mentions(raw), None) if part.speaker else None
+            replacement = remap(asset_name_comparison_key(first[2]), True) if first and first[0] == 0 else None
+            if first is not None and replacement is not None:
+                raw = replacement + raw[first[1] :]
+                changed = True
+            out.append(raw)
+            continue
+        last = 0
+        for start, end, name in _iter_mentions(part):
+            replacement = remap(asset_name_comparison_key(name), False)
+            if replacement is None:
+                continue
+            out.append(part[last:start])
+            out.append(replacement)
+            last = end
+            changed = True
+        out.append(part[last:])
+    return "".join(out) if changed else None
+
+
 def derive_references_from_text(text: str, project: dict) -> tuple[list[ReferenceResource], list[str]]:
     """引用语法正文 → ``(references, missing)`` 的唯一派生入口。
 

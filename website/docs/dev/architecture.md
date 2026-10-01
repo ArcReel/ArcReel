@@ -97,12 +97,10 @@ flowchart TD
     MAIN --> SKILL["工作流编排 Skill"]
     SKILL --> STATE["读取项目状态"]
     STATE --> DECIDE{"下一阶段"}
-    DECIDE --> A["角色 / 场景 / 道具分析子智能体"]
     DECIDE --> B["分集规划子智能体"]
     DECIDE --> C["剧本规范化子智能体"]
     DECIDE --> D["资产生成子智能体"]
-    A --> SUMMARY["精炼摘要"]
-    B --> SUMMARY
+    B --> SUMMARY["精炼摘要"]
     C --> SUMMARY
     D --> SUMMARY
     SUMMARY --> MAIN
@@ -126,11 +124,13 @@ flowchart TD
 
 每个子智能体聚焦一个目标，例如：
 
-- 角色、场景和道具提取；
 - 旁白/解说片段拆分；
 - 剧情演绎剧本规范化；
+- 参考生视频单元拆分；
 - 单集结构化剧本；
 - 资产生成。
+
+其中前三项是脚本规划，规划时同时识别本集新增资产。
 
 大量小说原文和中间推理尽量保留在子智能体内部，主 Agent 接收摘要和结果引用。
 

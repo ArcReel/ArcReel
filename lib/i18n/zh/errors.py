@@ -256,6 +256,7 @@ MESSAGES = {
     "episode_planning_no_cut_point": "这一段原文里找不到剧情弧完整的切分点。可以先手工切出这一段，再继续 AI 规划",
     "text_output_truncated": "文本模型 {model} 的输出超出了最大输出长度，内容不完整",
     "script_review_conversion_refused": "脚本规划暂不能转为正式脚本，本次确认未完成；请检查分镜时长、台词与脚本规划状态后重试",
+    "script_review_invalid_new_assets": "本集有新增资产无法按所选方式处理，本次确认未完成；请检查「归到」选择的资产与衍生的本体角色后重试",
     "script_review_foreign_formal_script": "集（id={episode}）绑定的剧本文件已不在，而规范路径 scripts/{filename} 上是另一集的剧本，本次确认未完成——写进去会重建那一集的剧本；请把该集的 script_file 改回它自己的剧本文件后重试",
     "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请丢弃草稿后重新生成",
     # Source loader

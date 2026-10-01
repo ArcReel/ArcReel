@@ -21,7 +21,6 @@ from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
 from lib.episode.episode_sources import discover_sources
 from lib.infra.json_io import atomic_write_json
-from lib.project.asset_inventory import complete_asset_inventory
 from lib.project.episode_asset_references import episode_referenced_assets
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import (
@@ -60,12 +59,11 @@ def _make_project(
     return pm, pm.get_project_path("demo")
 
 
-def _write_source_and_complete(pm: ProjectManager, project_path: Path, text: str = "原文") -> str:
+def _write_source(pm: ProjectManager, project_path: Path, text: str = "原文") -> str:
     register_project_sources(pm, "demo", whole_source={"novel.txt": text})
     scope = SourceScope(kind="all")
     revision = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
     assert revision is not None
-    complete_asset_inventory(pm, "demo", scope, revision)
     return revision
 
 
@@ -299,14 +297,13 @@ def test_manual_episode_without_any_source_has_no_blockers(tmp_path: Path) -> No
 
 def test_whole_source_without_episodes_suggests_planning_or_a_new_episode(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    revision = _write_source_and_complete(pm, project_path)
+    revision = _write_source(pm, project_path)
 
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.schema_version == 2
     assert status.project.content_mode == "narration"
     assert status.source_revision == revision
-    assert status.artifacts["asset_inventory"]["state"] == "current"
     assert status.artifacts["asset_sheets"] == {
         "character": {"current_ids": [], "missing_ids": [], "stale_ids": []},
         "scene": {"current_ids": [], "missing_ids": [], "stale_ids": []},
@@ -323,7 +320,7 @@ def test_whole_source_without_episodes_suggests_planning_or_a_new_episode(tmp_pa
 
 def test_drama_target_comes_from_ledger_not_derived_filenames(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     (project_path / "source" / "episode_1.txt").write_text("派生集文件", encoding="utf-8")
     (project_path / "source" / "episode_2.txt").write_text("第二集原文", encoding="utf-8")
     (project_path / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
@@ -378,10 +375,6 @@ def test_manual_presplit_project_reaches_edit_without_planning_records(tmp_path:
     """
     pm, project_path = _make_project(tmp_path, "narration")
     assert register_project_sources(pm, "demo", own_episodes=("第一集原文",)) == [1]
-    scope = SourceScope(kind="all")
-    revision = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
-    assert revision is not None
-    complete_asset_inventory(pm, "demo", scope, revision)
     draft_dir = project_path / "drafts" / "episode_1"
     draft_dir.mkdir(parents=True)
     atomic_write_json(draft_dir / "script_plan_segments.json", {"episode": 1, "segments": []})
@@ -421,7 +414,7 @@ def test_unregistered_episode_files_do_not_become_episodes(tmp_path: Path) -> No
     assert project_file.read_bytes() == before
 
 
-def test_ad_is_episode_one_and_skips_asset_inventory_and_script_plan(tmp_path: Path) -> None:
+def test_ad_is_episode_one_and_skips_script_plan(tmp_path: Path) -> None:
     pm, _project_path = _make_project(tmp_path, "ad")
 
     status = WorkflowStateService(pm).get_status("demo")
@@ -429,7 +422,6 @@ def test_ad_is_episode_one_and_skips_asset_inventory_and_script_plan(tmp_path: P
     assert status.target is not None
     assert status.target.episode == 1
     assert status.blockers == []
-    assert status.artifacts["asset_inventory"]["state"] == "not_applicable"
     assert status.gates["script_plan_review"]["state"] == "not_applicable"
     assert status.operations["plan_episodes"].state == "not_applicable"
     assert status.operations["prepare_script_plan"].state == "not_applicable"
@@ -484,52 +476,6 @@ def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_p
     assert status.next_action.type == "none"
 
 
-def test_stale_asset_inventory_is_stated_but_gates_nothing(tmp_path: Path) -> None:
-    pm, project_path = _make_project(tmp_path, "narration")
-    old_revision = _write_source_and_complete(pm, project_path, "第一段")
-
-    def _seed(project: dict) -> None:
-        project["characters"] = {"阿离": {"description": "角色"}}
-        project["episodes"] = [
-            {
-                "episode": 1,
-                "title": "第一集",
-                "script_file": "scripts/episode_1.json",
-                "ledger_status": "planned",
-                "source_range": {"source_file": "source/novel.txt", "start": 0, "end": 3},
-            }
-        ]
-
-    pm.update_project("demo", _seed)
-    (project_path / "source" / "novel.txt").write_text("第一段\n追加段落", encoding="utf-8")
-
-    status = WorkflowStateService(pm).get_status("demo")
-    assert status.source_revision != old_revision
-    assert status.artifacts["asset_inventory"]["state"] == "stale"
-    assert status.blockers == []
-    assert status.next_action.type == "start_blank_script"
-    assert [action.type for action in status.next_alternatives] == ["provide_episode_source"]
-    stored = pm.load_project("demo")
-    assert list(stored["characters"]) == ["阿离"]
-    assert stored["episodes"][0]["episode"] == 1
-
-
-def test_partial_inventory_scope_never_unlocks_full_workflow(tmp_path: Path) -> None:
-    pm, project_path = _make_project(tmp_path, "narration")
-    (project_path / "source" / "novel.txt").write_text("原文", encoding="utf-8")
-    scope = SourceScope(kind="files", files=["source/novel.txt"])
-    revision = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
-    assert revision is not None
-    complete_asset_inventory(pm, "demo", scope, revision)
-
-    status = WorkflowStateService(pm).get_status("demo")
-    assert status.artifacts["asset_inventory"]["state"] == "partial"
-    assert status.artifacts["asset_inventory"]["recorded_scope"] == {
-        "kind": "files",
-        "files": ["source/novel.txt"],
-    }
-
-
 def test_unsafe_source_is_an_issue_instead_of_skipping_or_raising(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     target = project_path / "target.txt"
@@ -547,7 +493,7 @@ def test_unsafe_source_is_an_issue_instead_of_skipping_or_raising(tmp_path: Path
 def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -653,13 +599,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     assert still_ready.artifacts["audio"]["missing_ids"] == []
 
     (project_path / "source" / "novel.txt").write_text("全新文本", encoding="utf-8")
-    refreshed_revision = compute_source_revision(
-        project_path,
-        pm.load_project("demo"),
-        SourceScope(kind="all"),
-    ).revision
-    assert refreshed_revision is not None
-    complete_asset_inventory(pm, "demo", SourceScope(kind="all"), refreshed_revision)
 
     replanning = service.get_status("demo")
     assert replanning.next_action.type == "reset_episode_planning"
@@ -676,7 +615,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -741,7 +680,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
 def test_unplanned_source_with_legacy_episode_without_source_range_requires_full_reset(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -835,7 +774,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
 ) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -891,7 +830,7 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
     """集规划状态为 stale 的集只在现状里陈述，不进建议的下一步。"""
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -950,7 +889,7 @@ def test_episode_next_steps_follow_the_ledger_and_match_the_per_episode_status(t
     """逐集清单按账本顺序给出每一集的下一步，与按集查询的制作状态相同。"""
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         bounds = {3: (0, 1), 1: (1, 2), 2: (2, len(source_text))}
@@ -1012,7 +951,7 @@ def test_episode_next_steps_are_empty_while_the_migration_has_failed(tmp_path: P
 
 def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -1039,7 +978,7 @@ def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path:
 def test_requested_missing_episode_is_an_issue_not_a_blocker(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -1074,19 +1013,11 @@ def _cut_whole_source(pm: ProjectManager, project_path: Path, source_file: str, 
     pm.update_project("demo", _plan)
 
 
-def _complete_inventory(pm: ProjectManager, project_path: Path) -> None:
-    scope = SourceScope(kind="all")
-    revision = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
-    assert revision is not None
-    complete_asset_inventory(pm, "demo", scope, revision)
-
-
 def test_source_uploaded_after_planning_continues_planning_without_reset(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     register_project_sources(pm, "demo", whole_source={"b.txt": "已规划"})
     _cut_whole_source(pm, project_path, "source/b.txt", 3)
     register_project_sources(pm, "demo", whole_source={"a.txt": "新增"})
-    _complete_inventory(pm, project_path)
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type != "reset_episode_planning"
@@ -1099,7 +1030,6 @@ def test_unregistered_file_in_source_is_not_whole_source(tmp_path: Path) -> None
     pm, project_path = _make_project(tmp_path, "narration")
     register_project_sources(pm, "demo", whole_source={"b.txt": "已规划"})
     _cut_whole_source(pm, project_path, "source/b.txt", 3)
-    _complete_inventory(pm, project_path)
     before = WorkflowStateService(pm).get_status("demo", 1)
 
     (project_path / "source" / "a.txt").write_text("没有登记的文件", encoding="utf-8")
@@ -1120,7 +1050,6 @@ def test_decomposed_recorded_source_does_not_trigger_planning_reset(tmp_path: Pa
     decomposed_name = unicodedata.normalize("NFD", "é.txt")
     register_project_sources(pm, "demo", whole_source={decomposed_name: "已规划"})
     _cut_whole_source(pm, project_path, f"source/{decomposed_name}", 3)
-    _complete_inventory(pm, project_path)
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type != "reset_episode_planning"
@@ -1130,7 +1059,7 @@ def test_decomposed_recorded_source_does_not_trigger_planning_reset(tmp_path: Pa
 
 def test_whitespace_only_source_is_missing_project_input(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path, " \n\t ")
+    _write_source(pm, project_path, " \n\t ")
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type == "collect_project_input"
@@ -1165,7 +1094,7 @@ def test_non_string_project_mode_returns_blocker(tmp_path: Path, field: str, val
 @pytest.mark.parametrize("ledger_status", [[], {}])
 def test_non_string_ledger_status_is_an_issue(tmp_path: Path, ledger_status: object) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -1333,7 +1262,7 @@ def test_referenced_asset_reminders_stay_out_of_the_next_step(tmp_path: Path) ->
 
 def test_missing_ledger_script_binding_is_an_issue(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(episodes=[{"episode": 1, "ledger_status": "planned"}]),
@@ -1347,7 +1276,7 @@ def test_missing_ledger_script_binding_is_an_issue(tmp_path: Path) -> None:
 
 def test_script_episode_must_match_ledger_target(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -1430,7 +1359,7 @@ def test_legacy_storyboard_script_without_duration_remains_resumable(
     items_key: str,
 ) -> None:
     pm, project_path = _make_project(tmp_path, mode)
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -1473,7 +1402,7 @@ def _confirmed_narration_project_with_script(
 ) -> tuple[ProjectManager, Path, str]:
     """造一个 script_plan 已确认、剧本已登记的 narration 项目，返回整集 script_plan 指纹。"""
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -1517,7 +1446,7 @@ def _plan_segment(segment_id: str, novel_text: str) -> dict:
 def test_legacy_narration_scenes_skeleton_remains_resumable(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -1752,7 +1681,7 @@ def test_ad_reference_video_does_not_hydrate_legacy_shots(tmp_path: Path) -> Non
 
 def test_stale_episode_is_stated_but_stays_out_of_the_next_step(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -1794,7 +1723,7 @@ def test_stale_episode_is_stated_but_stays_out_of_the_next_step(tmp_path: Path) 
 
 def test_stale_episode_advances_after_script_plan_is_rebuilt(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     draft_dir = project_path / "drafts" / "episode_1"
     draft_dir.mkdir(parents=True)
     _write_episode_source(project_path, 1)
@@ -1825,7 +1754,7 @@ def test_stale_episode_advances_after_script_plan_is_rebuilt(tmp_path: Path) -> 
 
 def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     draft_dir = project_path / "drafts" / "episode_1"
     draft_dir.mkdir(parents=True)
     _write_episode_source(project_path, 1)
@@ -1866,7 +1795,7 @@ def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(
 
 def test_null_baseline_stale_rebuild_requires_confirming_the_rebuilt_script_plan(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -1920,7 +1849,7 @@ def test_null_baseline_stale_rebuild_requires_confirming_the_rebuilt_script_plan
 
 def test_quarantined_script_plan_is_a_draft_to_resolve_not_a_confirmation_loop(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -1945,7 +1874,7 @@ def test_quarantined_script_plan_is_a_draft_to_resolve_not_a_confirmation_loop(t
 def _narration_project_with_confirmed_plan(tmp_path: Path, *, write_script: bool) -> tuple[ProjectManager, Path, Path]:
     """script_plan 已确认的 narration 项目；``write_script`` 为真时正式脚本已登记。返回脚本规划路径。"""
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -2053,7 +1982,7 @@ def test_ad_without_script_still_asks_to_generate_the_script(tmp_path: Path) -> 
 
 def test_blocked_final_script_is_not_reclassified_as_stale_by_provenance(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -2156,7 +2085,7 @@ def test_structurally_incomplete_ad_script_blocks_media_progress(tmp_path: Path,
 def test_narration_script_without_source_text_blocks_media_progress(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -2246,9 +2175,6 @@ def test_new_source_file_continues_planning_without_resetting_existing_fingerpri
     _cut_everything(project, discover_sources(project_path, project))
     pm.save_project("demo", project)
     register_project_sources(pm, "demo", whole_source={"a.txt": "新增原文"})
-    revision = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
-    assert revision is not None
-    complete_asset_inventory(pm, "demo", SourceScope(kind="all"), revision)
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type != "reset_episode_planning"
@@ -2278,7 +2204,7 @@ def test_planning_completion_follows_the_registered_file_order(tmp_path: Path) -
 def test_duplicate_reference_video_unit_ids_block_completion(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     source_text = "原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -2326,7 +2252,7 @@ def test_duplicate_reference_video_unit_ids_block_completion(tmp_path: Path) -> 
 def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     source_text = "原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [
@@ -2361,7 +2287,7 @@ def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> No
 def test_workflow_status_does_not_persist_read_time_script_migrations(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     source_text = "原文"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
     pm.update_project(
         "demo",
         lambda project: project.update(
@@ -2400,7 +2326,7 @@ def test_unmigrated_project_reports_only_the_migration_blocker(tmp_path: Path) -
     """产物清单是读取已生成产物的唯一口径：schema 未到 8 的项目没有可读的登记，
     get_status 只报「未迁移」这一条阻断，不按文件是否在磁盘上倒推任何产物状态。"""
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     _write_artifact(project_path, resource_relative_path("storyboards", "E1S01"))
     pm.update_project("demo", lambda project: project.update(schema_version=7))
 
@@ -2414,7 +2340,6 @@ def test_unmigrated_project_reports_only_the_migration_blocker(tmp_path: Path) -
     assert status.next_action.type == RETRY_MIGRATION_ACTION
     assert status.artifacts["script"] == {"state": "missing"}
     assert status.artifacts["storyboards"] == {"current_ids": [], "missing_ids": [], "stale_ids": []}
-    assert status.artifacts["asset_inventory"] == {}
 
 
 def test_workflow_status_does_not_persist_read_time_project_migrations(tmp_path: Path) -> None:
@@ -2479,7 +2404,7 @@ def test_script_plan_registered_from_read_text_source_stays_current_with_crlf_by
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "第一行\n第二行\n"
-    _write_source_and_complete(pm, project_path, source_text)
+    _write_source(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
         project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
@@ -2530,7 +2455,7 @@ def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generatio
 def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
     """参考生视频确认后单元全部待编写：下一步补写单元，而不是直接进入生成。"""
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
-    _write_source_and_complete(pm, project_path)
+    _write_source(pm, project_path)
     pm.update_project(
         "demo",
         lambda project: project.update(

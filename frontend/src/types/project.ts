@@ -53,16 +53,22 @@ export interface Character {
   voice_notice_dismissed_at?: string;
   /** 衍生表：衍生名 → 条目。衍生名只在本角色内唯一，脚本中写作 `@[角色/衍生]`。 */
   derivatives?: Record<string, CharacterDerivative>;
+  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
+  aliases?: string[];
 }
 
 export interface Scene {
   description: string;
   scene_sheet?: string;
+  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
+  aliases?: string[];
 }
 
 export interface Prop {
   description: string;
   prop_sheet?: string;
+  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
+  aliases?: string[];
 }
 
 export interface Product {

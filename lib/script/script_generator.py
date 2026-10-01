@@ -83,6 +83,7 @@ from lib.script.draft_quarantine import (
     read_quarantine,
 )
 from lib.script.draft_violation import locate_violations, locate_violations_by_id, schema_violations
+from lib.script.plan_new_assets import NEW_ASSETS_FIELD, resolve_new_assets
 from lib.script.prompt_authoring_scope import (
     PromptAuthoringSelection,
     PromptOverwrite,
@@ -93,6 +94,7 @@ from lib.script.reference_video.draft_validation import (
     DraftViolation,
     DraftViolations,
     assert_dialogue_preserved,
+    dialogue_speakers,
     validate_dialogue_load,
     validate_unit_text,
     violation_items,
@@ -292,6 +294,8 @@ class ScriptGenerator:
         self.generator = generator
         self.config_resolver = config_resolver
         self._script_plan_fingerprint: str | None = None
+        #: 加载器读到的脚本规划顶层 ``new_assets``，物化时据此改写引用并登记。
+        self._script_plan_new_assets: object = None
         self._artifact_basis: ArtifactBasisDescriptor | None = None
         self._script_plan_input_claim: ArtifactInputClaim | None = None
 
@@ -669,6 +673,7 @@ class ScriptGenerator:
         project.json，确认记录借此与正式剧本一起落盘。
         """
         self._script_plan_fingerprint = None
+        self._script_plan_new_assets = None
         self._artifact_basis = None
         self._script_plan_input_claim = None
         plan_kind, plan_entries, title = await self._load_plan_entries_for_materialization(episode)
@@ -676,6 +681,14 @@ class ScriptGenerator:
         loaded_revision = cast(str | None, self._script_plan_fingerprint)
         if loaded_revision != expected_plan_revision:
             raise ScriptPlanWriteConflict(expected=expected_plan_revision, actual=loaded_revision, current_content=None)
+        # 本集新增资产按处理决定改写条目引用，与正式剧本、确认记录同一次写入登记进项目。
+        new_assets = resolve_new_assets(self.project_json, self._script_plan_new_assets)
+        plan_entries = new_assets.rewrite_entries(plan_entries)
+
+        def update_project(project: dict[str, Any]) -> None:
+            new_assets.apply_to_project(project)
+            project_update(project)
+
         filename = formal_script_filename(self.project_path, self.project_json, episode)
         script_data = build_materialized_script(
             self.project_json, episode, plan_kind=plan_kind, plan_entries=plan_entries, title=title
@@ -709,7 +722,7 @@ class ScriptGenerator:
                     validate=True,
                     expected_fingerprint=expected_script_fingerprint,
                     replaced_resource_ids=tuple(entry_id for entry_id in previous_ids if entry_id in entry_ids),
-                    project_update=project_update,
+                    project_update=update_project,
                 )
 
         await run_sync_transaction(_commit)
@@ -1135,6 +1148,7 @@ class ScriptGenerator:
                 supported_durations=supported_durations,
             )
             self._script_plan_fingerprint = content_fingerprint_of_data(raw)
+            self._script_plan_new_assets = raw.get(NEW_ASSETS_FIELD) if isinstance(raw, dict) else None
             self._freeze_script_plan_input_claim(
                 episode,
                 script_plan_json,
@@ -1212,6 +1226,7 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"script_plan_segments.json 解析失败: {e}") from e
         self._script_plan_fingerprint = content_fingerprint_of_data(raw)
+        self._script_plan_new_assets = raw.get(NEW_ASSETS_FIELD) if isinstance(raw, dict) else None
         self._freeze_script_plan_input_claim(
             episode,
             script_plan_json,
@@ -1273,6 +1288,7 @@ class ScriptGenerator:
         if not isinstance(data, dict):
             raise ValueError("脚本规划内容文件结构异常：顶层应为对象 {title, scenes}")
         self._script_plan_fingerprint = content_fingerprint_of_data(data)
+        self._script_plan_new_assets = data.get(NEW_ASSETS_FIELD)
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("脚本规划内容文件结构异常：scenes 必须是非空的分镜对象数组")
@@ -1356,6 +1372,7 @@ class ScriptGenerator:
                     self.project_json,
                     unit_id=str(unit["unit_id"]),
                     max_refs=max_refs,
+                    tolerated_speakers=dialogue_speakers(text),
                 )
                 validate_dialogue_load(
                     label, text, int(unit["duration_seconds"]), source_language, speech_rate_override
@@ -1525,7 +1542,13 @@ class ScriptGenerator:
             # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，Agent 一轮就能看全要改什么。
             # 一个 unit 内部仍是首个违约即停——正文解析不出时，后续判定都建立在同一个问题上。
             try:
-                validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
+                validate_unit_text(
+                    label,
+                    flat_unit.text,
+                    self.project_json,
+                    max_refs=max_refs,
+                    tolerated_speakers=dialogue_speakers(str(unit.get("text") or "")),
+                )
                 assert_dialogue_preserved(label, str(unit.get("text") or ""), flat_unit.text)
             except DraftViolation as exc:
                 items = violation_items(exc)

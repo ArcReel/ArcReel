@@ -247,7 +247,6 @@ export default {
   'action_start_blank_script': 'viết kịch bản chính thức từ trang trống',
   'action_provide_episode_source': 'bổ sung văn bản gốc của tập này',
   'action_add_script_items': 'thêm phân cảnh',
-  'action_analyze_assets': 'phân tích nhân vật, bối cảnh và đạo cụ từ văn bản gốc',
   'action_reset_episode_planning': 'đặt lại kế hoạch tập để bao gồm văn bản mới',
   'action_plan_episodes': 'lập kế hoạch các tập',
   'action_draft_selling_points': 'soạn các điểm bán hàng',

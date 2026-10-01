@@ -94,12 +94,10 @@ flowchart TD
     MAIN --> SKILL["Workflow Orchestration Skill"]
     SKILL --> STATE["Read Project State"]
     STATE --> DECIDE{"Next Stage"}
-    DECIDE --> A["Character / Scene / Prop Analysis Subagent"]
     DECIDE --> B["Episode Planning Subagent"]
     DECIDE --> C["Script Normalization Subagent"]
     DECIDE --> D["Asset Generation Subagent"]
-    A --> SUMMARY["Condensed Summary"]
-    B --> SUMMARY
+    B --> SUMMARY["Condensed Summary"]
     C --> SUMMARY
     D --> SUMMARY
     SUMMARY --> MAIN
@@ -123,11 +121,13 @@ The orchestration layer should not perform all content reasoning itself, because
 
 Each Subagent focuses on one task, such as:
 
-- extracting characters, scenes, and props;
 - splitting narration segments;
 - normalizing episodic drama scripts;
+- splitting reference-to-video units;
 - producing a structured script for one episode;
 - generating assets.
+
+The first three are script planning tasks, and they also identify the new assets in the episode.
 
 Large amounts of source novel text and intermediate reasoning should remain within the Subagent whenever possible. The main Agent receives summaries and references to results.
 

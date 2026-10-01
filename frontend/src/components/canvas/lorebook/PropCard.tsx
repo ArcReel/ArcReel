@@ -14,6 +14,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
+import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 import type { AssetSheetStatusRow, Prop } from "@/types";
@@ -292,6 +293,14 @@ export function PropCard({
         className="focus-ring mt-1.5 mb-3 w-full resize-none overflow-hidden rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
         style={FIELD_STYLE}
         placeholder={t("prop_desc_placeholder")}
+      />
+
+      <AssetAliasesField
+        projectName={projectName}
+        name={name}
+        assetType="prop"
+        aliases={prop.aliases ?? []}
+        readOnly={readOnly}
       />
 
       {isDirty && !readOnly && (

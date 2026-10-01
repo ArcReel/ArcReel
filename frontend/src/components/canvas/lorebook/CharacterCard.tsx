@@ -16,6 +16,7 @@ import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { CharacterDerivativesButton } from "./CharacterDerivativesButton";
 import { EditableAssetName } from "./EditableAssetName";
+import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 import { VoiceSampleButton } from "./VoiceSampleButton";
@@ -598,6 +599,16 @@ export function CharacterCard({
         style={FIELD_STYLE}
         placeholder={t("character_desc_placeholder")}
       />
+
+      <div className="mt-3">
+        <AssetAliasesField
+          projectName={projectName}
+          name={name}
+          assetType="character"
+          aliases={character.aliases ?? []}
+          readOnly={readOnly}
+        />
+      </div>
 
       <div className="mt-3">
         {/* 「声音」是描述输入 + 音频样本共用的分组标题，不单独绑定输入框；

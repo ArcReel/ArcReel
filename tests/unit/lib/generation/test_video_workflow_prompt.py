@@ -246,13 +246,6 @@ def test_profile_has_no_retired_video_tools_or_batch_resume_guidance() -> None:
     assert ".checkpoint_" not in content
 
 
-def test_asset_analysis_subagent_names_its_registered_tool() -> None:
-    content = (PROFILE / ".claude" / "agents" / "analyze-assets.md").read_text(encoding="utf-8")
-
-    assert "complete_asset_inventory" in ARCREEL_MCP_TOOL_IDS
-    assert "mcp__arcreel__complete_asset_inventory" in content
-
-
 # ------------------------------------ Profile 物化：每个模式都拿到工作流 skill
 
 

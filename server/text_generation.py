@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -64,6 +64,13 @@ from lib.script.draft_quarantine import (
     read_quarantine,
 )
 from lib.script.draft_violation import DraftViolation, collect_violations
+from lib.script.plan_new_assets import (
+    NEW_ASSETS_FIELD,
+    dedupe_new_assets,
+    new_asset_violations,
+    planning_project,
+    with_new_assets,
+)
 from lib.script.prompt_authoring_scope import PromptOverwriteRequired, prompt_overwrite_with_text
 from lib.script.reference_video.draft_validation import (
     validate_dialogue_load,
@@ -702,6 +709,61 @@ async def confirm_script_review(
     )
 
 
+_REFERENCE_LIST_FIELDS: dict[str, tuple[tuple[str, str], ...]] = {
+    "drama": (("characters_in_scene", "character"), ("scenes", "scene"), ("props", "prop")),
+    "narration": (("characters_in_segment", "character"), ("scenes", "scene"), ("props", "prop")),
+}
+
+
+def _unregistered_reference_violations(
+    route: Literal["drama", "narration"],
+    item: Mapping[str, Any],
+    catalog: ReferenceCatalog,
+    *,
+    label: str,
+    item_index: int,
+    item_id: str | None,
+) -> list[DraftViolation]:
+    """一个条目的引用数组里既未登记、也不在本次新增项中的资产名。报告回显模型写的原名而非归一形式。"""
+    violations: list[DraftViolation] = []
+    for field, asset_type in _REFERENCE_LIST_FIELDS[route]:
+        names = item.get(field) or []
+        registered = catalog.reference_names(asset_type)
+        bad = sorted({str(name) for name in names if asset_name_comparison_key(str(name)) not in registered})
+        if bad:
+            violations.append(
+                DraftViolation(
+                    f"{label} 的 {field} 引用了未登记的资产名: {bad}；"
+                    "资产名必须逐字取自已登记资产，或把它列进 new_assets 并给出处理决定",
+                    code="unregistered_asset",
+                    label=label,
+                    item_index=item_index,
+                    item_id=item_id,
+                )
+            )
+    return violations
+
+
+def _collect_drama_violations(
+    scenes: list[Any], *, project: Mapping[str, Any], new_assets: object
+) -> list[DraftViolation]:
+    """drama script_plan 的资产违约：引用须已登记或在本次新增项中，新增项的处理决定须解析得出。"""
+    catalog = build_reference_catalog(planning_project(project, new_assets))
+    violations: list[DraftViolation] = []
+    for index, scene in enumerate(scenes):
+        if not isinstance(scene, dict):
+            continue
+        scene_id = scene.get("scene_id")
+        scene_id = scene_id if isinstance(scene_id, str) else None
+        violations.extend(
+            _unregistered_reference_violations(
+                "drama", scene, catalog, label=f"scene {scene_id or index + 1}", item_index=index, item_id=scene_id
+            )
+        )
+    violations.extend(new_asset_violations(project, new_assets))
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # drama generate_script_plan variant
 # ---------------------------------------------------------------------------
@@ -789,6 +851,23 @@ async def generate_drama_script_plan(
                 scene.pop("needs_replan", None)
             else:
                 scene["needs_replan"] = True
+        content = with_new_assets(content, content[NEW_ASSETS_FIELD])
+
+        violations = _collect_drama_violations(raw_scenes, project=project, new_assets=content.get(NEW_ASSETS_FIELD))
+        if violations:
+            async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
+                _assert_draft_revision(draft_path, draft_baseline)
+                report = await run_sync_transaction(
+                    _quarantine_invalid_script_plan_generation,
+                    project_path,
+                    episode,
+                    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
+                    content,
+                    violations,
+                    request.source,
+                    formal_baseline,
+                )
+            raise TextGenerationError(report)
 
         async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
@@ -951,6 +1030,7 @@ def _collect_reference_flat_violations(
     novel_text: str,
     caps: ReferenceSplitCaps,
     source_language: str | None,
+    new_assets: object,
 ) -> list[DraftViolation]:
     """逐 unit 收齐 script_plan 扁平产出的全部违约（不在首个违约处中断）。
 
@@ -962,10 +1042,14 @@ def _collect_reference_flat_violations(
     时长档位与正文合并为一个入口：适用哪套档位取决于该 unit 正文提及的引用此刻有没有可用参考图
     （文件存在且产物清单认领，与内容确认面板、执行同判据）——正文解析不出时无从判档位，此时报出的
     也只会是同一个问题的另一种说法。
+
+    正文里的 ``@[名称]`` 须已登记或在本次新增项中：校验对着叠加了新增项的项目视图判，新增项
+    自身的处理决定另行收进整集违约。
     """
     # 台词口播量的语速与 prompt 侧同源：项目级覆盖优先，否则按语言默认。
     speech_rate_override = project_speech_rate_override(project)
-    hydrations = hydrate_reference_units(project, project_path, flat_units)
+    planning = planning_project(project, new_assets)
+    hydrations = hydrate_reference_units(planning, project_path, flat_units)
     violations: list[DraftViolation] = []
     for index, (flat, hydration) in enumerate(zip(flat_units, hydrations, strict=True), start=1):
         label = _reference_unit_label(episode, index)
@@ -977,7 +1061,7 @@ def _collect_reference_flat_violations(
         def _check_text_and_tier(
             la: str = label, tx: str = text, d: int = duration, with_images: bool = with_reference_images
         ) -> None:
-            validate_unit_text(la, tx, project, max_refs=caps.max_refs)
+            validate_unit_text(la, tx, planning, max_refs=caps.max_refs)
             _validate_unit_duration_tier(la, d, has_references=with_images, caps=caps)
 
         violations.extend(
@@ -993,6 +1077,7 @@ def _collect_reference_flat_violations(
                 item_id=_reference_unit_id(episode, index),
             )
         )
+    violations.extend(new_asset_violations(project, new_assets))
     return violations
 
 
@@ -1274,11 +1359,14 @@ def _collect_narration_violations(
     *,
     episode: int,
     supported_durations: list[int],
-    catalog: ReferenceCatalog,
+    project: Mapping[str, Any],
+    new_assets: object,
     novel_text: str,
     source_scope: str,
 ) -> list[DraftViolation]:
     """逐分镜收齐 narration script_plan 产出的全部违约（不在首个违约处中断）。
+
+    资产引用须已登记，或在本次规划的新增项 ``new_assets`` 中；新增项的处理决定解析不出时另报整集违约。
 
     schema（``NarrationScriptPlanDraft``）已卡死字段与外层形状；此处补依赖运行时能力值 / 项目登记表 /
     源文的约束——segment_id 全集唯一、novel_text 非空白、时长落在当前档位内、资产名已登记、
@@ -1322,10 +1410,7 @@ def _collect_narration_violations(
     # 已登记名字取自引用目录（与 rv 侧 ``validate_unit_text`` 同一入口）：``project.json`` 里的
     # 名字与模型写回的名字可能是同一名称的不同 Unicode 形式，目录已把两侧收敛到同一比对坐标系，
     # 不同形不会把一个已登记的资产判成未登记。目录在循环外取一次，逐分镜只查表。
-    registered = {
-        field: catalog.reference_names(asset_type)
-        for field, asset_type in (("characters_in_segment", "character"), ("scenes", "scene"), ("props", "prop"))
-    }
+    catalog = build_reference_catalog(planning_project(project, new_assets))
     for index, segment in enumerate(segments):
         label = _narration_segment_label(segment, index)
 
@@ -1360,23 +1445,18 @@ def _collect_narration_violations(
                 )
             )
 
-        # 与 rv 侧 ``validate_unit_text`` 对 ``@[名称]`` 的登记校验同口径：只信登记过的资产名，
-        # 不允许模型发明或拼错的名称被当真值写盘、被 prompt_authoring 视觉层只读消费。报告里回显模型写的
-        # 原名而非归一形式——它要在自己的草稿里找到这个字符串才改得动。
-        for field, names_of_type in registered.items():
-            names = segment.get(field) or []
-            bad = sorted({str(name) for name in names if asset_name_comparison_key(str(name)) not in names_of_type})
-            if bad:
-                violations.append(
-                    DraftViolation(
-                        f"{label} 的 {field} 引用了未登记的资产名: {bad}；"
-                        "资产名必须逐字取自 project.json 三张表，或先在 project.json 登记该资产",
-                        code="unregistered_asset",
-                        label=label,
-                        item_index=index,
-                        item_id=_narration_segment_id(segment),
-                    )
-                )
+        # 与 rv 侧 ``validate_unit_text`` 对 ``@[名称]`` 的登记校验同口径：只信已登记或本次新增的资产名，
+        # 不允许模型发明或拼错的名称被当真值写盘、被 prompt_authoring 视觉层只读消费。
+        violations.extend(
+            _unregistered_reference_violations(
+                "narration",
+                segment,
+                catalog,
+                label=label,
+                item_index=index,
+                item_id=_narration_segment_id(segment),
+            )
+        )
 
     # 分镜边界处的空白存在与否天然歧义——模型选择的切分点可能落在源文空格上（该空格被切分本身
     # 「消耗」，不落在任一分镜自身文本里），也可能落在无空格的 CJK / 标点邻接处，两者从拼接后的
@@ -1393,6 +1473,7 @@ def _collect_narration_violations(
                 code="novel_text_coverage",
             )
         )
+    violations.extend(new_asset_violations(project, new_assets))
     return violations
 
 
@@ -1478,6 +1559,7 @@ async def generate_reference_script_plan(
         flat_units = flat.get("units")
         if not isinstance(flat_units, list) or not flat_units:
             raise ValueError("script_plan 拆分内容结构异常：units 必须是非空的 unit 对象数组")
+        new_assets = dedupe_new_assets(flat[NEW_ASSETS_FIELD])
 
         violations = _collect_reference_flat_violations(
             flat_units,
@@ -1487,9 +1569,11 @@ async def generate_reference_script_plan(
             novel_text=novel_text,
             caps=split_caps,
             source_language=project.get("source_language"),
+            new_assets=new_assets,
         )
+        planning = planning_project(project, new_assets)
         unit_texts = [flat_unit["text"] for flat_unit in flat_units]
-        soft_violations = _reference_soft_violation_lines(unit_texts, project, episode=episode, voice=split_caps.voice)
+        soft_violations = _reference_soft_violation_lines(unit_texts, planning, episode=episode, voice=split_caps.voice)
         if violations:
             async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
                 _assert_draft_revision(draft_path, draft_baseline)
@@ -1498,7 +1582,7 @@ async def generate_reference_script_plan(
                     project_path,
                     episode,
                     QUARANTINE_KIND_SCRIPT_PLAN,
-                    {"units": flat_units},
+                    with_new_assets({"units": flat_units}, new_assets),
                     violations,
                     request.source,
                     formal_baseline,
@@ -1511,7 +1595,7 @@ async def generate_reference_script_plan(
 
         raw_units = _build_reference_units_from_flat(
             flat_units,
-            project,
+            planning,
             episode=episode,
             max_refs=split_caps.max_refs,
         )
@@ -1522,7 +1606,7 @@ async def generate_reference_script_plan(
                     _commit_generated_reference_script_plan,
                     project_path,
                     episode,
-                    {"units": raw_units},
+                    with_new_assets({"units": raw_units}, new_assets),
                     formal_baseline,
                     script_plan_basis,
                     before_commit,
@@ -1533,7 +1617,7 @@ async def generate_reference_script_plan(
                         project_path,
                         episode,
                         QUARANTINE_KIND_SCRIPT_PLAN,
-                        {"units": flat_units},
+                        with_new_assets({"units": flat_units}, new_assets),
                         request.source,
                         formal_baseline,
                         exc.actual,
@@ -1633,12 +1717,14 @@ async def generate_narration_script_plan(
         raw_segments = content.get("segments")
         if not isinstance(raw_segments, list) or not raw_segments:
             raise ValueError("script_plan 拆分内容结构异常：segments 必须是非空的分镜对象数组")
+        content = with_new_assets(content, content[NEW_ASSETS_FIELD])
 
         violations = _collect_narration_violations(
             raw_segments,
             episode=episode,
             supported_durations=supported_durations,
-            catalog=build_reference_catalog(project),
+            project=project,
+            new_assets=content.get(NEW_ASSETS_FIELD),
             novel_text=novel_text,
             source_scope=_coverage_source_scope(request.source, episode=episode),
         )

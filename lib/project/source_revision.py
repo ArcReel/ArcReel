@@ -48,7 +48,7 @@ def _derived_episode_paths(project: Mapping[str, Any]) -> set[str]:
 
 
 class SourceScope(BaseModel):
-    """一次资产清单分析覆盖的源文范围。"""
+    """一次源文修订计算覆盖的源文范围。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -249,7 +249,7 @@ def compute_source_revision(
     try:
         parsed_scope = scope if isinstance(scope, SourceScope) else SourceScope.model_validate(scope)
     except ValidationError as exc:
-        return _blocked(None, "invalid_source_scope", "workflow.asset_inventory.scope", str(exc))
+        return _blocked(None, "invalid_source_scope", "scope", str(exc))
 
     if parsed_scope.kind == "all":
         paths, error = _all_source_paths(project_dir, project, parsed_scope)

@@ -73,14 +73,17 @@ from lib.project.asset_rename import (
     rewrite_payload_references,
 )
 from lib.project.asset_types import (
+    ALIASES_FIELD,
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
+    build_asset_entry,
     ensure_project_asset_name_available,
     ensure_project_asset_namespace,
     find_project_asset_name,
     normalize_asset_bucket,
     normalize_asset_name,
+    record_asset_aliases,
     rekey_equivalent_entries,
     resolve_asset_key,
     validate_asset_name,
@@ -1866,9 +1869,8 @@ class ProjectManager:
     def locked_source_mutation(self, project_name: str) -> Generator[Path]:
         """Serialize source-file mutations with project transactions.
 
-        Workflow facts such as asset-inventory completion compute source revisions while
-        holding the project lock. Source writers must use this context so a revision check
-        and its matching project.json commit observe one immutable source snapshot.
+        Source writers must use this context so a source-file change and its matching
+        project.json commit observe one immutable source snapshot.
         """
         project_path = self.get_project_path(project_name)
         with self._project_lock(project_name):
@@ -3008,6 +3010,8 @@ class ProjectManager:
             entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
             if isinstance(entry, dict):
                 rewrite_entry_paths(entry, spec, old_key, new_clean)
+                if ALIASES_FIELD in spec.extra_list_fields:
+                    record_asset_aliases(entry, (old_key,), asset_name=new_clean)
                 rewrite_derivative_sheet_paths(
                     entry, old_owner=old_key, new_owner=new_clean, renames=derivative_renames
                 )
@@ -3540,31 +3544,8 @@ class ProjectManager:
 
     @staticmethod
     def _build_asset_entry(asset_type: str, description: str, source: dict | None = None) -> dict:
-        """按 ASSET_SPECS 构造 entry：description + sheet 字段为空 + extra 字段从 source 取或默认。
-
-        source 为 None 时（add_character 等单条新增），仅写入 spec 中声明的 extra 字段
-        默认值（字符串字段空串、列表字段空列表）；source 提供时（batch 新增），同时允许
-        覆盖 sheet 字段。source 中的非法类型不在此处修正，由落盘前的结构校验 fail-loud。
-
-        开启 ``supports_derivatives`` 的类型一律初始化为空衍生表，衍生本身由调用方按各自的
-        写入口径并入（衍生子资源端点直写，Agent 入口经 ``lib.project.asset_derivatives``）。
-        """
-        spec = ASSET_SPECS[asset_type]
-        data = source or {}
-        entry: dict = {"description": description, spec.sheet_field: data.get(spec.sheet_field, "")}
-        for field in spec.extra_string_fields:
-            entry[field] = data.get(field, "")
-        for field in spec.extra_list_fields:
-            value = data.get(field)
-            if isinstance(value, list):
-                entry[field] = list(value)  # 复制，避免 entry 与调用方共享同一列表对象
-            elif value is None:
-                entry[field] = []
-            else:
-                entry[field] = value  # 非法类型透传，由落盘前结构校验 fail-loud
-        if spec.supports_derivatives:
-            entry[DERIVATIVES_FIELD] = {}
-        return entry
+        """按 ASSET_SPECS 构造新条目，见 :func:`lib.project.asset_types.build_asset_entry`。"""
+        return build_asset_entry(asset_type, description, source)
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
         """直接添加角色到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
