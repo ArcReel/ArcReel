@@ -3,9 +3,12 @@ import { useTranslation } from "react-i18next";
 import type { ImagePayload } from "@/types";
 import { uid } from "@/utils/id";
 import {
+  dataUrlByteLength,
+  MAX_ENCODED_IMAGE_BYTES,
   MAX_IMAGE_FILE_BYTES,
   TRANSCODED_IMAGE_MIME_TYPE,
   transcodeImageToJpeg,
+  type TranscodeResult,
 } from "@/utils/image-transcode";
 
 export const MAX_ATTACHED_IMAGES = 5;
@@ -17,15 +20,63 @@ const TRANSCODE_FAILURE_HINTS = {
   decode: "image_unreadable_hint",
 } as const;
 
+const HISTORICAL_TRANSCODE_FAILURE_HINTS = {
+  oversized: "message_edit_historical_attachment_oversized_hint",
+  gif: "message_edit_historical_attachment_gif_hint",
+  decode: "message_edit_historical_attachment_unreadable_hint",
+} as const;
+
 export interface AttachedImage {
   id: string;
   dataUrl: string;
   mimeType: string;
 }
 
-interface PendingTranscode {
+interface PendingAppendTranscode {
+  kind: "append";
   file: File;
   generation: number;
+}
+
+interface InitialTranscode {
+  kind: "initial";
+  imageId: string;
+  dataUrl: string;
+  mimeType: string;
+  index: number;
+}
+
+interface PendingInitialTranscode extends InitialTranscode {
+  generation: number;
+}
+
+type PendingTranscode = PendingAppendTranscode | PendingInitialTranscode;
+
+function prepareInitialImages(initialImages: AttachedImage[] | (() => AttachedImage[])) {
+  const images = typeof initialImages === "function" ? initialImages() : initialImages;
+  const pending: InitialTranscode[] = [];
+  images.forEach((image, index) => {
+    if (dataUrlByteLength(image.dataUrl) <= MAX_ENCODED_IMAGE_BYTES) return;
+    pending.push({
+      kind: "initial",
+      imageId: image.id,
+      dataUrl: image.dataUrl,
+      mimeType: image.mimeType,
+      index,
+    });
+  });
+  return { images, pending };
+}
+
+function dataUrlToFile(pending: PendingInitialTranscode): File {
+  const separatorIndex = pending.dataUrl.indexOf(",");
+  if (separatorIndex < 0) throw new Error("invalid image data URL");
+  const binary = atob(pending.dataUrl.slice(separatorIndex + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new File([bytes], `historical-attachment-${pending.index + 1}`, { type: pending.mimeType });
 }
 
 export function imagePayloadToAttachment(image: ImagePayload): AttachedImage {
@@ -46,19 +97,90 @@ export function attachmentToImagePayload(image: AttachedImage): ImagePayload {
 
 export function useImageAttachments(initialImages: AttachedImage[] | (() => AttachedImage[]) = []) {
   const { t } = useTranslation("dashboard");
-  const [images, setImages] = useState<AttachedImage[]>(initialImages);
+  const tRef = useRef(t);
+  const [initialState] = useState(() => prepareInitialImages(initialImages));
+  const [images, setImages] = useState<AttachedImage[]>(initialState.images);
   const [error, setError] = useState<string | null>(null);
-  const [pendingTranscodes, setPendingTranscodes] = useState(0);
+  const [pendingTranscodes, setPendingTranscodes] = useState(initialState.pending.length);
   const generationRef = useRef(0);
   const pendingSlotsRef = useRef(0);
   const queueRef = useRef<PendingTranscode[]>([]);
   const transcodingRef = useRef(false);
+  const initialQueuedGenerationRef = useRef<number | null>(null);
+  const processNextRef = useRef<() => void>(() => {});
 
-  useEffect(() => () => {
-    // 卸载后排队中的图片再解码也没人收：清空队列，别让关掉的面板继续占着解码与内存。
-    generationRef.current += 1;
-    queueRef.current = [];
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
+  const processNext = useCallback(() => {
+    if (transcodingRef.current) return;
+    const pending = queueRef.current.shift();
+    if (!pending) return;
+    transcodingRef.current = true;
+
+    void (async () => {
+      let result: TranscodeResult;
+      try {
+        const file = pending.kind === "append" ? pending.file : dataUrlToFile(pending);
+        result = await transcodeImageToJpeg(file);
+      } catch {
+        result = { failure: "decode" };
+      }
+
+      if (generationRef.current === pending.generation) {
+        if ("dataUrl" in result) {
+          if (pending.kind === "append") {
+            setImages((current) => {
+              if (current.length >= MAX_ATTACHED_IMAGES) return current;
+              return [
+                ...current,
+                { id: uid(), dataUrl: result.dataUrl, mimeType: TRANSCODED_IMAGE_MIME_TYPE },
+              ];
+            });
+          } else {
+            setImages((current) => current.map((image) => (
+              image.id === pending.imageId
+                ? { ...image, dataUrl: result.dataUrl, mimeType: TRANSCODED_IMAGE_MIME_TYPE }
+                : image
+            )));
+          }
+        } else if (pending.kind === "append") {
+          setError(tRef.current(TRANSCODE_FAILURE_HINTS[result.failure], { name: pending.file.name }));
+        } else {
+          setImages((current) => current.filter((image) => image.id !== pending.imageId));
+          setError(tRef.current(HISTORICAL_TRANSCODE_FAILURE_HINTS[result.failure], {
+            index: pending.index + 1,
+          }));
+        }
+        if (pending.kind === "append") {
+          pendingSlotsRef.current = Math.max(0, pendingSlotsRef.current - 1);
+        }
+        setPendingTranscodes((current) => Math.max(0, current - 1));
+      }
+      transcodingRef.current = false;
+      processNextRef.current();
+    })();
   }, []);
+
+  useEffect(() => {
+    processNextRef.current = processNext;
+  }, [processNext]);
+
+  // 初始附图超预算时，先同步进入转码态，再在挂载后把工作放进同一个串行队列。
+  useEffect(() => {
+    const generation = generationRef.current;
+    if (initialState.pending.length > 0 && initialQueuedGenerationRef.current !== generation) {
+      initialQueuedGenerationRef.current = generation;
+      queueRef.current.push(...initialState.pending.map((pending) => ({ ...pending, generation })));
+      processNext();
+    }
+    return () => {
+      // 卸载后排队中的图片再解码也没人收：清空队列，别让关掉的面板继续占着解码与内存。
+      generationRef.current += 1;
+      queueRef.current = [];
+    };
+  }, [initialState.pending, processNext]);
 
   const addFiles = useCallback((files: File[]) => {
     setError(null);
@@ -85,36 +207,11 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     const filesToTranscode = imageFiles.slice(0, remainingCapacity);
     pendingSlotsRef.current += filesToTranscode.length;
     setPendingTranscodes((current) => current + filesToTranscode.length);
-    queueRef.current.push(...filesToTranscode.map((file) => ({ file, generation })));
+    queueRef.current.push(...filesToTranscode.map((file) => ({ kind: "append" as const, file, generation })));
 
     // 逐张串行：同时解码多张大图会在移动端撑爆内存。
-    const processNext = () => {
-      if (transcodingRef.current) return;
-      const pending = queueRef.current.shift();
-      if (!pending) return;
-      transcodingRef.current = true;
-      void transcodeImageToJpeg(pending.file).then((result) => {
-        if (generationRef.current === pending.generation) {
-          if ("dataUrl" in result) {
-            setImages((current) => {
-              if (current.length >= MAX_ATTACHED_IMAGES) return current;
-              return [
-                ...current,
-                { id: uid(), dataUrl: result.dataUrl, mimeType: TRANSCODED_IMAGE_MIME_TYPE },
-              ];
-            });
-          } else {
-            setError(t(TRANSCODE_FAILURE_HINTS[result.failure], { name: pending.file.name }));
-          }
-          pendingSlotsRef.current = Math.max(0, pendingSlotsRef.current - 1);
-          setPendingTranscodes((current) => Math.max(0, current - 1));
-        }
-        transcodingRef.current = false;
-        processNext();
-      });
-    };
     processNext();
-  }, [images.length, t]);
+  }, [images.length, processNext, t]);
 
   const removeImage = useCallback((id: string) => {
     setImages((current) => current.filter((image) => image.id !== id));

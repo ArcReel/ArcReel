@@ -1,17 +1,18 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { base64OfSize } from "@/test/image-data";
 import { stubImageCanvas } from "@/test/imageCanvas";
+import { MAX_ENCODED_IMAGE_BYTES } from "@/utils/image-transcode";
 import { useImageAttachments } from "./useImageAttachments";
 
 const OVER_FILE_LIMIT_BYTES = 5 * 1024 * 1024 + 1;
 
-/** 解码成 `bytes` 字节的 base64 负载，用于驱动降质阶梯。 */
-function base64OfSize(bytes: number): string {
-  return "A".repeat(Math.ceil(bytes / 3) * 4);
-}
-
 function imageFile(name: string, type: string, bytes = 1024): File {
   return new File([new Uint8Array(bytes)], name, { type });
+}
+
+function attachedImage(id: string, data: string, mediaType = "image/png") {
+  return { id, dataUrl: `data:${mediaType};base64,${data}`, mimeType: mediaType };
 }
 
 describe("useImageAttachments", () => {
@@ -257,5 +258,94 @@ describe("useImageAttachments", () => {
     });
     expect(canvas.decodes).toHaveLength(1);
     expect(result.current.images).toHaveLength(5);
+  });
+
+  it("keeps prefilled images within the encoded budget byte-for-byte", () => {
+    const canvas = stubImageCanvas();
+    const initialImages = [attachedImage("small", "AAAA")];
+    const { result } = renderHook(() => useImageAttachments(initialImages));
+
+    expect(result.current.isReading).toBe(false);
+    expect(canvas.decodes).toHaveLength(0);
+    expect(result.current.images).toEqual(initialImages);
+  });
+
+  it("transcodes a prefilled image over the encoded budget in place", async () => {
+    const canvas = stubImageCanvas();
+    const initialImages = [
+      attachedImage("first", "AAAA"),
+      attachedImage("large", base64OfSize(MAX_ENCODED_IMAGE_BYTES + 1)),
+      attachedImage("last", "BBBB", "image/jpeg"),
+    ];
+    const { result } = renderHook(() => useImageAttachments(initialImages));
+
+    expect(result.current.isReading).toBe(true);
+    expect(canvas.decodes).toHaveLength(1);
+    expect(result.current.images.map((image) => image.id)).toEqual(["first", "large", "last"]);
+
+    await act(async () => {
+      await canvas.decodes[0].finish({ width: 800, height: 600 });
+    });
+
+    expect(result.current.isReading).toBe(false);
+    expect(result.current.images.map((image) => image.id)).toEqual(["first", "large", "last"]);
+    expect(result.current.images[1].dataUrl.startsWith("data:image/jpeg;base64,")).toBe(true);
+    expect(result.current.images[1].mimeType).toBe("image/jpeg");
+  });
+
+  it("serializes multiple prefilled transcodes", async () => {
+    const canvas = stubImageCanvas();
+    const initialImages = [
+      attachedImage("first", base64OfSize(MAX_ENCODED_IMAGE_BYTES + 1)),
+      attachedImage("second", base64OfSize(MAX_ENCODED_IMAGE_BYTES + 1)),
+    ];
+    const { result } = renderHook(() => useImageAttachments(initialImages));
+
+    expect(canvas.decodes).toHaveLength(1);
+    await act(async () => {
+      await canvas.decodes[0].finish({ width: 800, height: 600 });
+    });
+    expect(canvas.decodes).toHaveLength(2);
+    await act(async () => {
+      await canvas.decodes[1].finish({ width: 800, height: 600 });
+    });
+
+    expect(result.current.isReading).toBe(false);
+    expect(result.current.images.every((image) => image.mimeType === "image/jpeg")).toBe(true);
+  });
+
+  it("removes only the failed prefilled image and keeps the others in order", async () => {
+    const canvas = stubImageCanvas();
+    const initialImages = [
+      attachedImage("first", "AAAA"),
+      attachedImage("broken", base64OfSize(MAX_ENCODED_IMAGE_BYTES + 1)),
+      attachedImage("last", "BBBB", "image/jpeg"),
+    ];
+    const { result } = renderHook(() => useImageAttachments(initialImages));
+
+    await act(async () => {
+      await canvas.decodes[0].fail();
+    });
+
+    expect(result.current.isReading).toBe(false);
+    expect(result.current.images.map((image) => image.id)).toEqual(["first", "last"]);
+    expect(result.current.error).toBe("第 2 张历史附图无法读取，已移除；如需保留请重新上传");
+  });
+
+  it("drops queued prefilled transcodes after unmount", async () => {
+    const canvas = stubImageCanvas();
+    const initialImages = [
+      attachedImage("first", base64OfSize(MAX_ENCODED_IMAGE_BYTES + 1)),
+      attachedImage("second", base64OfSize(MAX_ENCODED_IMAGE_BYTES + 1)),
+    ];
+    const { unmount } = renderHook(() => useImageAttachments(initialImages));
+
+    expect(canvas.decodes).toHaveLength(1);
+    unmount();
+    await act(async () => {
+      await canvas.decodes[0].finish({ width: 800, height: 600 });
+    });
+
+    expect(canvas.decodes).toHaveLength(1);
   });
 });
