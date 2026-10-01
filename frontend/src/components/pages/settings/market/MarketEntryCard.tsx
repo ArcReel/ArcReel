@@ -83,7 +83,7 @@ export function SourceChip({ name, kind }: { name: string; kind: MarketSourceKin
 }
 
 /**
- * 市场条目卡片：2:1 图区（icon 或首字母占位 + 两轴徽标）、名称、作者与版本、两行描述、源片（及官方服务的
+ * 市场条目卡片：2:1 图区（icon 或首字母占位 + 两轴徽标 + 媒体类型标签）、名称、作者与版本、两行描述、源片（及官方服务的
  * 安装量与评分）与主按钮。
  * 主按钮：未安装「安装」、可更新「更新」均打开确认弹窗；已是最新「已安装」直接打开端点。
  * 当前应用版本不满足 `min_app_version` 时整卡降透明并标出版本要求。
@@ -139,6 +139,11 @@ export function MarketEntryCard({
           <div className="absolute left-2 top-2">
             <MarketInstallBadges state={installation.state} modified={installation.modified} />
           </div>
+        )}
+        {(entry.media_type === "image" || entry.media_type === "video") && (
+          <span className="absolute right-2 top-2 rounded-[4px] border border-hairline-soft bg-bg-grad-a/55 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-text-4">
+            {t(entry.media_type === "image" ? "media_type_image" : "media_type_video")}
+          </span>
         )}
       </div>
       <div className="flex flex-1 flex-col p-3">

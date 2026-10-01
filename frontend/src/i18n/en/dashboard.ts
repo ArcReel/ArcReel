@@ -2678,6 +2678,8 @@ export default {
   'market_type_style': 'Style templates',
   'market_type_soon': 'Soon',
   'market_source_filter_label': 'Filter by source',
+  'market_media_filter_label': 'Filter by media type',
+  'market_media_all': 'All',
   'market_only_installed': 'Installed only',
   'market_banner_detail': ': {{status}} · {{error}}',
   'market_banner_detail_no_error': ': {{status}}',

@@ -2678,6 +2678,8 @@ export default {
   'market_type_style': 'Mẫu phong cách',
   'market_type_soon': 'Sắp có',
   'market_source_filter_label': 'Lọc theo nguồn',
+  'market_media_filter_label': 'Lọc theo loại phương tiện',
+  'market_media_all': 'Tất cả',
   'market_only_installed': 'Chỉ mục đã cài',
   'market_banner_detail': ': {{status}} · {{error}}',
   'market_banner_detail_no_error': ': {{status}}',

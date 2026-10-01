@@ -2677,6 +2677,8 @@ export default {
   'market_type_style': '风格模板',
   'market_type_soon': '即将推出',
   'market_source_filter_label': '按来源筛选',
+  'market_media_filter_label': '按媒体类型筛选',
+  'market_media_all': '全部',
   'market_only_installed': '仅已安装',
   'market_banner_detail': '：{{status}} · {{error}}',
   'market_banner_detail_no_error': '：{{status}}',
