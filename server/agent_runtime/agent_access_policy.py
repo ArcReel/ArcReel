@@ -108,11 +108,7 @@ class AgentAccessPolicy:
     # Windows 回退（sandbox_enabled=False）的 Bash 命令白名单：等价于沙箱化前
     # settings.json permissions.allow 段。也是 can_use_tool deny hint 文案的
     # 单一真相源（format_bash_whitelist_deny_message 从此派生）。
-    WINDOWS_BASH_PREFIX_WHITELIST: ClassVar[tuple[str, ...]] = (
-        _PYTHON_SKILLS_PREFIX,
-        "ffmpeg",
-        "ffprobe",
-    )
+    WINDOWS_BASH_PREFIX_WHITELIST: ClassVar[tuple[str, ...]] = (_PYTHON_SKILLS_PREFIX,)
 
     # Windows 回退白名单的 shell metachar 黑名单：``;`` ``&`` ``|`` ``<`` ``>``
     # `` ` `` ``$`` 与换行都可能在白名单前缀后挂任意命令（链式/管道/重定向/
@@ -456,9 +452,9 @@ class AgentAccessPolicy:
     def is_bash_command_whitelisted(cls, command: str) -> bool:
         """Windows 回退（sandbox 不可用）的 Bash 命令白名单判定。
 
-        纯 startswith 前缀匹配有三类绕过：metachar 链（``ffmpeg ...; evil`` 整串
-        满足前缀，尾部命令照常执行，且 Windows 上无 sandbox denyWrite 兜底）、
-        命令名前缀碰撞（``ffmpegX`` 也以 ``ffmpeg`` 开头）、路径穿越（``..`` 逃出
+        纯 startswith 前缀匹配有三类绕过：metachar 链（``python .claude/skills/...; evil``
+        整串满足前缀，尾部命令照常执行，且 Windows 上无 sandbox denyWrite 兜底）、
+        命令名前缀碰撞（不含空格的前缀会被 ``<前缀>X`` 命中）、路径穿越（``..`` 逃出
         skills 目录）。判定分四步：
 
         1. 整串拒 shell metachar（``_BASH_METACHARS_RE``），挡链式/管道/重定向/
@@ -468,7 +464,7 @@ class AgentAccessPolicy:
            ——shell 会把 ``".."`` / ``.\\.`` 还原成 ``..``，只查原串会被这类混淆
            绕过逃出 skills 目录；
         3. 按 token 边界匹配 ``WINDOWS_BASH_PREFIX_WHITELIST``：不含空格的前缀
-           （ffmpeg/ffprobe）要求命令名完全相等或后跟空格；
+           要求命令名完全相等或后跟空格；
         4. python skills 入口额外要求首个参数是 ``<skill>/scripts/<script>.py``
            （``_is_allowed_python_skill_command``），不放行 skills 目录下任意文件。
 
