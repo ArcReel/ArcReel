@@ -26,7 +26,13 @@ from lib.bgm.library import resolve_bgm_sources
 from lib.edit_timeline.bgm import bgm_ids, place_bgm
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import EditTimelineDocument, TimelineRevision
-from lib.edit_timeline.readout import IssueScope, IssueSeverity, TimelineIssue, project_readout
+from lib.edit_timeline.readout import (
+    IssueScope,
+    IssueSeverity,
+    TimelineIssue,
+    bgm_missing_issues,
+    project_readout,
+)
 from lib.edit_timeline.sources import EpisodeScriptUnits, load_episode_script_units, load_episode_sources
 from lib.edit_timeline.store import EditTimelineStore
 from lib.final_cut.basis import (
@@ -237,11 +243,12 @@ class FinalCutService:
         bgm_sources = resolve_bgm_sources(
             project_dir, project, referenced_bgm, lambda path: read_artifact_content_digest(adapter, path)
         )
-        if missing_bgm := [bgm_id for bgm_id in referenced_bgm if bgm_id not in bgm_sources]:
+        if missing_bgm := bgm_missing_issues(checked.revision.content, bgm_sources):
             raise FinalCutError(
                 "final_cut_blocked",
-                "BGM 不在项目里或文件已不在：" + "、".join(missing_bgm),
-                issues=[{"code": "bgm_missing", "bgm_id": bgm_id} for bgm_id in missing_bgm],
+                "BGM 不在项目里或文件已不在："
+                + "、".join(dict.fromkeys(issue.params["bgm_id"] for issue in missing_bgm)),
+                issues=[issue.model_dump(mode="json") for issue in missing_bgm],
             )
         inputs = resolve_final_cut_inputs(
             document=checked.document,

@@ -79,6 +79,8 @@ READ_TIMELINE = ToolDeclaration(
         "narration_overrun 旁白压到下一段旁白上（params.cause=next_narration，clip_ids 为两个承载片段）"
         "或超出时间线末尾（cause=timeline_end）；narration_source_collision 旁白延伸到台词片段（cause=dialogue）"
         "或原声音量高于 0.3 的片段（cause=source_volume）上，clip_ids 为承载片段与被覆盖的片段。"
+        "subtitle_missing_glyphs（warning）视频单元的字幕里有随包字幕字体没有的字符，params.characters 列出这些字符，"
+        "烧入成片后它们可能无法正常显示。"
         "bgm 按起点排列，每个 BGM 片段带 id（如 b2）、bgm_id 与 name（所引用的 BGM）、start、end（截到时间线末尾后的"
         "实际结束时间）、source_in / source_out（取用 BGM 的哪一段）、volume、fade_in 与 fade_out（实际生效的淡入淡出）；"
         "bgm_missing（blocking）表示 BGM 片段引用的 BGM 已不在项目里，clip_ids 为该 BGM 片段。"

@@ -12,6 +12,7 @@ from typing import Any
 from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline import EditTimelineError
 from lib.edit_timeline.model import EditTimelineContent
+from lib.final_cut.basis import video_resource_type_for
 from lib.jianying_draft.basis import DraftNarration, DraftUnitBasis, draft_unit_ids, effective_unit_variant
 from lib.jianying_draft.placement import UnitCue, UnitMaterial, UnitMaterials, UnitMaterialUnavailableError
 from lib.project.project_manager import ProjectManager
@@ -103,7 +104,7 @@ class TimelineUnitMaterials:
         project = await asyncio.to_thread(self._projects.load_project, project_name)
         project_dir = await asyncio.to_thread(self._projects.get_project_path, project_name)
         kind, items = await asyncio.to_thread(load_episode_items, self._projects, project_name, project, episode)
-        resource_type = "reference_videos" if kind == "video_units" else "videos"
+        resource_type = video_resource_type_for(kind)
         versions = VersionManager(project_dir)
         materials: dict[str, UnitMaterial] = {}
         bases: list[DraftUnitBasis] = []

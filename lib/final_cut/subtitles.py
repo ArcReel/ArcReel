@@ -132,15 +132,18 @@ def wrap_chinese(text: str, line_capacity: float) -> tuple[str, ...]:
             carried = current[-1] + carried
             current = current[:-1]
         lines.append(current.rstrip())
-        current = "" if token.isspace() else carried + token
+        current = carried if token.isspace() else carried + token
     if current:
         lines.append(current.rstrip())
     return tuple(lines)
 
 
 def subtitle_lines(text: str, layout: SubtitleLayout) -> tuple[str, ...]:
-    """一条字幕显示成哪几行：含汉字的按中文规则显式换行，其余整段交给 libass 在空格处换行。"""
-    text = text.strip()
+    """一条字幕显示成哪几行：含汉字的按中文规则显式换行，其余整段交给 libass 在空格处换行。
+
+    原文里的换行折成空格：ASS 的一条事件只能占一行，换行只能由这里显式给出。
+    """
+    text = " ".join(line.strip() for line in text.splitlines() if line.strip())
     if count_reading_units(text, "zh") > 0:
         return wrap_chinese(text, layout.line_capacity)
     return (text,)

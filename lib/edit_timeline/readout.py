@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
@@ -16,6 +17,7 @@ from lib.edit_timeline.bgm import place_bgm
 from lib.edit_timeline.model import (
     VOICEOVER_SOURCE_VOLUME,
     EditClip,
+    EditTimelineContent,
     EditTimelineDocument,
     TimelineRevision,
     microseconds_to_seconds,
@@ -388,12 +390,12 @@ def _narration_issues(placed: list[_Placed], sources: EpisodeSources, total_us: 
     return issues
 
 
-def _bgm_issues(revision: TimelineRevision, sources: EpisodeSources) -> list[TimelineIssue]:
-    """BGM 片段引用的 BGM 不在项目里或文件已不在时阻断出片。"""
+def bgm_missing_issues(content: EditTimelineContent, available: Collection[str]) -> list[TimelineIssue]:
+    """BGM 片段引用的 BGM 不在 ``available`` 里（已不在项目里或文件已不在）时阻断出片。"""
     return [
         timeline_issue(IssueCode.BGM_MISSING, clip_ids=(item.id,), bgm_id=item.bgm_id)
-        for item in sorted(revision.content.bgm, key=lambda item: item.start_us)
-        if item.bgm_id not in sources.bgm
+        for item in sorted(content.bgm, key=lambda item: item.start_us)
+        if item.bgm_id not in available
     ]
 
 
@@ -435,7 +437,7 @@ def project_readout(
         issues=(
             *_structural_issues(revision, sources),
             *_narration_issues(placed, sources, cursor_us),
-            *_bgm_issues(revision, sources),
+            *bgm_missing_issues(revision.content, sources.bgm),
         ),
     )
 
@@ -455,6 +457,7 @@ __all__ = [
     "TimelineIssue",
     "TransitionView",
     "TrimView",
+    "bgm_missing_issues",
     "clip_source_duration_us",
     "effective_source_range_us",
     "project_readout",
