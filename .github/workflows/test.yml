@@ -394,6 +394,11 @@ jobs:
         working-directory: website
         run: pnpm install --frozen-lockfile
 
+      # 紧接依赖安装：后续闸门失败时，always() 的翻译滞后报告仍要读到这份同步副本
+      - name: Sync CONTRIBUTING copy
+        working-directory: website
+        run: pnpm run sync-contributing
+
       - name: Typecheck
         working-directory: website
         run: pnpm run typecheck
@@ -405,10 +410,6 @@ jobs:
       - name: Format check
         working-directory: website
         run: pnpm run format:check
-
-      - name: Sync CONTRIBUTING copy
-        working-directory: website
-        run: pnpm run sync-contributing
 
       - name: Consistency check (doc inventory / orphan translations / anchors / UI JSON keys)
         working-directory: website
