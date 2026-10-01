@@ -101,6 +101,7 @@ class ClipView(_View):
     """剪辑片段的读取形态。
 
     ``status`` 为 ``unit_deleted`` 时渲染跳过，时长计 0；为 ``video_missing`` 时时长暂按编排时长占位。
+    ``source_duration`` 是 current 视频的全长，没有可用视频或时长探测不出时为 None。
     """
 
     id: str
@@ -109,6 +110,7 @@ class ClipView(_View):
     start: float
     duration: float
     video_version: int | None
+    source_duration: float | None
     trim: TrimView | None
     source_volume: float
     hold: float
@@ -191,6 +193,11 @@ def _clip_view(clip: EditClip, sources: EpisodeSources, start_us: int) -> tuple[
         start=microseconds_to_seconds(start_us),
         duration=microseconds_to_seconds(duration_us),
         video_version=media.video_version if media is not None else None,
+        source_duration=(
+            microseconds_to_seconds(media.video_duration_us)
+            if media is not None and media.video_version is not None and media.video_duration_us is not None
+            else None
+        ),
         trim=(
             TrimView(
                 source_in=microseconds_to_seconds(trim.in_us),

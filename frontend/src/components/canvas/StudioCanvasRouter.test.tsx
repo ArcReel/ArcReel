@@ -8,6 +8,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { selectActiveResourceIds, selectHasActiveTaskForScriptFile, useTasksStore } from "@/stores/tasks-store";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
+import { episodeEditViewPath } from "@/app-routes";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import type { AdEpisodeScript, EpisodeScript, ProjectData } from "@/types";
 
@@ -22,6 +23,13 @@ vi.mock("@/components/workflow/WorkflowPanel", () => ({
       <button onClick={() => onRegenerate?.("storyboard", ["SEG-1"])}>workflow-regenerate</button>
       <button onClick={() => onRegenerate?.("video", ["SEG-1"])}>workflow-regenerate-video</button>
     </div>
+  ),
+}));
+
+// 剪辑视图自己读取剪辑时间线，行为在 EditTimelineView.test.tsx 覆盖；这里只关心集页何时挂载它。
+vi.mock("./edit/EditTimelineView", () => ({
+  EditTimelineView: ({ episode }: { episode: number }) => (
+    <div data-testid="edit-timeline-view">episode {episode}</div>
   ),
 }));
 
@@ -641,6 +649,74 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
     expect(screen.getByTestId("timeline-has-script")).toHaveTextContent("yes");
     expect(screen.queryByTestId("episode-source-review")).not.toBeInTheDocument();
+  });
+
+  it("switches an episode with a script between the storyboard and edit views", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        ],
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    const { hook, searchHook } = memoryLocation({ path: "/episodes/1" });
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <StudioCanvasRouter />
+      </Router>,
+    );
+
+    expect(screen.getByRole("tab", { name: "分镜" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "剪辑" }));
+
+    expect(screen.getByTestId("edit-timeline-view")).toHaveTextContent("episode 1");
+    expect(screen.queryByTestId("timeline-canvas")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workflow-panel")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "分镜" }));
+    expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
+  });
+
+  it("opens the edit view directly from its link", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        ],
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    const { hook, searchHook } = memoryLocation({ path: episodeEditViewPath(1) });
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <StudioCanvasRouter />
+      </Router>,
+    );
+
+    expect(screen.getByRole("tab", { name: "剪辑" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("edit-timeline-view")).toBeInTheDocument();
+  });
+
+  it("keeps the edit view closed for an episode that has no script yet", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        episodes: [{ episode: 1, title: "EP1", script_file: "scripts/episode_1.json" }],
+      }),
+      currentScripts: {},
+    });
+    const { hook, searchHook } = memoryLocation({ path: episodeEditViewPath(1) });
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <StudioCanvasRouter />
+      </Router>,
+    );
+
+    expect(screen.queryByRole("tab", { name: "剪辑" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("edit-timeline-view")).not.toBeInTheDocument();
   });
 
   it("runs character callbacks and reports API failures with toast", async () => {

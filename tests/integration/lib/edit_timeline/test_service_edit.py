@@ -234,6 +234,23 @@ async def test_trim_is_voided_after_the_current_video_version_changes(
     assert (readout.clips[0].duration, readout.duration) == (3.0, 5.0)
 
 
+async def test_clips_report_the_full_length_of_their_current_video(
+    service: EditTimelineService, install_video: InstallMedia
+) -> None:
+    install_video("E1U1", 2.0)
+    install_video("E1U3", 1.0)
+    timeline_id = await _create(service)
+
+    trimmed = await _edit(
+        service, timeline_id, 1, {"op": "set_trim", "clip": "c1", "trim": {"source_in": 0.25, "source_out": 1.5}}
+    )
+    readout = await service.read("demo", timeline_id)
+
+    assert [(clip.duration, clip.source_duration) for clip in trimmed.clips] == [(1.25, 2.0)]
+    # 没有可用视频的片段按编排时长占位，全长未知
+    assert [(clip.id, clip.source_duration) for clip in readout.clips] == [("c1", 2.0), ("c2", None), ("c3", 1.0)]
+
+
 @pytest.mark.usefixtures("three_clips")
 async def test_total_duration_adds_trims_and_holds_and_ignores_transitions(service: EditTimelineService) -> None:
     timeline_id = await _create(service)

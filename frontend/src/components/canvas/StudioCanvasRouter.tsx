@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
-import { Route, Switch, Redirect } from "wouter";
+import { Route, Switch, Redirect, useSearchParams } from "wouter";
 import {
   WORKSPACE_ROUTE_LOREBOOK,
   WORKSPACE_ROUTE_CLUES,
@@ -9,6 +9,8 @@ import {
   WORKSPACE_ROUTE_PROPS,
   WORKSPACE_ROUTE_PRODUCTS,
   WORKSPACE_ROUTE_EPISODES,
+  EPISODE_VIEW_EDIT,
+  EPISODE_VIEW_PARAM,
 } from "@/app-routes";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -28,11 +30,14 @@ import { ProductsPage } from "./lorebook/ProductsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
+import { EditTimelineView } from "./edit/EditTimelineView";
+import { EpisodeViewSwitch, episodeViewOf, type EpisodeView } from "./EpisodeViewSwitch";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
 import { API } from "@/api";
 import { PromptAuthoringHost } from "@/components/canvas/shared/PromptAuthoringDialog";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import { ScriptPlanHost } from "@/components/canvas/shared/ScriptPlanDialog";
+import { previewAspect } from "@/utils/preview-aspect";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -102,6 +107,14 @@ export function StudioCanvasRouter() {
   tRef.current = t;
   const { currentProjectData, currentProjectName, currentScripts, projectDetailLoading } =
     useProjectsStore();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const episodeView = episodeViewOf(searchParams);
+  const setEpisodeView = (view: EpisodeView) =>
+    setSearchParams((params) => {
+      if (view === "edit") params.set(EPISODE_VIEW_PARAM, EPISODE_VIEW_EDIT);
+      else params.delete(EPISODE_VIEW_PARAM);
+      return params;
+    });
   // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定。
   // useDemoWorkbench() 已把路由参数与 store 的判定滞后收口在单一来源，此处直接消费。
   const demoMode = useDemoWorkbench();
@@ -709,6 +722,9 @@ export function StudioCanvasRouter() {
           // 演示项目没有源文可切片，缺剧本的分集直接说明「演示只做到第 1 集」
           const showSourceReview =
             Boolean(episode) && !script && !hasDraft && !isAd && !demoMode;
+          // 剪辑视图预览按剪辑时间线拼接的视频，需要本集已有正式脚本；演示态不提供。
+          const canEdit = Boolean(script) && !demoMode;
+          const showEditView = canEdit && episodeView === "edit";
 
           return (
             <div className="flex h-full flex-col">
@@ -749,8 +765,17 @@ export function StudioCanvasRouter() {
                   savedInstructions={episode?.prompt_authoring_instructions}
                 />
               )}
+              {canEdit && <EpisodeViewSwitch view={episodeView} onChange={setEpisodeView} />}
               <div className="min-h-0 flex-1">
-                {demoMode && !script ? (
+                {showEditView ? (
+                  <EditTimelineView
+                    key={`${currentProjectName}::${epNum}`}
+                    projectName={currentProjectName}
+                    episode={epNum}
+                    script={script}
+                    aspect={previewAspect(currentProjectData)}
+                  />
+                ) : demoMode && !script ? (
                   <DemoEpisodePlaceholder />
                 ) : showSourceReview && episode ? (
                   <EpisodeSourceReview

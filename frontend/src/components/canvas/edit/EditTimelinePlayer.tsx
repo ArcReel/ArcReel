@@ -1,0 +1,87 @@
+import { AlertTriangle, Pause, Play } from "lucide-react";
+import { useTranslation } from "react-i18next";
+
+import type { EditClip } from "@/types/edit-timeline";
+import type { PreviewAspect } from "@/utils/preview-aspect";
+
+import type { PlaybackPlan } from "./playback-schedule";
+import { formatClock } from "./timeline-view";
+import type { TimelinePlayback } from "./useTimelinePlayback";
+
+interface EditTimelinePlayerProps {
+  plan: PlaybackPlan;
+  playback: TimelinePlayback;
+  aspect: PreviewAspect;
+  /** 当前片段；定格与占位期间同样有值，没有可播放片段时为 undefined。 */
+  current: EditClip | undefined;
+  trimIgnored: boolean;
+}
+
+/** 播放画面与播放控制：两个 `<video>` 叠放，只显示当前那一个。 */
+export function EditTimelinePlayer({ plan, playback, aspect, current, trimIgnored }: EditTimelinePlayerProps) {
+  const { t } = useTranslation("dashboard");
+  const segment = plan.segments[playback.index];
+  const showVideo = Boolean(segment?.hasVideo);
+  const frame =
+    aspect === "9:16"
+      ? "aspect-[9/16] h-[min(56vh,520px)]"
+      : "aspect-video w-full max-w-[760px]";
+
+  return (
+    <div className="flex flex-col items-center gap-2.5">
+      <div
+        className={`relative overflow-hidden rounded-[10px] bg-black ${frame}`}
+        role="region"
+        aria-label={t("edit_view_player_aria")}
+      >
+        {playback.videoRefs.map((ref, slot) => (
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- 剪辑片段是生成式视频单元，没有字幕源
+          <video
+            key={slot}
+            ref={ref}
+            playsInline
+            preload="auto"
+            data-testid={`edit-player-video-${slot}`}
+            className="absolute inset-0 h-full w-full object-contain"
+            style={{ opacity: showVideo && playback.activeSlot === slot ? 1 : 0 }}
+          />
+        ))}
+        {segment && !segment.hasVideo && (
+          <div className="absolute inset-0 flex items-center justify-center text-[13px] text-text-3">
+            {t("edit_view_stage_video_missing")}
+          </div>
+        )}
+        {current && (
+          <div className="pointer-events-none absolute left-2.5 top-2.5 flex flex-wrap gap-1.5 text-[11px]">
+            <span className="rounded-[4px] bg-black/60 px-1.5 py-0.5 tabular-nums text-white/90">
+              {current.id} · {current.unit_id}
+            </span>
+            {trimIgnored && (
+              <span className="inline-flex items-center gap-1 rounded-[4px] bg-warn/90 px-1.5 py-0.5 text-black">
+                <AlertTriangle aria-hidden className="h-3 w-3" />
+                {t("edit_view_stage_trim_ignored")}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex w-full max-w-[760px] items-center gap-3">
+        <button
+          type="button"
+          onClick={playback.toggle}
+          disabled={plan.segments.length === 0}
+          aria-label={playback.playing ? t("edit_view_pause") : t("edit_view_play")}
+          className="focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-text text-bg transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {playback.playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-px" />}
+        </button>
+        <span className="text-[13px] tabular-nums text-text-2">
+          {formatClock(playback.t)} <span className="text-text-4">/ {formatClock(plan.duration)}</span>
+        </span>
+        <span className="text-[12px] text-text-4">
+          {t("edit_view_clip_count", { count: plan.segments.length })}
+        </span>
+      </div>
+    </div>
+  );
+}

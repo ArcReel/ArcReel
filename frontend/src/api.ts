@@ -636,6 +636,30 @@ class API {
     return { blob: await response.blob(), filename };
   }
 
+  /** 一集的剪辑时间线列表，按创建顺序排列。 */
+  static async listEditTimelines(
+    projectName: string,
+    episode: number,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ timelines: EditTimelineSummary[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/edit-timelines?episode=${episode}`,
+      { signal: options.signal },
+    );
+  }
+
+  /** 剪辑时间线最新修订的读取结果。 */
+  static async getEditTimeline(
+    projectName: string,
+    timelineId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EditTimelineReadout> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`,
+      { signal: options.signal },
+    );
+  }
+
   static async importProject(
     file: File,
     conflictPolicy: ImportConflictPolicy = "prompt"
@@ -1653,11 +1677,6 @@ class API {
     return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status/episodes`, {
       signal: options.signal,
     });
-  }
-
-  /** 一集的剪辑时间线，按创建时间排列。 */
-  static async listEditTimelines(projectName: string, episode: number): Promise<{ timelines: EditTimelineSummary[] }> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/edit-timelines?episode=${episode}`);
   }
 
   /** 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切）；显示名在集内重名时 409。 */

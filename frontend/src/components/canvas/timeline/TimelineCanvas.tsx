@@ -13,6 +13,7 @@ import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
+import { previewAspect } from "@/utils/preview-aspect";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -151,16 +152,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     debouncedFetch(projectName);
   }, [projectName, episodeScript?.episode, debouncedFetch]);
 
-  // 解析 aspect ratio（仅支持 9:16 / 16:9 两档，3:4/1:1 也回退到 16:9）；
-  // 缺省回退：narration / ad 竖屏，drama 与未知/脏值横屏——与后端
-  // ScriptGenerator._resolve_aspect_ratio 同口径，避免预览与产物比例错位。
-  const rawAspect =
-    typeof projectData?.aspect_ratio === "string"
-      ? projectData.aspect_ratio
-      : projectData?.aspect_ratio?.storyboard ??
-        (contentMode === "narration" || contentMode === "ad" ? "9:16" : "16:9");
-  const aspectRatio: "9:16" | "16:9" =
-    rawAspect === "9:16" || rawAspect === "16:9" ? rawAspect : "16:9";
+  const aspectRatio = previewAspect(projectData);
 
   // 仅三种已注册模式显式取数；未知/脏 content_mode 返回空列表（不渲染可编辑视图）——
   // 否则会以 drama 形状渲染、保存却按真实 content_mode 分派到错误端点。
