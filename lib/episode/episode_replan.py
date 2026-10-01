@@ -58,6 +58,7 @@ from lib.episode.episode_ledger import (
     mismatched_source_fingerprints,
     parse_positive_episode_num,
     parse_source_range,
+    well_formed_ledger_entries,
 )
 from lib.episode.episode_management import EpisodeManagementError
 from lib.episode.episode_paths import episode_script_relpath, episode_source_path
@@ -183,10 +184,10 @@ class ReplanScope:
 
 
 def _entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
-    raw = project.get("episodes")
-    if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
+    entries = well_formed_ledger_entries(project)
+    if entries is None:
         raise ReplanError("ledger_invalid", "分集账本的形状异常，不能重新规划")
-    return list(raw)
+    return entries
 
 
 def _replaced_ids(
@@ -588,6 +589,8 @@ def _apply_adoption(
     texts = {doc.rel_path: doc.text for doc in docs}
     entries = _entries(project)
     by_id = {parse_positive_episode_num(entry.get("episode")): entry for entry in entries}
+    # 旧拆分流程的存量集没有原文范围，集文件是它唯一的原文记录，无法从账本重造
+    legacy = {num for num in adoption.replaced if parse_source_range(by_id[num]) is None}
     drafts = candidate_episodes(candidate)
     new_ids = allocate_episode_ids(project, len(drafts))
     new_entries: list[dict[str, Any]] = []
@@ -617,12 +620,17 @@ def _apply_adoption(
     project.pop(REPLAN_CANDIDATE_KEY, None)
 
     for num in adoption.replaced:
-        episode_source_path(project_dir, num).unlink(missing_ok=True)
+        path = episode_source_path(project_dir, num)
+        if num in legacy and path.is_file() and not path.is_symlink():
+            path.rename(archive_episode_file_path(path))
+        else:
+            path.unlink(missing_ok=True)
     for num, entry in zip(new_ids, new_entries, strict=True):
         source_range = entry["source_range"]
         text = texts[source_range["source_file"]][source_range["start"] : source_range["end"]]
         _write_new_episode_file(project_dir, num, text)
-    sync_source_snapshots(project_dir, project, texts)
+    refreshed = {draft["source_range"]["source_file"] for draft in drafts}
+    sync_source_snapshots(project_dir, project, texts, refreshed=refreshed)
     return new_ids
 
 

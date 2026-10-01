@@ -592,7 +592,7 @@ MESSAGES = {
     "source_file_change_source_file_unreadable": "This file cannot be read or is not UTF-8 text. You can only delete it",
     "source_file_change_source_changed": "This file was changed outside ArcReel. You cannot replace, edit or reorder it until the episode ledger is updated; you can still delete it",
     "source_file_change_source_not_changed": "This file was not changed outside ArcReel, so the episode ledger does not need updating",
-    "source_file_change_source_snapshot_missing": "No copy of this file's earlier text was kept, so the affected episodes cannot be worked out. Delete the file, or reset episode planning and plan again",
+    "source_file_change_source_snapshot_missing": "No copy of this file's earlier text was kept, so the affected episodes cannot be worked out. Delete the file, or replan from the first cut episode",
     "source_file_change_source_text_empty": "A source file cannot be empty. To remove this file, delete it",
     "source_file_change_move_out_of_range": "This file is already first or last and cannot move further",
     "source_file_change_ledger_invalid": "The episode ledger is malformed, so whole-source files cannot be changed",

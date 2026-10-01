@@ -192,8 +192,9 @@ async def test_plan_episodes_rejects_bad_instructions_before_planning(fake_ctx: 
     ("raised", "code"),
     [
         pytest.param(EpisodePlanningError("校验耗尽"), "episode_planning_failed", id="planning-error"),
-        # 供应商未配置等规划器内部的 ValueError 不是入参问题。
-        pytest.param(ValueError("未找到可用的 text 供应商"), "internal_error", id="provider-error"),
+        # 供应商未配置、模型调用失败等规划器内部的异常不是入参问题，与规划失败同码，界面按用户语言成文。
+        pytest.param(ValueError("未找到可用的 text 供应商"), "episode_planning_failed", id="provider-error"),
+        pytest.param(RuntimeError("HTTP 429"), "episode_planning_failed", id="model-error"),
     ],
 )
 async def test_plan_episodes_reports_planner_failures_without_blaming_the_request(

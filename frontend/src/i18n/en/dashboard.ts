@@ -2896,7 +2896,7 @@ export default {
   'manual_split_dialog_confirm': 'Apply',
   'manual_split_boundary': 'Boundary between {{left}} and {{right}}',
   'manual_split_boundary_moving': 'Moving boundary: click a new position in the source, or click here to cancel',
-  'manual_split_merge_across_kinds': 'The source file type changes before the next episode, so the two cannot be merged',
+  'manual_split_merge_across_kinds': 'The text from this episode to the next spans source files of different types, so the two cannot be merged',
   'manual_split_merge_none': 'This is the last episode cut from the source; there is nothing to merge with',
   'manual_split_clear_after_none': 'No episodes cut from the source come after this one',
   'manual_split_rail_hint': 'Click anywhere inside this episode in the source on the left to split it. Click the boundary between two episodes to move it.',

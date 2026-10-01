@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,6 +13,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_generator import AdScriptOverwriteRequired, AdScriptRejected, ScriptGenerator
 from lib.workflow.workflow_state import WorkflowStateService
+from tests.fakes import FakeTextGenerator
 
 pytestmark = pytest.mark.asyncio
 
@@ -49,12 +49,8 @@ def _write_ad_project(tmp_path: Path, generation_mode: str = "storyboard", **ove
     return project_dir
 
 
-def _generator(project_dir: Path, *responses: dict[str, Any]) -> ScriptGenerator:
-    text_generator = MagicMock()
-    text_generator.model = "mock"
-    text_generator.generate = AsyncMock(
-        side_effect=[MagicMock(text=json.dumps(response, ensure_ascii=False)) for response in responses]
-    )
+def _generator(project_dir: Path, *responses: object) -> ScriptGenerator:
+    text_generator = FakeTextGenerator(*(json.dumps(response, ensure_ascii=False) for response in responses))
     return ScriptGenerator(project_dir, generator=text_generator)
 
 
@@ -155,10 +151,11 @@ async def test_a_new_asset_named_like_a_registered_one_merges_into_it(tmp_path: 
         },
         {"title": "共伞", "shots": []},
         {"title": "共伞", "shots": [{"shot_id": "E1S01"}]},
+        [{"title": "共伞", "shots": [_shot("E1S01")]}],
     ],
-    ids=["unlisted-reference", "unresolvable-decision", "no-entries", "broken-structure"],
+    ids=["unlisted-reference", "unresolvable-decision", "no-entries", "broken-structure", "not-an-object"],
 )
-async def test_a_rejected_output_writes_nothing(tmp_path: Path, response: dict[str, Any]) -> None:
+async def test_a_rejected_output_writes_nothing(tmp_path: Path, response: object) -> None:
     project_dir = _write_ad_project(tmp_path)
     before = (project_dir / "project.json").read_bytes()
 

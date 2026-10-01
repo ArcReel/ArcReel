@@ -10,7 +10,7 @@ from lib.i18n.zh import errors as zh_errors
 from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import episode_management, episodes_view
+from server.routers import episodes_view
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
@@ -248,7 +248,9 @@ class TestManualSplit:
         merged = pm.load_project("demo")["episodes"]
         assert [(e["episode"], e["source_range"]["end"]) for e in merged] == [(1, 15)]
 
-    def test_change_is_refused_while_a_displaced_episode_has_active_tasks(self, tmp_path, monkeypatch):
+    def test_change_is_refused_while_a_displaced_episode_has_active_tasks(
+        self, tmp_path, monkeypatch, active_episode_tasks
+    ):
         novel = {"source_file": "source/novel.txt"}
         client, pm, source_dir = _client(
             monkeypatch,
@@ -263,13 +265,9 @@ class TestManualSplit:
         (source_dir / "novel.txt").write_text("少年下山。城里起火。", encoding="utf-8")
         before = (pm.get_project_path("demo") / "project.json").read_bytes()
 
-        class _Queue:
-            async def list_tasks(self, *, project_name, status, page, page_size):
-                del project_name, page, page_size
-                items = [{"resource_id": "script_plan", "script_file": None, "payload": {"episode": 2}}]
-                return {"items": items if status == "queued" else []}
-
-        monkeypatch.setattr(episode_management, "get_generation_queue", lambda: _Queue())
+        active_episode_tasks["queued"] = [
+            {"resource_id": "script_plan", "script_file": None, "payload": {"episode": 2}}
+        ]
 
         with client:
             merge = client.post(
@@ -470,17 +468,15 @@ class TestSourceFileChanges:
         assert [item["source_file"] for item in pm.load_project("demo")["whole_source_files"]] == ["source/a.txt"]
         assert [entry["episode"] for entry in pm.load_project("demo")["episodes"]] == [1, 2]
 
-    def test_change_is_refused_while_a_displaced_episode_has_active_tasks(self, tmp_path, monkeypatch):
+    def test_change_is_refused_while_a_displaced_episode_has_active_tasks(
+        self, tmp_path, monkeypatch, active_episode_tasks
+    ):
         client, pm, source_dir, text = _two_episode_project(monkeypatch, tmp_path)
         before = (pm.get_project_path("demo") / "project.json").read_bytes()
 
-        class _Queue:
-            async def list_tasks(self, *, project_name, status, page, page_size):
-                del project_name, page, page_size
-                items = [{"resource_id": "script_plan", "script_file": None, "payload": {"episode": 2}}]
-                return {"items": items if status == "running" else []}
-
-        monkeypatch.setattr(episode_management, "get_generation_queue", lambda: _Queue())
+        active_episode_tasks["running"] = [
+            {"resource_id": "script_plan", "script_file": None, "payload": {"episode": 2}}
+        ]
 
         with client:
             preview = client.post("/api/v1/projects/demo/source-files/a.txt/delete", json={})

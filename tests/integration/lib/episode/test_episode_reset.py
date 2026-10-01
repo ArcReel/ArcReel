@@ -1369,3 +1369,22 @@ def test_a_failed_file_step_restores_symlinked_episode_entry_without_touching_ta
     assert derived.is_symlink()
     assert derived.readlink() == outside
     assert outside.read_bytes() == b"outside"
+
+
+def test_partial_reset_keeps_the_snapshot_of_a_file_changed_outside(tmp_path: Path) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    snapshot = project_dir / "source" / "snapshots" / "novel.txt"
+    snapshot.parent.mkdir()
+    snapshot.write_text(SOURCE, encoding="utf-8")
+    (project_dir / "source" / "novel.txt").write_text(SOURCE + "外部追加的一段。", encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, episode_id=2)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert snapshot.read_text(encoding="utf-8") == SOURCE

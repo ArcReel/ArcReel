@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { ExternalSourceChange, SourceFileImpact } from "@/types";
+import type { ExternalSourceChange, SourceFileChangeResponse, SourceFileImpact } from "@/types";
 
 import { ExternalChangeNotice } from "./ExternalChangeNotice";
 
@@ -46,6 +46,29 @@ describe("ExternalChangeNotice", () => {
       expect(useAppStore.getState().toast?.text).toBe("已按「上卷.txt」的改动更新分集账本"),
     );
     expect(accept).toHaveBeenCalledWith("demo", "上卷.txt", "r1");
+  });
+
+  it("sends one update while the first request is still in flight", async () => {
+    let finish: (reply: SourceFileChangeResponse) => void = () => {};
+    const accept = vi
+      .spyOn(API, "acceptExternalSourceChange")
+      .mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    render(<ExternalChangeNotice projectName="demo" changes={[CHANGED]} onLocate={() => {}} />);
+
+    const button = screen.getByRole("button", { name: "更新分集账本" });
+    act(() => {
+      button.click();
+      button.click();
+    });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(accept).toHaveBeenCalledTimes(1);
+
+    await act(async () => finish({ status: "applied", impact: NO_IMPACT }));
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.text).toBe("已按「上卷.txt」的改动更新分集账本"),
+    );
+    expect(button).toBeEnabled();
   });
 
   it("asks again when the list changed since the view was loaded", async () => {

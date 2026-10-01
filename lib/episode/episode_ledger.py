@@ -210,6 +210,20 @@ def parse_positive_episode_num(value: Any) -> int | None:
     return num if num is not None and num > 0 else None
 
 
+def well_formed_ledger_entries(project: Mapping[str, Any]) -> list[dict[str, Any]] | None:
+    """按播出顺序改写整份账本前取条目：``episodes`` 是对象列表、集 ID 都是不重复的正整数时返回其副本，否则为 None。
+
+    改写方按集 ID 索引条目再按新顺序重排，集 ID 解析不了或重复的条目会在重排中丢失或重复出现。
+    """
+    raw = project.get("episodes")
+    if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
+        return None
+    nums = [parse_positive_episode_num(entry.get("episode")) for entry in raw]
+    if None in nums or len(set(nums)) != len(nums):
+        return None
+    return list(raw)
+
+
 def is_derived_episode_name(name: str) -> bool:
     """文件名是否为派生集文件名 ``episode_N.txt``（仅 ASCII 数字）。"""
     return _EPISODE_FILE_RE.fullmatch(name) is not None

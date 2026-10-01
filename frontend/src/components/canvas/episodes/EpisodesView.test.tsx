@@ -444,6 +444,31 @@ describe("EpisodesView", () => {
       await waitFor(() => expect(resume).toHaveBeenCalledWith("demo", "cand-1"));
     });
 
+    it("offers to register the output limit when a replan window of a custom model was truncated", async () => {
+      const failed = { ...REPLAN, complete: false, interrupted: "failed" as const };
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: failed });
+      useTasksStore.setState({
+        tasks: [
+          makeTask({
+            project_name: "demo",
+            task_type: "text_episode_plan",
+            resource_id: "episode-planning",
+            status: "failed",
+            error_message: "文本模型 my-llm 的输出超出了最大输出长度，内容不完整",
+            error_code: "text_output_truncated",
+            error_params: { provider_id: "custom-7", model: "my-llm", custom_model: true },
+          }),
+        ],
+      });
+      const { location } = renderView();
+
+      const panel = (await screen.findByRole("heading", { name: "新的分集方案" })).closest("section") as HTMLElement;
+      expect(within(panel).getByRole("status")).toHaveTextContent("AI 生成出错");
+      fireEvent.click(within(panel).getByRole("button", { name: "去登记最大输出长度" }));
+
+      expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
+    });
+
     it("summarizes a pending plan in place of planning and adopts it with the retired episodes deleted", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: REPLAN });
       const impact = {

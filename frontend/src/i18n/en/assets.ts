@@ -33,7 +33,7 @@ export default {
   "merge_target_placeholder": "Choose the asset to keep",
   "merge_no_target": "There is no other asset of this type to merge into.",
   "merge_mode_label": "Merge as",
-  "merge_mode_asset": "Same look",
+  "merge_mode_asset": "Base asset",
   "merge_mode_asset_hint": "\"{{name}}\" and its aliases become aliases of the kept asset.",
   "merge_mode_derivative": "Derivative",
   "merge_mode_derivative_hint": "\"{{name}}\" becomes a derivative of the kept asset, keeping its description; the derivative sheet needs generating. Dialogue still belongs to the kept character.",

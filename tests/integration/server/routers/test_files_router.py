@@ -31,7 +31,7 @@ from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import episode_management, files
+from server.routers import files
 from server.services.currency import upload_finalize
 from tests.factories import wav_bytes
 
@@ -424,7 +424,10 @@ class TestFilesRouter:
         assert (source_dir / "a.txt").exists()
 
     def test_deleting_a_whole_source_file_is_refused_while_a_removed_episode_has_active_tasks(
-        self, tmp_path, monkeypatch
+        self,
+        tmp_path,
+        monkeypatch,
+        active_episode_tasks,
     ):
         client, pm = _client(monkeypatch, tmp_path)
         source_dir = pm.get_project_path("demo") / "source"
@@ -447,13 +450,9 @@ class TestFilesRouter:
             ),
         )
 
-        class _Queue:
-            async def list_tasks(self, *, project_name, status, page, page_size):
-                del project_name, page, page_size
-                items = [{"resource_id": "script_plan", "script_file": None, "payload": {"episode": 1}}]
-                return {"items": items if status == "queued" else []}
-
-        monkeypatch.setattr(episode_management, "get_generation_queue", lambda: _Queue())
+        active_episode_tasks["queued"] = [
+            {"resource_id": "script_plan", "script_file": None, "payload": {"episode": 1}}
+        ]
 
         with client:
             preview = client.delete("/api/v1/projects/demo/source/a.txt")

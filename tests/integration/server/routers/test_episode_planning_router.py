@@ -92,11 +92,7 @@ def replan_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Test
 
     pm.update_project("demo", fill)
 
-    async def idle(*_args) -> bool:
-        return False
-
     monkeypatch.setattr(episode_planning, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(episode_planning, "episode_planning_active", idle)
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -121,13 +117,10 @@ def test_adopting_returns_the_consequences_first_then_adopts_with_their_revision
     assert [entry["episode"] for entry in pm.load_project("demo")["episodes"]] == [1, 3, 4]
 
 
-def test_adopting_is_refused_while_a_replaced_episode_has_active_tasks(replan_client, monkeypatch) -> None:
+def test_adopting_is_refused_while_a_replaced_episode_has_active_tasks(replan_client, active_episode_tasks) -> None:
     client, pm, candidate_id = replan_client
 
-    async def busy(_project_name: str, episode: int) -> bool:
-        return episode == 2
-
-    monkeypatch.setattr(episode_planning, "episode_has_active_tasks", busy)
+    active_episode_tasks["queued"] = [{"resource_id": "script_plan", "script_file": None, "payload": {"episode": 2}}]
 
     with client:
         revision = client.post(

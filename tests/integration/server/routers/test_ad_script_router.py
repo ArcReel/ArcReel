@@ -86,3 +86,11 @@ def test_unknown_fields_are_rejected(ad_script_client: TestClient) -> None:
 
     assert resp.status_code == 422
     assert isinstance(resp.json()["detail"], list)
+
+
+@pytest.mark.parametrize("episode", [0, -1])
+def test_a_non_positive_episode_is_rejected_as_invalid_input(ad_script_client: TestClient, episode: int) -> None:
+    with ad_script_client:
+        resp = ad_script_client.post(f"/api/v1/projects/demo/episodes/{episode}/ad-script", json={})
+
+    assert resp.status_code == 422

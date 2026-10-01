@@ -180,6 +180,8 @@ class FakeTextGenerator:
 
     #: 与 ``TextGenerator.max_output_tokens`` 同名：未登记最大输出长度时的生效上限。
     max_output_tokens = 64000
+    #: 与 ``TextGenerator.model`` 同名：调用方写进元数据的模型名。
+    model = "fake-text"
 
     def __init__(self, *responses: str | BaseException):
         self._responses = list(responses)

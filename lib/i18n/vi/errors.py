@@ -594,7 +594,7 @@ MESSAGES = {
     "source_file_change_source_file_unreadable": "Không đọc được tệp này hoặc tệp không phải văn bản UTF-8; chỉ có thể xóa",
     "source_file_change_source_changed": "Tệp này đã bị sửa bên ngoài ArcReel. Chưa thể thay thế, chỉnh sửa hay đổi thứ tự cho đến khi sổ phân tập được cập nhật; vẫn có thể xóa",
     "source_file_change_source_not_changed": "Tệp này không bị sửa bên ngoài ArcReel nên không cần cập nhật sổ phân tập",
-    "source_file_change_source_snapshot_missing": "Không lưu lại văn bản trước khi sửa của tệp này nên không xác định được các tập bị ảnh hưởng. Hãy xóa tệp, hoặc đặt lại phân tập rồi lập lại",
+    "source_file_change_source_snapshot_missing": "Không lưu lại văn bản trước khi sửa của tệp này nên không xác định được các tập bị ảnh hưởng. Hãy xóa tệp, hoặc lập lại kế hoạch từ tập cắt đầu tiên",
     "source_file_change_source_text_empty": "Tệp nguồn không được để trống. Muốn bỏ tệp này, hãy xóa nó",
     "source_file_change_move_out_of_range": "Tệp này đã ở đầu hoặc cuối, không thể di chuyển thêm",
     "source_file_change_ledger_invalid": "Sổ phân tập có định dạng bất thường, không thể thay đổi tệp của toàn bộ văn bản nguồn",

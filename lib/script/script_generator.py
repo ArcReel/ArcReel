@@ -2063,13 +2063,14 @@ class ScriptGenerator:
             data = json.loads(text)
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}") from e
+        if not isinstance(data, dict):
+            raise ValueError(f"JSON 顶层须是对象，实际是 {type(data).__name__}")
 
         # title 缺失/空白兜底：非约束解码通道下模型可能整字段漏写。title 仅展示用、
         # 用户可改，不值得让整集生成失败；与 _merge_narration_visual 的兜底同口径。
-        if isinstance(data, dict):
-            title = data.get("title")
-            if not (isinstance(title, str) and title.strip()):
-                data["title"] = episode_title(self.project_json, episode)
+        title = data.get("title")
+        if not (isinstance(title, str) and title.strip()):
+            data["title"] = episode_title(self.project_json, episode)
 
         # 校验模型经规范解析定骨架种类（分镜图生视频按创作类型，参考生视频统一 video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
@@ -2082,7 +2083,7 @@ class ScriptGenerator:
             # 返回原始数据，允许部分不符合 schema
             return data
         # 剧本模型不收本集新增资产；它随产出带回，由调用方取走后解析。
-        if isinstance(data, dict) and NEW_ASSETS_FIELD in data:
+        if NEW_ASSETS_FIELD in data:
             parsed[NEW_ASSETS_FIELD] = data[NEW_ASSETS_FIELD]
         return parsed
 

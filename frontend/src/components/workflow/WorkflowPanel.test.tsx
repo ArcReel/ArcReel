@@ -567,6 +567,21 @@ describe("WorkflowPanel AI 规划脚本", () => {
     expect(entry).toHaveAttribute("aria-disabled", "true");
     expect(entry).toHaveAttribute("title", "需要先补充集原文");
   });
+
+  it("没有正式脚本也没有规划、下一步另有其事时，脚本规划行交给 Agent 预填规划请求原文", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("generate_script"),
+        content: { formal_script: "absent", script_item_count: null },
+        status: {
+          artifacts: { script_plan: { state: "missing" } },
+          operations: { prepare_script_plan: { state: "admitted" } },
+        },
+      }),
+    );
+    fireEvent.click(within(screen.getByTestId("workflow-row-plan")).getByRole("button", { name: "交给 Agent 规划脚本" }));
+    await waitFor(() => expect(useAssistantStore.getState().input).toMatch(/^请为.+规划脚本。$/));
+  });
 });
 
 describe("WorkflowPanel 补充集原文", () => {

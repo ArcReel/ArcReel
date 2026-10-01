@@ -19,6 +19,9 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
+# xai_sdk 的 Response.finish_reason 返回 FinishReason 枚举名；"length" 留给按 OpenAI 兼容形态返回的响应
+_TRUNCATION_REASONS = ("length", "REASON_MAX_LEN", "REASON_MAX_CONTEXT")
+
 DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
 
@@ -121,6 +124,7 @@ class GrokTextBackend:
             model=self._model,
             output_tokens=output_tokens,
             structured=bool(request.response_schema),
+            truncation_values=_TRUNCATION_REASONS,
         )
 
         return TextGenerationResult(

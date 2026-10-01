@@ -369,6 +369,22 @@ class TestAdoption:
         assert STALE_SCRIPT_PLAN_REVISION_FIELD in retired
         assert (project_dir / "scripts" / "episode_3.json").is_file()
 
+    @pytest.mark.parametrize("with_products", [True, False], ids=["retired", "removed"])
+    async def test_episode_files_of_legacy_episodes_are_archived_not_deleted(self, tmp_path: Path, with_products: bool):
+        legacy = {**_cut(2, 1)}
+        legacy.pop("source_range")
+        project_dir = _project_dir(tmp_path, [_cut(1, 0), legacy])
+        (project_dir / "source" / "episode_2.txt").write_text("旧拆分流程切出的原文。", encoding="utf-8")
+        if with_products:
+            _give_products(project_dir, 2)
+        candidate_id = await _generate(project_dir, 1, ["少年下山。", "城里起火。", "夜雨相逢。", "重逢离别。"])
+
+        _adopt(project_dir, candidate_id)
+
+        assert not (project_dir / "source" / "episode_2.txt").exists()
+        archived = project_dir / "source" / "_episode_2.txt.bak"
+        assert archived.read_text(encoding="utf-8") == "旧拆分流程切出的原文。"
+
     async def test_delete_retired_removes_them_with_their_products(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, [_cut(1, 0), _cut(2, 1)])
         _give_products(project_dir, 2)

@@ -83,7 +83,7 @@ class TextOutputTruncatedError(NonRetryableError):
         self.custom_model = custom_model
         detail = f"在 output_tokens={output_tokens} 处" if output_tokens is not None else ""
         super().__init__(
-            f"{provider}/{model} 的结构化输出{detail}被模型输出上限截断，内容不完整。请改用输出能力更高的文本模型。"
+            f"{provider}/{model} 的输出{detail}被模型输出上限截断，内容不完整。请改用输出能力更高的文本模型。"
         )
 
 

@@ -8,6 +8,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter
+from fastapi import Path as PathParam
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.infra.api_errors import ConflictError, UnprocessableError
@@ -62,7 +63,7 @@ def _raise_problem(problem: ToolProblem, episode: int, _t: Translator) -> None:
 @router.post("/projects/{project_name}/episodes/{episode}/ad-script")
 async def generate_ad_script(
     project_name: str,
-    episode: int,
+    episode: Annotated[int, PathParam(ge=1)],
     req: AdScriptRequest,
     user: CurrentUser,
     _t: Translator,

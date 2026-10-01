@@ -5,16 +5,18 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodeReplanContinue } from "@/actions/generation";
+import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { isResourceBusy } from "@/stores/tasks-store";
+import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeMeta, EpisodesView, ReplanAdoptionImpact, ReplanSummary, SourcePoint } from "@/types";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName } from "@/utils/episode-display";
 
+import { lastPlanningFailure } from "./episode-planning-model";
 import { newLaneColor } from "./ReplanCompareMarks";
 import { episodeColor, formatVolume } from "./episodes-view-model";
 
@@ -46,6 +48,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
   const [busy, setBusy] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [adoption, setAdoption] = useState<PendingAdoption | null>(null);
+  const tasks = useTasksStore((s) => s.tasks);
   if (!generating && stopRequested) setStopRequested(false);
 
   const name = (episode: number) => episodeDisplayName(episodes, episode, t);
@@ -167,6 +170,8 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
     const reason = replan.interrupted === null ? "dashboard:replan_stopped" : `dashboard:replan_stopped_${replan.interrupted}`;
     notice = t(reason, { end: point(view, replan.end) });
   }
+  const truncated =
+    stopped && replan.interrupted === "failed" ? (lastPlanningFailure(tasks, projectName)?.truncated ?? null) : null;
 
   return shell(
     <>
@@ -186,6 +191,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
           </span>
         </p>
       ) : null}
+      {truncated ? <OutputTruncationHint truncation={truncated} /> : null}
       <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
         <SummaryRow label={t("dashboard:replan_count")}>
           {replan.old_count === null

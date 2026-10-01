@@ -529,7 +529,7 @@ MESSAGES = {
     "source_file_change_source_file_unreadable": "这个文件读不到或不是 UTF-8 文本，只能删除",
     "source_file_change_source_changed": "这个文件在 ArcReel 之外被改动过，更新分集账本之前不能替换、编辑或调序，可以删除",
     "source_file_change_source_not_changed": "这个文件没有在 ArcReel 之外被改动过，不需要更新分集账本",
-    "source_file_change_source_snapshot_missing": "这个文件没有留存改动前的文本，算不出受影响的集。可以删除这个文件，或重置分集规划后重新规划",
+    "source_file_change_source_snapshot_missing": "这个文件没有留存改动前的文本，算不出受影响的集。可以删除这个文件，或从第一个切出集开始重新规划",
     "source_file_change_source_text_empty": "源文件不能为空；要去掉这个文件，请删除它",
     "source_file_change_move_out_of_range": "这个文件已经在最前或最后，不能再移动",
     "source_file_change_ledger_invalid": "分集账本的格式异常，无法改动整本源文的文件",

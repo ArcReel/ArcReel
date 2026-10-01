@@ -41,6 +41,7 @@ from lib.episode.episode_ledger import (
     has_downstream_products,
     parse_positive_episode_num,
     source_range_value,
+    well_formed_ledger_entries,
 )
 from lib.episode.episode_paths import episode_script_relpath, episode_source_path
 from lib.episode.episode_sources import (
@@ -236,8 +237,8 @@ class _Layout:
 
 
 def _layout(project_dir: Path, project: Mapping[str, Any]) -> _Layout:
-    raw = project.get("episodes")
-    if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
+    entries = well_formed_ledger_entries(project)
+    if entries is None:
         raise ManualSplitError("ledger_invalid", "分集账本的形状异常，不能手工切分")
     docs = discover_sources(project_dir, project)
     kinds = [whole_source_file_kind(project, doc.rel_path) for doc in docs]
@@ -249,7 +250,7 @@ def _layout(project_dir: Path, project: Mapping[str, Any]) -> _Layout:
         offset += len(doc.text)
     return _Layout(
         docs=docs,
-        entries=list(raw),
+        entries=entries,
         placements=cut_episode_placements(project, docs),
         language=_language(project),
         kind_walls=tuple(walls),
@@ -473,7 +474,7 @@ def _apply(
         _write_derived(project_dir, new_episode, text[start:end], fresh=True)
     for episode in edit.dropped:
         _remove_derived(project_dir, episode)
-    sync_source_snapshots(project_dir, project, {doc.rel_path: doc.text for doc in layout.docs})
+    sync_source_snapshots(project_dir, project, {doc.rel_path: doc.text for doc in layout.docs}, refreshed=())
     return new_episode
 
 

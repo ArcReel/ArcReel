@@ -276,6 +276,52 @@ class TestDelete:
         assert result.applied is True
         assert _order(project_dir) == [1]
 
+    def test_deleting_a_file_missing_on_disk_retires_or_removes_its_episodes(self, tmp_path: Path):
+        project_dir = _project_dir(
+            tmp_path,
+            [
+                _cut(1, "a.txt", 0, len(A)),
+                _cut(2, "b.txt", 0, CH4),
+                _cut(3, "b.txt", CH4, len(B)),
+                _cut(4, "b.txt", CH4, len(C), end_file="c.txt"),
+            ],
+        )
+        _give_products(project_dir, 2)
+        (project_dir / "source" / "b.txt").unlink()
+
+        preview = delete_whole_source_file(_pm(project_dir), "demo", "b.txt")
+
+        assert preview.applied is False
+        assert preview.impact.retired == [2]
+        assert preview.impact.removed == [3, 4]
+        delete_whole_source_file(_pm(project_dir), "demo", "b.txt", revision=preview.revision)
+
+        assert _order(project_dir) == [1, 2]
+        assert _entry(project_dir, 2)["source_origin"] == "none"
+        assert "source_range" not in _entry(project_dir, 2)
+        assert _entry(project_dir, 1)["source_range"] == {"source_file": "source/a.txt", "start": 0, "end": len(A)}
+
+
+class TestLedgerShape:
+    @pytest.mark.parametrize(
+        "episodes",
+        [
+            [_cut(1, "a.txt", 0, CH2), _cut(1, "a.txt", CH2, len(A))],
+            [_cut(1, "a.txt", 0, CH2), {**_cut(2, "a.txt", CH2, len(A)), "episode": 0}],
+        ],
+        ids=["duplicate-id", "non-positive-id"],
+    )
+    def test_a_ledger_with_unusable_episode_ids_is_refused_without_writing(self, tmp_path: Path, episodes: list[dict]):
+        project_dir = _project_dir(tmp_path, episodes)
+        before = (project_dir / "project.json").read_bytes()
+
+        with pytest.raises(SourceFileChangeError) as caught:
+            delete_whole_source_file(_pm(project_dir), "demo", "c.txt")
+
+        assert caught.value.code == "ledger_invalid"
+        assert (project_dir / "project.json").read_bytes() == before
+        assert (project_dir / "source" / "c.txt").exists()
+
 
 class TestMove:
     def test_cut_episodes_move_with_their_file_as_a_block_without_going_stale(self, tmp_path: Path):
@@ -417,6 +463,32 @@ class TestExternalChange:
 
         assert exc.value.code == "source_changed"
         assert preview.impact.changed_without_products == [1]
+
+    @pytest.mark.parametrize("fingerprinted", [True, False])
+    def test_editing_another_file_keeps_the_pending_change_to_accept(self, tmp_path: Path, fingerprinted: bool):
+        project_dir = _project_dir(
+            tmp_path, [_cut(1, "a.txt", 0, CH2), _cut(2, "a.txt", CH2, len(A)), _cut(3, "b.txt", 0, CH4)]
+        )
+        if not fingerprinted:
+            project = _load(project_dir)
+            del project[SOURCE_FINGERPRINTS_KEY]
+            (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        _snapshot(project_dir, "a.txt", A)
+        _snapshot(project_dir, "b.txt", B)
+        (project_dir / "source" / "a.txt").write_text("序章。\n" + A, encoding="utf-8")
+
+        edited = edit_whole_source_file(_pm(project_dir), "demo", "b.txt", B.replace("夜雨", "夜里下雨"))
+        if not edited.applied:
+            edited = edit_whole_source_file(
+                _pm(project_dir), "demo", "b.txt", B.replace("夜雨", "夜里下雨"), revision=edited.revision
+            )
+        preview = accept_external_source_change(_pm(project_dir), "demo", "a.txt")
+
+        assert edited.applied is True
+        assert (project_dir / "source" / "snapshots" / "a.txt").read_text(encoding="utf-8") == A
+        assert preview.applied is False
+        assert preview.impact.shifted == [1, 2]
+        assert _entry(project_dir, 1)["source_range"]["end"] == CH2
 
     def test_an_unchanged_file_has_nothing_to_accept(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2)])

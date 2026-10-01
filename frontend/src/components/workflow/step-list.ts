@@ -347,7 +347,7 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
           key: "agent-plan",
           label: t("workflow:act_agent_plan_script"),
           kind: "agent",
-          intent: { type: "agent", text: t("dashboard:episode_workspace_prefill_script", { episodeRef: ctx.episodeRef }) },
+          intent: { type: "agent", text: t("dashboard:script_plan_agent_prefill", { episodeRef: ctx.episodeRef }) },
           disabledReason: refusalReason(t, planOp),
         },
       ];

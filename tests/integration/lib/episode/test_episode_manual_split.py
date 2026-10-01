@@ -449,6 +449,18 @@ class TestSourceChangedOutside:
         assert isinstance(clear_cuts_after(project_dir, 1), ManualSplitResult)
         assert _order(project_dir) == [1]
 
+    def test_cutting_another_file_keeps_the_snapshot_of_the_changed_file(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2), _cut(2, "b.txt", 0, CH5)])
+        (project_dir / "source" / "snapshots").mkdir()
+        (project_dir / "source" / "snapshots" / "a.txt").write_text(A, encoding="utf-8")
+        (project_dir / "source" / "snapshots" / "b.txt").write_text(B, encoding="utf-8")
+        (project_dir / "source" / "a.txt").write_text("序章。" + A, encoding="utf-8")
+
+        result = cut_unsplit_source(project_dir, source_file="source/b.txt", end=len(B), title="离别")
+
+        assert isinstance(result, ManualSplitResult)
+        assert (project_dir / "source" / "snapshots" / "a.txt").read_text(encoding="utf-8") == A
+
     def test_a_file_that_differs_from_its_snapshot_counts_as_changed(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2), _cut(2, "a.txt", CH2, CH3)])
         (project_dir / "source" / "snapshots").mkdir()
