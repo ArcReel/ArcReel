@@ -47,6 +47,7 @@ class AdmissionReason(StrEnum):
     NO_PENDING_AUTHORING = "no_pending_authoring"
     PROMPT_AUTHORING_DRAFT_PENDING = "prompt_authoring_draft_pending"
     AD_INPUTS_MISSING = "ad_brief_and_products_missing"
+    NO_AVAILABLE_VIDEO = "no_available_video"
 
 
 class OperationAdmission(BaseModel):
@@ -169,6 +170,11 @@ def admit_ad_script(content_mode: object, *, formal_script: bool, ad_inputs: boo
     return ADMITTED if ad_inputs else _refused(AdmissionReason.AD_INPUTS_MISSING)
 
 
+def admit_edit_timeline(*, available_videos: int) -> OperationAdmission:
+    """剪辑（新建剪辑时间线、交给 Agent 剪辑）：本集至少有一个可用视频（current 或 stale）。"""
+    return ADMITTED if available_videos > 0 else _refused(AdmissionReason.NO_AVAILABLE_VIDEO)
+
+
 __all__ = [
     "ADMITTED",
     "NOT_APPLICABLE",
@@ -178,6 +184,7 @@ __all__ = [
     "ad_inputs_present",
     "admit_ad_script",
     "admit_author_prompts",
+    "admit_edit_timeline",
     "admit_plan_episodes",
     "admit_script_plan",
     "episode_source_present",

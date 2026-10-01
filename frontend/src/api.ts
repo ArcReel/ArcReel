@@ -114,6 +114,7 @@ import type {
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
+import type { EditTimelineReadout, EditTimelineSummary, EpisodeEditOverview } from "@/types/edit-timeline";
 import type {
   AdoptSourceFileTarget,
   CreateEpisodeBody,
@@ -1650,6 +1651,30 @@ class API {
     options: { signal?: AbortSignal } = {}
   ): Promise<{ episodes: EpisodeNextStep[] }> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status/episodes`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 一集的剪辑时间线，按创建时间排列。 */
+  static async listEditTimelines(projectName: string, episode: number): Promise<{ timelines: EditTimelineSummary[] }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/edit-timelines?episode=${episode}`);
+  }
+
+  /** 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切）；显示名在集内重名时 409。 */
+  static async createEditTimeline(projectName: string, episode: number, name: string): Promise<EditTimelineReadout> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/edit-timelines`, {
+      method: "POST",
+      body: JSON.stringify({ from: "script", name }),
+    });
+  }
+
+  /** 一集的剪辑概况：剪辑时间线条数、最近修改那条的问题数、成片已落后的几条。 */
+  static async getEpisodeEditOverview(
+    projectName: string,
+    episode: number,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<EpisodeEditOverview> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/edit-overview`, {
       signal: options.signal,
     });
   }

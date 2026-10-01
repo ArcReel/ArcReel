@@ -15,7 +15,7 @@ from lib.generation.generation_queue import GenerationQueue
 from lib.project.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project.project_manager import ProjectManager
 from lib.workflow.workflow_plan import WorkflowPlanRequest
-from lib.workflow.workflow_state import episode_complete
+from lib.workflow.workflow_state import WorkflowStateService, episode_complete
 from server.agent_toolset.edit_timelines import CREATE_TIMELINE
 from server.dependencies import require_project_migration_ok
 from server.routers import edit_timelines
@@ -147,6 +147,9 @@ async def test_timeline_creation_refreshes_project_events_and_completes_workflow
                     override_auth(app)
                     app.dependency_overrides[require_project_migration_ok] = lambda: None
                     app.dependency_overrides[edit_timelines.get_edit_timeline_service] = lambda: EditTimelineService(pm)
+                    app.dependency_overrides[edit_timelines.get_workflow_state_service] = lambda: WorkflowStateService(
+                        pm
+                    )
                     app.include_router(edit_timelines.router)
                     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                         response = await client.post(

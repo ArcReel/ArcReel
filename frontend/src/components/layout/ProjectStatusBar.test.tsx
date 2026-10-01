@@ -12,6 +12,8 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeMeta, ProjectData, ProjectStatus } from "@/types/project";
 import type { WorkflowNextAction, WorkflowStatus } from "@/types/workflow";
 
+import { makeContent } from "@/test/factories";
+
 import { ProjectStatusBar } from "./ProjectStatusBar";
 
 const SUMMARY: ProjectStatus = {
@@ -204,6 +206,30 @@ describe("ProjectStatusBar", () => {
     await user.click(await screen.findByRole("button", { name: /AI 分集规划/ }));
     await user.click(screen.getByRole("button", { name: "新建一集" }));
     expect(location.history?.at(-1)).toBe("/episodes?create=1");
+  });
+
+  it("states all complete without an action once every episode is done and no source remains", async () => {
+    const done: Partial<EpisodeMeta>[] = [{ episode: 4, title: "旧账", status: "completed" }];
+    setProject({ ...SUMMARY, episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 } }, done);
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(
+      workflowStatus(action("none"), { content: makeContent({ project_complete: true }) }),
+    );
+    renderBar();
+
+    expect(await screen.findByText("全部完成")).toBeInTheDocument();
+    expect(screen.queryByText("下一步")).not.toBeInTheDocument();
+  });
+
+  it("continues episode planning instead of all complete while source text remains", async () => {
+    const done: Partial<EpisodeMeta>[] = [{ episode: 4, title: "旧账", status: "completed" }];
+    setProject({ ...SUMMARY, episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 } }, done);
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(
+      workflowStatus(action("plan_episodes"), { content: makeContent({ episode_count: 1, project_complete: false }) }),
+    );
+    renderBar();
+
+    expect(await screen.findByRole("button", { name: /继续 AI 分集规划/ })).toBeInTheDocument();
+    expect(screen.queryByText("全部完成")).not.toBeInTheDocument();
   });
 
   it("shows short-film progress without an episode list for ad projects", () => {

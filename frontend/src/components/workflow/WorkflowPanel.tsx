@@ -25,6 +25,7 @@ import { useScriptPlanStore } from "@/stores/script-plan-store";
 import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import type { ProjectData, StoryboardBatchKind } from "@/types";
+import type { EpisodeEditOverview } from "@/types/edit-timeline";
 import type { DraftDocType } from "@/types/reference-video";
 import { errMsg } from "@/utils/async";
 import { episodeAgentRef } from "@/utils/episode-display";
@@ -66,6 +67,36 @@ function assetRouteIn(project: ProjectData | null, name: string): string | null 
     if (table && typeof table === "object" && owner in table) return `/${route}`;
   }
   return null;
+}
+
+/** 按脚本新建的剪辑时间线显示名：「完整版」，集内已有同名时依次加序号。 */
+function nextEditTimelineName(base: string, numbered: (n: number) => string, taken: string[]): string {
+  const names = new Set(taken.map((name) => name.toLocaleLowerCase()));
+  if (!names.has(base.toLocaleLowerCase())) return base;
+  for (let n = 2; ; n += 1) {
+    const candidate = numbered(n);
+    if (!names.has(candidate.toLocaleLowerCase())) return candidate;
+  }
+}
+
+/**
+ * 本集的剪辑概况，随计划刷新一起重取：剪辑时间线的写入与成片任务都会让计划刷新。
+ * 计划里本集没有剪辑时间线时不请求。取不到时为 null，剪辑行退回只按计划陈述条数。
+ */
+function useEditOverview(projectName: string, episodeId: number | null, refetchOn: unknown, timelineCount: number) {
+  const [overview, setOverview] = useState<{ key: string; value: EpisodeEditOverview } | null>(null);
+  const key = `${projectName}::${episodeId ?? ""}`;
+  useEffect(() => {
+    if (episodeId == null || timelineCount === 0) return;
+    const controller = new AbortController();
+    API.getEpisodeEditOverview(projectName, episodeId, { signal: controller.signal })
+      .then((value) => setOverview({ key, value }))
+      .catch(() => {
+        if (!controller.signal.aborted) setOverview(null);
+      });
+    return () => controller.abort();
+  }, [projectName, episodeId, refetchOn, timelineCount, key]);
+  return timelineCount > 0 && overview?.key === key ? overview.value : null;
 }
 
 interface PendingDiscard {
@@ -155,6 +186,8 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   const episodeId = shown?.status.target?.episode ?? episode;
   const episodeMeta = projectData?.episodes?.find((entry) => entry.episode === episodeId);
   const episodeRef = episodeId != null ? episodeAgentRef(ledger, episodeId, t) : "";
+  const timelineIds = shown?.status.artifacts.edit_timelines?.timeline_ids;
+  const editOverview = useEditOverview(projectName, episodeId ?? null, shown, Array.isArray(timelineIds) ? timelineIds.length : 0);
 
   const view = useMemo(() => {
     if (!shown || episodeId == null) return null;
@@ -170,8 +203,9 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
       savedScriptPlanInstructions: episodeMeta?.script_plan_instructions ?? "",
       canAuthorPrompts: Boolean(onAuthorPrompts),
       canViewUnit: Boolean(onViewUnit),
+      editOverview,
     });
-  }, [shown, episodeId, episodeRef, episodeMeta, projectData, t, i18n.language, onAuthorPrompts, onViewUnit]);
+  }, [shown, episodeId, episodeRef, episodeMeta, projectData, t, i18n.language, onAuthorPrompts, onViewUnit, editOverview]);
 
   const blockers = useMemo(() => (shown ? blockerViews(t, shown.blockers) : []), [shown, t]);
   const issues = useMemo(() => (shown ? blockerViews(t, shown.status.issues) : []), [shown, t]);
@@ -271,6 +305,19 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             }
             await enqueueScriptPlan(projectName, episodeId, { instructions: instruction.trim() || null });
             break;
+          case "create_edit_timeline": {
+            const { timelines } = await API.listEditTimelines(projectName, episodeId);
+            const name = nextEditTimelineName(
+              t("workflow:edit_timeline_default_name"),
+              (number) => t("workflow:edit_timeline_default_name_numbered", { number }),
+              timelines.map((timeline) => timeline.name),
+            );
+            await API.createEditTimeline(projectName, episodeId, name);
+            pushToast(t("workflow:edit_timeline_created", { name }), "success");
+            await useProjectsStore.getState().refreshProject(projectName);
+            void refreshPlan(projectName, episode);
+            break;
+          }
           case "start_blank_script":
             await API.startBlankScript(projectName, episodeId);
             await useProjectsStore.getState().refreshProject(projectName);

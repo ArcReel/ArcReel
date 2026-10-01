@@ -79,6 +79,7 @@ describe("WorkflowPanel 收起行", () => {
     await renderPanel(
       scenario({
         next: nextAction("none", { args: {} }),
+        content: { episode_complete: true },
         steps: [makeStep({ id: "edit", state: "completed" })],
       }),
     );
@@ -97,9 +98,10 @@ describe("WorkflowPanel 逐行现状", () => {
       }),
     );
     expect(within(screen.getByTestId("workflow-row-source")).getByText("有集原文")).toBeInTheDocument();
-    for (const key of ["script", "prompts", "assets", "boards", "videos", "edit"]) {
+    for (const key of ["script", "prompts", "assets", "boards", "videos"]) {
       expect(within(screen.getByTestId(`workflow-row-${key}`)).getByText("还没有")).toBeInTheDocument();
     }
+    expect(within(screen.getByTestId("workflow-row-edit")).getByText("还没有剪辑时间线")).toBeInTheDocument();
   });
 
   it("下一步就地展开在所属行，其他行不带下一步", async () => {
@@ -234,6 +236,82 @@ describe("WorkflowPanel 提醒", () => {
       { onRegenerate: vi.fn() },
     );
     expect(screen.queryByRole("button", { name: /重新生成/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("WorkflowPanel 剪辑", () => {
+  const videosReady = {
+    artifacts: {
+      videos: { state: "current", current_ids: ["E1S01", "E1S02"], stale_ids: [], missing_ids: [] },
+      edit_timelines: { timeline_ids: [] },
+    },
+    operations: { create_edit_timeline: { state: "admitted" as const } },
+  };
+
+  it("剪辑是下一步时给出交给 Agent 剪辑与新建剪辑时间线，附加指令只写进交给 Agent 的消息", async () => {
+    await renderExpanded(scenario({ next: nextAction("create_edit_timeline"), status: videosReady }));
+    const next = within(screen.getByTestId("workflow-row-edit")).getByTestId("workflow-next-step");
+    expect(within(next).getByRole("button", { name: "新建剪辑时间线" })).toBeInTheDocument();
+    expect(within(next).queryByRole("button", { name: "打开剪辑视图" })).not.toBeInTheDocument();
+
+    fireEvent.change(within(next).getByRole("textbox"), { target: { value: "节奏快一点" } });
+    fireEvent.click(within(next).getByRole("button", { name: "交给 Agent 剪辑" }));
+    expect(useAssistantStore.getState().input).toContain("节奏快一点");
+  });
+
+  it("新建剪辑时间线按脚本机械新建，集内已有「完整版」时依次加序号，然后刷新项目与计划", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [{ id: "tl-1", name: "完整版", episode: 1, revision: 1, clip_count: 2, created_at: "", updated_at: "" }],
+    });
+    const create = vi
+      .spyOn(API, "createEditTimeline")
+      .mockResolvedValue({ timeline: { id: "tl-2", name: "完整版 2", episode: 1 }, revision: 1 });
+    const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    await renderExpanded(scenario({ next: nextAction("create_edit_timeline"), status: videosReady }));
+    const plans = vi.mocked(API.getWorkflowPlan).mock.calls.length;
+
+    fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "新建剪辑时间线" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith("proj", 1, "完整版 2"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj"));
+    await waitFor(() => expect(vi.mocked(API.getWorkflowPlan).mock.calls.length).toBeGreaterThan(plans));
+  });
+
+  it("已有剪辑时间线时写条数与最近一条的问题数，成片落后作为提醒，入口常驻在本行", async () => {
+    const overview = vi.spyOn(API, "getEpisodeEditOverview").mockResolvedValue({
+      episode: 1,
+      timeline_count: 2,
+      latest: { id: "tl-2", name: "快节奏版", updated_at: "", issue_count: 3 },
+      stale_final_cuts: [{ id: "tl-1", name: "完整版" }],
+    });
+    await renderExpanded(
+      scenario({
+        next: nextAction("none", { args: {} }),
+        content: { episode_complete: true },
+        status: { ...videosReady, artifacts: { ...videosReady.artifacts, edit_timelines: { timeline_ids: ["tl-1", "tl-2"] } } },
+      }),
+    );
+    const row = screen.getByTestId("workflow-row-edit");
+    expect(await within(row).findByText("2 条剪辑时间线，最近修改的一条有 3 个问题")).toBeInTheDocument();
+    expect(within(row).getByText("1 份成片比剪辑时间线旧：完整版")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "交给 Agent 剪辑" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "新建剪辑时间线" })).toBeInTheDocument();
+    expect(overview).toHaveBeenCalledWith("proj", 1, expect.anything());
+  });
+
+  it("本集没有可用视频时剪辑入口不可点，悬停说明需要先生成视频", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("generate_videos", { requested_ids: ["E1S01"] }),
+        status: { operations: { create_edit_timeline: { state: "refused", reason: "no_available_video" } } },
+      }),
+    );
+    const row = screen.getByTestId("workflow-row-edit");
+    for (const name of ["交给 Agent 剪辑", "新建剪辑时间线"]) {
+      const entry = within(row).getByRole("button", { name });
+      expect(entry).toHaveAttribute("aria-disabled", "true");
+      expect(entry).toHaveAttribute("title", "需要先生成视频");
+    }
   });
 });
 

@@ -14,6 +14,7 @@ from lib.workflow.operation_admission import (
     ad_inputs_present,
     admit_ad_script,
     admit_author_prompts,
+    admit_edit_timeline,
     admit_plan_episodes,
     admit_script_plan,
     episode_source_present,
@@ -144,6 +145,14 @@ def test_ad_script_needs_a_brief_or_products_and_no_formal_script(
 ) -> None:
     admission = admit_ad_script(content_mode, formal_script=formal_script, ad_inputs=ad_inputs)
     assert _conclusion(admission) == expected
+
+
+@pytest.mark.parametrize(
+    ("available_videos", "expected"),
+    [(1, ("admitted", None)), (0, ("refused", "no_available_video"))],
+)
+def test_edit_timeline_needs_at_least_one_available_video(available_videos: int, expected: tuple) -> None:
+    assert _conclusion(admit_edit_timeline(available_videos=available_videos)) == expected
 
 
 def test_refusals_always_carry_a_reason_and_admission_never_does() -> None:

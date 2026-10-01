@@ -178,6 +178,21 @@ def test_unreadable_edit_timelines_block_the_edit_step_instead_of_completing_it(
     assert _step(plan, "edit").state is WorkflowStepState.BLOCKED
 
 
+def test_blocked_videos_own_the_stop_even_when_edit_timelines_are_also_unreadable() -> None:
+    status = _status(action="none")
+    status.next_action = WorkflowNextAction(type=WorkflowActionType.NONE, reason="video clips cannot be read")
+    status.artifacts["videos"] = {"current_ids": [], "stale_ids": [], "missing_ids": [], "state": "blocked"}
+    status.artifacts["edit_timelines"] = {"timeline_ids": []}
+    status.issues = [
+        WorkflowBlocker(code="invalid_edit_timelines", path="edit_timelines/episode_1", reason="unreadable")
+    ]
+
+    plan = build_workflow_plan(status)
+
+    assert _step(plan, "video").state is WorkflowStepState.BLOCKED
+    assert _step(plan, "edit").state is not WorkflowStepState.BLOCKED
+
+
 def test_use_tts_preserves_structured_admission_blockers() -> None:
     problem = GenerationProblem(
         code="reference_asset_missing",

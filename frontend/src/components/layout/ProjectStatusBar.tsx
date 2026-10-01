@@ -461,6 +461,8 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
         : t("guide_progress", { done, total });
   // 集页上：项目层下一步指向本集时让位给本集面板，不出现两个重复的按钮。
   const yieldToPanel = guide !== null && currentEpisode !== null && guide.episodeId === currentEpisode;
+  // 每集都完成且源文没有剩余：右段只陈述「全部完成」，不带动作。广告的左段已写「短片已完成」。
+  const allComplete = guide === null && !isAd && workflowStatus?.content?.project_complete === true;
 
   return (
     <div className="relative">
@@ -499,6 +501,14 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
               </span>
               <ChevronDown aria-hidden className="h-3 w-3" style={{ color: "var(--color-text-3)" }} />
             </Segment>
+          </>
+        )}
+        {allComplete && (
+          <>
+            <Divider />
+            <span className="px-3 text-[11px]" style={{ color: "var(--color-good)" }}>
+              {t("guide_all_complete")}
+            </span>
           </>
         )}
         {yieldToPanel && (
