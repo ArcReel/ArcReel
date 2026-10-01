@@ -166,6 +166,7 @@ def test_batch_admission_problem_codes_are_translated():
         GenerationProblemCode.TASK_CANCELLED,
         GenerationProblemCode.TASK_INTERRUPTED,
         GenerationProblemCode.POST_PROCESSING_FAILED,
+        GenerationProblemCode.DEPENDENCY_FAILED,
     }
     codes = (
         set(_PROBLEM_PRESENTATION)
@@ -226,6 +227,8 @@ def test_every_event_label_key_is_translated():
         "episode",
         "draft_normalized_script",
         "draft_segment_splitting",
+        "draft_script_plan",
+        "draft_prompt_authoring",
     }
     assert _event_label_keys(zh_events.MESSAGES) == emitted
 

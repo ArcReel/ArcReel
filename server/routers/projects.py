@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import os
 import shutil
 import tempfile
@@ -44,33 +43,57 @@ from lib.config.resolver import (
     video_bucket_for_generation_mode,
 )
 from lib.db import async_session_factory
+from lib.episode.episode_ledger import is_derived_episode_name
+from lib.episode.episode_source_commands import (
+    EpisodeSourceError,
+    register_whole_source_file,
+    set_episode_source_text,
+)
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
-from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
+from lib.episode.source_kinds import SourceKind
+from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error
-from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
+from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_change_hints import project_change_source
-from lib.project.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.project.project_manager import EmptySourceError, EpisodeScriptReboundError, get_project_manager
 from lib.prompts.style_templates import is_known_template, resolve_template_prompt
+from lib.script.blank_script import BlankScriptError, start_blank_script
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script.script_editor import resolve_items
 from lib.script.script_references import annotate_derivative_references
 from lib.speech.character_voice import PROJECT_FIELD as CHARACTER_VOICE_BINDING_FIELD
 from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.speech.narration_config import (
+    NARRATION_DELIVERY_FIELD,
+    POST_PRODUCTION,
+    TTS_BACKEND_FIELD,
+    TTS_SPEED_FIELD,
+    TTS_VOICE_FIELD,
+    NarrationConfigError,
+    NarrationDelivery,
+    validate_project_narration_config,
+)
 from lib.speech.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
-from lib.workflow.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
+from lib.workflow.workflow_state import (
+    EpisodeNextStep,
+    ProjectSummary,
+    WorkflowRequestError,
+    WorkflowStateService,
+    WorkflowStatus,
+)
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
-from server.routers._reorder import full_permutation_error
+from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._script_edits import (
     execute_current_script_edit,
     require_script_edit_result,
@@ -79,6 +102,13 @@ from server.routers._script_edits import (
 from server.routers._validators import split_video_backend_query, validate_backend_value
 from server.services.admission.prompt_preview import ScriptItemNotFound, preview_item_prompts
 from server.services.project import workflow_planner as workflow_plan_service
+from server.services.project.episode_display import present_episode_diagnostics
+from server.services.project.narration_settings import (
+    NarrationSettingsInput,
+    new_project_narration_fields,
+    validate_tts_backend,
+    validate_tts_speed,
+)
 from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
@@ -103,15 +133,17 @@ def get_workflow_state_service() -> WorkflowStateService:
 WorkflowStateServiceDep = Annotated[WorkflowStateService, Depends(get_workflow_state_service)]
 
 
-def _project_status_payload(summary: ProjectSummary) -> dict[str, Any]:
+def _project_status_payload(
+    summary: ProjectSummary, project: dict[str, Any], translate: Callable[..., str]
+) -> dict[str, Any]:
     """项目级状态负载：项目摘要去掉每集明细。
 
-    列表与详情的 ``status`` 都只给项目粒度——阶段、进度、资产计数、分集汇总。摘要里的
+    列表与详情的 ``status`` 都只给项目粒度——修复标记、资产计数、分集汇总。摘要里的
     每集明细留在服务层，不让 N 个项目的列表驮上 N×集数 的对象；剧集粒度的消费方另经
     剧集接口取。
     """
 
-    return summary.model_dump(mode="json", exclude={"episodes"})
+    return present_episode_diagnostics(summary.model_dump(mode="json", exclude={"episodes"}), project, translate)
 
 
 def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -> dict[str, Any]:
@@ -223,8 +255,6 @@ class CreateProjectRequest(BaseModel):
     title: str | None = None
     style: str | None = ""  # 保留但不再是用户入口
     content_mode: ContentMode | None = "narration"
-    # 源文件性质（novel / screenplay），缺省 novel；创建即定、之后不可变。
-    source_kind: SourceKind | None = None
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
     # 单集目标时长（秒）：可选软偏好，非 ad 项目适用；区间校验在 _validated_episode_target_duration。
@@ -259,6 +289,12 @@ class CreateProjectRequest(BaseModel):
     text_backend_complex: str | None = None
     default_text_backend: str | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
+    # 旁白交付方式（docs/adr/0089）：必填的项目配置，缺省后期配音。选 TTS 配音时省略的模型、音色、
+    # 配音语速以全局默认预填；写入后成为项目快照，不再继承全局默认。显式 null 语速 = 不传语速。
+    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    audio_backend: str | None = None
+    narration_voice: str | None = None
+    narration_speed: float | None = None
 
 
 class EpisodePatch(BaseModel):
@@ -291,7 +327,10 @@ class UpdateProjectRequest(BaseModel):
     video_generate_audio: bool | None = None
     # 角色声音绑定方式：prompt（默认，voice_style 提示词软约束）/ reference_audio（挂角色参考音频）
     character_voice_binding: str | None = None
-    # 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速；留空 = 跟随全局默认
+    # 旁白交付方式（docs/adr/0089）：随时可改，不让任何已有产物过期；不可清空
+    narration_delivery: NarrationDelivery | None = None
+    # 旁白配音（TTS）快照：模型（provider/model）/ 音色 / 配音语速，不继承全局默认。
+    # TTS 配音项目的模型与音色不可清空；语速 null = 不向供应商传语速
     audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
@@ -305,6 +344,42 @@ class UpdateProjectRequest(BaseModel):
     clear_style_image: bool | None = None
     episodes: list[EpisodePatch] | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
+
+
+def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
+    """写入旁白交付方式与 TTS 快照；改完后 TTS 配音项目仍须带完整快照，否则整次 PATCH 422。
+
+    交付方式不进产物的生成依据：切换交付方式不让已有产物过期，改为后期配音时 TTS 快照保留。
+    """
+
+    fields = req.model_fields_set
+    try:
+        if "narration_delivery" in fields:
+            if req.narration_delivery is None:
+                raise NarrationConfigError("narration_delivery_required")
+            project[NARRATION_DELIVERY_FIELD] = req.narration_delivery
+        if TTS_BACKEND_FIELD in fields:
+            if req.audio_backend:
+                validate_backend_value(req.audio_backend, TTS_BACKEND_FIELD)
+                project[TTS_BACKEND_FIELD] = validate_tts_backend(req.audio_backend)
+            else:
+                project.pop(TTS_BACKEND_FIELD, None)
+        # 音色是照供应商文档填的字符串 id；空串 = 清除
+        if TTS_VOICE_FIELD in fields:
+            voice = (req.narration_voice or "").strip()
+            if voice:
+                project[TTS_VOICE_FIELD] = voice
+            else:
+                project.pop(TTS_VOICE_FIELD, None)
+        # 配音语速只做正有限数卫生校验，取值范围由各供应商约束
+        if TTS_SPEED_FIELD in fields:
+            if req.narration_speed is None:
+                project.pop(TTS_SPEED_FIELD, None)
+            else:
+                project[TTS_SPEED_FIELD] = validate_tts_speed(req.narration_speed)
+        validate_project_narration_config(project)
+    except NarrationConfigError as exc:
+        raise UnprocessableError(exc.code) from exc
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -541,18 +616,16 @@ async def export_jianying_draft(
         logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
         raise HTTPException(status_code=500, detail=_t("jianying_export_failed")) from exc
 
-    download_name = f"{name}_episode_{episode}_jianying_draft.zip"
-
     return FileResponse(
         path=str(zip_path),
         media_type="application/zip",
-        filename=download_name,
+        filename=zip_path.name,
         background=BackgroundTask(_cleanup_temp_dir, str(zip_path.parent)),
     )
 
 
 @router.get("/projects")
-async def list_projects(summaries: WorkflowStateServiceDep):
+async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
     """列出所有项目"""
 
     def _sync():
@@ -598,7 +671,9 @@ async def list_projects(summaries: WorkflowStateServiceDep):
                             name,
                             preloaded_scripts=preloaded_scripts,
                             currency="registered",
-                        )
+                        ),
+                        project,
+                        _t,
                     )
 
                     raw_title = project.get("title")
@@ -632,6 +707,19 @@ async def create_project(
 ):
     """创建新项目"""
     try:
+        try:
+            narration_fields = await new_project_narration_fields(
+                NarrationSettingsInput(
+                    delivery=req.narration_delivery,
+                    audio_backend=req.audio_backend,
+                    narration_voice=req.narration_voice,
+                    narration_speed=req.narration_speed,
+                    provided=frozenset(req.model_fields_set & {TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD}),
+                ),
+                resolver=ConfigResolver(async_session_factory),
+            )
+        except NarrationConfigError as exc:
+            raise UnprocessableError(exc.code) from exc
 
         def _sync():
             manager = get_project_manager()
@@ -712,13 +800,13 @@ async def create_project(
                     extras=extras or None,
                     target_duration=req.target_duration,
                     brief=req.brief,
-                    source_kind=req.source_kind,
+                    narration=narration_fields,
                 )
             return {"success": True, "name": project_name, "project": project}
 
         return await asyncio.to_thread(_sync)
     except ValueError as e:
-        # 项目名 / source_kind / duration / brief 等配置校验失败，str(e) 只进日志
+        # 项目名 / duration / brief 等配置校验失败，str(e) 只进日志
         logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
         raise BadRequestError("project_config_invalid") from e
     except (HTTPException, ApiError):
@@ -782,6 +870,8 @@ async def get_video_capabilities(
             resolution_override=resolution_override,
         )
         caps["duration_constraints"] = duration_constraints_payload(request_facts)
+        # 内容确认页的时长按剧本规划档位选与判：确认转换用的是同一份 planning_durations。
+        caps["duration_constraints"]["planning"] = planning_durations(request_facts)
         return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -804,28 +894,57 @@ async def get_video_capabilities(
 @router.get("/projects/{name}/workflow-status", response_model=WorkflowStatus)
 async def get_workflow_status(
     name: str,
+    _t: Translator,
     episode: Annotated[int | None, Query(ge=1)] = None,
 ):
     """Return the authenticated, server-authoritative project workflow status."""
 
     try:
-        return await asyncio.to_thread(WorkflowStateService(get_project_manager()).get_status, name, episode)
+        manager = get_project_manager()
+        status = await asyncio.to_thread(WorkflowStateService(manager).get_status, name, episode)
+        project = await asyncio.to_thread(manager.load_project, name)
+        return WorkflowStatus.model_validate(present_episode_diagnostics(status.model_dump(mode="json"), project, _t))
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
         raise BadRequestError("request_invalid") from exc
 
 
+class EpisodeNextSteps(BaseModel):
+    episodes: list[EpisodeNextStep]
+
+
+@router.get("/projects/{name}/workflow-status/episodes", response_model=EpisodeNextSteps)
+async def get_episode_next_steps(name: str, _t: Translator):
+    """账本顺序中每一集建议的下一步，供项目层的逐集清单使用。"""
+
+    try:
+        manager = get_project_manager()
+        steps = await asyncio.to_thread(WorkflowStateService(manager).get_episode_next_steps, name)
+        if not steps:
+            # 项目整体不可用时没有逐集下一步，也不再读一次项目。
+            return EpisodeNextSteps(episodes=[])
+        project = await asyncio.to_thread(manager.load_project, name)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    return EpisodeNextSteps.model_validate(
+        present_episode_diagnostics(EpisodeNextSteps(episodes=steps).model_dump(mode="json"), project, _t)
+    )
+
+
 @router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)
-async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_user: CurrentUser):
+async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_user: CurrentUser, _t: Translator):
     """Return the side-effect-free plan for one transient workflow request."""
 
     try:
-        return await workflow_plan_service.get_workflow_planner(get_project_manager()).get_plan(
+        manager = get_project_manager()
+        plan = await workflow_plan_service.get_workflow_planner(manager).get_plan(
             name,
             request,
             user_id=current_user.id,
         )
+        project = await asyncio.to_thread(manager.load_project, name)
+        return WorkflowPlan.model_validate(present_episode_diagnostics(plan.model_dump(mode="json"), project, _t))
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
@@ -851,7 +970,7 @@ async def get_project(
             # 阶段、产物计数与每集明细一律来自项目摘要投影（读时计算，不写入 JSON）
             summary = summaries.get_project_summary(name)
             project = _merge_episode_summaries(project, summary)
-            project["status"] = _project_status_payload(summary)
+            project["status"] = _project_status_payload(summary, project, _t)
 
             scripts = {}
             for ep in project.get("episodes", []):
@@ -956,7 +1075,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     project["title"] = req.title
                 if req.style is not None:
                     project["style"] = req.style
-                for field in (*_PROJECT_BACKEND_FIELDS, "audio_backend"):
+                for field in _PROJECT_BACKEND_FIELDS:
                     if field in req.model_fields_set:
                         value = getattr(req, field)
                         if value:
@@ -979,22 +1098,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project[CHARACTER_VOICE_BINDING_FIELD] = binding
                     else:
                         raise HTTPException(status_code=422, detail=_t("character_voice_binding_invalid"))
-                # 旁白音色：照供应商文档填的字符串 id；空串 = 清除回落全局默认
-                if "narration_voice" in req.model_fields_set:
-                    voice = (req.narration_voice or "").strip()
-                    if voice:
-                        project["narration_voice"] = voice
-                    else:
-                        project.pop("narration_voice", None)
-                # 旁白语速：仅做正有限数卫生校验（拒绝 0/负数/inf/nan），取值范围由各供应商约束；null = 清除
-                if "narration_speed" in req.model_fields_set:
-                    if req.narration_speed is None:
-                        project.pop("narration_speed", None)
-                    else:
-                        speed = float(req.narration_speed)
-                        if not math.isfinite(speed) or speed <= 0:
-                            raise HTTPException(status_code=422, detail=_t("narration_speed_must_be_positive"))
-                        project["narration_speed"] = speed
+                _apply_narration_patch(project, req)
                 # 口播语速估算（阅读单位 / 秒）：宽松硬区间，null = 清除、回退语言默认
                 if "speech_rate_units_per_second" in req.model_fields_set:
                     if req.speech_rate_units_per_second is None:
@@ -1238,12 +1342,12 @@ async def preview_script_item_prompts(
 _STORYBOARD_ITEM_KINDS = frozenset({"segments", "scenes", "shots"})
 
 
-def _require_storyboard_items(script: dict, item_id: str) -> tuple[list, str, str]:
-    """返回分镜图生视频剧本的条目数组；形态不支持或 id 未命中时抛对应 API 错误。"""
+def _require_storyboard_items(script: dict, item_id: str | None) -> tuple[list, str, str]:
+    """返回分镜图生视频剧本的条目数组；形态不支持或给定 id 未命中时抛对应 API 错误。"""
     items, id_field, kind = resolve_items(script)
     if kind not in _STORYBOARD_ITEM_KINDS:
         raise BadRequestError("storyboard_script_required")
-    if not any(isinstance(item, dict) and item.get(id_field) == item_id for item in items):
+    if item_id is not None and not any(isinstance(item, dict) and item.get(id_field) == item_id for item in items):
         raise NotFoundError("script_item_not_found", id=item_id)
     return items, id_field, kind
 
@@ -1252,29 +1356,35 @@ class InsertScriptItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     script_file: str
+    #: 新分镜插在这条分镜之后；缺省时追加到末尾，空脚本里即第一条。
+    after_id: str | None = Field(default=None, min_length=1)
     #: 旁白 / 解说分镜的正文即配音内容，新增时必填；其余形态插入空条目、忽略此字段。
     novel_text: str | None = None
 
 
 @router.post(
-    "/projects/{name}/script-items/{item_id}/insert-after",
+    "/projects/{name}/script-items",
     dependencies=[Depends(require_project_migration_ok)],
 )
-async def insert_script_item_after(
+async def insert_script_item(
     name: str,
-    item_id: str,
     req: InsertScriptItemRequest,
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
 ):
-    """在分镜 ``item_id`` 之后新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``。"""
+    """新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``；新分镜不继承同号旧分镜的产物。"""
     try:
 
         def _sync():
             manager = get_project_manager()
             current = manager.load_script(name, req.script_file)
-            _items, id_field, kind = _require_storyboard_items(current, item_id)
-            item = blank_item_after(current, item_id)
+            items, id_field, kind = _require_storyboard_items(current, req.after_id)
+            last_id = next(
+                (item.get(id_field) for item in reversed(items) if isinstance(item, dict)),
+                None,
+            )
+            after_id = req.after_id if req.after_id is not None else last_id
+            item = blank_item_after(current, after_id)
             if kind == "segments":
                 if req.novel_text is None or not req.novel_text.strip():
                     raise UnprocessableError("narration_segment_text_required")
@@ -1284,7 +1394,7 @@ async def insert_script_item_after(
                     manager,
                     name,
                     req.script_file,
-                    [{"op": "insert_after", "after_id": item_id, "item": item}],
+                    [{"op": "insert_after", "after_id": after_id, "item": item}],
                     editor=make_script_batch_editor(manager),
                     current_script=current,
                 )
@@ -1307,6 +1417,30 @@ async def insert_script_item_after(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.post(
+    "/projects/{name}/episodes/{episode}/blank-script",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def start_episode_blank_script(name: str, episode: int):
+    """从空白开始：本集没有正式脚本时建出空的正式脚本，弃置未确认的脚本规划。"""
+
+    def _sync():
+        with project_change_source("webui"):
+            return start_blank_script(get_project_manager(), name, episode)
+
+    try:
+        script_file = await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except BlankScriptError as exc:
+        if exc.code == "episode_not_found":
+            raise NotFoundError("episode_not_found", episode=episode) from exc
+        if exc.code == "draft_agent_owned":
+            raise ConflictError("draft_agent_owned") from exc
+        raise ConflictError("blank_script_formal_exists").with_diagnostic(str(exc)) from exc
+    return {"success": True, "script_file": script_file}
 
 
 @router.delete(
@@ -1336,14 +1470,63 @@ async def remove_script_item(
                     editor=make_script_batch_editor(manager),
                     current_script=current,
                 )
-            if not result.success and result.problems[0].reason == "script_collection_empty":
-                raise UnprocessableError("script_item_remove_last_blocked")
             require_script_edit_result(result, operation_not_found=True)
             return {"success": True, "edit_result": result.model_dump(mode="json")}
 
         return await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+class MoveScriptItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    script_file: str
+    #: 移到这条分镜之后；为 null 时移到最前。
+    after_id: str | None = Field(min_length=1)
+
+
+@router.post(
+    "/projects/{name}/script-items/{item_id}/move",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def move_script_item(
+    name: str,
+    item_id: str,
+    req: MoveScriptItemRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
+    """把分镜 ``item_id`` 移到 ``after_id`` 之后，按当前剧本 revision 执行 ``move_after``；分镜连同产物一起移动。"""
+    try:
+
+        def _sync():
+            manager = get_project_manager()
+            current = manager.load_script(name, req.script_file)
+            _require_storyboard_items(current, item_id)
+            _require_storyboard_items(current, req.after_id)
+            with project_change_source("webui"):
+                result = execute_current_script_edit(
+                    manager,
+                    name,
+                    req.script_file,
+                    [{"op": "move_after", "id": item_id, "after_id": req.after_id}],
+                    editor=make_script_batch_editor(manager),
+                    current_script=current,
+                )
+            require_script_edit_result(result)
+            return {"success": True, "edit_result": result.model_dump(mode="json")}
+
+        return await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
@@ -1450,7 +1633,6 @@ _SHOT_UPDATABLE_FIELDS = (
     "scenes",
     "props",
     "products_in_shot",
-    "transition_to_next",
     "note",
 )
 
@@ -1464,17 +1646,15 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
     if script.get("content_mode") != "ad" or "shots" not in script:
         raise HTTPException(status_code=400, detail=_t("ad_mode_required"))
     shots = script.get("shots")
-    # 非法形状 fail loud：静默降级为空列表会让 reorder 在客户端传空 shot_ids 时
-    # 把损坏的 shots 覆盖成 []，直接丢数据。ValueError 由路由统一转 422。
+    # 非法形状 fail loud，ValueError 由路由统一转 422。
     if not isinstance(shots, list):
         raise ValueError("ad script field 'shots' must be a list")
     if not all(isinstance(s, dict) for s in shots):
         raise ValueError("ad script field 'shots' contains non-object elements")
-    # shot_id 缺失/脏类型同样拦下：否则 PATCH 按 id 定位会误报 404，
-    # reorder 的 s["shot_id"] 索引会 KeyError 变 500。
+    # shot_id 缺失/脏类型同样拦下：否则 PATCH 按 id 定位会误报 404。
     if not all(isinstance(s.get("shot_id"), str) and s["shot_id"] for s in shots):
         raise ValueError("ad script field 'shots' contains elements missing valid 'shot_id'")
-    # shot_id 是单个分镜的身份键：重复值会让 PATCH 静默更新首个命中项、reorder 失去 1:1 映射
+    # shot_id 是单个分镜的身份键：重复值会让 PATCH 静默更新首个命中项
     shot_ids = [s["shot_id"] for s in shots]
     if len(set(shot_ids)) != len(shot_ids):
         raise ValueError("ad script field 'shots' contains duplicate 'shot_id' values")
@@ -1540,64 +1720,6 @@ async def update_shot(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-class ReorderShotsRequest(BaseModel):
-    script_file: str
-    shot_ids: list[str]
-
-
-@router.post("/projects/{name}/script-shots/reorder", dependencies=[Depends(require_project_migration_ok)])
-async def reorder_shots(
-    name: str,
-    req: ReorderShotsRequest,
-    _t: Translator,
-    make_script_batch_editor: ScriptBatchEditorFactoryDep,
-):
-    """按给定全排列重排 ad 剧本的 shots 顺序（与视频单元重排端点同语义）。"""
-    try:
-
-        def _sync():
-            manager = get_project_manager()
-            current = manager.load_script(name, req.script_file)
-            shots = _require_ad_script(current, _t)
-            existing_ids = [shot.get("shot_id") for shot in shots]
-            error_kind = full_permutation_error(existing_ids, req.shot_ids)
-            if error_kind is not None:
-                detail_key = {
-                    "length": "shot_ids_length_mismatch",
-                    "duplicate": "duplicate_shot_ids",
-                    "mismatch": "shot_ids_mismatch",
-                }[error_kind]
-                raise HTTPException(status_code=400, detail=_t(detail_key))
-            if existing_ids == req.shot_ids:
-                return {"success": True, "shots": shots}
-            operations = [
-                {"op": "move_after", "id": shot_id, "after_id": req.shot_ids[index - 1] if index else None}
-                for index, shot_id in enumerate(req.shot_ids)
-            ]
-            with project_change_source("webui"):
-                result = execute_current_script_edit(
-                    manager,
-                    name,
-                    req.script_file,
-                    operations,
-                    editor=make_script_batch_editor(manager),
-                )
-            require_script_edit_result(result)
-            reordered = manager.load_script(name, req.script_file)["shots"]
-            return {"success": True, "shots": reordered, "edit_result": result.model_dump(mode="json")}
-
-        return await asyncio.to_thread(_sync)
-    except FileNotFoundError as exc:
-        raise NotFoundError("script_not_found", name=req.script_file) from exc
-    except ValueError as exc:
-        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
-    except (HTTPException, ApiError):
-        raise
-    except Exception as exc:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
-
-
 class UpdateSegmentRequest(BaseModel):
     script_file: str
     duration_seconds: int | None = None
@@ -1605,7 +1727,6 @@ class UpdateSegmentRequest(BaseModel):
     novel_text: str | None = None
     image_prompt: dict | str | None = None
     video_prompt: dict | str | None = None
-    transition_to_next: str | None = None
     note: str | None = None
     characters_in_segment: list[str] | None = None
     scenes: list[str] | None = None
@@ -1621,6 +1742,14 @@ class UpdateOverviewRequest(BaseModel):
 
 class UpdateEpisodeRequest(BaseModel):
     title: str
+
+
+class UpdateEpisodeSourceRequest(BaseModel):
+    text: str
+    #: 剧情演绎项目这一集原文的源文件类型；缺省时保留已有类型，没有记录时记为小说。其他创作类型忽略。
+    source_kind: SourceKind | None = None
+    #: 已确认改类型会让本集已有的脚本规划判 stale。
+    confirm: bool = False
 
 
 @router.patch("/projects/{name}/segments/{segment_id}", dependencies=[Depends(require_project_migration_ok)])
@@ -1659,7 +1788,6 @@ async def update_segment(
                 "novel_text",
                 "image_prompt",
                 "video_prompt",
-                "transition_to_next",
             ):
                 value = getattr(req, field)
                 if value is not None:
@@ -1705,10 +1833,12 @@ async def update_segment(
 async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t: Translator):
     """更新分集顶层元数据（当前仅标题）。
 
-    以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在
+    有剧本时以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在
     「脚本锁 → 项目锁」临界区内改剧本 title，并内联 _apply_episode_sync 把镜像同步回
     project.json 的 episodes[].title，原子且无 TOCTOU。镜像由 PATCH /projects 改写的入口
     已移除（title 不在 EpisodePatch 上），杜绝第二真相源。
+
+    还没有剧本的集（新建的空集、尚未规划脚本的集）标题只记在账本条目上；之后建出的剧本以它为初值。
     """
     title = req.title.strip()
     if not title:
@@ -1726,6 +1856,17 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                     raise HTTPException(status_code=404, detail=_t("episode_not_found", episode=episode))
                 return meta["script_file"]
 
+            def _retitle_ledger_entry(project: dict) -> None:
+                script_file = _resolve(project)
+                script_path = (
+                    manager.get_project_path(name) / "scripts" / manager.normalize_script_filename(script_file)
+                )
+                if script_path.is_file():
+                    # 剧本在两次读取之间被建出：标题改由剧本承载，请调用方重试
+                    raise HTTPException(status_code=409, detail=_t("ref_script_rebound"))
+                meta = next(e for e in project["episodes"] if e.get("episode") == episode)
+                meta["title"] = title
+
             with project_change_source("webui"):
                 try:
                     with manager.locked_episode_script(name, _resolve) as script:
@@ -1733,8 +1874,8 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                 except FileNotFoundError as exc:
                     if not manager.project_exists(name):
                         raise NotFoundError("project_not_found", name=name) from exc
-                    # project.json 指向的脚本文件已删除/移动（stale 绑定）
-                    raise NotFoundError("ref_script_missing") from exc
+                    # 这一集还没有剧本：标题记在账本条目上
+                    manager.update_project(name, _retitle_ledger_entry)
                 except EpisodeScriptReboundError as exc:
                     logger.info("episode script rebound during title update: %s", exc)
                     raise HTTPException(status_code=409, detail=_t("ref_script_rebound")) from exc
@@ -1759,10 +1900,46 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
+@router.put("/projects/{name}/episodes/{episode}/source", dependencies=[Depends(require_project_migration_ok)])
+async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourceRequest, _t: Translator):
+    """集页填写或改写本集原文：无原文的集填上后转为自带原文的集。切出集的原文由分集规划派生，这里拒绝。
+
+    改类型会让本集已有的脚本规划判 stale 而 ``confirm`` 为 false 时，原文与类型都不写入，返回
+    ``needs_confirmation`` 与受影响的集 ID（``affected_episodes``）。
+    """
+
+    def _sync() -> dict[str, Any]:
+        manager = get_project_manager()
+        if not manager.project_exists(name):
+            raise NotFoundError("project_not_found", name=name)
+        with project_change_source("webui"):
+            written = set_episode_source_text(
+                manager, name, episode, req.text, source_kind=req.source_kind, confirm=req.confirm
+            )
+        return {
+            "success": True,
+            "episode": episode,
+            "source_origin": written.origin.value,
+            "applied": written.applied,
+            "needs_confirmation": not written.applied,
+            "affected_episodes": written.affected_episodes,
+        }
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except EpisodeSourceError as exc:
+        raise episode_source_http_error(exc, _t, episode=episode) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
 # ==================== 源文件管理 ====================
 
 
-@router.post("/projects/{name}/source")
+@router.post("/projects/{name}/source", dependencies=[Depends(require_project_migration_ok)])
 async def set_project_source(
     name: Annotated[str, FastAPIPath(pattern=r"^[a-zA-Z0-9_-]+$")],
     _t: Translator,
@@ -1806,9 +1983,11 @@ async def set_project_source(
         def _sync_write():
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-            with manager.locked_source_mutation(name) as source_dir:
+            with manager.locked_source_registration(name) as (source_dir, project, _undo):
                 if raw is not None:
                     safe_filename = Path(original_name).name
+                    if is_derived_episode_name(safe_filename):
+                        raise HTTPException(status_code=400, detail=_t("source_name_reserved"))
                     try:
                         text = raw.decode("utf-8")
                     except UnicodeDecodeError as exc:
@@ -1816,11 +1995,13 @@ async def set_project_source(
                     if len(text) > MAX_CHARS:
                         raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                     (source_dir / safe_filename).write_text(text, encoding="utf-8")
+                    register_whole_source_file(project, f"source/{safe_filename}")
                     return safe_filename, len(text)
                 if len(text_content) > MAX_CHARS:
                     raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                 safe_filename = "novel.txt"
                 (source_dir / safe_filename).write_text(text_content, encoding="utf-8")
+                register_whole_source_file(project, f"source/{safe_filename}")
                 return safe_filename, len(text_content)
 
         safe_filename, chars = await asyncio.to_thread(_sync_write)

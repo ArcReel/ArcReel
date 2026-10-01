@@ -15,6 +15,7 @@ import { WizardStep1Basics, type WizardStep1Value } from "./create-project/Wizar
 import { WizardStep2Models, type WizardStep2Data } from "./create-project/WizardStep2Models";
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
+import type { NarrationDeliveryValue } from "@/components/shared/NarrationDeliveryFields";
 import { catalogDisplayNames, catalogDurations } from "@/utils/provider-models";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 
@@ -148,7 +149,6 @@ export function CreateProjectModal() {
   const [basics, setBasics] = useState<WizardStep1Value>({
     title: "",
     contentMode: "narration",
-    sourceKind: "novel",
     aspectRatio: "9:16",
     generationRoute: null,
     gridStoryboard: false,
@@ -172,6 +172,15 @@ export function CreateProjectModal() {
     imageResolution: null,
   });
 
+  // 旁白交付缺省后期配音；TTS 字段在全局默认取回后预填，用户切到 TTS 时看到的即全局默认
+  const [narration, setNarration] = useState<NarrationDeliveryValue>({
+    delivery: "post_production",
+    audioBackend: "",
+    narrationVoice: "",
+    narrationSpeed: null,
+  });
+  const narrationPrefilled = useRef(false);
+
   const [style, setStyle] = useState<WizardStep3Value>({
     mode: "template",
     templateId: DEFAULT_TEMPLATE_ID,
@@ -192,18 +201,30 @@ export function CreateProjectModal() {
     let cancelled = false;
     voidCall((async () => {
       try {
-        const [sysConfig, providersRes, customRes] = await Promise.all([
+        const [sysConfig, providersRes, customRes, narrationDefaults] = await Promise.all([
           API.getSystemConfig(),
           API.getProviders(),
           API.listCustomProviders(),
+          // 预填只是便利：读不到全局默认时 TTS 字段留空，由用户自选
+          API.getNarrationDefaults().catch(() => null),
         ]);
         if (cancelled) return;
+        if (!narrationPrefilled.current && narrationDefaults) {
+          narrationPrefilled.current = true;
+          setNarration((prev) => ({
+            ...prev,
+            audioBackend: narrationDefaults.audio_backend ?? "",
+            narrationVoice: narrationDefaults.narration_voice,
+            narrationSpeed: narrationDefaults.narration_speed,
+          }));
+        }
         const catalogNames = catalogDisplayNames(providersRes.providers, customRes.providers);
         setStep2Data({
           options: {
             video: sysConfig.options.video_backends,
             image: sysConfig.options.image_backends,
             text: sysConfig.options.text_backends,
+            audio: sysConfig.options.audio_backends ?? [],
             // 目录兜底层在下：候选只列 ready 供应商，而已配置的生效值可能指向失去凭证的那个。
             providerNames: { ...catalogNames.providerNames, ...(sysConfig.options.provider_names ?? {}) },
             modelNames: { ...catalogNames.modelNames, ...(sysConfig.options.model_names ?? {}) },
@@ -307,8 +328,6 @@ export function CreateProjectModal() {
       const resp = await API.createProject({
         title: basics.title.trim(),
         content_mode: basics.contentMode,
-        // source_kind 仅 drama 暴露与生效；其余模式由服务端缺省 novel
-        ...(basics.contentMode === "drama" ? { source_kind: basics.sourceKind } : {}),
         aspect_ratio: basics.aspectRatio,
         generation_mode: basics.generationRoute,
         grid_storyboard: basics.gridStoryboard,
@@ -331,6 +350,15 @@ export function CreateProjectModal() {
         text_backend_simple: models.textBackendSimple || null,
         text_backend_complex: models.textBackendComplex || null,
         ...(Object.keys(modelSettings).length > 0 ? { model_settings: modelSettings } : {}),
+        narration_delivery: narration.delivery,
+        // TTS 快照三项显式提交：落盘的就是向导里看到的值，服务端不再按全局默认补
+        ...(narration.delivery === "use_tts"
+          ? {
+              audio_backend: narration.audioBackend,
+              narration_voice: narration.narrationVoice.trim(),
+              narration_speed: narration.narrationSpeed,
+            }
+          : {}),
       });
 
       // Upload style image if in custom mode
@@ -453,6 +481,8 @@ export function CreateProjectModal() {
             <WizardStep2Models
               value={models}
               onChange={setModels}
+              narration={narration}
+              onNarrationChange={setNarration}
               onBack={() => setStep(1)}
               onNext={() => setStep(3)}
               onCancel={handleClose}

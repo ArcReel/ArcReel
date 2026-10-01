@@ -15,6 +15,7 @@ import pytest
 from PIL import Image
 
 from lib.artifacts.artifact_activation import (
+    ArtifactCurrencyResolver,
     activate_artifact_target_state,
     plan_artifact_target_state,
     resolve_current_artifact_basis,
@@ -29,7 +30,9 @@ from lib.artifacts.generation_input import (
     project_input_observation,
     storyboard_image_input,
 )
+from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, script_revision
 
 TARGET_KEY = ArtifactKey.episode_storyboard(1, "E1S02")
 
@@ -307,3 +310,40 @@ def test_activation_skips_a_derivative_whose_owner_sheet_cannot_be_registered(tm
     reasons = {item.resource_id: item.reason for item in plan.skipped if item.kind == "asset-sheet"}
     assert "asset_original_missing" in reasons["张三"]
     assert "derivative_owner_sheet_missing" in reasons["张三/劲装"]
+
+
+def test_moving_a_shot_stales_the_storyboards_whose_previous_storyboard_changed(tmp_path: Path) -> None:
+    """上一分镜图是分镜图的输入：改序后上一条变了的分镜图转为过期，没变的保持 current。"""
+
+    project_dir = _project_dir(tmp_path / "projects", target_generated=True)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = _read_json(script_path)
+    _write_image(project_dir / "storyboards" / "scene_E1S03.png", 10)
+    script["title"] = "第一集"
+    script["shots"].append(_shot("E1S03", generated_assets={"storyboard_image": "storyboards/scene_E1S03.png"}))
+    for shot in script["shots"]:
+        shot["video_prompt"] = {"action": "端详", "camera_motion": "Static", "ambiance_audio": "风声"}
+    _write_json(script_path, script)
+    activate_artifact_target_state(project_dir, bump_schema=False)
+
+    pm = ProjectManager(str(tmp_path))
+    result = ScriptBatchEditor(pm).execute(
+        "demo",
+        ScriptBatchEditCommand.model_validate(
+            {
+                "script": "episode_1.json",
+                "expected_revision": script_revision(pm.load_script("demo", "episode_1.json")),
+                "operations": [{"op": "move_after", "id": "E1S03", "after_id": None}],
+            }
+        ),
+    )
+
+    assert result.success, result.problems
+    resolver = ArtifactCurrencyResolver(project_dir)
+    statuses = {
+        shot_id: resolver.compare(
+            ArtifactKey.episode_storyboard(1, shot_id), artifact_path=f"storyboards/scene_{shot_id}.png"
+        ).status.value
+        for shot_id in ("E1S01", "E1S02", "E1S03")
+    }
+    assert statuses == {"E1S03": "stale", "E1S01": "stale", "E1S02": "current"}

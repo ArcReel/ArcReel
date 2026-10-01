@@ -59,12 +59,6 @@ CameraMotion = Literal[
     "Shake",
 ]
 
-TransitionType = Literal[
-    "cut",
-    "fade",
-    "dissolve",
-]
-
 logger = logging.getLogger(__name__)
 
 
@@ -265,9 +259,6 @@ class NarrationSegment(BaseModel):
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(default=None, description="分镜图生成提示词")
     video_prompt: VideoPrompt | PromptText | PendingPrompt = Field(default=None, description="视频生成提示词")
-    # transition_to_next 由 _add_metadata default + 用户 PATCH 路径(projects.py UpdateSegmentRequest)管理;
-    # LLM 无 prompt 引导,隐藏避免乱填污染剪映/compose-video 合成
-    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 以下字段对 LLM 隐藏（SkipJsonSchema）：note 是人工备注、generated_assets 是 post-LLM 运行时状态。
     # 仍保留在 Pydantic 模型里以便存储 / 校验，但不出现在 response_schema 中，避免 LLM 填污染数据。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
@@ -289,7 +280,7 @@ class NovelInfo(BaseModel):
 
     title/chapter 都带 default,以便 SkipJsonSchema[NovelInfo] 的 default_factory=NovelInfo 构造。
     真实值由 ``ScriptGenerator._add_metadata`` setdefault 注入(项目 title + ``f"第N集"``);
-    LLM 不再被引导填写,避免虚构章节名污染 compose-video 的输出 mp4 文件命名。
+    LLM 不再被引导填写,避免虚构章节名污染下游消费方。
     """
 
     model_config = _STRICT_CONFIG
@@ -316,7 +307,7 @@ class NarrationEpisodeScript(BaseModel):
     title: str = Field(description="剧集标题")
     # content_mode 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
     content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="创作类型")
-    # novel 由 _add_metadata 注入 {项目 title, f"第N集"};compose-video 用 chapter 作输出文件名,LLM 自由发挥反而不可预测
+    # novel 由 _add_metadata 注入 {项目 title, f"第N集"};LLM 自由发挥反而不可预测
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # hook / next_episode_teaser 由 _add_metadata 从分集账本注入（账本是钩子设计的
     # 单一真相源，LLM 不参与填写）；账本无规划数据时为 null。
@@ -330,6 +321,32 @@ class NarrationEpisodeScript(BaseModel):
 # 两段式职责切分：script_plan（分镜拆分）产出内容层（逐字 novel_text + 分镜边界 + 时长），
 # prompt_authoring（generate-script）只产出视觉层（image_prompt / video_prompt），按 segment_id
 # 合并回 script_plan 已确认结构。novel_text 永不经 prompt_authoring 的 LLM 重出 → 消除扩写漂移。
+
+
+NewAssetType = Literal["character", "scene", "prop"]
+NewAssetDecision = Literal["register", "merge", "derivative", "skip"]
+
+
+class PlanNewAsset(BaseModel):
+    """脚本规划带出的一项本集新增资产与它的处理决定（见 ``docs/adr/0092``）。
+
+    规划条目里的引用一律写 ``name``，确认时按决定改写：``register`` 登记为新资产，``merge`` 归到
+    ``target``（已登记的同类资产或本集另一项新增资产）并把 ``name`` 记为别名，``derivative`` 登记为
+    ``target`` 角色的衍生，``skip`` 不登记、只用文字描述。处理决定由 :mod:`lib.script.plan_new_assets` 解析。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    type: NewAssetType = Field(description="资产类型：character / scene / prop")
+    name: str = Field(min_length=1, description="本集规划的引用里写的称呼，不含「/」")
+    decision: NewAssetDecision = Field(
+        description="处理决定：register 登记为新资产 / merge 归到已有资产 / derivative 登记为角色衍生 / skip 不登记"
+    )
+    reason: str = Field(description="一句话依据")
+    description: str = Field(default="", description="register：视觉外观描述；derivative：相对本体的外观变化；其余留空")
+    aliases: list[str] = Field(default_factory=list, description="register：原文中的其他称呼；其余留空")
+    target: str = Field(default="", description="merge：归入的同类资产名；derivative：本体角色名；其余留空")
+    asset_name: str = Field(default="", description="register：登记名；derivative：衍生名；留空即取 name")
 
 
 class NarrationScriptPlanSegment(BaseModel):
@@ -363,6 +380,9 @@ class NarrationScriptPlanDraft(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     segments: list[NarrationScriptPlanSegment] = Field(description="分镜列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 class NarrationVisualSegment(BaseModel):
@@ -526,8 +546,6 @@ class DramaScene(BaseModel):
     # 视觉改编描述：内容确认转换时由脚本规划透传，作为提示词编写的视觉基底；对 LLM 隐藏。
     # 存量正式脚本无此字段时为空串。
     scene_description: SkipJsonSchema[str] = Field(default="", description="视觉改编描述")
-    # 见 NarrationSegment.transition_to_next 说明
-    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
     end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
@@ -610,6 +628,9 @@ class DramaNormalizedScript(BaseModel):
 
     title: str = Field(description="剧集标题")
     scenes: list[DramaSceneContent] = Field(description="分镜内容列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 class DramaSceneVisual(BaseModel):
@@ -671,8 +692,6 @@ class AdShot(BaseModel):
     # 由提示词编写补出（见 _fill_pending_prompts 与结构校验）。
     image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt | PromptText | PendingPrompt = Field(description="视频生成提示词")
-    # 见 NarrationSegment.transition_to_next 说明
-    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
     end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
@@ -823,8 +842,7 @@ class ReferenceVideoUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
-    # transition_to_next / note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
-    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
+    # note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
@@ -919,6 +937,9 @@ class ReferenceScriptPlanDraft(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     units: list[ReferenceScriptPlanUnit] = Field(description="video_unit 列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -952,6 +973,9 @@ class ReferenceScriptPlanFlatDraft(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     units: list[ReferenceScriptPlanFlatUnit] = Field(min_length=1, description="按叙事顺序排列的 unit 列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 class ReferencePromptAuthoringFlatUnit(BaseModel):

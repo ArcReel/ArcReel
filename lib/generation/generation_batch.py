@@ -19,6 +19,7 @@ from lib.generation.generation_result import (
     GenerationSkippedItem,
     GenerationTargetState,
     GenerationTaskState,
+    dependency_failure_problem,
     enqueue_problem,
     generation_warnings_from_result,
     observe_artifact_status,
@@ -38,6 +39,8 @@ class GenerationBatchRequestedItem(BaseModel):
     artifact_path: str | None = None
     artifact_status: ArtifactStatus | None = None
     admission: dict[str, Any] = Field(default_factory=dict)
+    #: 同批内的前置成员：它的任务成功后本成员才执行，失败则本成员不提交给供应商。
+    depends_on: str | None = None
 
 
 class GenerationBatchBlockedItem(BaseModel):
@@ -73,6 +76,10 @@ class GenerationBatchRequestSnapshot(BaseModel):
             raise ValueError("duplicate skipped unit ids")
         if set(requested) & set(skipped):
             raise ValueError("skipped ids must not appear in requested")
+        known = set(requested)
+        for item in self.requested:
+            if item.depends_on is not None and (item.depends_on not in known or item.depends_on == item.unit_id):
+                raise ValueError(f"requested unit {item.unit_id} depends on a unit outside this batch")
         return self
 
 
@@ -140,8 +147,13 @@ def build_generation_batch_admission(
     pending_ids: Sequence[str],
     states: Mapping[str, GenerationTargetState] | None = None,
     admission: Mapping[str, dict[str, Any]] | None = None,
+    dependencies: Mapping[str, str] | None = None,
 ) -> tuple[GenerationBatchRequestSnapshot, list[GenerationBatchBlockedItem]]:
-    """Project a tool's completed selection/preflight into the durable batch snapshot."""
+    """Project a tool's completed selection/preflight into the durable batch snapshot.
+
+    ``dependencies`` maps a pending unit to the pending unit it must wait for in
+    this same batch; the queue runs it only after that unit's task succeeded.
+    """
 
     if preflight.succeeded or preflight.failed:
         raise ValueError("generation batch admission cannot contain executed outcomes")
@@ -162,6 +174,7 @@ def build_generation_batch_admission(
                 artifact_path=state.artifact_path if state else item.artifact_path if item else None,
                 artifact_status=state.status if state else item.artifact_status if item else None,
                 admission=admission_by_id.get(unit_id, {}),
+                depends_on=(dependencies or {}).get(unit_id),
             )
         )
     blocked = [
@@ -201,7 +214,11 @@ def _terminal_result(
                     artifact_status=requested.artifact_status,
                     state=GenerationItemState.FAILED,
                     task_state=GenerationTaskState.NOT_QUEUED,
-                    problem=enqueue_problem(None),
+                    problem=dependency_failure_problem(
+                        enqueue_problem(None),
+                        requested.depends_on,
+                        dependency_not_queued=requested.depends_on not in tasks,
+                    ),
                 )
             )
             continue
@@ -248,7 +265,10 @@ def _terminal_result(
                     problem=(
                         GenerationProblem.model_validate(unit_result["problem"])
                         if unit_result.get("problem")
-                        else problem_from_task_failure(task.get("error_message"), cancelled=status == "cancelled")
+                        else dependency_failure_problem(
+                            problem_from_task_failure(task.get("error_message"), cancelled=status == "cancelled"),
+                            requested.depends_on,
+                        )
                     ),
                     warnings=generation_warnings_from_result(task_result),
                 )
@@ -309,7 +329,11 @@ def build_generation_batch_read_model(
                 GenerationBatchMember(
                     unit_id=unit_id,
                     status="failed",
-                    problem=enqueue_problem(None),
+                    problem=dependency_failure_problem(
+                        enqueue_problem(None),
+                        requested.depends_on,
+                        dependency_not_queued=requested.depends_on not in tasks,
+                    ),
                     admission=requested.admission,
                 )
             )

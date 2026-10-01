@@ -31,7 +31,6 @@ RUN echo "apt refresh: ${APT_REFRESH}" \
     && apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ffmpeg \
     curl \
     bubblewrap \
     socat \
@@ -66,6 +65,9 @@ COPY alembic.ini ./
 COPY scripts/ scripts/
 COPY agent_runtime_profile/ agent_runtime_profile/
 COPY public/ public/
+# 随包 ffmpeg 的许可证声明（见 NOTICE）随镜像分发
+COPY LICENSE NOTICE ./
+COPY LICENSES/ LICENSES/
 
 # 复制前端构建产物
 COPY --from=frontend-builder /build/frontend/dist/ frontend/dist/

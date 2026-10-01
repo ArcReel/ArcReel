@@ -52,7 +52,6 @@ def _presentation(project_path: Path, video: Path) -> MaterializedPresentation:
         episode=1,
         resource_type="videos",
         script_file="episode_1.json",
-        transition_to_next="cut",
         presentation=materialize_raw_video_presentation(
             unit_id="E1S01",
             video=RawPresentationMedia(

@@ -1,14 +1,13 @@
 """Project-state adapter for the all-or-nothing batch video admission.
 
-Web and Agent batch entries share this seam. It resolves the current TTS,
+Web and Agent batch entries share this seam. It resolves the current
 request-projection, quote and queue state for every target of one request, then
 folds the per-unit verdicts with :mod:`lib.generation.batch_admission`. Durable request
-facts stay in ``lib.speech.narration_delivery`` and ``lib.script.reference_video``; this module
-only adapts server state onto them and never submits a task.
+facts stay in ``lib.script.reference_video``; this module only adapts server state onto
+them and never submits a task.
 
-Both routes evaluate the same request options once — the narration delivery
-choice and any confirmed request tiers — so the two entries cannot reach
-different conclusions about the same project.
+Both entries evaluate the same request options once — any confirmed request tiers —
+so the two cannot reach different conclusions about the same project.
 """
 
 from __future__ import annotations
@@ -22,11 +21,9 @@ from typing import Any, cast
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
-    artifact_is_usable,
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
-from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -51,6 +48,7 @@ from lib.generation.generation_result import (
 )
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
@@ -71,24 +69,9 @@ from lib.script.reference_video.request_projection import (
 )
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import StoryboardImageUnavailable
-from lib.speech.narration_delivery import (
-    USE_TTS,
-    NarratedVideoDurationPreparation,
-    NarrationDeliveryProblem,
-    TtsSettingsResolver,
-    VideoRequestCostFacts,
-    video_request_cost_unavailable_problem,
-    video_request_requires_exact_quote,
-    video_request_reuses_current_visual,
-)
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, require_script_unit_admitted
 from server.services.admission.cost_estimation import quote_video_request
 from server.services.admission.reference_admission import reference_admission_problems
-from server.services.tasks.narration_delivery_tasks import (
-    active_tts_resource_ids,
-    prepare_current_reference_video_request_options,
-    prepare_current_storyboard_narrated_video_duration,
-)
 from server.services.tasks.video_caps import assert_audio_switch_supported, resolve_project_is_silent
 
 
@@ -250,6 +233,140 @@ def screen_script_entries(
     return clean, tickets
 
 
+def storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
+    """点名时能寻址到这个条目的全部写法。
+
+    各入口既认规范 ``id_field`` 也认 ``scene_id`` 别名，两者在剧本里可以不同；按哪一个
+    点名都要指到同一个条目，否则同一个名字在不同入口指向不同条目。
+    """
+
+    # 先按类型过滤再进集合：脏剧本里的 list / dict 别名不可哈希，直接建集合会抛 TypeError，
+    # 逐目标的拒绝契约就塌成一句通用报错。
+    aliases = (item.get(id_field), item.get("scene_id"))
+    return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
+
+
+def screen_storyboard_items(
+    items: Sequence[Any],
+    id_field: str,
+    *,
+    requested_ids: Collection[str] | None,
+) -> tuple[list[dict[str, Any]], list[UnitAdmissionTicket]]:
+    """把剧本条目分成「能当目标的」与「成不了目标的」两份，后者按位置记名。
+
+    非对象条目、id 不是字符串、id 为空、以及同一个 id 出现多次，都会让后面按 id 索引的每一步
+    失手：条目被静默滤掉时同批健康的目标独自入队计费，撞上集合查询时又把逐目标的拒绝契约打成
+    一句通用报错。数字与布尔 id 混过 ``str()`` 进队列后，执行期按原值比对同样找不到目标。
+    各入口在读 id 之前先经这一道筛，这些失手都变成一张记名的准入票。
+
+    缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
+    调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
+    精确点名的重做。
+
+    记名用带方括号的位置写法，与合法 id 不共用命名空间：同名会让结果契约把两条不同的条目
+    当作同一个，写第二遍时 fail loud，用户拿到的又是一句通用报错。
+    """
+
+    clean: list[dict[str, Any]] = []
+    tickets: list[UnitAdmissionTicket] = []
+    seen: set[str] = set()
+    addressable: list[tuple[dict[str, Any], str]] = []
+    taken = {
+        str(storyboard_item_id(item, id_field)).strip()
+        for item in items
+        if isinstance(item, dict) and isinstance(storyboard_item_id(item, id_field), str)
+    }
+    named = set(requested_ids) if requested_ids is not None else None
+    if named is not None:
+        # 点名的 ID 也占着记名空间：点到剧本里没有的名字时上游还会记一条「不存在」，
+        # 诊断名与它同名会把两条并成一条。
+        taken |= named
+    refused_names: set[str] = set()
+    for index, item in enumerate(items):
+        detail: str | None = None
+        item_id = ""
+        if not isinstance(item, dict):
+            detail = "该条目不是对象"
+        else:
+            raw_id = storyboard_item_id(item, id_field)
+            if raw_id is not None and not isinstance(raw_id, str):
+                detail = "该条目的 ID 不是字符串"
+            else:
+                item_id = (raw_id or "").strip()
+                if not item_id:
+                    detail = "该条目没有可用的 ID"
+        if detail is not None:
+            if named is None:
+                tickets.append(
+                    refused_ticket(
+                        diagnostic_unit_id(f"items[{index}]", taken),
+                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                        detail=detail,
+                        action=GenerationAction.FIX_INPUT,
+                    )
+                )
+            elif isinstance(item, dict):
+                # 点名点中的正好是这个脏条目：按点名的写法给结论，否则调用方只收到一句
+                # 「不存在」，而这个名字在剧本里明明有条目。
+                for name in sorted(storyboard_item_aliases(item, id_field) & named):
+                    if name in refused_names:
+                        continue
+                    refused_names.add(name)
+                    tickets.append(
+                        refused_ticket(
+                            name,
+                            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                            detail=detail,
+                            action=GenerationAction.FIX_INPUT,
+                        )
+                    )
+            continue
+        if named is not None:
+            addressable.append((item, item_id))
+            continue
+        if item_id in seen:
+            tickets.append(
+                refused_ticket(
+                    diagnostic_unit_id(f"{item_id}#{index}", taken),
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"ID {item_id} 在剧本中重复出现",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+        seen.add(item_id)
+        clean.append(item)
+    if named is None:
+        return clean, tickets
+
+    # 点名可以用规范 ID，也可以用 ``scene_id`` 别名，两者在剧本里可以不同；执行期按规范 ID
+    # 定位目标。因此一个名字指到几个条目，要把「直接被它寻址的条目」连同「与之共用规范 ID
+    # 的兄弟」一起数：只按名字数会漏掉别名不同、规范 ID 相同的那种，各入口按各自的查法分别
+    # 选中头一个或末一个，同一次点名在不同入口做的是不同条目。
+    by_canonical: dict[str, list[dict[str, Any]]] = {}
+    for item, item_id in addressable:
+        by_canonical.setdefault(item_id, []).append(item)
+    ambiguous: set[int] = set()
+    for name in sorted(named - refused_names):
+        owners = {id(item) for item, _ in addressable if name in storyboard_item_aliases(item, id_field)}
+        targets = {
+            id(sibling) for item, item_id in addressable if id(item) in owners for sibling in by_canonical[item_id]
+        }
+        if len(targets) <= 1:
+            continue
+        ambiguous |= targets
+        tickets.append(
+            refused_ticket(
+                name,
+                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                detail=f"ID {name} 在剧本中指向多个条目",
+                action=GenerationAction.FIX_INPUT,
+            )
+        )
+    clean.extend(item for item, _ in addressable if id(item) not in ambiguous)
+    return clean, tickets
+
+
 def resolve_reference_batch_targets(
     *,
     units: Sequence[Any],
@@ -267,24 +384,11 @@ def resolve_reference_batch_targets(
     """
 
     resolver = active_artifact_currency_resolver(project_path, project)
-    versions = VersionManager(project_path)
     states = video_target_states(units, "unit_id", episode=episode, resolver=resolver)
     selection = select_generation_targets(
         candidates=[state.candidate for state in states.values()],
         requested_ids=requested_ids,
         resolver=resolver,
-        reusable_override=lambda candidate: (
-            artifact_is_usable(
-                resolver,
-                ArtifactKey.episode_video(episode, candidate.unit_id),
-                candidate.artifact_path,
-            )
-            or versions.selected_manual_upload_matches_current_file(
-                "reference_videos",
-                candidate.unit_id,
-                candidate.artifact_path,
-            )
-        ),
     )
     target_ids = set(selection.target_ids)
     targets = [unit for unit in units if isinstance(unit, dict) and str(unit.get("unit_id") or "") in target_ids]
@@ -330,12 +434,8 @@ _SPEECH_ACTIONS: dict[str, GenerationAction] = {
 }
 
 _PROBLEM_ACTIONS: dict[str, GenerationAction] = {
-    "generate_tts": GenerationAction.GENERATE_TTS,
-    "regenerate_tts": GenerationAction.REGENERATE_TTS,
-    "wait_for_tts": GenerationAction.WAIT_FOR_TASK,
     "replan_unit": GenerationAction.REPLAN_UNIT,
     "confirm_request_duration": GenerationAction.CONFIRM_REQUEST_DURATION,
-    "retry_cost_estimate": GenerationAction.RETRY,
     "configure_provider": GenerationAction.CONFIGURE_PROVIDER,
     "fix_input": GenerationAction.FIX_INPUT,
     "assign_speaker": GenerationAction.FIX_INPUT,
@@ -365,7 +465,7 @@ def _facts_failure_problem(failure: VideoRequestFactsFailure, unit_id: str) -> G
     return _generation_problem(ProjectionProblem.from_request_facts_failure(failure), unit_id=unit_id)
 
 
-def _generation_problem(problem: ProjectionProblem | NarrationDeliveryProblem, *, unit_id: str) -> GenerationProblem:
+def _generation_problem(problem: ProjectionProblem, *, unit_id: str) -> GenerationProblem:
     payload = problem.to_payload(unit_id=unit_id)
     params = payload.get("params")
     return GenerationProblem(
@@ -404,19 +504,11 @@ def active_task_problem(task: Mapping[str, Any]) -> GenerationProblem:
     )
 
 
-async def _quote_for_display(
-    cost: VideoRequestCostFacts | None,
-    *,
-    reuses_current_visual: bool,
-) -> dict[str, object] | None:
+async def _quote_for_display(cost: VideoRequestCostFacts | None) -> dict[str, object] | None:
     if cost is None:
         return None
     quote = await quote_video_request(cost, async_session_factory)
-    if quote is None:
-        return None
-    if reuses_current_visual:
-        quote = quote.without_new_video_charge()
-    return quote.to_payload()
+    return quote.to_payload() if quote is not None else None
 
 
 async def _active_conflicts(
@@ -477,7 +569,6 @@ async def admit_reference_video_batch(
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
-    tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every reference unit of one request against the current state.
 
@@ -502,17 +593,6 @@ async def admit_reference_video_batch(
         unit_ids=unit_ids,
         user_id=user_id,
         queue=queue,
-    )
-    active_tts = (
-        await active_tts_resource_ids(
-            project_name=project_name,
-            resource_ids=unit_ids,
-            script_file=script_file,
-            user_id=user_id,
-            queue=queue,
-        )
-        if request_options.narration_delivery == USE_TTS
-        else frozenset()
     )
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
@@ -565,28 +645,13 @@ async def admit_reference_video_batch(
 
         unit_options = request_options_for_unit(request_options, unit_id, confirmed_request_durations)
         try:
-            current_options = await prepare_current_reference_video_request_options(
-                request_facts_lookup=request_facts_lookup,
-                project=project,
-                script=script,
-                script_file=script_file,
-                unit=unit,
-                project_path=project_path,
-                options=unit_options,
-                project_name=project_name,
-                user_id=user_id,
-                tts_settings_resolver=tts_settings_resolver,
-                tts_in_progress=unit_id in active_tts,
-            )
             projection = await project_reference_unit_request(
                 request_facts_lookup=request_facts_lookup,
                 project=project,
                 script=script,
                 unit=unit,
                 project_path=project_path,
-                options=current_options,
-                tts_in_progress=unit_id in active_tts,
-                current_options_materialized=True,
+                options=unit_options,
                 resolver=config_resolver,
             )
         except VideoRequestFactsError as exc:
@@ -606,103 +671,55 @@ async def admit_reference_video_batch(
                 )
             )
             continue
-        tickets.append(
-            await _reference_ticket(
-                projection=projection,
-                current_options=current_options,
-            )
-        )
+        tickets.append(await _reference_ticket(projection))
 
     return BatchAdmission(
         operation=operation,
         selection=selection,
-        narration_delivery=request_options.narration_delivery,
         tickets=tuple(tickets),
     )
 
 
-async def _reference_ticket(
-    *,
-    projection: ReferenceUnitRequestProjection,
-    current_options: ReferenceRequestOptions,
-) -> UnitAdmissionTicket:
+async def _reference_ticket(projection: ReferenceUnitRequestProjection) -> UnitAdmissionTicket:
     unit_id = projection.unit_id
     payload = projection.to_advisory_payload()
     request_duration = projection.request_duration.seconds if projection.request_duration is not None else None
-    reuses = video_request_reuses_current_visual(
-        request_duration_seconds=request_duration,
-        current_reusable_visual_duration_seconds=current_options.current_reusable_visual_duration_seconds,
-    )
-    cost_payload = await _quote_for_display(projection.cost, reuses_current_visual=reuses)
+    cost_payload = await _quote_for_display(projection.cost)
     problems = [_generation_problem(problem, unit_id=unit_id) for problem in projection.blocking_problems]
-    # A missing quote only fails the request closed when TTS is what moved the tier:
-    # post-production takes its tier from the script alone, and any tier change there is
-    # already held by the duration confirmation the user must answer.
-    if (
-        cost_payload is None
-        and projection.cost is not None
-        and current_options.narration_delivery == USE_TTS
-        and video_request_requires_exact_quote(
-            request_duration_seconds=projection.cost.duration_seconds,
-            planned_duration_seconds=projection.planned_duration,
-            current_visual_duration_seconds=current_options.current_visual_duration_seconds,
-            current_reusable_visual_duration_seconds=current_options.current_reusable_visual_duration_seconds,
-        )
-    ):
-        cost_problem = video_request_cost_unavailable_problem(projection.cost)
-        payload["problems"] = [*_payload_problems(payload), cost_problem.to_payload(unit_id=unit_id)]
-        payload["allowed"] = False
-        problems.append(_generation_problem(cost_problem, unit_id=unit_id))
     if cost_payload is not None:
         payload["request_cost"] = cost_payload
     return UnitAdmissionTicket(
         unit_id=unit_id,
         problems=tuple(problems),
         request_duration_seconds=request_duration,
-        current_duration_seconds=projection.current_visual_duration,
         request_cost=cost_payload,
         projection=payload,
     )
-
-
-def _payload_problems(payload: Mapping[str, object]) -> list[object]:
-    existing = payload.get("problems")
-    if not isinstance(existing, list):
-        raise RuntimeError("request projection problems payload must be a list")
-    return existing
 
 
 async def admit_storyboard_video_batch(
     *,
     project_name: str,
     project: dict[str, Any],
-    project_path: Path,
-    script: dict[str, Any],
     script_file: str,
-    items: Sequence[tuple[str, dict[str, Any], object]],
-    request_options: ReferenceRequestOptions,
+    items: Sequence[tuple[str, dict[str, Any]]],
     operation: str,
     selection: GenerationSelectionMode,
-    confirmed_request_durations: Mapping[str, int] | None = None,
     extra_tickets: Sequence[UnitAdmissionTicket] = (),
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
-    tts_settings_resolver: TtsSettingsResolver | None = None,
     video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Evaluate every storyboard unit of one request against the current state.
 
-    ``items`` are ``(resource_id, script item, visual prompt)`` triples — the
-    prompt participates in the visual basis that decides whether an already paid
-    video still covers this request.
-
-    Post-production delivery has no TTS or tier projection to consult on this
-    route, so the only shared gate that still applies is the active-task
-    conflict; each remaining unit is admitted as it would be on its own.
+    ``items`` are ``(resource_id, script item)`` pairs. This route takes its tier from
+    the script alone at execution, so the shared gates here are the active-task
+    conflict, reference admission and the route's video request facts; each remaining
+    unit is admitted as it would be on its own.
     """
 
-    resource_ids = [resource_id for resource_id, _item, _prompt in items]
+    resource_ids = [resource_id for resource_id, _item in items]
     conflicts = await _active_conflicts(
         project_name=project_name,
         task_type="video",
@@ -710,17 +727,6 @@ async def admit_storyboard_video_batch(
         unit_ids=resource_ids,
         user_id=user_id,
         queue=queue,
-    )
-    active_tts = (
-        await active_tts_resource_ids(
-            project_name=project_name,
-            resource_ids=resource_ids,
-            script_file=script_file,
-            user_id=user_id,
-            queue=queue,
-        )
-        if request_options.narration_delivery == USE_TTS
-        else frozenset()
     )
     generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
     catalog = build_reference_catalog(project)
@@ -734,7 +740,7 @@ async def admit_storyboard_video_batch(
         )
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
-    for resource_id, item, visual_prompt in items:
+    for resource_id, item in items:
         if resource_id in conflicts:
             tickets.append(
                 UnitAdmissionTicket(unit_id=resource_id, problems=(active_task_problem(conflicts[resource_id]),))
@@ -750,82 +756,12 @@ async def admit_storyboard_video_batch(
                 )
             )
             continue
-        if reference_problems:
-            tickets.append(UnitAdmissionTicket(unit_id=resource_id, problems=reference_problems))
-            continue
-        if request_options.narration_delivery != USE_TTS:
-            tickets.append(UnitAdmissionTicket(unit_id=resource_id))
-            continue
-        unit_options = request_options_for_unit(request_options, resource_id, confirmed_request_durations)
-        planned = item.get("duration_seconds")
-        preparation = await prepare_current_storyboard_narrated_video_duration(
-            project_name=project_name,
-            project=project,
-            project_path=project_path,
-            script=script,
-            script_file=script_file,
-            item=item,
-            visual_prompt=visual_prompt,
-            seed=None,
-            generation_type=generation_type,
-            planned_duration_seconds=(
-                planned if isinstance(planned, int) and not isinstance(planned, bool) and planned > 0 else None
-            ),
-            confirmed_request_duration_seconds=unit_options.confirmed_request_duration_seconds,
-            tts_in_progress=resource_id in active_tts,
-            user_id=user_id,
-            queue=queue,
-            config_resolver=config_resolver,
-            tts_settings_resolver=tts_settings_resolver,
-            video_request_facts=video_request_facts,
-        )
-        tickets.append(await _storyboard_ticket(resource_id=resource_id, preparation=preparation))
+        tickets.append(UnitAdmissionTicket(unit_id=resource_id, problems=reference_problems))
 
     return BatchAdmission(
         operation=operation,
         selection=selection,
-        narration_delivery=request_options.narration_delivery,
         tickets=tuple(tickets),
-    )
-
-
-async def _storyboard_ticket(
-    *,
-    resource_id: str,
-    preparation: NarratedVideoDurationPreparation,
-) -> UnitAdmissionTicket:
-    payload = preparation.to_payload()
-    reuses = video_request_reuses_current_visual(
-        request_duration_seconds=preparation.request_duration_seconds,
-        current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
-    )
-    cost_payload = await _quote_for_display(preparation.cost, reuses_current_visual=reuses)
-    problems = [
-        _generation_problem(problem, unit_id=resource_id) for problem in preparation.problems if problem.blocking
-    ]
-    if (
-        cost_payload is None
-        and preparation.cost is not None
-        and video_request_requires_exact_quote(
-            request_duration_seconds=preparation.request_duration_seconds,
-            planned_duration_seconds=preparation.planned_duration_seconds,
-            current_visual_duration_seconds=preparation.current_visual_duration_seconds,
-            current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
-        )
-    ):
-        cost_problem = video_request_cost_unavailable_problem(preparation.cost)
-        payload["problems"] = [*_payload_problems(payload), cost_problem.to_payload(unit_id=resource_id)]
-        payload["allowed"] = False
-        problems.append(_generation_problem(cost_problem, unit_id=resource_id))
-    if cost_payload is not None:
-        payload["request_cost"] = cost_payload
-    return UnitAdmissionTicket(
-        unit_id=resource_id,
-        problems=tuple(problems),
-        request_duration_seconds=preparation.request_duration_seconds,
-        current_duration_seconds=preparation.current_visual_duration_seconds,
-        request_cost=cost_payload,
-        projection=payload,
     )
 
 
@@ -1023,72 +959,67 @@ def build_storyboard_video_specs(
     return specs, refused
 
 
+async def storyboard_video_request_facts(
+    project: dict[str, Any], config_resolver: ConfigResolver | None = None
+) -> VideoRequestFacts | VideoRequestFactsFailure:
+    """分镜图生视频按项目当前配置的视频请求事实：准入与报价读同一份。"""
+
+    return await evaluate_video_request_facts(
+        project,
+        route="storyboard",
+        generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=config_resolver or ConfigResolver(async_session_factory),
+    )
+
+
 async def admit_storyboard_video_request(
     *,
     project_name: str,
     project: dict[str, Any],
-    project_path: Path,
-    script: dict[str, Any],
     script_file: str,
     items: Sequence[dict[str, Any]],
     id_field: str,
     specs: Sequence[TaskSpec],
-    request_options: ReferenceRequestOptions,
-    confirmed_request_durations: Mapping[str, int],
     operation: str,
     selection: GenerationSelectionMode,
     extra_tickets: Sequence[UnitAdmissionTicket],
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
-    tts_settings_resolver: TtsSettingsResolver | None = None,
+    video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
-    目标集取自即将入队的 spec，被拒的单元不在其中。spec 携带的 prompt 由该单元当前的
-    ``video_prompt`` 经 ``render_storyboard_video_prompt`` 渲染而来；worker 执行时重读同一
-    单元当前的 ``video_prompt``，经同一出口计算视觉依据，而该出口对已渲染文本幂等，所以这里
-    判断已付费成片能否复用，与执行时用的是同一依据。
+    目标集取自即将入队的 spec，被拒的单元不在其中。``video_request_facts`` 由已求值过的调用方
+    传入（批量预览还要用同一份事实报价），缺省时在此求值。
 
-    音频开关冲突属于请求自身已知的配置缺口，在这里与投影侧的缺口折进同一批逐目标结论：
-    留到提交前才检查，用户会先被问一遍跨档确认、同意之后才收到一句通用报错。
+    音频开关冲突属于请求自身已知的配置缺口，在这里与其余缺口折进同一批逐目标结论：
+    短路返回只会报出这一条，用户改完配置重试才撞见下一个已知缺口。
     """
 
     items_by_id = {str(storyboard_item_id(item, id_field) or ""): item for item in items}
-    targets: list[tuple[str, dict[str, Any], object]] = []
+    targets: list[tuple[str, dict[str, Any]]] = []
     for spec in specs:
         item = items_by_id.get(spec.resource_id)
         if item is None:
             raise ValueError(f"找不到待生成条目: {spec.resource_id}")
-        targets.append((spec.resource_id, item, (spec.payload or {}).get("prompt")))
+        targets.append((spec.resource_id, item))
     request_facts = (
-        await evaluate_video_request_facts(
-            project,
-            route="storyboard",
-            generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=config_resolver or ConfigResolver(async_session_factory),
-        )
-        if specs
-        else None
+        (video_request_facts or await storyboard_video_request_facts(project, config_resolver)) if specs else None
     )
     conflict_detail = await audio_switch_conflict(project, request_facts=request_facts) if specs else None
     admission = await admit_storyboard_video_batch(
         project_name=project_name,
         project=project,
-        project_path=project_path,
-        script=script,
         script_file=script_file,
         items=targets,
-        request_options=request_options,
-        confirmed_request_durations=confirmed_request_durations,
         operation=operation,
         selection=selection,
         extra_tickets=extra_tickets,
         user_id=user_id,
         queue=queue,
         config_resolver=config_resolver,
-        tts_settings_resolver=tts_settings_resolver,
         video_request_facts=request_facts,
     )
     if conflict_detail is None:
@@ -1123,8 +1054,11 @@ __all__ = [
     "request_options_for_unit",
     "resolve_reference_batch_targets",
     "resolve_voice_context",
+    "screen_storyboard_items",
     "speech_admission_problems",
     "speech_admission_ticket",
+    "storyboard_item_aliases",
     "storyboard_video_prompt",
+    "storyboard_video_request_facts",
     "video_target_states",
 ]

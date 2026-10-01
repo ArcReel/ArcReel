@@ -5,7 +5,7 @@
  * - lib/script/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
-import type { ReferenceScriptPlanDraft, ReferenceUnitCapabilityMap, ScriptReviewQuarantine } from "./reference-video";
+import type { DraftSoftViolation, ReferenceScriptPlanDraft, ReferenceUnitCapabilityMap, ScriptReviewQuarantine } from "./reference-video";
 
 export const SHOT_TYPES = [
   "Extreme Close-up",
@@ -73,7 +73,6 @@ export const CAMERA_MOTION_I18N_KEYS: Record<CameraMotion, string> = {
   Shake: "camera_motion_shake",
 };
 
-export type TransitionType = "cut" | "fade" | "dissolve";
 export type DurationSeconds = number;
 export type AssetStatus = "pending" | "storyboard_ready" | "completed";
 
@@ -125,9 +124,37 @@ export interface DramaSceneContent {
   source_text: string;
 }
 
+/** 本集新增资产的类型：只有角色、场景、道具会在规划里新增。 */
+export type NewAssetType = "character" | "scene" | "prop";
+
+/** 新增项的处理决定：登记为新资产 / 归到已有资产 / 登记为角色衍生 / 不登记。 */
+export type NewAssetDecision = "register" | "merge" | "derivative" | "skip";
+
+/**
+ * 脚本规划带出的一项本集新增资产。映射后端 lib/script/script_models.py 的 PlanNewAsset：
+ * 规划条目里的引用写 `name`，确认时按 `decision` 改写并登记。
+ */
+export interface PlanNewAsset {
+  type: NewAssetType;
+  /** 规划条目里写的称呼。 */
+  name: string;
+  decision: NewAssetDecision;
+  /** AI 给出的一句依据。 */
+  reason: string;
+  /** register：外观描述；derivative：相对本体的变化描述。 */
+  description: string;
+  /** register：原文中的其他称呼。 */
+  aliases: string[];
+  /** merge：归入的同类资产名或本集另一新增项的称呼；derivative：本体角色名。 */
+  target: string;
+  /** register：登记名；derivative：衍生名；为空时取 `name`。 */
+  asset_name: string;
+}
+
 export interface DramaNormalizedScript {
   title: string;
   scenes: DramaSceneContent[];
+  new_assets?: PlanNewAsset[];
 }
 
 export interface NarrationScriptPlanSegment {
@@ -144,6 +171,7 @@ export interface NarrationScriptPlanSegment {
 export interface NarrationScriptPlanDraft {
   segments: NarrationScriptPlanSegment[];
   episode?: number;
+  new_assets?: PlanNewAsset[];
 }
 
 export type ScriptReviewStatus =
@@ -152,13 +180,30 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
-/** 内容确认将覆盖的正式脚本：旧分镜全部移除，列出每条分镜名下已生成的产物。 */
+/** 内容确认将覆盖的正式脚本条目，及其名下无法在项目内恢复的产物与归属。 */
+export interface ScriptOverwriteEntry {
+  id: string;
+  has_storyboard: boolean;
+  has_video: boolean;
+  has_narration_audio: boolean;
+  has_end_frame: boolean;
+  /** 所属宫格（联合图）ID；不在任何宫格内为 null。 */
+  grid_id: string | null;
+}
+
+/** 内容确认将覆盖的正式脚本：旧分镜全部移除，列出每条分镜名下无法恢复的产物。 */
 export interface ScriptOverwrite {
   /** 被列出的这份正式脚本的版本；认可覆盖时原样回传，正式脚本之后又有变化则按新清单再次拒绝。 */
   revision: string;
-  entries: { id: string; has_storyboard: boolean; has_video: boolean }[];
+  entries: ScriptOverwriteEntry[];
   storyboard_count: number;
   video_count: number;
+  narration_audio_count: number;
+  end_frame_count: number;
+  grid_member_count: number;
+  grid_count: number;
+  /** 服务端生成的丢失清单文本（已按请求语言成文）；确认框原样呈现，Agent 收到同一份。 */
+  text: string;
 }
 
 /** script_plan→prompt_authoring 内容确认状态（后端 server/routers/script_review.py 的 GET 响应）。 */
@@ -171,6 +216,8 @@ export interface ScriptReviewState {
   content: DramaNormalizedScript | NarrationScriptPlanDraft | ReferenceScriptPlanDraft | null;
   /** 草稿在场时非 null（三条 script_plan 路线都可能出现），否则 null。 */
   quarantine: ScriptReviewQuarantine | null;
+  /** 正式参考规划的逐单元降级提示，只提示、不阻断。 */
+  soft_violations?: DraftSoftViolation[];
   /**
    * unit 时长可选档位，reference_video 变体才非 null（项目未配置视频型号而解析不到时也为
    * null，呈现层退回只读秒数）。与后端读时迁移收编所用的是同一份档位表——结构区间全集，不
@@ -237,7 +284,6 @@ export interface NarrationSegment {
   /** `null` = 待编写：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
-  transition_to_next: TransitionType;
   note?: string;
   /**
    * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。
@@ -267,7 +313,6 @@ export interface DramaScene {
   utterances?: Utterance[];
   /** 对应原文：内容确认时从脚本规划透传，时间线只读；手动新增的分镜为空或缺省。 */
   source_text?: string;
-  transition_to_next: TransitionType;
   note?: string;
   /**
    * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。
@@ -332,7 +377,6 @@ export interface AdShot {
   /** 待编写分镜（手动新增）为 null，由提示词编写补出。 */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
-  transition_to_next: TransitionType;
   note?: string;
   /**
    * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。
@@ -355,6 +399,42 @@ export interface AdEpisodeScript {
 }
 
 export type EpisodeScript = NarrationEpisodeScript | DramaEpisodeScript | AdEpisodeScript;
+
+/** 提示词编写的请求：范围（省略为全部待编写）、是否显式重写、附加指令与覆盖令牌。 */
+export interface AuthorPromptsRequest {
+  entry_ids?: string[] | null;
+  rewrite?: boolean;
+  instructions?: string | null;
+  overwrite_revision?: string | null;
+}
+
+/** 显式重写将覆盖的已有视觉层内容；`text` 是服务端渲染的丢失清单，`revision` 是认可令牌。 */
+export interface PromptOverwrite {
+  revision: string | null;
+  entries: { id: string; fields: string[] }[];
+  text: string;
+}
+
+export interface AuthorPromptsResponse {
+  batch: { batch_id: string; members: { unit_id: string; task_id: string | null; deduped?: boolean }[] };
+}
+
+/** AI 规划脚本的请求：附加指令（随请求按集保存）。 */
+export interface PlanScriptRequest {
+  instructions?: string | null;
+}
+
+/** 提交后立即返回的生成批次，形状同提示词编写。 */
+export type PlanScriptResponse = AuthorPromptsResponse;
+
+/** AI 修复待修复草稿：提交后立即返回的生成批次，形状同提示词编写。 */
+export type DraftRepairResponse = AuthorPromptsResponse;
+
+/** AI 修复任务成功时的结果：违约清零即已采用；未采用时草稿里还剩的违约数。 */
+export interface DraftRepairTaskResult {
+  adopted: boolean;
+  violation_count: number;
+}
 
 /**
  * 一侧提示词的最终渲染结果。`text` 与 `unavailable` 恰有一个非 null；

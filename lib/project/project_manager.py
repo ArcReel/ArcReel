@@ -41,6 +41,7 @@ from lib.agent.profile_manifest import (
 )
 from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor
 from lib.artifacts.formal_write import formal_write_transaction, project_metadata_lock
+from lib.episode.episode_ids import raise_episode_id_high_water
 from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -48,12 +49,14 @@ from lib.episode.episode_paths import (
     episode_script_filename,
     episode_script_relpath,
 )
+from lib.episode.episode_sources import SOURCE_ORIGIN_FIELD, WHOLE_SOURCE_FILES_KEY, SourceOrigin
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
+from lib.episode.source_kinds import project_overview_source_kind
 from lib.infra.app_data_dir import app_data_dir
 from lib.infra.content_digest import canonical_json_digest
 from lib.infra.data_root_layout import PROJECT_FILENAME, PROJECT_NAME_PATTERN, DataRootLayout, list_project_dirs
@@ -70,27 +73,36 @@ from lib.project.asset_rename import (
     rewrite_payload_references,
 )
 from lib.project.asset_types import (
+    ALIASES_FIELD,
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
-    asset_name_comparison_key,
+    build_asset_entry,
     ensure_project_asset_name_available,
     ensure_project_asset_namespace,
     find_project_asset_name,
     normalize_asset_bucket,
     normalize_asset_name,
+    record_asset_aliases,
     rekey_equivalent_entries,
     resolve_asset_key,
     validate_asset_name,
 )
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_schema import parse_project_schema_version
+from lib.project.script_entry_cleanup import purge_replaced_entry_media
 from lib.references.reference_catalog import derivative_reference
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_models import get_generated_assets
 from lib.speech.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
+from lib.speech.narration_config import (
+    NARRATION_CONFIG_FIELDS,
+    NARRATION_DELIVERY_FIELD,
+    POST_PRODUCTION,
+    validate_project_narration_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +113,6 @@ PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 # 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
 VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
 _DEFAULT_GENERATION_MODE = "storyboard"
-
-# 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
-# 顶层字段，创建时确定、之后不可变。novel（默认，现状改编链路）/ screenplay（成品剧本，
-# drama 链路翻为提取优先）。详见 docs/adr/0036 与 CONTEXT.md「源文件类型」词条。
-SourceKind = Literal["novel", "screenplay"]
-VALID_SOURCE_KINDS: frozenset[str] = frozenset({"novel", "screenplay"})
-DEFAULT_SOURCE_KIND: SourceKind = "novel"
 
 
 class _Unset:
@@ -207,14 +212,6 @@ def is_reference_video_project(project: Mapping[str, Any]) -> bool:
     （见 ``script_generator``），只看剧本判不出参考生视频。
     """
     return project.get("generation_mode") == "reference_video"
-
-
-def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
-    """项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。"""
-    value = project.get("source_kind")
-    if isinstance(value, str) and value in VALID_SOURCE_KINDS:
-        return cast(SourceKind, value)
-    return DEFAULT_SOURCE_KIND
 
 
 def _resolve_items_or_warn(script: dict, *, script_filename: str | None = None) -> list[Any]:
@@ -700,7 +697,7 @@ class ProjectManager:
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
             expected_fingerprint: 可选的正式剧本内容基线；在剧本锁内不匹配时拒绝写入。
-            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；它们名下的产物登记随本次写入撤销。
+            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；撤销产物登记，并在剧本锁内清理旧媒体与历史。
             project_update: 与剧本、集索引同一写事务内对 project.json 的额外修改；仅带集号的剧本可用。
 
         Returns:
@@ -770,7 +767,7 @@ class ProjectManager:
 
                 prepare_on_commit = _prepare_manifest_commit
 
-            return self._commit_script_unlocked(
+            output = self._commit_script_unlocked(
                 project_name,
                 script,
                 filename,
@@ -779,6 +776,9 @@ class ProjectManager:
                 prepare_on_commit=prepare_on_commit,
                 project_update=project_update,
             )
+            # 替换已提交，仍持剧本锁：新条目的媒体不能在旧身份清理完成前落盘。
+            purge_replaced_entry_media(self.get_project_path(project_name), replaced_resource_ids)
+            return output
 
     def _commit_script_unlocked(
         self,
@@ -1239,12 +1239,12 @@ class ProjectManager:
         episodes = project.setdefault("episodes", [])
         episode_entry: dict[str, Any] | None = next((ep for ep in episodes if ep["episode"] == episode_num), None)
         if episode_entry is None:
-            episode_entry = {"episode": episode_num}
+            # 剧本先于账本条目落盘的集没有登记过集原文
+            episode_entry = {"episode": episode_num, SOURCE_ORIGIN_FIELD: SourceOrigin.NONE.value}
             episodes.append(episode_entry)
         # 同步核心元数据（不包含统计字段，统计字段由项目摘要读时计算）
         episode_entry["title"] = episode_title
         episode_entry["script_file"] = script_file
-        episodes.sort(key=lambda x: x["episode"])
 
         logger.info("已同步剧集信息: Episode %d - %s", episode_num, episode_title)
 
@@ -1869,9 +1869,8 @@ class ProjectManager:
     def locked_source_mutation(self, project_name: str) -> Generator[Path]:
         """Serialize source-file mutations with project transactions.
 
-        Workflow facts such as asset-inventory completion compute source revisions while
-        holding the project lock. Source writers must use this context so a revision check
-        and its matching project.json commit observe one immutable source snapshot.
+        Source writers must use this context so a source-file change and its matching
+        project.json commit observe one immutable source snapshot.
         """
         project_path = self.get_project_path(project_name)
         with self._project_lock(project_name):
@@ -1880,6 +1879,36 @@ class ProjectManager:
                 raise ValueError("source 目录不得是符号链接或 junction")
             source_dir.mkdir(parents=True, exist_ok=True)
             yield source_dir
+
+    @contextmanager
+    def locked_source_registration(self, project_name: str) -> Generator[tuple[Path, dict, ExitStack]]:
+        """:meth:`locked_source_mutation` 的登记变体：源文文件与 project.json 的登记在同一把项目锁内改。
+
+        产出 ``(source_dir, project, undo)``；块内就地修改 ``project``（整本源文清单、分集账本），块正常
+        退出且 ``project`` 有变化时写回 ``project.json``。调用方每改一处盘上文件，就把它的撤销回调登记进
+        ``undo``；块内抛错或写回 ``project.json`` 失败时不写回，并在锁内按登记的逆序执行这些回调。
+        """
+        project_file = self._get_project_file_path(project_name)
+        changed = False
+        with self.locked_source_mutation(project_name) as source_dir:
+            project = self._read_project_raw_unlocked(project_name)
+            before = json.dumps(project, sort_keys=True, ensure_ascii=False)
+            undo = ExitStack()
+            try:
+                yield source_dir, project, undo
+                if json.dumps(project, sort_keys=True, ensure_ascii=False) != before:
+                    self._apply_project_mutation_unlocked(project, lambda _project: None)
+                    atomic_write_json(project_file, project)
+                    changed = True
+            except BaseException:
+                try:
+                    undo.close()
+                except Exception:
+                    logger.exception("撤销源文改动失败: %s", project_name)
+                raise
+            undo.pop_all()
+        if changed:
+            emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
 
     @asynccontextmanager
     async def async_file_lock(
@@ -2133,6 +2162,8 @@ class ProjectManager:
 
         if self._requires_unique_asset_namespace(project):
             ensure_project_asset_namespace(project)
+        # 变更可能把条目移出账本：先让历史最高号记下变更前的集 ID
+        raise_episode_id_high_water(project)
         mutate_fn(project)
         if self._requires_unique_asset_namespace(project):
             ensure_project_asset_namespace(project)
@@ -2257,6 +2288,8 @@ class ProjectManager:
 
     @staticmethod
     def _touch_metadata(project: dict) -> None:
+        """每次写 project.json 前的收尾：刷新更新时间，并让历史最高号覆盖账本里的集 ID。"""
+        raise_episode_id_high_water(project)
         now = datetime.now(UTC).isoformat()
         if "metadata" not in project:
             project["metadata"] = {"created_at": now, "updated_at": now}
@@ -2300,6 +2333,7 @@ class ProjectManager:
         "episode": 1,
         "title": "",
         "script_file": episode_script_relpath(1),
+        SOURCE_ORIGIN_FIELD: SourceOrigin.NONE.value,
     }
     # 创建入口未传 target_duration 时的数据层兜底（与创建向导默认档位同值）
     AD_DEFAULT_TARGET_DURATION = 60
@@ -2317,7 +2351,7 @@ class ProjectManager:
         extras: dict | None = None,
         target_duration: int | None = None,
         brief: str | None = None,
-        source_kind: str | None = None,
+        narration: Mapping[str, object] | None = None,
     ) -> dict:
         """
         创建新的项目元数据文件
@@ -2333,15 +2367,12 @@ class ProjectManager:
         `episode_target_duration` 为单集目标时长（秒），取值区间见
         `lib.episode.episode_target_duration`；软偏好，只注入脚本规划提示词与审核面板对比，不做阻断。
 
-        `source_kind` 为源文件性质（novel / screenplay），缺省 novel，创建即定、之后不可变
-        （可变性守卫在路由 PATCH 层，与 content_mode 同性质）。
+        `narration` 是旁白交付配置字段（交付方式与 TTS 快照，见 `lib.speech.narration_config`），
+        缺省为后期配音；TTS 配音必须带完整快照。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
         resolved_mode = content_mode or "narration"
-        resolved_source_kind = DEFAULT_SOURCE_KIND if source_kind is None else source_kind
-        if resolved_source_kind not in VALID_SOURCE_KINDS:
-            raise ValueError(f"source_kind 值无效: {source_kind!r}，必须是 {sorted(VALID_SOURCE_KINDS)}")
 
         # 数据层守卫：模式专属字段互斥。路由层已返回 400，这里再兜一道防非路由调用方。
         if resolved_mode == "ad":
@@ -2369,19 +2400,25 @@ class ProjectManager:
             # 风格的 project_name 固化为用户可见的标题。
             "title": project_title,
             "content_mode": resolved_mode,
-            "source_kind": resolved_source_kind,
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
-            "planning_cursor": None,
+            WHOLE_SOURCE_FILES_KEY: [],
             "characters": {},
             "scenes": {},
             "props": {},
+            NARRATION_DELIVERY_FIELD: POST_PRODUCTION,
             "metadata": {
                 "created_at": datetime.now(UTC).isoformat(),
                 "updated_at": datetime.now(UTC).isoformat(),
             },
         }
+        if narration is not None:
+            unknown = set(narration) - set(NARRATION_CONFIG_FIELDS)
+            if unknown:
+                raise ValueError(f"narration 只接受旁白交付配置字段，收到: {sorted(unknown)}")
+            project.update(narration)
+            validate_project_narration_config(project)
         if resolved_mode == "ad":
             project["target_duration"] = (
                 target_duration if target_duration is not None else self.AD_DEFAULT_TARGET_DURATION
@@ -2453,9 +2490,8 @@ class ProjectManager:
                     ep["title"] = title
                     ep["script_file"] = script_file
                     return
-            # 添加新剧集（不包含统计字段，由项目摘要读时计算）
+            # 新剧集接在播出顺序末尾（不包含统计字段，由项目摘要读时计算）
             project["episodes"].append({"episode": episode, "title": title, "script_file": script_file})
-            project["episodes"].sort(key=lambda x: x["episode"])
 
         return self.update_project(project_name, _mutate)
 
@@ -2974,6 +3010,8 @@ class ProjectManager:
             entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
             if isinstance(entry, dict):
                 rewrite_entry_paths(entry, spec, old_key, new_clean)
+                if ALIASES_FIELD in spec.extra_list_fields:
+                    record_asset_aliases(entry, (old_key,), asset_name=new_clean)
                 rewrite_derivative_sheet_paths(
                     entry, old_owner=old_key, new_owner=new_clean, renames=derivative_renames
                 )
@@ -3232,32 +3270,6 @@ class ProjectManager:
             raise KeyError(f"{spec.label_zh} '{name}' 不存在")
         return bucket[key]
 
-    def _get_pending_assets(self, asset_type: str, project_name: str) -> list[dict]:
-        """Return assets without a usable formal sheet, per the Artifact Manifest.
-
-        Registration is the whole verdict: a sheet whose file was deleted is
-        pending again, and an unmigrated project is refused rather than served
-        from a second reading rule.
-        """
-
-        from lib.artifacts.artifact_activation import active_artifact_currency_resolver, artifact_is_usable
-        from lib.artifacts.artifact_manifest import ArtifactKey
-
-        spec = ASSET_SPECS[asset_type]
-        project = self.load_project(project_name)
-        project_dir = self.get_project_path(project_name)
-        resolver = active_artifact_currency_resolver(project_dir, project)
-        pending = []
-        for name, entry in (project.get(spec.bucket_key) or {}).items():
-            usable = artifact_is_usable(
-                resolver,
-                ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
-                entry.get(spec.sheet_field),
-            )
-            if not usable:
-                pending.append({"name": name, **entry})
-        return pending
-
     def _get_asset_path(self, asset_type: str, project_name: str, filename: str) -> Path:
         """获取资产文件在项目目录下的绝对路径。"""
         spec = ASSET_SPECS[asset_type]
@@ -3475,10 +3487,6 @@ class ProjectManager:
         """获取场景定义"""
         return self._get_asset("scene", project_name, name)
 
-    def get_pending_project_scenes(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 scene_sheet 的场景；项目未迁移时阻断。"""
-        return self._get_pending_assets("scene", project_name)
-
     def get_scene_path(self, project_name: str, filename: str) -> Path:
         """获取场景资产图路径"""
         return self._get_asset_path("scene", project_name, filename)
@@ -3493,17 +3501,9 @@ class ProjectManager:
         """获取道具定义"""
         return self._get_asset("prop", project_name, name)
 
-    def get_pending_project_props(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 prop_sheet 的道具；项目未迁移时阻断。"""
-        return self._get_pending_assets("prop", project_name)
-
     def get_prop_path(self, project_name: str, filename: str) -> Path:
         """获取道具资产图路径"""
         return self._get_asset_path("prop", project_name, filename)
-
-    def get_pending_characters(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 character_sheet 的角色；项目未迁移时阻断。"""
-        return self._get_pending_assets("character", project_name)
 
     # ==================== 商品管理（product） ====================
 
@@ -3514,10 +3514,6 @@ class ProjectManager:
     def get_product(self, project_name: str, name: str) -> dict:
         """获取商品定义"""
         return self._get_asset("product", project_name, name)
-
-    def get_pending_project_products(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 product_sheet 的商品；项目未迁移时阻断。"""
-        return self._get_pending_assets("product", project_name)
 
     def get_product_path(self, project_name: str, filename: str) -> Path:
         """获取商品图片路径"""
@@ -3548,31 +3544,8 @@ class ProjectManager:
 
     @staticmethod
     def _build_asset_entry(asset_type: str, description: str, source: dict | None = None) -> dict:
-        """按 ASSET_SPECS 构造 entry：description + sheet 字段为空 + extra 字段从 source 取或默认。
-
-        source 为 None 时（add_character 等单条新增），仅写入 spec 中声明的 extra 字段
-        默认值（字符串字段空串、列表字段空列表）；source 提供时（batch 新增），同时允许
-        覆盖 sheet 字段。source 中的非法类型不在此处修正，由落盘前的结构校验 fail-loud。
-
-        开启 ``supports_derivatives`` 的类型一律初始化为空衍生表，衍生本身由调用方按各自的
-        写入口径并入（衍生子资源端点直写，Agent 入口经 ``lib.project.asset_derivatives``）。
-        """
-        spec = ASSET_SPECS[asset_type]
-        data = source or {}
-        entry: dict = {"description": description, spec.sheet_field: data.get(spec.sheet_field, "")}
-        for field in spec.extra_string_fields:
-            entry[field] = data.get(field, "")
-        for field in spec.extra_list_fields:
-            value = data.get(field)
-            if isinstance(value, list):
-                entry[field] = list(value)  # 复制，避免 entry 与调用方共享同一列表对象
-            elif value is None:
-                entry[field] = []
-            else:
-                entry[field] = value  # 非法类型透传，由落盘前结构校验 fail-loud
-        if spec.supports_derivatives:
-            entry[DERIVATIVES_FIELD] = {}
-        return entry
+        """按 ASSET_SPECS 构造新条目，见 :func:`lib.project.asset_types.build_asset_entry`。"""
+        return build_asset_entry(asset_type, description, source)
 
     def add_character(self, project_name: str, name: str, description: str, voice_style: str = "") -> bool:
         """直接添加角色到 project.json；同类型已存在返回 False，跨类型冲突则抛错。"""
@@ -3727,10 +3700,10 @@ class ProjectManager:
             TextTaskType.OVERVIEW, project_name, purpose=CallPurpose.PROJECT_OVERVIEW
         )
 
-        # 调用 TextGenerator（Structured Outputs）。source_kind=screenplay 时翻为「提取优先」：
-        # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳（novel 行为不变）。
+        # 调用 TextGenerator（Structured Outputs）。全部源文都是剧本时翻为「提取优先」：
+        # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳；混合时按小说口径。
         project_data = self.load_project(project_name)
-        source_kind = resolve_source_kind(project_data)
+        source_kind = project_overview_source_kind(project_data)
         # source_language 来自 project.json，可能是非字符串脏数据；非字符串或空串回退默认语言
         raw_source_language = project_data.get("source_language")
         target_language = (

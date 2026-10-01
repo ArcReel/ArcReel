@@ -94,12 +94,10 @@ flowchart TD
     MAIN --> SKILL["Workflow Orchestration Skill"]
     SKILL --> STATE["Read Project State"]
     STATE --> DECIDE{"Next Stage"}
-    DECIDE --> A["Character / Scene / Prop Analysis Subagent"]
     DECIDE --> B["Episode Planning Subagent"]
     DECIDE --> C["Script Normalization Subagent"]
     DECIDE --> D["Asset Generation Subagent"]
-    A --> SUMMARY["Condensed Summary"]
-    B --> SUMMARY
+    B --> SUMMARY["Condensed Summary"]
     C --> SUMMARY
     D --> SUMMARY
     SUMMARY --> MAIN
@@ -123,11 +121,13 @@ The orchestration layer should not perform all content reasoning itself, because
 
 Each Subagent focuses on one task, such as:
 
-- extracting characters, scenes, and props;
 - splitting narration segments;
 - normalizing episodic drama scripts;
+- splitting reference-to-video units;
 - producing a structured script for one episode;
 - generating assets.
+
+The first three are script planning tasks, and they also identify the new assets in the episode.
 
 Large amounts of source novel text and intermediate reasoning should remain within the Subagent whenever possible. The main Agent receives summaries and references to results.
 
@@ -361,14 +361,29 @@ Design principles:
 
 After media generation is complete, there are two output paths.
 
+### Edit Timelines {#edit-timelines}
+
+An edit timeline is a named set of editing decisions for one episode. An episode can have multiple timelines, stored under `edit_timelines/episode_{N}/{timeline_id}.json` in the project directory. Each file contains a stable ID, display name, clip number allocators, and immutable revisions recording the author, summary, parent revision, and Agent turn. Timelines are formal content included in project archive exports and imports, rather than artifact manifest entries.
+
+`lib/edit_timeline/` owns mechanical creation, listing, and reading. The HTTP endpoints are `POST /api/v1/projects/{project_name}/episodes/{episode}/edit-timelines`, `GET /api/v1/projects/{project_name}/edit-timelines`, and `GET /api/v1/projects/{project_name}/edit-timelines/{timeline_id}`. The Agent tools `create_timeline`, `list_timelines`, and `read_timeline` call the same service. Writes use an episode file lock and atomic replacement; Agents cannot write directly into this directory.
+
+Batch editing goes through the Agent tool `edit_timeline`, which calls the service `edit` command. Under the episode file lock, the service reads the latest revision, checks `base_revision`, applies a batch of operations addressed by clip ID, and appends exactly one revision.
+
+Each revision records the clip IDs it actually changed. When `base_revision` is stale, the service accumulates the changes from every intervening revision and checks the batch's side effects on both the base and latest content. If none of the involved clips has changed and every clip whose transition the batch sets is followed by the same clip in both revisions, the batch applies on top of the latest revision; otherwise, the write is rejected with `revision_conflict`. Older revisions without a change record use per-revision content diffs.
+
+Inserts, deletes, and moves reset every cut whose neighbours change to a hard cut. At most one clip per video unit carries its narration, and clip numbers are never reused.
+
+Clips reference each video unit's current video and do not automatically follow script additions or deletions. Internal times are integer microseconds. Reads probe actual media durations and return seconds with at most three decimal places, including absolute clip starts, narration intervals, and structural issues. Trims retain their basis version; switching versions makes duration calculations use the full video. Source volume defaults depend on speech ownership. Revisions store transitions, tail holds, and BGM decisions, while subtitle text and narration delivery variants stay outside the edit timeline.
+
 ### Final Composition {#final-composition}
 
-FFmpeg handles:
+A final cut is rendered from one revision of an edit timeline. Its artifact identity is episode + edit timeline + narration version + whether subtitles are burned in. Only the latest file is kept per identity, at `renders/episode_{N}/{timeline_id}/final_cut.{narration}.{subtitles}.mp4`, with a same-named `.render.json` render record beside it that stores the version (incremented on each registration) and the render time. Rendering currently supports only final cuts with hard cuts, no narration, and no burned-in subtitles. When an edit timeline contains transitions, BGM, or blocking issues, the submission is refused before anything is queued.
 
-- clip concatenation;
-- transitions;
-- audio;
-- final encoding.
+Rendering runs on the generation queue's `render` lane. The lane is not bound to a provider, its global concurrency is fixed at 1 and not configurable, and it writes no usage records. A render interrupted by a server restart is marked failed instead of being requeued, and temporary files are removed. Rendering uses the bundled ffmpeg: each hard-cut segment is normalized to the project canvas at a fixed 30 fps and encoded separately, where trims and tail holds take effect, and clip boundaries are rounded to the frame grid on cumulative timeline time. Audio is not segmented: the whole episode is mixed into one audio track using each clip's source volume, which is then muxed with the video segments concatenated by `-c copy`.
+
+`lib/artifacts/rendered_artifact.py` is the registration flow shared by locally rendered artifacts: take the basis snapshot when the task starts, render into a hidden temporary file inside the formal directory, accept it with the media probe (both streams present, durations within tolerance), then forget the previous claim, atomically replace the formal file, write the version record, and finally register it with the snapshot basis. If writing the version record fails, the artifact has no claim and reads missing. The final-cut basis contains only consumed content (the edit timeline ID and revision number, each clip's video version, content digest, and provider-audio switch, the effective trim, hold, and source volume, and the output canvas). As in Jianying drafts, a video whose version record says provider audio was not generated contributes no audio. Registration and currency comparison share one builder in `lib/final_cut/basis.py`. A final cut therefore reads stale when the edit timeline changes during rendering or when an older revision is rendered explicitly. `renders/` is not included in project archives, so final cuts read missing after import.
+
+The HTTP endpoints are `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut` (optional `revision`, defaulting to the latest revision at submission; returns the task ID) and `GET` on the same path (returns currency, version, and download URL); downloads go through the public media file route. Hidden temporary files, render records, and Jianying draft zip files cannot be read anonymously. The Agent tool `render_final_cut` is declared as a long task: the ArcReel Agent waits for the render and receives a download URL, while external Agents receive a generation batch handle to poll.
 
 ### Jianying Draft {#jianying-draft}
 
@@ -383,11 +398,15 @@ Export an editable project structure to:
 
 The ability to continue editing is an important difference between ArcReel and generation tools that output only a single video file.
 
+A Jianying draft rendered from an edit timeline is an artifact identified by episode, edit timeline, and narration version (`without_narration` or `with_narration`; the narrated version is available only to TTS voiceover projects), stored at `renders/episode_{N}/{timeline_id}/jianying_draft.{narration}.zip`. Like the final cut, the export is a `render` lane task (`render_jianying_draft`) written through the same basis snapshot → temporary file → acceptance → atomic replacement and registration flow; each artifact identity keeps only its latest file and records a version number. `server/services/presentation/timeline_jianying_draft.py` rejects blocking issues for the selected narration version both before queueing and when the task starts, and shares the final cut's check that refuses edit timelines with transitions or BGM; like the final cut, it also refuses an edit timeline with no clips left to export. It then uses each video unit's current presentation as the material layer and maps trims, source volume, tail holds (a still of the out-point frame), the narration track (narrated version only), and the subtitle track (Source Han Sans CN Bold) into the draft. Its basis records the edit timeline revision number, the rendered part of that revision, the aspect ratio, and each unit's presentation basis. Clip reasons do not enter the basis on their own, but any new revision makes a draft exported from an older revision read stale, and so do media changes.
+
+The artifact zip holds only draft files, freeze-frame stills, and a media index, with media paths written as placeholders. The HTTP endpoints are `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft` (optional `revision` and `narration`; an omitted `revision` means the latest revision at submission, and an omitted `narration` defaults to the narrated version for TTS voiceover projects and the non-narrated version otherwise; returns the task ID) and `GET` on the same path (returns currency and version). The download `GET .../jianying-draft/download` checks the project download token, then substitutes the local draft directory and Jianying version (`draft_content.json` for 5.x, `draft_info.json` for 6+) and packs media from the project's version snapshots. The public media file route does not serve draft zip files. The Agent tool `export_jianying_draft` is declared as a long task and is called the same way as `render_final_cut`, but its terminal result carries no download URL. Like final cuts, drafts read missing after an archive import.
+
 ### Presentation Read Model {#presentation-read-model}
 
 Browser preview, editable bundle download, and Jianying draft export do not derive audio, subtitles, or timing independently. They consume one presentation read model that fixes the selected video version, optional TTS version, actual media duration, original-audio policy, subtitle timing, and current or historical status. Subtitles and presentation descriptors for a current selection are materialized under `subtitles/` and `presentations/` respectively and registered in the project Artifact Manifest. Historical selections are read-only and never replace the current materialization.
 
-A manually uploaded video without generation provenance uses an explicit raw-only branch: ArcReel preserves the original video, does not infer a provenance basis or currency, generates no TTS or subtitles, and registers no derived presentation. All three output entry points therefore share the same selection while keeping unavailable provenance distinct from verified provenance.
+A manually uploaded video has no generation provenance and uses an explicit raw-only branch: ArcReel preserves the original video, generates no TTS or subtitles, and registers no derived presentation. The video itself is registered in the Artifact Manifest by its uploaded bytes, so its currency changes only with the selected version and the file bytes. All three output entry points therefore share the same selection while keeping unavailable provenance distinct from verified provenance.
 
 ## 14. Authentication and External Integrations {#auth-and-integrations}
 

@@ -1,13 +1,16 @@
 import { RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { CallType, UsageSummary } from "@/types";
+import type { CallType, EpisodeItemRef, UsageSummary } from "@/types";
 import type { UsageRecordsFilters, UsageTimeRange } from "@/stores/usage-records-store";
+import { episodeItemRefLabel } from "@/utils/episode-display";
 import { MEDIA_META, providerLabelResolver } from "./usage-record-format";
 
 interface UsageFilterBarProps {
   filters: UsageRecordsFilters;
   summary: UsageSummary | null;
+  /** 分镜筛选值所属集的标题与播出位置，取自已载入的记录；没有时显示未命名集与集内 ID。 */
+  segmentRef?: EpisodeItemRef | null;
   onChange: (patch: Partial<UsageRecordsFilters>) => void;
   onRefresh: () => void;
   refreshing: boolean;
@@ -32,6 +35,7 @@ const SELECT_CLS =
 export function UsageFilterBar({
   filters,
   summary,
+  segmentRef = null,
   onChange,
   onRefresh,
   refreshing,
@@ -75,7 +79,7 @@ export function UsageFilterBar({
   if (filters.segment) {
     chips.push({
       key: "segment",
-      label: t("usage_target_segment", { id: filters.segment }),
+      label: t("usage_target_segment", { id: episodeItemRefLabel(filters.segment, segmentRef, t) }),
       clear: { segment: null },
     });
   }

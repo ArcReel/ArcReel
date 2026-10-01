@@ -13,7 +13,7 @@ import pytest
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.backends import CustomImageBackend
 from lib.custom_provider.capabilities import system_video_capabilities
-from lib.custom_provider.loader import load_custom_backend
+from lib.custom_provider.loader import custom_model_max_output_tokens, load_custom_backend
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
 
@@ -207,3 +207,20 @@ class TestVideoCapabilityOverridesReachExecution:
         )
         result = await load_custom_backend(session=db_session, provider_id=pid, model_id="dall-e-3", media_type="image")
         assert isinstance(result, CustomImageBackend)
+
+
+class TestCustomModelMaxOutputTokens:
+    async def test_reads_the_limit_registered_on_the_model_entry(self, async_session):
+        pid = await _seed(
+            async_session,
+            models=[
+                {"model_id": "my-llm", "endpoint": "openai-chat", "is_enabled": True, "max_output_tokens": 8192},
+                {"model_id": "bare-llm", "endpoint": "openai-chat", "is_enabled": True},
+            ],
+        )
+
+        registered = await custom_model_max_output_tokens(session=async_session, provider_id=pid, model_id="my-llm")
+        bare = await custom_model_max_output_tokens(session=async_session, provider_id=pid, model_id="bare-llm")
+        missing = await custom_model_max_output_tokens(session=async_session, provider_id=pid, model_id="gone")
+
+        assert (registered, bare, missing) == (8192, None, None)

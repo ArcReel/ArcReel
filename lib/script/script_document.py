@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from lib.episode.episode_ids import default_episode_title
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 from lib.script.script_plan_entries import ScriptPlanKind, plan_entry_content, plan_variant
 from lib.script.script_skeleton import resolve_declared_kind, resolve_kind_items, rewrite_episode_prefix
@@ -20,6 +21,9 @@ from lib.speech.speech_composition import admit_script_unit
 
 #: 内容确认转出的剧本写进 ``metadata.generator`` 的标记：条目是按脚本规划投影出来的，不经文本模型。
 SCRIPT_PLAN_CONVERSION_GENERATOR = "script_plan_conversion"
+
+#: 「从空白开始」建出的剧本写进 ``metadata.generator`` 的标记：条目由创作者手写，不经文本模型。
+BLANK_SCRIPT_GENERATOR = "blank"
 
 
 def episode_ledger_entry(project: Mapping[str, Any], episode: int) -> dict[str, Any]:
@@ -106,7 +110,7 @@ def finish_script_document(
     if not isinstance(novel, dict) or not novel.get("title") or not novel.get("chapter"):
         script_data["novel"] = {
             "title": project.get("title", ""),
-            "chapter": f"第{episode}集",
+            "chapter": default_episode_title(project, int(episode)),
         }
     # 剥离已废弃的 source_file（AI 可能虚构）
     novel = script_data.get("novel")
@@ -147,7 +151,7 @@ def build_materialized_script(
     """把脚本规划条目投影成一份整集正式剧本，不写盘、不读脚本规划文件。
 
     全部条目待编写、视觉层为空；参考生视频的单元正文、时长与对应原文取自脚本规划。标题取规划标题，
-    否则取分集账本标题，再否则按集号兜底。内容确认与存量项目迁移共用这一份投影。
+    否则取分集账本标题，再否则按播出位置兜底。内容确认与存量项目迁移共用这一份投影。
     """
 
     items: list[dict[str, Any]] = []
@@ -157,9 +161,7 @@ def build_materialized_script(
             content = {**content, "image_prompt": None, "video_prompt": None}
         items.append(content)
     items_key = plan_variant(plan_kind).skeleton_kind
-    episode_title = episode_ledger_entry(project, episode).get("title")
-    fallback_title = episode_title if isinstance(episode_title, str) and episode_title.strip() else f"第{episode}集"
-    script_data: dict[str, Any] = {"title": title or fallback_title, items_key: items}
+    script_data: dict[str, Any] = {"title": title or default_episode_title(project, episode), items_key: items}
     prepare_script_entries(script_data, project=project, episode=episode)
     finish_script_document(script_data, project=project, episode=episode, generator=SCRIPT_PLAN_CONVERSION_GENERATOR)
     for item in script_data[items_key]:
@@ -167,8 +169,21 @@ def build_materialized_script(
     return script_data
 
 
+def build_blank_script(project: Mapping[str, Any], episode: int) -> dict[str, Any]:
+    """「从空白开始」的整集正式剧本：按项目两轴定骨架，条目数组为空，不写盘。
+
+    标题取分集账本标题，否则按播出位置兜底。
+    """
+    items_key = resolve_declared_kind(project.get("content_mode"), project.get("generation_mode"))
+    script_data: dict[str, Any] = {"title": default_episode_title(project, episode), items_key: []}
+    prepare_script_entries(script_data, project=project, episode=episode)
+    return finish_script_document(script_data, project=project, episode=episode, generator=BLANK_SCRIPT_GENERATOR)
+
+
 __all__ = [
+    "BLANK_SCRIPT_GENERATOR",
     "SCRIPT_PLAN_CONVERSION_GENERATOR",
+    "build_blank_script",
     "build_materialized_script",
     "episode_ledger_entry",
     "finish_script_document",

@@ -7,9 +7,6 @@ export default {
   'settings': 'Cài đặt',
   'logout': 'Đăng xuất',
   'cancel': 'Hủy',
-  'conflict_modal_title': 'Đã có tệp trùng tên',
-  'conflict_modal_desc': 'Bạn muốn xử lý "{{filename}}" như thế nào?',
-  'keep_both': 'Giữ cả hai',
   'replace': 'Thay thế',
   'download_original': 'Tải về định dạng gốc',
   'confirm': 'Xác nhận',
@@ -56,4 +53,7 @@ export default {
   'elapsed_running': 'Đã chạy {{duration}}',
   'elapsed_queued': 'Đã chờ {{duration}}',
   'elapsed_total': 'Mất {{duration}}',
+  'episode_position_name': 'Tập {{position}}',
+  'episode_unlisted_name': 'Tập chưa đặt tên',
+  'episode_agent_ref': '"{{name}}" (ID tập {{id}})',
 } satisfies Record<keyof typeof enCommon, string>;

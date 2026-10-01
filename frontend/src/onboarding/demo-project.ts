@@ -47,8 +47,6 @@ export function isDemoProject(name: string | null | undefined): boolean {
 }
 
 const DEMO_STATUS: ProjectStatus = {
-  phase: "production",
-  phase_progress: 0.62,
   needs_repair: false,
   repair_reason: null,
   assets: {
@@ -228,7 +226,6 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
   return {
     title: t("demo_project_title"),
     content_mode: "narration",
-    source_kind: "novel",
     style: t("demo_project_style"),
     aspect_ratio: "9:16",
     default_duration: 5,
@@ -279,7 +276,6 @@ export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScrip
         ambiance_audio: t(`demo_shot_${n}_audio`),
         dialogue: [],
       },
-      transition_to_next: skeleton.segmentBreak ? "fade" : "cut",
       generated_assets: {
         storyboard_image: skeleton.hasStoryboard
           ? demoPlaceholder(segmentId, "storyboard")

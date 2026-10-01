@@ -55,7 +55,7 @@ ArcReel uses two types of credentials for different purposes.
 
 #### AI Assistant Credentials {#assistant-credentials}
 
-These credentials power project conversations, content understanding, character extraction, episode planning, and workflow orchestration.
+These credentials power project conversations, content understanding, episode planning, script planning (including asset identification), and workflow orchestration.
 
 You can use Anthropic's official service or a compatible service supported by ArcReel, and configure the Base URL and model name as needed.
 
@@ -218,7 +218,7 @@ On the project list page, click **New Project**.
 
 #### Novel {#source-novel}
 
-Best for projects that need to extract characters, plan episodes, and adapt a script from original source material.
+Best for projects that need to plan episodes, identify assets, and adapt a script from original source material.
 
 For your first upload, use:
 

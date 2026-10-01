@@ -7,6 +7,7 @@ backend 实例缓存留在调用方编排层、不进缝。
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
@@ -63,3 +64,33 @@ async def assemble_backend(
     spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
     return spec.build_backend(config, model_id)
+
+
+@dataclass(frozen=True)
+class OutputLimitFacts:
+    """模型在请求输出上限与截断出路上需要的事实。"""
+
+    #: 模型登记的最大输出长度（单位 token）；未登记时 None。
+    registered_max_output_tokens: int | None
+    #: 模型由自定义供应商提供。
+    custom_model: bool
+
+
+async def output_limit_facts(*, provider_id: str, model_id: str, resolver: ConfigResolver) -> OutputLimitFacts:
+    """读取模型登记的最大输出长度。
+
+    与 :func:`assemble_backend` 同一道门分流：内置模型读注册表，自定义供应商的模型读模型条目。
+    """
+    if is_custom_provider(provider_id):
+        from lib.custom_provider.loader import custom_model_max_output_tokens
+
+        async with resolver._open_session() as (session, _):
+            registered = await custom_model_max_output_tokens(
+                session=session, provider_id=provider_id, model_id=model_id
+            )
+        return OutputLimitFacts(registered_max_output_tokens=registered, custom_model=True)
+    meta = PROVIDER_REGISTRY.get(provider_id)
+    info = meta.models.get(model_id) if meta is not None else None
+    return OutputLimitFacts(
+        registered_max_output_tokens=info.max_output_tokens if info is not None else None, custom_model=False
+    )

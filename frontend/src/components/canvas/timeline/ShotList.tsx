@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import type { NarrationSegment, AdShot } from "@/types";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -11,6 +11,9 @@ import {
   type EditorContentMode,
   type ScriptItem,
 } from "@/utils/script-shape";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { dropAnchor } from "@/utils/move-anchor";
+import { InsertShotButton, type InsertShotHandler } from "./ShotStructureActions";
 
 type Segment = ScriptItem;
 type ListContentMode = EditorContentMode;
@@ -25,6 +28,14 @@ interface ShotListProps {
   onToggleCollapse: () => void;
   /** 接收滚动容器 ref，外部可挂载 useScrollTarget */
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  /** 追加一条分镜到末尾；缺省时列表头部不显示新增按钮。 */
+  onAppend?: InsertShotHandler;
+  /** 增删或保存在途时禁用新增。 */
+  appendDisabled?: boolean;
+  /** 拖拽改序：把分镜移到 afterId 之后，null 移到最前；缺省时列表不可拖拽。 */
+  onMove?: (itemId: string, afterId: string | null) => void | Promise<void>;
+  /** 改序或增删在途时禁用拖拽。 */
+  moveDisabled?: boolean;
 }
 
 function getImagePromptScene(seg: Segment): string {
@@ -69,9 +80,29 @@ export function ShotList({
   collapsed,
   onToggleCollapse,
   scrollContainerRef,
+  onAppend,
+  appendDisabled = false,
+  onMove,
+  moveDisabled = false,
 }: ShotListProps) {
   const { t } = useTranslation("dashboard");
   const [search, setSearch] = useState("");
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const draggable = Boolean(onMove) && !moveDisabled;
+
+  const endDrag = () => {
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+  const commitDrop = (target: number) => {
+    const source = dragIndex;
+    endDrag();
+    if (!onMove || source === null) return;
+    const ids = segments.map((seg) => getScriptItemId(seg, contentMode));
+    const afterId = dropAnchor(ids, source, target);
+    if (afterId !== undefined) void onMove(ids[source], afterId);
+  };
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = scrollContainerRef ?? internalScrollRef;
 
@@ -141,7 +172,7 @@ export function ShotList({
                 key={id}
                 type="button"
                 onClick={() => onSelect(i)}
-                title={id}
+                title={itemIdWithinEpisode(id)}
                 className="num grid h-7 w-7 place-items-center rounded-[5px] text-[9.5px] font-bold focus-ring"
                 style={{
                   color: i === selectedIndex ? "oklch(0.14 0 0)" : "var(--color-text-3)",
@@ -152,7 +183,7 @@ export function ShotList({
                   border: "1px solid var(--color-hairline-soft)",
                 }}
               >
-                {id.length > 4 ? id.slice(-3) : id}
+                {itemIdWithinEpisode(id)}
               </button>
             );
           })}
@@ -191,16 +222,16 @@ export function ShotList({
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </button>
-        <button
-          type="button"
-          disabled
-          aria-disabled="true"
-          title={t("add_episode_unavailable")}
-          className="sv-navbtn inline-flex items-center gap-1 px-2 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Plus className="h-3 w-3" />
-          <span>{t("add_episode")}</span>
-        </button>
+        {onAppend && (
+          <InsertShotButton
+            afterId={null}
+            contentMode={contentMode}
+            onInsert={onAppend}
+            label={t("shot_append")}
+            disabled={appendDisabled}
+            variant="compact"
+          />
+        )}
       </div>
 
       <div className="shrink-0 px-3 pb-2.5">
@@ -244,129 +275,167 @@ export function ShotList({
             const sbFp = sbPath ? (fingerprints[sbPath] ?? null) : null;
             const sbUrl = sbPath ? API.getFileUrl(projectName, sbPath, sbFp) : null;
 
+            const dropEdge =
+              dropIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
+                ? dragIndex < originalIndex
+                  ? "bottom"
+                  : "top"
+                : null;
+
             return (
-              <button
+              <div
                 key={id}
-                id={`segment-${id}`}
-                type="button"
-                onClick={() => onSelect(originalIndex)}
                 ref={virtualizer.measureElement}
                 data-index={virt.index}
-                className={`absolute left-0 right-0 grid w-full items-center gap-2.5 rounded-lg p-2 text-left transition-colors focus-ring ${
-                  active ? "" : "hover:bg-[oklch(0.24_0.012_265_/_0.4)]"
-                }`}
-                style={{
-                  gridTemplateColumns: "auto 1fr",
-                  transform: `translateY(${virt.start}px)`,
-                  background: active
-                    ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))"
-                    : undefined,
-                  border: active
-                    ? "1px solid var(--color-accent-soft)"
-                    : "1px solid transparent",
-                  boxShadow: active
-                    ? "0 0 0 1px var(--color-accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.4)"
-                    : "none",
+                draggable={draggable}
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  setDragIndex(originalIndex);
                 }}
+                onDragOver={(event) => {
+                  if (dragIndex === null) return;
+                  event.preventDefault();
+                  setDropIndex(originalIndex);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  commitDrop(originalIndex);
+                }}
+                onDragEnd={endDrag}
+                className={`absolute left-0 right-0 ${dragIndex === originalIndex ? "opacity-40" : ""} ${
+                  draggable ? "cursor-grab" : ""
+                }`}
+                style={{ transform: `translateY(${virt.start}px)` }}
               >
-                {active && (
+                {dropEdge && (
                   <span
                     aria-hidden="true"
-                    className="absolute -left-px top-2 bottom-2 w-0.5 rounded"
-                    style={{
-                      background: "var(--color-accent)",
-                      boxShadow: "0 0 8px var(--color-accent-glow)",
-                    }}
+                    className={`pointer-events-none absolute left-1 right-1 z-10 h-0.5 rounded ${
+                      dropEdge === "top" ? "-top-px" : "-bottom-px"
+                    }`}
+                    style={{ background: "var(--color-accent)" }}
                   />
                 )}
-                <div
-                  className="relative shrink-0 overflow-hidden rounded-[5px]"
-                  style={{ width: 48, height: 64 }}
+                <button
+                  id={`segment-${id}`}
+                  type="button"
+                  onClick={() => onSelect(originalIndex)}
+                  title={draggable ? t("shot_drag_hint") : undefined}
+                  className={`relative grid w-full items-center gap-2.5 rounded-lg p-2 text-left transition-colors focus-ring ${
+                    active ? "" : "hover:bg-[oklch(0.24_0.012_265_/_0.4)]"
+                  }`}
+                  style={{
+                    gridTemplateColumns: "auto 1fr",
+                    background: active
+                      ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))"
+                      : undefined,
+                    border: active
+                      ? "1px solid var(--color-accent-soft)"
+                      : "1px solid transparent",
+                    boxShadow: active
+                      ? "0 0 0 1px var(--color-accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.4)"
+                      : "none",
+                  }}
                 >
-                  {sbUrl ? (
-                    <img
-                      src={sbUrl}
-                      alt={id}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div
-                      className="flex h-full w-full items-center justify-center"
+                  {active && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -left-px top-2 bottom-2 w-0.5 rounded"
                       style={{
-                        background:
-                          "linear-gradient(135deg, oklch(0.30 0.05 280), oklch(0.18 0.02 260))",
+                        background: "var(--color-accent)",
+                        boxShadow: "0 0 8px var(--color-accent-glow)",
                       }}
                     />
                   )}
-                  <span
-                    className="num absolute bottom-0.5 left-1 text-[9px] font-bold"
-                    style={{
-                      color: "oklch(0.98 0 0)",
-                      textShadow: "0 1px 2px oklch(0 0 0 / 0.8)",
-                    }}
-                  >
-                    {id.length > 4 ? id.slice(-3) : id}
-                  </span>
-                </div>
-                <div className="flex min-w-0 flex-col gap-1">
-                  <div className="flex">
-                    <StatusBadge status={status} />
-                  </div>
                   <div
-                    className="text-[12px]"
-                    style={{
-                      color: active ? "var(--color-text)" : "var(--color-text-2)",
-                      fontWeight: active ? 600 : 500,
-                      lineHeight: 1.4,
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}
+                    className="relative shrink-0 overflow-hidden rounded-[5px]"
+                    style={{ width: 48, height: 64 }}
                   >
-                    {text || id}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
-                      {t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}
+                    {sbUrl ? (
+                      <img
+                        src={sbUrl}
+                        alt={itemIdWithinEpisode(id)}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div
+                        className="flex h-full w-full items-center justify-center"
+                        style={{
+                          background:
+                            "linear-gradient(135deg, oklch(0.30 0.05 280), oklch(0.18 0.02 260))",
+                        }}
+                      />
+                    )}
+                    <span
+                      className="num absolute bottom-0.5 left-1 text-[9px] font-bold"
+                      style={{
+                        color: "oklch(0.98 0 0)",
+                        textShadow: "0 1px 2px oklch(0 0 0 / 0.8)",
+                      }}
+                    >
+                      {itemIdWithinEpisode(id)}
                     </span>
-                    {contentMode === "ad" && (seg as AdShot).section && (
-                      <span
-                        className="rounded px-1 py-px text-[9px] font-semibold uppercase"
-                        style={{
-                          color: "var(--color-accent-2)",
-                          background: "oklch(0.26 0.018 290 / 0.45)",
-                          border: "1px solid var(--color-accent-soft)",
-                          letterSpacing: "0.4px",
-                        }}
-                      >
-                        {(seg as AdShot).section}
-                      </span>
-                    )}
-                    {versions > 0 && (
-                      <span
-                        className="num text-[10px]"
-                        style={{ color: "var(--color-text-4)" }}
-                      >
-                        · V{versions}
-                      </span>
-                    )}
-                    {pendingAuthoring && (
-                      <span
-                        className="rounded px-1 py-px text-[9px] font-semibold"
-                        style={{
-                          color: "var(--color-warm)",
-                          border: "1px solid var(--color-hairline-soft)",
-                          letterSpacing: "0.4px",
-                        }}
-                      >
-                        {t("shot_pending_authoring")}
-                      </span>
-                    )}
                   </div>
-                </div>
-              </button>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex">
+                      <StatusBadge status={status} />
+                    </div>
+                    <div
+                      className="text-[12px]"
+                      style={{
+                        color: active ? "var(--color-text)" : "var(--color-text-2)",
+                        fontWeight: active ? 600 : 500,
+                        lineHeight: 1.4,
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {text || itemIdWithinEpisode(id)}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+                        {t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}
+                      </span>
+                      {contentMode === "ad" && (seg as AdShot).section && (
+                        <span
+                          className="rounded px-1 py-px text-[9px] font-semibold uppercase"
+                          style={{
+                            color: "var(--color-accent-2)",
+                            background: "oklch(0.26 0.018 290 / 0.45)",
+                            border: "1px solid var(--color-accent-soft)",
+                            letterSpacing: "0.4px",
+                          }}
+                        >
+                          {(seg as AdShot).section}
+                        </span>
+                      )}
+                      {versions > 0 && (
+                        <span
+                          className="num text-[10px]"
+                          style={{ color: "var(--color-text-4)" }}
+                        >
+                          · V{versions}
+                        </span>
+                      )}
+                      {pendingAuthoring && (
+                        <span
+                          className="rounded px-1 py-px text-[9px] font-semibold"
+                          style={{
+                            color: "var(--color-warm)",
+                            border: "1px solid var(--color-hairline-soft)",
+                            letterSpacing: "0.4px",
+                          }}
+                        >
+                          {t("shot_pending_authoring")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              </div>
             );
           })}
         </div>

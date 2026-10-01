@@ -6,7 +6,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import Any
 
 from sqlalchemy import ColumnElement, func, select, text, update
@@ -766,6 +766,7 @@ class TaskRepository(BaseRepository):
 
         task_summary = {
             "task_id": task.task_id,
+            "project_name": task.project_name,
             "task_type": task.task_type,
             "resource_id": task.resource_id,
             "status": task.status,
@@ -777,7 +778,7 @@ class TaskRepository(BaseRepository):
     async def _collect_queued_dependents(self, task_id: str) -> list[dict[str, Any]]:
         """递归收集依赖于 task_id 的所有 queued 任务摘要。"""
         result = await self.session.execute(
-            select(Task.task_id, Task.task_type, Task.resource_id)
+            select(Task.task_id, Task.task_type, Task.resource_id, Task.project_name)
             .where(
                 Task.dependency_task_id == task_id,
                 Task.status == "queued",
@@ -786,7 +787,7 @@ class TaskRepository(BaseRepository):
         )
         dependents = []
         for row in result.all():
-            summary = {"task_id": row[0], "task_type": row[1], "resource_id": row[2]}
+            summary = {"task_id": row[0], "task_type": row[1], "resource_id": row[2], "project_name": row[3]}
             dependents.append(summary)
             dependents.extend(await self._collect_queued_dependents(row[0]))
         return dependents
@@ -963,16 +964,31 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
         return 1 if data is not None else 0
 
-    async def get_cancel_all_preview(self, project_name: str) -> int:
-        """返回项目中当前 queued 状态的任务数量。"""
-        stmt = select(func.count()).select_from(Task).where(Task.project_name == project_name, Task.status == "queued")
+    async def get_cancel_all_preview(self, project_name: str, *, exclude_media_types: Collection[str] = ()) -> int:
+        """返回项目中当前 queued 状态的任务数量；``exclude_media_types`` 里的媒体类型不计。"""
+        stmt = (
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.project_name == project_name, Task.status == "queued", Task.media_type.not_in(exclude_media_types)
+            )
+        )
         result = await self.session.execute(self._scope_query(stmt, Task))
         return result.scalar_one()
 
-    async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
-        """取消项目中所有 queued 任务。"""
+    async def cancel_all_queued(
+        self, project_name: str, *, exclude_media_types: Collection[str] = ()
+    ) -> dict[str, Any]:
+        """取消项目中所有 queued 任务；``exclude_media_types`` 里的媒体类型不取消。"""
         queued_result = await self.session.execute(
-            self._scope_query(select(Task).where(Task.project_name == project_name, Task.status == "queued"), Task)
+            self._scope_query(
+                select(Task).where(
+                    Task.project_name == project_name,
+                    Task.status == "queued",
+                    Task.media_type.not_in(exclude_media_types),
+                ),
+                Task,
+            )
         )
         task_ids = [t.task_id for t in queued_result.scalars().all()]
         if not task_ids:

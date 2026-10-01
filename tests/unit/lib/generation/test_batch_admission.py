@@ -21,11 +21,10 @@ from lib.generation.generation_result import (
 )
 
 
-def _admission(*tickets: UnitAdmissionTicket, delivery: str = "post_production") -> BatchAdmission:
+def _admission(*tickets: UnitAdmissionTicket) -> BatchAdmission:
     return BatchAdmission(
         operation="generate_reference_videos_batch",
         selection=GenerationSelectionMode.MISSING_ONLY,
-        narration_delivery=delivery,
         tickets=tickets,
     )
 
@@ -34,7 +33,6 @@ def _confirmation_ticket(
     unit_id: str,
     *,
     request: int,
-    current: int | None = None,
     amount: float | None = None,
     currency: str = "USD",
 ):
@@ -43,13 +41,12 @@ def _confirmation_ticket(
         problems=(
             GenerationProblem(
                 code="reference_duration_confirmation_required",
-                detail="档位与当前视觉不一致",
+                detail="档位与剧本时长不一致",
                 action=GenerationAction.CONFIRM_REQUEST_DURATION,
                 params={"request_duration": request},
             ),
         ),
         request_duration_seconds=request,
-        current_duration_seconds=current,
         request_cost=(
             None if amount is None else {"amount": amount, "currency": currency, "request_duration_seconds": request}
         ),
@@ -187,9 +184,9 @@ def test_a_unit_with_several_problems_keeps_all_of_them():
                     action=GenerationAction.CONFIRM_REQUEST_DURATION,
                 ),
                 GenerationProblem(
-                    code="video_request_cost_unavailable",
-                    detail="取不到报价",
-                    action=GenerationAction.RETRY,
+                    code="reference_asset_missing",
+                    detail="引用的图片缺失",
+                    action=GenerationAction.FIX_INPUT,
                 ),
             ),
         )
@@ -203,7 +200,7 @@ def test_a_unit_with_several_problems_keeps_all_of_them():
     assert item.problem.code == "reference_duration_confirmation_required"
     assert [problem["code"] for problem in item.problem.params["problems"]] == [
         "reference_duration_confirmation_required",
-        "video_request_cost_unavailable",
+        "reference_asset_missing",
     ]
 
 
@@ -217,7 +214,7 @@ def test_recording_a_refusal_on_an_admitted_batch_is_a_programming_error():
 
 def test_payload_carries_the_decision_every_unit_and_the_tiers():
     admission = _admission(
-        _confirmation_ticket("E1U1", request=8, current=4, amount=0.8),
+        _confirmation_ticket("E1U1", request=8, amount=0.8),
         UnitAdmissionTicket(unit_id="E1U2"),
     )
 
@@ -226,10 +223,11 @@ def test_payload_carries_the_decision_every_unit_and_the_tiers():
     confirmation = cast(dict[str, Any], payload["confirmation"])
 
     assert payload["decision"] == "confirmation_required"
-    assert payload["narration_delivery"] == "post_production"
+    assert "narration_delivery" not in payload
     assert [unit["unit_id"] for unit in units] == ["E1U1", "E1U2"]
     assert units[0]["admitted"] is False
-    assert units[0]["current_duration_seconds"] == 4
+    assert units[0]["request_duration_seconds"] == 8
+    assert "current_duration_seconds" not in units[0]
     assert units[1]["admitted"] is True
     assert units[1]["withheld"] is True
     assert units[1]["problems"][0]["code"] == "generation_batch_admission_withheld"

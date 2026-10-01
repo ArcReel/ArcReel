@@ -241,7 +241,7 @@ class TestPatchEpisodeScript:
                         {"op": "update", "id": "E1S01", "fields": {"image_prompt.scene": "@[无名路人]回头"}},
                         {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")},
                         {"op": "split", "id": "E1S02", "parts": [_segment("a"), _segment("b")]},
-                        {"op": "remove", "id": "E1S01_1"},
+                        {"op": "remove", "id": "E1S03"},
                     ],
                 },
             )
@@ -513,16 +513,15 @@ class TestPatchEpisodeScriptStructuralOperations:
     @pytest.mark.parametrize(
         ("fixture", "items_key"), [("ctx", "segments"), ("drama_ctx", "scenes"), ("ad_ctx", "shots")]
     )
-    async def test_removing_the_last_item_is_rejected_atomically(
+    async def test_removing_every_item_commits_an_empty_script(
         self, request: pytest.FixtureRequest, fixture: str, items_key: str
     ) -> None:
         tool_ctx: ToolHarness = request.getfixturevalue(fixture)
-        before = _load(tool_ctx)
 
         out = await _patch(tool_ctx, [{"op": "remove", "id": "E1S01"}, {"op": "remove", "id": "E1S02"}])
 
-        assert _rejected(out).problems[0].reason == "script_collection_empty"
-        assert _load(tool_ctx) == before
+        _committed(out)
+        assert _load(tool_ctx)[items_key] == []
 
     async def test_removing_one_of_several_items_still_commits(self, ad_ctx: ToolHarness) -> None:
         out = await _patch(ad_ctx, [{"op": "remove", "id": "E1S01"}])
@@ -534,7 +533,7 @@ class TestPatchEpisodeScriptStructuralOperations:
         out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
         _committed(out)
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
-        assert ids == ["E1S01", "E1S01_1", "E1S02"]
+        assert ids == ["E1S01", "E1S03", "E1S02"]
 
     @pytest.mark.parametrize(("prompts", "expected"), [(_UNAUTHORED, True), ({}, False)])
     async def test_insert_marks_new_entry_pending_authoring_unless_prompts_are_supplied(
@@ -544,7 +543,7 @@ class TestPatchEpisodeScriptStructuralOperations:
 
         _committed(out)
         segments = {s["segment_id"]: s for s in _load(ctx)["segments"]}
-        assert segments["E1S01_1"].get("pending_authoring", False) is expected
+        assert segments["E1S03"].get("pending_authoring", False) is expected
         assert "pending_authoring" not in segments["E1S01"]
 
     async def test_split_marks_parts_without_prompts_pending_authoring(self, ctx: ToolHarness) -> None:
@@ -586,38 +585,94 @@ class TestPatchEpisodeScriptStructuralOperations:
         _committed(out)
         assert _derived_references(ref_ctx, 1) == [("scene", "酒馆")]
 
+    @pytest.mark.parametrize(
+        ("fixture", "items_key", "id_key", "move", "expected"),
+        [
+            ("ctx", "segments", "segment_id", {"id": "E1S02"}, ["E1S02", "E1S01"]),
+            ("drama_ctx", "scenes", "scene_id", {"id": "E1S01", "after_id": "E1S02"}, ["E1S02", "E1S01"]),
+            ("ad_ctx", "shots", "shot_id", {"id": "E1S02", "after_id": None}, ["E1S02", "E1S01"]),
+            ("ref_ctx", "video_units", "unit_id", {"id": "E1U1", "after_id": "E1U2"}, ["E1U2", "E1U1"]),
+        ],
+    )
+    async def test_move_reorders_items_and_keeps_their_media(
+        self,
+        request: pytest.FixtureRequest,
+        fixture: str,
+        items_key: str,
+        id_key: str,
+        move: dict[str, Any],
+        expected: list[str],
+    ) -> None:
+        tool_ctx: ToolHarness = request.getfixturevalue(fixture)
+        with tool_ctx.pm.locked_script("demo", "episode_1.json", validate=False) as script:
+            script[items_key][0]["generated_assets"] = {"storyboard_image": "storyboards/first.png"}
+
+        out = await _patch(tool_ctx, [{"op": "move", **move}])
+
+        result = _committed(out)
+        saved = _load(tool_ctx)[items_key]
+        assert [item[id_key] for item in saved] == expected
+        moved_first = next(item for item in saved if item[id_key] == expected[1])
+        assert moved_first["generated_assets"] == {"storyboard_image": "storyboards/first.png"}
+        assert result.regeneration_required_ids == ()
+
+    async def test_move_after_itself_is_rejected_without_writing(self, ctx: ToolHarness) -> None:
+        before = _load(ctx)
+
+        out = await _patch(ctx, [{"op": "move", "id": "E1S01", "after_id": "E1S01"}])
+
+        problem = _rejected(out).problems[0]
+        assert problem.operation_index == 0
+        assert _load(ctx) == before
+
+    async def test_move_combines_with_insert_in_one_batch(self, ctx: ToolHarness) -> None:
+        out = await _patch(
+            ctx,
+            [
+                {"op": "insert", "after_id": "E1S02", "item": _segment("IGN")},
+                {"op": "move", "id": "E1S03", "after_id": None},
+            ],
+        )
+
+        _committed(out)
+        assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S03", "E1S01", "E1S02"]
+
     async def test_remove_by_id(self, ctx: ToolHarness) -> None:
         out = await _patch(ctx, [{"op": "remove", "id": "E1S01"}])
         _committed(out)
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S02"]
 
-    @pytest.mark.parametrize("replacement", ["insert", "split"])
+    @pytest.mark.parametrize(
+        ("removed_id", "structural"),
+        [
+            # 删掉末条再新增，取号回到被删的号。
+            ("E1S02", {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")}),
+            ("E1S01_1", {"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}),
+        ],
+    )
     async def test_new_identity_does_not_inherit_removed_id_assets(
         self,
         ctx: ToolHarness,
-        replacement: str,
+        removed_id: str,
+        structural: dict[str, Any],
     ) -> None:
         script = _script()
-        removed = _segment("E1S01_1")
+        script["segments"] = [s for s in script["segments"] if s["segment_id"] != removed_id]
+        removed = _segment(removed_id)
         removed["generated_assets"] = {"video_clip": "old-paid.mp4", "status": "completed"}
         script["segments"].insert(1, removed)
         ctx.pm.save_script("demo", script, "episode_1.json")
         adapter = ProjectArtifactManifestAdapter(ctx.project_path)
-        old_video = ArtifactKey.episode_video(1, "E1S01_1")
+        old_video = ArtifactKey.episode_video(1, removed_id)
         adapter.put_entry(
             old_video,
             ArtifactManifestEntry(artifact_path="videos/old-paid.mp4", basis_digest=f"sha256-v1:{'a' * 64}"),
         )
-        structural = (
-            {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")}
-            if replacement == "insert"
-            else {"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}
-        )
 
-        out = await _patch(ctx, [{"op": "remove", "id": "E1S01_1"}, structural])
+        out = await _patch(ctx, [{"op": "remove", "id": removed_id}, structural])
 
         _committed(out)
-        recycled = next(segment for segment in _load(ctx)["segments"] if segment["segment_id"] == "E1S01_1")
+        recycled = next(segment for segment in _load(ctx)["segments"] if segment["segment_id"] == removed_id)
         assert recycled["generated_assets"] == {}
         assert adapter.get_entry(old_video) is None
 
@@ -1051,8 +1106,7 @@ class TestPatchProject:
         assert "保温杯" not in ctx.pm.load_project("demo").get("products", {})
 
     async def test_response_distinguishes_added_and_merged(self, ctx: ToolHarness) -> None:
-        """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 Agent 验证是否符合预期策略
-        (如 analyze-assets 子智能体应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""
+        """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 Agent 验证是否符合预期策略。"""
         out1 = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1353,27 +1407,16 @@ class TestPatchProjectSettings:
         assert out.problem is not None
         assert "episode_target_units" not in ctx.pm.load_project("demo")
 
-    @pytest.mark.parametrize("key", ["episode_target_units", "planning_window_chars", "planning_max_episodes"])
-    async def test_positive_int_setting_accepts_digit_string(self, ctx: ToolHarness, key: str) -> None:
+    async def test_positive_int_setting_accepts_digit_string(self, ctx: ToolHarness) -> None:
         """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；数字字符串按落盘用 int 容忍。"""
-        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: "10"}})
+        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"episode_target_units": "10"}})
         assert out.problem is None
-        assert ctx.pm.load_project("demo")[key] == 10
+        assert ctx.pm.load_project("demo")["episode_target_units"] == 10
 
     @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
-    async def test_set_and_clear_planning_overrides(self, ctx: ToolHarness, key: str) -> None:
-        """分集规划的窗口字数 / 每批集数覆盖项：正整数写入，null 清除回内部默认。"""
+    async def test_planning_window_and_batch_size_are_not_settings(self, ctx: ToolHarness, key: str) -> None:
+        """分集规划的窗口字数与每批集数不是创作者参数，项目设置不接受。"""
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: 12}})
-        assert out.problem is None
-        assert ctx.pm.load_project("demo")[key] == 12
-        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: None}})
-        assert out.problem is None
-        assert key not in ctx.pm.load_project("demo")
-
-    @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
-    @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True, "10.5", "10.0", "abc", ""])
-    async def test_invalid_planning_override_rejected(self, ctx: ToolHarness, key: str, bad_value: Any) -> None:
-        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {key: bad_value}})
         assert out.problem is not None
         assert key not in ctx.pm.load_project("demo")
 
@@ -1405,7 +1448,7 @@ class TestPatchProjectSettings:
 
 
 class TestPatchProjectNarrationSettings:
-    """narration_voice / narration_speed 经 settings 白名单写入/清除/校验（项目级旁白覆盖）。"""
+    """narration_voice / narration_speed 经 settings 白名单写入/清除/校验（项目的 TTS 快照）。"""
 
     async def test_set_narration_voice(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": "Ethan"}})
@@ -1459,6 +1502,17 @@ class TestPatchProjectNarrationSettings:
         assert "narration_speed 必须是正的有限数值" in _said(out)
         assert "narration_speed" not in ctx.pm.load_project("demo")
 
+    async def test_tts_project_keeps_complete_snapshot(self, ctx: ToolHarness) -> None:
+        ctx.pm.update_project(
+            "demo",
+            lambda project: project.update(
+                narration_delivery="use_tts", audio_backend="dashscope/qwen3-tts-flash", narration_voice="Cherry"
+            ),
+        )
+        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": None}})
+        assert out.problem is not None
+        assert ctx.pm.load_project("demo")["narration_voice"] == "Cherry"
+
     async def test_one_invalid_field_rejects_whole_batch(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(
             PATCH_PROJECT,
@@ -1470,21 +1524,20 @@ class TestPatchProjectNarrationSettings:
         assert "narration_voice" not in project
         assert "narration_speed" not in project
 
-    async def test_resolver_uses_values_written_by_tool(self, ctx: ToolHarness, db_factory) -> None:
-        """工具写入与生成端解析读的是同一份顶层字段:写入后 resolver 实际解析出覆盖值。"""
-        from lib.config.resolver import ConfigResolver
+    async def test_tts_snapshot_reads_values_written_by_tool(self, ctx: ToolHarness) -> None:
+        """工具写入与 TTS 快照读的是同一份顶层字段。"""
+        from lib.speech.narration_config import project_tts_settings
 
+        ctx.pm.update_project("demo", lambda project: project.update(audio_backend="dashscope/qwen3-tts-flash"))
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"settings": {"narration_voice": "Ethan", "narration_speed": 1.2}},
         )
         assert out.problem is None
-        project = ctx.pm.load_project("demo")
-
-        resolver = ConfigResolver(db_factory)
-        assert await resolver.resolve_narration_voice(project) == "Ethan"
-        assert await resolver.resolve_narration_speed(project) == 1.2
+        settings = project_tts_settings(ctx.pm.load_project("demo"))
+        assert settings is not None
+        assert (settings.voice, settings.speed) == ("Ethan", 1.2)
 
 
 class TestPatchProjectOverview:
@@ -1654,7 +1707,9 @@ class TestRenameAssetTool:
         )
 
         assert out.problem is None
-        assert ctx.pm.load_project("demo")["scenes"] == {"村口": {"description": "", "scene_sheet": ""}}
+        assert ctx.pm.load_project("demo")["scenes"] == {
+            "村口": {"description": "", "scene_sheet": "", "aliases": ["无描述场景"]}
+        }
 
     async def test_missing_old_name_error_hints_idempotency(self, rename_ctx: ToolHarness) -> None:
         await run_declared_tool(

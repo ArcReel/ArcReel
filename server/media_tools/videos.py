@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
@@ -18,7 +18,7 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
-from lib.artifacts.version_manager import VersionManager
+from lib.episode.episode_ids import describe_episode_for_agent
 from lib.generation.batch_admission import (
     BatchAdmission,
     BatchAdmissionDecision,
@@ -44,11 +44,7 @@ from lib.generation.generation_result import (
     select_generation_targets,
 )
 from lib.project.project_manager import ProjectManager, is_reference_video_project
-from lib.script.reference_video.request_projection import (
-    USE_TTS,
-    NarrationDelivery,
-    ReferenceRequestOptions,
-)
+from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.script_models import get_generated_assets, resolve_content_mode
 from lib.script.script_skeleton import ensure_route_skeleton, resolve_script_kind
 from lib.script.storyboard_sequence import get_storyboard_items
@@ -69,12 +65,13 @@ from server.services.admission.video_batch_admission import (
     admit_storyboard_video_request,
     artifact_state_tickets,
     build_storyboard_video_specs,
-    diagnostic_unit_id,
     reference_unit_task_spec,
     request_options_for_unit,
     resolve_voice_context,
     screen_script_entries,
+    screen_storyboard_items,
     speech_admission_ticket,
+    storyboard_item_aliases,
     storyboard_item_id,
     video_target_states,
 )
@@ -91,9 +88,10 @@ from server.tool_runtime import (
 logger = logging.getLogger(__name__)
 
 #: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
-#: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的 ``shots`` 与参考清单字段。
-#: 视频单元现在只持有 ``text`` 与 ``duration_seconds``，参考图在执行期从正文的
-#: ``@[名称]`` 首次提及顺序派生，两者都不再经工具入参传入。
+#: 前三个是点名目标的旧 id 参数，``shots`` 与参考清单是视频单元已删除的字段，
+#: ``narration_delivery`` 是已删除的按请求交付方式。视频单元现在只持有 ``text`` 与
+#: ``duration_seconds``，参考图在执行期从正文的 ``@[名称]`` 首次提及顺序派生；
+#: 旁白交付方式是项目配置，不影响视频请求。
 _RETIRED_PARAMS: dict[str, str] = {
     "resume": "查询 durable batch，并用 selected scope、force=false 只重发未成功的 ID",
     "shot_ids": "改用 target.ids，并选择 scene（单个）或 selected（批量）scope",
@@ -102,6 +100,7 @@ _RETIRED_PARAMS: dict[str, str] = {
     "shots": "视频单元不再有 shots 数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
     "references": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
     "reference_images": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
+    "narration_delivery": "视频生成不再按请求选择旁白交付方式；视频一律按剧本计划时长请求，旁白交付方式是项目配置",
 }
 
 
@@ -123,7 +122,7 @@ class EpisodeTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     scope: Literal["episode"] = Field(description="整集：只补缺视频的单元，已有可用成片一律复用")
-    episode: _PositiveInt = Field(description="集号，须与 script 的集号一致")
+    episode_id: _PositiveInt = Field(description="集 ID，须与 script 所属那一集的集 ID 一致")
 
 
 class AllTarget(BaseModel):
@@ -165,17 +164,11 @@ class GenerateVideosRequest(BaseModel):
         default=False,
         description="是否强制重生已有可用成片；默认复用 current / stale 成片，只允许用于 scene / selected",
     )
-    narration_delivery: NarrationDelivery = Field(
-        description=(
-            "本次旁白交付方式，必填；use_tts 只使用当前 fresh TTS 的实际媒体时长，"
-            "post_production 不因 TTS 缺失或过期受阻"
-        )
-    )
     confirmed_request_duration_seconds: _PositiveInt | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "用户明确接受的本次视频请求秒数档位；仅在预检返回跨档费用提示后填写。"
-            "它不冻结正文、引用、供应商或 TTS，当前投影改到其它档位时必须重新确认。"
+            "用户明确接受的本次视频请求秒数档位；仅参考生视频在返回跨档确认后填写。"
+            "它不冻结正文、引用或供应商，当前投影改到其它档位时必须重新确认。"
         ),
     )
     confirmed_request_durations: dict[str, _PositiveInt] | SkipJsonSchema[None] = Field(
@@ -232,21 +225,15 @@ _OPERATION = "generate_videos"
 def _batch_video_is_reusable(
     *,
     currency: ArtifactCurrencyResolver,
-    versions: VersionManager,
     episode: int,
-    resource_type: str,
     resource_id: str,
     artifact_path: object,
 ) -> bool:
-    """Admit a batch skip from either verified currency or one exact raw upload."""
+    """Admit a batch skip from verified currency; uploads are registered like any other video."""
 
     return artifact_is_usable(
         currency,
         ArtifactKey.episode_video(episode, resource_id),
-        artifact_path,
-    ) or versions.selected_manual_upload_matches_current_file(
-        resource_type,
-        resource_id,
         artifact_path,
     )
 
@@ -255,24 +242,10 @@ def _state_for(states: dict[str, GenerationTargetState], unit_id: str) -> Genera
     return states.get(unit_id) or GenerationTargetState(candidate=GenerationCandidate(unit_id=unit_id))
 
 
-def _missing_only_reusable_ids(
-    states: dict[str, GenerationTargetState],
-    versions: VersionManager,
-) -> list[str]:
-    """Missing-only 下原样保留的分镜：Manifest 认定 current / stale，或一次精确匹配的选中手动上传。
+def _missing_only_reusable_ids(states: dict[str, GenerationTargetState]) -> list[str]:
+    """Missing-only 下原样保留的分镜：Manifest 认定 current / stale（含已登记的上传视频）。"""
 
-    与 ``select_generation_targets`` 同口径：产物状态不可读（BLOCKED）的分镜不走手动上传这条腿。
-    """
-
-    return [
-        unit_id
-        for unit_id, state in states.items()
-        if state.status is not ArtifactStatus.BLOCKED
-        and (
-            artifact_is_reusable(state)
-            or versions.selected_manual_upload_matches_current_file("videos", unit_id, state.artifact_path)
-        )
-    ]
+    return [unit_id for unit_id, state in states.items() if artifact_is_reusable(state)]
 
 
 def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
@@ -293,17 +266,9 @@ def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
 
 
 def _reference_request_options(request: GenerateVideosRequest) -> ReferenceRequestOptions:
-    """把工具入参折成一次请求的投影选项。
+    """把工具入参折成一次参考生视频请求的投影选项。"""
 
-    交付方式决定整批走哪一套准入判据与哪一份时长基准（TTS 实测 vs 剧本计划），请求模型把它
-    定为必填：替调用方挑一个默认值会让一批视频按它没声明过的交付方式准入并计费。
-    storyboard 与 reference_video 两种生成模式都经这里取交付方式，判定只有这一处。
-    """
-
-    return ReferenceRequestOptions(
-        narration_delivery=request.narration_delivery,
-        confirmed_request_duration_seconds=request.confirmed_request_duration_seconds,
-    )
+    return ReferenceRequestOptions(confirmed_request_duration_seconds=request.confirmed_request_duration_seconds)
 
 
 def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str] | None = None) -> ToolOutcome[Any]:
@@ -344,22 +309,15 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
     for ticket in admission.tickets:
         if not ticket.confirmation_only:
             continue
-        params = ticket.problems[0].params
-        baseline = ticket.current_duration_seconds
+        planned = ticket.problems[0].params.get("script_duration")
         requested = ticket.request_duration_seconds
-        tier_basis = (
-            f"现有视觉档位 {baseline}s" if isinstance(baseline, int) else f"剧本档位 {params.get('script_duration')}s"
-        )
-        # 与现有成片的差值直接给出：档位数字本身不说明成片会变长还是变短。
+        # 与剧本计划时长的差值直接给出：档位数字本身不说明成片会变长还是变短。
         delta = ""
-        if isinstance(baseline, int) and isinstance(requested, int) and requested != baseline:
-            direction = "更长" if requested > baseline else "更短"
-            delta = f"（成片{direction} {abs(requested - baseline)}s）"
+        if isinstance(planned, int) and isinstance(requested, int) and requested != planned:
+            direction = "更长" if requested > planned else "更短"
+            delta = f"（成片{direction} {abs(requested - planned)}s）"
         requested_label = f"{requested}s" if isinstance(requested, int) else "档位待定"
-        lines.append(
-            f"  · {ticket.unit_id}：{tier_basis}，将申请 {requested_label}{delta}，"
-            f"时长基准 {params.get('duration_input')}s"
-        )
+        lines.append(f"  · {ticket.unit_id}：剧本时长 {planned}s，将申请 {requested_label}{delta}")
     lines.append(
         "视频费用按上述申请档位计算，确认仅对本次请求有效。用户同意后，带 "
         "confirmed_request_durations={<unit_id>: <request_duration>} 把原来这一批目标一次性重发；"
@@ -407,26 +365,6 @@ def _batch_admission_response(
     return ToolOutcome(value=payload)
 
 
-def _apply_delivery_payload(
-    specs: list[TaskSpec],
-    request_options: ReferenceRequestOptions,
-    confirmed_request_durations: Mapping[str, int],
-) -> None:
-    """Attach this request's delivery choice to every admitted storyboard spec.
-
-    TTS 的取档结果是当前状态投影，不是耐久请求事实。worker 起跑时会从最新剧本 unit、
-    fresh TTS 与当前模型能力重投影；即使 TaskSpec 的旧构造器放入 duration_seconds，
-    这里也必须剥离。跨档确认按 unit 记入各自的请求事实——worker 重投影时读的是任务上的
-    这份选项，只写整批共用的那一份会让准入已接受的档位在执行期重新变成待确认。
-    """
-
-    for spec in specs:
-        unit_options = request_options_for_unit(request_options, spec.resource_id, confirmed_request_durations)
-        spec.payload = {**(spec.payload or {}), "narration_delivery_options": unit_options.to_payload()}
-        if request_options.narration_delivery == USE_TTS:
-            spec.payload.pop("duration_seconds", None)
-
-
 async def _admit_storyboard_specs(
     *,
     call: _VideoCall,
@@ -436,42 +374,30 @@ async def _admit_storyboard_specs(
     items: list[dict[str, Any]],
     id_field: str,
     specs: list[TaskSpec],
-    request_options: ReferenceRequestOptions,
-    confirmed_request_durations: Mapping[str, int],
     operation: str,
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket],
 ) -> BatchAdmission:
-    """Admit the Storyboard-mode specs, then stamp the delivery choice onto them.
+    """Admit the Storyboard-mode specs.
 
-    The admission itself is the shared one the read-only plan also consults, so a
-    preview and the submission it predicts cannot reach different verdicts. Only the
-    payload stamping is enqueue-side: it is a request fact, not part of the basis the
-    admission compares.
+    The admission is the shared one the read-only plan also consults, so a preview
+    and the submission it predicts cannot reach different verdicts.
     """
 
-    admission = await admit_storyboard_video_request(
+    return await admit_storyboard_video_request(
         project_name=call.project_name,
         project=project,
-        project_path=call.project_path,
-        script=script,
         script_file=script_filename,
         items=items,
         id_field=id_field,
         specs=specs,
-        request_options=request_options,
-        confirmed_request_durations=confirmed_request_durations,
         operation=operation,
         selection=selection,
         extra_tickets=extra_tickets,
         user_id=call.caller.user_id,
         queue=call.services.queue,
         config_resolver=call.services.capabilities,
-        tts_settings_resolver=call.services.tts_settings_resolver,
     )
-    if admission.admitted:
-        _apply_delivery_payload(specs, request_options, confirmed_request_durations)
-    return admission
 
 
 def _resolve_reference_route(call: _VideoCall, script: dict[str, Any]) -> str | None:
@@ -490,142 +416,6 @@ def _resolve_reference_route(call: _VideoCall, script: dict[str, Any]) -> str | 
     if not is_reference_video_project(project):
         return None
     return "reference"
-
-
-def _storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
-    """点名时能寻址到这个条目的全部写法。
-
-    各入口既认规范 ``id_field`` 也认 ``scene_id`` 别名，两者在剧本里可以不同；按哪一个
-    点名都要指到同一个条目，否则同一个名字在不同入口指向不同条目。
-    """
-
-    # 先按类型过滤再进集合：脏剧本里的 list / dict 别名不可哈希，直接建集合会抛 TypeError，
-    # 逐目标的拒绝契约就塌成一句通用报错。
-    aliases = (item.get(id_field), item.get("scene_id"))
-    return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
-
-
-def screen_storyboard_items(
-    items: Sequence[Any],
-    id_field: str,
-    *,
-    requested_ids: Collection[str] | None,
-) -> tuple[list[dict[str, Any]], list[UnitAdmissionTicket]]:
-    """把剧本条目分成「能当目标的」与「成不了目标的」两份，后者按位置记名。
-
-    非对象条目、id 不是字符串、id 为空、以及同一个 id 出现多次，都会让后面按 id 索引的每一步
-    失手：条目被静默滤掉时同批健康的目标独自入队计费，撞上集合查询时又把逐目标的拒绝契约打成
-    一句通用报错。数字与布尔 id 混过 ``str()`` 进队列后，执行期按原值比对同样找不到目标。
-    各入口在读 id 之前先经这一道筛，这些失手都变成一张记名的准入票。
-
-    缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
-    调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
-    精确点名的重做。
-
-    记名用带方括号的位置写法，与合法 id 不共用命名空间：同名会让结果契约把两条不同的条目
-    当作同一个，写第二遍时 fail loud，用户拿到的又是一句通用报错。
-    """
-
-    clean: list[dict[str, Any]] = []
-    tickets: list[UnitAdmissionTicket] = []
-    seen: set[str] = set()
-    addressable: list[tuple[dict[str, Any], str]] = []
-    taken = {
-        str(storyboard_item_id(item, id_field)).strip()
-        for item in items
-        if isinstance(item, dict) and isinstance(storyboard_item_id(item, id_field), str)
-    }
-    named = set(requested_ids) if requested_ids is not None else None
-    if named is not None:
-        # 点名的 ID 也占着记名空间：点到剧本里没有的名字时上游还会记一条「不存在」，
-        # 诊断名与它同名会把两条并成一条。
-        taken |= named
-    refused_names: set[str] = set()
-    for index, item in enumerate(items):
-        detail: str | None = None
-        item_id = ""
-        if not isinstance(item, dict):
-            logger.debug("剧本条目 items[%d] 类型非法: %s", index, type(item).__name__)
-            detail = "该条目不是对象"
-        else:
-            raw_id = storyboard_item_id(item, id_field)
-            if raw_id is not None and not isinstance(raw_id, str):
-                logger.debug("剧本条目 items[%d] 的 ID 类型非法: %s", index, type(raw_id).__name__)
-                detail = "该条目的 ID 不是字符串"
-            else:
-                item_id = (raw_id or "").strip()
-                if not item_id:
-                    detail = "该条目没有可用的 ID"
-        if detail is not None:
-            if named is None:
-                tickets.append(
-                    refused_ticket(
-                        diagnostic_unit_id(f"items[{index}]", taken),
-                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                        detail=detail,
-                        action=GenerationAction.FIX_INPUT,
-                    )
-                )
-            elif isinstance(item, dict):
-                # 点名点中的正好是这个脏条目：按点名的写法给结论，否则调用方只收到一句
-                # 「不存在」，而这个名字在剧本里明明有条目。
-                for name in sorted(_storyboard_item_aliases(item, id_field) & named):
-                    if name in refused_names:
-                        continue
-                    refused_names.add(name)
-                    tickets.append(
-                        refused_ticket(
-                            name,
-                            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                            detail=detail,
-                            action=GenerationAction.FIX_INPUT,
-                        )
-                    )
-            continue
-        if named is not None:
-            addressable.append((item, item_id))
-            continue
-        if item_id in seen:
-            tickets.append(
-                refused_ticket(
-                    diagnostic_unit_id(f"{item_id}#{index}", taken),
-                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                    detail=f"ID {item_id} 在剧本中重复出现",
-                    action=GenerationAction.FIX_INPUT,
-                )
-            )
-            continue
-        seen.add(item_id)
-        clean.append(item)
-    if named is None:
-        return clean, tickets
-
-    # 点名可以用规范 ID，也可以用 ``scene_id`` 别名，两者在剧本里可以不同；执行期按规范 ID
-    # 定位目标。因此一个名字指到几个条目，要把「直接被它寻址的条目」连同「与之共用规范 ID
-    # 的兄弟」一起数：只按名字数会漏掉别名不同、规范 ID 相同的那种，各入口按各自的查法分别
-    # 选中头一个或末一个，同一次点名在不同入口做的是不同条目。
-    by_canonical: dict[str, list[dict[str, Any]]] = {}
-    for item, item_id in addressable:
-        by_canonical.setdefault(item_id, []).append(item)
-    ambiguous: set[int] = set()
-    for name in sorted(named - refused_names):
-        owners = {id(item) for item, _ in addressable if name in _storyboard_item_aliases(item, id_field)}
-        targets = {
-            id(sibling) for item, item_id in addressable if id(item) in owners for sibling in by_canonical[item_id]
-        }
-        if len(targets) <= 1:
-            continue
-        ambiguous |= targets
-        tickets.append(
-            refused_ticket(
-                name,
-                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                detail=f"ID {name} 在剧本中指向多个条目",
-                action=GenerationAction.FIX_INPUT,
-            )
-        )
-    clean.extend(item for item, _ in addressable if id(item) not in ambiguous)
-    return clean, tickets
 
 
 def _build_reference_specs(
@@ -771,7 +561,6 @@ async def _generate_reference_units(
         user_id=call.caller.user_id,
         queue=call.services.queue,
         config_resolver=call.services.capabilities,
-        tts_settings_resolver=call.services.tts_settings_resolver,
     )
     if not admission.admitted:
         return BatchAdmissionRefused(admission)
@@ -896,11 +685,10 @@ async def _run_reference_episode(
         # 生成模式闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
         # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
         logger.debug("第 %d 集 video_units 类型非法: %s (%s)", episode, type(units).__name__, script_filename)
-        raise ValueError(f"第 {episode} 集 video_units 必须是数组：{script_filename}")
+        raise ValueError(f"{describe_episode_for_agent(project, episode)} 的 video_units 必须是数组：{script_filename}")
     if not units:
-        raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
+        raise ValueError(f"{describe_episode_for_agent(project, episode)} 的 video_units 为空：{script_filename}")
     units, malformed = screen_script_entries(units, requested_ids=None)
-    versions = VersionManager(call.project_path)
     return await _run_reference_batch(
         call=call,
         project=project,
@@ -912,9 +700,7 @@ async def _run_reference_episode(
         extra_tickets=malformed,
         reuse_existing=lambda currency, unit: _batch_video_is_reusable(
             currency=currency,
-            versions=versions,
             episode=episode,
-            resource_type="reference_videos",
             resource_id=str(unit.get("unit_id") or ""),
             artifact_path=get_generated_assets(unit).get("video_clip"),
         ),
@@ -999,7 +785,6 @@ async def _run_reference_units(
         for unit_id in duplicated
     ]
 
-    versions = VersionManager(call.project_path)
     return await _run_reference_batch(
         call=call,
         project=project,
@@ -1013,9 +798,7 @@ async def _run_reference_units(
             not force
             and _batch_video_is_reusable(
                 currency=currency,
-                versions=versions,
                 episode=episode,
-                resource_type="reference_videos",
                 resource_id=str(unit.get("unit_id") or ""),
                 artifact_path=get_generated_assets(unit).get("video_clip"),
             )
@@ -1182,8 +965,6 @@ class _StoryboardBatch:
             items=items,
             id_field=self.screening.id_field,
             specs=specs,
-            request_options=self.request.request_options,
-            confirmed_request_durations=self.request.confirmed_request_durations,
             operation=self.operation,
             selection=self.selection,
             extra_tickets=extra_tickets,
@@ -1213,7 +994,7 @@ class _StoryboardBatch:
 
 
 def _check_target_episode(call: _VideoCall, request: _VideoRequestContext, episode: int) -> None:
-    """整集选择器点名的集号必须就是剧本的集号：点错集不能按剧本那一集花钱。"""
+    """整集选择器点名的集 ID 必须就是剧本所属的那一集：点错集不能按剧本那一集花钱。"""
 
     project = call.projects.load_project(call.project_name)
     actual_episode = resolve_artifact_episode(
@@ -1222,7 +1003,7 @@ def _check_target_episode(call: _VideoCall, request: _VideoRequestContext, episo
         script_filename=request.script_filename,
     ) or ProjectManager.resolve_episode_from_script(request.script, request.script_filename)
     if episode != actual_episode:
-        raise ValueError(f"target.episode={episode} 与剧本集号 {actual_episode} 不一致")
+        raise ValueError(f"target.episode_id={episode} 与剧本所属的集 ID {actual_episode} 不一致")
 
 
 async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log: list[str]) -> ToolOutcome[Any]:
@@ -1244,12 +1025,12 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
     sb = _storyboard_context(call, request)
     episode = sb.episode
     if not items and not screen_refused:
-        raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
+        raise ValueError(f"{describe_episode_for_agent(sb.project, episode)} 的剧本为空：{script_filename}")
 
     currency = active_artifact_currency_resolver(project_dir, sb.project)
     states = video_target_states(items, id_field, episode=episode, resolver=currency)
-    # 整集生成只补缺失，从不强制重生：仍可用的旧分镜（含 stale）与选中的手动上传原样保留。
-    already_done = _missing_only_reusable_ids(states, VersionManager(project_dir))
+    # 整集生成只补缺失，从不强制重生：仍可用的旧分镜（含 stale 与上传的视频）原样保留。
+    already_done = _missing_only_reusable_ids(states)
     builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.MISSING_ONLY)
     batch = _StoryboardBatch(
         call=call,
@@ -1316,19 +1097,11 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
     items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
     sb = _storyboard_context(call, request)
     currency = active_artifact_currency_resolver(project_dir, sb.project)
-    versions = VersionManager(project_dir)
     states = video_target_states(items, id_field, episode=sb.episode, resolver=currency)
     selection = select_generation_targets(
         candidates=[state.candidate for state in states.values()],
         requested_ids=None,
         resolver=currency,
-        # 一次精确匹配的手动上传与 Manifest 认定的 current/stale 同样可复用，
-        # 两条腿合起来才是「这个 ID 还缺不缺视频」。
-        reusable_override=lambda candidate: versions.selected_manual_upload_matches_current_file(
-            "videos",
-            candidate.unit_id,
-            candidate.artifact_path,
-        ),
     )
     # 产物状态不可读的目标由准入报告（折成准入票），结果契约里不重复记录：
     # 同一个 unit 记两次会让结果构造器 fail loud。
@@ -1417,7 +1190,7 @@ async def _generate_selected(
     for item in items:
         # 按同一份「能寻址到它的写法」建索引：直接拿原值当键，脏剧本里的 list / dict
         # 别名会抛 TypeError，逐目标的结论就塌成一句通用报错。
-        for alias in _storyboard_item_aliases(item, id_field):
+        for alias in storyboard_item_aliases(item, id_field):
             items_by_id[alias] = item
 
     builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
@@ -1455,19 +1228,7 @@ async def _generate_selected(
     already_done: list[str] = []
     states = video_target_states(selected, id_field, episode=episode, resolver=currency)
     if not force:
-        versions = VersionManager(project_dir)
-        already_done = list(
-            dict.fromkeys(
-                state.unit_id
-                for state in states.values()
-                if artifact_is_reusable(state)
-                or versions.selected_manual_upload_matches_current_file(
-                    "videos",
-                    state.unit_id,
-                    state.artifact_path,
-                )
-            )
-        )
+        already_done = list(dict.fromkeys(state.unit_id for state in states.values() if artifact_is_reusable(state)))
     for done_id in already_done:
         builder.skip(_state_for(states, str(done_id)))
     batch = _StoryboardBatch(
@@ -1507,7 +1268,7 @@ async def generate_videos(
     try:
         context = _video_request_context(call, args)
         if isinstance(target, EpisodeTarget):
-            _check_target_episode(call, context, target.episode)
+            _check_target_episode(call, context, target.episode_id)
             return await _generate_episode(call, context, log)
         if isinstance(target, AllTarget):
             return await _generate_all(call, context, log)
@@ -1527,5 +1288,4 @@ __all__ = [
     "SceneTarget",
     "SelectedTarget",
     "generate_videos",
-    "screen_storyboard_items",
 ]

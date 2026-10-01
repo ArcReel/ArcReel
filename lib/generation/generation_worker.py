@@ -49,6 +49,7 @@ from lib.generation.generation_queue import (
     get_generation_queue,
     resolve_video_execution_for_queued_task,
 )
+from lib.generation.render_lane import RENDER_LANE_CONCURRENCY, RENDER_MEDIA_TYPE, RENDER_PROVIDER_ID
 from lib.generation.restart_recovery import InterruptedCallSettler, RestartRecovery
 from lib.generation.task_failure import encode_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
@@ -135,6 +136,8 @@ class CapacityTable:
         - provider 已知 + lane 不在表 → 0（不支持）
         - provider 整个未知 → ``_defaults[media_type]``（纯查询，不写回表）
         """
+        if media_type == RENDER_MEDIA_TYPE:
+            return RENDER_LANE_CONCURRENCY if provider_id == RENDER_PROVIDER_ID else 0
         lanes = self._limits.get(provider_id)
         if lanes is None:
             return self._defaults.get(media_type, 0)
@@ -196,7 +199,16 @@ class CapacityTable:
             )
             for pid, meta in PROVIDER_REGISTRY.items()
         }
-        return cls(_limits=limits, _defaults={"image": image_max, "video": video_max, "audio": audio_max, "text": 1})
+        return cls(
+            _limits=limits,
+            _defaults={
+                "image": image_max,
+                "video": video_max,
+                "audio": audio_max,
+                "text": 1,
+                RENDER_MEDIA_TYPE: RENDER_LANE_CONCURRENCY,
+            },
+        )
 
     @classmethod
     async def from_db(cls) -> CapacityTable:
@@ -257,7 +269,13 @@ class CapacityTable:
         logger.info("从 DB 加载供应商容量表: %s", limits)
         return cls(
             _limits=limits,
-            _defaults={"image": default_image, "video": default_video, "audio": default_audio, "text": 1},
+            _defaults={
+                "image": default_image,
+                "video": default_video,
+                "audio": default_audio,
+                "text": 1,
+                RENDER_MEDIA_TYPE: RENDER_LANE_CONCURRENCY,
+            },
         )
 
 
@@ -392,6 +410,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
     if is_text:
         return "text"
+    if task.get("media_type") == RENDER_MEDIA_TYPE:
+        return RENDER_PROVIDER_ID
 
     # 整体兜底：含项目加载（队列里可能残留指向已删除/不可读项目的任务，load_project 会抛
     # FileNotFoundError）在内的任何失败都回退 DEFAULT_PROVIDER，绝不冒泡阻断认领循环（见 docstring）。
@@ -422,7 +442,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
 
 
 class GenerationWorker:
-    """Queue worker with per-provider image/video/audio/text lanes and single-active lease."""
+    """Queue worker with per-provider image/video/audio/text lanes, the local render lane and single-active lease."""
 
     def __init__(
         self,
@@ -431,7 +451,7 @@ class GenerationWorker:
         capacity: CapacityTable | None = None,
         slots: SlotTable | None = None,
         provider_projection: ProviderProjection = _extract_provider,
-        lanes: tuple[str, ...] = ("image", "video", "audio", "text"),
+        lanes: tuple[str, ...] = ("image", "video", "audio", "text", RENDER_MEDIA_TYPE),
         *,
         executor: TaskExecutor,
         resume_executor: ResumeExecutor,
@@ -716,7 +736,7 @@ class GenerationWorker:
                         name=f"generation-{media_type}-{task['task_id']}",
                     ),
                 )
-                if media_type == "text":
+                if media_type in ("text", RENDER_MEDIA_TYPE):
                     break
 
         return claimed_any

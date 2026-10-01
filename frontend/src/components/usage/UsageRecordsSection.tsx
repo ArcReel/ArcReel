@@ -146,7 +146,10 @@ export function UsageRecordsSection() {
   const inProgress = useMemo(() => {
     if (!showInProgress) return [];
     return sortByStartedDesc([
-      ...activeTasks.filter((task) => taskMatchesFilters(task, filters)).map(taskToUsageRecordView),
+      ...activeTasks.flatMap((task) => {
+        const view = taskMatchesFilters(task, filters) ? taskToUsageRecordView(task) : null;
+        return view === null ? [] : [view];
+      }),
       ...pendingRecords.map(usageRecordToView),
     ]);
   }, [showInProgress, activeTasks, filters, pendingRecords]);
@@ -217,6 +220,11 @@ export function UsageRecordsSection() {
       <UsageFilterBar
         filters={filters}
         summary={summary}
+        segmentRef={
+          filters.segment
+            ? (records.find((record) => record.segment_id === filters.segment)?.segment_ref ?? null)
+            : null
+        }
         onChange={onFiltersChange}
         onRefresh={() => void refresh()}
         refreshing={summaryLoading || recordsLoading}

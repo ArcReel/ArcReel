@@ -69,7 +69,6 @@ function makeScript(): NarrationEpisodeScript {
         props: [],
         image_prompt: "p",
         video_prompt: "v",
-        transition_to_next: "cut",
       },
     ],
   };

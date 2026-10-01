@@ -34,7 +34,9 @@ class TestCreateAdProjectMetadata:
         assert project["target_duration"] == 30
         assert project["brief"] == "突出 3 秒速干卖点"
         assert "default_duration" not in project
-        assert project["episodes"] == [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}]
+        assert project["episodes"] == [
+            {"episode": 1, "title": "", "script_file": "scripts/episode_1.json", "source_origin": "none"}
+        ]
 
         # 落盘后的 project.json 与返回值一致
         on_disk = pm.load_project("demo-ad")

@@ -4,16 +4,24 @@ import { ShotSplitView } from "./ShotSplitView";
 import type { NarrationSegment } from "@/types";
 import { makeNarrationSegment } from "@/test/factories";
 
-vi.mock("./ShotList", () => ({ ShotList: () => null }));
+vi.mock("./ShotList", () => ({
+  ShotList: ({ onMove }: { onMove?: (itemId: string, afterId: string | null) => void }) => (
+    <button type="button" onClick={() => void onMove?.("E1S03", null)}>
+      drag-last-to-front
+    </button>
+  ),
+}));
 vi.mock("./ShotDetail", () => ({
   ShotDetail: ({
     segmentId,
     onNext,
     onInsertShot,
     onRemoveShot,
+    onMoveShot,
   }: {
     segmentId: string;
     onNext: () => void;
+    onMoveShot?: (shotId: string, direction: "earlier" | "later") => void;
     onInsertShot?: (afterId: string) => Promise<boolean>;
     onRemoveShot?: (itemId: string) => Promise<boolean>;
   }) => (
@@ -21,6 +29,8 @@ vi.mock("./ShotDetail", () => ({
       <button type="button" onClick={onNext}>next</button>
       <button type="button" onClick={() => void onInsertShot?.(segmentId)}>insert</button>
       <button type="button" onClick={() => void onRemoveShot?.(segmentId)}>remove</button>
+      <button type="button" onClick={() => onMoveShot?.(segmentId, "earlier")}>earlier</button>
+      <button type="button" onClick={() => onMoveShot?.(segmentId, "later")}>later</button>
     </div>
   ),
 }));
@@ -70,5 +80,41 @@ describe("ShotSplitView 新增 / 移除分镜", () => {
 
     expect(onRemoveShot).toHaveBeenCalledWith("E1S02");
     expect(screen.getByTestId("detail")).toHaveAttribute("data-segment-id", "E1S01");
+  });
+});
+
+describe("ShotSplitView 改序", () => {
+  it("拖拽改序成功后选中仍跟随原来的分镜", async () => {
+    const onMoveShot = vi.fn().mockResolvedValue(true);
+    const { rerender } = render(view(segments("E1S01", "E1S02", "E1S03"), { onMoveShot }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "drag-last-to-front" }));
+    });
+    rerender(view(segments("E1S03", "E1S01", "E1S02"), { onMoveShot }));
+
+    expect(onMoveShot).toHaveBeenCalledWith("E1S03", null);
+    expect(screen.getByTestId("detail")).toHaveAttribute("data-segment-id", "E1S01");
+  });
+
+  it("详情前移第二条即移到最前，后移落到下一条之后", async () => {
+    const onMoveShot = vi.fn().mockResolvedValue(true);
+    const { rerender } = render(view(segments("E1S01", "E1S02", "E1S03"), { onMoveShot }));
+    fireEvent.click(screen.getByRole("button", { name: "next" }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "earlier" }));
+    });
+    rerender(view(segments("E1S02", "E1S01", "E1S03"), { onMoveShot }));
+    expect(screen.getByTestId("detail")).toHaveAttribute("data-segment-id", "E1S02");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "later" }));
+    });
+
+    expect(onMoveShot.mock.calls).toEqual([
+      ["E1S02", null],
+      ["E1S02", "E1S01"],
+    ]);
   });
 });

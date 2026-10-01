@@ -66,7 +66,6 @@ def _build_unit(
         "unit_id": "E1U1",
         "text": text,
         "duration_seconds": 4,
-        "transition_to_next": "cut",
     }
     if generated_assets is not None:
         unit["generated_assets"] = generated_assets
@@ -159,7 +158,6 @@ class TestProjectArchiveReferenceVideo:
             "unit_id": "E1U1",
             "shots": [{"duration": 4, "text": "镜头一"}],
             "references": [],
-            "transition_to_next": "cut",
             "generated_assets": {
                 "storyboard_image": None,
                 "storyboard_last_image": None,
@@ -205,7 +203,6 @@ class TestProjectArchiveReferenceVideo:
             "unit_id": "E1U1",
             "shots": [{"duration": legacy_seconds, "text": "镜头一"}],
             "references": [],
-            "transition_to_next": "cut",
             "generated_assets": {
                 "storyboard_image": None,
                 "storyboard_last_image": None,
@@ -250,7 +247,6 @@ class TestProjectArchiveReferenceVideo:
             "unit_id": "E1U1",
             "shots": [{"duration": 6, "text": "镜头一"}, {"duration": 4, "text": "镜头二"}],
             "references": [],
-            "transition_to_next": "cut",
             "generated_assets": {
                 "storyboard_image": None,
                 "storyboard_last_image": None,

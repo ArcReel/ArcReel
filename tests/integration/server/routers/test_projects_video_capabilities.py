@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
+    ENDPOINT_FIXED_PLANNING_DURATIONS,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
@@ -114,6 +115,10 @@ class TestRealResolverResponse:
         body = response.json()
         assert body["duration_endpoint_fixed"] is (fixed_bucket == "r2v")
         assert body["duration_endpoint_fixed_reason"] == ("endpoint" if fixed_bucket == "r2v" else None)
+        # 档位空集只给时间线；内容确认按剧本规划借用的档位选时长，与确认转换同一口径。
+        constraints = body["duration_constraints"]
+        assert constraints["allowed"] == ([] if fixed_bucket == "r2v" else [8])
+        assert constraints["planning"] == (ENDPOINT_FIXED_PLANNING_DURATIONS if fixed_bucket == "r2v" else [8])
 
     @pytest.fixture
     def client(self, tmp_path, db_engine, monkeypatch) -> TestClient:
@@ -138,6 +143,7 @@ class TestRealResolverResponse:
             "uses_reference_images": False,
             "allowed": [8],
             "excluded": {"4": "resolution", "6": "resolution"},
+            "planning": [8],
         }
 
     def test_candidate_missing_from_registry_reports_bucket_failure(self, client):

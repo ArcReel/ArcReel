@@ -63,7 +63,6 @@ def test_structured_content_basis_tracks_only_the_direct_formal_chain() -> None:
     first_project = {
         "content_mode": "drama",
         "generation_mode": "storyboard",
-        "source_kind": "screenplay",
         "source_language": "zh",
         "provider": "first-provider",
         "model": "first-model",
@@ -360,17 +359,77 @@ def test_structured_basis_rejects_malformed_formal_inputs() -> None:
         build_episode_script_basis(project={"content_mode": "narration", "generation_mode": "unknown"})
 
 
-def test_script_plan_basis_treats_null_source_kind_as_default() -> None:
-    project = {
-        "content_mode": "drama",
-        "generation_mode": "storyboard",
-        "source_kind": None,
+def _project_with_source_kinds(
+    content_mode: str, generation_mode: str, *, first: str | None, second: str | None
+) -> dict[str, object]:
+    """两个整本源文文件各记一种类型（None 为不记），第 1 集切自第一个文件，第 2 集切自第二个。"""
+    return {
+        "content_mode": content_mode,
+        "generation_mode": generation_mode,
+        "whole_source_files": [
+            {"source_file": "source/a.txt", **({} if first is None else {"source_kind": first})},
+            {"source_file": "source/b.txt", **({} if second is None else {"source_kind": second})},
+        ],
+        "episodes": [
+            {
+                "episode": 1,
+                "source_origin": "whole_source",
+                "source_range": {"source_file": "source/a.txt", "start": 0, "end": 5},
+            },
+            {
+                "episode": 2,
+                "source_origin": "whole_source",
+                "source_range": {"source_file": "source/b.txt", "start": 0, "end": 5},
+            },
+        ],
     }
 
-    defaulted = build_script_plan_basis("source", episode=1, project=project)
-    explicit = build_script_plan_basis("source", episode=1, project={**project, "source_kind": "novel"})
 
-    assert defaulted.digest == explicit.digest
+@pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
+def test_script_plan_basis_follows_the_source_kind_of_its_own_episode(generation_mode: str) -> None:
+    """改一个文件的类型只让原文切自这个文件的集的脚本规划依据变化；正式脚本的依据不受影响。"""
+
+    def _basis(episode: int, first: str, second: str) -> str:
+        project = _project_with_source_kinds("drama", generation_mode, first=first, second=second)
+        return build_script_plan_basis("原文", episode=episode, project=project).digest
+
+    assert _basis(1, "screenplay", "novel") != _basis(1, "novel", "novel")
+    assert _basis(2, "screenplay", "novel") == _basis(2, "novel", "novel")
+    assert build_episode_script_basis(
+        project=_project_with_source_kinds("drama", generation_mode, first="screenplay", second="novel")
+    ) == build_episode_script_basis(
+        project=_project_with_source_kinds("drama", generation_mode, first="novel", second="novel")
+    )
+
+
+@pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
+def test_script_plan_basis_reads_a_missing_source_kind_as_novel(generation_mode: str) -> None:
+    unrecorded = _project_with_source_kinds("drama", generation_mode, first=None, second=None)
+    novel = _project_with_source_kinds("drama", generation_mode, first="novel", second="novel")
+
+    assert (
+        build_script_plan_basis("原文", episode=1, project=unrecorded).digest
+        == build_script_plan_basis("原文", episode=1, project=novel).digest
+    )
+
+
+def test_reference_script_plan_basis_without_source_kinds_is_the_novel_basis() -> None:
+    """参考生视频按小说规划时依据里没有类型：不区分类型的旧依据与之相同。"""
+    novel = _project_with_source_kinds("drama", "reference_video", first="novel", second="novel")
+    legacy = {key: value for key, value in novel.items() if key not in {"whole_source_files", "episodes"}}
+
+    assert (
+        build_script_plan_basis("原文", episode=1, project=novel).digest
+        == build_script_plan_basis("原文", episode=1, project=legacy).digest
+    )
+
+
+def test_narration_script_plan_basis_ignores_source_kinds() -> None:
+    def _basis(kind: str) -> str:
+        project = _project_with_source_kinds("narration", "reference_video", first=kind, second=kind)
+        return build_script_plan_basis("原文", episode=1, project=project).digest
+
+    assert _basis("screenplay") == _basis("novel")
 
 
 @pytest.mark.parametrize("source_language", [None, "", False, 0, [], {}])

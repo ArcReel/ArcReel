@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -12,12 +14,18 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
+from lib.artifacts.artifact_version_provenance import VIDEO_CURRENCY_DURATION_FIELD
 from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.project.project_manager import ProjectManager
+from lib.project.project_migrations.runner import migrate_project_dir
+from lib.speech.narration_config import TtsSynthesisSettings
+from lib.workflow.workflow_state import WorkflowStateService
 from server.services.currency.artifact_version_restore import (
     get_typed_media_restore_target,
     restore_typed_media_version,
 )
+from tests.legacy_project_shapes import write_legacy_tts_narration_project
 
 
 def _descriptor(seed: str, *, kind: str = "narration-delivery/tts-audio") -> ArtifactBasisDescriptor:
@@ -266,3 +274,70 @@ def test_video_restore_rejects_composite_kind_without_complete_v3_components(tmp
             resource_id="E1S01",
             version=version,
         )
+
+
+def test_restore_migrated_tts_raised_video_keeps_current_currency_and_original_paid_duration(tmp_path: Path) -> None:
+    project_path = write_legacy_tts_narration_project(
+        tmp_path / "projects",
+        settings=(TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None),),
+        raised_video_duration_seconds=8,
+    )
+    migrate_project_dir(project_path)
+    manager = ProjectManager(tmp_path)
+    versions = VersionManager(project_path)
+    adapter = ProjectArtifactManifestAdapter(project_path)
+    key = ArtifactKey.episode_video(1, "E1S1")
+    entry = adapter.get_entry(key)
+    current = project_path / "videos" / "scene_E1S1.mp4"
+    video_bytes = current.read_bytes()
+    current.write_bytes(b"replaced-video")
+    adapter.delete_entry(key)
+
+    restored = restore_typed_media_version(
+        project_manager=manager,
+        project_name=project_path.name,
+        project_path=project_path,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S1",
+        version=1,
+        current_file=current,
+        artifact_path="videos/scene_E1S1.mp4",
+    )
+
+    assert current.read_bytes() == video_bytes
+    assert adapter.get_entry(key) == entry
+    assert restored["restored_version"] == 1
+    assert versions.get_versions("videos", "E1S1")["versions"][0]["execution_duration_seconds"] == 8
+    status = WorkflowStateService(manager).get_status(project_path.name, 1)
+    assert status.artifacts["videos"]["current_ids"] == ["E1S1"]
+
+
+@pytest.mark.parametrize("invalid_duration", [True, "4", 0, 12, None])
+def test_video_restore_rejects_currency_duration_outside_frozen_tiers_without_mutation(
+    tmp_path: Path, invalid_duration: object
+) -> None:
+    project_path = write_legacy_tts_narration_project(
+        tmp_path / "projects",
+        settings=(TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None),),
+        raised_video_duration_seconds=8,
+    )
+    migrate_project_dir(project_path)
+    metadata_path = project_path / "versions" / "versions.json"
+    metadata = json.loads(metadata_path.read_bytes())
+    selected = metadata["videos"]["E1S1"]["versions"][0]
+    facts = VideoArtifactCurrencyFacts.from_dict(selected["artifact_video_currency"])
+    selected["artifact_video_currency"] = replace(facts, duration_tiers=(4, 8, 12)).to_dict()
+    metadata["videos"]["E1S1"]["versions"][0][VIDEO_CURRENCY_DURATION_FIELD] = invalid_duration
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    current = project_path / "videos" / "scene_E1S1.mp4"
+    video_bytes = current.read_bytes()
+    entries = ProjectArtifactManifestAdapter(project_path).snapshot_entries()
+
+    with pytest.raises(ValueError, match="currency duration"):
+        get_typed_media_restore_target(
+            VersionManager(project_path), resource_type="videos", resource_id="E1S1", version=1
+        )
+
+    assert current.read_bytes() == video_bytes
+    assert ProjectArtifactManifestAdapter(project_path).snapshot_entries() == entries

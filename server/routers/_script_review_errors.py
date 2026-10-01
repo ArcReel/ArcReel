@@ -10,6 +10,7 @@ from typing import NoReturn
 from fastapi import HTTPException
 
 from lib.infra.api_errors import ConflictError, UnprocessableError
+from lib.script.script_review import overwrite_with_text
 from server.i18n import Translator
 from server.services.project.script_review import ScriptReviewError
 
@@ -24,8 +25,8 @@ _ERROR_STATUS: dict[str, int] = {
     "speech_admission": 409,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 raise_review_error 单独处理。
-# 只读拒绝（script_plan_confirmed）与确认转换的错误码（overwrite_required / conversion_refused / conversion_conflict /
-# video_request_facts / foreign_formal_script）
+# 只读拒绝（script_plan_confirmed）与确认转换的错误码（overwrite_required / invalid_new_assets /
+# unregistered_references / conversion_refused / conversion_conflict / video_request_facts / foreign_formal_script）
 # 带诊断或专用状态，同样在 raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
@@ -38,7 +39,13 @@ _ERROR_I18N: dict[str, str] = {
 def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> NoReturn:
     """把 ``ScriptReviewError`` 抛成对应的 ``HTTPException``；未登记的错误码落 400。"""
     if exc.code == "overwrite_required":
-        raise ConflictError("script_review_overwrite_required").with_diagnostic({"script_overwrite": exc.overwrite})
+        raise ConflictError("script_review_overwrite_required").with_diagnostic(
+            {"script_overwrite": overwrite_with_text(exc.overwrite, _t)}
+        )
+    if exc.code == "invalid_new_assets":
+        raise UnprocessableError("script_review_invalid_new_assets").with_diagnostic(exc.message)
+    if exc.code == "unregistered_references":
+        raise UnprocessableError("script_review_unregistered_references", details=exc.message)
     if exc.code == "conversion_refused":
         raise UnprocessableError("script_review_conversion_refused").with_diagnostic(exc.message)
     if exc.code == "video_request_facts" and exc.problem is not None:
@@ -48,6 +55,8 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         raise ConflictError("script_review_foreign_formal_script", episode=episode, filename=exc.script_filename or "")
     if exc.code == "script_plan_confirmed":
         raise ConflictError("script_review_script_plan_confirmed").with_diagnostic({"code": exc.code})
+    if exc.code == "draft_agent_owned":
+        raise ConflictError("draft_agent_owned").with_diagnostic({"code": exc.code})
     if exc.code == "conversion_conflict":
         raise ConflictError("script_conversion_conflict")
     status = _ERROR_STATUS.get(exc.code, 400)
@@ -55,6 +64,7 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         detail = exc.admission.to_dict()
     elif exc.code == "invalid_content":
         detail = _t("script_review_invalid_content", details=exc.message)
+
     elif exc.code == "episode_not_found":
         detail = _t("episode_not_found", episode=episode)
     else:

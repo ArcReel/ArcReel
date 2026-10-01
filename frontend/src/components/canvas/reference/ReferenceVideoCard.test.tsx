@@ -14,7 +14,6 @@ function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit
     unit_id: "E1U1",
     text: "hi",
     duration_seconds: 3,
-    transition_to_next: "cut",
     note: null,
     generated_assets: {
       storyboard_image: null,

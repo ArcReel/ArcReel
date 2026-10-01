@@ -22,7 +22,8 @@ user-invocable: false
 
 经 `mcp__arcreel__patch_project` 工具写入（项目名由 session 绑定，无需传参）。按 table 分别调用，
 每个 entry 以 name 为键 upsert：name 不存在则新增、存在则合并改字段。**修订已有资产描述需用户显式
-意图驱动**（避免静默覆盖人工编辑过的字段）;新增提取由 analyze-assets 子智能体负责并默认 skip 已存在的。
+意图驱动**（避免静默覆盖人工编辑过的字段）。本集新出现的资产由脚本规划带出、内容确认时登记，不需要在这里预先写入。
+`aliases`（别名）是字符串列表，只供脚本规划认人，不能写进引用。
 
 ```text
 mcp__arcreel__patch_project({"table": "characters", "entries": {"角色名": {"description": "...", "voice_style": "..."}}})
@@ -48,10 +49,8 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 - `episode_target_duration`：`10`–`600` 的整数秒设置 / `null` 清除。单集成片目标时长，脚本规划据它决定本集拆多少个分镜 / 视频单元；未设 `episode_target_units` 时分集规划也按它折算每集塞多少原文（`episode_target_units` 显式设置时以后者为准）。软目标（可被内容需要覆盖，超出只提示不阻断），仅非广告/短片项目可写，ad 项目写入会被拒（整集体量已由 `target_duration` 预算表达）
 - `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。优先级：**用户显式配置 > 自动推断**——用户明确指定语言时即可写入（不限于 overview 跳过或失败的场景）；无用户显式确认时不要自行猜测写入，正常路径由 overview 生成自动落盘。发现显式配置与自动推断 / 源文实际语言不一致时，提醒用户（WARN）并按显式配置继续，不阻塞流程
 - `brief`：字符串设置 / `null` 清除。创作诉求短文本，仅广告/短片项目（`content_mode=ad`）可写，其他项目类型写入会被拒
-- `planning_window_chars`：`int >= 1` 设置 / `null` 清除回内部默认。分集规划单批读取的源文窗口字符数
-- `planning_max_episodes`：`int >= 1` 设置 / `null` 清除回内部默认。分集规划单批最多产出的集数
-- `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目级旁白音色覆盖，优先于全局设置生效，只影响当前项目
-- `narration_speed`：正的有限数值（如 `1.2`）设置 / `null` 清除。项目级旁白语速覆盖，优先于全局设置生效，只影响当前项目
+- `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目 TTS 快照里的旁白音色，只影响当前项目；TTS 配音项目必须有音色，清除会被拒
+- `narration_speed`：正的有限数值（如 `1.2`）设置 / `null` 清除。项目 TTS 快照里的配音语速，只影响当前项目；清除表示不向供应商传语速
 - `character_voice_binding`：`"prompt" / "reference_audio"` 设置 / `null` 清除回默认（`prompt`）。角色声音靠什么约束：`prompt` 把角色 `voice_style` 写进提示词做软约束，`reference_audio` 才把角色已设的参考音频随请求挂给视频模型换取原生音色一致。要原生一致须两件事同时成立：本项设为 `reference_audio` 且该角色配了参考音频
 
 `generation_mode`、`grid_storyboard` 不在白名单内，`patch_project` 会拒绝写入：`generation_mode` 项目创建后不可更改，用户要求改生成方式（storyboard ↔ reference_video）时明确告知不可更改、无绕过方式；`grid_storyboard` 由用户在 Web 设置页开关，用户要求改宫格装配时指引其前往设置页操作，并告知开关只影响后续生成——已生成的分镜图不会自动失效，要按新装配方式出图须显式重新生成对应分镜。
@@ -73,7 +72,7 @@ description）时不落盘并返回 `is_error: true`。
 mcp__arcreel__get_video_capabilities({})
 ```
 
-生成模式由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode` 参数。
+生成模式由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode_id` 参数。
 
 **返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `episode_target_duration` / `content_mode` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按视频单元有无 `@` 引用分别适用；`units` 按 `unit_id` 给出每个已有正式视频单元由服务端按可用参考图判定的桶 `hydrated_capability`、该桶生效档位 `allowed_durations`、事实失败 `problem`，以及声明引用与可用参考图分裂时的 `problems` / `unavailable_references`——已有单元的桶与档位以它为准）；**ad 项目不返回该字段**——ad 的机器字段 `unit` 是从 `shots[]` 派生的轻量索引，分镜时长不受档位枚举管辖（规则见 `video-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 分镜时长。
 

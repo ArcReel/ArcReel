@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import re
@@ -12,6 +13,7 @@ import pytest
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
+    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifestEntry,
@@ -19,9 +21,13 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.rendered_artifact import commit_rendered_artifact
 from lib.artifacts.version_manager import VersionManager
+from lib.edit_timeline import EditTimelineService, RevisionAuthor
+from lib.final_cut.basis import DEFAULT_VARIANT, final_cut_artifact_path, final_cut_key
 from lib.i18n import _
 from lib.infra.validation_messages import default_translate
+from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
@@ -84,7 +90,6 @@ def _build_episode_payload(*, video_uri: str | None = None) -> dict:
                 "props": ["Key"],
                 "image_prompt": "img",
                 "video_prompt": "vid",
-                "transition_to_next": "cut",
                 "generated_assets": {
                     "storyboard_image": "storyboards/scene_E1S01.png",
                     "video_clip": "videos/scene_E1S01.mp4",
@@ -305,6 +310,72 @@ class TestProjectArchiveService:
         archive_path, _ = ProjectArchiveService(pm).export_project("demo", scope=scope)
         with zipfile.ZipFile(archive_path) as archive:
             assert "demo/end_frames/scene_E1S01.png" in set(archive.namelist())
+
+    @pytest.mark.parametrize("scope", ["full", "current"])
+    async def test_edit_timelines_round_trip_through_archive(self, tmp_path, scope):
+        """剪辑时间线是正式内容：随归档导出，导入后原样可读。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        timelines = EditTimelineService(pm)
+        created = await timelines.create_from_script(
+            "demo", episode=1, name="完整版", author=RevisionAuthor(kind="creator")
+        )
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope=scope)
+        shutil.rmtree(pm.get_project_path("demo"))
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported = await timelines.read("demo", created.timeline.id)
+        assert imported == created
+
+    async def test_rendered_artifacts_stay_out_of_the_archive_and_read_missing_after_import(self, tmp_path):
+        """成片与剪映草稿可随时重新渲染：文件与清单条目都不进归档，导出不报未知条目，导入后这些身份读 missing。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        created = await EditTimelineService(pm).create_from_script(
+            "demo", episode=1, name="完整版", author=RevisionAuthor(kind="creator")
+        )
+        timeline_id = created.timeline.id
+        rendered = {
+            final_cut_key(1, timeline_id, DEFAULT_VARIANT): final_cut_artifact_path(1, timeline_id, DEFAULT_VARIANT),
+            jianying_draft_key(1, timeline_id, "with_narration"): jianying_draft_artifact_path(
+                1, timeline_id, "with_narration"
+            ),
+        }
+
+        async def render(output: Path, _workspace: Path) -> None:
+            await asyncio.to_thread(output.write_bytes, b"rendered")
+
+        async def accept(_output: Path) -> None:
+            return None
+
+        for key, artifact_path in rendered.items():
+            await commit_rendered_artifact(
+                project_dir,
+                key=key,
+                artifact_path=artifact_path,
+                basis=ArtifactBasis.build("test/rendered", kind_version=1, inputs={"timeline_id": timeline_id}),
+                render=render,
+                accept=accept,
+            )
+            assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is not None
+        service = ProjectArchiveService(pm)
+
+        archive_path, _diagnostics = service.export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            names = archive.namelist()
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        shutil.rmtree(project_dir)
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        assert not [name for name in names if name.startswith("demo/renders")]
+        assert not {key.encode() for key in rendered} & set(archive_manifest["artifact_manifest"]["entries"])
+        assert "renders" not in archive_manifest["pass_through_entries"]
+        assert "renders" not in json.dumps(archive_manifest["export_diagnostics"], ensure_ascii=False)
+        assert not (pm.get_project_path("demo") / "renders").exists()
+        imported = ProjectArtifactManifestAdapter(pm.get_project_path("demo"))
+        assert all(imported.get_entry(key) is None for key in rendered)
 
     def test_export_excludes_agent_runtime_symlinks(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

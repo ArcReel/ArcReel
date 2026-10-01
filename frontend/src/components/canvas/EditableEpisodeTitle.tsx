@@ -4,6 +4,8 @@ import { Check, Pencil, X } from "lucide-react";
 
 interface EditableEpisodeTitleProps {
   title: string;
+  /** 标题为空时展示的集名（播出位置「第 N 集」），也是输入框的占位文字。 */
+  placeholder?: string;
   /** 保存回调；reject 时组件保持编辑态，错误提示由调用方负责（如 toast）。 */
   onSave: (next: string) => Promise<void>;
   /** false 时纯展示、不暴露编辑入口（如无剧本文件的分集）。 */
@@ -19,6 +21,7 @@ interface EditableEpisodeTitleProps {
  */
 export function EditableEpisodeTitle({
   title,
+  placeholder,
   onSave,
   canEdit,
   headingClassName,
@@ -72,7 +75,7 @@ export function EditableEpisodeTitle({
   if (!canEdit) {
     return (
       <h1 className={headingClassName} style={headingStyle}>
-        {title}
+        {title || placeholder}
       </h1>
     );
   }
@@ -84,6 +87,7 @@ export function EditableEpisodeTitle({
           ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          placeholder={placeholder}
           onKeyDown={(e) => {
             // 输入法组合输入中（如中文拼音）按 Enter 是在确认候选词，不应触发保存
             if (e.nativeEvent.isComposing) return;
@@ -129,7 +133,7 @@ export function EditableEpisodeTitle({
   return (
     <div className="group flex items-center gap-2">
       <h1 className={`min-w-0 ${headingClassName ?? ""}`} style={headingStyle}>
-        {title}
+        {title || placeholder}
       </h1>
       <button
         type="button"

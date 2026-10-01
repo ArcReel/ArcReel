@@ -7,9 +7,6 @@ export default {
   'settings': '设置',
   'logout': '登出',
   'cancel': '取消',
-  'conflict_modal_title': '同名文件已存在',
-  'conflict_modal_desc': '该如何处理 "{{filename}}"？',
-  'keep_both': '保留两者',
   'replace': '替换',
   'download_original': '下载原始格式',
   'confirm': '确认',
@@ -56,4 +53,7 @@ export default {
   'elapsed_running': '已运行 {{duration}}',
   'elapsed_queued': '已等待 {{duration}}',
   'elapsed_total': '耗时 {{duration}}',
+  'episode_position_name': '第 {{position}} 集',
+  'episode_unlisted_name': '未命名集',
+  'episode_agent_ref': '《{{name}}》（集 ID {{id}}）',
 } satisfies Record<keyof typeof enCommon, string>;

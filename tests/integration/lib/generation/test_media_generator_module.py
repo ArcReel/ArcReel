@@ -3,7 +3,6 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import ClassVar
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -1002,106 +1001,6 @@ class TestMediaGenerator:
         assert not staged.exists()
 
     @pytest.mark.asyncio
-    async def test_rejected_short_video_does_not_make_legacy_predecessor_reusable(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        from lib.artifacts.version_manager import VersionManager
-        from lib.speech.narration_delivery import (
-            USE_TTS,
-            NarratedVideoDurationBlockedError,
-            NarrationDeliveryPreparation,
-            NarrationTtsStatus,
-        )
-        from server.services.tasks import narration_delivery_tasks
-
-        gen = _build_generator(tmp_path)
-        gen.versions = VersionManager(gen.project_path)
-        output_path = gen._get_output_path("videos", "E1S01")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"legacy-video-with-unknown-tier")
-
-        _, version, _, _ = await gen.generate_video_async(
-            prompt="new request",
-            resource_type="videos",
-            resource_id="E1S01",
-            duration_seconds=8,
-        )
-        monkeypatch.setattr(
-            narration_delivery_tasks,
-            "probe_existing_media_duration_seconds",
-            AsyncMock(return_value=4.0),
-        )
-        narration = NarrationDeliveryPreparation(
-            delivery=USE_TTS,
-            unit_id="E1S01",
-            speech_mode=None,
-            tts_status=NarrationTtsStatus.CURRENT,
-            artifact_path="audio/segment_E1S01.wav",
-            basis_digest="basis",
-            actual_duration_seconds=6.2,
-            problems=(),
-        )
-
-        # 重载协程本体照跑，只把它的三个协作者换成替身；在途 TTS 判定仍走真实代码，
-        # 空闲由生成队列的空结果给出。
-        class _IdleQueue:
-            async def get_active_tasks_for_resources(self, **_kwargs) -> list[dict]:
-                return []
-
-        pm = MagicMock()
-        pm.load_project.return_value = {
-            "name": "demo",
-            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
-        }
-        pm.get_project_path.return_value = gen.project_path
-        pm.load_script.return_value = {
-            "episode": 1,
-            "content_mode": "narration",
-            "segments": [{"segment_id": "E1S01", "narration": "旁白。", "duration_seconds": 8}],
-        }
-        monkeypatch.setattr(narration_delivery_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(
-            narration_delivery_tasks,
-            "prepare_current_narration_delivery",
-            AsyncMock(return_value=narration),
-        )
-        monkeypatch.setattr(narration_delivery_tasks, "get_generation_queue", _IdleQueue)
-
-        with pytest.raises(NarratedVideoDurationBlockedError):
-            await narration_delivery_tasks.require_generated_video_covers_current_tts(
-                project_name="demo",
-                script_file="episode_1.json",
-                request_duration_seconds=8,
-                output_path=output_path,
-                versions=gen.versions,
-                resource_type="videos",
-                resource_id="E1S01",
-                version=version,
-            )
-
-        assert output_path.read_bytes() == b"legacy-video-with-unknown-tier"
-        item = {
-            "generated_assets": {
-                "status": "completed",
-                "video_clip": "videos/scene_E1S01.mp4",
-            }
-        }
-        assert (
-            await narration_delivery_tasks.reuse_current_video_for_tier(
-                project_path=gen.project_path,
-                versions=gen.versions,
-                item=item,
-                resource_type="videos",
-                resource_id="E1S01",
-                request_duration_seconds=8,
-                minimum_actual_duration_seconds=6.2,
-            )
-            is None
-        )
-
-    @pytest.mark.asyncio
     async def test_generate_video_async_segment_id_by_resource_type(self, tmp_path):
         """视频记账 segment_id 白名单覆盖 storyboards/videos/reference_videos，其余落 None。"""
         gen = _build_generator(tmp_path)
@@ -1618,11 +1517,6 @@ class TestReferenceCompressionSeam:
 
     async def test_reference_audio_total_duration_exceeded_raises_before_backend_call(self, tmp_path):
         """caps 声明了总时长上限时，超限须在调 backend.generate（即付费请求）之前被拦截。"""
-        import shutil
-
-        if shutil.which("ffprobe") is None:
-            pytest.skip("ffprobe not available")
-
         from arcreel_market_core.video_backend_contract import (
             ReferenceAudioMode,
             VideoCapabilities,
@@ -1672,7 +1566,7 @@ class TestReferenceCompressionSeam:
         assert gen.ledger.outcomes == []
 
     async def test_total_duration_exceeded_check_skipped_when_probe_fails(self, tmp_path, monkeypatch):
-        """caps 声明了总时长上限，但探测失败（ffprobe 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
+        """caps 声明了总时长上限，但探测失败（随包 ffmpeg 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
         from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -1714,7 +1608,7 @@ class TestReferenceCompressionSeam:
         assert gen.ledger.outcomes, "探测失败时应放行请求，不阻断到 backend"
 
     async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
-        """未声明总时长约束的后端不该为每个请求多付一轮 ffprobe——探测按能力声明惰性触发。"""
+        """未声明总时长约束的后端不该为每个请求多付一轮探测子进程——探测按能力声明惰性触发。"""
         from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         gen = _build_generator(tmp_path)

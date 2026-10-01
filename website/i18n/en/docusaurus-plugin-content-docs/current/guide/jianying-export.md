@@ -76,7 +76,7 @@ com.lveditor.draft/
 
 Jianying export, the workspace presentation preview, and editable bundle downloads all read the same presentation selection. Video and optional TTS tracks use the selected versions, and track lengths come from the media files' actual durations. Original audio and TTS remain at their original speed and unity gain; ArcReel does not truncate, time-stretch, mix, or re-encode them. Mechanical subtitle timing is allocated from the actual media boundary and text length, and remains adjustable or replaceable in Jianying.
 
-A manually uploaded video without generation provenance is exported unchanged and is explicitly marked as having unavailable provenance. ArcReel does not infer its currency or generate TTS or subtitles for it.
+A manually uploaded video has no generation provenance, so it is exported unchanged and is explicitly marked as having unavailable provenance. ArcReel does not generate TTS or subtitles for it. The uploaded video is finished content itself: editing prompts does not make it stale.
 
 ### Narration/Commentary {#narration-mode-export}
 

@@ -20,8 +20,6 @@ def _audio_ctx(generator):
             provider_model=ProviderModel("dashscope", "qwen3-tts-flash"),
             backend_name="dashscope",
             backend_model="qwen3-tts-flash",
-            narration_voice="Cherry",
-            narration_speed=None,
             voices=(),
         ),
     )
@@ -162,7 +160,7 @@ class TestExecuteCharacterVoiceSampleTask:
             )
 
     async def test_duration_none_skips_validation(self, voice_sample_env, monkeypatch):
-        # ffprobe 不可用时 probe_audio_duration_seconds 返回 None，按仓库惯例降级放行。
+        # 随包 ffmpeg 不可用时 probe_audio_duration_seconds 返回 None，按仓库惯例降级放行。
         async def _unavailable(content, suffix):
             return None
 

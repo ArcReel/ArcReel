@@ -7,15 +7,18 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from lib.backends.providers import CallPurpose, require_provider_pair
 from lib.backends.text_backends.base import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
     TextGenerationRequest,
     TextGenerationResult,
+    TextOutputTruncatedError,
     TextTaskType,
 )
-from lib.backends.text_backends.factory import create_text_backend_for_task
+from lib.backends.text_backends.factory import create_text_backend_for_task, text_model_output_limit
 from lib.billing.ledger import Ledger
 from lib.db.base import DEFAULT_USER_ID
 
@@ -25,8 +28,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def effective_max_output_tokens(registered: int | None) -> int:
+    """文本请求实际生效的输出上限：取 min(模型登记的最大输出长度, 64000)，未登记按 64000。"""
+    if registered is None or registered <= 0:
+        return DEFAULT_MAX_OUTPUT_TOKENS
+    return min(registered, DEFAULT_MAX_OUTPUT_TOKENS)
+
+
 class TextGenerator:
-    """组合 TextBackend + Ledger，统一封装文本生成 + 记账。"""
+    """组合 TextBackend + Ledger，统一封装文本生成 + 记账。
+
+    每次请求的输出上限按 :func:`effective_max_output_tokens` 收口：调用方传入的值只能更低，
+    不能越过模型登记的最大输出长度与 64000 的共同上限。
+    """
 
     def __init__(
         self,
@@ -36,6 +50,8 @@ class TextGenerator:
         *,
         purpose: CallPurpose,
         user_id: str = DEFAULT_USER_ID,
+        registered_max_output_tokens: int | None = None,
+        custom_model: bool = False,
     ):
         require_provider_pair("text", backend, provider_id)
         self.backend = backend
@@ -43,11 +59,18 @@ class TextGenerator:
         self._provider_id = provider_id
         self._purpose = purpose
         self._user_id = user_id
+        self._max_output_tokens = effective_max_output_tokens(registered_max_output_tokens)
+        self._custom_model = custom_model
 
     @property
     def model(self) -> str:
         """当前 backend 的模型名称。"""
         return self.backend.model
+
+    @property
+    def max_output_tokens(self) -> int:
+        """本生成器每次请求实际生效的输出上限（单位 token）。"""
+        return self._max_output_tokens
 
     @classmethod
     async def create(
@@ -64,14 +87,32 @@ class TextGenerator:
         同一个 ``task_type`` 会服务多种来源（剧本生成与分集规划都走 SCRIPT）。
         """
         backend, provider_id = await create_text_backend_for_task(task_type, project_name)
-        return cls(backend, Ledger(), provider_id, purpose=purpose, user_id=user_id)
+        limit = await text_model_output_limit(provider_id, backend.model)
+        return cls(
+            backend,
+            Ledger(),
+            provider_id,
+            purpose=purpose,
+            user_id=user_id,
+            registered_max_output_tokens=limit.registered_max_output_tokens,
+            custom_model=limit.custom_model,
+        )
 
     async def generate(
         self,
         request: TextGenerationRequest,
         project_name: str | None = None,
     ) -> TextGenerationResult:
-        """生成文本并自动记录用量。"""
+        """生成文本并自动记录用量。
+
+        结构化输出被截断时重新抛出的 :class:`TextOutputTruncatedError` 带上解析层 provider_id、
+        模型 ID 与是否为自定义供应商的模型。
+        """
+        ceiling = self._max_output_tokens
+        request = replace(
+            request,
+            max_output_tokens=min(request.max_output_tokens, ceiling) if request.max_output_tokens else ceiling,
+        )
         async with self.ledger.record(
             project_name=project_name or "",
             call_type="text",
@@ -81,6 +122,15 @@ class TextGenerator:
             user_id=self._user_id,
             purpose=self._purpose,
         ) as call:
-            result = await self.backend.generate(request)
+            try:
+                result = await self.backend.generate(request)
+            except TextOutputTruncatedError as exc:
+                raise TextOutputTruncatedError(
+                    provider=exc.provider,
+                    model=self.backend.model,
+                    output_tokens=exc.output_tokens,
+                    provider_id=self._provider_id,
+                    custom_model=self._custom_model,
+                ) from exc
             call.success(result)
             return result

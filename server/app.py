@@ -36,6 +36,7 @@ from lib.db import async_session_factory, close_db, init_db
 from lib.generation.generation_worker import GenerationWorker
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.data_root_layout_migration import default_sdk_config_dir, migrate_data_root_layout
+from lib.infra.ffmpeg import log_ffmpeg_status
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from lib.infra.logging_config import (
     attach_file_handler,
@@ -55,13 +56,19 @@ from server.routers import (
     agent_config,
     agent_memory,
     api_keys,
+    asset_sheets,
     assets,
     assistant,
     characters,
     cost_estimation,
     custom_endpoints,
     custom_providers,
+    edit_timelines,
     end_frames,
+    episode_drafts,
+    episode_management,
+    episode_planning,
+    episodes_view,
     files,
     generate,
     grids,
@@ -72,15 +79,19 @@ from server.routers import (
     presentations,
     products,
     project_events,
+    project_migration,
     projects,
+    prompt_authoring,
     prompt_templates,
     props,
     providers,
     reference_videos,
     scenes,
+    script_plan,
     script_review,
     shot_uploads,
     social_publish,
+    storyboard_batches,
     system,
     system_config,
     tasks,
@@ -88,6 +99,7 @@ from server.routers import (
     versions,
 )
 from server.routers import auth as auth_router
+from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.project_events import ProjectEventService
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
@@ -364,6 +376,9 @@ async def lifespan(app: FastAPI):
     app.state.in_docker = is_docker
     app.state.sandbox_enabled = sandbox_enabled
 
+    # 随包 ffmpeg 自检一次，结论缓存在进程内；不可用不阻断启动。
+    await asyncio.to_thread(log_ffmpeg_status)
+
     # 日志文件持久化：先把代码目录下的旧日志迁入数据根，再挂 file handler。
     # 顺序很重要——handler 会在新位置创建 arcreel.log，提前挂会让旧的同名文件因冲突留在原处。
     await asyncio.to_thread(migrate_legacy_log_dir)
@@ -401,7 +416,11 @@ async def lifespan(app: FastAPI):
     # Run any pending project.json schema migrations (file-based).
     # Both calls are synchronous filesystem walks — offload to a worker thread
     # so they don't block the event loop during uvicorn startup.
-    migration_summary = await asyncio.to_thread(run_project_migrations, layout.projects_dir)
+    migration_summary = await asyncio.to_thread(
+        run_project_migrations,
+        layout.projects_dir,
+        recorded_episode_ids=recorded_episode_ids_on(asyncio.get_running_loop()),
+    )
     if migration_summary.migrated or migration_summary.failed:
         logger.info(
             "Project migrations: migrated=%s skipped=%d failed=%s",
@@ -598,7 +617,14 @@ app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_cur
 app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["商品管理"])
 app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
 app.include_router(social_publish.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["社交分发"])
+app.include_router(
+    edit_timelines.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["剪辑时间线"]
+)
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
+app.include_router(episodes_view.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["分集视图"])
+app.include_router(
+    episode_management.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["集管理"]
+)
 app.include_router(
     generate.router,
     prefix="/api/v1",
@@ -606,10 +632,46 @@ app.include_router(
     tags=["生成"],
 )
 app.include_router(
+    storyboard_batches.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["生成"],
+)
+app.include_router(
+    asset_sheets.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["资产图"],
+)
+app.include_router(
     script_review.router,
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["内容确认"],
+)
+app.include_router(
+    episode_drafts.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["内容确认"],
+)
+app.include_router(
+    prompt_authoring.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["提示词编写"],
+)
+app.include_router(
+    episode_planning.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["分集规划"],
+)
+app.include_router(
+    script_plan.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["脚本规划"],
 )
 app.include_router(
     shot_uploads.router,
@@ -622,6 +684,9 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["分镜尾帧"],
+)
+app.include_router(
+    project_migration.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["项目数据升级"]
 )
 app.include_router(versions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用统计"])
@@ -689,6 +754,7 @@ app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 # 自带认证端点：浏览器原生下载导航带不了 Authorization header，
 # 端点内 verify_download_token 校验短时效下载 token（见 docs/adr/0071）。
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
+app.include_router(edit_timelines.self_auth_router, prefix="/api/v1", tags=["剪辑时间线"])
 
 
 @app.api_route("/mcp", methods=["DELETE", "GET", "HEAD", "POST"], include_in_schema=False)

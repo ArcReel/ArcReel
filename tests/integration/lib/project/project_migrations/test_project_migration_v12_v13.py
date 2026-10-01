@@ -103,7 +103,7 @@ def test_summary_counts_legacy_videos_and_reports_the_script_generated(tmp_path:
     assert episode.script_status == "generated"
     assert episode.item_count == 2
     assert (episode.videos.total, episode.videos.available, episode.videos.stale) == (2, 2, 0)
-    assert summary.phase != "preparation"
+    assert summary.episodes_summary.scripted == 1
 
 
 def test_status_passes_the_script_plan_gate_for_a_registered_planless_script(tmp_path: Path) -> None:
@@ -115,7 +115,7 @@ def test_status_passes_the_script_plan_gate_for_a_registered_planless_script(tmp
 
     status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
 
-    assert status.state not in {"SCRIPT_PLAN_CONTENT", "SCRIPT_PLAN_REVIEW", "FINAL_SCRIPT"}
+    assert status.next_action.type not in {"prepare_script_plan", "confirm_script_plan", "generate_script"}
     assert status.artifacts["script"]["state"] == ArtifactStatus.CURRENT.value
     assert status.artifacts["videos"]["current_ids"] == ["E1S1", "E1S2"]
 

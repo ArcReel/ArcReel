@@ -162,7 +162,6 @@ def _write_verified_presentation_claims(
             "episode": episode,
             "resource_type": "videos",
             "script_file": f"episode_{episode}.json",
-            "transition_to_next": "cut",
             "subtitle_artifact_path": subtitle_path,
             "presentation_artifact_path": presentation_path,
             "persisted": True,
@@ -1613,15 +1612,14 @@ def test_schema8_workflow_keeps_a_stale_typed_video_usable(tmp_path: Path) -> No
     workflow = WorkflowStateService(ProjectManager(tmp_path))
 
     ready = workflow.get_status("ad")
-    assert ready.state == "EXPORT_READY"
+    assert ready.next_action.type == "create_edit_timeline"
     assert ready.artifacts["videos"]["current_ids"] == ["E1U1"]
 
     script["video_units"][0]["text"] = "产品换成蓝色后掠过画面"
     _write_json(project_dir / "scripts" / "episode_1.json", script)
     stale = workflow.get_status("ad")
-    assert stale.state == "EXPORT_READY"
     assert stale.artifacts["videos"]["stale_ids"] == ["E1U1"]
-    assert stale.next_action.type == "export"
+    assert stale.next_action.type == "create_edit_timeline"
 
 
 def test_v7_activation_backfills_grid_composite_and_split_members(tmp_path: Path) -> None:

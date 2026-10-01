@@ -5,20 +5,18 @@ from typing import Any
 
 import pytest
 
-from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints, discover_sources
+from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
+from lib.episode.episode_sources import discover_sources
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import GenerationSelectionMode
 from lib.generation.video_request_facts import VideoRequestFactsFailure
-from lib.project.asset_inventory import complete_asset_inventory
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
-from lib.speech.narration_delivery import POST_PRODUCTION
 from lib.workflow.workflow_plan import WorkflowPlanRequest, WorkflowStepState
 from lib.workflow.workflow_state import (
     WorkflowActionType,
@@ -32,7 +30,7 @@ from server.services.project import workflow_planner
 from tests.factories import make_video_request_facts
 
 
-def _status(*, state: str = "VIDEO", action: str = "generate_videos") -> WorkflowStatus:
+def _status(*, action: str = "generate_videos") -> WorkflowStatus:
     return WorkflowStatus.model_validate(
         {
             "project_revision": "sha256-v1:project",
@@ -48,11 +46,10 @@ def _status(*, state: str = "VIDEO", action: str = "generate_videos") -> Workflo
                 script_filename="episode_1.json",
                 source="source/episode_1.txt",
             ),
-            "state": state,
+            "content": None,
             "blockers": [],
             "gates": {"script_plan_review": {"state": "confirmed", "revision": "script_plan"}},
             "artifacts": {
-                "asset_inventory": {"state": "current"},
                 "asset_sheets": {},
                 "script_plan": {"state": "current"},
                 "script": {"state": "current", "path": "scripts/episode_1.json"},
@@ -141,9 +138,6 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
     project_path = pm.get_project_path("demo")
     source = project_path / "source" / "novel.txt"
     source.write_text("完整原文", encoding="utf-8")
-    revision = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
-    assert revision is not None
-    complete_asset_inventory(pm, "demo", SourceScope(kind="all"), revision)
     if stage == "episode_plan":
         return pm
 
@@ -159,8 +153,7 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
                 "source_range": {"source_file": "source/novel.txt", "start": 0, "end": 4},
             }
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": 4}
-        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
 
     pm.update_project("demo", _plan)
     return pm
@@ -170,6 +163,7 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
     ("stage", "content_mode", "generation_mode", "task_type", "step_id", "resource_id"),
     [
         ("episode_plan", "narration", "storyboard", "text_episode_plan", "episode_plan", "episode-planning"),
+        ("episode_plan", "narration", "storyboard", "text_episode_plan", "episode_plan", "episode-planning-next"),
         ("script_plan", "narration", "storyboard", "text_narration_script_plan", "script_plan_content", "episode-1"),
         ("script_plan", "drama", "storyboard", "text_drama_script_plan", "script_plan_content", "episode-1"),
         (
@@ -181,6 +175,22 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
             "episode-1",
         ),
         ("final_script", "ad", "storyboard", "text_episode_script", "final_script", "episode-1"),
+        (
+            "script_plan",
+            "drama",
+            "storyboard",
+            "text_draft_repair",
+            "script_plan_content",
+            "episode-1-drama_script_plan",
+        ),
+        (
+            "script_plan",
+            "narration",
+            "reference_video",
+            "text_draft_repair",
+            "final_script",
+            "episode-1-reference_prompt_authoring",
+        ),
     ],
 )
 async def test_recovered_plan_waits_for_active_text_task(
@@ -254,14 +264,13 @@ async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singl
         return BatchAdmission(
             operation=kwargs["operation"],
             selection=kwargs["selection"],
-            narration_delivery=kwargs["request_options"].narration_delivery,
             tickets=(UnitAdmissionTicket("E1S01"),),
         )
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
-    request = WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
+    request = WorkflowPlanRequest()
     first = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)
     second = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)
 
@@ -297,16 +306,13 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
         return BatchAdmission(
             operation=kwargs["operation"],
             selection=kwargs["selection"],
-            narration_delivery=kwargs["request_options"].narration_delivery,
             tickets=(UnitAdmissionTicket("E1S01"),),
         )
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     video = next(step for step in plan.steps if step.id == "video")
     assert video.state is WorkflowStepState.ACTIVE
@@ -326,7 +332,7 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
 async def test_grid_storyboard_plan_waits_for_active_grid_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_path = _project_dir(tmp_path)
     pm = _ProjectManager(project_path, _script())
-    status = _status(state="STORYBOARD", action="generate_grid").model_copy(
+    status = _status(action="generate_grid").model_copy(
         update={
             "project": WorkflowProject(
                 content_mode="narration",
@@ -386,7 +392,7 @@ async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monk
     monkeypatch.setattr(
         workflow_planner.WorkflowStateService,
         "get_status",
-        lambda *_args: _status(state="ASSET_SHEETS", action="generate_asset_sheets"),
+        lambda *_args: _status(action="generate_asset_sheets"),
     )
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
@@ -436,7 +442,7 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
             assert project_manager is planner_pm
 
         def get_status(self, *_args: object) -> WorkflowStatus:
-            return _status(state="STORYBOARD", action="generate_storyboards")
+            return _status(action="generate_storyboards")
 
     monkeypatch.setattr(workflow_planner, "WorkflowStateService", ProductWorkflowStateService)
     queue = GenerationQueue(session_factory=db_factory, project_manager=queue_pm)
@@ -519,16 +525,13 @@ async def test_recovery_checkpoint_without_provider_job_remains_visible(
         return BatchAdmission(
             operation=kwargs["operation"],
             selection=kwargs["selection"],
-            narration_delivery=kwargs["request_options"].narration_delivery,
             tickets=(UnitAdmissionTicket("E1S01"),),
         )
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     checkpoint = next(step for step in plan.steps if step.id == "video").tasks[0].provider_checkpoint
     assert checkpoint is not None
@@ -544,7 +547,7 @@ async def test_mixed_speech_blocks_before_storyboard_and_uses_atomic_script_edit
     monkeypatch.setattr(
         workflow_planner.WorkflowStateService,
         "get_status",
-        lambda *_args: _status(state="STORYBOARD", action="generate_storyboards"),
+        lambda *_args: _status(action="generate_storyboards"),
     )
 
     async def _active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
@@ -611,9 +614,7 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
 
     before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     # 走提交侧那条缝要读 Manifest 与分镜图，读到的一切仍不得在项目目录留下痕迹。
     assert sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*")) == before  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
@@ -656,9 +657,7 @@ async def test_planner_folds_a_video_request_facts_failure_into_each_target(
     )
     set_admission_video_request_facts(failure)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     video = next(step for step in plan.steps if step.id == "video")
     assert video.admission is not None
@@ -696,9 +695,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
     set_admission_video_request_facts(make_video_request_facts(requested_generate_audio=False))
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     video = next(step for step in plan.steps if step.id == "video")
     assert video.admission is not None

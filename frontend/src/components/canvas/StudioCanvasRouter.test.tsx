@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route, Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { API, NarratedVideoDurationError } from "@/api";
+import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -29,9 +29,9 @@ vi.mock("./OverviewCanvas", () => ({
   OverviewCanvas: () => <div data-testid="overview-canvas">Overview</div>,
 }));
 
-vi.mock("./SourceFileViewer", () => ({
-  SourceFileViewer: ({ filename }: { filename: string }) => (
-    <div data-testid="source-file-viewer">{filename}</div>
+vi.mock("./episodes/EpisodesView", () => ({
+  EpisodesView: ({ projectName }: { projectName: string }) => (
+    <div data-testid="episodes-view">{projectName}</div>
   ),
 }));
 
@@ -55,11 +55,7 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     scriptFile?: string;
     durationOptions?: number[];
     onUpdatePrompt?: (segmentId: string, field: string, value: unknown, scriptFile?: string) => void;
-    onMoveShot?: (
-      shotId: string,
-      direction: "earlier" | "later",
-      scriptFile?: string,
-    ) => Promise<boolean> | void;
+    onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean> | void;
     onInsertShot?: (afterId: string, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
     onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
     onGenerateStoryboard?: (segmentId: string) => void;
@@ -92,7 +88,7 @@ vi.mock("./timeline/TimelineCanvas", () => ({
       <button
         onClick={(e) => {
           const el = e.currentTarget;
-          void Promise.resolve(onMoveShot?.("SEG-1", "later", scriptFile)).then((moved) => {
+          void Promise.resolve(onMoveShot?.("SEG-1", "SEG-2", scriptFile)).then((moved) => {
             el.setAttribute("data-move-result", String(moved));
           });
         }}
@@ -117,8 +113,10 @@ vi.mock("./timeline/TimelineCanvas", () => ({
       </button>
       <button onClick={() => onGenerateStoryboard?.("SEG-1")}>generate-storyboard</button>
       <button onClick={() => onGenerateVideo?.("SEG-1")}>generate-video</button>
-      <button onClick={() => onGenerateNarration?.("SEG-1")}>generate-narration</button>
-      <button onClick={() => onGenerateEpisodeNarration?.()}>generate-episode-narration</button>
+      {onGenerateNarration && <button onClick={() => onGenerateNarration("SEG-1")}>generate-narration</button>}
+      {onGenerateEpisodeNarration && (
+        <button onClick={() => onGenerateEpisodeNarration()}>generate-episode-narration</button>
+      )}
       <button onClick={() => void onSaveTitle?.("新标题")?.catch(() => {})}>save-title</button>
     </div>
   ),
@@ -170,11 +168,7 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
       scriptFile: string,
       sceneIds?: string[],
     ) => void | Promise<void>;
-    onGenerateVideo?: (
-      segmentId: string,
-      scriptFile?: string,
-      requestOptions?: { narration_delivery: "use_tts" },
-    ) => void | Promise<void>;
+    onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
   }) => (
     <div data-testid="grid-canvas">
       <button onClick={() => void onGenerateGrid?.(1, "episode_1.json")}>generate-grid</button>
@@ -183,7 +177,7 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
           const button = event.currentTarget;
           button.dataset.videoResult = "pending";
           void Promise.resolve(
-            onGenerateVideo?.("SEG-1", "episode_1.json", { narration_delivery: "use_tts" }),
+            onGenerateVideo?.("SEG-1", "episode_1.json"),
           ).then(
             () => {
               button.dataset.videoResult = "resolved";
@@ -360,7 +354,6 @@ function makeScript(): EpisodeScript {
         props: ["Sword"],
         image_prompt: "image prompt",
         video_prompt: "video prompt",
-        transition_to_next: "cut",
       },
     ],
   };
@@ -380,7 +373,6 @@ function makeAdScript(): EpisodeScript {
         voiceover_text: "口播文案",
         image_prompt: "ad image prompt",
         video_prompt: "ad video prompt",
-        transition_to_next: "cut",
       },
     ],
   };
@@ -400,7 +392,6 @@ function makeDramaScript(): EpisodeScript {
         characters_in_scene: ["Hero"],
         image_prompt: "drama image prompt",
         video_prompt: "drama video prompt",
-        transition_to_next: "cut",
       },
     ],
   };
@@ -461,7 +452,7 @@ describe("StudioCanvasRouter", () => {
     expect(screen.queryByTestId("character-card")).not.toBeInTheDocument();
   });
 
-  it("routes characters/scenes/props/source/episodes views correctly", async () => {
+  it("routes characters/scenes/props/episodes views correctly", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData(),
@@ -482,9 +473,9 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByTestId("prop-card")).toHaveAttribute("data-name", "Sword");
     viewProps.unmount();
 
-    const viewSource = renderAt("/source/source%20file.txt");
-    expect(screen.getByTestId("source-file-viewer")).toHaveTextContent("source file.txt");
-    viewSource.unmount();
+    const viewEpisodeList = renderAt("/episodes");
+    expect(screen.getByTestId("episodes-view")).toHaveTextContent("demo");
+    viewEpisodeList.unmount();
 
     const viewEpisodes = renderAt("/episodes/1");
     expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
@@ -494,6 +485,18 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(screen.queryByText("加载中...")).not.toBeInTheDocument();
     });
+  });
+
+  it("sends ad projects away from the episodes view to the overview", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ content_mode: "ad" }),
+    });
+
+    renderAt("/episodes");
+
+    expect(screen.queryByTestId("episodes-view")).not.toBeInTheDocument();
+    expect(screen.getByTestId("overview-canvas")).toBeInTheDocument();
   });
 
   // 同一 StudioCanvasRouter 实例从真实项目切到演示项目（路由 nest 下 projectName 参数
@@ -1082,7 +1085,7 @@ describe("StudioCanvasRouter", () => {
     expect(updateSegmentSpy).not.toHaveBeenCalled();
   });
 
-  it("moves an ad shot by submitting the full reordered id list", async () => {
+  it("moves a shot after its anchor", async () => {
     const script = makeAdScript() as AdEpisodeScript;
     script.shots.push({
       shot_id: "SEG-2",
@@ -1091,7 +1094,6 @@ describe("StudioCanvasRouter", () => {
       voiceover_text: "立即下单",
       image_prompt: "p2",
       video_prompt: "v2",
-      transition_to_next: "cut",
     });
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1103,13 +1105,13 @@ describe("StudioCanvasRouter", () => {
       project: makeProjectData({ content_mode: "ad" }),
       scripts: { "episode_1.json": script },
     });
-    const reorderSpy = vi.spyOn(API, "reorderShots").mockResolvedValue({ success: true });
+    const moveSpy = vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
 
     fireEvent.click(screen.getByText("move-shot-later"));
     await waitFor(() => {
-      expect(reorderSpy).toHaveBeenCalledWith("demo", "episode_1.json", ["SEG-2", "SEG-1"]);
+      expect(moveSpy).toHaveBeenCalledWith("demo", "episode_1.json", "SEG-1", "SEG-2");
     });
     // 重排 + 本地刷新都成功 → 报告移动成功
     await waitFor(() => {
@@ -1117,7 +1119,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("reports move failure and toasts when the reorder request fails", async () => {
+  it("reports move failure and toasts when the move request fails", async () => {
     const script = makeAdScript() as AdEpisodeScript;
     script.shots.push({
       shot_id: "SEG-2",
@@ -1126,7 +1128,6 @@ describe("StudioCanvasRouter", () => {
       voiceover_text: "立即下单",
       image_prompt: "p2",
       video_prompt: "v2",
-      transition_to_next: "cut",
     });
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1138,7 +1139,7 @@ describe("StudioCanvasRouter", () => {
       project: makeProjectData({ content_mode: "ad" }),
       scripts: { "episode_1.json": script },
     });
-    vi.spyOn(API, "reorderShots").mockRejectedValue(new Error("server boom"));
+    vi.spyOn(API, "moveScriptItem").mockRejectedValue(new Error("server boom"));
 
     renderAt("/episodes/1");
 
@@ -1150,7 +1151,7 @@ describe("StudioCanvasRouter", () => {
     expect(useAppStore.getState().toast?.tone).toBe("error");
   });
 
-  it("reports move failure when local refresh fails after a successful reorder", async () => {
+  it("reports move failure when local refresh fails after a successful move", async () => {
     const script = makeAdScript() as AdEpisodeScript;
     script.shots.push({
       shot_id: "SEG-2",
@@ -1159,7 +1160,6 @@ describe("StudioCanvasRouter", () => {
       voiceover_text: "立即下单",
       image_prompt: "p2",
       video_prompt: "v2",
-      transition_to_next: "cut",
     });
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1167,10 +1167,10 @@ describe("StudioCanvasRouter", () => {
       currentScripts: { "episode_1.json": script },
     });
 
-    // 重排接口成功，但项目刷新失败：本地 segments 仍是旧顺序，
+    // 移动接口成功，但项目刷新失败：本地 segments 仍是旧顺序，
     // 必须报告失败，否则调用方会推进 selectedIndex 切到错误分镜
     vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
-    vi.spyOn(API, "reorderShots").mockResolvedValue({ success: true });
+    vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
 
@@ -1181,7 +1181,7 @@ describe("StudioCanvasRouter", () => {
   });
 
   it.each([
-    ["insert-shot", "insertScriptItemAfter"],
+    ["insert-shot", "insertScriptItem"],
     ["remove-shot", "removeScriptItem"],
   ] as const)(
     "%s reports success once the edit is committed even if the local refresh then fails",
@@ -1275,11 +1275,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("routes the panel's video regenerate to the duration-confirmation flow instead of a dead-end raw toast", async () => {
-    // 视频重生撞上时长档位需要确认时，enqueueVideo 内部对 NarratedVideoDurationError
-    // 选择 rethrow（而不是像其它入队回调那样自己吞掉转成 toast）。面板没有自己的确认
-    // 弹窗——把用户带到承接这套确认流程的单元卡上，并给一句翻译过的提示，而不是把
-    // 供应商侧的裸 message 直接扔出来。
+  it("routes the panel's video regenerate through the storyboard video entry", async () => {
     const projectData = makeProjectData();
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1290,44 +1286,16 @@ describe("StudioCanvasRouter", () => {
       project: projectData,
       scripts: { "episode_1.json": makeScript() },
     });
-    vi.spyOn(API, "generateVideo").mockRejectedValue(
-      new NarratedVideoDurationError({
-        allowed: false,
-        kind: "narrated_video_duration",
-        unit_id: "SEG-1",
-        narration_delivery: {},
-        planned_duration: 4,
-        duration_input: 6.2,
-        request_duration: 8,
-        adjustment: "up",
-        problems: [
-          {
-            code: "reference_duration_confirmation_required",
-            blocking: true,
-            unit_id: "SEG-1",
-            locations: [{ path: ["duration_seconds"], line: null }],
-            params: { duration_input: 6.2, request_duration: 8 },
-            reason: "request_duration_uses_different_tier",
-            action: "confirm_duration",
-            message: "本次时长基准 6.2s 将按 8s 档位生成，请确认后重试",
-          },
-        ],
-      }),
-    );
+    vi.spyOn(API, "generateVideo").mockRejectedValue(new Error("provider down"));
 
     renderAt("/episodes/1");
 
     fireEvent.click(screen.getByText("workflow-regenerate-video"));
     await waitFor(() => {
       expect(useAppStore.getState().toast?.tone).toBe("error");
-      // 断言的是翻译过的引导文案本身，不是"不包含供应商原始 message"这个弱条件——
-      // 空文本、错译 key 或无关错误文本都得挡在这条断言之外。
-      expect(useAppStore.getState().toast?.text).toBe(
-        "本次申请时长需要先确认档位，已为你定位到对应分镜",
-      );
+      expect(useAppStore.getState().toast?.text).toBe("生成视频失败: provider down");
     });
-    expect(useAppStore.getState().scrollTarget?.id).toBe("SEG-1");
-    expect(useAppStore.getState().scrollTarget?.type).toBe("segment");
+    expect(API.generateVideo).toHaveBeenCalledWith("demo", "SEG-1", "video prompt", "episode_1.json", 4);
   });
 
   it("withholds the panel's regenerate entry on the reference route instead of wiring a dead button", async () => {
@@ -1493,15 +1461,32 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
+  it("hides narration generation entries for post-production projects", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ narration_delivery: "post_production" }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ narration_delivery: "post_production" }),
+      scripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAt("/episodes/1");
+
+    expect(screen.queryByText("generate-narration")).not.toBeInTheDocument();
+    expect(screen.queryByText("generate-episode-narration")).not.toBeInTheDocument();
+  });
+
   it("submits narration generation and shows a success toast", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateNarrationAudio").mockResolvedValue({
@@ -1524,12 +1509,12 @@ describe("StudioCanvasRouter", () => {
   it("reports narration generation failure with an error toast", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateNarrationAudio").mockRejectedValue(new Error("tts failed"));
@@ -1546,12 +1531,12 @@ describe("StudioCanvasRouter", () => {
   it("submits episode narration batch and reports the submitted count", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
@@ -1575,12 +1560,12 @@ describe("StudioCanvasRouter", () => {
   it("tells the user when episode narration has nothing missing", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
@@ -1603,7 +1588,7 @@ describe("StudioCanvasRouter", () => {
   it("blocks narration generation when no audio provider is configured", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
     useConfigStatusStore.setState({
@@ -1612,7 +1597,7 @@ describe("StudioCanvasRouter", () => {
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     const generateSpy = vi.spyOn(API, "generateNarrationAudio");
@@ -1650,7 +1635,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("preserves the grid video promise for duration confirmation", async () => {
+  it("submits the grid video without any narration delivery choice", async () => {
     const projectData = makeProjectData({ generation_mode: "storyboard", grid_storyboard: true });
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1661,31 +1646,12 @@ describe("StudioCanvasRouter", () => {
       project: projectData,
       scripts: { "episode_1.json": makeScript() },
     });
-    vi.spyOn(API, "generateVideo").mockRejectedValue(
-      new NarratedVideoDurationError({
-        allowed: false,
-        kind: "narrated_video_duration",
-        unit_id: "SEG-1",
-        narration_delivery: {},
-        planned_duration: 4,
-        duration_input: 6.2,
-        request_duration: 8,
-        adjustment: "up",
-        problems: [
-          {
-            code: "reference_duration_confirmation_required",
-            blocking: true,
-            unit_id: "SEG-1",
-            locations: [{ path: ["duration_seconds"], line: null }],
-            params: { duration_input: 6.2, request_duration: 8 },
-            reason: "request_duration_uses_different_tier",
-            action: "confirm_duration",
-            message: "本次时长基准 6.2s 将按 8s 档位生成，请确认后重试",
-          },
-        ],
-      }),
-    );
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(API, "generateVideo").mockResolvedValue({
+      success: true,
+      task_id: "t-v",
+      deduped: false,
+      message: "已提交",
+    });
 
     renderAt("/episodes/1");
 
@@ -1693,7 +1659,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(button).toHaveAttribute("data-video-result", "NarratedVideoDurationError");
+      expect(button).toHaveAttribute("data-video-result", "resolved");
     });
     expect(API.generateVideo).toHaveBeenCalledWith(
       "demo",
@@ -1701,7 +1667,6 @@ describe("StudioCanvasRouter", () => {
       "video prompt",
       "episode_1.json",
       4,
-      { narration_delivery: "use_tts" },
     );
   });
 

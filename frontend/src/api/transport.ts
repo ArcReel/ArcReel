@@ -10,13 +10,11 @@ import i18n from "@/i18n";
 import {
   AgentFailureError,
   ApiRequestError,
-  NarratedVideoDurationError,
   ReadOnlyModeError,
   ReferenceProjectionError,
   ScriptEditCommandError,
   SpeechAdmissionError,
   isAgentFailureDetail,
-  isNarratedVideoDurationAdmission,
   isReferenceProjectionAdmission,
   isScriptEditResult,
   isSpeechAdmission,
@@ -39,9 +37,6 @@ export async function throwIfNotOk(response: Response, fallbackMsg: string): Pro
     const detail = error.detail;
     if (isReferenceProjectionAdmission(detail)) {
       throw new ReferenceProjectionError(detail);
-    }
-    if (isNarratedVideoDurationAdmission(detail)) {
-      throw new NarratedVideoDurationError(detail);
     }
     if (isSpeechAdmission(detail)) {
       throw new SpeechAdmissionError(detail);
@@ -192,9 +187,6 @@ export async function requestJson<T = unknown>(
     }
     if (isReferenceProjectionAdmission(error.detail)) {
       throw new ReferenceProjectionError(error.detail);
-    }
-    if (isNarratedVideoDurationAdmission(error.detail)) {
-      throw new NarratedVideoDurationError(error.detail);
     }
     if (isSpeechAdmission(error.detail)) {
       throw new SpeechAdmissionError(error.detail);

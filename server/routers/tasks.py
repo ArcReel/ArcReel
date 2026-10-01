@@ -4,16 +4,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any, cast
 
 from fastapi import APIRouter, Query, Request
 
 from lib.db.repositories.task_repo import TaskNotCancellableError
+from lib.edit_timeline.errors import edit_timeline_message
 from lib.generation.generation_queue import get_generation_queue
+from lib.generation.generation_result import decode_generation_problem
 from lib.generation.task_failure import parse_failure, render_failure
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.project.project_manager import get_project_manager
 from server.i18n import Translator
+from server.services.project.episode_item_refs import with_episode_item_refs
 
 router = APIRouter()
 
@@ -70,7 +75,28 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
     message = localized.get("error_message")
     if message:
         failure = parse_failure(message)
-        if failure is None:
+        problem = decode_generation_problem(message)
+        if problem is not None:
+            params = dict(problem.params)
+            issues = params.get("issues")
+            if isinstance(issues, list):
+                params["units"] = "、".join(
+                    dict.fromkeys(
+                        str(issue["unit_id"]) for issue in issues if isinstance(issue, dict) and issue.get("unit_id")
+                    )
+                )
+            key = problem.code
+            message = edit_timeline_message(problem.code, params)
+            if message is not None:
+                key, params = message
+            translated = translate(key, **params)
+            localized = {
+                **localized,
+                "error_code": problem.code,
+                "error_params": problem.params,
+                "error_message": translated if translated != key else problem.detail,
+            }
+        elif failure is None:
             localized = {**localized, "error_message": render_failure(message, translate)}
         else:
             code, params = failure
@@ -87,6 +113,18 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
             rendered = _render_warnings(result_dict["warnings"], translate)
             localized = {**localized, "result": {**result_dict, "warnings": rendered}}
     return localized
+
+
+async def _with_resource_refs(tasks: list[dict[str, Any]], translate: Callable[..., str]) -> list[dict[str, Any]]:
+    """附上 ``resource_ref``：条目所属集的标题与播出位置，界面据此显示「标题 · S01」。"""
+    return await asyncio.to_thread(
+        with_episode_item_refs,
+        tasks,
+        id_field="resource_id",
+        ref_field="resource_ref",
+        projects=get_project_manager(),
+        translate=translate,
+    )
 
 
 @router.get("/tasks/stats")
@@ -115,7 +153,7 @@ async def list_tasks(
         page=page,
         page_size=page_size,
     )
-    result["items"] = [_localize_task(task, _t) for task in result.get("items", [])]
+    result["items"] = await _with_resource_refs([_localize_task(task, _t) for task in result.get("items", [])], _t)
     return result
 
 
@@ -138,12 +176,12 @@ async def list_project_tasks(
         page=page,
         page_size=page_size,
     )
-    result["items"] = [_localize_task(task, _t) for task in result.get("items", [])]
+    result["items"] = await _with_resource_refs([_localize_task(task, _t) for task in result.get("items", [])], _t)
     return result
 
 
 @router.get("/tasks/{task_id}/cancel-preview")
-async def cancel_preview(task_id: str):
+async def cancel_preview(task_id: str, _t: Translator):
     queue = get_task_queue()
     try:
         preview = await queue.get_cancel_preview(task_id)
@@ -151,7 +189,10 @@ async def cancel_preview(task_id: str):
         raise ConflictError("task_running_not_cancellable", id=task_id) from e
     except ValueError as e:
         raise BadRequestError("task_not_found", id=task_id) from e
-    return preview
+    [task, *cascaded] = await _with_resource_refs(
+        [_localize_task(task, _t) for task in [preview["task"], *preview["cascaded"]]], _t
+    )
+    return {**preview, "task": task, "cascaded": cascaded}
 
 
 @router.post("/tasks/{task_id}/cancel")
@@ -166,7 +207,7 @@ async def cancel_task(task_id: str, _t: Translator):
     # 终态任务（含已失败的）原样回给调用方，其 error_message 与列表/详情/SSE 同源，
     # 不本地化就会在这一个出口泄露裸 [code] {params}。
     for key in ("cancelled", "skipped_terminal"):
-        result[key] = [_localize_task(task, _t) for task in result.get(key, [])]
+        result[key] = await _with_resource_refs([_localize_task(task, _t) for task in result.get(key, [])], _t)
     return result
 
 
@@ -184,7 +225,8 @@ async def retry_artifact_download(task_id: str, request: Request, _t: Translator
         await worker.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)
     except ValueError as exc:
         raise BadRequestError("task_retry_download_unavailable", id=task_id) from exc
-    return {"task": _localize_task(task, _t)}
+    [task] = await _with_resource_refs([_localize_task(task, _t)], _t)
+    return {"task": task}
 
 
 @router.get("/projects/{project_name}/tasks/cancel-all-preview")
@@ -209,4 +251,5 @@ async def get_task(
     task = await queue.get_task(task_id)
     if not task:
         raise NotFoundError("task_not_found", id=task_id)
-    return {"task": _localize_task(task, _t)}
+    [localized] = await _with_resource_refs([_localize_task(task, _t)], _t)
+    return {"task": localized}

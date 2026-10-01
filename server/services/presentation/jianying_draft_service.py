@@ -22,13 +22,14 @@ from pyJianYingDraft import (
     TextSegment,
     TextShadow,
     TextStyle,
+    TrackSpec,
     TrackType,
-    TransitionType,
     VideoMaterial,
     VideoSegment,
     trange,
 )
 
+from lib.episode.episode_ids import episode_file_label
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_manager import ProjectManager
 from lib.speech.narration_delivery import POST_PRODUCTION
@@ -38,11 +39,6 @@ from server.services.presentation.presentation_read_model import (
     MaterializedPresentation,
     PresentationReadModelService,
 )
-
-_TRANSITION_MAP: dict[str, TransitionType] = {
-    "fade": TransitionType.闪黑,
-    "dissolve": TransitionType.叠化,
-}
 
 
 class NoCompletedSegmentsError(ValueError):
@@ -123,14 +119,15 @@ class JianyingDraftService:
         draft_dir.parent.mkdir(parents=True, exist_ok=True)
         folder = draft.DraftFolder(str(draft_dir.parent))
         script_file = folder.create_draft(draft_name, width=width, height=height, allow_replace=True)
-        script_file.add_track(TrackType.video)
+        track_specs = [TrackSpec(TrackType.video)]
 
         has_subtitles = any(staged.value.presentation.subtitles for staged in presentations)
         has_narration = any(staged.value.presentation.narration_audio is not None for staged in presentations)
         if has_subtitles:
-            script_file.add_track(TrackType.text, "字幕")
+            track_specs.append(TrackSpec(TrackType.text, "字幕"))
         if has_narration:
-            script_file.add_track(TrackType.audio, "旁白")
+            track_specs.append(TrackSpec(TrackType.audio, "旁白"))
+        script_file.append_tracks(track_specs)
 
         is_portrait = height > width
         text_style = TextStyle(
@@ -152,8 +149,7 @@ class JianyingDraftService:
         subtitle_position = ClipSettings(transform_y=-0.75 if is_portrait else -0.8)
 
         offset_microseconds = 0
-        last_index = len(presentations) - 1
-        for index, staged in enumerate(presentations):
+        for staged in presentations:
             presentation = staged.value.presentation
             video_track = presentation.video
             video_material = VideoMaterial(staged.video_path)
@@ -163,10 +159,6 @@ class JianyingDraftService:
                 source_timerange=trange(video_track.start_microseconds, video_track.duration_microseconds),
                 volume=video_track.gain,
             )
-            if index < last_index:
-                transition = _TRANSITION_MAP.get(staged.value.transition_to_next)
-                if transition is not None:
-                    video_segment.add_transition(transition)
             script_file.add_segment(video_segment)
 
             for cue in presentation.subtitles:
@@ -354,11 +346,14 @@ class JianyingDraftService:
 
     @staticmethod
     def _draft_name(project_name: str, project: Mapping[str, Any], episode: int) -> str:
-        raw_title = project.get("title")
-        title = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
-        safe_title = title.replace("/", "_").replace("\\", "_").replace("..", "_")
-        name = safe_title if project.get("content_mode") == "ad" else f"{safe_title}_第{episode}集"
-        return name if name.replace(".", "").strip() else project_name
+        """草稿文件夹与压缩包名：``{两位播出位置}_{集标题}``；集不在账本里时退回项目标题。"""
+
+        name = episode_file_label(project, episode)
+        if name is None:
+            raw_title = project.get("title")
+            name = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
+        safe_name = name.replace("/", "_").replace("\\", "_").replace("..", "_")
+        return safe_name if safe_name.replace(".", "").strip() else project_name
 
 
 __all__ = [

@@ -97,12 +97,10 @@ flowchart TD
     MAIN --> SKILL["工作流编排 Skill"]
     SKILL --> STATE["读取项目状态"]
     STATE --> DECIDE{"下一阶段"}
-    DECIDE --> A["角色 / 场景 / 道具分析子智能体"]
     DECIDE --> B["分集规划子智能体"]
     DECIDE --> C["剧本规范化子智能体"]
     DECIDE --> D["资产生成子智能体"]
-    A --> SUMMARY["精炼摘要"]
-    B --> SUMMARY
+    B --> SUMMARY["精炼摘要"]
     C --> SUMMARY
     D --> SUMMARY
     SUMMARY --> MAIN
@@ -126,11 +124,13 @@ flowchart TD
 
 每个子智能体聚焦一个目标，例如：
 
-- 角色、场景和道具提取；
 - 旁白/解说片段拆分；
 - 剧情演绎剧本规范化；
+- 参考生视频单元拆分；
 - 单集结构化剧本；
 - 资产生成。
+
+其中前三项是脚本规划，规划时同时识别本集新增资产。
 
 大量小说原文和中间推理尽量保留在子智能体内部，主 Agent 接收摘要和结果引用。
 
@@ -365,14 +365,29 @@ ArcReel 使用 SQLAlchemy 2.0 异步 ORM。
 
 媒体生成完成后有两种输出路径。
 
+### 剪辑时间线 {#edit-timelines}
+
+剪辑时间线是一集的一套具名剪辑决策，可以有多条，存放在项目目录的 `edit_timelines/episode_{N}/{timeline_id}.json`。每份文件保存稳定 ID、显示名、片段编号分配器与不可变修订序列；修订记作者、摘要、父修订和 Agent 轮次。它是正式内容，随项目归档导出和导入，不进入产物清单。
+
+`lib/edit_timeline/` 统一负责机械新建、列表和读取。HTTP 入口为 `POST /api/v1/projects/{project_name}/episodes/{episode}/edit-timelines`、`GET /api/v1/projects/{project_name}/edit-timelines` 与 `GET /api/v1/projects/{project_name}/edit-timelines/{timeline_id}`；Agent 工具 `create_timeline`、`list_timelines`、`read_timeline` 调用同一服务。集内写入持文件锁并原子落盘，Agent 禁止直接改写该目录。
+
+批量编辑由 Agent 工具 `edit_timeline` 调用服务的 `edit` 命令。服务在集内文件锁下读取最新修订，校验 `base_revision` 后整批应用按片段 ID 定位的操作，只追加一个修订。
+
+每个修订记录实际改动过的片段 ID。`base_revision` 落后时，服务累计期间每个修订的改动记录，并检查本批在基准修订和最新修订上的连带修改。涉及的片段都未被改过，且本批设置转场的片段在两个修订上接着同一个片段时，操作应用到最新修订；否则以 `revision_conflict` 拒绝。旧修订缺少改动记录时，由逐修订内容差异推断。
+
+插入、删除、移动改变相邻关系时，受影响的切点恢复硬切。同一视频单元最多一个片段承载旁白，片段编号不复用。
+
+片段引用视频单元的 current 视频，不随脚本增删自动更新。内部时间为整数微秒，读取时探测实际媒体时长并投影为最多三位小数的秒，返回片段绝对起点、旁白起止与结构问题。截取保存依据版本，换版本后按完整视频计算时长；原声默认音量按发声归属取值。转场、定格延长与 BGM 决策保存在修订内容中，字幕文字与旁白交付版本不写入剪辑时间线。
+
 ### 成片合成 {#final-composition}
 
-使用 FFmpeg 处理：
+成片由一条剪辑时间线的一个修订渲染而来。产物身份为「集 + 剪辑时间线 + 旁白版本 + 是否烧入字幕」，每个身份只保留最新文件，存放在 `renders/episode_{N}/{timeline_id}/final_cut.{旁白版本}.{字幕方式}.mp4`，同目录下同名的 `.render.json` 渲染记录保存版本号（每次登记加一）与渲染时间。当前只支持渲染「硬切、无旁白、不烧入字幕」的成片。剪辑时间线含转场、BGM 或阻断问题时，提交会在入队前被拒绝。
 
-- 片段拼接；
-- 转场；
-- 音频；
-- 最终编码。
+渲染在生成队列的 `render` 车道上执行。这条车道不绑定供应商，全局并发固定为 1，不可配置，不产生用量记录；服务重启时中断的渲染任务直接判失败，不重新排队，并清理临时文件。渲染使用随包 ffmpeg：每个硬切段按项目画布与固定 30 fps 归一化后单独编码，截取与定格延长在画面渲染时生效，片段边界按剪辑时间线累计时间取整到帧格；音频不分段：按片段音量将整集原声混成一条音轨，再与按 `-c copy` 拼接好的视频合流。
+
+`lib/artifacts/rendered_artifact.py` 是本地渲染产物共用的登记流程：任务开始时取好生成依据快照，渲染到正式目录内的隐藏临时文件，经媒体探测验收（两路流都在、时长在容差内）后撤下旧登记、原子替换正式文件、写入版本记录，最后按快照登记。版本记录写入失败时，产物没有登记，读取为 missing。成片的生成依据只包含实际消费的内容（剪辑时间线 ID 与修订号、各片段所用视频的版本、内容摘要与供应商原声开关、生效的截取、定格、原声音量、输出画布），版本记录为未生成原声的视频不使用其音轨，与剪映草稿一致。登记与时效比较共用 `lib/final_cut/basis.py` 的同一个构造器，因此渲染期间剪辑时间线被修改、或显式渲染旧修订时，成片读为 stale。`renders/` 不进项目归档，导入后成片读为 missing。
+
+HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut`（可带 `revision`，省略时渲染提交时的最新修订；返回任务 ID）与 `GET` 同一路径（返回时效、版本与下载地址）；下载走公开媒体文件路由；隐藏的临时文件、渲染记录与剪映草稿 zip 不可匿名读取。Agent 工具 `render_final_cut` 声明为长任务：ArcReel Agent 等到渲染完成拿到下载地址，外部 Agent 拿到生成批次句柄后轮询。
 
 ### 剪映草稿 {#jianying-draft}
 
@@ -387,11 +402,15 @@ ArcReel 使用 SQLAlchemy 2.0 异步 ORM。
 
 “可继续编辑”是 ArcReel 与只输出单个视频文件的生成工具之间的重要差异。
 
+由剪辑时间线生成的剪映草稿是产物，身份为「集 + 剪辑时间线 + 旁白版本」（`without_narration` 或 `with_narration`，带旁白版本只对 TTS 配音项目开放），落盘在 `renders/episode_{N}/{timeline_id}/jianying_draft.{旁白版本}.zip`。导出与成片一样是 `render` 车道任务（`render_jianying_draft`），经同一套「依据快照 → 临时文件 → 验收 → 原子替换并登记」落盘，每个产物身份只保留最新文件并记录版本号。`server/services/presentation/timeline_jianying_draft.py` 在入队前和任务开始时都按所选旁白版本检查阻断级 issue，并与成片共用同一项检查拒绝含转场或 BGM 的剪辑时间线，也和成片一样拒绝没有可导出剪辑片段的剪辑时间线，再以各视频单元当前的呈现模型为素材层，把截取、原声音量、定格延长（出点帧静帧）、旁白轨（仅带旁白版本）与字幕轨（思源黑体 CN Bold）映射到草稿。生成依据收录剪辑时间线的修订号、修订中参与渲染的部分、画幅与各单元的呈现依据；剪辑理由不单独进入依据，但任何新修订都会让旧修订导出的草稿读为 stale，素材改动同理。
+
+产物 zip 只保存草稿文件、定格静帧和素材索引，素材路径写成占位符。HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft`（可带 `revision` 与 `narration`，`revision` 省略时导出提交时的最新修订，`narration` 省略时 TTS 配音项目默认带旁白、其余不带旁白；返回任务 ID）与 `GET` 同一路径（返回时效与版本）；下载 `GET .../jianying-draft/download` 凭项目下载 token 校验，这时才代入本机草稿目录与剪映版本（5.x 为 `draft_content.json`，6+ 为 `draft_info.json`），并从项目的版本快照取素材打包。公开媒体文件路由不放行草稿 zip。Agent 工具 `export_jianying_draft` 声明为长任务，调用方式与 `render_final_cut` 相同，但终态结果不带下载地址。与成片相同，草稿在归档导入后读为 missing。
+
 ### 成片读取模型 {#presentation-read-model}
 
 浏览器预览、可编辑包下载和剪映草稿不各自推导声音、字幕或时长，而是共同消费成片读取模型。该模型固定已选视频版本、可选 TTS 版本、实际媒体时长、原音开关、字幕时序以及当前或历史状态；当前成片的字幕和呈现描述分别物化到 `subtitles/` 与 `presentations/`，并登记到项目 Artifact Manifest。历史选择只读，不覆盖当前物化结果。
 
-手动上传但尚无生成来源证明的视频走显式 raw-only 分支：保留原始视频，不猜测来源基点或新旧状态，不生成 TTS 和字幕，也不登记派生成片。这样三个输出入口仍共享同一选择，同时把来源未知与来源已验证区分开。
+手动上传的视频没有生成来源证明，走显式 raw-only 分支：保留原始视频，不生成 TTS 和字幕，也不登记派生成片。视频本身按上传字节登记进产物清单，时效只随所选版本与文件字节变化。这样三个输出入口仍共享同一选择，同时把来源未知与来源已验证区分开。
 
 ## 14. 认证和外部集成 {#auth-and-integrations}
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from lib.config.resolver import ConfigResolver
 from lib.db.base import DEFAULT_USER_ID
@@ -28,15 +28,18 @@ from lib.script.grid.grid_manager import GridManager
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.script_batch_edit import script_revision
 from lib.script.script_skeleton import ensure_route_skeleton, resolve_kind_items
-from lib.speech.narration_delivery import USE_TTS
 from lib.speech.speech_composition import admit_script_unit
 from lib.workflow.workflow_plan import (
+    EPISODE_PLANNING_SLOTS,
+    TEXT_DRAFT_REPAIR_TASK_TYPE,
     WorkflowPlan,
     WorkflowPlanRequest,
     WorkflowTaskObservation,
     build_workflow_plan,
+    draft_repair_resource_id,
 )
 from lib.workflow.workflow_state import WorkflowBlocker, WorkflowStateService, WorkflowStatus
+from server.draft_workflow import DraftDocType
 from server.services.admission.video_batch_admission import (
     active_task_problem,
     admit_reference_video_batch,
@@ -82,7 +85,7 @@ class WorkflowPlanner:
         status = await asyncio.to_thread(
             WorkflowStateService(self._pm).get_status,
             project_name,
-            request.episode,
+            request.episode_id,
         )
         blocked = next((b for b in status.blockers if b.code == MIGRATION_FAILURE_CODE), None)
         if blocked is not None:
@@ -90,7 +93,6 @@ class WorkflowPlanner:
             # planned off inputs the migration itself refused.
             return build_workflow_plan(
                 status,
-                narration_delivery=request.narration_delivery,
                 structure_problems=[await self._migration_problem(project_name, blocked)],
                 script_revision=None,
                 task_observations=[],
@@ -98,15 +100,9 @@ class WorkflowPlanner:
             )
         facts = await self._script_facts(project_name, status)
         structure_problems = self._structure_problems(facts)
-        tasks = await self._active_tasks(project_name, status, facts, request, user_id=user_id, queue=queue)
+        tasks = await self._active_tasks(project_name, status, facts, user_id=user_id, queue=queue)
         admission = None
-        if (
-            facts is not None
-            and not structure_problems
-            and request.narration_delivery is not None
-            and status.state == "VIDEO"
-            and status.next_action.type == "generate_videos"
-        ):
+        if facts is not None and not structure_problems and status.next_action.type == "generate_videos":
             admission = await self._video_admission(
                 project_name,
                 status,
@@ -118,7 +114,6 @@ class WorkflowPlanner:
             )
         return build_workflow_plan(
             status,
-            narration_delivery=request.narration_delivery,
             structure_problems=structure_problems,
             script_revision=facts.revision if facts is not None else None,
             task_observations=tasks,
@@ -185,13 +180,14 @@ class WorkflowPlanner:
         project_name: str,
         status: WorkflowStatus,
         facts: _ScriptFacts | None,
-        request: WorkflowPlanRequest,
         *,
         user_id: str,
         queue: GenerationQueue,
     ) -> list[WorkflowTaskObservation]:
         rows: list[dict[str, Any]] = []
-        text_queries = [("text_episode_plan", ["episode-planning"])] if status.project.content_mode != "ad" else []
+        text_queries: list[tuple[str, list[str]]] = (
+            [("text_episode_plan", list(EPISODE_PLANNING_SLOTS))] if status.project.content_mode != "ad" else []
+        )
         if status.target is not None:
             episode_ids = [f"episode-{status.target.episode}"]
             text_queries.append(("text_episode_script", episode_ids))
@@ -202,6 +198,12 @@ class WorkflowPlanner:
                     else f"text_{status.project.content_mode}_script_plan"
                 )
                 text_queries.append((script_plan_type, episode_ids))
+            text_queries.append(
+                (
+                    TEXT_DRAFT_REPAIR_TASK_TYPE,
+                    [draft_repair_resource_id(status.target.episode, doc_type) for doc_type in get_args(DraftDocType)],
+                )
+            )
         for task_type, resource_ids in text_queries:
             rows.extend(
                 await get_active_tasks_for_resources(
@@ -261,8 +263,6 @@ class WorkflowPlanner:
                         )
                 else:
                     task_types.append("storyboard")
-            if request.narration_delivery == USE_TTS:
-                task_types.append("tts")
             for task_type in task_types:
                 rows.extend(
                     await get_active_tasks_for_resources(
@@ -305,7 +305,6 @@ class WorkflowPlanner:
         queue: GenerationQueue,
         config_resolver: ConfigResolver | None,
     ) -> dict[str, Any]:
-        options = ReferenceRequestOptions(narration_delivery=request.narration_delivery or "post_production")
         if status.project.generation_mode == "reference_video":
             screened, malformed = screen_script_entries(facts.script.get("video_units"), requested_ids=None)
             targets, selection, _states = resolve_reference_batch_targets(
@@ -323,7 +322,7 @@ class WorkflowPlanner:
                 script=facts.script,
                 script_file=facts.script_file,
                 units=targets,
-                request_options=options,
+                request_options=ReferenceRequestOptions(),
                 operation=status.next_action.type,
                 selection=selection.mode,
                 confirmed_request_durations=request.confirmed_request_durations,
@@ -362,16 +361,12 @@ class WorkflowPlanner:
         admission = await admit_storyboard_video_request(
             project_name=project_name,
             project=facts.project,
-            project_path=facts.project_path,
-            script=facts.script,
             script_file=facts.script_file,
             items=items,
             id_field=id_field,
             specs=specs,
-            request_options=options,
             operation=status.next_action.type,
             selection=GenerationSelectionMode.MISSING_ONLY,
-            confirmed_request_durations=request.confirmed_request_durations,
             extra_tickets=refused,
             user_id=user_id,
             queue=queue,

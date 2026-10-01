@@ -2,7 +2,7 @@
 
 产出的是当前的单元形状（一段 ``text`` + 编排时长，见 ADR 0064）：旧 shot 的画面文本按顺序
 拼进同一段正文，参考图与发声归属改由正文的记号读时派生，不另存数组。后续 v8→v9 对这批
-单元因此是空操作。
+单元因此是空操作。转场保留到 v15→v16 统一丢弃，当前模型自检时不含转场。
 """
 
 from __future__ import annotations
@@ -153,6 +153,22 @@ def _unit_from_shots(
     return unit
 
 
+def _without_unit_transitions(script: dict[str, Any]) -> dict[str, Any]:
+    """已转换单元上可能留着转场：它到 v15→v16 才从条目上删除，自检的当前模型已不含它。"""
+    units = script.get("video_units")
+    if not isinstance(units, list):
+        return script
+    return {
+        **script,
+        "video_units": [
+            {key: value for key, value in unit.items() if key != "transition_to_next"}
+            if isinstance(unit, dict)
+            else unit
+            for unit in units
+        ],
+    }
+
+
 def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dict[str, Any]:
     """纯转换旧广告剧本；已转换脚本原样返回，供中断后安全重跑。"""
     if "video_units" in payload and "shots" not in payload and "reference_units" not in payload:
@@ -160,7 +176,7 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
         if not isinstance(existing_units, list):
             raise ValueError("video_units 必须是数组")
         migrated = copy.deepcopy(payload)
-        ReferenceVideoScript.model_validate(migrated)
+        ReferenceVideoScript.model_validate(_without_unit_transitions(migrated))
         return migrated
 
     raw_shots = payload.get("shots")
@@ -270,7 +286,7 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
     migrated.pop("reference_units", None)
     migrated["video_units"] = units
     migrated["duration_seconds"] = sum(_positive_seconds(unit.get("duration_seconds")) for unit in units)
-    ReferenceVideoScript.model_validate(migrated)
+    ReferenceVideoScript.model_validate(_without_unit_transitions(migrated))
     return migrated
 
 

@@ -10,18 +10,24 @@ import {
   Users,
   Landmark,
   Package,
+  FilePlus,
   Plus,
   Search,
   ShoppingBag,
+  Upload,
 } from "lucide-react";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
-import { useAppStore } from "@/stores/app-store";
-import { API } from "@/api";
+import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
-import { isDemoProject } from "@/onboarding/demo-project";
 import { normalizeRoute } from "@/utils/generation-mode";
+import { ActionMenu } from "@/components/ui/ActionMenu";
+import { CreateEpisodeDialog } from "@/components/canvas/episodes/CreateEpisodeDialog";
+import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
+import { useDeleteEpisode } from "@/components/canvas/episodes/useDeleteEpisode";
+import { useMoveEpisode } from "@/components/canvas/episodes/useMoveEpisode";
 import { EpisodeCard } from "./EpisodeCard";
+import { SidebarEpisodeList } from "./SidebarEpisodeList";
 
 interface AssetSidebarProps {
   className?: string;
@@ -37,7 +43,7 @@ interface NavItem {
 
 /**
  * 工作台侧栏 v3：
- * - 工作区导航（5 个胶囊按钮：项目概览 / 源文件 / 角色集 / 场景库 / 道具库）
+ * - 工作区导航（胶囊按钮：项目概览 / 分集 / 角色集 / 场景库 / 道具库，广告/短片另有商品库、没有分集）
  * - 分集列表（搜索 + 卡片列表，每张卡片含缩略+状态+进度+费用）
  * - 折叠态（64px）：仅图标 + Ex 字符
  */
@@ -48,6 +54,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const [location, setLocation] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
+  /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
+  const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
 
   const characterCount = Object.keys(currentProjectData?.characters ?? {}).length;
   const sceneCount = Object.keys(currentProjectData?.scenes ?? {}).length;
@@ -57,32 +65,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   // 广告/短片项目恒单集：隐藏「集」语义（标题/计数/搜索/添加），直达唯一视频
   const isAd = currentProjectData?.content_mode === "ad";
 
-  const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
-  const [sourceCount, setSourceCount] = useState<number>(0);
-
-  // 演示项目没有服务端侧数据，源文件计数跳过（导航与分集列表照常渲染）
+  // 演示项目没有服务端侧数据，「分集」入口隐藏（导航其余项与分集列表照常渲染）
   const demoMode = useDemoWorkbench();
 
   useEffect(() => {
     if (currentProjectName) debouncedFetchCost(currentProjectName);
   }, [currentProjectName, debouncedFetchCost]);
-
-  useEffect(() => {
-    // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
-    // 兜住这一帧仍读到旧演示项目名的窗口，避免对不存在的演示项目发一次必然失败的请求。
-    if (!currentProjectName || demoMode || isDemoProject(currentProjectName)) return;
-    let cancelled = false;
-    API.listFiles(currentProjectName)
-      .then((res) => {
-        if (!cancelled) setSourceCount(res.files?.source?.length ?? 0);
-      })
-      .catch(() => {
-        // 失败时保留上一份成功值，避免把网络/权限错误伪装成 0
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentProjectName, sourceFilesVersion, demoMode]);
 
   // Derive active episode from `/episodes/:id`
   const activeEp = useMemo(() => {
@@ -90,18 +78,24 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     return m ? parseInt(m[1], 10) : null;
   }, [location]);
 
+  const moveEpisode = useMoveEpisode(currentProjectName);
+  const deletion = useDeleteEpisode(currentProjectName ?? "", (episode) => {
+    // 删的是正在看的那一集时回到「分集」视图
+    if (episode === activeEp) setLocation(episodesViewPath());
+  });
+
   const navItems: NavItem[] = [
     { key: "overview", path: "/", label: t("dashboard:workspace_nav_overview"), icon: LayoutDashboard },
-    // 演示项目没有可切片的源文件，且后端不存在该项目，隐藏入口而非渲染必然报错的空页
-    ...(demoMode
+    // 演示项目后端不存在，广告/短片恒单集、不经分集：隐藏入口而非渲染必然报错或无意义的页面
+    ...(demoMode || isAd
       ? []
       : [
           {
-            key: "source",
-            path: "/source",
-            label: t("dashboard:workspace_nav_source"),
+            key: "episodes",
+            path: `/${WORKSPACE_ROUTE_EPISODES}`,
+            label: t("dashboard:workspace_nav_episodes"),
             icon: BookOpen,
-            meta: sourceCount,
+            meta: episodes.length,
           },
         ]),
     {
@@ -140,15 +134,18 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   ];
 
   const isNavActive = (item: NavItem): boolean => {
-    if (item.path === "/") return location === "/";
+    // 集页 /episodes/:id 由下方分集列表高亮，「分集」只在分集视图本身高亮
+    if (item.path === "/" || item.key === "episodes") return location === item.path;
     return location === item.path || location.startsWith(item.path + "/");
   };
 
+  // 播出位置按完整账本的排列算，过滤不改变它；搜索按标题与播出位置匹配，集 ID 不参与。
+  const positioned = episodes.map((ep, index) => ({ ep, position: index + 1 }));
   // ad 隐藏搜索框，残留的 search state 不参与过滤，避免唯一视频入口被吞
   const filteredEps = isAd
-    ? episodes
-    : episodes.filter(
-        (ep) => !search || ep.title.includes(search) || String(ep.episode).includes(search),
+    ? positioned
+    : positioned.filter(
+        ({ ep, position }) => !search || ep.title.includes(search) || String(position).includes(search),
       );
 
   return (
@@ -250,20 +247,29 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   {episodes.length}
                 </span>
                 <span className="flex-1" />
-                <button
-                  type="button"
-                  disabled
-                  aria-disabled="true"
-                  className="grid h-5 w-5 place-items-center rounded focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    background: "oklch(0.28 0.012 250 / 0.6)",
-                    color: "var(--color-text-3)",
-                  }}
-                  title={t("dashboard:add_episode_unavailable")}
-                  aria-label={t("dashboard:add_episode")}
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
+                {demoMode ? null : (
+                  <ActionMenu
+                    label={t("dashboard:add_episode")}
+                    triggerClassName="grid h-5 w-5 place-items-center rounded focus-ring hover:text-text"
+                    triggerStyle={{ background: "oklch(0.28 0.012 250 / 0.6)", color: "var(--color-text-3)" }}
+                    items={[
+                      {
+                        key: "create",
+                        label: t("dashboard:episode_create_title"),
+                        icon: FilePlus,
+                        onSelect: () => setCreateAfter(null),
+                      },
+                      {
+                        key: "upload",
+                        label: t("dashboard:episode_menu_upload_sources"),
+                        icon: Upload,
+                        onSelect: () => setLocation(episodesViewPath({ upload: "episode" })),
+                      },
+                    ]}
+                  >
+                    <Plus className="h-3 w-3" aria-hidden />
+                  </ActionMenu>
+                )}
               </>
             )}
           </div>
@@ -304,11 +310,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   ? t("dashboard:no_episodes_yet")
                   : t("dashboard:no_episode_search_results")}
               </div>
-            ) : (
-              filteredEps.map((ep) => (
+            ) : isAd || demoMode ? (
+              filteredEps.map(({ ep, position }) => (
                 <EpisodeCard
                   key={ep.episode}
                   ep={ep}
+                  position={position}
                   active={ep.episode === activeEp}
                   onClick={() => setLocation(`/episodes/${ep.episode}`)}
                   showEpisodeBadge={!isAd}
@@ -316,17 +323,30 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   route={normalizeRoute(currentProjectData?.generation_mode)}
                 />
               ))
+            ) : (
+              <SidebarEpisodeList
+                episodes={episodes}
+                shown={filteredEps}
+                wholeSourceFiles={currentProjectData?.whole_source_files ?? []}
+                activeEp={activeEp}
+                route={normalizeRoute(currentProjectData?.generation_mode)}
+                reorderable={!search}
+                onOpen={(episode) => setLocation(`/episodes/${episode}`)}
+                onCreateAfter={setCreateAfter}
+                onMove={(episode, after) => void moveEpisode(episode, after)}
+                onDelete={(episode) => void deletion.requestDelete(episode)}
+              />
             )}
           </div>
         </>
       ) : (
         <div className="flex-1 overflow-y-auto px-2.5 py-1.5">
-          {filteredEps.map((ep) => {
+          {filteredEps.map(({ ep, position }) => {
             const epLabel = isAd
               ? t("dashboard:ad_video_section_title")
               : t("dashboard:episode_collapsed_button_label", {
-                  episode: ep.episode,
-                  title: ep.title,
+                  position,
+                  title: ep.title || t("common:episode_position_name", { position }),
                 });
             return (
             <button
@@ -344,7 +364,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     : "var(--color-text-3)",
               }}
             >
-              {isAd ? <Clapperboard className="h-4 w-4" aria-hidden /> : `E${ep.episode}`}
+              {isAd ? <Clapperboard className="h-4 w-4" aria-hidden /> : position}
             </button>
             );
           })}
@@ -380,6 +400,18 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           )}
         </button>
       </div>
+      {createAfter !== undefined && currentProjectName ? (
+        <CreateEpisodeDialog
+          projectName={currentProjectName}
+          initialAfter={createAfter}
+          onClose={() => setCreateAfter(undefined)}
+          onCreated={(episode) => {
+            setCreateAfter(undefined);
+            setLocation(`/episodes/${episode}`);
+          }}
+        />
+      ) : null}
+      {deletion.dialog}
     </aside>
   );
 }

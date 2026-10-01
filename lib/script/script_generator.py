@@ -5,6 +5,8 @@ script_generator.py - 剧本生成器
 """
 
 import asyncio
+import copy
+import functools
 import hashlib
 import json
 import logging
@@ -34,6 +36,7 @@ from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGener
 from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver, VideoGenerationType, video_bucket_for_generation_mode
 from lib.db import async_session_factory
+from lib.episode.episode_ids import default_episode_title
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
@@ -80,10 +83,24 @@ from lib.script.draft_quarantine import (
     quarantine_path,
     read_quarantine,
 )
+from lib.script.draft_violation import locate_violations, locate_violations_by_id, schema_violations
+from lib.script.plan_new_assets import (
+    NEW_ASSETS_FIELD,
+    UnregisteredReferencesError,
+    resolve_new_assets,
+    unregistered_references,
+)
+from lib.script.prompt_authoring_scope import (
+    PromptAuthoringSelection,
+    PromptOverwrite,
+    PromptOverwriteRequired,
+    select_prompt_authoring,
+)
 from lib.script.reference_video.draft_validation import (
     DraftViolation,
     DraftViolations,
     assert_dialogue_preserved,
+    dialogue_speakers,
     validate_dialogue_load,
     validate_unit_text,
     violation_items,
@@ -100,7 +117,6 @@ from lib.script.script_document import (
 )
 from lib.script.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
-    PENDING_AUTHORING_FIELD,
     AdEpisodeScript,
     AdReferenceFlatScript,
     AdVisualScript,
@@ -146,7 +162,9 @@ _DURATION_ADAPTER = TypeAdapter(int)
 _DRAMA_DEFAULT_DURATION = DramaSceneContent.model_fields["duration_seconds"].default
 
 #: dry-run 在本次没有条目要编写时的回答：此时真实运行不会调用文本模型，也就没有 prompt 可预览。
-_NO_ENTRY_TO_AUTHOR_NOTE = "本次没有待编写的条目：运行时不会调用文本模型；要重写指定条目请传 entry_ids。"
+_NO_ENTRY_TO_AUTHOR_NOTE = (
+    "本次没有要编写的条目：运行时不会调用文本模型；要覆盖已有视觉层，请用 entry_ids 点名条目并传 rewrite=true。"
+)
 
 #: ad 参考生视频单元正文的放行口径：这几类发声归属问题由 needs_replan 标记承接，不阻断落盘。
 _AD_UNIT_REPLAN_CODES = frozenset({"mixed_speech", "empty_speaker", "parse_failed"})
@@ -185,10 +203,15 @@ class PromptAuthoringTargets:
     id_field: str
     script: dict[str, Any]
     entries: tuple[dict[str, Any], ...]
+    selection: PromptAuthoringSelection
 
     @property
     def ids(self) -> tuple[str, ...]:
         return tuple(str(entry[self.id_field]) for entry in self.entries)
+
+    def fields_of(self, entry_id: str) -> tuple[str, ...]:
+        """该条目本次写回的视觉层字段。"""
+        return next(entry.fields for entry in self.selection.entries if entry.entry_id == entry_id)
 
     @property
     def items(self) -> list[Any]:
@@ -239,6 +262,15 @@ class PlanningVideoFacts:
         return planning_durations(self.require(generation_type))
 
 
+def _require_overwrite_acknowledged(
+    targets: PromptAuthoringTargets, baseline: str | None, overwrite_revision: str | None
+) -> None:
+    """显式重写会替换已有视觉层内容时，覆盖令牌须与读取目标时的正式剧本指纹一致。"""
+    overwritten = targets.selection.overwritten
+    if overwritten and (overwrite_revision is None or overwrite_revision != baseline):
+        raise PromptOverwriteRequired(PromptOverwrite(fingerprint=baseline, entries=overwritten))
+
+
 class ScriptGenerator:
     """
     剧本生成器
@@ -268,6 +300,8 @@ class ScriptGenerator:
         self.generator = generator
         self.config_resolver = config_resolver
         self._script_plan_fingerprint: str | None = None
+        #: 加载器读到的脚本规划顶层 ``new_assets``，物化时据此改写引用并登记。
+        self._script_plan_new_assets: object = None
         self._artifact_basis: ArtifactBasisDescriptor | None = None
         self._script_plan_input_claim: ArtifactInputClaim | None = None
 
@@ -311,12 +345,21 @@ class ScriptGenerator:
         episode: int,
         filename: str,
         entry_ids: Iterable[str] | None,
+        *,
+        rewrite: bool = False,
     ) -> PromptAuthoringTargets | None:
         """读正式脚本并定出本次编写的条目；正式脚本不存在时返回 None。
 
-        ``entry_ids`` 为空时取全部带待编写标记的条目；非空时只取这些条目（不论是否待编写），
-        其中任一 id 不在正式脚本里即抛 ``PromptAuthoringTargetError``。不读脚本规划。
+        ``entry_ids`` 为空时范围是全部带待编写标记的条目，非空时是这些条目，其中任一 id 不在正式脚本里
+        即抛 ``PromptAuthoringTargetError``。范围内的条目按补缺或显式重写选出（见
+        ``select_prompt_authoring``）。不读脚本规划。
         """
+        resolver = active_artifact_currency_resolver(self.project_path, self.project_json)
+        if (
+            resolver.resolve_usable_entry(ArtifactKey.episode_script(episode), artifact_path=f"scripts/{filename}")
+            is None
+        ):
+            return None
         pm = ProjectManager.for_project_dir(self.project_path)
         try:
             script = pm.load_script_readonly(self.project_path.name, filename)
@@ -325,19 +368,17 @@ class ScriptGenerator:
         kind = resolve_declared_kind(self.content_mode, self.generation_mode)
         raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
         if not isinstance(raw_items, list):
-            raise ValueError(f"第 {episode} 集正式脚本的 {kind} 不是条目数组，无法编写提示词")
+            raise ValueError(f"集（id={episode}）正式脚本的 {kind} 不是条目数组，无法编写提示词")
         items = [item for item in cast(list[Any], raw_items) if isinstance(item, dict) and id_field in item]
         requested = tuple(dict.fromkeys(entry_ids or ()))
         known = {str(item[id_field]) for item in items}
         unknown = [entry_id for entry_id in requested if entry_id not in known]
         if unknown:
-            raise PromptAuthoringTargetError(f"entry_ids 不在第 {episode} 集正式脚本内: {unknown}")
-        if requested:
-            selected = set(requested)
-            entries = tuple(item for item in items if str(item[id_field]) in selected)
-        else:
-            entries = tuple(item for item in items if item.get(PENDING_AUTHORING_FIELD) is True)
-        return PromptAuthoringTargets(kind=kind, id_field=id_field, script=script, entries=entries)
+            raise PromptAuthoringTargetError(f"entry_ids 不在集（id={episode}）正式脚本内: {unknown}")
+        selection = select_prompt_authoring(items, kind=kind, id_field=id_field, entry_ids=requested, rewrite=rewrite)
+        selected = {entry.entry_id for entry in selection.entries}
+        entries = tuple(item for item in items if str(item[id_field]) in selected)
+        return PromptAuthoringTargets(kind=kind, id_field=id_field, script=script, entries=entries, selection=selection)
 
     async def generate(
         self,
@@ -346,7 +387,10 @@ class ScriptGenerator:
         *,
         instructions: str | None = None,
         entry_ids: Iterable[str] | None = None,
+        rewrite: bool = False,
+        overwrite_revision: str | None = None,
         rewritten_entry_ids: list[str] | None = None,
+        skipped_entry_ids: list[str] | None = None,
         before_quarantine_commit: Callable[[], None] | None = None,
     ) -> Path:
         """
@@ -362,10 +406,14 @@ class ScriptGenerator:
                 项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
             instructions: 用户输入的附加指令原文；非空时以中性「附加指令」分节追加到
                 prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成模式同口径。
-            entry_ids: 显式重写这些条目的视觉层（不论是否待编写）；为空时编写全部待编写条目。
-                任一 id 不在正式剧本内即报错、不落盘。
+            entry_ids: 本次编写的范围；为空时是全部待编写条目。任一 id 不在正式剧本内即报错、不落盘。
+                点名只划定范围：补缺时视觉层已齐的条目照常跳过。
+            rewrite: 显式重写范围内条目的全部视觉层；为 False 时补缺，只写缺失的视觉层字段。
+            overwrite_revision: 调用方认可覆盖的正式剧本指纹（取自丢失清单的 ``revision``）。显式重写
+                会替换已有视觉层内容时，缺失或与当前正式剧本不符即抛 ``PromptOverwriteRequired``、不调用模型。
             rewritten_entry_ids: 可选收集器；非 None 时就地填入本次编写的条目 id（剧本顺序），
                 供调用方在回执里列出。ad 整份生成时保持为空。
+            skipped_entry_ids: 可选收集器；非 None 时就地填入范围内因视觉层已齐而未编写的条目 id。
 
         Returns:
             正式剧本 JSON 文件路径
@@ -394,14 +442,16 @@ class ScriptGenerator:
         # 基线先于读入正式剧本：编写用的快照与 expected_fingerprint 出自同一时刻之前，两者之间
         # 落下的并发保存在写入时按冲突拒绝，而不是被本次写回覆盖。
         formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
-        targets = await asyncio.to_thread(self._load_prompt_authoring_targets, episode, filename, entry_ids)
+        targets = await asyncio.to_thread(
+            functools.partial(self._load_prompt_authoring_targets, episode, filename, entry_ids, rewrite=rewrite)
+        )
         if targets is None:
             if self.content_mode != "ad":
                 raise PromptAuthoringTargetError(
-                    f"第 {episode} 集尚无正式脚本：请先完成脚本规划并在 Web 端完成内容确认，确认即生成正式脚本"
+                    f"集（id={episode}）尚无正式脚本：请先完成脚本规划并在 Web 端完成内容确认，确认即生成正式脚本"
                 )
             if entry_ids:
-                raise PromptAuthoringTargetError(f"第 {episode} 集尚无正式脚本，entry_ids 无从对应")
+                raise PromptAuthoringTargetError(f"集（id={episode}）尚无正式脚本，entry_ids 无从对应")
             # ad 两种生成模式都一键生成、不走 script_plan；参考生视频直接产出自包含 video_units。
             prompt, schema = await self._compose_ad(episode, gen_mode, instructions)
             self._freeze_ad_artifact_basis(episode)
@@ -412,8 +462,11 @@ class ScriptGenerator:
                 output_filename,
             )
 
+        _require_overwrite_acknowledged(targets, formal_baseline, overwrite_revision)
         if rewritten_entry_ids is not None:
             rewritten_entry_ids[:] = targets.ids
+        if skipped_entry_ids is not None:
+            skipped_entry_ids[:] = targets.selection.skipped
         output_path = self.project_path / "scripts" / filename
         if not targets.entries:
             logger.info("第 %d 集没有待编写条目，未调用文本模型", episode)
@@ -512,7 +565,7 @@ class ScriptGenerator:
 
     @staticmethod
     def _merge_visual_layer(targets: PromptAuthoringTargets, visual_items: list[dict], episode: int) -> list[dict]:
-        """把视觉层按条目 id 写回正式剧本条目：只覆盖 image_prompt / video_prompt，其余字段原样保留。
+        """把视觉层按条目 id 写回正式剧本条目：只写本次选出的视觉层字段，其余字段原样保留。
 
         视觉层须与本次编写的条目一一对应：缺、多、重都 fail-loud，杜绝错配与漏写。
         """
@@ -521,19 +574,21 @@ class ScriptGenerator:
         for item in visual_items:
             entry_id = str(item[id_field])
             if entry_id in visual_by_id:
-                raise ValueError(f"episode {episode} 视觉层 {id_field} 重复: {entry_id}")
+                raise ValueError(f"集（id={episode}）视觉层 {id_field} 重复: {entry_id}")
             visual_by_id[entry_id] = item
         missing = [entry_id for entry_id in targets.ids if entry_id not in visual_by_id]
         if missing:
-            raise ValueError(f"episode {episode} 视觉层缺少本次编写的条目: {missing}")
+            raise ValueError(f"集（id={episode}）视觉层缺少本次编写的条目: {missing}")
         extra = sorted(set(visual_by_id) - set(targets.ids))
         if extra:
-            raise ValueError(f"episode {episode} 视觉层含本次编写范围之外的 {id_field}: {extra}")
+            raise ValueError(f"集（id={episode}）视觉层含本次编写范围之外的 {id_field}: {extra}")
         return [
             {
                 **entry,
-                "image_prompt": visual_by_id[str(entry[id_field])]["image_prompt"],
-                "video_prompt": visual_by_id[str(entry[id_field])]["video_prompt"],
+                **{
+                    field: visual_by_id[str(entry[id_field])][field]
+                    for field in targets.fields_of(str(entry[id_field]))
+                },
             }
             for entry in targets.entries
         ]
@@ -620,10 +675,11 @@ class ScriptGenerator:
         投影见 ``lib.script.script_document.build_materialized_script``。``expected_plan_revision`` 是确认记录的脚本规划指纹，加载到的
         规划不是这份即抛 ``ScriptPlanWriteConflict``；``expected_script_fingerprint`` 是调用方认可覆盖时
         看到的正式剧本指纹（无剧本为 None），落盘时不匹配抛 ``ScriptWriteConflict``。旧剧本的条目即使
-        与新条目同 id，名下产物也随本次写入撤登记。``project_update`` 与剧本在同一写事务内修改
+        与新条目同 id，名下产物也随本次写入撤登记，并清理其历史版本与当前媒体文件。``project_update`` 与剧本在同一写事务内修改
         project.json，确认记录借此与正式剧本一起落盘。
         """
         self._script_plan_fingerprint = None
+        self._script_plan_new_assets = None
         self._artifact_basis = None
         self._script_plan_input_claim = None
         plan_kind, plan_entries, title = await self._load_plan_entries_for_materialization(episode)
@@ -631,6 +687,19 @@ class ScriptGenerator:
         loaded_revision = cast(str | None, self._script_plan_fingerprint)
         if loaded_revision != expected_plan_revision:
             raise ScriptPlanWriteConflict(expected=expected_plan_revision, actual=loaded_revision, current_content=None)
+        # 本集新增资产按处理决定改写条目引用，与正式剧本、确认记录同一次写入登记进项目。
+        new_assets = resolve_new_assets(self.project_json, self._script_plan_new_assets)
+        plan_entries = new_assets.rewrite_entries(plan_entries)
+        registered_project = copy.deepcopy(self.project_json)
+        new_assets.apply_to_project(registered_project)
+        unregistered = unregistered_references(registered_project, plan_entries, id_field=entry_id_field(plan_kind))
+        if unregistered:
+            raise UnregisteredReferencesError(unregistered)
+
+        def update_project(project: dict[str, Any]) -> None:
+            new_assets.apply_to_project(project)
+            project_update(project)
+
         filename = formal_script_filename(self.project_path, self.project_json, episode)
         script_data = build_materialized_script(
             self.project_json, episode, plan_kind=plan_kind, plan_entries=plan_entries, title=title
@@ -642,7 +711,7 @@ class ScriptGenerator:
         previous_ids = tuple(entry.entry_id for entry in previous.entries) if previous is not None else ()
         plan_path = script_plan_path(self.project_path, self.project_json, episode)
         if plan_path is None:
-            raise FileNotFoundError(f"第 {episode} 集不适用脚本规划")
+            raise FileNotFoundError(f"集（id={episode}）不适用脚本规划")
         claim = self._script_plan_input_claim
         pm = ProjectManager.for_project_dir(self.project_path)
 
@@ -664,7 +733,7 @@ class ScriptGenerator:
                     validate=True,
                     expected_fingerprint=expected_script_fingerprint,
                     replaced_resource_ids=tuple(entry_id for entry_id in previous_ids if entry_id in entry_ids),
-                    project_update=project_update,
+                    project_update=update_project,
                 )
 
         await run_sync_transaction(_commit)
@@ -762,6 +831,10 @@ class ScriptGenerator:
             else self._parse_response(response_text, episode)
         )
         script_data = self._add_metadata(script_data, episode)
+        # 空的正式脚本对手写合法，但 AI 整份生成必须产出条目：「非空」只在这里验收。
+        items, _id_field, _kind = resolve_kind_items(script_data)
+        if isinstance(items, list) and not items:
+            raise ValueError(f"第 {episode} 集的 AI 生成脚本没有任何条目")
 
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
@@ -816,8 +889,31 @@ class ScriptGenerator:
             speech_rate_override=cast(float | None, direct_inputs["speech_rate_override"]),
         )
 
+    def prompt_overwrite(
+        self,
+        episode: int,
+        *,
+        entry_ids: Iterable[str] | None = None,
+        rewrite: bool = False,
+        overwrite_revision: str | None = None,
+    ) -> None:
+        """提交前的覆盖预检：与 ``generate`` 同一套对象选择，未认可的覆盖抛 ``PromptOverwriteRequired``。
+
+        点名的条目不在正式剧本里同样抛 ``PromptAuthoringTargetError``；尚无正式剧本时不检查。
+        """
+        filename = formal_script_filename(self.project_path, self.project_json, episode)
+        baseline = content_fingerprint(self.project_path / "scripts" / filename)
+        targets = self._load_prompt_authoring_targets(episode, filename, entry_ids, rewrite=rewrite)
+        if targets is not None:
+            _require_overwrite_acknowledged(targets, baseline, overwrite_revision)
+
     async def build_prompt(
-        self, episode: int, *, instructions: str | None = None, entry_ids: Iterable[str] | None = None
+        self,
+        episode: int,
+        *,
+        instructions: str | None = None,
+        entry_ids: Iterable[str] | None = None,
+        rewrite: bool = False,
     ) -> str:
         """
         构建 Prompt（用于 dry-run 模式）
@@ -828,15 +924,15 @@ class ScriptGenerator:
         dry-run 恒以该集绑定的正式剧本为准：它不落盘，也就没有 ``output_filename`` 可言。
         """
         targets = self._load_prompt_authoring_targets(
-            episode, formal_script_filename(self.project_path, self.project_json, episode), entry_ids
+            episode, formal_script_filename(self.project_path, self.project_json, episode), entry_ids, rewrite=rewrite
         )
         if targets is None:
             if self.content_mode != "ad":
                 raise PromptAuthoringTargetError(
-                    f"第 {episode} 集尚无正式脚本：请先完成脚本规划并在 Web 端完成内容确认，确认即生成正式脚本"
+                    f"集（id={episode}）尚无正式脚本：请先完成脚本规划并在 Web 端完成内容确认，确认即生成正式脚本"
                 )
             if entry_ids:
-                raise PromptAuthoringTargetError(f"第 {episode} 集尚无正式脚本，entry_ids 无从对应")
+                raise PromptAuthoringTargetError(f"集（id={episode}）尚无正式脚本，entry_ids 无从对应")
             prompt, _schema = await self._compose_ad(episode, self.generation_mode, instructions)
             return prompt
         if not targets.entries:
@@ -1027,7 +1123,7 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集有待修复草稿（{quarantine}），脚本规划转换已中止；"
+                f"集（id={episode}）有待修复草稿（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         if not script_plan_json.exists():
@@ -1063,6 +1159,7 @@ class ScriptGenerator:
                 supported_durations=supported_durations,
             )
             self._script_plan_fingerprint = content_fingerprint_of_data(raw)
+            self._script_plan_new_assets = raw.get(NEW_ASSETS_FIELD) if isinstance(raw, dict) else None
             self._freeze_script_plan_input_claim(
                 episode,
                 script_plan_json,
@@ -1117,7 +1214,7 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集 script_plan 有草稿待处置（{quarantine}），脚本规划转换已中止；"
+                f"集（id={episode}） script_plan 有草稿待处置（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         drafts_path = episode_drafts_dir(self.project_path, episode)
@@ -1140,6 +1237,7 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"script_plan_segments.json 解析失败: {e}") from e
         self._script_plan_fingerprint = content_fingerprint_of_data(raw)
+        self._script_plan_new_assets = raw.get(NEW_ASSETS_FIELD) if isinstance(raw, dict) else None
         self._freeze_script_plan_input_claim(
             episode,
             script_plan_json,
@@ -1190,7 +1288,7 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集有待修复草稿（{quarantine}），脚本规划转换已中止；"
+                f"集（id={episode}）有待修复草稿（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         raw = self._load_script_plan(episode)
@@ -1201,6 +1299,7 @@ class ScriptGenerator:
         if not isinstance(data, dict):
             raise ValueError("脚本规划内容文件结构异常：顶层应为对象 {title, scenes}")
         self._script_plan_fingerprint = content_fingerprint_of_data(data)
+        self._script_plan_new_assets = data.get(NEW_ASSETS_FIELD)
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("脚本规划内容文件结构异常：scenes 必须是非空的分镜对象数组")
@@ -1284,6 +1383,7 @@ class ScriptGenerator:
                     self.project_json,
                     unit_id=str(unit["unit_id"]),
                     max_refs=max_refs,
+                    tolerated_speakers=dialogue_speakers(text),
                 )
                 validate_dialogue_load(
                     label, text, int(unit["duration_seconds"]), source_language, speech_rate_override
@@ -1338,10 +1438,10 @@ class ScriptGenerator:
         instructions: str | None,
         before_quarantine_commit: Callable[[], None] | None,
     ) -> Path:
-        """参考生视频的提示词编写：只改写待编写单元的正文，其余单元逐字不动。
+        """参考生视频的提示词编写：只改写本次选中单元的正文，其余单元逐字不动。
 
         LLM 只出引用语法正文（与待编写单元等长、同序）；违约不丢弃，连同逐条报告落待修复草稿，
-        由 Agent 修复后经 promote_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份正文
+        修复后经草稿晋升重判写回正式剧本。重抽既烧钱又不收敛——同一个模型对同一份正文
         大概率再犯同一类错。
         """
         facts = await self._fetch_video_request_facts()
@@ -1415,7 +1515,7 @@ class ScriptGenerator:
         if isinstance(data, dict):
             raw_title = data.get("title")
             if not (isinstance(raw_title, str) and raw_title.strip()):
-                data["title"] = f"第{episode}集"
+                data["title"] = default_episode_title(self.project_json, episode)
         try:
             return ReferencePromptAuthoringFlatScript.model_validate(data)
         except ValidationError as e:
@@ -1448,15 +1548,23 @@ class ScriptGenerator:
 
         authored: list[dict] = []
         violations: list[DraftViolation] = []
-        for unit, flat_unit in zip(units, flat.units, strict=True):
+        for index, (unit, flat_unit) in enumerate(zip(units, flat.units, strict=True)):
             label = f"unit {unit['unit_id']}"
             # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，Agent 一轮就能看全要改什么。
             # 一个 unit 内部仍是首个违约即停——正文解析不出时，后续判定都建立在同一个问题上。
             try:
-                validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
+                validate_unit_text(
+                    label,
+                    flat_unit.text,
+                    self.project_json,
+                    max_refs=max_refs,
+                    tolerated_speakers=dialogue_speakers(str(unit.get("text") or "")),
+                )
                 assert_dialogue_preserved(label, str(unit.get("text") or ""), flat_unit.text)
             except DraftViolation as exc:
-                violations.extend(violation_items(exc))
+                items = violation_items(exc)
+                locate_violations(items, item_index=index, item_id=str(unit["unit_id"]))
+                violations.extend(items)
                 continue
             authored.append({**unit, "text": flat_unit.text})
 
@@ -1604,12 +1712,14 @@ class ScriptGenerator:
                 )
             if before_commit is not None:
                 before_commit()
+            violations = violation_items(exc)
+            locate_violations_by_id(violations, unit_ids)
             report = quarantine_and_report(
                 self.project_path,
                 episode,
                 QUARANTINE_KIND_PROMPT_AUTHORING,
                 content=self._prompt_authoring_flat_content(response_text, episode),
-                violations=violation_items(exc),
+                violations=violations,
                 meta={
                     "base_fingerprint": (
                         content_fingerprint(formal_path)
@@ -1684,7 +1794,7 @@ class ScriptGenerator:
         draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         if draft is None:
             raise FileNotFoundError(
-                f"第 {episode} 集没有可晋升的 prompt_authoring 待修复草稿"
+                f"集（id={episode}）没有可晋升的 prompt_authoring 待修复草稿"
                 f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)} 缺失或内容不是合法信封）"
             )
 
@@ -1695,9 +1805,9 @@ class ScriptGenerator:
             if isinstance(raw_unit_ids, list)
             else None
         )
-        targets = self._load_prompt_authoring_targets(episode, filename, unit_ids)
+        targets = self._load_prompt_authoring_targets(episode, filename, unit_ids, rewrite=True)
         if targets is None:
-            raise FileNotFoundError(f"第 {episode} 集尚无正式脚本，无法晋升 prompt_authoring 待修复草稿")
+            raise FileNotFoundError(f"集（id={episode}）尚无正式脚本，无法晋升 prompt_authoring 待修复草稿")
         if unit_ids is None:
             # 未记录单元的草稿产自整份编写：按正式剧本的全部单元重判，单元数对不上时如实报告。
             targets = replace(targets, entries=tuple(item for item in targets.items if isinstance(item, dict)))
@@ -1725,13 +1835,15 @@ class ScriptGenerator:
                 episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
             )
         except DraftViolation as exc:
+            violations = violation_items(exc)
+            locate_violations_by_id(violations, [str(unit.get("unit_id")) for unit in units])
             raise DraftViolation(
                 quarantine_and_report(
                     self.project_path,
                     episode,
                     QUARANTINE_KIND_PROMPT_AUTHORING,
                     content=draft.content,
-                    violations=violation_items(exc),
+                    violations=violations,
                     meta=draft.meta,
                 ),
                 code="quarantined",
@@ -1739,18 +1851,25 @@ class ScriptGenerator:
         except ValueError as exc:
             # schema 层（DraftViolation 是 ValueError 子类，故须排在前）同样只回报告：这条路上
             # 内容是 Agent 手写的，没有 backend 可重试，与 script_plan 晋升的 schema_invalid 同口径。
+            violations = (
+                schema_violations(exc.__cause__, draft.content, "units")
+                if isinstance(exc.__cause__, ValidationError)
+                else [
+                    DraftViolation(
+                        f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}", code="schema_invalid"
+                    )
+                ]
+            )
+            for violation in violations:
+                if violation.item_index is not None and violation.item_index < len(units):
+                    violation.item_id = str(units[violation.item_index]["unit_id"])
             raise DraftViolation(
                 quarantine_and_report(
                     self.project_path,
                     episode,
                     QUARANTINE_KIND_PROMPT_AUTHORING,
                     content=draft.content,
-                    violations=[
-                        DraftViolation(
-                            f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}",
-                            code="schema_invalid",
-                        )
-                    ],
+                    violations=violations,
                     meta=draft.meta,
                 ),
                 code="quarantined",
@@ -1830,7 +1949,7 @@ class ScriptGenerator:
         if isinstance(data, dict):
             title = data.get("title")
             if not (isinstance(title, str) and title.strip()):
-                data["title"] = f"第{episode}集"
+                data["title"] = default_episode_title(self.project_json, episode)
 
         # 校验模型经规范解析定骨架种类（分镜图生视频按创作类型，参考生视频统一 video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
@@ -1872,7 +1991,6 @@ class ScriptGenerator:
                 "unit_id": unit_id,
                 "text": source.text,
                 "duration_seconds": source.duration_seconds,
-                "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {},
             }
@@ -1881,7 +1999,11 @@ class ScriptGenerator:
             units.append(unit)
 
         return ReferenceVideoScript.model_validate(
-            {"title": flat.title or f"第{episode}集", "content_mode": "ad", "video_units": units}
+            {
+                "title": flat.title or default_episode_title(self.project_json, episode),
+                "content_mode": "ad",
+                "video_units": units,
+            }
         ).model_dump()
 
     def _add_metadata(
@@ -1948,6 +2070,7 @@ class ScriptGenerator:
                         f"unit {s[id_field]} {state}视频档位未知（{exc.failure.summary()}）；请配置可用的{remedy}模型",
                         code=exc.code,
                         label=f"unit {s[id_field]}",
+                        item_id=str(s[id_field]),
                     ) from exc
                 unit_tiers = self._unit_duration_off_tier(target_duration, facts=facts, generation_type=bucket)
                 if unit_tiers is not None:
@@ -1962,6 +2085,7 @@ class ScriptGenerator:
                         "说明模型能力已变化，需要重新拆分该集 script_plan",
                         code="duration_off_tier",
                         label=f"unit {s[id_field]}",
+                        item_id=str(s[id_field]),
                     )
                 if s.get("duration_seconds") != target_duration:
                     logger.warning(

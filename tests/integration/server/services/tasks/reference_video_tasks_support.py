@@ -28,6 +28,10 @@ def write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
         "content_mode": "narration",
         "generation_mode": "reference_video",
         "style": "s",
+        "narration_delivery": "use_tts",
+        "audio_backend": "dashscope/actual-tts",
+        "narration_voice": "Cherry",
+        "narration_speed": 1.1,
         "characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}},
         "scenes": {"酒馆": {"description": "x", "scene_sheet": "scenes/酒馆.png"}},
         "props": {},
@@ -46,7 +50,6 @@ def write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
                 "unit_id": "E1U1",
                 "text": "@张三 推门，走进 @酒馆",
                 "duration_seconds": 3,
-                "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
                     "storyboard_image": None,

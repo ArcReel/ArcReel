@@ -17,6 +17,7 @@ slots:
   target_language: 输出语言
   project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
   novel_text: 逐字源文
+  assets: 已登记资产，对象 {characters, scenes, props}，每项是 [{name, aliases, appearance}] 列表（尖括号已中和；衍生写作「本体/衍生」）
   character_names: 角色候选引用名列表
   scene_names: 场景候选引用名列表
   prop_names: 道具候选引用名列表
@@ -36,7 +37,7 @@ protected: false
 
 **输出语言**：自然语言字符串值使用 {{ target_language }}；JSON 键名保持英文。
 例外（逐字保留、不翻译、不改写）：`novel_text` 逐字等于源文原句（含标点）；资产引用字段
-（`characters_in_segment` / `scenes` / `props`）逐字等于下方候选表中的登记名。
+（`characters_in_segment` / `scenes` / `props`）逐字等于下方候选表中的登记名或 `new_assets` 里的称呼。
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 {{ partial("shared/pacing/narration") }}
@@ -45,7 +46,7 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/lists/asset_name_blocks") }}
+{{ partial("shared/lists/asset_registry_blocks") }}
 
 ## 小说原文
 
@@ -64,13 +65,15 @@ protected: false
 - **duration_seconds**：{% if default_duration %}单分镜默认取 {{ default_duration }} 秒（按朗读语速估算该秒数内能念完的字数）；长句 / 情绪铺陈 / 关键对话等可从档位中取更长值（至 {{ max_duration }} 秒）——偏好可被内容需要覆盖，硬约束不可{% else %}按朗读节奏从档位（{{ durations }}）中取值（最长 {{ max_duration }} 秒），不强制默认值{% endif %}{% if episode_target_duration %}。{{ partial("shared/episode_target_duration_rule") }}{% endif %}。取值必须落在支持档位（{{ durations }}）内。
 - **segment_break**：在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`，同一连续场景内标 `false`，不要滥用。
 - **characters_in_segment / scenes / props**：列出该分镜 `novel_text` 中实际出现（被叙述或对话提及）的已登记资产，
-  名称逐字取自下列候选，不要发明候选之外的名称；泛指群演（老人甲 / 村民若干）不登记、不进 characters_in_segment。
+  名称逐字取自下列候选，候选里没有的写原文称呼并列进 `new_assets`；泛指群演（老人甲 / 村民若干）不登记、不进 characters_in_segment。
   三个数组均必填，无对应资产时显式写空数组 `[]`。
   - character: {{ partial("shared/asset_name_candidates", names=character_names) }}
   - scene: {{ partial("shared/asset_name_candidates", names=scene_names) }}
   - prop: {{ partial("shared/asset_name_candidates", names=prop_names) }}
 
 请覆盖全部源文，按叙事顺序逐分镜产出。
+
+{{ partial("shared/new_assets_rule") }}
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

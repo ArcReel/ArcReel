@@ -2,19 +2,19 @@
 import { create } from "zustand";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
-import type { ReferenceUnitCapabilityMap, ReferenceVideoUnit, TransitionType } from "@/types";
+import type { ReferenceUnitCapabilityMap, ReferenceVideoUnit } from "@/types";
 
 interface AddUnitPayload {
   prompt: string;
   duration_seconds?: number;
-  transition_to_next?: TransitionType;
   note?: string | null;
+  /** 插在这个单元之后；缺省时追加到末尾。 */
+  after_unit_id?: string;
 }
 
 interface PatchUnitPayload {
   prompt?: string;
   duration_seconds?: number;
-  transition_to_next?: TransitionType;
   note?: string | null;
 }
 
@@ -40,7 +40,7 @@ interface ReferenceVideoStore {
   addUnit: (projectName: string, episode: number, payload: AddUnitPayload) => Promise<ReferenceVideoUnit>;
   patchUnit: (projectName: string, episode: number, unitId: string, patch: PatchUnitPayload) => Promise<ReferenceVideoUnit>;
   deleteUnit: (projectName: string, episode: number, unitId: string) => Promise<void>;
-  reorderUnits: (projectName: string, episode: number, unitIds: string[]) => Promise<void>;
+  moveUnit: (projectName: string, episode: number, unitId: string, afterUnitId: string | null) => Promise<void>;
   select: (unitId: string | null) => void;
 }
 
@@ -97,8 +97,10 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
+      const anchor = payload.after_unit_id === undefined ? -1 : list.findIndex((u) => u.unit_id === payload.after_unit_id);
+      const next = anchor === -1 ? [...list, unit] : [...list.slice(0, anchor + 1), unit, ...list.slice(anchor + 1)];
       return {
-        unitsByEpisode: { ...s.unitsByEpisode, [key]: [...list, unit] },
+        unitsByEpisode: { ...s.unitsByEpisode, [key]: next },
         unitCapabilitiesByEpisode: {
           ...s.unitCapabilitiesByEpisode,
           [key]: { ...s.unitCapabilitiesByEpisode[key], [unit.unit_id]: unit_capability },
@@ -144,8 +146,8 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
     });
   },
 
-  reorderUnits: async (projectName, episode, unitIds) => {
-    const { units } = await API.reorderReferenceVideoUnits(projectName, episode, unitIds);
+  moveUnit: async (projectName, episode, unitId, afterUnitId) => {
+    const { units } = await API.moveReferenceVideoUnit(projectName, episode, unitId, afterUnitId);
     invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => ({
       unitsByEpisode: { ...s.unitsByEpisode, [referenceVideoCacheKey(projectName, episode)]: units },

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,9 +22,9 @@ from lib.config.resolver import (
 )
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
-from lib.generation.generation_queue import GenerationQueue
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
@@ -47,18 +47,8 @@ from lib.script.reference_video.request_projection import (
 from lib.script.script_editor import ScriptEditError
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from lib.speech.narration_delivery import (
-    USE_TTS,
-    VideoRequestCostFacts,
-    video_request_cost_unavailable_problem,
-    video_request_requires_exact_quote,
-    video_request_reuses_current_visual,
-)
+from lib.speech.narration_config import USE_TTS, project_narration_delivery, project_tts_settings
 from lib.speech.speech_composition import video_unit_replan_problems
-from server.services.tasks.narration_delivery_tasks import (
-    active_tts_resource_ids,
-    prepare_current_reference_video_request_options,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -113,15 +103,6 @@ class VideoRequestQuote:
             "model_id": self.model_id,
             "request_duration_seconds": self.request_duration_seconds,
         }
-
-    def without_new_video_charge(self) -> VideoRequestQuote:
-        return VideoRequestQuote(
-            amount=0.0,
-            currency=self.currency,
-            provider_id=self.provider_id,
-            model_id=self.model_id,
-            request_duration_seconds=self.request_duration_seconds,
-        )
 
 
 def quote_video_request_from_price(
@@ -246,7 +227,6 @@ class CostEstimationService:
         self._resolver = resolver
         self._session_factory = session_factory
         self._project_path = project_path
-        self._generation_queue = GenerationQueue(session_factory=session_factory)
 
     async def compute(
         self,
@@ -254,42 +234,9 @@ class CostEstimationService:
         scripts: dict[str, dict[str, Any]],
         *,
         project_name: str,
-        reference_request_options: Mapping[str, ReferenceRequestOptions] | None = None,
     ) -> dict[str, Any]:
         episodes_meta = project_data.get("episodes", [])
         is_reference_video = is_reference_video_project(project_data)
-        use_tts_ids = {
-            unit_id
-            for unit_id, options in (reference_request_options or {}).items()
-            if options.narration_delivery == USE_TTS
-        }
-        tts_queries: list[tuple[str, tuple[str, ...]]] = []
-        if use_tts_ids:
-            for script_file, script in scripts.items():
-                raw_units = script.get("video_units")
-                if not isinstance(raw_units, list):
-                    continue
-                unit_ids = tuple(
-                    unit_id
-                    for unit in raw_units
-                    if isinstance(unit, dict)
-                    and isinstance(unit_id := unit.get("unit_id"), str)
-                    and unit_id in use_tts_ids
-                )
-                if unit_ids:
-                    tts_queries.append((script_file, unit_ids))
-        active_batches = await asyncio.gather(
-            *(
-                active_tts_resource_ids(
-                    project_name=project_name,
-                    resource_ids=unit_ids,
-                    script_file=script_file,
-                    queue=self._generation_queue,
-                )
-                for script_file, unit_ids in tts_queries
-            )
-        )
-        active_tts = frozenset().union(*active_batches)
 
         # Resolve current model config（共享单一 session）。估价以 T2I 为准（T2I/I2I 是正交能力槽，
         # T2I 缺失不应回落 I2I —— 那会拿错误能力的价目算费用）。
@@ -372,13 +319,16 @@ class CostEstimationService:
                     bucket_audio,
                 )
 
-            # 旁白配音（TTS）模型：project 覆盖 > 全局默认 > auto-resolve；
-            # 未配置任何 audio 供应商时回落 unknown，该维度预估为空
-            try:
-                resolved_audio = await r.resolve_audio_backend(project_data, None)
-                audio_provider, audio_model = resolved_audio.provider_id, resolved_audio.model_id
-            except (ValueError, SQLAlchemyError):
-                audio_provider, audio_model = "unknown", "unknown"
+            # 旁白配音（TTS）模型取项目快照，不读全局默认；后期配音项目或没有快照时回落 unknown，
+            # 该维度预估为空
+            tts_settings = (
+                project_tts_settings(project_data) if project_narration_delivery(project_data) == USE_TTS else None
+            )
+            audio_provider, audio_model = (
+                (tts_settings.provider_id, tts_settings.model_id)
+                if tts_settings is not None
+                else ("unknown", "unknown")
+            )
 
         # Get actual costs + 自定义供应商价格（缺则预估恒为零，需与实际记账同源预查 DB 单价）
         async with self._session_factory() as session:
@@ -508,8 +458,6 @@ class CostEstimationService:
                     video_prices=video_prices,
                     actual_by_segment=actual_by_segment,
                     claimed_actual=claimed_actual,
-                    request_options=reference_request_options,
-                    active_tts=active_tts,
                 )
                 _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
                 continue
@@ -738,8 +686,6 @@ class CostEstimationService:
         video_prices: dict[tuple[str, str], Any],
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
-        request_options: Mapping[str, ReferenceRequestOptions] | None = None,
-        active_tts: frozenset[str] = frozenset(),
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
         """reference_video 集的估值：unit 本身就是展示与计费颗粒度。
 
@@ -751,8 +697,8 @@ class CostEstimationService:
         取档先水合 unit 引用的当前可用图片（文件存在且产物清单认领，与准入、执行同判据；
         有图 → r2v，无图退化 unit → i2v），再解析该桶模型的能力；声明引用与实际资产分裂时返回
         结构化 blocker，不换桶伪报价。
-        请求时长基准通常是 ``unit.duration_seconds``；选择 ``use_tts`` 时还会纳入上游提供的
-        实际旁白时长下限。按该基准取档后用同桶模型计费，与执行请求的秒数对齐。
+        请求时长基准是 ``unit.duration_seconds``，按它取档后用同桶模型计费，与执行请求的秒数对齐；
+        旁白交付方式不影响视频请求，也不影响这里的报价。
 
         无图片/音频估值维度：该模式跳过分镜步骤（无分镜图），unit 正文是一整段、没有可供
         独立音频计价的旁白/口播文案字段。实付按 ``actual_by_segment[unit_id]`` 三个维度原样透传——``lib/generation/media_generator.py``
@@ -793,11 +739,8 @@ class CostEstimationService:
             enqueueable = isinstance(text, str) and bool(text.strip()) and not video_unit_replan_problems(unit)
 
             est_video: CostBreakdown = {}
-            request_quote: VideoRequestQuote | None = None
-            cost_problem_payload: dict[str, object] | None = None
             projection_problems: list[dict[str, Any]] = []
             projection = None
-            options = (request_options or {}).get(unit_id, ReferenceRequestOptions())
             if enqueueable:
                 # Agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
                 # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析与 request projection
@@ -814,24 +757,12 @@ class CostEstimationService:
                         ]
                     else:
                         resolved_assets = resolve_reference_assets(project, self._project_path, unit)
-                    if self._project_path is not None:
-                        options = await prepare_current_reference_video_request_options(
-                            request_facts_lookup=request_facts_lookup,
-                            project=project,
-                            script=script,
-                            script_file=script_file,
-                            unit=unit,
-                            project_path=self._project_path,
-                            options=options,
-                            project_name=project_name,
-                            tts_in_progress=unit_id in active_tts,
-                        )
                     projection = await projector.project_current(
                         project=project,
                         script=script,
                         unit=unit,
                         resolved_assets=resolved_assets,
-                        options=options,
+                        options=ReferenceRequestOptions(),
                     )
                 except (ValueError, TypeError):
                     logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
@@ -861,29 +792,7 @@ class CostEstimationService:
                                 exc_info=True,
                             )
                         else:
-                            if options.narration_delivery == USE_TTS:
-                                request_quote = priced_quote
-                                if video_request_reuses_current_visual(
-                                    request_duration_seconds=cost.duration_seconds,
-                                    current_reusable_visual_duration_seconds=(
-                                        options.current_reusable_visual_duration_seconds
-                                    ),
-                                ):
-                                    request_quote = request_quote.without_new_video_charge()
-                            if request_quote is None or request_quote.amount > 0:
-                                _add_cost(est_video, priced_quote.amount, priced_quote.currency)
-                    if (
-                        options.narration_delivery == USE_TTS
-                        and request_quote is None
-                        and video_request_requires_exact_quote(
-                            request_duration_seconds=cost.duration_seconds,
-                            planned_duration_seconds=projection.planned_duration,
-                            current_visual_duration_seconds=options.current_visual_duration_seconds,
-                            current_reusable_visual_duration_seconds=options.current_reusable_visual_duration_seconds,
-                        )
-                    ):
-                        cost_problem_payload = video_request_cost_unavailable_problem(cost).to_payload(unit_id=unit_id)
-                        projection_problems.append(cost_problem_payload)
+                            _add_cost(est_video, priced_quote.amount, priced_quote.currency)
 
             unit_actual = _claim_actual(actual_by_segment, claimed_actual, unit_id)
             act_image: CostBreakdown = unit_actual.get("image", {})
@@ -897,10 +806,8 @@ class CostEstimationService:
                     "request_projection": (
                         {
                             **projection.to_advisory_payload(),
-                            **({"allowed": False} if cost_problem_payload is not None else {}),
                             "capability": projection.hydrated_generation_type,
                             "problems": projection_problems,
-                            **({"request_cost": request_quote.to_payload()} if request_quote is not None else {}),
                         }
                         if enqueueable and projection is not None
                         else {
@@ -921,3 +828,57 @@ class CostEstimationService:
                 ep_act[cost_type] = _merge_breakdowns(ep_act.get(cost_type, {}), amounts)
 
         return segments_result, ep_est, ep_act
+
+
+ImageLane = Literal["t2i", "i2i"]
+
+
+async def estimate_image_batch_cost(
+    project: dict[str, Any],
+    lanes: Sequence[ImageLane],
+    *,
+    resolver: ConfigResolver,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> CostBreakdown | None:
+    """一批图片生成按当前项目配置的预估费用；供应商或单价解析不出时返回 ``None``（算不出）。
+
+    每张图按自己的生图通道计价：文生图与图生图是两个正交的能力槽，可能配置成不同的模型。
+    分辨率档与执行侧同样按通道解析出的模型取，取不到时按保底档计价。
+    """
+
+    counts = Counter(lanes)
+    if not counts:
+        return {}
+    identities: dict[ImageLane, tuple[str, str, str | None]] = {}
+    try:
+        async with resolver.session() as r:
+            for lane in counts:
+                resolved = await r.resolve_image_backend(project, None, generation_type=lane)
+                try:
+                    resolution = await r.resolve_resolution(project, resolved.provider_id, resolved.model_id or "")
+                except (ValueError, SQLAlchemyError):
+                    resolution = None
+                identities[lane] = (resolved.provider_id, resolved.model_id or "", resolution)
+        total: CostBreakdown = {}
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            for lane, count in counts.items():
+                provider, model, resolution = identities[lane]
+                price = await repo.resolve_price(provider, model)
+                amount, currency = cost_calculator.calculate_cost(
+                    provider,
+                    PricingParams(
+                        call_type="image",
+                        model=model,
+                        resolution=resolution or _IMAGE_PRICING_FALLBACK_RESOLUTION,
+                    ),
+                    custom_price_input=price.price_input,
+                    custom_price_output=price.price_output,
+                    custom_currency=price.currency,
+                    estimate_only=True,
+                )
+                _add_cost(total, amount * count, currency)
+    except (ValueError, SQLAlchemyError):
+        logger.debug("无法估算这批图片的费用", exc_info=True)
+        return None
+    return total

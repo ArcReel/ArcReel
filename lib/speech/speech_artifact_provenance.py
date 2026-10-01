@@ -19,11 +19,12 @@ from lib.infra.schema_guards import is_finite_number, is_str
 from lib.project.asset_types import asset_name_comparison_key, normalize_asset_bucket
 from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.speech.speech_composition import SpeechMode, SpeechOwner, SpeechPreparation
+from lib.speech.subtitle_sentences import split_sentences
 
 RenditionVariant = Literal["post_production", "use_tts"]
 _DEFAULT_SUBTITLE_TIMING_POLICY: Mapping[str, object] = {
-    "kind": "mechanical-text-length",
-    "version": 1,
+    "kind": "mechanical-sentence-reading-units",
+    "version": 2,
 }
 _DEFAULT_PRESENTATION_MIX_POLICY: Mapping[str, object] = {
     "kind": "provider-original-plus-optional-tts",
@@ -252,6 +253,7 @@ def build_mechanical_subtitle_basis(
     video: SelectedMediaEvidence,
     narration_audio: SelectedMediaEvidence | None = None,
     timing_policy: Mapping[str, object] = _DEFAULT_SUBTITLE_TIMING_POLICY,
+    subtitle_sentences_prepared: bool = False,
 ) -> ArtifactBasis:
     """Describe a mechanical subtitle draft without materializing its timeline."""
 
@@ -270,11 +272,23 @@ def build_mechanical_subtitle_basis(
         inputs={
             "variant": normalized_variant,
             "mode": mode.value,
-            "utterances": [utterance.basis_input() for utterance in project_subtitle_utterances(preparation)],
+            "utterances": [
+                utterance.basis_input()
+                for utterance in project_subtitle_utterances(
+                    preparation, subtitle_sentences_prepared=subtitle_sentences_prepared
+                )
+            ],
             "boundary_media": boundary.basis_input(),
             "timing_policy": dict(timing_policy),
         },
     )
+
+
+#: 呈现模型依据从这一 schema 起不记脚本条目上的转场。
+PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION = 16
+_PRESENTATION_BASIS_KIND = "artifact-speech/presentation"
+_PRESENTATION_BASIS_VERSION = 3
+_LEGACY_TRANSITION_PRESENTATION_BASIS_VERSION = 2
 
 
 def build_presentation_basis(
@@ -284,7 +298,6 @@ def build_presentation_basis(
     subtitle: ArtifactBasis | ArtifactBasisDescriptor,
     narration_audio: SelectedMediaEvidence | None = None,
     provider_audio_enabled: bool = True,
-    transition_to_next: str = "cut",
     mix_policy: Mapping[str, object] = _DEFAULT_PRESENTATION_MIX_POLICY,
 ) -> ArtifactBasis:
     """Describe a final-presentation variant without performing media mixing."""
@@ -297,11 +310,10 @@ def build_presentation_basis(
         raise ValueError("post_production presentation basis cannot include narration audio")
 
     return ArtifactBasis.build(
-        "artifact-speech/presentation",
-        kind_version=2,
+        _PRESENTATION_BASIS_KIND,
+        kind_version=_PRESENTATION_BASIS_VERSION,
         inputs={
             "variant": normalized_variant,
-            "transition_to_next": transition_to_next,
             "video": video.basis_input(),
             "subtitle": subtitle_descriptor.to_dict(),
             "narration_audio": narration_audio.basis_input() if narration_audio is not None else None,
@@ -313,8 +325,31 @@ def build_presentation_basis(
     )
 
 
-def project_subtitle_utterances(preparation: SpeechPreparation) -> tuple[SubtitleUtteranceEvidence, ...]:
-    """Return the one canonical utterance projection used by basis and timing."""
+def build_legacy_transition_presentation_basis(presentation: ArtifactBasis, transition_to_next: str) -> ArtifactBasis:
+    """schema 低于 16 的项目持久化的呈现模型依据：输入比当前依据多一项脚本条目上的转场。
+
+    只在迁移链中出现：v15→v16 之前各步的整份激活按它核对存量呈现模型文件，v15→v16 再把文件与
+    清单登记改写到当前依据。
+    """
+
+    if presentation.kind != _PRESENTATION_BASIS_KIND or presentation.kind_version != _PRESENTATION_BASIS_VERSION:
+        raise ValueError("legacy transition basis derives only from a current presentation basis")
+    if not is_str(transition_to_next):
+        raise ValueError("transition_to_next must be a string")
+    inputs = presentation.to_evidence_dict()["inputs"]
+    if not isinstance(inputs, Mapping):  # pragma: no cover - ArtifactBasis invariant
+        raise TypeError("presentation basis inputs must be an object")
+    return ArtifactBasis.build(
+        _PRESENTATION_BASIS_KIND,
+        kind_version=_LEGACY_TRANSITION_PRESENTATION_BASIS_VERSION,
+        inputs={**inputs, "transition_to_next": transition_to_next},
+    )
+
+
+def project_subtitle_utterances(
+    preparation: SpeechPreparation, *, subtitle_sentences_prepared: bool = False
+) -> tuple[SubtitleUtteranceEvidence, ...]:
+    """Project canonical sentences, preserving boundaries when replaying frozen cues."""
 
     _require_prepared_speech(preparation)
     values: list[SubtitleUtteranceEvidence] = []
@@ -322,12 +357,13 @@ def project_subtitle_utterances(preparation: SpeechPreparation) -> tuple[Subtitl
         text = _canonical_text(utterance.text)
         if not text:
             continue
-        values.append(
+        values.extend(
             SubtitleUtteranceEvidence(
                 owner=utterance.owner,
                 speaker=utterance.speaker,
-                text=text,
+                text=sentence,
             )
+            for sentence in ((text,) if subtitle_sentences_prepared else split_sentences(text))
         )
     return tuple(values)
 
@@ -363,10 +399,12 @@ def media_content_digest(path: Path) -> str:
 
 
 __all__ = [
+    "PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION",
     "CharacterVoiceEvidence",
     "RenditionVariant",
     "SelectedMediaEvidence",
     "SubtitleUtteranceEvidence",
+    "build_legacy_transition_presentation_basis",
     "build_mechanical_subtitle_basis",
     "build_presentation_basis",
     "build_video_duration_basis",

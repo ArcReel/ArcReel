@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
@@ -155,6 +156,65 @@ class TestTaskErrorLocalization:
         body = client.get("/api/v1/tasks").json()["items"][0]
         assert body["error_message"].startswith("图片任务")
 
+    def test_render_problems_are_localized_without_changing_the_stored_envelope(self, monkeypatch):
+        from lib.generation.generation_result import encode_generation_problem
+        from lib.i18n import _
+        from lib.jianying_draft.errors import JianyingDraftError
+        from server.services.tasks.render_tasks import render_problem
+
+        cases = [
+            ("jianying_draft_presentation_unavailable", {"unit_id": "E1U2"}),
+            ("jianying_draft_hold_frame_unavailable", {"clip_id": "c1"}),
+            ("jianying_draft_acceptance_failed", {}),
+            ("jianying_draft_blocked", {"issues": [{"unit_id": "E1U2", "code": "video_missing"}]}),
+        ]
+        items = [
+            {
+                "task_id": code,
+                "error_message": encode_generation_problem(
+                    render_problem(JianyingDraftError(code, "诊断原文", **params))
+                ),
+            }
+            for code, params in cases
+        ]
+        original = [dict(item) for item in items]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        for locale in ("zh", "en", "vi"):
+            rows = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"]
+            for row, (code, params) in zip(rows, cases, strict=True):
+                translated_params = {**params, "units": "E1U2"} if "issues" in params else params
+                assert row["error_message"] == _(code, locale=locale, **translated_params)
+                assert row["error_message"] not in {code, "诊断原文"}
+                assert (row["error_code"], row["error_params"]) == (code, params)
+        assert items == original
+
+    def test_edit_timeline_problems_in_render_tasks_use_the_same_keys_as_http(self, monkeypatch):
+        from lib.edit_timeline.errors import EditTimelineError
+        from lib.generation.generation_result import encode_generation_problem
+        from lib.i18n import _
+        from server.services.tasks.render_tasks import render_problem
+
+        cases = [
+            ("timeline_invalid", {"file": "tl-1.json"}, "edit_timeline_invalid", {"file": "tl-1.json"}),
+            ("project_not_found", {"project": "demo"}, "project_not_found", {"name": "demo"}),
+        ]
+        items = [
+            {
+                "task_id": code,
+                "error_message": encode_generation_problem(
+                    render_problem(EditTimelineError(code, "诊断原文", **params))
+                ),
+            }
+            for code, params, _key, _values in cases
+        ]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        for locale in ("zh", "en", "vi"):
+            rows = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"]
+            for row, (code, params, key, values) in zip(rows, cases, strict=True):
+                assert row["error_message"] == _(key, locale=locale, **values)
+                assert "{" not in row["error_message"]
+                assert (row["error_code"], row["error_params"]) == (code, params)
+
     def test_list_tasks_passthrough_raw_and_legacy(self, monkeypatch):
         items = [
             {"task_id": "raw", "error_message": "RuntimeError: provider 500"},
@@ -189,3 +249,46 @@ class TestTaskErrorLocalization:
         client = self._client(monkeypatch, _RenderQueue(items=items))
         body = client.get("/api/v1/projects/demo/tasks", headers={"Accept-Language": "en"}).json()["items"][0]
         assert body["error_message"].startswith("The audio task was interrupted")
+
+
+class TestTaskResourceRefs:
+    """任务的条目 ID 带集 ID：列表附上所属集的标题、播出位置与集内 ID，界面据此指称条目。"""
+
+    def test_list_and_cancel_preview_carry_the_episode_title_and_position(self, monkeypatch, tmp_path):
+        projects = ProjectManager(tmp_path / "projects")
+        projects.create_project("demo")
+        projects.create_project_metadata("demo", "Demo")
+        projects.update_project(
+            "demo",
+            lambda project: project.update(
+                episodes=[
+                    {"episode": 7, "title": "山门", "script_file": "scripts/episode_7.json"},
+                    {"episode": 3, "title": "下山", "script_file": "scripts/episode_3.json"},
+                ]
+            ),
+        )
+        items = [
+            {"task_id": "a", "project_name": "demo", "resource_id": "E3S02"},
+            {"task_id": "b", "project_name": "demo", "resource_id": "张三"},
+            {"task_id": "c", "project_name": "missing", "resource_id": "E3S02"},
+        ]
+
+        class _Queue(_RenderQueue):
+            async def get_cancel_preview(self, task_id):
+                return {"task": dict(items[0]), "cascaded": [{**items[0], "task_id": "d", "resource_id": "E7U01"}]}
+
+        monkeypatch.setattr(tasks_router, "get_project_manager", lambda: projects)
+        client = TestTaskErrorLocalization()._client(monkeypatch, _Queue(items=items))
+
+        listed = client.get("/api/v1/tasks").json()["items"]
+        preview = client.get("/api/v1/tasks/a/cancel-preview").json()
+
+        assert {task["task_id"]: task["resource_ref"] for task in listed} == {
+            "a": {"episode_title": "下山", "episode_position": 2, "item_id": "S02"},
+            "b": None,
+            "c": None,
+        }
+        assert preview["task"]["resource_ref"] == {"episode_title": "下山", "episode_position": 2, "item_id": "S02"}
+        assert [task["resource_ref"] for task in preview["cascaded"]] == [
+            {"episode_title": "山门", "episode_position": 1, "item_id": "U01"}
+        ]

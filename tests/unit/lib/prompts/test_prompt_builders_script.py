@@ -416,7 +416,7 @@ class TestScreenplaySourceKind:
     def test_normalize_appends_instructions_after_single_blank_line(self):
         for source_kind in ("novel", "screenplay"):
             prompt = self._normalize_prompt(source_kind, instructions="多用近景。\n少用旁白。")
-            assert prompt.endswith("画面切换。\n\n# 附加指令\n多用近景。\n少用旁白。")
+            assert prompt.endswith("留空。\n\n# 附加指令\n多用近景。\n少用旁白。")
             plain = self._normalize_prompt(source_kind)
             assert "# 附加指令" not in plain
             assert plain == self._normalize_prompt(source_kind, instructions="")

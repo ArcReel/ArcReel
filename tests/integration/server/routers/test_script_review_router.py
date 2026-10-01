@@ -189,13 +189,42 @@ class TestScriptReviewRouter:
             _write_script_plan(pm, _admitted_drama_script_plan())
             assert client.post(f"{base}/confirm").status_code == 200
             script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+            produced = json.loads(script_path.read_text(encoding="utf-8"))
+            produced["scenes"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+            produced["scenes"][0].setdefault("generated_assets", {}).update(
+                {
+                    "storyboard_image": "storyboards/scene_E1S01.png",
+                    "video_clip": "videos/scene_E1S01.mp4",
+                    "narration_audio": "audio/segment_E1S01.wav",
+                    "grid_id": "grid_ab12",
+                    "grid_cell_index": 0,
+                }
+            )
+            script_path.write_text(json.dumps(produced, ensure_ascii=False), encoding="utf-8")
             before = script_path.read_bytes()
             expected_overwrite = {
                 "revision": script_review.content_fingerprint_of_data(json.loads(before)),
-                "entries": [{"id": "E1S01", "has_storyboard": False, "has_video": False}],
-                "storyboard_count": 0,
-                "video_count": 0,
+                "entries": [
+                    {
+                        "id": "E1S01",
+                        "has_storyboard": True,
+                        "has_video": True,
+                        "has_narration_audio": True,
+                        "has_end_frame": True,
+                        "grid_id": "grid_ab12",
+                    }
+                ],
+                "storyboard_count": 1,
+                "video_count": 1,
+                "narration_audio_count": 1,
+                "end_frame_count": 1,
+                "grid_member_count": 1,
+                "grid_count": 1,
             }
+            expected_overwrite["text"] = script_review.render_overwrite_loss_text(expected_overwrite, i18n_message)
+            # 丢失清单列出配音、尾帧与宫格归属；Web 诊断按标题指称条目。
+            for lost in ("分镜图 1 张", "视频 1 段", "配音 1 段", "尾帧 1 张", "宫格归属 1 处"):
+                assert lost in expected_overwrite["text"]
 
             rerun = _admitted_drama_script_plan()
             rerun["scenes"][0]["scene_description"] = "雨势渐急，阿离仍站在屋檐下"
@@ -207,7 +236,13 @@ class TestScriptReviewRouter:
             refused = client.post(f"{base}/confirm")
             assert refused.status_code == 409
             assert refused.json()["detail"] == i18n_message("script_review_overwrite_required")
-            assert refused.json()["diagnostic"] == {"script_overwrite": expected_overwrite}
+            displayed_overwrite = refused.json()["diagnostic"]["script_overwrite"]
+            displayed_text = displayed_overwrite.pop("text")
+            assert displayed_overwrite == {key: value for key, value in expected_overwrite.items() if key != "text"}
+            assert "E1S01" not in displayed_text
+            assert "S01" in displayed_text
+            for lost in ("分镜图 1 张", "视频 1 段", "配音 1 段", "尾帧 1 张", "宫格归属 1 处"):
+                assert lost in displayed_text
             assert script_path.read_bytes() == before
             assert client.get(base).json()["status"] == "pending_review"
 
@@ -617,10 +652,7 @@ class TestReferenceVideoRouter:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             body = client.get(base, headers={"Accept-Language": "en"}).json()
             message = body["quarantine"]["violations"][0]["message"]
-            assert message == (
-                "The draft needing fixes is corrupted or malformed and can't be read; "
-                "ask the agent to re-split this episode"
-            )
+            assert message == i18n_message("script_review_quarantine_unreadable", locale="en")
 
     def test_quarantine_recheck_reports_video_request_facts_failure_by_problem_code(
         self, tmp_path, monkeypatch, set_video_request_facts

@@ -1,6 +1,7 @@
-import type { NarrationSegment, TaskItem } from "@/types";
+import type { NarrationSegment, ScriptOverwrite, ScriptOverwriteEntry, TaskItem } from "@/types";
 import type { ReferenceUnitCapability } from "@/types/reference-video";
 import type {
+  WorkflowContent,
   WorkflowPlan,
   WorkflowPlanStep,
   WorkflowStatus,
@@ -51,15 +52,41 @@ export function makeStep(overrides: Partial<WorkflowPlanStep> = {}): WorkflowPla
   };
 }
 
-function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
+/** 一集的内容现状；缺省是有集原文、正式脚本 2 条、提示词都已编写、没有草稿与提醒。 */
+export function makeContent(overrides: Partial<WorkflowContent> = {}): WorkflowContent {
   return {
-    schema_version: 1,
+    episode_count: 1,
+    whole_source: "present",
+    source_remaining: false,
+    ad_inputs: "not_applicable",
+    products_without_selling_points: [],
+    episode_source: "present",
+    episode_plan_stale: false,
+    expected_stale_script_plan_revision: null,
+    drafts: [],
+    formal_script: "present",
+    script_item_count: 2,
+    pending_authoring_ids: [],
+    needs_replan_ids: [],
+    referenced_assets_without_sheet: [],
+    unregistered_references: [],
+    referenced_asset_sheets_stale: [],
+    referenced_assets_without_description: [],
+    ...overrides,
+  };
+}
+
+export function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
+  return {
+    schema_version: 2,
     project_revision: "sha256-v1:project",
     source_revision: "sha256-v1:source",
     project: { content_mode: "narration", generation_mode: "storyboard", grid_storyboard: false },
     target: { episode: 1, script: "scripts/episode_1.json", script_filename: "episode_1.json", source: "source/episode_1.txt" },
-    state: "VIDEO",
     blockers: [],
+    issues: [],
+    content: makeContent(),
+    operations: {},
     gates: {},
     artifacts: {},
     next_action: {
@@ -69,6 +96,7 @@ function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
       requires_confirmation: false,
       reason: "next",
     },
+    next_alternatives: [],
     ...overrides,
   };
 }
@@ -76,17 +104,13 @@ function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
 export function makePlan(overrides: Partial<WorkflowPlan> = {}): WorkflowPlan {
   const status = overrides.status ?? makeStatus();
   return {
-    schema_version: 1,
+    schema_version: 2,
     status,
-    narration_delivery: {
-      selected: null,
-      options: ["post_production", "use_tts"],
-      persisted: false,
-    },
     steps: [makeStep()],
     blockers: status.blockers,
     problems: [],
     next_action: status.next_action,
+    next_alternatives: status.next_alternatives,
     ...overrides,
   };
 }
@@ -104,7 +128,6 @@ export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}):
     props: [],
     image_prompt: "雨夜街道",
     video_prompt: "撑伞走过",
-    transition_to_next: "cut",
     ...overrides,
   };
 }
@@ -127,6 +150,38 @@ export function makeReferenceUnitCapability(
     duration_endpoint_fixed_reason: null,
     problem: null,
     problems: [],
+    ...overrides,
+  };
+}
+
+/** 覆盖清单条目的共享构造器；缺省是名下没有任何产物的条目。 */
+export function makeScriptOverwriteEntry(
+  id: string,
+  overrides: Partial<ScriptOverwriteEntry> = {},
+): ScriptOverwriteEntry {
+  return {
+    id,
+    has_storyboard: false,
+    has_video: false,
+    has_narration_audio: false,
+    has_end_frame: false,
+    grid_id: null,
+    ...overrides,
+  };
+}
+
+/** 覆盖清单的共享构造器；`text` 是服务端渲染好的丢失清单，确认框原样呈现。 */
+export function makeScriptOverwrite(overrides: Partial<ScriptOverwrite> = {}): ScriptOverwrite {
+  return {
+    revision: "sha256-v1:formal",
+    entries: [],
+    storyboard_count: 0,
+    video_count: 0,
+    narration_audio_count: 0,
+    end_frame_count: 0,
+    grid_member_count: 0,
+    grid_count: 0,
+    text: "",
     ...overrides,
   };
 }

@@ -3,10 +3,16 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { EpisodeHeader } from "../timeline/EpisodeHeader";
 import { ScriptReviewGate } from "../timeline/ScriptReviewGate";
+import { PromptAuthoringButton } from "../shared/PromptAuthoringButton";
 import { ShotSplitView } from "../timeline/ShotSplitView";
+import { EmptyScriptState } from "../timeline/EmptyScriptState";
+import { StoryboardBatchDialog } from "../timeline/StoryboardBatchDialog";
+import type { InsertShotHandler } from "../timeline/ShotStructureActions";
 import { GridPreviewView } from "./GridPreviewView";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useActiveResourceIds, useHasActiveTaskForScriptFile } from "@/stores/tasks-store";
 import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -17,7 +23,6 @@ import type {
   NarrationSegment,
   DramaScene,
   ProjectData,
-  ReferenceGenerationRequestOptions,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene;
@@ -32,6 +37,8 @@ interface GridImageToVideoCanvasProps {
   scriptFile?: string;
   projectData: ProjectData | null;
   durationOptions?: number[];
+  /** 内容确认页的剧本规划档位；时长由端点固定时与 `durationOptions` 不同。 */
+  planDurationOptions?: number[];
   durationEndpointFixed?: boolean;
   videoModelUnresolved?: boolean;
   lastFrame?: boolean | null;
@@ -45,11 +52,7 @@ interface GridImageToVideoCanvasProps {
     scriptFile?: string,
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
-  onGenerateVideo?: (
-    segmentId: string,
-    scriptFile?: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => void | Promise<void>;
+  onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   onGenerateGrid?: (
@@ -59,6 +62,12 @@ interface GridImageToVideoCanvasProps {
   ) => Promise<void> | void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
+  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否成功 */
+  onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean>;
+  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
+  onInsertShot?: (afterId: string | null, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
+  /** 移除分镜，resolve 为是否成功 */
+  onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onSaveTitle?: (next: string) => Promise<void>;
   canEditTitle?: boolean;
 }
@@ -72,6 +81,7 @@ export function GridImageToVideoCanvas({
   scriptFile,
   projectData,
   durationOptions,
+  planDurationOptions,
   durationEndpointFixed,
   videoModelUnresolved,
   lastFrame,
@@ -85,6 +95,9 @@ export function GridImageToVideoCanvas({
   onGenerateGrid,
   onRestoreStoryboard,
   onRestoreVideo,
+  onMoveShot,
+  onInsertShot,
+  onRemoveShot,
   onSaveTitle,
   canEditTitle,
 }: GridImageToVideoCanvasProps) {
@@ -100,12 +113,18 @@ export function GridImageToVideoCanvas({
   const showTabs = Boolean(hasDraft);
   const defaultTab: GridTab = hasScript ? "units" : "preprocessing";
   const [activeTab, setActiveTab] = useState<GridTab>(defaultTab);
+  const [videoBatchOpen, setVideoBatchOpen] = useState(false);
+  const demoReadOnly = useDemoWorkbench();
 
   useEffect(() => {
     // 剧本加载完成后切到 units 标签页，由 hasScript 状态变化驱动
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (hasScript) setActiveTab("units");
   }, [hasScript]);
+
+  useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
+    if (showTabs) setActiveTab("preprocessing");
+  });
 
   const episodeCost = useCostStore((s) =>
     episodeScript ? s.getEpisodeCost(episodeScript.episode) : undefined,
@@ -210,13 +229,21 @@ export function GridImageToVideoCanvas({
     value?: unknown,
   ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
   const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
-  const handleGenVid = (
-    segId: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => onGenerateVideo?.(segId, scriptFile, requestOptions);
+  const handleGenVid = (segId: string) => onGenerateVideo?.(segId, scriptFile);
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)
     : undefined;
+  // 结构操作与时间线一致；演示态只读，不给入口。
+  const handleMoveShot =
+    onMoveShot && !demoReadOnly
+      ? (shotId: string, afterId: string | null) => onMoveShot(shotId, afterId, scriptFile)
+      : undefined;
+  const handleInsertShot: InsertShotHandler | undefined =
+    onInsertShot && !demoReadOnly
+      ? (afterId, novelText) => onInsertShot(afterId, novelText, scriptFile)
+      : undefined;
+  const handleRemoveShot =
+    onRemoveShot && !demoReadOnly ? (itemId: string) => onRemoveShot(itemId, scriptFile) : undefined;
 
   const renderTabButton = (key: GridTab, label: string, disabled = false) => (
     <button
@@ -291,10 +318,17 @@ export function GridImageToVideoCanvas({
 
         {activeTab === "units" && hasScript && (
           <div className="mr-1 inline-flex items-center gap-1.5">
+            <PromptAuthoringButton
+              projectName={projectName}
+              episode={episode}
+              scope="pending"
+              className="sv-navbtn gap-1.5"
+            />
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled
+              disabled={demoReadOnly}
+              onClick={() => setVideoBatchOpen(true)}
               title={t("batch_generate_videos")}
               aria-label={t("batch_generate_videos")}
             >
@@ -317,6 +351,15 @@ export function GridImageToVideoCanvas({
         )}
       </div>
 
+      {videoBatchOpen && (
+        <StoryboardBatchDialog
+          projectName={projectName}
+          episode={episode}
+          kind="videos"
+          onClose={() => setVideoBatchOpen(false)}
+        />
+      )}
+
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === "preprocessing" && hasDraft && editorContentMode ? (
           <div className="h-full overflow-y-auto p-4">
@@ -326,6 +369,9 @@ export function GridImageToVideoCanvas({
               episode={episode}
               contentMode={editorContentMode}
               videoModelUnresolved={videoModelUnresolved}
+              durationOptions={planDurationOptions}
+              durationEndpointFixed={durationEndpointFixed}
+              durationWarningReason={durationWarningReason}
               onOpenTimeline={hasScript ? () => setActiveTab("units") : undefined}
             />
           </div>
@@ -344,9 +390,12 @@ export function GridImageToVideoCanvas({
             contentMode={editorContentMode}
             aspectRatio={aspectRatio}
             projectName={projectName}
+            episode={episode}
             scriptFile={scriptFile}
-            isGridMode
             onUpdatePrompt={handleUpdatePrompt}
+            onMoveShot={handleMoveShot}
+            onInsertShot={handleInsertShot}
+            onRemoveShot={handleRemoveShot}
             onGenerateStoryboard={handleGenSb}
             onGenerateVideo={handleGenVid}
             onGenerateNarration={handleGenNarration}
@@ -360,6 +409,11 @@ export function GridImageToVideoCanvas({
             lastFrame={lastFrame}
             capabilitiesLoading={capabilitiesLoading}
             durationWarningReason={durationWarningReason}
+          />
+        ) : episodeScript && editorContentMode ? (
+          <EmptyScriptState
+            contentMode={editorContentMode}
+            onInsert={handleInsertShot}
           />
         ) : null}
       </div>

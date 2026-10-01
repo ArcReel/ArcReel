@@ -23,6 +23,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import resolve_items
 from lib.speech.audio_utils import probe_existing_media_duration_seconds, probe_existing_video_duration_seconds
+from lib.speech.narration_config import ProjectTtsSettingsResolver
 from lib.speech.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
@@ -48,7 +49,6 @@ from server.services.currency.artifact_version_restore import (
     parse_typed_media_version_record,
 )
 from server.services.currency.video_artifact_currency import build_current_video_artifact_basis
-from server.services.tasks.narration_delivery_tasks import CurrentTtsSettingsResolver
 
 DurationProbe = Callable[[Path], Awaitable[float | None]]
 ContentDigest = Callable[[Path], str]
@@ -70,7 +70,6 @@ class MaterializedPresentation:
     episode: int
     resource_type: str
     script_file: str
-    transition_to_next: str
     presentation: PresentationValue
     subtitle_artifact_path: str | None
     presentation_artifact_path: str | None
@@ -84,7 +83,6 @@ class MaterializedPresentation:
             "episode": self.episode,
             "resource_type": self.resource_type,
             "script_file": self.script_file,
-            "transition_to_next": self.transition_to_next,
             "subtitle_artifact_path": self.subtitle_artifact_path,
             "presentation_artifact_path": self.presentation_artifact_path,
             "persisted": self.persisted,
@@ -133,10 +131,7 @@ class PresentationReadModelService:
     ) -> None:
         self._project_manager = project_manager
         self._settings_resolver_factory = settings_resolver_factory or (
-            lambda project_name, project_path: CurrentTtsSettingsResolver(
-                project_name,
-                project_path=project_path,
-            )
+            lambda _project_name, _project_path: ProjectTtsSettingsResolver()
         )
         self._video_duration_probe = duration_probe or video_duration_probe
         self._audio_duration_probe = duration_probe or audio_duration_probe
@@ -236,9 +231,7 @@ class PresentationReadModelService:
             script=script,
             resource_type=resource_type,
             resource_id=resource_id,
-            versions=versions,
             selected=selected_video,
-            settings=settings,
         )
         provider_audio_enabled = selected_video.record.get("execution_generate_audio")
         if not isinstance(provider_audio_enabled, bool):
@@ -284,8 +277,6 @@ class PresentationReadModelService:
                 content_digest=audio_content_digest,
             )
 
-        transition = item.get("transition_to_next")
-        transition_to_next = transition if isinstance(transition, str) else "cut"
         try:
             presentation = materialize_speech_presentation(
                 admission.preparation,
@@ -293,7 +284,6 @@ class PresentationReadModelService:
                 video=video_media,
                 narration_audio=audio_media,
                 provider_audio_enabled=provider_audio_enabled,
-                transition_to_next=transition_to_next,
             )
         except (TypeError, ValueError) as exc:
             raise PresentationUnavailableError("selected media cannot form the requested presentation") from exc
@@ -301,7 +291,6 @@ class PresentationReadModelService:
             episode=selected_video.target.episode,
             resource_type=resource_type,
             script_file=script_file,
-            transition_to_next=transition_to_next,
             presentation=presentation,
             subtitle_artifact_path=None,
             presentation_artifact_path=None,
@@ -597,9 +586,7 @@ class PresentationReadModelService:
         script: dict[str, Any],
         resource_type: str,
         resource_id: str,
-        versions: VersionManager,
         selected: _SelectedVersion,
-        settings: TtsSynthesisSettings | None,
     ) -> MediaCurrency:
         if selected.target is None:
             raise PresentationUnavailableError("video currency requires typed presentation provenance")
@@ -609,9 +596,7 @@ class PresentationReadModelService:
             script=script,
             resource_type=resource_type,
             resource_id=resource_id,
-            versions=versions,
             version_metadata=selected.record,
-            current_tts_settings=settings,
         )
         return "current" if current == selected.target.basis else "stale"
 
@@ -672,14 +657,14 @@ class PresentationReadModelService:
         episode_snapshot: _EpisodeSnapshot | None,
     ) -> MaterializedPresentation:
         if episode_snapshot is None:
-            episode, script_file, item = await self._locate_unverified_video_unit(
+            episode, script_file, _item = await self._locate_unverified_video_unit(
                 project_name=project_name,
                 project=project,
                 resource_type=resource_type,
                 resource_id=resource_id,
             )
         else:
-            item, kind = self._find_item(episode_snapshot.script, resource_id)
+            _item, kind = self._find_item(episode_snapshot.script, resource_id)
             expected_type = "reference_videos" if kind == "video_units" else "videos"
             if expected_type != resource_type:
                 raise PresentationUnavailableError(f"script unit is unavailable: {resource_id}")
@@ -699,7 +684,6 @@ class PresentationReadModelService:
             presentation = materialize_raw_video_presentation(unit_id=resource_id, video=media)
         except (OSError, TypeError, ValueError) as exc:
             raise PresentationUnavailableError(f"selected media cannot be inspected: {selected.relative_path}") from exc
-        transition = item.get("transition_to_next")
         await asyncio.to_thread(
             self._require_selection_unchanged,
             project_path=project_path,
@@ -712,7 +696,6 @@ class PresentationReadModelService:
             episode=episode,
             resource_type=resource_type,
             script_file=script_file,
-            transition_to_next=transition if isinstance(transition, str) else "cut",
             presentation=presentation,
             subtitle_artifact_path=None,
             presentation_artifact_path=None,
@@ -866,7 +849,6 @@ class PresentationReadModelService:
             episode=result.episode,
             resource_type=result.resource_type,
             script_file=result.script_file,
-            transition_to_next=result.transition_to_next,
             presentation=presentation,
             subtitle_artifact_path=subtitle_path,
             presentation_artifact_path=presentation_path,

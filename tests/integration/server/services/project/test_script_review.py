@@ -14,11 +14,14 @@ import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import VideoRequestFactsFailure
+from lib.i18n import _ as i18n_message
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.resource_paths import resource_relative_path
 from lib.script import script_review
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -31,9 +34,10 @@ from lib.script.draft_quarantine import (
 )
 from lib.script.reference_video.draft_validation import DraftViolation
 from server.agent_toolset.script_authoring import CONFIRM_SCRIPT_REVIEW, GENERATE_EPISODE_SCRIPT
+from server.draft_workflow import DraftContext, DraftWorkflow
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 from server.tool_runtime import TextGenerationResult
-from tests.factories import make_video_request_facts
+from tests.factories import make_video_request_facts, register_project_sources
 from tests.fakes import FakeConfigResolver
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
@@ -188,7 +192,7 @@ def _write_prompt_authoring(pm: ProjectManager) -> Path:
 
 
 def _make_manual_split_project(tmp_path: Path, content_mode: str) -> ProjectManager:
-    """手动预拆分场景：绕过分集规划器，``episodes[]`` 账本为空，仅有派生 source/episode_N.txt。"""
+    """没有整本源文、账本为空的项目：集由调用方逐集登记或直接写文件构造。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
@@ -541,11 +545,29 @@ class TestConfirmMaterializesScript:
         expected_overwrite = {
             "revision": script_review.content_fingerprint_of_data(json.loads(before)),
             "entries": [
-                {"id": "E1S01", "has_storyboard": True, "has_video": False},
-                {"id": "E1S09", "has_storyboard": False, "has_video": True},
+                {
+                    "id": "E1S01",
+                    "has_storyboard": True,
+                    "has_video": False,
+                    "has_narration_audio": False,
+                    "has_end_frame": False,
+                    "grid_id": None,
+                },
+                {
+                    "id": "E1S09",
+                    "has_storyboard": False,
+                    "has_video": True,
+                    "has_narration_audio": False,
+                    "has_end_frame": False,
+                    "grid_id": None,
+                },
             ],
             "storyboard_count": 1,
             "video_count": 1,
+            "narration_audio_count": 0,
+            "end_frame_count": 0,
+            "grid_member_count": 0,
+            "grid_count": 0,
         }
 
         assert (await svc.get_state("demo", 1))["script_overwrite"] == expected_overwrite
@@ -581,6 +603,50 @@ class TestConfirmMaterializesScript:
         snapshot = adapter.snapshot_entries()
         assert not old_claims.keys() & snapshot.keys()
         assert ArtifactKey.episode_script(1) in snapshot
+
+    async def test_acknowledged_overwrite_clears_history_and_files_of_reused_entry_ids(
+        self, tmp_path, video_request_facts
+    ):
+        """新脚本沿用旧编号的条目是新身份：旧版本历史与当前媒体文件随覆盖清理；被移除的条目不动。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")))
+        project_path = pm.get_project_path("demo")
+        versions = VersionManager(project_path)
+        for entry_id in ("E1S01", "E1S09"):
+            for resource_type in ("storyboards", "end_frames", "videos", "audio"):
+                current = project_path / resource_relative_path(resource_type, entry_id)
+                current.parent.mkdir(parents=True, exist_ok=True)
+                current.write_bytes(b"old-" + resource_type.encode())
+                versions.add_version(resource_type, entry_id, "旧提示词", source_file=current)
+
+        await _confirm_over_existing_script(pm)
+
+        for resource_type in ("storyboards", "end_frames", "videos", "audio"):
+            assert versions.get_current_version(resource_type, "E1S01") == 0
+            assert not (project_path / resource_relative_path(resource_type, "E1S01")).exists()
+            assert versions.get_current_version(resource_type, "E1S09") == 1
+            assert (project_path / resource_relative_path(resource_type, "E1S09")).exists()
+
+    async def test_overwrite_still_succeeds_when_history_cleanup_fails_after_commit(
+        self, tmp_path, video_request_facts
+    ):
+        """清理是提交后的收尾：版本记录读不出时覆盖照常完成，当前文件仍被清掉，不把已提交的覆盖报成失败。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
+        project_path = pm.get_project_path("demo")
+        current = project_path / resource_relative_path("storyboards", "E1S01")
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old")
+        (project_path / "versions").mkdir(exist_ok=True)
+        (project_path / "versions" / "versions.json").write_text("{broken", encoding="utf-8")
+
+        await _confirm_over_existing_script(pm)
+
+        segment = json.loads((project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))["segments"][0]
+        assert segment["pending_authoring"] is True
+        assert not current.exists()
 
     async def test_acknowledgement_of_an_outdated_script_is_refused_with_the_current_listing(self, tmp_path):
         """认可只对应被列出的那份正式脚本：列出之后正式脚本又有变化，带旧版本的确认按新清单再次拒绝。"""
@@ -905,20 +971,19 @@ class TestReferenceVideoGateFlow:
             await svc.confirm("demo", 1)
         assert exc.value.code == "invalid_content"
 
-    async def test_confirm_allows_text_with_unregistered_mention(self, tmp_path, video_request_facts):
-        """正文引用的资产未登记不阻断确认：参考图执行期才从正文解析，缺登记只意味着这一处
-        不出参考图，不是内容层的规划问题。"""
+    async def test_confirm_rejects_text_with_unregistered_mention(self, tmp_path, video_request_facts):
+        """正文画面位引用的资产既未登记、也不是本集登记的新增资产时，确认拒绝并指出单元与名字。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         candidate = _rv_script_plan()
         candidate["units"][0]["text"] = "@[酒馆] 的木门被风吹开。"
-        path = _write_rv_script_plan(pm, candidate)
+        _write_rv_script_plan(pm, candidate)
 
-        confirmed = await svc.confirm("demo", 1)
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
 
-        assert confirmed["status"] == "confirmed"
-        assert confirmed["content"]["units"][0]["text"] == "@[酒馆] 的木门被风吹开。"
-        assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["text"] == "@[酒馆] 的木门被风吹开。"
+        assert exc.value.code == "unregistered_references"
+        assert exc.value.message == "E1U01: 酒馆"
 
     async def test_confirm_rejects_speech_problem_in_an_unmarked_unit(self, tmp_path, video_request_facts):
         """发声准入对全部 unit 生效，不只对标了 needs_replan 的那些：一个 unit 里既有人物
@@ -1476,16 +1541,16 @@ class TestReferenceVideoPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        refused = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1})
+        refused = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode_id": 1})
         assert refused.problem is not None
         assert "尚无正式脚本" in refused.problem.detail
         assert "内容确认" in refused.problem.detail
 
-        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
         assert result.problem is None, result
         assert (project_path / "scripts" / "episode_1.json").exists()
 
-        dry_run = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
+        dry_run = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode_id": 1, "dry_run": True})
         assert dry_run.problem is None, dry_run
 
 
@@ -1519,6 +1584,49 @@ class TestApplicability:
 
 
 class TestErrors:
+    @pytest.mark.parametrize("kind", ["drama", "narration", "reference_video"])
+    async def test_agent_draft_keeps_formal_plan_readonly_until_discarded(self, tmp_path, video_request_facts, kind):
+        pm = _make_project(
+            tmp_path,
+            "narration" if kind == "narration" else "drama",
+            generation_mode="reference_video" if kind == "reference_video" else None,
+        )
+        if kind == "reference_video":
+            content = _rv_script_plan()
+            path = _write_rv_script_plan(pm, content)
+            doc_type = "reference_script_plan"
+        else:
+            content = _admitted_drama_script_plan() if kind == "drama" else _narration_script_plan()
+            path = _write_script_plan(pm, kind, content)
+            doc_type = f"{kind}_script_plan"
+        service = _service(pm)
+        state = await service.get_state("demo", 1)
+        original = path.read_bytes()
+        workflow = DraftWorkflow(
+            DraftContext(project_name="demo", data_root=pm.data_root, pm=pm, config_resolver=service.config_resolver)
+        )
+        opened = await workflow.open(1, doc_type)
+        quarantine_kind = script_review.script_plan_quarantine_kind(pm.load_project("demo"))
+        assert quarantine_kind is not None
+        draft_path = quarantine_path(pm.get_project_path("demo"), 1, quarantine_kind)
+        original_draft = draft_path.read_bytes()
+        edited = json.loads(json.dumps(state["content"]))
+        if kind == "narration":
+            edited["segments"][0]["novel_text"] += "后来。"
+        elif kind == "drama":
+            edited["title"] = "修改后的标题"
+        else:
+            edited["units"][0]["text"] += "\n雨停了。"
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await service.save_content("demo", 1, edited, state["fingerprint"])
+
+        assert exc.value.code == "draft_agent_owned"
+        assert path.read_bytes() == original
+        assert draft_path.read_bytes() == original_draft
+        await workflow.discard(1, doc_type, opened["revision"])
+        assert (await service.save_content("demo", 1, edited, state["fingerprint"]))["status"] == "pending_review"
+
     async def test_save_empty_dialogue_speaker_returns_structured_admission(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
@@ -1792,11 +1900,16 @@ class TestScriptPlanWriteStore:
 
 
 class TestPromptAuthoringEnforcement:
-    async def test_pending_review_does_not_block_authoring_the_formal_script(self, tmp_path):
+    async def test_pending_review_does_not_block_authoring_the_formal_script(self, tmp_path, video_request_facts):
         """编写只读正式剧本：script_plan 重跑后尚未确认时，编写入口照常放行。"""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
-        _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
+        _write_script(pm, _narration_script({**_narration_script_segment("E1S01"), "pending_authoring": True}))
+        pm.save_script(
+            "demo",
+            _narration_script({**_narration_script_segment("E1S01"), "pending_authoring": True}),
+            "episode_1.json",
+        )
         pm.update_project(
             "demo", lambda p: script_review.apply_confirmation(p, 1, "sha256-v1:" + "0" * 64, "2026-01-01T00:00:00Z")
         )
@@ -1809,10 +1922,10 @@ class TestPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        result = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
+        result = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode_id": 1, "dry_run": True})
 
         assert isinstance(result.value, TextGenerationResult), result
-        assert "没有待编写的条目" in result.value.message
+        assert "DRY RUN" in result.value.message
 
     async def test_confirm_tool_unblocks_prompt_authoring(self, tmp_path, video_request_facts):
         """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 script_plan→prompt_authoring 不被破坏）。"""
@@ -1827,10 +1940,46 @@ class TestPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
 
         assert result.problem is None, result
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
+
+    async def test_confirm_tool_refusal_carries_the_same_loss_text_as_the_web_state(
+        self, tmp_path, video_request_facts
+    ):
+        """Agent 收到的丢失清单与 Web 确认框读的是同一份服务端文本，令牌另在 params 里。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(
+            pm,
+            _narration_script(
+                _narration_script_segment(
+                    "E1S01",
+                    end_frame_image="end_frames/scene_E1S01.png",
+                    generated_assets={"narration_audio": "audio/segment_E1S01.wav", "grid_id": "grid_ab12"},
+                )
+            ),
+        )
+        web_overwrite = script_review.overwrite_with_text(
+            (await _service(pm).get_state("demo", 1))["script_overwrite"], i18n_message
+        )
+        assert web_overwrite is not None
+        ctx = ToolHarness(
+            project_name="demo",
+            data_root=tmp_path / "projects",
+            pm=pm,
+            config_resolver=cast(ConfigResolver, FakeConfigResolver()),
+        )
+
+        refused = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
+
+        assert refused.problem is not None
+        assert refused.problem.code == "script_overwrite_required"
+        assert refused.problem.params == {"script_overwrite": web_overwrite}
+        assert web_overwrite["text"] in refused.problem.detail
+        for lost in ("配音 1 段", "尾帧 1 张", "宫格归属 1 处"):
+            assert lost in web_overwrite["text"]
 
     async def test_confirm_tool_reports_the_video_request_facts_problem(self, tmp_path, set_video_request_facts):
         """Agent 路径：视频请求事实解析不出时，确认回执带事实的问题码与参数，不止于内部错误类别。"""
@@ -1850,7 +1999,7 @@ class TestPromptAuthoringEnforcement:
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
 
-        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
 
         assert result.problem is not None
         text = result.problem.detail
@@ -1909,25 +2058,23 @@ class TestLegacyEnumeration:
 # ---------------------------------------------------------------------------
 
 
-class TestManualSplitSelfHeal:
-    async def test_get_state_self_heals_orphan_without_source_range(self, tmp_path):
-        """get_state 为孤儿派生文件自愈登记条目且不写 source_range。"""
+class TestOwnSourceEpisodes:
+    async def test_unregistered_episode_file_is_not_an_episode(self, tmp_path):
+        """source/ 里未登记的 episode_N.txt 不会被补登为一集：读状态报 episode_not_found，账本不动。"""
         pm = _make_manual_split_project(tmp_path, "narration")
         _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年。")
-        _write_script_plan(pm, "narration", _narration_script_plan())
 
-        state = await _service(pm).get_state("demo", 1)
-        assert state["status"] == "pending_review"
+        with pytest.raises(ScriptReviewError) as exc:
+            await _service(pm).get_state("demo", 1)
 
-        ep = script_review.find_episode(pm.load_project("demo"), 1)
-        assert ep is not None
-        assert ep["ledger_status"] == "consumed"  # 已有 script_plan 中间文件
-        assert "source_range" not in ep
+        assert exc.value.code == "episode_not_found"
+        assert pm.load_project("demo")["episodes"] == []
 
-    async def test_confirm_self_heals_and_unblocks_prompt_authoring(self, tmp_path, video_request_facts):
-        """confirm（web 与 Agent 工具共用同一 service）可补齐空账本条目并放行 prompt_authoring。"""
+    async def test_confirm_unblocks_prompt_authoring_for_an_own_source_episode(self, tmp_path, video_request_facts):
+        """逐集登记的自带原文的集走同一条内容确认出口。"""
         pm = _make_manual_split_project(tmp_path, "drama")
-        _write_source_text(pm, "episode_1.txt", "任意派生内容")
+        pm.add_character("demo", "阿离", "少女")
+        assert register_project_sources(pm, "demo", own_episodes=("任意原文内容",)) == [1]
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
 
         confirmed = await _service(pm).confirm("demo", 1)
@@ -1935,76 +2082,7 @@ class TestManualSplitSelfHeal:
 
         project_path = pm.get_project_path("demo")
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
-
-    async def test_self_heal_never_anchors_even_when_source_text_matches(self, tmp_path):
-        """派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        original = "裴与出征后的第二年，送回一个襁褓中的婴儿。后续内容在此。"
-        _write_source_text(pm, "novel.txt", original)
-        _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年，送回一个襁褓中的婴儿。")
-
-        await _service(pm).get_state("demo", 1)
-
         ep = script_review.find_episode(pm.load_project("demo"), 1)
         assert ep is not None
+        assert ep["source_origin"] == "own"
         assert "source_range" not in ep
-
-    async def test_self_heal_registers_all_orphans_not_just_requested(self, tmp_path):
-        """自愈一次登记账本中所有孤儿集号的派生文件，不只是当前请求的那一集。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        _write_source_text(pm, "episode_1.txt", "第一集内容")
-        _write_source_text(pm, "episode_2.txt", "第二集内容")
-
-        await _service(pm).get_state("demo", 1)
-
-        project = pm.load_project("demo")
-        assert script_review.find_episode(project, 1) is not None
-        assert script_review.find_episode(project, 2) is not None
-
-    async def test_self_heal_preserves_existing_ledger_status_entries(self, tmp_path):
-        """已带 ledger_status 的条目（规划工具写入）不因其他集号的自愈触发被改写。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
-
-        def _mark_planned(p: dict) -> None:
-            ep = next(e for e in p["episodes"] if e["episode"] == 1)
-            ep["ledger_status"] = "planned"
-            ep["source_range"] = {"source_file": "source/novel.txt", "start": 0, "end": 5}
-
-        pm.update_project("demo", _mark_planned)
-        _write_source_text(pm, "episode_2.txt", "第二集派生内容")
-
-        # 触发对孤儿集（episode 2）的自愈请求，不涉及 episode 1。
-        await _service(pm).get_state("demo", 2)
-
-        project = pm.load_project("demo")
-        ep1 = script_review.find_episode(project, 1)
-        assert ep1 is not None
-        assert ep1["ledger_status"] == "planned"
-        assert ep1["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": 5}
-        assert script_review.find_episode(project, 2) is not None
-
-    async def test_self_heal_does_not_apply_when_derivative_file_missing(self, tmp_path):
-        """账本为空且该集派生文件也不存在（真正缺失的集号）→ 仍抛 episode_not_found，不自愈。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        with pytest.raises(ScriptReviewError) as exc:
-            await _service(pm).get_state("demo", 1)
-        assert exc.value.code == "episode_not_found"
-        assert pm.load_project("demo")["episodes"] == []
-
-    async def test_self_heal_idempotent_no_duplicate_entries(self, tmp_path):
-        """重复触发自愈（同集反复读状态）不产生重复集号条目，也不重复改写已登记条目。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        _write_source_text(pm, "episode_1.txt", "第一集派生内容")
-
-        svc = _service(pm)
-        await svc.get_state("demo", 1)
-        first = script_review.find_episode(pm.load_project("demo"), 1)
-
-        await svc.get_state("demo", 1)
-        await svc.get_state("demo", 1)
-
-        project = pm.load_project("demo")
-        matches = [e for e in project["episodes"] if e.get("episode") == 1]
-        assert len(matches) == 1
-        assert matches[0] == first

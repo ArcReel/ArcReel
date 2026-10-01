@@ -12,6 +12,8 @@ class AudioCapability(StrEnum):
     """音频后端支持的能力枚举。"""
 
     TEXT_TO_SPEECH = "text_to_speech"
+    #: 合成请求的 ``speed`` 会传给供应商。未声明的 backend 忽略语速，项目设置里的配音语速对它不生效。
+    SPEECH_SPEED = "speech_speed"
 
 
 @dataclass(frozen=True)
@@ -30,8 +32,8 @@ class AudioSynthesisRequest:
     output_path: Path
     voice: str
     language_type: str = "Chinese"
-    # 语速预留：同步 qwen3-tts-flash 不支持（speech_rate 仅 realtime WebSocket 版可用），
-    # 后端记 debug log 忽略。保留字段以便将来接入实时/可调速后端。
+    # 语速只对声明 ``AudioCapability.SPEECH_SPEED`` 的 backend 生效；同步 qwen3-tts-flash 不支持
+    # （speech_rate 仅 realtime WebSocket 版可用），后端记 debug log 忽略。
     speed: float | None = None
 
 

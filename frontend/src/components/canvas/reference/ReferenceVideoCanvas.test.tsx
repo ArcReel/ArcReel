@@ -40,7 +40,6 @@ function mkUnit(id: string, text = "x"): ReferenceVideoUnit & { generated_assets
     unit_id: id,
     text,
     duration_seconds: 3,
-    transition_to_next: "cut",
     note: null,
     generated_assets: {
       storyboard_image: null,
@@ -63,7 +62,6 @@ function mkAdmission(patch: Record<string, unknown> = {}) {
     decision: "admitted",
     operation: "generate_reference_videos_batch",
     selection: "explicit",
-    narration_delivery: "post_production",
     units: [],
     confirmation: null,
     skipped_unit_ids: [],
@@ -127,8 +125,47 @@ describe("ReferenceVideoCanvas", () => {
       model_id: "kling-v2-1-master",
       problems: [],
     });
+    vi.spyOn(API, "listEpisodeDrafts").mockResolvedValue({ episode: 1, drafts: [] });
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it("presents a prompt authoring draft needing fixes in place of the unit workbench and saves a hand fix", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
+    vi.spyOn(API, "listEpisodeDrafts").mockResolvedValue({
+      episode: 1,
+      drafts: [{ doc_type: "reference_prompt_authoring", editable_by: "user", violation_count: 1 }],
+    });
+    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
+      episode: 1,
+      doc_type: "reference_prompt_authoring",
+      revision: "rev-1",
+      editable_by: "user",
+      content: { title: "第1集", units: [{ text: "镜头一" }, { text: "镜头二｛全角｝" }] },
+      violations: [{ code: "fullwidth_braces", label: "unit E1U2", message: "unit E1U2 使用了全角花括号", line: 0, item_index: 1 }],
+      soft_violations: [],
+      formal_exists: true,
+      item_ids: ["E1U1", "E1U2"],
+    });
+    const save = vi
+      .spyOn(API, "saveEpisodeDraft")
+      .mockResolvedValue({ episode: 1, doc_type: "reference_prompt_authoring", adopted: true, draft: null });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    expect(await screen.findByText("unit U2 使用了全角花括号")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "U2 · 1" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "U2 正文" }), { target: { value: "镜头二" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        "proj",
+        1,
+        "reference_prompt_authoring",
+        { title: "第1集", units: [{ text: "镜头一" }, { text: "镜头二" }] },
+        "rev-1",
+      ),
+    );
+  });
 
   it("loads units on mount and renders the list", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
@@ -155,7 +192,7 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText(/E1U1/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/U1/)).toBeInTheDocument();
     expect(deleteSpy).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
@@ -213,7 +250,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(unload.defaultPrevented).toBe(false);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /New Unit|新建 Unit/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add video unit|新增视频单元/ }));
     await waitFor(() => expect((screen.getByRole("combobox") as HTMLTextAreaElement).value).toContain("fresh unit"));
   });
 
@@ -225,9 +262,9 @@ describe("ReferenceVideoCanvas", () => {
     const tablist = screen.getByRole("tablist", {
       name: /Workspace main tabs|工作台主面板切换|Tab chính của workspace/,
     });
-    const delivery = screen.getByRole("group", { name: /Narration delivery|旁白交付/ });
+    const batch = screen.getByRole("button", { name: /Batch generate videos|批量生成视频/ });
     expect(within(tablist).getAllByRole("tab")).toHaveLength(2);
-    expect(tablist).not.toContainElement(delivery);
+    expect(tablist).not.toContainElement(batch);
   });
 
   it("auto-selects first unit on load and shows preview generate button", async () => {
@@ -335,6 +372,7 @@ describe("ReferenceVideoCanvas", () => {
       currentProjectName: "proj",
       currentProjectData: {
         ...STUB_PROJECT,
+        narration_delivery: "use_tts",
         episodes: [{ episode: 1, title: "", script_file: "episode_1.json" }],
       },
     });
@@ -355,6 +393,26 @@ describe("ReferenceVideoCanvas", () => {
     } as never);
     expect(await screen.findByRole("button", { name: /重新生成旁白配音|Regenerate narration audio/ })).toBeInTheDocument();
     expect(document.querySelector('audio[src*="audio/segment_E1U1.wav"]')).not.toBeNull();
+  });
+
+  it("keeps existing narration audio playable but hides generation for post-production projects", async () => {
+    const unit = mkUnit("E1U1");
+    unit.text = "镜头推进。\n{夜色深沉。}";
+    unit.generated_assets.narration_audio = "audio/segment_E1U1.wav";
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit], unit_capabilities: {} });
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        narration_delivery: "post_production",
+        episodes: [{ episode: 1, title: "", script_file: "episode_1.json" }],
+      },
+    });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await waitFor(() => expect(document.querySelector('audio[src*="audio/segment_E1U1.wav"]')).not.toBeNull());
+    expect(screen.queryByRole("button", { name: /生成旁白配音|Generate narration audio/ })).not.toBeInTheDocument();
   });
 
   // 正文是单一真相：保存把编辑器里那段文本原样送到 PATCH 的 prompt 位，
@@ -607,7 +665,6 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await screen.findByTestId("unit-row-E1U1");
     expect(screen.queryByRole("combobox", { name: /Duration|时长/ }) === null).toBe(fixed);
-    expect(screen.getByRole("button", { name: /Use current TTS|使用当前 TTS/ }).matches(":disabled")).toBe(fixed);
     expect(Boolean(screen.queryByTitle(/workflow/i))).toBe(fixed);
   });
 
@@ -628,9 +685,9 @@ describe("ReferenceVideoCanvas", () => {
     const addSpy = vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValue({ unit: mkUnit("E1U1"), unit_capability: makeReferenceUnitCapability("E1U1") });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /New Unit|新建 Unit/ })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /Add video unit|新增视频单元/ })).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /New Unit|新建 Unit/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add video unit|新增视频单元/ }));
     await waitFor(() => expect(addSpy).toHaveBeenCalled());
   });
 
@@ -916,7 +973,6 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
     expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
       unit_ids: ["E1U1", "E1U2", "E1U3"],
-      narration_delivery: "post_production",
     });
   });
 
@@ -939,7 +995,6 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() =>
       expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
         unit_ids: ["E1U1", "E1U2"],
-        narration_delivery: "post_production",
       }),
     );
     // 不再逐个串行入队
@@ -950,41 +1005,20 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  // 交付方式是本次请求的一部分，批量与单元入口读同一个画布选择：批量不带上它，
-  // 整批会按服务端默认的「后期配音」准入，用户选的「使用当前 TTS」被静默丢弃。
-  it("批量入口带上本次的旁白交付选择", async () => {
+  it("批量入口只提交目标单元，不提供也不携带旁白交付方式", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")], unit_capabilities: {} });
     const batchSpy = vi
       .spyOn(API, "generateReferenceVideoBatch")
       .mockResolvedValue(mkAdmission());
 
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Use current TTS|使用当前 TTS/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ }));
+    const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+    expect(screen.queryByRole("button", { name: /Use current TTS|使用当前 TTS/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(batch).toBeEnabled());
+    fireEvent.click(batch);
 
     await waitFor(() => expect(batchSpy).toHaveBeenCalled());
-    expect(batchSpy).toHaveBeenCalledWith(
-      "proj",
-      1,
-      expect.objectContaining({ narration_delivery: "use_tts" }),
-    );
-  });
-
-  it("批量入口未改选择时按后期配音提交", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")], unit_capabilities: {} });
-    const batchSpy = vi
-      .spyOn(API, "generateReferenceVideoBatch")
-      .mockResolvedValue(mkAdmission());
-
-    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ }));
-
-    await waitFor(() => expect(batchSpy).toHaveBeenCalled());
-    expect(batchSpy).toHaveBeenCalledWith(
-      "proj",
-      1,
-      expect.objectContaining({ narration_delivery: "post_production" }),
-    );
+    expect(batchSpy).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U1"] });
   });
 
   // 上传与生成回写同一个成片文件：文件选择对话框打开期间同一 unit 可能已被占用，
@@ -1038,7 +1072,6 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
     expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
       unit_ids: ["E1U2"],
-      narration_delivery: "post_production",
     });
   });
 
@@ -1113,52 +1146,6 @@ describe("ReferenceVideoCanvas", () => {
       await waitFor(() =>
         expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
           confirmed_request_duration_seconds: 8,
-        }),
-      );
-    });
-
-    it("复用上游 TTS 时长选项完成预检、确认与入队", async () => {
-      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")], unit_capabilities: {} });
-      const precheckSpy = vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
-        needs_confirmation: true,
-        script_duration: 3,
-        duration_input: 9.5,
-        request_duration: 12,
-        adjustment: "up",
-        declared_capability: "i2v",
-        hydrated_capability: "i2v",
-        provider_id: "kling",
-        model_id: "kling-v2-1-master",
-        problems: [],
-      });
-      const generateSpy = vi.spyOn(API, "generateReferenceVideoUnit").mockResolvedValue({
-        task_id: "t1",
-        deduped: false,
-      } as never);
-      const requestOptions = {
-        narration_delivery: "use_tts" as const,
-      };
-
-      render(<ReferenceVideoCanvas projectName="proj" episode={1} requestOptions={requestOptions} />);
-      fireEvent.click(await screen.findByRole("button", { name: UNIT_GENERATE_CTA }));
-
-      await waitFor(() =>
-        expect(precheckSpy).toHaveBeenCalledWith(
-          "proj",
-          1,
-          "E1U1",
-          expect.objectContaining(requestOptions),
-        ),
-      );
-      const dialog = within(screen.getByRole("dialog"));
-      expect(dialog.getByText(/9\.5 秒|9\.5s/)).toBeInTheDocument();
-      expect(dialog.getByText(/^3 秒$|^3s$/)).toBeInTheDocument();
-
-      fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
-      await waitFor(() =>
-        expect(generateSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
-          ...requestOptions,
-          confirmed_request_duration_seconds: 12,
         }),
       );
     });
@@ -1315,7 +1302,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(dialog.getByText(/2 个单元|2 units/)).toBeInTheDocument();
       expect(dialog.getByText(/约 \$1\.60|about \$1\.60/)).toBeInTheDocument();
       expect(dialog.getByText(/报价不可用|price unavailable/)).toBeInTheDocument();
-      for (const unitId of ["E1U1", "E1U2", "E1U3"]) {
+      for (const unitId of ["U1", "U2", "U3"]) {
         expect(dialog.getByText(unitId)).toBeInTheDocument();
       }
 
@@ -1323,7 +1310,6 @@ describe("ReferenceVideoCanvas", () => {
       await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
       expect(batchSpy).toHaveBeenLastCalledWith("proj", 1, {
         unit_ids: ["E1U1", "E1U2", "E1U3"],
-        narration_delivery: "post_production",
         confirmed_request_durations: { E1U1: 8, E1U2: 8, E1U3: 4 },
       });
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -1379,7 +1365,6 @@ describe("ReferenceVideoCanvas", () => {
       await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
       expect(batchSpy).toHaveBeenLastCalledWith("proj", 1, {
         unit_ids: ["E1U2"],
-        narration_delivery: "post_production",
         confirmed_request_durations: { E1U2: 4 },
       });
     });
@@ -1410,7 +1395,6 @@ describe("ReferenceVideoCanvas", () => {
             {
               unit_id: "E1U2",
               admitted: false,
-              current_duration_seconds: 5,
               request_duration_seconds: 12,
               problems: [
                 {
@@ -1449,11 +1433,11 @@ describe("ReferenceVideoCanvas", () => {
       expect(dialog.getByText("该单元需要重新规划")).toBeInTheDocument();
       expect(dialog.getByText(/补上或更换缺失的参考素材|add or replace the missing reference/)).toBeInTheDocument();
       expect(dialog.getByText(/改写这个单元|rewrite this unit/)).toBeInTheDocument();
-      // 当前/所需档位与缺口同列，用户才看得出差多少
-      expect(dialog.getByText(/当前 5 秒 · 申请 12 秒|now 5s · requesting 12s/)).toBeInTheDocument();
+      // 申请档位与缺口同列，用户才看得出差多少
+      expect(dialog.getByText(/^(?:申请 12 秒|requesting 12s)$/)).toBeInTheDocument();
       // 被连带扣下的单元单列，说明它自身没问题
       expect(dialog.getByText(/本身没问题|w(as|ere) fine but w(as|ere) held back/)).toBeInTheDocument();
-      for (const unitId of ["E1U1", "E1U2", "E1U3"]) {
+      for (const unitId of ["U1", "U2", "U3"]) {
         expect(dialog.getByText(unitId)).toBeInTheDocument();
       }
 
@@ -1491,12 +1475,12 @@ describe("ReferenceVideoCanvas", () => {
 
       const dialog = within(await screen.findByRole("dialog"));
       // 逐个 unit 与各自原因都在，不塌成一句计数
-      expect(dialog.getByText("E1U2")).toBeInTheDocument();
-      expect(dialog.getByText("E1U3")).toBeInTheDocument();
+      expect(dialog.getByText("U2")).toBeInTheDocument();
+      expect(dialog.getByText("U3")).toBeInTheDocument();
       expect(dialog.getByText("队列暂时不可用")).toBeInTheDocument();
       expect(dialog.getByText("任务创建失败")).toBeInTheDocument();
       // 已排上的单元不混进未排上的清单
-      expect(dialog.queryByText("E1U1")).not.toBeInTheDocument();
+      expect(dialog.queryByText("U1")).not.toBeInTheDocument();
       // 已建任务照常执行这一点要说明，否则用户读不出这批是「部分成功」
       expect(
         dialog.getByText(/再次批量生成就会补上|generate the batch again/),
@@ -1547,8 +1531,8 @@ describe("ReferenceVideoCanvas", () => {
 
       const dialog = within(await screen.findByRole("dialog"));
       // 缺口明细照旧逐个列出
-      expect(dialog.getByText("E1U1")).toBeInTheDocument();
-      expect(dialog.getByText("E1U2")).toBeInTheDocument();
+      expect(dialog.getByText("U1")).toBeInTheDocument();
+      expect(dialog.getByText("U2")).toBeInTheDocument();
       // 一个任务都没建时不能说「部分」，也不能说已提交的任务照常执行
       expect(
         dialog.getByText(/没有任务排上队列|No task from this batch was queued/),
@@ -1761,7 +1745,7 @@ describe("ReferenceVideoCanvas", () => {
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()], unit_capabilities: {} });
       render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
 
-      await screen.findAllByText("E1U1");
+      await screen.findAllByText("U1");
       expect(screen.queryByRole("button", { name: /Got it|知道了/ })).not.toBeInTheDocument();
     });
   });

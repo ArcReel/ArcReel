@@ -26,7 +26,7 @@ function makeEpisode(overrides: Partial<EpisodeMeta> = {}): EpisodeMeta {
 
 function renderCard(ep: EpisodeMeta, route: GenerationRoute = "storyboard") {
   return render(
-    <EpisodeCard ep={ep} active={false} onClick={() => {}} route={route} />,
+    <EpisodeCard ep={ep} position={1} active={false} onClick={() => {}} route={route} />,
   );
 }
 

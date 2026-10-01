@@ -4,7 +4,7 @@ import json
 import re
 import shutil
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
@@ -120,6 +120,11 @@ class _FakePM:
         source_dir.mkdir(parents=True, exist_ok=True)
         yield source_dir
 
+    @contextmanager
+    def locked_source_registration(self, name):
+        with self.locked_source_mutation(name) as source_dir:
+            yield source_dir, self.project_data.setdefault(name, {"episodes": []}), ExitStack()
+
     def delete_project_directory(self, name):
         shutil.rmtree(self.get_project_path(name))
 
@@ -161,13 +166,12 @@ class _FakePM:
         extras=None,
         target_duration=None,
         brief=None,
-        source_kind=None,
+        narration=None,
     ):
         payload = {
             "title": (title or name),
             "style": style or "",
             "content_mode": content_mode,
-            "source_kind": source_kind or "novel",
             "aspect_ratio": aspect_ratio,
             "episodes": [],
         }
@@ -188,6 +192,7 @@ class _FakePM:
             payload["style_template_id"] = style_template_id
         if extras:
             payload.update(extras)
+        payload.update(narration or {"narration_delivery": "post_production"})
         self.project_data[name] = payload
         return payload
 
@@ -416,8 +421,6 @@ class _FakeSummaries:
         self.last_preloaded_scripts = preloaded_scripts
         self.currencies.append(currency)
         return ProjectSummary(
-            phase="production",
-            phase_progress=0.5,
             needs_repair=False,
             repair_reason=None,
             assets={"character": ArtifactCount(total=1, available=0, stale=0)},

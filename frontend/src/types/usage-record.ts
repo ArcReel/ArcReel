@@ -1,3 +1,4 @@
+import type { EpisodeItemRef } from "./project";
 import type { CallType } from "./provider";
 
 /** 调用状态词汇，与后端 `CallStatus` 一致。 */
@@ -20,6 +21,8 @@ export interface UsageRecord {
   /** 供应商返回的失败原文，无错误码时按它渲染。 */
   error_message: string | null;
   segment_id: string | null;
+  /** segment_id 所属集的标题与播出位置；ID 不带集前缀或集已不在账本里时为 null。 */
+  segment_ref?: EpisodeItemRef | null;
   output_path: string | null;
   started_at: string;
   finished_at: string | null;
@@ -132,6 +135,7 @@ export interface UsageConsecutiveFailuresAttention {
   project_name: string;
   media_type: CallType;
   segment_id: string;
+  segment_ref?: EpisodeItemRef | null;
   count: number;
   first_failed_at: string;
   last_failed_at: string;

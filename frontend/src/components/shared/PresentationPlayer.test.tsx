@@ -13,7 +13,6 @@ const post: PresentationReadModel = {
   episode: 1,
   resource_type: "videos",
   script_file: "episode_1.json",
-  transition_to_next: "cut",
   subtitle_artifact_path: "subtitles/post.json",
   presentation_artifact_path: "presentations/post.json",
   persisted: true,
@@ -110,7 +109,7 @@ describe("PresentationPlayer", () => {
     });
     const user = userEvent.setup();
     render(<PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />);
-    await screen.findByLabelText("E1S01 成片预览");
+    await screen.findByLabelText("S01 成片预览");
 
     await user.click(screen.getByRole("button", { name: "发布到社交平台" }));
     await user.click(await screen.findByRole("checkbox", { name: /tiktok/ }));
@@ -134,7 +133,7 @@ describe("PresentationPlayer", () => {
       <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
     );
 
-    const video = await screen.findByLabelText("E1S01 成片预览");
+    const video = await screen.findByLabelText("S01 成片预览");
     expect(video).toHaveAttribute(
       "src",
       "/api/v1/files/demo/versions/videos/E1S01_v3.mp4?v=sha256-v1%3Avideo",
@@ -164,11 +163,11 @@ describe("PresentationPlayer", () => {
     render(
       <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
     );
-    await screen.findByLabelText("E1S01 成片预览");
+    await screen.findByLabelText("S01 成片预览");
 
     await user.click(screen.getByRole("button", { name: "TTS 叠加" }));
-    const video = await screen.findByLabelText("E1S01 成片预览");
-    const audio = await screen.findByLabelText("E1S01 TTS 音轨");
+    const video = await screen.findByLabelText("S01 成片预览");
+    const audio = await screen.findByLabelText("S01 TTS 音轨");
     expect(screen.getByText("当前版本")).toBeInTheDocument();
     expect(screen.getByText("与当前内容一致")).toBeInTheDocument();
     expect(video).toHaveProperty("muted", false);
@@ -206,7 +205,7 @@ describe("PresentationPlayer", () => {
         initialVariant="use_tts"
       />,
     );
-    await screen.findByLabelText("E1S01 TTS 音轨");
+    await screen.findByLabelText("S01 TTS 音轨");
     expect(API.getPresentation).toHaveBeenCalledTimes(1);
 
     act(() => {
@@ -222,7 +221,7 @@ describe("PresentationPlayer", () => {
     render(
       <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
     );
-    await screen.findByLabelText("E1S01 成片预览");
+    await screen.findByLabelText("S01 成片预览");
     expect(API.getPresentation).toHaveBeenCalledTimes(1);
 
     act(() => {
@@ -246,8 +245,8 @@ describe("PresentationPlayer", () => {
       />,
     );
 
-    const video = await screen.findByLabelText("E1S01 成片预览");
-    const audio = await screen.findByLabelText("E1S01 TTS 音轨");
+    const video = await screen.findByLabelText("S01 成片预览");
+    const audio = await screen.findByLabelText("S01 TTS 音轨");
     expect(video).toHaveProperty("muted", true);
     expect(video).toHaveProperty("volume", 1);
     expect(audio).toHaveProperty("muted", false);
@@ -274,8 +273,8 @@ describe("PresentationPlayer", () => {
       />,
     );
 
-    const video = await screen.findByLabelText("E1S01 成片预览");
-    const audio = await screen.findByLabelText("E1S01 TTS 音轨");
+    const video = await screen.findByLabelText("S01 成片预览");
+    const audio = await screen.findByLabelText("S01 TTS 音轨");
     Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 2 });
     Object.defineProperty(audio, "currentTime", { configurable: true, writable: true, value: 0 });
 
@@ -302,13 +301,13 @@ describe("PresentationPlayer", () => {
     render(
       <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
     );
-    await screen.findByLabelText("E1S01 成片预览");
+    await screen.findByLabelText("S01 成片预览");
 
     await user.click(screen.getByRole("button", { name: "TTS 叠加" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("TTS unavailable");
     await user.click(screen.getByRole("button", { name: "原音成片" }));
 
-    expect(await screen.findByLabelText("E1S01 成片预览")).toBeInTheDocument();
+    expect(await screen.findByLabelText("S01 成片预览")).toBeInTheDocument();
   });
 
   it("requests an explicit historical version without restoring it", async () => {
@@ -321,7 +320,7 @@ describe("PresentationPlayer", () => {
       />,
     );
 
-    await screen.findByLabelText("E1S01 成片预览");
+    await screen.findByLabelText("S01 成片预览");
     expect(API.getPresentation).toHaveBeenCalledWith(
       "demo",
       "reference_videos",
@@ -353,13 +352,13 @@ describe("PresentationPlayer", () => {
       video: { ...post.video, artifact_path: "versions/videos/E1S02_v1.mp4" },
     });
     const secondUrl = "/api/v1/files/demo/versions/videos/E1S02_v1.mp4?v=sha256-v1%3Avideo";
-    expect(await screen.findByLabelText("E1S02 成片预览")).toHaveAttribute("src", secondUrl);
+    expect(await screen.findByLabelText("S02 成片预览")).toHaveAttribute("src", secondUrl);
 
     resolveFirst?.(post);
     await waitFor(() => {
-      expect(screen.getByLabelText("E1S02 成片预览")).toHaveAttribute("src", secondUrl);
+      expect(screen.getByLabelText("S02 成片预览")).toHaveAttribute("src", secondUrl);
     });
-    expect(screen.queryByLabelText("E1S01 成片预览")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("S01 成片预览")).not.toBeInTheDocument();
   });
 
   it("pauses active media before loading another rendition", async () => {
@@ -373,7 +372,7 @@ describe("PresentationPlayer", () => {
         initialVariant="use_tts"
       />,
     );
-    await screen.findByLabelText("E1S01 TTS 音轨");
+    await screen.findByLabelText("S01 TTS 音轨");
     pause.mockClear();
 
     await user.click(screen.getByRole("button", { name: "原音成片" }));
@@ -391,8 +390,8 @@ describe("PresentationPlayer", () => {
         initialVariant="use_tts"
       />,
     );
-    const video = await screen.findByLabelText("E1S01 成片预览");
-    await screen.findByLabelText("E1S01 TTS 音轨");
+    const video = await screen.findByLabelText("S01 成片预览");
+    await screen.findByLabelText("S01 TTS 音轨");
     Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 6.2 });
     pause.mockClear();
 
@@ -429,7 +428,7 @@ describe("PresentationPlayer", () => {
       render(
         <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
       );
-      await screen.findByLabelText("E1S01 成片预览");
+      await screen.findByLabelText("S01 成片预览");
       expect(screen.getByText("机械字幕")).toBeInTheDocument();
       await waitFor(() => expect(changeSubscriptions).toBeGreaterThan(0));
 

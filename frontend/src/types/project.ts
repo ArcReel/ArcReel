@@ -8,6 +8,7 @@
  */
 
 import type { VoiceConsistencyTier } from "@/types/provider";
+import type { NarrationDelivery } from "@/types/workflow";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
 export interface ProjectOverview {
@@ -35,6 +36,8 @@ export interface CharacterDerivative {
 export interface CharacterDerivativeStatus extends CharacterDerivative {
   /** 已登记的衍生图不再等于规范状态时为真；还没生成过则为假。 */
   stale: boolean;
+  /** 产物清单状态；登记文件不可读时为 missing。 */
+  artifact_status?: "current" | "stale" | "missing" | "blocked";
 }
 
 export interface Character {
@@ -50,16 +53,22 @@ export interface Character {
   voice_notice_dismissed_at?: string;
   /** 衍生表：衍生名 → 条目。衍生名只在本角色内唯一，脚本中写作 `@[角色/衍生]`。 */
   derivatives?: Record<string, CharacterDerivative>;
+  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
+  aliases?: string[];
 }
 
 export interface Scene {
   description: string;
   scene_sheet?: string;
+  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
+  aliases?: string[];
 }
 
 export interface Prop {
   description: string;
   prop_sheet?: string;
+  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
+  aliases?: string[];
 }
 
 export interface Product {
@@ -89,16 +98,6 @@ export interface EpisodesSummary {
   completed: number;
 }
 
-/** Production state merged for the lobby, in workflow order */
-export const PHASE_ORDER = [
-  "preparation",
-  "script",
-  "production",
-  "completed",
-] as const;
-
-export type Phase = (typeof PHASE_ORDER)[number];
-
 /** One artifact group: available = current plus stale, stale counted separately */
 export interface ArtifactCount {
   total: number;
@@ -108,8 +107,6 @@ export interface ArtifactCount {
 
 /** Project summary projection, injected at read time by WorkflowStateService */
 export interface ProjectStatus {
-  phase: Phase;
-  phase_progress: number;
   /** Schema migration (artifact backfill included) failed; generation is closed until repaired */
   needs_repair: boolean;
   /** The migration failure message exactly as raised, or null when not blocked */
@@ -117,6 +114,17 @@ export interface ProjectStatus {
   /** Asset sheet counts keyed by asset type (character / scene / prop / product) */
   assets: Record<string, ArtifactCount>;
   episodes_summary: EpisodesSummary;
+}
+
+/**
+ * 集页面之外指称条目所需的结构（后端 `episode_item_ref`）：条目 ID 里的集 ID 不给创作者看，
+ * 界面拼成「标题 · S01」，标题为空时用播出位置。
+ */
+export interface EpisodeItemRef {
+  episode_title: string;
+  episode_position: number;
+  /** 集内 ID，如 S01 / U02。 */
+  item_id: string;
 }
 
 export interface EpisodeMeta {
@@ -127,8 +135,24 @@ export interface EpisodeMeta {
   hook?: string;
   /** Written by episode_planner at split time: slice boundary in the source file (char offsets) */
   source_range?: { source_file?: string; start?: number; end?: number };
+  /**
+   * 本集原文的来源：切自整本源文、自带原文（逐集上传或在集页填写）、无原文。
+   * 缺省按有无 source_range 推断。
+   */
+  source_origin?: "whole_source" | "own" | "none";
+  /** 自带原文的集的源文件类型，只有剧情演绎项目记录。 */
+  source_kind?: "novel" | "screenplay";
+  /**
+   * 集规划状态。只有 stale 对创作者有意义：这一集的原文已被重新规划或删改，
+   * 与产物过期（storyboards / videos 的 stale）是两件事。
+   */
+  ledger_status?: "planned" | "consumed" | "stale";
   /** Written by episode_planner at split time (drama only) */
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
+  /** 上一次提示词编写的附加指令，打开「编写提示词」时预填 */
+  prompt_authoring_instructions?: string;
+  /** 上一次 AI 规划脚本的附加指令，重新生成时预填 */
+  script_plan_instructions?: string;
   /**
    * Per-episode fields below come from the project summary at read time, on the artifact
    * manifest's terms — the same numbers the studio reads, never persisted to project.json.
@@ -159,8 +183,6 @@ export interface ModelSettingEntry {
 export interface ProjectData {
   title: string;
   content_mode: "narration" | "drama" | "ad";
-  /** 源文件性质：novel（默认，AI 改编）/ screenplay（成品剧本，逐字提取）。创建即定、不可变。 */
-  source_kind?: "novel" | "screenplay";
   style: string;
   style_template_id?: string | null;
   style_image?: string;
@@ -174,6 +196,8 @@ export interface ProjectData {
   /** 仅 ad：创作诉求短文本（可空）。 */
   brief?: string;
   schema_version?: number;
+  /** 整本源文的文件清单，按创作者排定的顺序。 */
+  whole_source_files?: { source_file: string; source_kind?: "novel" | "screenplay" }[];
   episodes: EpisodeMeta[];
   characters: Record<string, Character>;
   scenes?: Record<string, Scene>;
@@ -198,7 +222,10 @@ export interface ProjectData {
   video_generate_audio?: boolean | null;
   /** 角色声音绑定方式：prompt（默认，按 voice_style 提示词软约束）/ reference_audio（挂角色参考音频）。 */
   character_voice_binding?: CharacterVoiceBinding;
-  /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */
+  /** 旁白交付方式（docs/adr/0089）：TTS 配音或后期配音，缺省按后期配音处理 */
+  narration_delivery?: NarrationDelivery;
+  /** TTS 快照：provider/model、音色与语速。创建时以全局默认预填，之后不继承全局默认；
+   *  改为后期配音后保留。语速缺省表示不向供应商传语速 */
   audio_backend?: string | null;
   narration_voice?: string | null;
   narration_speed?: number | null;
@@ -281,6 +308,11 @@ export interface DurationConstraints {
   uses_reference_images: boolean;
   /** 收窄结果，升序。 */
   allowed: number[];
+  /**
+   * 剧本规划可选的档位，升序：通常等于 `allowed`；时长由端点固定时是规划借用的档位。内容确认按它
+   * 判越档，与服务端确认转换同一口径。只有项目端点给出。
+   */
+  planning?: number[];
   /** 全集中被剔除的时长（键为秒数字符串）→ 成因。 */
   excluded: Record<string, DurationExclusionReason>;
 }

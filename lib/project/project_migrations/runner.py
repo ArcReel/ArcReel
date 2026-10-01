@@ -25,6 +25,8 @@ from lib.project.project_migration_failure import (
 from lib.project.project_migration_report import (
     ArtifactBackfillOutcome,
     build_migration_report,
+    load_migration_report,
+    merge_skipped,
     write_migration_report,
 )
 from lib.project.project_migrations.backups import (
@@ -52,6 +54,7 @@ from lib.project.project_migrations.v11_to_v12_character_derivatives import migr
 from lib.project.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
 from lib.project.project_migrations.v13_to_v14_legacy_style_values import migrate_v13_to_v14
 from lib.project.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
+from lib.project.project_migrations.v15_to_v16_edit_decisions import RecordedEpisodeIds, migrate_v15_to_v16
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -155,12 +158,15 @@ def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
         logger.warning("clues 备份失败（非阻塞）：%s: %s", project_dir, exc)
 
 
-def migrate_project_dir(project_dir: Path) -> bool:
+def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None) -> bool:
     """将单个项目目录逐级升级到 CURRENT_SCHEMA_VERSION，返回是否实际迁移。
 
     供启动期 ``run_project_migrations`` 与项目导入路径共用：启动期 runner 只覆盖启动时已存在的
     项目，启动后导入的旧归档需在导入入口补跑此函数走完整迁移链，否则解析链（不再读 legacy
-    字段）会让该项目静默回退到全局默认。非项目目录 / 已是最新版本返回 False。"""
+    字段）会让该项目静默回退到全局默认。非项目目录 / 已是最新版本返回 False。
+
+    ``recorded_episode_ids`` 按项目名查任务与调用记录里出现过的最大集 ID，转交 v15→v16 覆盖进
+    项目历史最高号；缺省时只看项目目录本身。"""
     version = _load_schema_version(project_dir)
     if version < 0 or version >= CURRENT_SCHEMA_VERSION:
         return False
@@ -180,8 +186,23 @@ def migrate_project_dir(project_dir: Path) -> bool:
         migrator = MIGRATORS.get(version)
         if not migrator:
             raise RuntimeError(f"no migrator from v{version}")
-        step_outcome = migrator(project_dir)
+        step_outcome = (
+            migrate_v15_to_v16(project_dir, recorded_episode_ids=recorded_episode_ids)
+            if migrator is migrate_v15_to_v16
+            else migrator(project_dir)
+        )
         if step_outcome is not None:
+            if step_outcome.preserve_previous_skips:
+                previous_report = load_migration_report(project_dir) if outcome is None else None
+                previous_skips = (
+                    outcome.skipped
+                    if outcome is not None
+                    else (previous_report.skipped if previous_report is not None else ())
+                )
+                step_outcome = ArtifactBackfillOutcome(
+                    registered=step_outcome.registered,
+                    skipped=merge_skipped(previous_skips, step_outcome.skipped),
+                )
             outcome = step_outcome
         version += 1
     if outcome is not None:
@@ -209,7 +230,9 @@ def _append_error_log(project_dir: Path, tb: str) -> None:
         logger.warning("无法写入迁移错误日志：%s（%s）", error_log, exc)
 
 
-def migrate_project_with_verdict(project_dir: Path) -> MigrationFailureRecord | None:
+def migrate_project_with_verdict(
+    project_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None
+) -> MigrationFailureRecord | None:
     """Run the chain for one project and persist the verdict beside its data.
 
     Returns ``None`` once the project sits at the current schema — the previous
@@ -218,7 +241,7 @@ def migrate_project_with_verdict(project_dir: Path) -> MigrationFailureRecord | 
     """
 
     try:
-        migrate_project_dir(project_dir)
+        migrate_project_dir(project_dir, recorded_episode_ids=recorded_episode_ids)
     except Exception as exc:  # 单个项目失败被隔离，不中断整体迁移
         logger.error("迁移失败 %s: %s", project_dir.name, exc)
         # The persisted verdict is what the production status, the production plan
@@ -245,7 +268,9 @@ def migrate_project_with_verdict(project_dir: Path) -> MigrationFailureRecord | 
     return None
 
 
-def run_project_migrations(projects_dir: Path) -> MigrationSummary:
+def run_project_migrations(
+    projects_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None
+) -> MigrationSummary:
     """扫项目目录下每个项目，升级到 CURRENT_SCHEMA_VERSION。"""
     summary = MigrationSummary()
     if not projects_dir.exists():
@@ -268,7 +293,7 @@ def run_project_migrations(projects_dir: Path) -> MigrationSummary:
                 summary.skipped.append(child.name)
                 continue
 
-            if migrate_project_with_verdict(child) is None:
+            if migrate_project_with_verdict(child, recorded_episode_ids=recorded_episode_ids) is None:
                 summary.migrated.append(child.name)
             else:
                 summary.failed.append(child.name)
@@ -296,7 +321,8 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
             (project_dir / "project.json", project_backup_versions),
             (project_dir / "versions" / "versions.json", project_backup_versions),
             # 清单不只在激活那一步被改写：v9→v10 改它的 key 与草稿路径，v12→v13 整份重投影，
-            # v13→v14 改写受风格值归一与风格描述补记影响的条目，v14→v15 改写剧本登记。
+            # v13→v14 改写受风格值归一与风格描述补记影响的条目，v14→v15 改写剧本登记，
+            # v15→v16 改写呈现模型登记。
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
         )
@@ -335,3 +361,4 @@ MIGRATORS[11] = migrate_v11_to_v12
 MIGRATORS[12] = migrate_v12_to_v13
 MIGRATORS[13] = migrate_v13_to_v14
 MIGRATORS[14] = migrate_v14_to_v15
+MIGRATORS[15] = migrate_v15_to_v16

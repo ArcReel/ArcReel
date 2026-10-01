@@ -36,7 +36,6 @@ from lib.project.project_manager import ProjectManager
 from server.services.tasks import generation_context
 from server.services.tasks.generation_context import (
     AudioLaneRequest,
-    AudioLaneResult,
     GenerationContext,
     ImageLaneRequest,
     ImageLaneResult,
@@ -515,24 +514,15 @@ class TestVideoRequestFacts:
 
 
 class TestAudioLane:
-    async def test_narration_voice_and_speed_from_project(self, patched_session_factory, project_env, fake_assemble):
+    async def test_backend_follows_project_tts_snapshot(self, patched_session_factory, project_env, fake_assemble):
         project = {
             "audio_backend": "dashscope/tts-model-x",
             "narration_voice": "Cherry",
             "narration_speed": 1.25,
         }
         ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
-        assert ctx.audio.narration_voice == "Cherry"
-        assert ctx.audio.narration_speed == 1.25
         assert ctx.audio.backend_name == "dashscope"
         assert ctx.audio.backend_model == "tts-model-x"
-
-    async def test_narration_defaults_when_unset(self, patched_session_factory, project_env, fake_assemble):
-        project = {"audio_backend": "dashscope/tts-model-x"}
-        ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
-        assert isinstance(ctx.audio.narration_voice, str)
-        assert ctx.audio.narration_voice
-        assert ctx.audio.narration_speed is None
 
     async def test_voice_catalog_snapshot_passed_through(self, patched_session_factory, project_env, monkeypatch):
         """ctx.audio.voices 须是 backend.list_voices() 的真实快照，而非默认的空元组——
@@ -781,14 +771,3 @@ class TestValueObjectAssembly:
         )
         with pytest.raises(VideoRequestFactsError, match="video_capability_unavailable"):
             _ = lane.is_silent
-
-    def test_audio_lane_result_shape(self):
-        lane = AudioLaneResult(
-            provider_model=ProviderModel("dashscope", "tts"),
-            backend_name="dashscope",
-            backend_model="tts",
-            narration_voice="Cherry",
-            narration_speed=None,
-            voices=(),
-        )
-        assert lane.narration_voice == "Cherry"

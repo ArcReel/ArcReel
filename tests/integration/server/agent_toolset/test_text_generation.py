@@ -9,6 +9,8 @@ from typing import Any, ClassVar
 
 import pytest
 
+from lib.artifacts.artifact_activation import register_current_artifact
+from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.backends.providers import CallPurpose
 from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -53,7 +55,7 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolHarness,
     """能力按项目生成模式解析：工具不收集号，集号入参作为多余参数被拒、不触发解析。"""
     resolver = use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     assert (await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {})).problem is None
-    rejected = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {"episode": 3})
+    rejected = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {"episode_id": 3})
     assert rejected.problem is not None
     assert rejected.problem.code == "invalid_request"
     assert resolver.generation_type_calls == [None]
@@ -252,18 +254,20 @@ async def test_get_video_capabilities_error(fake_ctx: ToolHarness) -> None:
     assert out.problem is not None
 
 
-@pytest.mark.parametrize("content_mode", ["ad", "unsupported"])
+@pytest.mark.parametrize(
+    ("content_mode", "code"), [("ad", "operation_not_admitted"), ("unsupported", "generation_refused")]
+)
 async def test_generate_script_plan_rejects_inapplicable_content_modes(
-    fake_ctx: ToolHarness, content_mode: str
+    fake_ctx: ToolHarness, content_mode: str, code: str
 ) -> None:
     fake_ctx.pm.project_payload["content_mode"] = content_mode
     resolver = use_fake_caps(fake_ctx)
     caller_thread = threading.get_ident()
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
 
     assert out.problem is not None
-    assert problem_of(out).code == "generation_refused"
+    assert problem_of(out).code == code
     assert resolver.generation_type_calls == []
     assert fake_ctx.pm.project_load_threads
     assert all(thread != caller_thread for thread in fake_ctx.pm.project_load_threads)
@@ -272,7 +276,7 @@ async def test_generate_script_plan_rejects_inapplicable_content_modes(
 @pytest.mark.parametrize("name", ["generate_episode_script", "generate_script_plan", "confirm_script_review"])
 @pytest.mark.parametrize("bad", [0, True, "1"])
 async def test_text_tools_reject_a_non_positive_or_non_integer_episode(fake_ctx: ToolHarness, name: str, bad) -> None:
-    out = await run_declared_tool(name, fake_ctx, {"episode": bad})
+    out = await run_declared_tool(name, fake_ctx, {"episode_id": bad})
     assert problem_of(out).code == "invalid_request"
 
 
@@ -282,10 +286,35 @@ def test_text_generation_request_rejects_non_positive_or_non_integer_episode(bad
         TextGenerationRequest(episode=bad)
 
 
-def _write_formal_script(project_path: Path, episode: int = 1) -> None:
+def _write_formal_script(project_path: Path, episode: int = 1, *, pending: bool = True) -> None:
+    """正式脚本：默认带一条待编写条目，提示词编写的准入据此成立。"""
     scripts = project_path / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
-    (scripts / f"episode_{episode}.json").write_text(json.dumps({"episode": episode, "segments": []}), encoding="utf-8")
+    segments = (
+        [{"segment_id": f"E{episode}S01", "novel_text": "原文", "characters_in_segment": [], "pending_authoring": True}]
+        if pending
+        else []
+    )
+    (scripts / f"episode_{episode}.json").write_text(
+        json.dumps({"episode": episode, "title": "番外", "segments": segments}), encoding="utf-8"
+    )
+
+
+def _prepare_script_admission(project_path: Path) -> None:
+    """工具用例经真实项目与产物清单提供准入输入。"""
+    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    project.setdefault("generation_mode", "storyboard")
+    project.setdefault("episodes", [{"episode": 1, "script_file": "scripts/episode_1.json"}])
+    for entry in project["episodes"]:
+        entry.setdefault("script_file", f"scripts/episode_{entry['episode']}.json")
+    (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+    ProjectArtifactManifestAdapter(project_path).replace_entries_atomically({})
+    script_path = project_path / "scripts" / "episode_1.json"
+    if script_path.exists():
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script.setdefault("title", "番外")
+        script_path.write_text(json.dumps(script), encoding="utf-8")
+        register_current_artifact(project_path, ArtifactKey.episode_script(1))
 
 
 async def test_generate_episode_script_dry_run(fake_ctx: ToolHarness, monkeypatch) -> None:
@@ -307,7 +336,8 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolHarness, monkeypatc
             return "fake prompt"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert out.problem is None
     assert "fake prompt" in said(out)
 
@@ -317,7 +347,8 @@ async def test_generate_episode_script_without_formal_script_is_refused(fake_ctx
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
     )
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert "尚无正式脚本" in said(out)
     assert "内容确认" in said(out)
@@ -350,7 +381,8 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is None
     # handler 不传 output_path —— ScriptGenerator 自己决定写到哪里
     assert "output_path" not in captured["calls"]
@@ -362,7 +394,14 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolHarnes
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
-        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "target_duration": 30}),
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "ad",
+                "target_duration": 30,
+                "brief": "夏季新品",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -378,7 +417,8 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolHarnes
             return project_path / "scripts" / "episode_1.json"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is None
 
 
@@ -388,7 +428,14 @@ async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: T
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
-        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "target_duration": 30}),
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "ad",
+                "target_duration": 30,
+                "brief": "夏季新品",
+            }
+        ),
         encoding="utf-8",
     )
     captured: dict[str, Any] = {}
@@ -408,10 +455,43 @@ async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: T
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "entry_ids": ["E1S02"]})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "entry_ids": ["E1S02"]})
     assert out.problem is None
     assert captured["entry_ids"] == ("E1S02",)
     assert "E1S02" in said(out)
+
+
+async def test_generate_episode_script_rewrite_over_existing_prompts_returns_the_loss_list(
+    fake_ctx: ToolHarness,
+) -> None:
+    """Agent 显式重写已有提示词：提交前按同一服务拒绝，回执带服务端丢失清单与认可令牌，不提交任务。"""
+    project_path = fake_ctx.project_path
+    (project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
+    scripts = project_path / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    segment = {
+        "segment_id": "E1S01",
+        "novel_text": "原文。",
+        "characters_in_segment": [],
+        "image_prompt": "手写图片",
+        "video_prompt": None,
+    }
+    (scripts / "episode_1.json").write_text(json.dumps({"episode": 1, "segments": [segment]}), encoding="utf-8")
+
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool(
+        "generate_episode_script", fake_ctx, {"episode_id": 1, "entry_ids": ["E1S01"], "rewrite": True}
+    )
+
+    assert out.problem is not None
+    assert out.problem.code == "prompt_overwrite_required"
+    overwrite = (out.problem.params or {})["prompt_overwrite"]
+    assert overwrite["revision"] == script_review.content_fingerprint(scripts / "episode_1.json")
+    assert overwrite["entries"] == [{"id": "E1S01", "fields": ["image_prompt"]}]
+    assert overwrite["text"] in said(out)
 
 
 @pytest.mark.parametrize(
@@ -421,11 +501,15 @@ async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: T
 async def test_generate_episode_script_without_pending_entries_says_how_to_rewrite(
     fake_ctx: ToolHarness, monkeypatch, content_mode: str, redo_hint: str
 ) -> None:
-    """没有待编写条目时回执说明未调用模型，并给出重写指定条目与整份重做的出路。"""
+    """没有待编写条目时准入不成立：不调用模型，理由码与制作状态同源，并给出重写指定条目与整份重做的出路。"""
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
-    _write_formal_script(project_path)
+    items_key = "shots" if content_mode == "ad" else "segments"
+    (project_path / "scripts").mkdir(parents=True, exist_ok=True)
+    (project_path / "scripts" / "episode_1.json").write_text(
+        json.dumps({"episode": 1, "content_mode": content_mode, items_key: []}), encoding="utf-8"
+    )
     (project_path / "project.json").write_text(
         json.dumps(
             {"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": content_mode, "target_duration": 30}
@@ -433,22 +517,18 @@ async def test_generate_episode_script_without_pending_entries_says_how_to_rewri
         encoding="utf-8",
     )
 
-    class _FakeGenerator:
-        project_json: ClassVar[dict[str, Any]] = {}
-
+    class _UnreachableGenerator:
         @classmethod
         async def create(cls, _path, **_kwargs):
-            generator = cls()
-            generator.content_mode = content_mode
-            return generator
+            raise AssertionError("准入不成立时不应构造生成器")
 
-        async def generate(self, **_kwargs) -> Path:
-            return project_path / "scripts" / "episode_1.json"
+    monkeypatch.setattr(mod, "ScriptGenerator", _UnreachableGenerator)
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
 
-    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
-
-    assert out.problem is None
+    problem = problem_of(out)
+    assert problem.code == "operation_not_admitted"
+    assert problem.params == {"operation": "author_prompts", "reason": "no_pending_authoring"}
     message = said(out)
     assert "没有待编写的条目" in message
     assert "entry_ids" in message
@@ -467,6 +547,7 @@ async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: 
                 "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
                 "content_mode": "ad",
                 "target_duration": 30,
+                "brief": "夏季新品",
                 "characters": {"主播": {"description": "出镜"}},
             }
         ),
@@ -495,7 +576,8 @@ async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: 
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "entry_ids": ["E1S02"]})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "entry_ids": ["E1S02"]})
 
     assert out.problem is None
     assert isinstance(out.value, TextGenerationResult)
@@ -515,7 +597,14 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
-        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "target_duration": 30}),
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "ad",
+                "target_duration": 30,
+                "brief": "夏季新品",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -530,7 +619,8 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
             raise PromptAuthoringTargetError("entry_ids 不在第 1 集正式脚本内: ['E9U99']")
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "entry_ids": ["E9U99"]})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "entry_ids": ["E9U99"]})
 
     assert out.problem is not None
     text = said(out)
@@ -543,7 +633,14 @@ async def test_generate_episode_script_facts_failure_is_refused_with_problem_cod
 ) -> None:
     """分镜档位的视频请求事实解析不出：报「拒绝生成」并带问题码与参数，不冒成 internal_error 引导重试。"""
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "target_duration": 30}),
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "ad",
+                "target_duration": 30,
+                "brief": "夏季新品",
+            }
+        ),
         encoding="utf-8",
     )
     set_video_request_facts(
@@ -553,7 +650,8 @@ async def test_generate_episode_script_facts_failure_is_refused_with_problem_cod
         )
     )
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "dry_run": True})
 
     assert out.problem is not None
     problem = problem_of(out).model_dump()
@@ -566,7 +664,7 @@ async def test_generate_episode_script_rejects_removed_scope_with_migration_note
     fake_ctx: ToolHarness, scope: str | None
 ) -> None:
     """scope 已取消：传入即拒绝（不论取值），说明改用默认范围或 entry_ids。"""
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "scope": scope})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "scope": scope})
     assert problem_of(out).code == "invalid_request"
     text = said(out)
     assert "scope 参数已取消" in text
@@ -604,7 +702,8 @@ async def test_generate_episode_script_does_not_wait_for_script_plan_review(fake
     (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     assert script_review.review_status(project_path, project, 1) == "pending_review"
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
+    _prepare_script_admission(fake_ctx.project_path)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "dry_run": True})
 
     assert out.problem is None, out
     assert "张三推门走进酒馆。" in said(out)
@@ -704,7 +803,7 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolHarness, video_reque
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert out.problem is None
     assert "DRY RUN" in said(out)
 
@@ -727,7 +826,7 @@ async def test_normalize_drama_script_projects_durable_inputs_once(
 
     monkeypatch.setattr(artifact_provenance, "project_script_plan_prompt_inputs", counted_projection)
 
-    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
 
     assert result.problem is None, result
     assert calls == 1
@@ -744,7 +843,7 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolHarnes
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("once upon a time", encoding="utf-8")
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert out.problem is None
     assert "English" in said(out)
 
@@ -772,7 +871,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     # 空 scenes 不写盘，避免生成阶段才必然失败
     assert not (project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json").exists()
@@ -787,7 +886,7 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
 
     out = await run_declared_tool(
-        "generate_script_plan", fake_ctx, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"}
+        "generate_script_plan", fake_ctx, {"episode_id": 2, "dry_run": True, "source": "source/chapter2.txt"}
     )
     assert out.problem is None, out
     prompt_text = said(out)
@@ -809,10 +908,11 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolHarn
             "title": "初入江湖",
             "hook": "少年坠崖生死未卜",
             "outline": {"story_beats": ["少年下山"], "next_episode_teaser": None},
+            "source_origin": "own",
         }
     ]
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert out.problem is None, out
     prompt_text = said(out)
     assert "少年下山" in prompt_text
@@ -871,7 +971,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
     assert out.problem is None, out
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
@@ -950,7 +1050,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     result = await run_declared_tool(
         "generate_script_plan",
         fake_ctx,
-        {"episode": 1, "source": "source/selected.txt"},
+        {"episode_id": 1, "source": "source/selected.txt"},
     )
 
     assert result.problem is None, result
@@ -1025,7 +1125,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
 
     # 升级前的旧项目：工具入口按迁移裁决拒绝，这里直接调 handler 观察生成本身保留的请求依据。
     result = await generate_script_plan(
-        ToolRequest(GenerateScriptPlanRequest(episode=1, source="source/selected.txt")),
+        ToolRequest(GenerateScriptPlanRequest(episode_id=1, source="source/selected.txt")),
         fake_ctx.scope,
         fake_ctx.caller,
         fake_ctx.services,
@@ -1043,6 +1143,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
+    fake_ctx.pm.project_payload["characters"]["阿离"] = {"description": "少女，青衣"}
     source_dir = project_path / "source"
     source_dir.mkdir(parents=True)
     (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
@@ -1082,7 +1183,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
     assert result.problem is None, result
     saved = json.loads(
@@ -1105,7 +1206,7 @@ async def test_normalize_drama_script_defaults_to_the_episode_derived_source(
     (source_dir / "novel.txt").write_text("整本小说原文", encoding="utf-8")
     (source_dir / "episode_2.txt").write_text("第二集派生源文", encoding="utf-8")
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
 
     assert out.problem is None, out
     prompt_text = said(out)
@@ -1119,25 +1220,27 @@ async def test_normalize_drama_script_rejects_an_empty_explicit_source(fake_ctx:
     source_dir.mkdir(parents=True)
     (source_dir / "episode_1.txt").write_text("本集派生源文", encoding="utf-8")
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "", "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "", "dry_run": True})
 
     assert out.problem is not None
     assert "源文件路径不能为空" in problem_of(out).detail
 
 
-async def test_normalize_drama_script_rejects_a_default_source_symlink_escape(fake_ctx: ToolHarness) -> None:
+async def test_normalize_drama_script_treats_a_default_source_symlink_escape_as_no_episode_source(
+    fake_ctx: ToolHarness,
+) -> None:
     source_dir = fake_ctx.project_path / "source"
     source_dir.mkdir(parents=True)
     outside = fake_ctx.data_root / "outside.txt"
     outside.write_text("项目外内容", encoding="utf-8")
     (source_dir / "episode_1.txt").symlink_to(outside)
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
 
-    assert out.problem is not None
-    detail = problem_of(out).detail
-    assert "路径超出项目目录" in detail
-    assert "source/episode_1.txt" in detail
+    problem = problem_of(out)
+    assert problem.params == {"operation": "prepare_script_plan", "reason": "episode_source_missing"}
+    assert "项目外内容" not in problem.detail
+    assert "source/episode_1.txt" in problem.detail
 
 
 async def test_normalize_drama_script_refuses_when_the_episode_derived_source_is_missing(
@@ -1149,7 +1252,7 @@ async def test_normalize_drama_script_refuses_when_the_episode_derived_source_is
     source_dir.mkdir(parents=True)
     (source_dir / "novel.txt").write_text("整本小说原文", encoding="utf-8")
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
 
     assert out.problem is not None
     detail = problem_of(out).detail
@@ -1164,7 +1267,7 @@ async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolHarness
     (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
     out = await run_declared_tool(
-        "generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"}
+        "generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"}
     )
     assert out.problem is None, out
     prompt_text = said(out)
@@ -1205,13 +1308,16 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolHarne
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
 
+    _prepare_script_admission(fake_ctx.project_path)
     out = await run_declared_tool(
-        "generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True, "instructions": "偏好特写镜头"}
+        "generate_episode_script", fake_ctx, {"episode_id": 1, "dry_run": True, "instructions": "偏好特写镜头"}
     )
     assert out.problem is None, out
     assert captured["build_prompt"] == "偏好特写镜头"
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "instructions": "偏好特写镜头"})
+    out = await run_declared_tool(
+        "generate_episode_script", fake_ctx, {"episode_id": 1, "instructions": "偏好特写镜头"}
+    )
     assert out.problem is None, out
     assert captured["generate"] == "偏好特写镜头"
 

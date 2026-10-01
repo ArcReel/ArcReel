@@ -209,12 +209,11 @@ export function ExportScopeDialog({
                     color: "var(--color-text)",
                   }}
                 >
-                  {episodes.map((ep) => (
+                  {episodes.map((ep, index) => (
                     <option key={ep.episode} value={ep.episode}>
-                      {t("dashboard:episode_with_title", {
-                        episode: ep.episode,
-                        title: ep.title,
-                      })}
+                      {ep.title
+                        ? t("dashboard:episode_with_title", { position: index + 1, title: ep.title })
+                        : t("common:episode_position_name", { position: index + 1 })}
                     </option>
                   ))}
                 </select>

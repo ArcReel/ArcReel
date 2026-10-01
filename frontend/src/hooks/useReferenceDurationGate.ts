@@ -5,13 +5,10 @@ import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { advisoryProblems } from "@/components/canvas/reference/advisory-problems";
 import type { DurationConfirmItem } from "@/components/canvas/reference/ReferenceDurationConfirmDialog";
-import type { ReferenceRequestOptions } from "@/types";
 
 interface Options {
   projectName: string;
   episode: number;
-  /** 由旁白工作流提供；预检与确认后的入队必须复用同一组选项。 */
-  requestOptions?: ReferenceRequestOptions;
 }
 
 /**
@@ -45,7 +42,7 @@ type Commit = (unitIds: string[], confirmedDurations: ConfirmedDurations) => Pro
  * 批量入口聚合成一次确认（逐个弹窗会让用户为一次操作点 N 遍），单入口与批量入口共用
  * 同一条闸门——否则批量按钮会成为绕过确认的旁路。
  */
-export function useReferenceDurationGate({ projectName, episode, requestOptions }: Options) {
+export function useReferenceDurationGate({ projectName, episode }: Options) {
   const { t } = useTranslation("dashboard");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   // 入队回调随 run 一起捕获：确认发生在 run 之后的任意时刻，不能从渲染期闭包重取
@@ -91,7 +88,7 @@ export function useReferenceDurationGate({ projectName, episode, requestOptions 
               projectName,
               episode,
               unitId,
-              { ...requestOptions, signal },
+              { signal },
             );
             return { unitId, precheck };
           } catch (e) {
@@ -146,7 +143,7 @@ export function useReferenceDurationGate({ projectName, episode, requestOptions 
       canEnqueueRef.current = canEnqueue;
       setPending({ items: needsConfirmation, unitIds: passing });
     },
-    [projectName, episode, requestOptions, t],
+    [projectName, episode, t],
   );
 
   const confirm = useCallback(() => {

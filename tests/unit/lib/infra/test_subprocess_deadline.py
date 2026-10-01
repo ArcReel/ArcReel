@@ -12,9 +12,10 @@ from tests.fakes import HangingProcess
 
 
 class _ExitingProcess:
-    def __init__(self, returncode: int, stdout: bytes) -> None:
+    def __init__(self, returncode: int, stdout: bytes, stderr: bytes | None = None) -> None:
         self.returncode = returncode
         self._stdout = stdout
+        self._stderr = stderr
         self.signals: list[str] = []
 
     def terminate(self) -> None:
@@ -26,8 +27,8 @@ class _ExitingProcess:
     async def wait(self) -> int:
         return self.returncode
 
-    async def communicate(self) -> tuple[bytes, None]:
-        return self._stdout, None
+    async def communicate(self) -> tuple[bytes, bytes | None]:
+        return self._stdout, self._stderr
 
 
 class _Spawner:
@@ -51,6 +52,18 @@ async def test_returns_exit_code_and_stdout_when_process_finishes(tmp_path: Path
     assert proc.signals == []
     _, kwargs = spawn.calls[0]
     assert kwargs["stdin"] == asyncio.subprocess.DEVNULL
+
+
+async def test_captures_stderr_when_requested():
+    proc = _ExitingProcess(0, b"", b"Input #0, wav, from 'x':\n")
+    spawn = _Spawner(proc)
+
+    result = await run_with_deadline(["ffmpeg", "-i", "x"], deadline_seconds=5, capture_stderr=True, spawn=spawn)
+
+    assert result.stderr == b"Input #0, wav, from 'x':\n"
+    assert result.stdout == b""
+    _, kwargs = spawn.calls[0]
+    assert kwargs["stderr"] == asyncio.subprocess.PIPE
 
 
 @pytest.mark.parametrize(

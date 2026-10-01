@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -10,14 +9,11 @@ from lib.backends.providers import PROVIDER_GEMINI
 from lib.billing.cost_calculator import cost_calculator
 from lib.config.resolver import ConfigResolver
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
-from lib.generation.video_request_facts import VideoRequestFactsFailure
+from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFactsFailure
 from lib.script.reference_video.request_projection import (
-    USE_TTS,
-    ReferenceRequestOptions,
     configured_reference_request_facts,
     project_reference_unit_request,
 )
-from lib.speech.narration_delivery import VideoRequestCostFacts
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
 from tests.factories import activate_reference_project, make_video_request_facts
 from tests.fakes import fake_reference_request_facts
@@ -88,7 +84,6 @@ def _make_script(
                     "composition": {"shot_type": "medium", "lighting": "l", "ambiance": "a"},
                 },
                 "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "aa"},
-                "transition_to_next": "cut",
                 "generated_assets": assets,
             }
         )
@@ -119,7 +114,6 @@ def _make_ad_script(shot_ids: list[str], durations: list[int]) -> dict:
                     "composition": {"shot_type": "medium", "lighting": "l", "ambiance": "a"},
                 },
                 "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "aa"},
-                "transition_to_next": "cut",
                 "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
             }
         )
@@ -142,7 +136,6 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
                 "unit_id": unit_id,
                 "text": "t",
                 "duration_seconds": duration,
-                "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
         )
@@ -1155,19 +1148,16 @@ class TestCostEstimationService:
         assert any("ep2.json" in m for m in warnings), warnings
 
     async def test_audio_estimate_per_segment_by_characters(self, db_factory):
-        """旁白配音预估 = novel_text 字符数 × 按字符费率；models 含 audio 条目。"""
-        from lib.config.service import ConfigService
-
-        async with db_factory() as session:
-            await ConfigService(session).set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
-            await session.commit()
-
+        """旁白配音预估 = novel_text 字符数 × 项目 TTS 快照模型的按字符费率；models 含 audio 条目。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
         project_data = {
             "title": "Test",
             "content_mode": "narration",
+            "narration_delivery": "use_tts",
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Cherry",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         script = _make_script(1, ["E1S001", "E1S002"], [6, 8])
@@ -1186,6 +1176,30 @@ class TestCostEstimationService:
         # 集/项目两级合计纳入 audio
         assert result["episodes"][0]["totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
         assert result["project_totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
+
+    async def test_post_production_project_has_no_audio_estimate(self, db_factory):
+        """后期配音项目即使保留着 TTS 快照也不产生旁白配音预估，全局默认同样不参与。"""
+        from lib.config.service import ConfigService
+
+        async with db_factory() as session:
+            await ConfigService(session).set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
+            await session.commit()
+
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "narration_delivery": "post_production",
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Cherry",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        script = _make_script(1, ["E1S001"], [6])
+        script["segments"][0]["novel_text"] = "字" * 100
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="test")
+
+        assert result["episodes"][0]["segments"][0]["estimate"]["audio"] == {}
 
     async def test_audio_actual_costs_included(self, db_factory):
         """旁白实际费用按 segment 聚合进 actual.audio。"""
@@ -1403,51 +1417,10 @@ class TestCostEstimationService:
         assert priced_durations == [6]
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
-    async def test_reference_video_quote_accepts_server_materialized_tts_duration(self, db_factory, monkeypatch):
-        request_facts = fake_reference_request_facts(
-            durations=(4, 8, 12),
-            provider_id="kling",
-            model_id="kling-v3",
-            max_reference_images=4,
-            resolution="1080p",
-        )
-        monkeypatch.setattr(
-            "server.services.admission.cost_estimation.configured_reference_request_facts",
-            lambda _project, _resolver: request_facts,
-        )
-        monkeypatch.setattr(
-            "server.services.admission.cost_estimation.active_tts_resource_ids",
-            AsyncMock(return_value=frozenset()),
-        )
-        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
-        project_data = {
-            "title": "Narration",
-            "content_mode": "narration",
-            "generation_mode": "reference_video",
-            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
-        }
-        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
-
-        result = await service.compute(
-            project_data,
-            scripts,
-            project_name="narration-ref-tts-floor",
-            reference_request_options={
-                "E1U1": ReferenceRequestOptions(
-                    narration_delivery=USE_TTS,
-                    current_tts_duration_seconds=9.5,
-                )
-            },
-        )
-
-        projection = result["episodes"][0]["segments"][0]["request_projection"]
-        assert projection["duration_input"] == 9.5
-        assert projection["request_duration"] == 12
-        assert projection["problems"][0]["code"] == "reference_duration_confirmation_required"
-
-    async def test_reference_video_tts_quote_uses_current_visual_tier_for_zero_or_incremental_cost(
+    async def test_reference_video_quote_is_identical_for_tts_and_post_production_projects(
         self, db_factory, monkeypatch
     ):
+        """旁白交付方式不影响视频请求：同一 unit 在 use_tts 与 post_production 项目下取档与报价相同。"""
         request_facts = fake_reference_request_facts(
             durations=(4, 8, 12),
             provider_id="openai",
@@ -1460,91 +1433,28 @@ class TestCostEstimationService:
             lambda _project, _resolver: request_facts,
         )
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
-        project_data = {
-            "title": "Narration",
-            "content_mode": "narration",
-            "generation_mode": "reference_video",
-            "video_provider_i2v": "openai/sora-2",
-            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
-        }
-        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 4)])}
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
 
-        reused = await service.compute(
-            project_data,
-            scripts,
-            project_name="narration-ref-reused-quote",
-            reference_request_options={
-                "E1U1": ReferenceRequestOptions(
-                    narration_delivery=USE_TTS,
-                    current_tts_duration_seconds=8.0,
-                    current_visual_duration_seconds=8,
-                    current_reusable_visual_duration_seconds=8,
-                )
-            },
-        )
-        regenerated = await service.compute(
-            project_data,
-            scripts,
-            project_name="narration-ref-regenerated-quote",
-            reference_request_options={
-                "E1U1": ReferenceRequestOptions(
-                    narration_delivery=USE_TTS,
-                    current_tts_duration_seconds=8.0,
-                    current_visual_duration_seconds=4,
-                )
-            },
-        )
+        async def _segment(narration_delivery: str) -> dict:
+            project_data = {
+                "title": "Narration",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+                "video_provider_i2v": "openai/sora-2",
+                "narration_delivery": narration_delivery,
+                "audio_backend": "dashscope/qwen3-tts-flash",
+                "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+            }
+            result = await service.compute(project_data, scripts, project_name=f"delivery-{narration_delivery}")
+            return result["episodes"][0]["segments"][0]
 
-        reused_segment = reused["episodes"][0]["segments"][0]
-        regenerated_segment = regenerated["episodes"][0]["segments"][0]
-        assert reused_segment["estimate"]["video"] == {}
-        assert reused_segment["request_projection"]["request_cost"] == {
-            "amount": 0.0,
-            "currency": "USD",
-            "provider_id": "openai",
-            "model_id": "sora-2",
-            "request_duration_seconds": 8,
-        }
-        assert regenerated_segment["estimate"]["video"] == {"USD": pytest.approx(0.8)}
-        assert regenerated_segment["request_projection"]["request_cost"] == {
-            "amount": pytest.approx(0.8),
-            "currency": "USD",
-            "provider_id": "openai",
-            "model_id": "sora-2",
-            "request_duration_seconds": 8,
-        }
-        assert regenerated_segment["request_projection"]["problems"][0]["code"] == (
-            "reference_duration_confirmation_required"
-        )
+        use_tts = await _segment("use_tts")
+        post_production = await _segment("post_production")
 
-        # 视频这一维算不出价（定价表无该模型条目）：报价与预估同源，两者一起落空。
-        real_calculate_cost = cost_calculator.calculate_cost
-
-        def _video_pricing_missing(provider, params, **kwargs):
-            if params.call_type == "video":
-                raise ValueError(f"no pricing entry for {provider}/{params.model}")
-            return real_calculate_cost(provider, params, **kwargs)
-
-        monkeypatch.setattr(cost_calculator, "calculate_cost", _video_pricing_missing)
-        unavailable = await service.compute(
-            project_data,
-            scripts,
-            project_name="narration-ref-unavailable-quote",
-            reference_request_options={
-                "E1U1": ReferenceRequestOptions(
-                    narration_delivery=USE_TTS,
-                    current_tts_duration_seconds=8.0,
-                    current_visual_duration_seconds=4,
-                )
-            },
-        )
-        unavailable_segment = unavailable["episodes"][0]["segments"][0]
-        assert unavailable_segment["estimate"]["video"] == {}
-        assert unavailable_segment["request_projection"]["allowed"] is False
-        assert [problem["code"] for problem in unavailable_segment["request_projection"]["problems"]] == [
-            "reference_duration_confirmation_required",
-            "video_request_cost_unavailable",
-        ]
+        assert use_tts["request_projection"] == post_production["request_projection"]
+        assert use_tts["request_projection"]["request_duration"] == 8
+        assert "request_cost" not in use_tts["request_projection"]
+        assert use_tts["estimate"]["video"] == post_production["estimate"]["video"] == {"USD": pytest.approx(0.8)}
 
     async def test_reference_video_estimate_blocks_when_duration_metadata_is_empty(self, db_factory, monkeypatch):
         request_facts = fake_reference_request_facts(
@@ -1689,7 +1599,6 @@ class TestCostEstimationService:
                 "text": "",
                 "needs_replan": True,
                 "duration_seconds": 5,
-                "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
         )
@@ -1698,7 +1607,6 @@ class TestCostEstimationService:
                 "unit_id": "E1U3",
                 "text": "   ",
                 "duration_seconds": 5,
-                "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
         )
@@ -2260,7 +2168,9 @@ class TestCostEstimationService:
             "content_mode": "narration",
             "image_provider_t2i": "custom-1/img",
             "video_backend": "custom-1/vid",
+            "narration_delivery": "use_tts",
             "audio_backend": "custom-1/aud",
+            "narration_voice": "alloy",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         script = _make_script(1, ["E1S001"], [6])

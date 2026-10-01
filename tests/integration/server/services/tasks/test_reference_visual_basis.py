@@ -13,7 +13,7 @@ from tests.integration.server.services.tasks.reference_video_tasks_support impor
 
 
 def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Path) -> None:
-    from server.services.tasks.narration_delivery_tasks import reference_video_visual_basis_digest
+    from server.services.tasks.reference_video_tasks import reference_video_visual_basis_digest
 
     proj_dir = write_project(tmp_path)
     project, unit = load_project_and_unit(proj_dir, "E1U1")

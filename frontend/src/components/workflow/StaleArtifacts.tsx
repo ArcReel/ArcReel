@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { UnitTag } from "./UnitTag";
 import { ARTIFACT_TONES, INLINE_ACTION_CLS } from "./state-language";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 interface Props {
   staleIds: string[];
@@ -52,7 +53,7 @@ export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) 
               <button
                 type="button"
                 onClick={() => onView(unitId)}
-                aria-label={t("stale_view_unit", { id: unitId })}
+                aria-label={t("stale_view_unit", { id: itemIdWithinEpisode(unitId) })}
                 className={INLINE_ACTION_CLS}
                 style={{ color: "var(--color-text-2)" }}
               >
@@ -64,7 +65,7 @@ export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) 
                 type="button"
                 disabled={busy}
                 onClick={() => onRegenerate([unitId])}
-                aria-label={t("stale_regenerate_unit", { id: unitId })}
+                aria-label={t("stale_regenerate_unit", { id: itemIdWithinEpisode(unitId) })}
                 className={INLINE_ACTION_CLS}
                 style={{ color: ARTIFACT_TONES.stale.color }}
               >

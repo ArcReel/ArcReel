@@ -14,29 +14,16 @@ from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
-from lib.speech.narration_delivery import (
-    POST_PRODUCTION,
-    USE_TTS,
-    NarrationDeliveryPreparation,
-    NarrationDeliveryProblem,
-    NarrationTtsStatus,
-    prepare_narrated_video_duration,
-)
 from server.services.admission import video_batch_admission as admission_mod
 from server.services.admission.video_batch_admission import admit_reference_video_batch, admit_storyboard_video_batch
 from server.services.tasks.video_caps import reference_request_facts_lookup
 from tests.factories import activate_reference_project, make_video_request_facts
 
 
-def _script() -> dict[str, Any]:
-    return {"episode": 1, "content_mode": "narration", "segments": []}
-
-
 def _stub_state(
     monkeypatch: pytest.MonkeyPatch,
     *,
     active: list[dict[str, Any]] | None = None,
-    active_tts: frozenset[str] = frozenset(),
 ) -> list[str]:
     probes: list[str] = []
 
@@ -44,47 +31,20 @@ def _stub_state(
         probes.append("active_tasks")
         return list(active or [])
 
-    async def _tts(**_kwargs):
-        probes.append("active_tts")
-        return active_tts
-
     monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _active)
-    monkeypatch.setattr(admission_mod, "active_tts_resource_ids", _tts)
     return probes
 
 
-def _preparation(*, problems=(), tts_status=NarrationTtsStatus.CURRENT, actual=9.5):
-    narration = NarrationDeliveryPreparation(
-        delivery=USE_TTS,
-        unit_id="E1S01",
-        speech_mode=None,
-        tts_status=tts_status,
-        artifact_path="audio/segment_E1S01.wav",
-        basis_digest="basis",
-        actual_duration_seconds=actual,
-        problems=problems,
-    )
-    return prepare_narrated_video_duration(
-        narration=narration,
-        planned_duration_seconds=4,
-        supported_durations=(4, 8, 12),
-        confirmed_request_duration_seconds=None,
-    )
-
-
-async def test_storyboard_post_production_admits_without_consulting_tts(monkeypatch, tmp_path: Path):
-    """后期配音在分镜图生视频没有 TTS 输入可查，唯一还生效的整批闸门是在途任务冲突。"""
+async def test_storyboard_admission_consults_only_active_tasks(monkeypatch, tmp_path: Path):
+    """分镜图生视频的档位由执行期按剧本取，整批准入唯一查询的状态是在途任务冲突。"""
 
     probes = _stub_state(monkeypatch)
 
     admission = await admit_storyboard_video_batch(
         project_name="demo",
         project={},
-        project_path=tmp_path,
-        script=_script(),
         script_file="episode_1.json",
-        items=[("E1S01", {"duration_seconds": 4}, "一个镜头"), ("E1S02", {}, "另一个镜头")],
-        request_options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION),
+        items=[("E1S01", {"duration_seconds": 4}), ("E1S02", {})],
         operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
         video_request_facts=make_video_request_facts(),
@@ -105,11 +65,8 @@ async def test_storyboard_facts_failure_blocks_each_target_with_code_params_and_
     admission = await admit_storyboard_video_batch(
         project_name="demo",
         project={},
-        project_path=tmp_path,
-        script=_script(),
         script_file="episode_1.json",
-        items=[("E1S01", {}, "bad"), ("E1S02", {}, "also bad")],
-        request_options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION),
+        items=[("E1S01", {}), ("E1S02", {})],
         operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
         video_request_facts=failure,
@@ -119,44 +76,6 @@ async def test_storyboard_facts_failure_blocks_each_target_with_code_params_and_
         assert [(problem.code, problem.action, problem.params) for problem in ticket.problems] == [
             (failure.code, GenerationAction.CONFIGURE_PROVIDER, failure.parameters())
         ]
-
-
-async def test_storyboard_use_tts_reports_each_units_delivery_problem(monkeypatch, tmp_path: Path):
-    _stub_state(monkeypatch)
-
-    async def _prepare(**_kwargs):
-        return _preparation(
-            problems=(
-                NarrationDeliveryProblem(
-                    code="tts_missing",
-                    reason="tts_audio_missing",
-                    action="generate_tts",
-                    locations=(),
-                ),
-            ),
-            tts_status=NarrationTtsStatus.MISSING,
-            actual=None,
-        )
-
-    monkeypatch.setattr(admission_mod, "prepare_current_storyboard_narrated_video_duration", _prepare)
-
-    admission = await admit_storyboard_video_batch(
-        project_name="demo",
-        project={},
-        project_path=tmp_path,
-        script=_script(),
-        script_file="episode_1.json",
-        items=[("E1S01", {"duration_seconds": 4}, "一个镜头")],
-        request_options=ReferenceRequestOptions(narration_delivery=USE_TTS),
-        operation="generate_videos",
-        selection=GenerationSelectionMode.MISSING_ONLY,
-        video_request_facts=make_video_request_facts(),
-    )
-
-    assert admission.decision is BatchAdmissionDecision.BLOCKED
-    problem = admission.tickets[0].problems[0]
-    assert problem.code == "tts_missing"
-    assert problem.action is GenerationAction.GENERATE_TTS
 
 
 async def test_an_active_task_conflicts_before_anything_is_projected(monkeypatch, tmp_path: Path):
@@ -169,11 +88,7 @@ async def test_an_active_task_conflicts_before_anything_is_projected(monkeypatch
         projected.append(kwargs["unit"]["unit_id"])
         raise AssertionError("occupied units must not be projected")
 
-    async def _options(*, options, **_kwargs):
-        return options
-
     monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
-    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -228,10 +143,6 @@ async def test_text_only_unit_on_image_only_model_blocks_the_whole_batch(monkeyp
 
     _stub_state(monkeypatch)
 
-    async def _options(*, options, **_kwargs):
-        return options
-
-    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
     monkeypatch.setattr(
         admission_mod,
         "project_reference_unit_request",
@@ -302,10 +213,6 @@ async def test_reference_bucket_failure_blocks_only_its_units_and_withholds_the_
         (("provider", "gemini-aistudio"), ("model", "veo-3.1"), ("resolution", "4k")),
     )
 
-    async def _options(*, options, **_kwargs):
-        return options
-
-    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
     monkeypatch.setattr(
         admission_mod,
         "project_reference_unit_request",
@@ -359,18 +266,13 @@ async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
             cost = None
             planned_duration = 4
             request_duration = None
-            current_visual_duration = None
 
             def to_advisory_payload(self):
                 return {"allowed": True, "unit_id": self.unit_id, "problems": []}
 
         return _Projection()
 
-    async def _options(*, options, **_kwargs):
-        return options
-
     monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
-    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -415,10 +317,6 @@ async def test_admission_buckets_an_unclaimed_sheet_like_the_canvas_and_blocks(
     """整批准入与画布逐单元结论同判据：图在盘上但清单未认领的单元两侧都落 i2v，准入阻断而非按 r2v 放行。"""
     _stub_state(monkeypatch)
 
-    async def _options(*, options, **_kwargs):
-        return options
-
-    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
     set_video_request_facts(
         {
             "i2v": make_video_request_facts(
@@ -461,3 +359,42 @@ async def test_admission_buckets_an_unclaimed_sheet_like_the_canvas_and_blocks(
         "reference_capability_changed",
     ]
     assert [capability.generation_type for capability in capabilities] == ["r2v", "i2v"]
+
+
+async def test_reference_admission_is_identical_for_tts_and_post_production_projects(
+    monkeypatch, tmp_path: Path, set_video_request_facts
+):
+    """旁白交付方式不影响视频请求：同一批单元在 use_tts 与 post_production 项目下取档、确认与报价坐标一致。"""
+    _stub_state(monkeypatch)
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="i2v", supported_durations=(4, 8), allowed_durations=(4, 8)
+        )
+    )
+    units = [
+        {"unit_id": "E1U1", "text": "镜头1：海面\n{旁白正文。}", "duration_seconds": 5},
+        {"unit_id": "E1U2", "text": "镜头2：灯塔", "duration_seconds": 4},
+    ]
+    script = {"episode": 1, "video_units": units}
+
+    async def _payload(narration_delivery: str) -> dict[str, Any]:
+        project = activate_reference_project(tmp_path, {"narration_delivery": narration_delivery})
+        admission = await admit_reference_video_batch(
+            project_name="demo",
+            project=project,
+            project_path=tmp_path,
+            script=script,
+            script_file="scripts/episode_1.json",
+            units=units,
+            request_options=ReferenceRequestOptions(),
+            operation="generate_videos",
+            selection=GenerationSelectionMode.MISSING_ONLY,
+        )
+        return admission.to_payload()
+
+    use_tts = await _payload("use_tts")
+    post_production = await _payload("post_production")
+
+    assert use_tts == post_production
+    assert use_tts["decision"] == BatchAdmissionDecision.CONFIRMATION_REQUIRED.value
+    assert [unit["request_duration_seconds"] for unit in use_tts["units"]] == [8, 4]

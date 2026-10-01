@@ -245,44 +245,9 @@ describe("API", () => {
 
       expect(error).toBeInstanceOf(SpeechAdmissionError);
       expect(error.admission).toEqual(admission);
-      expect(error.message).toContain("E1S01");
+      expect(error.message).toContain("S01");
+      expect(error.message).not.toContain("E1S01");
       expect(error.message).toContain("utterances.0.text");
-    });
-
-    it("preserves a narrated-video duration blocker for an exact-tier retry", async () => {
-      const admission = {
-        allowed: false as const,
-        kind: "narrated_video_duration" as const,
-        unit_id: "E1S01",
-        narration_delivery: {},
-        planned_duration: 8,
-        duration_input: 10.4,
-        request_duration: 12,
-        adjustment: "up" as const,
-        problems: [{
-          code: "reference_duration_confirmation_required",
-          blocking: true,
-          unit_id: "E1S01",
-          locations: [{ path: ["duration_seconds"], line: null }],
-          params: { duration_input: 10.4, request_duration: 12 },
-          reason: "request_duration_uses_different_tier",
-          action: "confirm_duration",
-          message: "Confirm the 12s tier",
-        }],
-      };
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-        mockResponse({ ok: false, status: 400, jsonData: { detail: admission } }),
-      ));
-
-      await expect(
-        API.generateVideo("demo", "E1S01", "vid", "episode_1.json", 8, {
-          narration_delivery: "use_tts",
-        }),
-      ).rejects.toMatchObject({
-        name: "NarratedVideoDurationError",
-        admission,
-        message: "Confirm the 12s tier",
-      });
     });
 
     it("preserves the shared script-edit result from compatibility endpoints", async () => {
@@ -449,7 +414,7 @@ describe("API", () => {
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
       await API.updateSegment("demo", "segment-1", { y: 2 });
       await API.updateShot("demo", "E1S01", "episode_1.json", { voiceover_text: "新口播" });
-      await API.reorderShots("demo", "episode_1.json", ["E1S02", "E1S01"]);
+      await API.moveScriptItem("demo", "episode_1.json", "E1S02", null);
       await API.updateEpisode("demo", 3, { title: "新标题" });
 
       await API.getSystemConfig();
@@ -458,7 +423,8 @@ describe("API", () => {
       await API.getPromptTemplate("asset/sheet 1");
       await API.getPromptPartial("shared/media style");
       await API.updateSystemConfig({ default_image_backend: "vertex" });
-      await API.listFiles("demo");
+      await API.getEpisodesView("demo");
+      await API.adoptSourceFile("demo", "旧 稿.txt", { target: "episode", episode: 2 });
       await API.deleteDraft("demo", 1, "script_plan");
       await API.generateOverview("demo");
       await API.updateOverview("demo", { synopsis: "new" });
@@ -556,9 +522,9 @@ describe("API", () => {
         method: "PATCH",
         body: JSON.stringify({ script_file: "episode_1.json", updates: { voiceover_text: "新口播" } }),
       });
-      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-shots/reorder", {
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-items/E1S02/move", {
         method: "POST",
-        body: JSON.stringify({ script_file: "episode_1.json", shot_ids: ["E1S02", "E1S01"] }),
+        body: JSON.stringify({ script_file: "episode_1.json", after_id: null }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/episodes/3", {
         method: "PATCH",
@@ -584,18 +550,13 @@ describe("API", () => {
         }),
       });
 
-      await API.generateVideo("demo", "seg-1", "vid", "episode_1.json", 8, {
-        narration_delivery: "use_tts",
-        confirmed_request_duration_seconds: 12,
-      });
+      await API.generateVideo("demo", "seg-1", "vid", "episode_1.json", 8);
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/video/seg-1", {
         method: "POST",
         body: JSON.stringify({
           prompt: "vid",
           script_file: "episode_1.json",
           duration_seconds: 8,
-          narration_delivery: "use_tts",
-          confirmed_request_duration_seconds: 12,
         }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/tts/seg-1", {
@@ -606,6 +567,11 @@ describe("API", () => {
         method: "POST",
         body: JSON.stringify({ script_file: "episode_1.json" }),
       });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/episodes-view", { signal: undefined });
+      expect(requestSpy).toHaveBeenCalledWith(
+        "/projects/demo/source-files/%E6%97%A7%20%E7%A8%BF.txt/adopt",
+        { method: "POST", body: JSON.stringify({ target: "episode", episode: 2 }) },
+      );
     });
 
     it("editImage posts instruction with singular resource_type; script_file null for non-storyboard", async () => {
@@ -874,6 +840,22 @@ describe("API", () => {
       expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBeInstanceOf(FormData);
     });
 
+    it("registers whole-source uploads at a position and per-episode uploads by role", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({ jsonData: { success: true, path: "source/a.txt", filename: "a.txt" } }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const file = new File(["hello"], "a.txt", { type: "text/plain" });
+
+      await API.uploadFile("demo", "source", file, null, { role: "whole_source", onConflict: "rename", insertAt: 0 });
+      await API.uploadFile("demo", "source", file, null, { role: "episode" });
+
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "/api/v1/projects/demo/upload/source?on_conflict=rename&role=whole_source&insert_at=0",
+      );
+      expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/projects/demo/upload/source?role=episode");
+    });
+
     it("throws detail when upload fails", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
@@ -961,9 +943,6 @@ describe("API", () => {
         .mockResolvedValueOnce(
           mockResponse({ jsonData: { success: true }, statusText: "OK" }),
         )
-        .mockResolvedValueOnce(
-          mockResponse({ jsonData: { success: true }, statusText: "OK" }),
-        )
         .mockResolvedValueOnce(mockResponse({ textData: "draft content" }))
         .mockResolvedValueOnce(
           mockResponse({ jsonData: { success: true }, statusText: "OK" }),
@@ -973,9 +952,6 @@ describe("API", () => {
       await expect(API.getSourceContent("demo", "source.txt")).resolves.toBe(
         "source content",
       );
-      await expect(API.saveSourceFile("demo", "source.txt", "hello")).resolves.toEqual({
-        success: true,
-      });
       await expect(API.deleteSourceFile("demo", "source.txt")).resolves.toEqual({
         success: true,
       });
@@ -986,15 +962,6 @@ describe("API", () => {
 
       expect(fetchMock).toHaveBeenNthCalledWith(
         2,
-        "/api/v1/projects/demo/source/source.txt",
-        expect.objectContaining({
-          method: "PUT",
-          body: "hello",
-          headers: expect.any(Headers),
-        }),
-      );
-      expect(fetchMock).toHaveBeenNthCalledWith(
-        3,
         "/api/v1/projects/demo/source/source.txt",
         expect.objectContaining({ method: "DELETE" }),
       );
@@ -1493,7 +1460,6 @@ describe("API.referenceVideos", () => {
     unit_id: id,
     text: "test",
     duration_seconds: 3,
-    transition_to_next: "cut",
     note: null,
     generated_assets: {
       storyboard_image: null,
@@ -1528,25 +1494,22 @@ describe("API.referenceVideos", () => {
     expect(body).toEqual({ prompt: "@[张三] 推门" });
   });
 
-  it("reorderReferenceVideoUnits sends ordered ids", async () => {
+  it("moveReferenceVideoUnit sends the anchor", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ units: [] }), { status: 200 }));
-    await API.reorderReferenceVideoUnits("proj", 1, ["E1U2", "E1U1"]);
-    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as { unit_ids: string[] };
-    expect(body.unit_ids).toEqual(["E1U2", "E1U1"]);
+    await API.moveReferenceVideoUnit("proj", 1, "E1U2", null);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/reference-videos/episodes/1/units/E1U2/move");
+    expect(JSON.parse(init!.body as string)).toEqual({ after_unit_id: null });
   });
 
   it("generateReferenceVideoUnit returns task id", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ task_id: "t-1", deduped: false }), { status: 202 }));
     const res = await API.generateReferenceVideoUnit("proj", 1, "E1U1", {
-      narration_delivery: "use_tts",
       confirmed_request_duration_seconds: 12,
     });
     expect(res.task_id).toBe("t-1");
     const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
-    expect(body).toEqual({
-      narration_delivery: "use_tts",
-      confirmed_request_duration_seconds: 12,
-    });
+    expect(body).toEqual({ confirmed_request_duration_seconds: 12 });
   });
 
   it("generateReferenceVideoBatch posts the batch admission payload", async () => {
@@ -1558,7 +1521,6 @@ describe("API.referenceVideos", () => {
     );
 
     const res = await API.generateReferenceVideoBatch("proj", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
       confirmed_request_durations: { E1U1: 8 },
     });
@@ -1567,36 +1529,26 @@ describe("API.referenceVideos", () => {
       "/projects/proj/reference-videos/episodes/1/units/generate-batch",
     );
     expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
       confirmed_request_durations: { E1U1: 8 },
     });
     expect(res.decision).toBe("admitted");
   });
 
-  it("precheckReferenceVideoDuration sends narration projection options", async () => {
+  it("precheckReferenceVideoDuration sends no query string", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
 
-    await API.precheckReferenceVideoDuration("proj", 1, "E1U1", {
-      narration_delivery: "use_tts",
-    });
+    await API.precheckReferenceVideoDuration("proj", 1, "E1U1");
 
-    expect(fetchMock.mock.calls[0]![0]).toContain(
-      "duration-precheck?narration_delivery=use_tts",
-    );
+    expect(fetchMock.mock.calls[0]![0]).toMatch(/\/units\/E1U1\/duration-precheck$/);
   });
 
-  it("getCostEstimate sends unit-scoped narration projection options", async () => {
+  it("getCostEstimate scopes to one reference unit only", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
 
-    await API.getCostEstimate("proj", {
-      referenceUnitId: "E1U1",
-      narration_delivery: "use_tts",
-    });
+    await API.getCostEstimate("proj", { referenceUnitId: "E1U1" });
 
-    expect(fetchMock.mock.calls[0]![0]).toContain(
-      "cost-estimate?reference_unit_id=E1U1&narration_delivery=use_tts",
-    );
+    expect(fetchMock.mock.calls[0]![0]).toMatch(/\/cost-estimate\?reference_unit_id=E1U1$/);
   });
 
   it("deleteReferenceVideoUnit returns void on 204", async () => {

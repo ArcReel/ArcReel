@@ -28,6 +28,7 @@ import {
   enqueueReferenceVideoUnit,
   enqueueScene,
   enqueueStoryboard,
+  enqueueStoryboardBatch,
   enqueueVideo,
 } from "@/actions/generation";
 
@@ -133,18 +134,12 @@ describe("enqueueStoryboard", () => {
 });
 
 describe("单资源入队动作的乐观标记 kind / taskType", () => {
-  it("video 将请求级旁白交付与精确确认档位原样交给 API", async () => {
+  it("video 只把提示词、剧本与时长交给 API", async () => {
     const generate = vi.spyOn(API, "generateVideo").mockResolvedValue(SINGLE_OK);
 
-    await enqueueVideo("demo", "seg-1", "p", "episode_1.json", 8, {
-      narration_delivery: "use_tts",
-      confirmed_request_duration_seconds: 12,
-    });
+    await enqueueVideo("demo", "seg-1", "p", "episode_1.json", 8);
 
-    expect(generate).toHaveBeenCalledWith("demo", "seg-1", "p", "episode_1.json", 8, {
-      narration_delivery: "use_tts",
-      confirmed_request_duration_seconds: 12,
-    });
+    expect(generate).toHaveBeenCalledWith("demo", "seg-1", "p", "episode_1.json", 8);
   });
 
   it.each([
@@ -432,7 +427,6 @@ describe("enqueueReferenceVideoBatch", () => {
   const ADMISSION = {
     operation: "generate_reference_videos_batch",
     selection: "explicit",
-    narration_delivery: "post_production",
     units: [],
     confirmation: null,
     skipped_unit_ids: [],
@@ -451,12 +445,10 @@ describe("enqueueReferenceVideoBatch", () => {
       } as never);
 
     const res = await enqueueReferenceVideoBatch("demo", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
     });
 
     expect(batch).toHaveBeenCalledWith("demo", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
     });
     expect(occupied("demo", "reference_video", "E1U1")).toBe(true);
@@ -478,7 +470,6 @@ describe("enqueueReferenceVideoBatch", () => {
     } as never);
 
     await enqueueReferenceVideoBatch("demo", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
     });
 
@@ -514,7 +505,6 @@ describe("enqueueReferenceVideoBatch", () => {
     } as never);
 
     const res = await enqueueReferenceVideoBatch("demo", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
     });
 
@@ -557,8 +547,7 @@ describe("enqueueReferenceVideoBatch", () => {
 
     try {
       await enqueueReferenceVideoBatch("demo", 1, {
-        narration_delivery: "post_production",
-        unit_ids: ["E1U1", "E1U2"],
+          unit_ids: ["E1U1", "E1U2"],
       });
     } finally {
       useAppStore.setState({ pushToast: realPushToast });
@@ -586,8 +575,7 @@ describe("enqueueReferenceVideoBatch", () => {
       } as never);
 
       const res = await enqueueReferenceVideoBatch("demo", 1, {
-        narration_delivery: "post_production",
-        unit_ids: ["E1U1"],
+          unit_ids: ["E1U1"],
       });
 
       expect(res.decision).toBe(decision);
@@ -600,12 +588,48 @@ describe("enqueueReferenceVideoBatch", () => {
     vi.spyOn(API, "generateReferenceVideoBatch").mockRejectedValue(new Error("boom"));
 
     await expect(enqueueReferenceVideoBatch("demo", 1, {
-        narration_delivery: "post_production",
-        unit_ids: ["E1U1"],
+          unit_ids: ["E1U1"],
       })).rejects.toThrow(
       "boom",
     );
 
     expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
+  });
+});
+
+describe("enqueueStoryboardBatch", () => {
+  it("按服务端返回的分镜逐项打占用标记，并弹提交与未排上的提示", async () => {
+    vi.spyOn(API, "submitStoryboardBatch").mockResolvedValue({
+      batch_id: "b1",
+      task_ids_by_unit: { E1S01: "t1", E1S02: "t2" },
+      skipped: [{ unit_id: "E1S04", reason: "missing_prompt" }],
+      enqueue_failures: [{ unit_id: "E1S03", problem: { code: "generation_enqueue_failed" } }],
+    });
+
+    await enqueueStoryboardBatch("demo", 1, "storyboards");
+
+    expect(occupied("demo", "storyboard", "E1S01")).toBe(true);
+    expect(occupied("demo", "storyboard", "E1S02")).toBe(true);
+    expect(occupied("demo", "storyboard", "E1S03")).toBe(false);
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("dashboard:storyboard_batch_enqueue_failed", { count: 1 }),
+      tone: "warning",
+    });
+  });
+
+  it("分镜视频整批准入未通过时不打标、不提示", async () => {
+    vi.spyOn(API, "submitStoryboardBatch").mockResolvedValue({
+      batch_id: null,
+      task_ids_by_unit: {},
+      skipped: [],
+      enqueue_failures: [],
+      admission: { decision: "blocked", operation: "generate_videos", selection: "missing_only", units: [] },
+    });
+
+    const res = await enqueueStoryboardBatch("demo", 1, "videos");
+
+    expect(res.admission?.decision).toBe("blocked");
+    expect(markCounts().resource).toBe(0);
+    expect(useAppStore.getState().toast).toBeNull();
   });
 });

@@ -17,11 +17,9 @@ from lib.agent.profile_manifest import VALID_CONTENT_MODES, resolve_profile_file
 from lib.generation.batch_admission import DURATION_CONFIRMATION_CODE, BatchAdmissionDecision
 from lib.generation.generation_result import (
     _TASK_FAILURE_ACTIONS,
-    GenerationAction,
     GenerationItemState,
     GenerationProblemCode,
 )
-from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.workflow.workflow_rules import WORKFLOW_RULES
 from lib.workflow.workflow_state import WorkflowActionType, WorkflowTarget
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
@@ -34,7 +32,6 @@ WORKFLOW_PLAN_REFERENCE = REFERENCES / "workflow-plan.md"
 GENERATION_RESULTS_REFERENCE = REFERENCES / "generation-results.md"
 VIDEO_SKILL = PROFILE / ".claude" / "skills" / "generate-video" / "SKILL.md"
 DISTRIBUTED_VIDEO_WORKFLOW = REPO / "skills" / "video-workflow" / "SKILL.md"
-NARRATION_AUDIO_SKILL = PROFILE / ".claude" / "skills" / "generate-narration-audio" / "SKILL.md"
 
 WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
@@ -44,8 +41,20 @@ EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 # 时这份契约测试会直接红。
 CONTROLLED_ACTIONS = tuple(action.value for action in WorkflowActionType)
 
-TTS_PROBLEM_CODES = tuple(code for code in _TASK_FAILURE_ACTIONS if code.startswith("tts_"))
-assert TTS_PROBLEM_CODES, "_TASK_FAILURE_ACTIONS 里已没有 tts_ 前缀问题码，请更新本测试的派生条件"
+#: 视频生成不再读旁白交付后删掉的问题码；档案里留着它们会让 Agent 按不存在的结论行事。
+RETIRED_NARRATED_VIDEO_CODES = (
+    "tts_duration_endpoint_fixed",
+    "video_shorter_than_tts",
+    "video_duration_unavailable",
+    "video_request_cost_unavailable",
+    "tts_conflicts_with_active_narrated_video",
+    "tts_missing",
+    "tts_generating",
+    "tts_stale",
+    "tts_state_unavailable",
+    "tts_duration_unavailable",
+    "tts_not_configured",
+)
 
 
 def _skill(filename: str) -> str:
@@ -107,12 +116,19 @@ def test_plan_reference_documents_every_target_field() -> None:
 # ------------------------------------------------------------------- 旁白交付
 
 
-@pytest.mark.parametrize("path", [WORKFLOW_PLAN_REFERENCE, VIDEO_SKILL])
-def test_delivery_options_are_both_named_where_the_choice_is_made(path: Path) -> None:
-    content = _reference(path)
+def test_profile_no_longer_routes_a_per_request_delivery_choice() -> None:
+    content = "\n".join(path.read_text(encoding="utf-8") for path in PROFILE.rglob("*.md"))
 
-    assert POST_PRODUCTION in content
-    assert USE_TTS in content
+    assert "choose_narration_delivery" not in content
+    assert "WorkflowPlanRequest" not in content
+    assert '"narration_delivery":' not in _reference(WORKFLOW_PLAN_REFERENCE)
+
+
+def test_edit_step_names_the_registered_timeline_tool() -> None:
+    content = _reference(WORKFLOW_PLAN_REFERENCE)
+
+    assert "create_timeline" in ARCREEL_MCP_TOOL_IDS
+    assert "mcp__arcreel__create_timeline" in content
 
 
 def test_generate_video_waits_on_the_durable_batch_without_forcing_completed_targets() -> None:
@@ -131,22 +147,15 @@ def test_preexisting_tasks_use_bounded_plan_polling() -> None:
     assert "get_workflow_plan" in content
 
 
-def test_plan_reference_covers_every_tts_problem_code_and_its_action() -> None:
-    content = _reference(WORKFLOW_PLAN_REFERENCE)
+def test_profile_names_no_retired_narrated_video_code() -> None:
+    for code in RETIRED_NARRATED_VIDEO_CODES:
+        assert code not in _TASK_FAILURE_ACTIONS
+    content = "\n".join(
+        path.read_text(encoding="utf-8") for path in PROFILE.rglob("*") if path.suffix in {".json", ".md", ".py"}
+    )
 
-    for code in TTS_PROBLEM_CODES:
-        assert f"`{code}`" in content, f"旁白问题码表缺 {code}"
-        assert f"`{_TASK_FAILURE_ACTIONS[code].value}`" in content
-
-
-def test_narration_audio_skill_covers_the_tts_actions() -> None:
-    content = NARRATION_AUDIO_SKILL.read_text(encoding="utf-8")
-
-    for action in (GenerationAction.GENERATE_TTS, GenerationAction.REGENERATE_TTS, GenerationAction.WAIT_FOR_TASK):
-        assert action.value in content
-    for code in ("tts_stale", "tts_duration_unavailable"):
-        assert _TASK_FAILURE_ACTIONS[code] is GenerationAction.REGENERATE_TTS
-        assert code in content
+    for code in RETIRED_NARRATED_VIDEO_CODES:
+        assert code not in content, f"档案仍提到已删除的问题码 {code}"
 
 
 # ------------------------------------------------------------------- 整批准入判定
@@ -237,13 +246,6 @@ def test_profile_has_no_retired_video_tools_or_batch_resume_guidance() -> None:
     assert ".checkpoint_" not in content
 
 
-def test_asset_analysis_subagent_names_its_registered_tool() -> None:
-    content = (PROFILE / ".claude" / "agents" / "analyze-assets.md").read_text(encoding="utf-8")
-
-    assert "complete_asset_inventory" in ARCREEL_MCP_TOOL_IDS
-    assert "mcp__arcreel__complete_asset_inventory" in content
-
-
 # ------------------------------------ Profile 物化：每个模式都拿到工作流 skill
 
 
@@ -258,12 +260,14 @@ def test_every_content_mode_materializes_the_video_workflow_skill(mode: str) -> 
 
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
-def test_generate_assets_calls_pass_the_intersection_variable(filename: str) -> None:
-    calls = re.findall(r"mcp__arcreel__generate_assets\((\{[^}]*\})\)", _skill(filename))
+def test_asset_sheet_step_generates_by_episode_id(filename: str) -> None:
+    """「本集引用的资产」由服务端按集算：工作流只按 episode_id 调一次，不在提示词里拼名单。"""
+
+    content = _skill(filename)
+    calls = re.findall(r"mcp__arcreel__generate_assets\((\{[^}]*\})\)", content)
 
     assert calls, f"{filename} 没有 generate_assets 调用模板，断言失去意义"
     for call in calls:
-        names_value = re.search(r'"names":\s*(\[[^\]]*\])', call)
-        assert names_value is not None, f"{filename} 的 {call} 未给出 names 参数"
-        assert "requested_ids" not in names_value.group(1)
-        assert "names" in names_value.group(1)
+        assert '"episode_id"' in call
+        assert '"names"' not in call
+    assert "missing_ids ∩" not in content

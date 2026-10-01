@@ -69,11 +69,11 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
         "reference_asset_unregistered",
         "reference_capability_changed",
         "reference_capability_unavailable",
+        "needs_replan",
         "reference_duration_confirmation_required",
         "reference_supported_durations_incompatible",
         "reference_supported_durations_invalid",
         "reference_supported_durations_missing",
-        "tts_duration_endpoint_fixed",
         "video_audio_switch_not_supported",
         "video_capability_missing_i2v",
         "video_capability_missing_r2v",
@@ -95,25 +95,6 @@ GENERATION_INPUT_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
-NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
-    {
-        "needs_replan",
-        "reference_duration_confirmation_required",
-        "tts_duration_endpoint_fixed",
-        "tts_duration_unavailable",
-        "tts_generating",
-        "tts_conflicts_with_active_narrated_video",
-        "tts_missing",
-        "tts_not_applicable",
-        "tts_not_configured",
-        "tts_stale",
-        "tts_state_unavailable",
-        "video_duration_unavailable",
-        "video_shorter_than_tts",
-        "video_supported_durations_missing",
-    }
-)
-
 # 视频请求事实（``lib.generation.video_request_facts``）求值失败时分镜路线一族的问题码：执行器经
 # ``VideoRequestFactsError`` 阻断并按原码落库，与预检同码。参考路线一族与桶能力闸的码已在上面登记。
 VIDEO_REQUEST_FACTS_FAILURE_CODES: frozenset[str] = frozenset(
@@ -132,7 +113,6 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in CAPABILITY_FAILURE_CODES},
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
     **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
-    **{code: code for code in NARRATION_DELIVERY_FAILURE_CODES},
     **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
@@ -142,6 +122,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",
     "restart_lost_text": "task_fail_restart_lost_text",
+    "restart_lost_render": "task_fail_restart_lost_render",
     "restart_lost_no_job_id": "task_fail_restart_lost_no_job_id",
     "restart_lost_resume_no_job_id": "task_fail_restart_lost_resume_no_job_id",
     "resume_unsupported_provider": "task_fail_resume_unsupported_provider",
@@ -180,7 +161,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
 # group matching even if a param value contains an escaped newline.
 _STRUCTURED_RE = re.compile(r"^\[(\w+)\](?:[ ](\{.*\}))?$", re.DOTALL)
 
-_CASCADE_CODE = "cascade_blocked_dependency"
+CASCADE_FAILURE_CODE = "cascade_blocked_dependency"
 
 # collapse_cascade_reason 的解包上限，纯粹的空转防线。
 _MAX_CASCADE_UNWRAP = 100
@@ -249,7 +230,7 @@ def collapse_cascade_reason(reason: str) -> str:
     seen = 0
     while True:
         parsed = parse_failure(reason)
-        if parsed is None or parsed[0] != _CASCADE_CODE:
+        if parsed is None or parsed[0] != CASCADE_FAILURE_CODE:
             return reason
         nested = parsed[1].get("reason")
         if not isinstance(nested, str):
@@ -385,7 +366,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
     if parsed is None:
         return error_message
     code, params = parsed
-    if code == _CASCADE_CODE:
+    if code == CASCADE_FAILURE_CODE:
         nested_reason = params.get("reason")
         if isinstance(nested_reason, str):
             params = {**params, "reason": render_failure(nested_reason, translate)}

@@ -925,12 +925,12 @@ class TestDerivativeReferences:
 class TestEpisodeLedgerFields:
     """分集账本字段：全部可缺失（该集无位置记录），存在时按 lib.episode.episode_ledger 模型校验形状。"""
 
-    def _validate(self, tmp_path, episode_entry=None, planning_cursor="__absent__"):
+    def _validate(self, tmp_path, episode_entry=None, whole_source_files="__absent__"):
         payload = _project_payload()
         if episode_entry is not None:
             payload["episodes"] = [episode_entry]
-        if planning_cursor != "__absent__":
-            payload["planning_cursor"] = planning_cursor
+        if whole_source_files != "__absent__":
+            payload["whole_source_files"] = whole_source_files
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
         return DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
@@ -955,7 +955,7 @@ class TestEpisodeLedgerFields:
                 outline={"story_beats": ["开端", "冲突"], "next_episode_teaser": "下集更精彩"},
                 ledger_status="planned",
             ),
-            planning_cursor={"source_file": "source/novel.txt", "offset": 100},
+            whole_source_files=[{"source_file": "source/novel.txt"}],
         )
         assert result.valid, result.errors
 
@@ -996,9 +996,42 @@ class TestEpisodeLedgerFields:
         )
         assert any("source_range" in e for e in result.errors)
 
-    def test_absolute_planning_cursor_source_file_rejected(self, tmp_path):
-        result = self._validate(tmp_path, planning_cursor={"source_file": "/etc/passwd", "offset": 0})
-        assert any("planning_cursor" in e for e in result.errors)
+    @pytest.mark.parametrize(
+        "item",
+        [
+            {"source_file": "/etc/passwd"},
+            {"source_file": "source/nested/a.txt"},
+            {"source_file": "source/episode_1.txt"},
+            {"source_file": "source/cover.png"},
+            "source/novel.txt",
+        ],
+    )
+    def test_invalid_whole_source_file_rejected(self, tmp_path, item):
+        result = self._validate(tmp_path, whole_source_files=[item])
+        assert any("whole_source_files[0]" in e for e in result.errors)
+
+    def test_whole_source_files_must_be_an_array(self, tmp_path):
+        result = self._validate(tmp_path, whole_source_files={"source_file": "source/novel.txt"})
+        assert any("whole_source_files" in e for e in result.errors)
+
+    def test_unknown_source_origin_rejected(self, tmp_path):
+        result = self._validate(tmp_path, self._entry(source_origin="pasted"))
+        assert any("source_origin" in e for e in result.errors)
+
+    @pytest.mark.parametrize("origin", ["own", "none"])
+    def test_source_range_requires_a_cut_episode(self, tmp_path, origin):
+        result = self._validate(
+            tmp_path,
+            self._entry(source_origin=origin, source_range={"source_file": "source/novel.txt", "start": 0, "end": 1}),
+        )
+        assert any("source_range" in e for e in result.errors)
+
+    def test_unhashable_source_origin_is_reported_not_raised(self, tmp_path):
+        result = self._validate(
+            tmp_path,
+            self._entry(source_origin=["own"], source_range={"source_file": "source/novel.txt", "start": 0, "end": 1}),
+        )
+        assert any("source_origin" in e for e in result.errors)
 
     def test_legacy_status_with_source_range_tolerated(self, tmp_path):
         """遗留状态值 + 合法 source_range 不再互斥校验：位置真相只看 source_range 本身。"""
@@ -1019,12 +1052,8 @@ class TestEpisodeLedgerFields:
         result = self._validate(tmp_path, self._entry(outline={"story_beats": "不是列表"}))
         assert any("outline" in e for e in result.errors)
 
-    def test_malformed_planning_cursor_rejected(self, tmp_path):
-        result = self._validate(tmp_path, planning_cursor={"offset": -1})
-        assert any("planning_cursor" in e for e in result.errors)
-
-    def test_null_planning_cursor_is_valid(self, tmp_path):
-        result = self._validate(tmp_path, planning_cursor=None)
+    def test_empty_whole_source_files_is_valid(self, tmp_path):
+        result = self._validate(tmp_path, whole_source_files=[])
         assert result.valid, result.errors
 
     def test_tree_validation_allows_missing_script_for_ledgered_entry(self, tmp_path):
@@ -1329,10 +1358,9 @@ class TestAdEpisodeValidation:
         result = self._validate(tmp_path, [self._ad_shot()])
         assert result.valid, result.errors
 
-    def test_empty_shots_rejected(self, tmp_path):
+    def test_empty_shots_are_a_legal_empty_script(self, tmp_path):
         result = self._validate(tmp_path, [])
-        assert not result.valid
-        assert any("shots" in e for e in result.errors)
+        assert result.valid, result.errors
 
     def test_bad_shot_id_rejected(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot(shot_id="S01")])
@@ -1545,30 +1573,41 @@ class TestAdReferenceVideoUnitsValidation:
 
 
 class TestSourceKindValidation:
-    """source_kind 顶层枚举校验：缺省 novel（缺失放行），仅拦非法值；并锁泛指 speaker 回归。"""
+    """源文件类型随源文件记录：缺失按小说放行，只拦非法值；并锁泛指 speaker 回归。"""
 
     def _validate(self, tmp_path, project):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", project)
         return DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
+    def _payload(self, file_kind: object = None, episode_kind: object = None) -> dict:
+        payload = _project_payload("drama")
+        payload["whole_source_files"] = [
+            {"source_file": "source/novel.txt", **({} if file_kind is None else {"source_kind": file_kind})}
+        ]
+        payload["episodes"] = [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/episode_1.json",
+                "source_origin": "own",
+                **({} if episode_kind is None else {"source_kind": episode_kind}),
+            }
+        ]
+        return payload
+
     def test_missing_source_kind_is_valid(self, tmp_path):
-        # 存量项目无 source_kind 字段：缺省 novel，不报错
-        result = self._validate(tmp_path, _project_payload("drama"))
+        result = self._validate(tmp_path, self._payload())
         assert result.valid, result.errors
-        assert not any("source_kind" in e for e in result.errors)
 
     @pytest.mark.parametrize("kind", ["novel", "screenplay"])
     def test_valid_source_kind_passes(self, tmp_path, kind):
-        payload = _project_payload("drama")
-        payload["source_kind"] = kind
-        result = self._validate(tmp_path, payload)
+        result = self._validate(tmp_path, self._payload(kind, kind))
         assert result.valid, result.errors
 
-    def test_invalid_source_kind_rejected(self, tmp_path):
-        payload = _project_payload("drama")
-        payload["source_kind"] = "screen_play"
-        result = self._validate(tmp_path, payload)
+    @pytest.mark.parametrize(("file_kind", "episode_kind"), [("screen_play", None), (None, "screen_play")])
+    def test_invalid_source_kind_rejected(self, tmp_path, file_kind, episode_kind):
+        result = self._validate(tmp_path, self._payload(file_kind, episode_kind))
         assert not result.valid
         assert any("source_kind" in e for e in result.errors)
 
@@ -1579,8 +1618,7 @@ class TestSourceKindValidation:
         screenplay 提取出的群演台词（speaker=老人甲）须能过校验、不被强行注册。
         """
         project_dir = tmp_path / "projects" / "demo"
-        payload = _project_payload("drama")
-        payload["source_kind"] = "screenplay"
+        payload = self._payload("screenplay")
         _write_json(project_dir / "project.json", payload)
         _write_json(
             project_dir / "scripts" / "episode_1.json",

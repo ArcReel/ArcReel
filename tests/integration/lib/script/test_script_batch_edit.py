@@ -15,6 +15,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.artifact_provenance import build_ad_episode_script_basis, build_episode_script_basis
+from lib.artifacts.version_manager import VersionManager
 from lib.project.project_manager import ProjectManager
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
@@ -1066,6 +1067,16 @@ def _reference_project(tmp_path: Path, *, sources: dict[str, str]) -> tuple[Proj
     for filename, text in sources.items():
         source_dir.mkdir(parents=True, exist_ok=True)
         (source_dir / filename).write_text(text, encoding="utf-8")
+
+    def _register(project: dict) -> None:
+        # episode_1.txt 登记为第 1 集自带的原文，其余文件登记为整本源文
+        project["whole_source_files"] = [
+            {"source_file": f"source/{filename}"} for filename in sources if filename != "episode_1.txt"
+        ]
+        if "episode_1.txt" in sources:
+            project["episodes"][0]["source_origin"] = "own"
+
+    pm.update_project("demo", _register)
     return pm, ScriptBatchEditor(pm)
 
 
@@ -1299,35 +1310,13 @@ def test_blank_item_rejects_unknown_anchor_and_reference_units(tmp_path: Path) -
     ("content_mode", "items_key"),
     [("narration", "segments"), ("drama", "scenes"), ("ad", "shots")],
 )
-def test_removing_the_only_item_is_rejected_without_writes(tmp_path: Path, content_mode: str, items_key: str) -> None:
-    pm, service = _storyboard_project(tmp_path, content_mode, ["E1S01"])
-    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
-    before = script_path.read_bytes()
-
-    result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S01"}]))
-
-    assert result.success is False
-    problem = result.problems[0]
-    assert (problem.code, problem.reason, problem.operation_index, problem.unit_id) == (
-        "schema_invalid",
-        "script_collection_empty",
-        0,
-        "E1S01",
-    )
-    assert problem.locations[0].path == (items_key,)
-    assert script_path.read_bytes() == before
-
-
-def test_removing_every_item_in_one_batch_is_attributed_to_the_last_remove(tmp_path: Path) -> None:
-    pm, service = _storyboard_project(tmp_path, "ad", ["E1S01", "E1S02"])
-    script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
-    before = script_path.read_bytes()
+def test_removing_every_item_leaves_a_legal_empty_script(tmp_path: Path, content_mode: str, items_key: str) -> None:
+    pm, service = _storyboard_project(tmp_path, content_mode, ["E1S01", "E1S02"])
 
     result = service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S02"}, {"op": "remove", "id": "E1S01"}]))
 
-    assert result.success is False
-    assert (result.problems[0].reason, result.problems[0].operation_index) == ("script_collection_empty", 1)
-    assert script_path.read_bytes() == before
+    assert result.success is True
+    assert pm.load_script("demo", "episode_1.json")[items_key] == []
 
 
 def test_removing_the_only_item_and_reinserting_in_the_same_batch_is_allowed(tmp_path: Path) -> None:
@@ -1346,3 +1335,23 @@ def test_removing_the_only_item_and_reinserting_in_the_same_batch_is_allowed(tmp
 
     assert result.success is True, result.problems
     assert [item["segment_id"] for item in pm.load_script("demo", "episode_1.json")["segments"]] == ["E1S01"]
+
+
+def test_item_added_after_removing_the_last_one_starts_without_old_media_or_history(tmp_path: Path) -> None:
+    pm, service = _storyboard_project(tmp_path, "drama", ["E1S01", "E1S02"])
+    project_dir = pm.get_project_path("demo")
+    storyboard = project_dir / "storyboards" / "scene_E1S02.png"
+    storyboard.parent.mkdir(parents=True, exist_ok=True)
+    storyboard.write_bytes(b"old-image")
+    versions = VersionManager(project_dir)
+    versions.add_version("storyboards", "E1S02", "旧画面", source_file=storyboard)
+    assert service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S02"}])).success is True
+
+    item = blank_item_after(pm.load_script("demo", "episode_1.json"), None)
+    result = service.execute("demo", _command(pm, [{"op": "insert_after", "after_id": "E1S01", "item": item}]))
+
+    assert result.success is True, result.problems
+    assert item["scene_id"] == "E1S02"
+    assert pm.load_script("demo", "episode_1.json")["scenes"][1]["generated_assets"] == {}
+    assert not storyboard.exists()
+    assert VersionManager(project_dir).has_versions("storyboards", "E1S02") is False

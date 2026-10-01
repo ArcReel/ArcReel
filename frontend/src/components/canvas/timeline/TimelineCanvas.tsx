@@ -2,10 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ScriptReviewGate } from "./ScriptReviewGate";
+import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 import { ShotSplitView } from "./ShotSplitView";
+import { StoryboardBatchDialog } from "./StoryboardBatchDialog";
 import { EpisodeHeader } from "./EpisodeHeader";
+import { EmptyScriptState } from "./EmptyScriptState";
+import type { InsertShotHandler } from "./ShotStructureActions";
+import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
+import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
@@ -19,7 +25,7 @@ import type {
   DramaScene,
   AdShot,
   ProjectData,
-  ReferenceGenerationRequestOptions,
+  StoryboardBatchKind,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
@@ -38,21 +44,19 @@ interface TimelineCanvasProps {
     value?: unknown,
     scriptFile?: string,
   ) => void | Promise<void>;
-  /** 广告/短片分镜顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
-  onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
-  /** 在分镜之后新增分镜（旁白带正文），resolve 为是否成功 */
-  onInsertShot?: (afterId: string, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
+  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否移动成功 */
+  onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean>;
+  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
+  onInsertShot?: (afterId: string | null, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
   /** 移除分镜，resolve 为是否成功 */
   onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
-  onGenerateVideo?: (
-    segmentId: string,
-    scriptFile?: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => void | Promise<void>;
+  onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
+  /** 内容确认页的剧本规划档位；时长由端点固定时与 `durationOptions` 不同。 */
+  planDurationOptions?: number[];
   /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
   durationEndpointFixed?: boolean;
   videoModelUnresolved?: boolean;
@@ -93,6 +97,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     scriptFile,
     projectData,
     durationOptions,
+    planDurationOptions,
     durationEndpointFixed,
     videoModelUnresolved,
     lastFrame,
@@ -124,12 +129,17 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const showTabs = Boolean(hasDraft) && editorContentMode !== "ad";
   const defaultTab = hasScript ? "timeline" : "preprocessing";
   const [activeTab, setActiveTab] = useState<"preprocessing" | "timeline">(defaultTab);
+  const [batchKind, setBatchKind] = useState<StoryboardBatchKind | null>(null);
 
   // Auto-switch to timeline when script becomes available
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- script 就绪时自动切到 timeline tab，是 navigation 驱动的有意切换
     if (hasScript) setActiveTab("timeline");
   }, [hasScript]);
+
+  useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
+    if (showTabs) setActiveTab("preprocessing");
+  });
 
   const episodeCost = useCostStore((s) =>
     episodeScript ? s.getEpisodeCost(episodeScript.episode) : undefined,
@@ -195,6 +205,11 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     [ttsBusyIds, currentSegmentIds],
   );
 
+  // 广告/短片没有脚本规划：没有正式脚本时直接从空白开始。
+  if (projectData && !episodeScript && !hasDraft && editorContentMode === "ad" && !demoReadOnly) {
+    return <NoScriptBlankState projectName={projectName} episode={episode} className="h-full text-[13px]" />;
+  }
+
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
       <div
@@ -225,10 +240,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         onUpdatePrompt(segId, fieldOrPatch, value, scriptFile)
     : undefined;
   const handleMoveShot = onMoveShot
-    ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
+    ? (shotId: string, afterId: string | null) => onMoveShot(shotId, afterId, scriptFile)
     : undefined;
-  const handleInsertShot = onInsertShot
-    ? (afterId: string, novelText?: string) => onInsertShot(afterId, novelText, scriptFile)
+  const handleInsertShot: InsertShotHandler | undefined = onInsertShot
+    ? (afterId, novelText) => onInsertShot(afterId, novelText, scriptFile)
     : undefined;
   const handleRemoveShot = onRemoveShot
     ? (itemId: string) => onRemoveShot(itemId, scriptFile)
@@ -239,8 +254,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     ? (segId: string) => onGenerateStoryboard(segId, scriptFile)
     : undefined;
   const handleGenVid = onGenerateVideo
-    ? (segId: string, requestOptions?: ReferenceGenerationRequestOptions) =>
-        onGenerateVideo(segId, scriptFile, requestOptions)
+    ? (segId: string) => onGenerateVideo(segId, scriptFile)
     : undefined;
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)
@@ -315,10 +329,17 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
         {activeTab === "timeline" && hasScript && (
           <div className="mr-1 inline-flex items-center gap-1.5">
+            <PromptAuthoringButton
+              projectName={projectName}
+              episode={episode}
+              scope="pending"
+              className="sv-navbtn"
+            />
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled
+              disabled={demoReadOnly}
+              onClick={() => setBatchKind("storyboards")}
               title={t("batch_generate_storyboards")}
             >
               <Sparkles className="h-3 w-3" />
@@ -327,7 +348,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled
+              disabled={demoReadOnly}
+              onClick={() => setBatchKind("videos")}
               title={t("batch_generate_videos")}
             >
               <Sparkles className="h-3 w-3" />
@@ -349,6 +371,15 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         )}
       </div>
 
+      {batchKind && (
+        <StoryboardBatchDialog
+          projectName={projectName}
+          episode={episode}
+          kind={batchKind}
+          onClose={() => setBatchKind(null)}
+        />
+      )}
+
       {/* 主体 */}
       <div
         className="min-h-0 flex-1 overflow-hidden"
@@ -362,6 +393,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
               episode={episode}
               contentMode={editorContentMode}
               videoModelUnresolved={videoModelUnresolved}
+              durationOptions={planDurationOptions}
+              durationEndpointFixed={durationEndpointFixed}
+              durationWarningReason={durationWarningReason}
               onOpenTimeline={hasScript ? () => setActiveTab("timeline") : undefined}
             />
           </div>
@@ -373,8 +407,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 contentMode={editorContentMode}
                 aspectRatio={aspectRatio}
                 projectName={projectName}
+                episode={episode}
                 scriptFile={scriptFile}
-                isGridMode={false}
                 onUpdatePrompt={handleUpdatePrompt}
                 onMoveShot={handleMoveShot}
                 onInsertShot={handleInsertShot}
@@ -395,8 +429,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
               />
             </div>
           </div>
+        ) : episodeScript && contentMode === editorContentMode ? (
+          <EmptyScriptState contentMode={editorContentMode} onInsert={handleInsertShot} />
         ) : (
-          // 兜底：timeline tab 下无可编辑分镜（剧本为空列表或未知 content_mode），
+          // 兜底：timeline tab 下无可编辑分镜（未知 content_mode），
           // 或剧本回退后 tab 仍停留在 timeline——给出指引而非空白
           <div
             className="flex h-full items-center justify-center text-[13px]"

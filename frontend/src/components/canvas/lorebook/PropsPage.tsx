@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Package } from "lucide-react";
+import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
 import { GalleryToolbar } from "./GalleryToolbar";
+import { matchesSheetFilter, useAssetSheetStatus, useSheetStatusByName, type SheetStatusFilter } from "./useAssetSheetStatus";
 import { PropCard } from "./PropCard";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
@@ -31,8 +33,12 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
   const [picking, setPicking] = useState(false);
 
   useScrollTarget("prop");
+  const sheetRows = useAssetSheetStatus(projectName);
+  const sheetStatus = useSheetStatusByName(sheetRows, "prop");
+  const [sheetFilter, setSheetFilter] = useState<SheetStatusFilter>("all");
 
   const entries = Object.entries(props);
+  const shownEntries = entries.filter(([name]) => matchesSheetFilter(sheetStatus.get(name), sheetFilter));
 
   const handleImport = async (ids: string[]) => {
     try {
@@ -57,7 +63,16 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
         count={entries.length}
         onAdd={readOnly ? undefined : () => setAdding(true)}
         onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
-      />
+      >
+        <AssetSheetBatchControls
+          projectName={projectName}
+          assetType="prop"
+          rows={sheetRows}
+          filter={sheetFilter}
+          onFilterChange={setSheetFilter}
+          readOnly={readOnly}
+        />
+      </GalleryToolbar>
       <div className="px-5 py-5">
         {entries.length === 0 ? (
           <GalleryEmptyState
@@ -68,13 +83,14 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
-            {entries.map(([name, prop]) => (
+            {shownEntries.map(([name, prop]) => (
               <PropCard key={name} name={name} prop={prop} projectName={projectName}
                 onUpdate={onUpdateProp}
                 onGenerate={onGenerateProp}
                 onRestoreVersion={onRestorePropVersion}
                 onReload={onRefreshProject}
                 generating={generatingPropNames?.has(name)}
+                sheetStatus={sheetStatus.get(name)}
                 readOnly={readOnly}
               />
             ))}

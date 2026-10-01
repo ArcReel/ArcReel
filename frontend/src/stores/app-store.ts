@@ -109,10 +109,6 @@ interface AppState {
   usagePanelOpen: boolean;
   setUsagePanelOpen: (open: boolean) => void;
 
-  // Source files invalidation signal
-  sourceFilesVersion: number;
-  invalidateSourceFiles: () => void;
-
   // Grid list invalidation signal (incremented on grid_ready SSE events)
   gridsRevision: number;
   invalidateGrids: () => void;
@@ -274,9 +270,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   usagePanelOpen: false,
   setUsagePanelOpen: (open) => set({ usagePanelOpen: open }),
-
-  sourceFilesVersion: 0,
-  invalidateSourceFiles: () => set((s) => ({ sourceFilesVersion: s.sourceFilesVersion + 1 })),
 
   gridsRevision: 0,
   invalidateGrids: () => set((s) => ({ gridsRevision: s.gridsRevision + 1 })),

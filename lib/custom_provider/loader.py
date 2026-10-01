@@ -32,6 +32,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def custom_model_max_output_tokens(*, session: AsyncSession, provider_id: str, model_id: str) -> int | None:
+    """自定义供应商模型条目上登记的最大输出长度；条目不存在或未登记时 None。"""
+    row = await CustomProviderRepository(session).get_model_by_ids(parse_provider_id(provider_id), model_id)
+    return row.max_output_tokens if row is not None else None
+
+
 async def load_custom_backend(
     *,
     session: AsyncSession,

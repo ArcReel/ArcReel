@@ -170,22 +170,6 @@ def test_missing_only_reselects_a_recorded_path_the_manifest_no_longer_claims() 
     assert [state.unit_id for state in selection.skipped] == ["KEPT"]
 
 
-def test_missing_only_admits_an_override_leg_without_rechecking_the_filesystem(tmp_path: Path) -> None:
-    """另一条可复用的腿（如精确匹配的手动上传）独立成立，判定只看这条腿本身。"""
-
-    resolver = _Resolver({"A": ArtifactStatus.MISSING})
-
-    selection = select_generation_targets(
-        candidates=[_candidate("A", path="videos/gone.mp4")],
-        requested_ids=None,
-        resolver=resolver,
-        reusable_override=lambda _candidate: True,
-    )
-
-    assert selection.target_ids == ()
-    assert [state.unit_id for state in selection.skipped] == ["A"]
-
-
 def test_missing_only_does_not_recheck_the_filesystem(tmp_path: Path) -> None:
     """只信比对结论：磁盘上没有同名文件也不改变判定。"""
 
@@ -747,16 +731,18 @@ def test_every_machine_identifier_has_a_product_language_label() -> None:
 def test_every_generation_entry_point_has_a_product_language_label() -> None:
     """每个生成入口都登记了产品语言名，摘要抬头才不会回落到中性措辞。"""
     from server.media_tools import (
-        assets,
+        final_cuts,
         grid,
         image_edits,
         narration_audio,
         storyboards,
         videos,
     )
+    from server.services.admission.asset_sheet_batch import ASSET_BATCH_OPERATION
 
     operations = {
-        assets._OPERATION,
+        ASSET_BATCH_OPERATION,
+        final_cuts._OPERATION,
         grid._OPERATION,
         image_edits._OPERATION,
         narration_audio._OPERATION,

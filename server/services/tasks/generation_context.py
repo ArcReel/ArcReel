@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from lib.backends.audio_backends.base import VoiceOption
+from lib.backends.audio_backends.base import AudioCapability, VoiceOption
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.config.resolver import (
@@ -171,6 +171,18 @@ async def _get_or_create_audio_backend(
     return await _get_or_create_backend("audio", provider_name, provider_settings, resolver, default_audio_model)
 
 
+async def audio_backend_capabilities(provider_id: str, model_id: str) -> frozenset[AudioCapability]:
+    """构造（或取缓存的）指定音频 backend 并返回它声明的能力，供设置页判断配音语速是否生效。
+
+    供应商未配置或模型不可用时原样抛出构造错误。
+    """
+    from lib.db import async_session_factory
+
+    async with ConfigResolver(async_session_factory).session() as r:
+        backend = await _get_or_create_audio_backend(provider_id, {}, r, default_audio_model=model_id)
+    return frozenset(backend.capabilities)
+
+
 @dataclass(frozen=True)
 class ImageLaneRequest:
     """声明当前任务需要 image lane。``generation_type`` 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
@@ -266,7 +278,7 @@ class VideoLaneResult:
 
 @dataclass(frozen=True)
 class AudioLaneResult:
-    """audio lane 解析产物。narration voice/speed、音色目录与 backend 解析在同一 session 内交付。
+    """audio lane 解析产物。音色目录与 backend 解析在同一 session 内交付。
 
     ``voices`` 是该 backend 的音色枚举快照（值，非 backend 实例）：音色列表端点据此应答，
     合成任务据此校验请求音色，二者不必再触达 backend 对象。
@@ -275,8 +287,6 @@ class AudioLaneResult:
     provider_model: ProviderModel
     backend_name: str
     backend_model: str
-    narration_voice: str
-    narration_speed: float | None
     voices: tuple[VoiceOption, ...]
 
 
@@ -431,8 +441,6 @@ async def resolve_generation_context(
                 provider_model=resolved,
                 backend_name=audio_backend.name,
                 backend_model=audio_backend.model,
-                narration_voice=await r.resolve_narration_voice(project),
-                narration_speed=await r.resolve_narration_speed(project),
                 voices=tuple(audio_backend.list_voices()),
             )
 

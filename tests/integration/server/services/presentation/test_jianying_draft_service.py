@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 import zipfile
 from pathlib import Path
 
@@ -30,26 +28,14 @@ from lib.speech.speech_presentation import (
 )
 from server.services.presentation.jianying_draft_service import JianyingDraftService, NoCompletedSegmentsError
 from server.services.presentation.presentation_read_model import MaterializedEpisode, MaterializedPresentation
-from tests.factories import make_test_video, make_test_video_with_audio_tail
+from tests.factories import make_test_video, make_test_video_with_audio_tail, run_bundled_ffmpeg
 
 
 def make_test_audio(path: Path, *, duration_sec: float = 1.0) -> None:
-    """使用 ffmpeg 生成极短测试音频（正弦波 wav，pcm_s16le 为 ffmpeg 内置编码器）"""
+    """使用随包 ffmpeg 生成极短测试音频（正弦波 wav）"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"sine=frequency=440:duration={duration_sec}",
-            "-c:a",
-            "pcm_s16le",
-            str(path),
-        ],
-        capture_output=True,
-        check=True,
+    run_bundled_ffmpeg(
+        "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration_sec}", "-c:a", "pcm_s16le", str(path)
     )
 
 
@@ -98,7 +84,6 @@ def _result(
     audio_path: Path | None = None,
     audio_duration: float | None = None,
     provider_audio_enabled: bool = True,
-    transition: str = "cut",
 ) -> MaterializedPresentation:
     mode = SpeechMode.NARRATOR_VOICEOVER
     audio = None
@@ -115,7 +100,6 @@ def _result(
         episode=1,
         resource_type="videos",
         script_file="episode_1.json",
-        transition_to_next=transition,
         presentation=presentation,
         subtitle_artifact_path=None,
         presentation_artifact_path=None,
@@ -185,6 +169,11 @@ async def test_export_serializes_only_shared_track_gains_actual_boundaries_and_c
     )
 
     content = _read_draft_archive(archive)
+    assert [(track["type"], track["name"]) for track in content["tracks"]] == [
+        ("video", "video"),
+        ("text", "字幕"),
+        ("audio", "旁白"),
+    ]
     video_track = next(track for track in content["tracks"] if track.get("type") == "video")
     audio_track = next(track for track in content["tracks"] if track.get("type") == "audio")
     text_track = next(track for track in content["tracks"] if track.get("type") == "text")
@@ -198,10 +187,6 @@ async def test_export_serializes_only_shared_track_gains_actual_boundaries_and_c
     ]
 
 
-@pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
-    reason="ffmpeg/ffprobe not available",
-)
 async def test_export_accepts_video_track_boundary_when_container_has_a_longer_audio_tail(tmp_path: Path) -> None:
     pm, project_path = _project(tmp_path)
     video = project_path / "versions" / "videos" / "tail.mp4"
@@ -219,15 +204,15 @@ async def test_export_accepts_video_track_boundary_when_container_has_a_longer_a
     assert video_track["segments"][0]["source_timerange"] == {"start": 0, "duration": 1_000_000}
 
 
-async def test_export_uses_shared_transition_and_unity_provider_track(tmp_path: Path) -> None:
+async def test_export_hard_cuts_between_units_on_a_unity_provider_track(tmp_path: Path) -> None:
     pm, project_path = _project(tmp_path)
     first = project_path / "versions" / "videos" / "first.mp4"
     second = project_path / "versions" / "videos" / "second.mp4"
     first.parent.mkdir(parents=True)
     make_test_video(first, duration_sec=1.0)
     make_test_video(second, duration_sec=1.0)
-    one = _result(project_path, unit_id="one", video_path=first, duration=1.0, transition="fade")
-    two = _result(project_path, unit_id="two", video_path=second, duration=1.0, transition="fade")
+    one = _result(project_path, unit_id="one", video_path=first, duration=1.0)
+    two = _result(project_path, unit_id="two", video_path=second, duration=1.0)
     archive = await JianyingDraftService(pm, presentation_reader=_Reader(pm, (one, two))).export_episode_draft(
         "demo", 1, "/mock/JianyingDrafts"
     )
@@ -235,8 +220,7 @@ async def test_export_uses_shared_transition_and_unity_provider_track(tmp_path: 
     content = _read_draft_archive(archive)
     track = next(candidate for candidate in content["tracks"] if candidate.get("type") == "video")
     assert [segment["volume"] for segment in track["segments"]] == pytest.approx([1.0, 1.0])
-    transitions = content.get("materials", {}).get("transitions", [])
-    assert [transition["effect_id"] for transition in transitions] == ["321493"]
+    assert content.get("materials", {}).get("transitions", []) == []
 
 
 async def test_export_uses_reader_variant_and_packages_its_selected_media(
@@ -296,6 +280,29 @@ async def test_export_uses_reader_variant_and_packages_its_selected_media(
         raw = archive.read(info_name).decode("utf-8")
         assert "/mock/JianyingDrafts" in raw
         assert str(project_path) not in raw
+
+
+async def test_export_names_the_draft_by_broadcast_position_and_episode_title(tmp_path: Path) -> None:
+    pm, project_path = _project(tmp_path)
+    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    project["episodes"] = [
+        {"episode": 5, "title": "山门", "script_file": "scripts/episode_5.json"},
+        {"episode": 1, "title": "下山", "script_file": "scripts/episode_1.json"},
+    ]
+    (project_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    video = project_path / "videos" / "E1S01.mp4"
+    make_test_video(video, duration_sec=1.0)
+    service = JianyingDraftService(
+        pm, presentation_reader=_Reader(pm, (_result(project_path, unit_id="E1S01", video_path=video, duration=1.0),))
+    )
+
+    zip_path = await service.export_episode_draft("demo", 1, "/mock/JianyingDrafts")
+
+    assert zip_path.name == "02_下山.zip"
+    with zipfile.ZipFile(zip_path) as archive:
+        assert {name.split("/", 1)[0] for name in archive.namelist()} == {"02_下山"}
+        info_name = next(name for name in archive.namelist() if name.endswith("draft_info.json"))
+        assert "/mock/JianyingDrafts/02_下山/assets" in archive.read(info_name).decode("utf-8")
 
 
 async def test_export_empty_shared_model_raises_completed_segments_error(tmp_path: Path) -> None:
@@ -390,7 +397,6 @@ async def test_export_keeps_unverified_manual_upload_raw_without_speech_tracks(t
         episode=1,
         resource_type="videos",
         script_file="episode_1.json",
-        transition_to_next="cut",
         presentation=presentation,
         subtitle_artifact_path=None,
         presentation_artifact_path=None,

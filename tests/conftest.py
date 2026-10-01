@@ -716,3 +716,35 @@ def poll_clock():
 
     with bounded_poll_clock():
         yield
+
+
+# ---------------------------------------------------------------------------
+# Edit timeline projects (final cut and Jianying draft tests)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def timeline_project(tmp_path: Path):
+    """参考生视频模式的项目 ``demo``：第 1 集含 E1U1、E1U2 两个视频单元，尚无视频；返回其 ProjectManager。"""
+    from lib.project.project_manager import ProjectManager
+
+    manager = ProjectManager(tmp_path / "projects")
+    manager.create_project("demo")
+    manager.create_project_metadata("demo", "Demo", "Anime", "narration")
+    manager.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
+    manager.save_script(
+        "demo",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "summary": "摘要",
+            "novel": {"title": "小说", "chapter": "第一章"},
+            "video_units": [
+                {"unit_id": unit_id, "text": f"镜头 {unit_id}", "duration_seconds": 4} for unit_id in ("E1U1", "E1U2")
+            ],
+        },
+        "episode_1.json",
+    )
+    return manager

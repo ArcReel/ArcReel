@@ -35,7 +35,6 @@ def _narration_script(resource_id: str) -> dict:
                 "props": [],
                 "image_prompt": "image",
                 "video_prompt": "video",
-                "transition_to_next": "cut",
                 "generated_assets": {},
             }
         ],
@@ -54,16 +53,6 @@ def _seed_episode_resource_claims(project_dir: Path, resource_id: str):
             ),
         )
     return adapter, keys
-
-
-def _claim_asset_sheet(project_dir: Path, asset_type: str, name: str, artifact_path: str) -> None:
-    ProjectArtifactManifestAdapter(project_dir).put_entry(
-        ArtifactKey.asset_sheet(asset_type, name),
-        ArtifactManifestEntry(
-            artifact_path=artifact_path,
-            basis_digest=f"sha256-v1:{'a' * 64}",
-        ),
-    )
 
 
 class _FakeTextBackend:
@@ -206,15 +195,16 @@ class TestProjectManager:
         )
         assert project["image_provider_t2i"] == "openai/gpt-image-1"
 
-    def test_create_project_metadata_is_latest_schema_with_planning_cursor(self, tmp_path):
-        """新项目即最新 schema 形态：版本对齐迁移目标版本，planning_cursor 以 null 初始。"""
+    def test_create_project_metadata_is_latest_schema_with_empty_whole_source_files(self, tmp_path):
+        """新项目即最新 schema 形态：版本对齐迁移目标版本，整本源文清单以空列表初始。"""
         from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         project = pm.create_project_metadata("demo", "Demo", "Anime", "narration")
         assert project["schema_version"] == CURRENT_SCHEMA_VERSION
-        assert project["planning_cursor"] is None
+        assert project["whole_source_files"] == []
+        assert "planning_cursor" not in project
 
     def test_project_identifier_validation_and_empty_title(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -551,7 +541,7 @@ class TestProjectManager:
         stored = json.loads((project_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         assert stored["segments"][0]["segment_id"] == "E1S01"
         assert pm.load_project("demo")["episodes"] == [
-            {"episode": 1, "title": "Episode 1", "script_file": "scripts/episode_1.json"}
+            {"episode": 1, "source_origin": "none", "title": "Episode 1", "script_file": "scripts/episode_1.json"}
         ]
 
     @pytest.mark.parametrize(
@@ -714,19 +704,10 @@ class TestProjectManager:
         pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
         assert pm.get_scene("demo", "客厅")["scene_sheet"].endswith("客厅.png")
 
-        project_dir = pm.get_project_path("demo")
-        (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
-        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
-        assert pm.get_pending_project_scenes("demo") == []
-
         # prop lifecycle
         pm.add_props_batch("demo", {"玉佩": {"description": "古玉"}})
         pm.update_prop_sheet("demo", "玉佩", "props/玉佩.png")
         assert pm.get_prop("demo", "玉佩")["prop_sheet"].endswith("玉佩.png")
-
-        (project_dir / "props" / "玉佩.png").write_bytes(b"png")
-        _claim_asset_sheet(project_dir, "prop", "玉佩", "props/玉佩.png")
-        assert pm.get_pending_project_props("demo") == []
 
         # direct add_* return bool
         assert pm.add_character("demo", "Bob", "side", "") is True
@@ -917,17 +898,32 @@ class TestProjectManager:
             await pm.generate_overview("demo")
         assert "source_language" not in pm.load_project("demo")
 
-    @pytest.mark.parametrize("source_kind", [None, "novel", "screenplay"])
+    @pytest.mark.parametrize(
+        ("content_mode", "kinds", "expected"),
+        [
+            ("drama", ("screenplay", "screenplay"), "screenplay"),
+            ("drama", ("novel", "screenplay"), "novel"),
+            ("drama", (None, None), "novel"),
+            ("narration", ("screenplay", "screenplay"), "novel"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_generate_overview_routes_prompt_by_source_kind(self, tmp_path, monkeypatch, source_kind):
-        """overview prompt 按项目 source_kind 路由：screenplay 走「提取优先」分支，
-        novel / 缺省维持原 prompt（回归）。只断言 source_kind 被透传，不测 LLM 提取质量。"""
+    async def test_generate_overview_routes_prompt_by_source_kinds(
+        self, tmp_path, monkeypatch, content_mode, kinds, expected
+    ):
+        """剧情演绎全部源文都是剧本时 overview 走「提取优先」分支；混合、缺省或非剧情演绎按小说口径。"""
         from lib.prompts.prompt_builders_script import build_overview_prompt
 
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", source_kind=source_kind)
-        _write(pm.get_project_path("demo") / "source" / "1.txt", "源文本内容")
+        pm.create_project_metadata("demo", "Demo", content_mode=content_mode)
+        files = [
+            {"source_file": f"source/{index}.txt", **({} if kind is None else {"source_kind": kind})}
+            for index, kind in enumerate(kinds, start=1)
+        ]
+        pm.update_project("demo", lambda project: project.__setitem__("whole_source_files", files))
+        for index in range(1, len(kinds) + 1):
+            _write(pm.get_project_path("demo") / "source" / f"{index}.txt", f"源文本内容{index}")
 
         backend = _FakeTextBackend()
 
@@ -938,9 +934,8 @@ class TestProjectManager:
         await pm.generate_overview("demo")
 
         source_content = pm._read_source_files("demo")
-        expected_kind = source_kind or "novel"
         assert backend.last_request is not None
-        assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind=expected_kind)
+        assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind=expected)
 
     @pytest.mark.parametrize("dirty_source_language", [123, ["zh"], {}, "", "   "])
     @pytest.mark.asyncio
@@ -970,33 +965,6 @@ class TestProjectManager:
         assert backend.last_request.prompt == build_overview_prompt(
             source_content, source_kind="novel", target_language="中文"
         )
-
-    @pytest.mark.asyncio
-    async def test_generate_overview_legacy_project_without_source_kind_falls_back_to_novel(
-        self, tmp_path, monkeypatch
-    ):
-        """遗留 project.json 缺 source_kind 字段时退回 novel 分支（覆盖 `.get(...) or DEFAULT_SOURCE_KIND` 兜底）。"""
-        from lib.prompts.prompt_builders_script import build_overview_prompt
-
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", source_kind="screenplay")
-        # 模拟遗留项目：移除 source_kind 字段
-        pm.update_project("demo", lambda project: project.pop("source_kind", None))
-        assert "source_kind" not in pm.load_project("demo")
-        _write(pm.get_project_path("demo") / "source" / "1.txt", "源文本内容")
-
-        backend = _FakeTextBackend()
-
-        async def _fake_create_backend(*args, **kwargs):
-            return backend, "gemini-aistudio"
-
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
-        await pm.generate_overview("demo")
-
-        source_content = pm._read_source_files("demo")
-        assert backend.last_request is not None
-        assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind="novel")
 
 
 class TestForProjectDir:
@@ -1115,67 +1083,6 @@ class TestScenePropLifecycle:
         assert "玉佩" in project["props"]
         assert project["props"]["玉佩"]["description"] == "一块古玉"
         assert project["props"]["玉佩"]["prop_sheet"] == ""
-
-    def test_get_pending_scenes_lists_without_sheet(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo")
-        pm.add_project_scene("demo", "客厅", "宽敞的客厅")
-        pm.add_project_scene("demo", "书房", "安静的书房")
-
-        # 无 scene_sheet 时全部 pending
-        pending = pm.get_pending_project_scenes("demo")
-        assert len(pending) == 2
-        assert any(s["name"] == "客厅" for s in pending)
-
-        # 设置 sheet 但文件不存在 → 依然 pending
-        pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
-        pending2 = pm.get_pending_project_scenes("demo")
-        assert len(pending2) == 2
-
-        # 文件与正式 claim 都存在 → 不再 pending
-        project_dir = pm.get_project_path("demo")
-        (project_dir / "scenes" / "客厅.png").parent.mkdir(parents=True, exist_ok=True)
-        (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
-        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
-        pending3 = pm.get_pending_project_scenes("demo")
-        assert len(pending3) == 1
-        assert pending3[0]["name"] == "书房"
-
-    def test_get_pending_scenes_requires_a_manifest_claim_when_active(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        project_dir = pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo")
-        pm.add_project_scene("demo", "客厅", "宽敞的客厅")
-        pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
-        (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
-
-        assert [item["name"] for item in pm.get_pending_project_scenes("demo")] == ["客厅"]
-
-        _claim_asset_sheet(project_dir, "scene", "客厅", "scenes/客厅.png")
-
-        assert pm.get_pending_project_scenes("demo") == []
-
-    def test_get_pending_props_lists_without_sheet(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo")
-        pm.add_prop("demo", "玉佩", "古玉")
-        pm.add_prop("demo", "宝剑", "利剑")
-
-        # 无 prop_sheet 时全部 pending
-        pending = pm.get_pending_project_props("demo")
-        assert len(pending) == 2
-
-        # 文件与正式 claim 都存在 → 不再 pending
-        pm.update_prop_sheet("demo", "玉佩", "props/玉佩.png")
-        project_dir = pm.get_project_path("demo")
-        (project_dir / "props" / "玉佩.png").parent.mkdir(parents=True, exist_ok=True)
-        (project_dir / "props" / "玉佩.png").write_bytes(b"png")
-        _claim_asset_sheet(project_dir, "prop", "玉佩", "props/玉佩.png")
-        pending2 = pm.get_pending_project_props("demo")
-        assert len(pending2) == 1
-        assert pending2[0]["name"] == "宝剑"
 
     def test_add_scenes_batch_skips_existing(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

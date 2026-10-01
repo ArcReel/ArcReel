@@ -1,7 +1,11 @@
 """Tests for projects_creation_fields."""
 
+import asyncio
+
 import pytest
 
+from lib.config.service import ConfigService
+from server.routers import projects
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     build_projects_client,
@@ -320,3 +324,55 @@ class TestProjectsRouter:
             )
             assert enabled.status_code == 200
             assert enabled.json()["project"]["grid_storyboard"] is True
+
+
+class TestProjectCreationNarrationDelivery:
+    """旁白交付方式是必填的项目配置：缺省后期配音，TTS 配音以全局默认预填快照。"""
+
+    def _create(self, client, **fields):
+        return client.post(
+            "/api/v1/projects",
+            json={"generation_mode": "storyboard", "title": "旁白", "name": "n-1", **fields},
+        )
+
+    def test_defaults_to_post_production(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        with build_projects_client(monkeypatch, fake_pm) as client:
+            assert self._create(client).status_code == 200
+        data = fake_pm.project_data["n-1"]
+        assert data["narration_delivery"] == "post_production"
+        assert "audio_backend" not in data
+
+    def test_tts_prefills_snapshot_from_global_defaults(self, tmp_path, monkeypatch, db_factory):
+        async def _seed():
+            async with db_factory() as session:
+                svc = ConfigService(session)
+                await svc.set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
+                await svc.set_setting("narration_voice", "Ethan")
+                await svc.set_setting("narration_speed", "1.1")
+                await session.commit()
+
+        asyncio.run(_seed())
+        monkeypatch.setattr(projects, "async_session_factory", db_factory)
+        fake_pm = _FakePM(tmp_path)
+        with build_projects_client(monkeypatch, fake_pm) as client:
+            resp = self._create(client, narration_delivery="use_tts", narration_voice="Cherry")
+            assert resp.status_code == 200
+        data = fake_pm.project_data["n-1"]
+        assert data["narration_delivery"] == "use_tts"
+        assert data["audio_backend"] == "dashscope/qwen3-tts-flash"
+        assert data["narration_voice"] == "Cherry"
+        assert data["narration_speed"] == 1.1
+
+    def test_tts_without_model_is_rejected(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        with build_projects_client(monkeypatch, fake_pm) as client:
+            resp = self._create(
+                client,
+                narration_delivery="use_tts",
+                audio_backend=None,
+                narration_voice="Cherry",
+                narration_speed=None,
+            )
+            assert resp.status_code == 422
+        assert "n-1" not in fake_pm.project_data

@@ -27,6 +27,7 @@ from lib.generation.generation_batch import (
     build_generation_batch_read_model,
     validate_blocked_items,
 )
+from lib.generation.render_lane import RENDER_MEDIA_TYPE, RENDER_PROVIDER_ID, is_render_task_type
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES, emit_task_terminal_events
 from lib.infra.async_thread import run_noninterruptible_async
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
@@ -43,10 +44,6 @@ logger = logging.getLogger(__name__)
 
 _VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
 _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
-_NARRATION_REQUEST_KEY_BY_TASK_TYPE = {
-    "video": "narration_delivery_options",
-    "reference_video": "reference_request_options",
-}
 
 
 #: 旧版本入队的文本任务在载荷里带着入队时的数据根；执行按当前配置解析，判同也不计它。
@@ -64,6 +61,11 @@ def _text_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[
     return text_task_request_facts(payload)
 
 
+def _render_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """渲染任务的整个载荷就是请求（剪辑时间线、修订与版本）；同一产物身份不同请求不去重。"""
+    return dict(payload or {}) if is_render_task_type(task_type) else None
+
+
 class ActiveTaskRequestConflict(RuntimeError):
     """An active video task owns the resource with different request facts."""
 
@@ -71,8 +73,7 @@ class ActiveTaskRequestConflict(RuntimeError):
         self.resource_id = resource_id
         self.existing_task_id = existing_task_id
         super().__init__(
-            f"resource '{resource_id}' already has active task '{existing_task_id}' "
-            "with a different narration delivery request"
+            f"resource '{resource_id}' already has active task '{existing_task_id}' with different request options"
         )
 
 
@@ -102,14 +103,13 @@ async def cleanup_fresh_generation_batch(
         failure.add_note(f"fresh batch cleanup also failed: {cleanup_failure}")
 
 
-def _narration_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
-    key = _NARRATION_REQUEST_KEY_BY_TASK_TYPE.get(task_type)
-    if key is None:
+def _reference_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
+    if task_type != "reference_video":
         return None
 
-    from lib.speech.narration_delivery import NarrationDeliveryRequestOptions
+    from lib.script.reference_video.request_projection import ReferenceRequestOptions
 
-    return NarrationDeliveryRequestOptions.from_payload(payload or {}, key=key).to_payload()
+    return ReferenceRequestOptions.from_payload(payload or {}).to_payload()
 
 
 class DispatchProviderChanged(RuntimeError):
@@ -215,8 +215,6 @@ async def reference_projection_for_queued_task(
             unit=unit,
             project_path=project_path,
             # Claim/rate-limit routing only needs the hydrated visual generation type.
-            # Narration currency belongs to Web/Agent/worker projections, whose
-            # server adapter can assemble the effective audio backend identity.
             options=ReferenceRequestOptions(),
         )
     except Exception:
@@ -281,6 +279,10 @@ async def _derive_execution_model_for_enqueue(
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
+    if media_type == RENDER_MEDIA_TYPE:
+        from lib.config.resolver import ProviderModel
+
+        return ProviderModel(RENDER_PROVIDER_ID, ""), None
     is_text = media_type == "text"
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
@@ -418,15 +420,21 @@ class GenerationQueue:
                 # Video provider/model is only an advisory claim projection until the worker materializes the
                 # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.
 
-        requested_facts = _narration_request_facts(task_type, payload)
+        requested_facts = _reference_request_facts(task_type, payload)
         text_request_facts = _text_request_facts(task_type, payload)
+        render_request_facts = _render_request_facts(task_type, payload)
 
         def _guard_deduped(existing_payload: dict[str, Any], existing_task_id: str) -> None:
-            if requested_facts is not None and _narration_request_facts(task_type, existing_payload) != requested_facts:
+            if requested_facts is not None and _reference_request_facts(task_type, existing_payload) != requested_facts:
                 raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
             if (
                 text_request_facts is not None
                 and _text_request_facts(task_type, existing_payload) != text_request_facts
+            ):
+                raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
+            if (
+                render_request_facts is not None
+                and _render_request_facts(task_type, existing_payload) != render_request_facts
             ):
                 raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
 
@@ -701,15 +709,16 @@ class GenerationQueue:
             return await repo.get_cancel_preview(task_id)
 
     async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
+        """取消项目里排队中的生成任务。本地渲染任务不在用量面板列出，也不随批量取消。"""
         async with self._task_repo() as repo:
-            result = await repo.cancel_all_queued(project_name)
+            result = await repo.cancel_all_queued(project_name, exclude_media_types=(RENDER_MEDIA_TYPE,))
         if result["cancelled_count"] > 0:
             logger.info("批量取消 project=%s 共取消 %d 个", project_name, result["cancelled_count"])
         return result
 
     async def get_cancel_all_preview(self, project_name: str) -> int:
         async with self._task_repo() as repo:
-            return await repo.get_cancel_all_preview(project_name)
+            return await repo.get_cancel_all_preview(project_name, exclude_media_types=(RENDER_MEDIA_TYPE,))
 
     async def get_task(self, task_id: str) -> dict[str, Any] | None:
 

@@ -23,9 +23,15 @@ from lib.agent.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MOD
 from lib.episode.episode_ledger import (
     LEDGER_STATUSES,
     EpisodeOutline,
-    PlanningCursor,
     SourceRange,
     parse_positive_episode_num,
+)
+from lib.episode.episode_sources import (
+    SOURCE_ORIGIN_FIELD,
+    SOURCE_ORIGINS,
+    WHOLE_SOURCE_FILES_KEY,
+    SourceOrigin,
+    is_whole_source_file_path,
 )
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
@@ -33,6 +39,7 @@ from lib.episode.episode_target_duration import (
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
+from lib.episode.source_kinds import SOURCE_KIND_FIELD, SOURCE_KINDS, is_source_kind
 from lib.infra.json_io import load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.validation_messages import ValidationResult
@@ -43,7 +50,6 @@ from lib.project.asset_types import (
     project_asset_name_conflicts,
 )
 from lib.project.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
-from lib.project.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.script.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
@@ -137,15 +143,19 @@ def _is_parseable_iso_timestamp(value: str) -> bool:
     return True
 
 
+def _validate_source_kind(item: Mapping[str, Any], prefix: str, errors: list[ValidationMessage]) -> None:
+    """源文件类型可缺失（按小说读），只拦截非法值（如 ``screen_play``）。"""
+    value = item.get(SOURCE_KIND_FIELD)
+    if value is not None and not is_source_kind(value):
+        errors.append(_m("val_source_kind_invalid", prefix=prefix, value=value, allowed=", ".join(SOURCE_KINDS)))
+
+
 class DataValidator:
     """数据验证器"""
 
     # content_mode 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
     # 合法集真相源在 lib.agent.profile_manifest，避免两处枚举漂移。
     VALID_CONTENT_MODES: ClassVar[set[str]] = set(_VALID_CONTENT_MODES)
-    # 源文件性质（novel / screenplay）合法集，真相源在 lib.project.project_manager（创建写入方），
-    # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
-    VALID_SOURCE_KINDS: ClassVar[set[str]] = set(_VALID_SOURCE_KINDS)
     # 生成模式合法集（storyboard / reference_video），真相源在 lib.project.project_manager（创建写入方），
     # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
     VALID_GENERATION_MODES: ClassVar[set[str]] = set(_VALID_GENERATION_MODES)
@@ -163,6 +173,7 @@ class DataValidator:
         "source",
         "scripts",
         "drafts",
+        "edit_timelines",
         "characters",
         "scenes",
         "props",
@@ -178,6 +189,7 @@ class DataValidator:
         "output",
         "versions",
         "grids",
+        "renders",
     }
 
     def __init__(self, projects_dir: str | Path | None = None):
@@ -304,7 +316,22 @@ class DataValidator:
             # 容忍放行、只留排查线索：分不清是存量遗留值还是手编拼写错误，不拿它判项目损坏
             logger.debug("%s: ledger_status 取值 %r 不在当前状态集内，按无状态处理", prefix, ledger_status)
 
+        source_origin = episode.get(SOURCE_ORIGIN_FIELD)
+        if source_origin is not None and source_origin not in SOURCE_ORIGINS:
+            errors.append(
+                _m(
+                    "val_source_origin_invalid",
+                    prefix=prefix,
+                    value=source_origin,
+                    allowed=", ".join(SOURCE_ORIGINS),
+                )
+            )
+
+        _validate_source_kind(episode, prefix, errors)
+
         source_range = episode.get("source_range")
+        if source_range is not None and source_origin in (SourceOrigin.OWN.value, SourceOrigin.NONE.value):
+            errors.append(_m("val_source_range_requires_whole_source", prefix=prefix))
         if source_range is not None:
             try:
                 SourceRange.model_validate(source_range)
@@ -387,11 +414,6 @@ class DataValidator:
             errors.append(
                 _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
             )
-
-        # source_kind 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
-        source_kind = project.get("source_kind")
-        if source_kind is not None and (not isinstance(source_kind, str) or source_kind not in self.VALID_SOURCE_KINDS):
-            errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
 
         # 生成模式必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
         generation_mode = project.get("generation_mode")
@@ -481,12 +503,16 @@ class DataValidator:
 
                 self._validate_episode_ledger_fields(episode, prefix, errors)
 
-        planning_cursor = project.get("planning_cursor")
-        if planning_cursor is not None:
-            try:
-                PlanningCursor.model_validate(planning_cursor)
-            except ValidationError as exc:
-                errors.append(_m("val_field_invalid", field="planning_cursor", detail=_pydantic_error_summary(exc)))
+        whole_source = project.get(WHOLE_SOURCE_FILES_KEY)
+        if whole_source is not None:
+            if not isinstance(whole_source, list):
+                errors.append(_m("val_field_must_be_array", field=WHOLE_SOURCE_FILES_KEY))
+            else:
+                for index, item in enumerate(whole_source):
+                    if not isinstance(item, dict) or not is_whole_source_file_path(item.get("source_file")):
+                        errors.append(_m("val_whole_source_file_invalid", index=index))
+                    else:
+                        _validate_source_kind(item, f"{WHOLE_SOURCE_FILES_KEY}[{index}]", errors)
 
         for first, duplicate in project_asset_name_conflicts(project):
             errors.append(
@@ -558,6 +584,9 @@ class DataValidator:
                             value=repr(voice_updated_at),
                         )
                     )
+                self._validate_asset_list_fields(
+                    char_data, char_spec.extra_list_fields, _asset("character"), char_name, errors
+                )
                 if char_spec.supports_derivatives:
                     self._validate_derivatives(char_data, "character", char_name, errors)
 
@@ -635,6 +664,45 @@ class DataValidator:
                         )
                     )
 
+    @staticmethod
+    def _validate_asset_list_fields(
+        data: dict,
+        list_fields: tuple[str, ...],
+        kind: MessageRef,
+        name: str,
+        errors: list[ValidationMessage],
+    ) -> None:
+        for field_name in list_fields:
+            # spec 声明的 extra_list_fields（aliases / reference_images / selling_points 等）若存在
+            # 须为字符串列表：下游把元素当路径拼接 / 当文本注入 prompt，混入非 str 会
+            # 运行时崩。None 视为「未设置」放行，其余类型 fail-loud。
+            val = data.get(field_name)
+            if val is None:
+                continue
+            if not isinstance(val, list):
+                errors.append(
+                    _m(
+                        "val_asset_field_must_be_string_list",
+                        asset_type=kind,
+                        name=name,
+                        field=field_name,
+                        actual=type(val).__name__,
+                    )
+                )
+                continue
+            for idx, item in enumerate(val):
+                if not isinstance(item, str):
+                    errors.append(
+                        _m(
+                            "val_asset_field_item_must_be_string",
+                            asset_type=kind,
+                            name=name,
+                            field=field_name,
+                            index=idx,
+                            actual=type(item).__name__,
+                        )
+                    )
+
     def _validate_project_catalog(
         self,
         catalog: Any,
@@ -669,36 +737,7 @@ class DataValidator:
                             actual=type(val).__name__,
                         )
                     )
-            for field_name in extra_list_fields:
-                # spec 声明的 extra_list_fields（reference_images / selling_points 等）若存在
-                # 须为字符串列表：下游把元素当路径拼接 / 当文本注入 prompt，混入非 str 会
-                # 运行时崩。None 视为「未设置」放行，其余类型 fail-loud。
-                val = data.get(field_name)
-                if val is None:
-                    continue
-                if not isinstance(val, list):
-                    errors.append(
-                        _m(
-                            "val_asset_field_must_be_string_list",
-                            asset_type=kind,
-                            name=name,
-                            field=field_name,
-                            actual=type(val).__name__,
-                        )
-                    )
-                    continue
-                for idx, item in enumerate(val):
-                    if not isinstance(item, str):
-                        errors.append(
-                            _m(
-                                "val_asset_field_item_must_be_string",
-                                asset_type=kind,
-                                name=name,
-                                field=field_name,
-                                index=idx,
-                                actual=type(item).__name__,
-                            )
-                        )
+            self._validate_asset_list_fields(data, extra_list_fields, kind, name, errors)
 
     def _unregistered_refs(self, refs: list[Any], registered: Container[str]) -> list[Any]:
         """按 ``lib.project.asset_types`` 的比对坐标系（NFC）挑出未登记的资产引用。
@@ -874,9 +913,6 @@ class DataValidator:
         if not isinstance(segments, list):
             errors.append(_m("val_field_must_be_array", field="segments"))
             return
-        if not segments:
-            errors.append(_m("val_array_empty", field="segments"))
-            return
 
         for index, segment in enumerate(segments):
             prefix = f"segments[{index}]"
@@ -963,9 +999,6 @@ class DataValidator:
         """
         if not isinstance(scenes, list):
             errors.append(_m("val_field_must_be_array", field="scenes"))
-            return
-        if not scenes:
-            errors.append(_m("val_array_empty", field="scenes"))
             return
 
         for index, scene in enumerate(scenes):
@@ -1146,7 +1179,7 @@ class DataValidator:
         资产引用一律按 NFC 归一比对（见 ``_validate_segment_refs``），与两条生成路径的
         各收集器同口径。
         """
-        if not isinstance(shots, list) or not shots:
+        if not isinstance(shots, list):
             errors.append(_m("val_ad_shots_missing"))
             return
 
@@ -1284,7 +1317,7 @@ class DataValidator:
         project_dir: Path | None = None,
     ) -> None:
         """验证 video_units（参考生视频）"""
-        if not isinstance(video_units, list) or not video_units:
+        if not isinstance(video_units, list):
             errors.append(_m("val_video_units_missing"))
             return
 

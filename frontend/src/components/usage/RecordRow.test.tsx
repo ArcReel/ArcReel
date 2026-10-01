@@ -22,13 +22,43 @@ describe("RecordRow compact layout", () => {
     );
 
     const row = screen.getByRole("button");
-    expect(row).toHaveTextContent("分镜 E1S10");
+    expect(row).toHaveTextContent("分镜 未命名集 · S10");
     expect(row).toHaveTextContent("Google · imagen-4");
     // 项目名不占位置：悬浮层里整栏都属于同一个项目。
     expect(row).not.toHaveTextContent("星海列车");
 
     await userEvent.click(row);
     expect(onOpenDetail).toHaveBeenCalledWith(42);
+  });
+
+  it("names the target by episode title or position and the in-episode id", () => {
+    const { rerender } = render(
+      <RecordRow
+        record={usageRecordToView(
+          makeUsageRecord({
+            segment_id: "E7S02",
+            segment_ref: { episode_title: "山门", episode_position: 1, item_id: "S02" },
+          }),
+        )}
+        layout="compact"
+        providerLabel={providerLabel}
+      />,
+    );
+    expect(screen.getByText("分镜 山门 · S02")).toBeInTheDocument();
+
+    rerender(
+      <RecordRow
+        record={usageRecordToView(
+          makeUsageRecord({
+            segment_id: "E3U01",
+            segment_ref: { episode_title: "", episode_position: 2, item_id: "U01" },
+          }),
+        )}
+        layout="compact"
+        providerLabel={providerLabel}
+      />,
+    );
+    expect(screen.getByText("分镜 第 2 集 · U01")).toBeInTheDocument();
   });
 
   it("puts a trailing action beside the row instead of nesting it in the button", async () => {

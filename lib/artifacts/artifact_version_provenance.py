@@ -13,12 +13,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
 from lib.artifacts.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE
 from lib.project.asset_types import ASSET_SPECS, normalize_asset_name
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
+from lib.script.reference_video.execution_checkpoint import CURRENCY_CHECKPOINT_SCHEMA_VERSIONS
 from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
+from lib.speech.speech_artifact_provenance import build_video_duration_basis
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +39,8 @@ _VIDEO_VISUAL_KINDS = {
 }
 
 IMAGE_ARTIFACT_BASIS_FIELD = "artifact_image_basis"
+# 迁移后的时效基准与实际付费档位分离；执行事实与请求摘要保持原样。
+VIDEO_CURRENCY_DURATION_FIELD = "artifact_video_currency_duration_seconds"
 # 版本记录里的图像产物 → 资产类型。衍生资产图与本体共用 asset-sheet 依据种类，
 # 只是 resource_id 写作 ``本体名/衍生名``。
 _IMAGE_ASSET_TYPES = {
@@ -81,6 +85,23 @@ def parse_typed_media_version_target(
         facts = _validated_video_facts(record, visual_kind=_VIDEO_VISUAL_KINDS[resource_type])
         episode = facts.episode
         basis = facts.video_descriptor
+        if VIDEO_CURRENCY_DURATION_FIELD in record:
+            duration = record[VIDEO_CURRENCY_DURATION_FIELD]
+            if (
+                type(duration) is not int
+                or duration not in facts.duration_tiers
+                or duration > facts.request_duration_seconds
+            ):
+                raise ValueError(
+                    "video currency duration must be an execution-frozen tier no higher than the paid tier"
+                )
+            basis = ArtifactBasisDescriptor.from_basis(
+                compose_video_artifact_basis(
+                    visual=facts.visual_basis,
+                    speech=facts.speech_basis,
+                    duration=build_video_duration_basis(duration),
+                )
+            )
 
     created_at = record.get("created_at")
     return TypedMediaVersionTarget(
@@ -216,7 +237,7 @@ def _validated_video_facts(
     request_digest = record.get("execution_request_digest")
     if (
         type(schema_version) is not int
-        or schema_version != 3
+        or schema_version not in CURRENCY_CHECKPOINT_SCHEMA_VERSIONS
         or type(duration_seconds) is not int
         or not isinstance(request_digest, str)
         or len(request_digest) != 64
@@ -233,6 +254,7 @@ def _validated_video_facts(
 
 __all__ = [
     "IMAGE_ARTIFACT_BASIS_FIELD",
+    "VIDEO_CURRENCY_DURATION_FIELD",
     "TypedMediaVersionTarget",
     "is_typed_media_resource",
     "parse_image_version_basis",

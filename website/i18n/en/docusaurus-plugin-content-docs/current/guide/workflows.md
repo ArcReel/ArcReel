@@ -133,9 +133,9 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["Novel / Screenplay"] --> B["Character, Scene & Prop Extraction"]
-    B --> C["Episode Planning"]
-    C --> D["Structured Script"]
+    A["Novel / Screenplay"] --> B["Episode Planning"]
+    B --> C["Structured Script & New Assets"]
+    C --> D["Content Review & Asset Registration"]
     D --> E["Character / Scene Assets"]
     E --> F["Storyboards"]
     F --> G["Video"]
@@ -226,6 +226,12 @@ Image generation takes two steps:
 
 Multi-grid storyboards automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple multi-grid storyboards according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a multi-grid storyboard contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
 
+Groups are set by chapter breaks: turn on **Set as chapter break** in the shot details, and a new group starts at that shot. Adding, removing, and reordering shots on the timeline, as well as chapter breaks, work the same way in grid projects.
+
+After the grouping or the order within a group changes, the old multi-grid storyboard no longer matches the new group, so the group shows as not generated and needs to be regenerated. Storyboard images already split from a multi-grid storyboard are not affected and remain usable.
+
+When a few shots in a group are missing storyboard images, you can generate them one by one from the shot details instead of regenerating the whole group.
+
 #### Advantages {#grid-storyboard-pros}
 
 - Characters, scenes, and visual style are easier to keep consistent within the same multi-grid storyboard;
@@ -307,8 +313,18 @@ Confirm:
 - The sequence of plot points or selling points;
 - Episode boundaries;
 - The purpose of each shot;
-- The scope of characters, scenes, and props;
+- Characters, scenes, and props that first appear in each episode, and how the AI proposes to handle them;
 - Content that must not be rewritten.
+
+When the AI plans the script for each episode, it compares the characters, scenes, and props in the episode with the names, aliases, and descriptions of registered assets. Unregistered assets are listed in the **New assets in this episode** section of the content review page, each with the AI's proposed handling and reason: register as new asset, merge into existing asset, register as derivative, or do not register. You can change any item before confirming. When you confirm, these assets are registered together with the final script. Aliases on asset cards help the AI recognize other names for the same asset.
+
+Before confirming, you can edit every field of each shot on the content review page, including duration, character / scene / prop references, the chapter break point, source text, lines, and speakers. Reference-to-video shots have no reference lists or chapter break points; asset references are written as `@[name]` in the shot text.
+
+- Pick the duration from the tiers of the current video model. A duration outside the tiers is marked in red with the reason, and you must pick another one before confirming.
+- References can use registered assets, and new assets in this episode whose handling is not **do not register**.
+- Pick a speaker from registered characters and new characters in this episode, or type another name, such as an extra who has no bound voice.
+
+If the references still contain a name that is neither registered nor a new asset registered in this episode, the confirmation is rejected and the affected shots and names are listed. Add, remove, and reorder shots on the timeline after confirming.
 
 ### Stage 3: Reference Assets {#stage-reference-assets}
 
@@ -373,7 +389,7 @@ ArcReel's advantage is not “skipping review,” but placing review where the c
 
 | Review Point | What to Do When It Fails | What Not to Do |
 |---|---|---|
-| Content analysis | Correct the characters, scenes, props, and episode plan | Continue generating all character images |
+| Content review | Correct the episode plan, shot content, and handling of new assets | Continue generating all character images |
 | Character assets | Redo the character design or description | Batch-generate storyboards with an incorrect character |
 | Small storyboard sample | Correct composition and style | Generate the entire episode's videos immediately |
 | Small video sample | Adjust the model, parameters, and action descriptions | Repeatedly test expensive models without a plan |

@@ -34,6 +34,7 @@ SELF_AUTH_OPERATIONS = frozenset(
     {
         "GET /api/v1/projects/{name}/export",
         "GET /api/v1/projects/{name}/export/jianying-draft",
+        "GET /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download",
     }
 )
 
@@ -220,6 +221,8 @@ def test_trial_artifact_accepts_bearer_token(auth_coverage_client):
     [
         "/api/v1/projects/demo/export?download_token=not-a-valid-token",
         "/api/v1/projects/demo/export/jianying-draft?download_token=not-a-valid-token&episode=1&draft_path=/tmp/d",
+        "/api/v1/projects/demo/edit-timelines/tl-00000000/jianying-draft/download"
+        "?download_token=not-a-valid-token&variant=use_tts&draft_path=/tmp/d",
     ],
 )
 def test_export_endpoints_reject_forged_token(auth_coverage_client, path):

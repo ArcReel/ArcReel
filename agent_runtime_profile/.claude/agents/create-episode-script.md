@@ -1,6 +1,6 @@
 ---
 name: create-episode-script
-description: "单集 JSON 剧本生成子智能体。使用场景：(1) 内容确认后正式脚本 scripts/episode_N.json 已存在，需要为待编写条目编写提示词，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和集数，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
+description: "单集 JSON 剧本生成子智能体。使用场景：(1) 内容确认后正式脚本 scripts/episode_N.json 已存在，需要为待编写条目编写提示词，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和目标集的集 ID，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
 skills:
   - generate-script
 ---
@@ -11,7 +11,8 @@ skills:
 
 **输入**：主 Agent 会在 prompt 中提供：
 - 项目名称（如 `my_project`）
-- 集数（如 `1`）
+- 目标集的集 ID（下文记作 N，如 `7`；取自计划 `target.episode`，是内部标识，不是第几集）
+- 目标集的标题与播出位置（仅用于回报摘要）
 
 **输出**：生成 `scripts/episode_{N}.json` 后，返回生成结果摘要
 
@@ -39,21 +40,21 @@ skills:
 ### Step 2: 调用工具生成 JSON 剧本
 
 ```text
-mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加指令原文，可选，无则省略>"})
+mcp__arcreel__generate_episode_script({"episode_id": N, "instructions": "<附加指令原文，可选，无则省略>"})
 ```
 
 等待返回。返回 `is_error: true` 时查看错误信息并尝试修复或报告问题。
 
-若错误为 **草稿待处置**，按错误报告的 `doc_type` 调 `open_draft`，取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告修复。修复后以同一 `episode` / `doc_type`，并将 `open_draft` 返回的 `revision` 作为 `base_revision` 调 `patch_draft`，再把 `patch_draft` 返回的新 `revision` 作为 `base_revision` 调用 `promote_draft`。返回违约报告则继续 open → patch → promote，无轮次上限。不要用 Read/Edit 直接操作草稿文件，也不要重跑生成工具重抽。
+若错误为 **草稿待处置**，按错误报告的 `doc_type` 调 `open_draft`，取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告修复。修复后以同一 `episode_id` / `doc_type`，并将 `open_draft` 返回的 `revision` 作为 `base_revision` 调 `patch_draft`，再把 `patch_draft` 返回的新 `revision` 作为 `base_revision` 调用 `promote_draft`。返回违约报告则继续 open → patch → promote，无轮次上限。不要用 Read/Edit 直接操作草稿文件，也不要重跑生成工具重抽。
 
-若错误为 **尚无正式脚本**（drama / narration / reference_video 的本集脚本规划尚未经内容确认，确认才生成正式脚本；ad 无脚本规划，不会遇到本错误），这不是数据错误：不要反复重试、不要改写脚本规划。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
+若错误为 **尚无正式脚本**（drama / narration / reference_video 的本集脚本规划尚未经内容确认，确认才生成正式脚本；ad 无脚本规划，不会遇到本错误），这不是数据错误：不要反复重试、不要改写脚本规划。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode_id": N})`，确认后再重试本步骤。
 
 ### Step 3: 验证生成结果
 
 使用 Read 工具读取生成的 `scripts/episode_{N}.json`，
 确认：
 - 文件存在且为有效 JSON
-- 包含 episode、content_mode 字段
+- 包含 episode（等于集 ID N）、content_mode 字段
 - 参考生视频：video_units 数组不为空
 - storyboard + narration：segments 数组不为空
 - storyboard + drama：scenes 数组不为空
@@ -64,7 +65,7 @@ mcp__arcreel__generate_episode_script({"episode": {N}, "instructions": "<附加�
 ## JSON 剧本生成完成
 
 **状态**: DONE
-**项目**: {项目名}  **第 N 集**
+**项目**: {项目名}  **集**: 《{标题}》（第 {播出位置} 集，集 ID N）
 
 | 统计项 | 数值 |
 |--------|------|

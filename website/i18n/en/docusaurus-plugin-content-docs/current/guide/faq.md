@@ -215,7 +215,7 @@ Usually a prerequisite review or asset is incomplete:
 4. In Reference-to-video mode, verify that referenced assets in Narration/Commentary and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
 5. Expand the task panel and check for tasks that are still queued, running, or failed.
 
-Do not judge completion solely from the phase number in the header. Assets in the sidebar, episode status, and task errors provide more specific information about what is missing.
+The status bar in the header shows only how many episodes are completed and the project's next step; open the episode count to see the next step for each episode. For what exactly is missing, check the assets in the sidebar, "Production status" on the episode page, and task errors.
 
 ### What should I do when a task is queued, running, failed, canceled, or interrupted by a service restart? {#task-states}
 
@@ -258,7 +258,7 @@ A scene design is different from a story-specific storyboard image: the scene de
 
 ### Does ArcReel support voice-over? {#voice-over-support}
 
-The Web UI currently offers standalone voice-over TTS only for Narration/Commentary. You can preview or generate voice-over segment by segment or for a full episode, then include it in a Jianying draft export. Configure the speech provider, voice, and speed globally or per project; some models do not support speed control.
+The Web UI currently offers standalone voice-over TTS only for Narration/Commentary. You can preview or generate voice-over segment by segment or for a full episode, then include it in a Jianying draft export. Narration delivery is a project setting. With "TTS narration" the project keeps its own TTS model, voice and speed, prefilled from the global defaults at creation; later changes to the global defaults do not affect existing projects. With "post-production voiceover" ArcReel does not generate narration audio and you add the voiceover during editing. You can switch delivery in the project settings at any time without making existing content outdated. Some models do not support speed control; the speed input is then unavailable.
 
 Built-in speech from the video model, character reference audio, and voice-over TTS are three separate capabilities. By default, character voices are bound by prompt constraint: each character's voice description is written into the prompt and the video model voices it accordingly, so the voice may vary slightly between clips. To have the video model reuse a character's actual voice, set "Character voice binding" to "Reference audio" in project settings and make sure the project uses Reference-to-video mode, the selected video model supports reference audio, and every speaking character has reference audio configured. Storyboard (image-to-video) mode does not support reference audio.
 

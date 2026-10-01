@@ -30,41 +30,33 @@ interface GridMatchRecord {
 }
 
 /**
- * 后端会把超过 layout.cell_count 的 group 拆成多个 chunk,
- * 每条 grid 记录的 scene_ids 是 group 的子集。匹配时按子集判断,
- * 再按 created_at 降序贪心覆盖:只保留贡献新 scene_id 的 grid,
- * 过滤掉被新生成覆盖的旧 chunk(用户调整 segment_break 后未重新生成时,
- * 旧 chunk 仍在 grids 表里但已不属于当前布局)。
- * 返回时按 created_at 升序,保证 batch pills 显示顺序稳定。
+ * 按当前布局为分组的每一块找到对应的宫格，与后端 grid_submission 的判定一致：
+ * 分组按 computeGridSize 的格数顺序切块，一张宫格只有 scene_ids 与某一块逐项相同
+ * （含顺序）才算这一块的宫格，同一块多次生成取 created_at 最新的一张。
+ * 章节切分点、分镜顺序或组内增删改变分块后，旧宫格对不上任何一块，这一块显示为未生成。
+ * 返回值按块的顺序排列，没有宫格的块不占位。
  */
 export function matchGridsForGroup<G extends GridMatchRecord>(
   grids: G[],
-  groupSceneIds: Iterable<string>,
+  groupSceneIds: readonly string[],
   episode: number,
+  maxCellCount?: number,
 ): G[] {
-  const idSet = new Set(groupSceneIds);
-  const matched = grids.filter(
-    (g) =>
-      g.episode === episode &&
-      g.scene_ids.length > 0 &&
-      g.scene_ids.every((id) => idSet.has(id)),
-  );
-
-  const sorted = [...matched].sort((a, b) =>
-    b.created_at.localeCompare(a.created_at),
-  );
-
-  const selected: G[] = [];
-  const covered = new Set<string>();
-  for (const g of sorted) {
-    const hasUncovered = g.scene_ids.some((id) => !covered.has(id));
-    if (hasUncovered) {
-      selected.push(g);
-      for (const id of g.scene_ids) covered.add(id);
-    }
+  const { cellCount } = computeGridSize(groupSceneIds.length, maxCellCount);
+  const latestByChunk = new Map<string, G>();
+  for (const g of grids) {
+    if (g.episode !== episode) continue;
+    const key = g.scene_ids.join("\u0000");
+    const current = latestByChunk.get(key);
+    if (!current || g.created_at.localeCompare(current.created_at) > 0) latestByChunk.set(key, g);
   }
-
-  return selected.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const matched: G[] = [];
+  for (let start = 0; cellCount > 0 && start < groupSceneIds.length; start += cellCount) {
+    const chunk = groupSceneIds.slice(start, start + cellCount);
+    const g = latestByChunk.get(chunk.join("\u0000"));
+    if (g) matched.push(g);
+  }
+  return matched;
 }
 
 export function groupBySegmentBreak<S extends { segment_break?: boolean }>(

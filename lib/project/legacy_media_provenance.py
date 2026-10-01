@@ -65,7 +65,6 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
     versions_data: Any = load_json(versions_path) if versions_path.is_file() else {}
     if not isinstance(versions_data, dict):
         raise ValueError("versions/versions.json must contain an object")
-    version_manager = VersionManager(project_dir)
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     amended: list[tuple[str, str]] = []
@@ -116,7 +115,6 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
                     episode=episode,
                     script_file=script_file,
                     record=record,
-                    versions=version_manager,
                 )
             except (KeyError, OSError, TypeError, ValueError) as exc:
                 skipped.append(
@@ -224,7 +222,6 @@ def _project_video_provenance(
     episode: int,
     script_file: str,
     record: Mapping[str, Any],
-    versions: VersionManager,
 ) -> dict[str, Any]:
     snapshot_rel = record.get("file")
     if not VersionManager.is_managed_snapshot_path(resource_type, snapshot_rel):
@@ -246,10 +243,7 @@ def _project_video_provenance(
         skeleton_kind=skeleton_kind,
         resource_type=resource_type,
         resource_id=resource_id,
-        episode=episode,
         shape=shape,
-        versions=versions,
-        version_metadata=record,
     )
     facts = VideoArtifactCurrencyFacts(
         episode=episode,

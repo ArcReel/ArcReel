@@ -6,9 +6,6 @@ export default {
   'settings': 'Settings',
   'logout': 'Logout',
   'cancel': 'Cancel',
-  'conflict_modal_title': 'A file with this name already exists',
-  'conflict_modal_desc': 'How would you like to handle "{{filename}}"?',
-  'keep_both': 'Keep both',
   'replace': 'Replace',
   'download_original': 'Download original format',
   'confirm': 'Confirm',
@@ -55,4 +52,7 @@ export default {
   'elapsed_running': 'Running for {{duration}}',
   'elapsed_queued': 'Waiting for {{duration}}',
   'elapsed_total': 'Took {{duration}}',
+  'episode_position_name': 'Episode {{position}}',
+  'episode_unlisted_name': 'Untitled episode',
+  'episode_agent_ref': '"{{name}}" (episode ID {{id}})',
 };

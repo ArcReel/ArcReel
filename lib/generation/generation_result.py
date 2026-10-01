@@ -36,7 +36,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestError,
     ArtifactStatus,
 )
-from lib.generation.task_failure import parse_failure
+from lib.generation.task_failure import CASCADE_FAILURE_CODE, parse_failure
 from lib.i18n import _ as translate_default
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -99,6 +99,10 @@ class GenerationProblemCode(StrEnum):
     running; only the targets carrying this code still need queueing, and a
     missing-only sweep picks up exactly those."""
     ACTIVE_TASK_CONFLICT = "generation_active_task_conflict"
+    DEPENDENCY_FAILED = "generation_dependency_failed"
+    """This unit waited on another member of the same batch whose task did not
+    succeed, so it was never submitted to the provider and nothing was billed.
+    ``params.dependency`` names that member; generating it first is the next step."""
     BATCH_ADMISSION_WITHHELD = "generation_batch_admission_withheld"
     """This unit itself passed admission, but a sibling in the same batch did
     not. Batch video generation is all-or-nothing before any task is created, so
@@ -115,8 +119,6 @@ class GenerationAction(StrEnum):
     RETRY = "retry"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"
-    GENERATE_TTS = "generate_tts"
-    REGENERATE_TTS = "regenerate_tts"
     WAIT_FOR_TASK = "wait_for_task"
     REPLAN_UNIT = "replan_unit"
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
@@ -136,16 +138,6 @@ class GenerationAction(StrEnum):
 # ``tests/unit/lib/generation/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "needs_replan": GenerationAction.REPLAN_UNIT,
-    "tts_missing": GenerationAction.GENERATE_TTS,
-    "tts_stale": GenerationAction.REGENERATE_TTS,
-    "tts_generating": GenerationAction.WAIT_FOR_TASK,
-    "tts_not_applicable": GenerationAction.FIX_INPUT,
-    # 时长这一维不由 ArcReel 驱动，换供应商配置也拿不回控制权：能改的只有这次请求的交付方式。
-    "tts_duration_endpoint_fixed": GenerationAction.FIX_INPUT,
-    "tts_not_configured": GenerationAction.CONFIGURE_PROVIDER,
-    "tts_state_unavailable": GenerationAction.REPAIR_ARTIFACT_STATE,
-    "tts_duration_unavailable": GenerationAction.REGENERATE_TTS,
-    "tts_conflicts_with_active_narrated_video": GenerationAction.WAIT_FOR_TASK,
     "reference_duration_confirmation_required": GenerationAction.CONFIRM_REQUEST_DURATION,
     "reference_asset_missing": GenerationAction.GENERATE_DEPENDENCY,
     "reference_asset_unregistered": GenerationAction.GENERATE_DEPENDENCY,
@@ -191,14 +183,12 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     # 供应商已出片、只是没取回来：重发同一请求会再建一个付费任务，正确的一步是接续取件。
     "artifact_download_failed": GenerationAction.RETRY_ARTIFACT_DOWNLOAD,
     "execution_identity_unrecoverable": GenerationAction.RETRY,
-    "video_shorter_than_tts": GenerationAction.RETRY,
     "script_edit_error": GenerationAction.FIX_INPUT,
     "script_edit_items_not_list": GenerationAction.FIX_INPUT,
     "script_edit_unit_lists_invalid": GenerationAction.FIX_INPUT,
     "script_edit_generated_assets_invalid": GenerationAction.FIX_INPUT,
     # 供应商不认这个档位 / 组合：换配置，重试同一请求只会被同样拒绝。
     "image_dashscope_4k_t2i_only": GenerationAction.CONFIGURE_PROVIDER,
-    "video_duration_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "video_supported_durations_missing": GenerationAction.CONFIGURE_PROVIDER,
     "video_supported_durations_invalid": GenerationAction.CONFIGURE_PROVIDER,
     "video_supported_durations_incompatible": GenerationAction.CONFIGURE_PROVIDER,
@@ -234,6 +224,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "restart_lost_image": GenerationAction.RETRY,
     "restart_lost_audio": GenerationAction.RETRY,
     "restart_lost_text": GenerationAction.RETRY,
+    "restart_lost_render": GenerationAction.RETRY,
     "restart_lost_no_job_id": GenerationAction.RETRY,
     "restart_lost_resume_no_job_id": GenerationAction.RETRY,
     "restart_lost_checkpoint_no_job_id": GenerationAction.RETRY,
@@ -265,7 +256,8 @@ def encode_generation_problem(problem: GenerationProblem) -> str:
     return _PERSISTED_GENERATION_PROBLEM_PREFIX + problem.model_dump_json()
 
 
-def _persisted_generation_problem(error_message: str | None) -> GenerationProblem | None:
+def decode_generation_problem(error_message: str | None) -> GenerationProblem | None:
+    """Read a persisted generation problem; raw or malformed failures return None."""
     if not error_message or not error_message.startswith(_PERSISTED_GENERATION_PROBLEM_PREFIX):
         return None
     try:
@@ -542,7 +534,6 @@ def select_generation_targets(
     candidates: Sequence[GenerationCandidate],
     requested_ids: Sequence[str] | None,
     resolver: ArtifactCurrencyResolver,
-    reusable_override: Callable[[GenerationCandidate], bool] | None = None,
 ) -> GenerationSelection:
     """Resolve one request's targets from an explicit ID set or from ``missing``.
 
@@ -584,11 +575,7 @@ def select_generation_targets(
         if state.status is ArtifactStatus.BLOCKED:
             unavailable.append(state)
             continue
-        reusable = artifact_is_reusable(state)
-        if not reusable and reusable_override is not None:
-            # 覆盖判定提供的是另一条可复用的腿（如一次精确匹配的手动上传）。
-            reusable = reusable_override(state.candidate)
-        if reusable:
+        if artifact_is_reusable(state):
             skipped.append(state)
             continue
         targets.append(state)
@@ -628,7 +615,7 @@ def problem_from_task_failure(
             detail=error_message or "wait for task was interrupted before it reached a terminal state",
             action=GenerationAction.WAIT_FOR_TASK,
         )
-    if persisted := _persisted_generation_problem(error_message):
+    if persisted := decode_generation_problem(error_message):
         return persisted
     parsed = parse_failure(error_message)
     if parsed is None:
@@ -643,6 +630,27 @@ def problem_from_task_failure(
         detail=error_message or code,
         action=_TASK_FAILURE_ACTIONS.get(code, GenerationAction.RETRY),
         params=params,
+    )
+
+
+def dependency_failure_problem(
+    problem: GenerationProblem, dependency: str | None, *, dependency_not_queued: bool = False
+) -> GenerationProblem:
+    """A failed unit's problem; one held back by a failed in-batch dependency says so.
+
+    The queue marks such a unit failed without ever running it, so nothing was
+    submitted to the provider and nothing was billed. Naming the dependency
+    instead of the generic cascade keeps the next step pointed at the unit that
+    actually failed.
+    """
+
+    if dependency is None or (problem.code != CASCADE_FAILURE_CODE and not dependency_not_queued):
+        return problem
+    return GenerationProblem(
+        code=GenerationProblemCode.DEPENDENCY_FAILED,
+        detail=f"batch dependency {dependency} did not succeed; this unit was not submitted",
+        action=GenerationAction.GENERATE_DEPENDENCY,
+        params={"dependency": dependency},
     )
 
 
@@ -721,6 +729,21 @@ class GenerationResultBuilder:
 
         builder = cls(operation, selection.mode)
         builder.absorb(selection)
+        return builder
+
+    @classmethod
+    def from_preflight(cls, preflight: GenerationBatchResult) -> Self:
+        """Seed a builder with a preflight's blocked and skipped units, to fold the
+        executed outcomes of its targets in afterwards."""
+
+        if preflight.succeeded or preflight.failed:
+            raise ValueError("a preflight cannot contain executed outcomes")
+        builder = cls(preflight.operation, preflight.selection)
+        for skipped in preflight.skipped:
+            builder._seen.add(skipped.unit_id)
+            builder._skipped.append(skipped)
+        for item in preflight.items:
+            builder._record(item)
         return builder
 
     def absorb(self, selection: GenerationSelection) -> None:
@@ -922,6 +945,7 @@ def record_batch_outcomes(
     resolver: ArtifactCurrencyResolver | None = None,
     unit_id_of: Callable[[str], str] | None = None,
     fallback_path: Callable[[str], str] | None = None,
+    dependencies: Mapping[str, str] | None = None,
 ) -> None:
     """Fold one queue batch into the per-ID contract, for every entry point.
 
@@ -930,7 +954,8 @@ def record_batch_outcomes(
     and that is reported on its own axis rather than downgrading the task
     result. ``unit_id_of`` maps a queue ``resource_id`` to this contract's unit
     ID where the two differ; ``fallback_path`` supplies the conventional
-    relative path when the worker returned none.
+    relative path when the worker returned none. ``dependencies`` maps a unit
+    to the in-batch unit it waited on, as recorded in the batch snapshot.
     """
 
     def _state(unit_id: str) -> GenerationTargetState:
@@ -958,6 +983,7 @@ def record_batch_outcomes(
             provider_checkpoint=provider_checkpoint_from_task(br.task),
             warnings=generation_warnings_from_result(br.result),
         )
+    not_queued_ids = {unit_id_of(br.resource_id) if unit_id_of else br.resource_id for br in failures if not br.task_id}
     for br in failures:
         unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
         state = _state(unit_id)
@@ -970,7 +996,12 @@ def record_batch_outcomes(
         # again vs. inspect the provider failure).
         if not br.task_id:
             task_state = GenerationTaskState.NOT_QUEUED
-            problem = enqueue_problem(br.error, interrupted=br.enqueue_interrupted)
+            dependency = (dependencies or {}).get(unit_id)
+            problem = dependency_failure_problem(
+                enqueue_problem(br.error, interrupted=br.enqueue_interrupted),
+                dependency,
+                dependency_not_queued=dependency in not_queued_ids,
+            )
         else:
             if br.status == "cancelled":
                 task_state = GenerationTaskState.CANCELLED
@@ -978,8 +1009,11 @@ def record_batch_outcomes(
                 task_state = GenerationTaskState.INTERRUPTED
             else:
                 task_state = GenerationTaskState.FAILED
-            problem = problem_from_task_failure(
-                br.error, cancelled=br.status == "cancelled", interrupted=br.status == "interrupted"
+            problem = dependency_failure_problem(
+                problem_from_task_failure(
+                    br.error, cancelled=br.status == "cancelled", interrupted=br.status == "interrupted"
+                ),
+                (dependencies or {}).get(unit_id),
             )
         builder.fail(
             unit_id,
@@ -1010,8 +1044,6 @@ _ACTION_LABELS: dict[GenerationAction, str] = {
     GenerationAction.RETRY: "可重试",
     GenerationAction.FIX_INPUT: "需修正输入",
     GenerationAction.GENERATE_DEPENDENCY: "需先生成依赖",
-    GenerationAction.GENERATE_TTS: "需先生成旁白配音",
-    GenerationAction.REGENERATE_TTS: "需重新生成旁白配音",
     GenerationAction.WAIT_FOR_TASK: "等待进行中任务完成",
     GenerationAction.REPLAN_UNIT: "需重新规划内容",
     GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",
@@ -1039,6 +1071,8 @@ _OPERATION_LABELS: dict[str, str] = {
     "generate_narration_audio": "旁白配音生成",
     "edit_images": "图片编辑",
     "generate_videos": "视频生成",
+    "render_final_cut": "成片渲染",
+    "export_jianying_draft": "剪映草稿导出",
 }
 _FALLBACK_OPERATION_LABEL = "生成"
 
@@ -1114,6 +1148,7 @@ __all__ = [
     "ProviderCheckpoint",
     "artifact_is_reusable",
     "artifact_state_problem",
+    "decode_generation_problem",
     "encode_generation_problem",
     "enqueue_problem",
     "generation_warnings_from_result",

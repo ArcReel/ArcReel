@@ -13,13 +13,13 @@ from typing import Literal
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.episode.episode_ledger import episode_outline_context
 from lib.episode.episode_target_duration import project_episode_target_duration
+from lib.episode.source_kinds import DEFAULT_SOURCE_KIND, episode_source_kind
 from lib.infra.text_metrics import reading_unit_noun
 from lib.infra.text_utils import normalize_newlines
 from lib.speech.speech_rate import project_speech_rate_override, speech_rate_units_per_second
 
 _STRUCTURED_CONTENT_MODES = frozenset({"narration", "drama"})
 _GENERATION_MODES = frozenset({"storyboard", "reference_video"})
-_SOURCE_KINDS = frozenset({"novel", "screenplay"})
 _DEFAULT_SOURCE_LANGUAGE = "中文"
 _AD_OVERVIEW_FIELDS = ("synopsis", "genre", "theme")
 
@@ -169,17 +169,19 @@ def project_script_plan_prompt_inputs(
             }
         )
 
+    # 源文件类型按集取（只有剧情演绎有），无原文的集按小说。
+    source_kind = episode_source_kind(project, episode) or DEFAULT_SOURCE_KIND
     if variant == "drama":
-        raw_source_kind = project.get("source_kind")
-        source_kind = "novel" if raw_source_kind is None else raw_source_kind
-        if not isinstance(source_kind, str) or source_kind not in _SOURCE_KINDS:
-            raise ValueError(f"unsupported source_kind: {source_kind!r}")
         inputs.update(
             {
                 "source_kind": source_kind,
                 "style": _optional_string(project.get("style"), "style"),
             }
         )
+    elif variant == "reference_video":
+        # 小说时提示词与不带类型时逐字相同，不进 basis：存量参考生视频脚本规划的依据因此不变。
+        # 剧本时提示词走提取分支，冻结的基线随之不同。
+        inputs["source_kind"] = source_kind if source_kind != DEFAULT_SOURCE_KIND else None
 
     return inputs
 
@@ -225,6 +227,8 @@ def _freeze_script_plan_prompt_inputs(
     # 才进 basis——那时提示词确实变了，冻结的基线就该失效。
     if frozen.get("episode_target_duration") is None:
         frozen.pop("episode_target_duration", None)
+    if generation_mode == "reference_video" and frozen.get("source_kind") is None:
+        frozen.pop("source_kind", None)
     return frozen
 
 

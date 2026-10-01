@@ -61,6 +61,7 @@ def register_derivative_status_routes(
                 sheet = derivative.get(spec.sheet_field)
                 sheet_path = sheet if isinstance(sheet, str) and sheet else ""
                 stale = False
+                artifact_status = ArtifactStatus.MISSING
                 if sheet_path:
                     comparison = resolver.compare(
                         derivative_artifact_key(asset_name_comparison_key(owner_key), asset_name_comparison_key(name)),
@@ -69,10 +70,12 @@ def register_derivative_status_routes(
                     # 只有「登记在案但已不等于规范状态」才是过期；缺失或被阻断另有其表现
                     # （图根本渲染不出来），不折进同一个标记。
                     stale = comparison.status is ArtifactStatus.STALE
+                    artifact_status = comparison.status
                 derivatives[name] = {
                     "description": derivative.get("description", ""),
                     spec.sheet_field: sheet_path,
                     "stale": stale,
+                    "artifact_status": artifact_status.value,
                 }
             return {"success": True, DERIVATIVES_FIELD: derivatives}
 

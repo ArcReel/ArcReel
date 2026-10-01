@@ -39,7 +39,7 @@ def capacity_table(limits: dict[str, dict[str, int]] | None = None, *, image: in
 
 
 def reference_checkpoint_json(task_id: str, *, provider_id: str = "ark") -> str:
-    from lib.script.reference_video.execution_checkpoint import NarrationExecutionFacts, ReferenceSubmissionCheckpoint
+    from lib.script.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
 
     visual = ArtifactBasis.build(
         "artifact-visual/video-reference",
@@ -88,13 +88,6 @@ def reference_checkpoint_json(task_id: str, *, provider_id: str = "ark") -> str:
             reference_image_limit=1,
             parent_version=0,
         ),
-        narration=NarrationExecutionFacts(
-            delivery="post_production",
-            tts_status="not_applicable",
-            artifact_path="",
-            basis_digest=None,
-            actual_duration_seconds=None,
-        ),
         media=(),
         reference_audio_targets=None,
     ).to_json()
@@ -102,7 +95,6 @@ def reference_checkpoint_json(task_id: str, *, provider_id: str = "ark") -> str:
 
 def _storyboard_checkpoint_json(task_id: str, *, provider_id: str = "ark") -> str:
     from lib.script.reference_video.execution_checkpoint import (
-        NarrationExecutionFacts,
         StagedProviderMedia,
         StoryboardSubmissionCheckpoint,
     )
@@ -152,13 +144,6 @@ def _storyboard_checkpoint_json(task_id: str, *, provider_id: str = "ark") -> st
             duration_tiers=(8,),
             reference_image_limit=None,
             parent_version=0,
-        ),
-        narration=NarrationExecutionFacts(
-            delivery="post_production",
-            tts_status="not_applicable",
-            artifact_path="",
-            basis_digest=None,
-            actual_duration_seconds=None,
         ),
         media=(
             StagedProviderMedia(

@@ -28,7 +28,6 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_SCRIPT_PLAN,
     quarantine_path,
 )
-from lib.speech.narration_delivery import TtsSettingsResolver
 from server.agent_toolset.declaration import ToolDeclaration, invoke_declaration
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.toolset import AGENT_TOOLSET
@@ -90,7 +89,6 @@ class ToolHarness:
         config_resolver: ConfigResolver | None = None,
         caller: CallerContext | None = None,
         queue: GenerationQueue | None = None,
-        tts_settings_resolver: TtsSettingsResolver | None = None,
     ):
         self.project_name = project_name
         self.data_root = data_root
@@ -98,7 +96,6 @@ class ToolHarness:
         self.config_resolver = config_resolver
         self.caller = caller or CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
         self.queue = queue or get_generation_queue()
-        self.tts_settings_resolver = tts_settings_resolver
 
     @property
     def project_path(self) -> Path:
@@ -115,7 +112,6 @@ class ToolHarness:
             workflow_planner=workflow_planner.get_workflow_planner(self.pm),
             capabilities=self.config_resolver or ConfigResolver(async_session_factory),
             queue=self.queue,
-            tts_settings_resolver=self.tts_settings_resolver,
         )
 
 
@@ -193,19 +189,15 @@ async def run_generate_videos(
     target: dict[str, Any],
     *,
     script: str = "episode_1.json",
-    narration_delivery: str = "post_production",
     batch_waiter: BatchWaiter = batch_enqueue_and_wait,
     **arguments: Any,
 ) -> ToolOutcome[Any]:
-    """经 ``generate_videos`` 声明入口生成视频，拿到 handler 的 ``ToolOutcome``。
-
-    绝大多数视频用例的主题不是旁白交付，交付方式缺省为后期配音；专门验证交付方式的用例显式传入。
-    """
+    """经 ``generate_videos`` 声明入口生成视频，拿到 handler 的 ``ToolOutcome``。"""
 
     return await run_declared_tool(
         "generate_videos",
         ctx,
-        {"script": script, "target": target, "narration_delivery": narration_delivery, **arguments},
+        {"script": script, "target": target, **arguments},
         batch_waiter=batch_waiter,
     )
 
@@ -229,7 +221,7 @@ class FakePM:
             "source_kind": "novel",
             "source_language": "中文",
             "overview": {},
-            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json", "source_origin": "own"}],
             "characters": {"张三": {"description": "主角"}, "李四": {"description": ""}},
             "scenes": {"村口": {"description": "黄昏的村口"}},
             "props": {},
@@ -374,27 +366,10 @@ class FakePM:
     def project_exists(self, _name: str) -> bool:
         return True
 
-    def get_pending_characters(self, _name: str) -> list[dict[str, Any]]:
-        return [
-            {"name": "张三", "description": "主角描述"},
-            {"name": "李四", "description": ""},
-        ]
-
-    def get_pending_project_scenes(self, _name: str) -> list[dict[str, Any]]:
-        return [{"name": "村口", "description": "黄昏村口"}]
-
-    def get_pending_project_props(self, _name: str) -> list[dict[str, Any]]:
-        return []
-
-    def get_pending_project_products(self, _name: str) -> list[dict[str, Any]]:
-        return [{"name": "保温杯", "description": "不锈钢保温杯"}]
-
 
 def fake_reference_projection(
     slot_for=None,
     calls: list[str] | None = None,
-    *,
-    current_tts_duration_seconds: float | None = None,
 ):
     """Agent 工具测试用的 in-process request projection adapter。"""
 
@@ -436,8 +411,6 @@ def fake_reference_projection(
             ResolvedReferenceAsset(path=Path(f"{reference.type}/{reference.name}.png"), reference=reference)
             for reference in references
         ]
-        if options is not None and current_tts_duration_seconds is not None:
-            options = replace(options, current_tts_duration_seconds=current_tts_duration_seconds)
         return await ReferenceUnitRequestProjector(_request_facts, _Available()).project_current(
             project=project,
             script=script,
@@ -504,7 +477,9 @@ def use_reference_route(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
 
 
-def rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
+def rv_generator_returning(
+    units: list[dict], captured: dict[str, Any] | None = None, *, new_assets: list[dict] | None = None
+):
     """构造返回指定扁平 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
     class _FakeGenerator:
@@ -513,7 +488,7 @@ def rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = 
                 captured["generate_project_name"] = project_name
 
             class _R:
-                text = json.dumps({"units": units}, ensure_ascii=False)
+                text = json.dumps({"units": units, "new_assets": new_assets or []}, ensure_ascii=False)
 
             return _R()
 
@@ -583,12 +558,14 @@ def rv_script_plan_path(fake_ctx: ToolHarness):
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_reference_units.json"
 
 
-async def run_rv_split(fake_ctx: ToolHarness, monkeypatch, units: list[dict], **caps_kwargs) -> ToolOutcome[Any]:
+async def run_rv_split(
+    fake_ctx: ToolHarness, monkeypatch, units: list[dict], *, new_assets: list[dict] | None = None, **caps_kwargs
+) -> ToolOutcome[Any]:
     from server import text_generation as mod
 
     use_fake_caps(fake_ctx, **caps_kwargs)
-    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units))
-    return await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units, new_assets=new_assets))
+    return await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
 
 def rv_quarantine_path(fake_ctx: ToolHarness):
@@ -609,7 +586,7 @@ async def promote_reference_draft(fake_ctx: ToolHarness, **caps_kwargs) -> ToolO
         doc_type = "reference_prompt_authoring"
     else:
         doc_type = "reference_script_plan"
-    args = {"episode": 1, "doc_type": doc_type}
+    args = {"episode_id": 1, "doc_type": doc_type}
     opened = await run_declared_tool("open_draft", fake_ctx, args)
     revision = draft_of(opened)["revision"] if opened.problem is None else ""
     return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})
@@ -635,7 +612,9 @@ def rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> di
 async def open_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
     if not (fake_ctx.project_path / "project.json").exists():
         rv_project(fake_ctx)
-    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "reference_script_plan", **args})
+    return await run_declared_tool(
+        "open_draft", fake_ctx, {"episode_id": 1, "doc_type": "reference_script_plan", **args}
+    )
 
 
 def nr_project(fake_ctx: ToolHarness) -> None:
@@ -649,7 +628,9 @@ def nr_source(fake_ctx: ToolHarness) -> None:
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
 
 
-def nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None = None):
+def nr_generator_returning(
+    segments: list[dict], captured: dict[str, Any] | None = None, *, new_assets: list[dict] | None = None
+):
     """构造返回指定 segments JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
     class _FakeGenerator:
@@ -658,7 +639,9 @@ def nr_generator_returning(segments: list[dict], captured: dict[str, Any] | None
                 captured["generate_project_name"] = project_name
 
             class _R:
-                text = json.dumps({"episode": 1, "segments": segments}, ensure_ascii=False)
+                text = json.dumps(
+                    {"episode": 1, "segments": segments, "new_assets": new_assets or []}, ensure_ascii=False
+                )
 
             return _R()
 
@@ -690,7 +673,8 @@ _DRAMA_NOVEL = "三年后，阿离回到山门。"
 
 
 def drama_project(fake_ctx: ToolHarness) -> None:
-    """把项目声明成 drama + 分镜图生视频，并铺好源文——正式 script_plan 的写禁与草稿通道以此为前提。"""
+    """把项目声明成 drama + 分镜图生视频，登记 ``drama_scene`` 引用的角色，并铺好源文——正式 script_plan
+    的写禁与草稿通道以此为前提。"""
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(
             {
@@ -704,6 +688,7 @@ def drama_project(fake_ctx: ToolHarness) -> None:
     )
     fake_ctx.pm.project_payload["content_mode"] = "drama"
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["characters"]["阿离"] = {"description": "少女，青衣"}
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True, exist_ok=True)
     (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")
@@ -744,12 +729,12 @@ def read_drama_quarantine(fake_ctx: ToolHarness) -> dict:
 
 
 async def open_drama_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
-    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "drama_script_plan", **args})
+    return await run_declared_tool("open_draft", fake_ctx, {"episode_id": 1, "doc_type": "drama_script_plan", **args})
 
 
 async def promote_drama(fake_ctx: ToolHarness, durations=(4, 6, 8)) -> ToolOutcome[Any]:
     use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
-    args = {"episode": 1, "doc_type": "drama_script_plan"}
+    args = {"episode_id": 1, "doc_type": "drama_script_plan"}
     opened = await run_declared_tool("open_draft", fake_ctx, args)
     revision = draft_of(opened)["revision"]
     return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})
@@ -774,12 +759,14 @@ def write_nr_script_plan(fake_ctx: ToolHarness, segments: list[dict]) -> None:
 
 
 async def open_nr_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
-    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "narration_script_plan", **args})
+    return await run_declared_tool(
+        "open_draft", fake_ctx, {"episode_id": 1, "doc_type": "narration_script_plan", **args}
+    )
 
 
 async def promote_nr(fake_ctx: ToolHarness, durations=(4, 6, 8)) -> ToolOutcome[Any]:
     use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
-    args = {"episode": 1, "doc_type": "narration_script_plan"}
+    args = {"episode_id": 1, "doc_type": "narration_script_plan"}
     opened = await run_declared_tool("open_draft", fake_ctx, args)
     revision = draft_of(opened)["revision"]
     return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})

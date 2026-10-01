@@ -102,8 +102,6 @@ class TestAudioBackendVoices:
                 provider_model=ProviderModel("dashscope", "qwen3-tts-flash"),
                 backend_name="dashscope",
                 backend_model="qwen3-tts-flash",
-                narration_voice="Cherry",
-                narration_speed=None,
                 # 生产口径：label 是 lib/i18n 翻译 key，不是直出文案（见
                 # lib/backends/audio_backends/dashscope.py 的 _VOICE_CATALOG 注释）。
                 voices=(VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),),

@@ -67,6 +67,8 @@ export interface CustomProviderModelInfo {
   currency: string | null;
   supported_durations: number[] | null;
   resolution: string | null;
+  /** 文本模型登记的最大输出长度（token）；未登记或非文本模型为 null。 */
+  max_output_tokens: number | null;
   /** 系统判定的视频能力（全字段）；非视频模型为 null。 */
   system_capabilities: VideoCapabilityFlags | null;
   /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
@@ -108,6 +110,8 @@ export interface DiscoveredModel {
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
+  /** 发现接口给出的最大输出长度（目前只有 Google 协议的文本模型）；拿不到为 null。 */
+  max_output_tokens?: number | null;
 }
 
 export interface CustomProviderCreateRequest {
@@ -146,6 +150,8 @@ export interface CustomProviderModelInput {
   currency?: string;
   supported_durations?: number[] | null;
   resolution?: string | null;
+  /** 文本模型的最大输出长度（token）；null = 未登记，按 64000 的上限请求。非文本模型服务端忽略。 */
+  max_output_tokens?: number | null;
   /** 保存模型列表是整体替换语义：省略该字段会清空已有覆盖，编辑既有模型时必须原样回传。 */
   capability_overrides?: CapabilityOverrides | null;
 }

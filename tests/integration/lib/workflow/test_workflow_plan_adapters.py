@@ -8,7 +8,6 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project.project_manager import ProjectManager
-from lib.speech.narration_delivery import POST_PRODUCTION
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import (
     WorkflowActionType,
@@ -47,11 +46,10 @@ def _status() -> WorkflowStatus:
                 script_filename="episode_1.json",
                 source="source/episode_1.txt",
             ),
-            "state": "VIDEO",
+            "content": None,
             "blockers": [],
             "gates": {"script_plan_review": {"state": "not_applicable", "revision": None}},
             "artifacts": {
-                "asset_inventory": {"state": "not_applicable"},
                 "asset_sheets": {},
                 "script_plan": {"state": "not_applicable"},
                 "script": {"state": "current"},
@@ -88,7 +86,7 @@ class _Planner:
         config_resolver=None,
     ):
         self.calls.append((project_name, request, user_id))
-        return build_workflow_plan(_status(), narration_delivery=request.narration_delivery)
+        return build_workflow_plan(_status())
 
 
 async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,8 +95,7 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
     monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
     payload = {
-        "episode": 1,
-        "narration_delivery": POST_PRODUCTION,
+        "episode_id": 1,
         "confirmed_request_durations": {"E1S01": 5},
     }
 
@@ -118,17 +115,26 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
     ]
 
 
-async def test_workflow_plan_mcp_rejects_invalid_transient_choice_before_service(
+async def test_workflow_plan_rejects_the_retired_delivery_choice_before_service(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pm = _project(tmp_path)
     planner = _Planner()
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
+    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    payload = {"narration_delivery": "post_production"}
 
-    outcome = await _agent_plan(pm, tmp_path, {"narration_delivery": "persist_this_choice"})
+    outcome = await _agent_plan(pm, tmp_path, payload)
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+    with TestClient(app) as client:
+        response = client.post("/api/v1/projects/demo/workflow-plan", json=payload)
 
     assert outcome.problem is not None
     assert outcome.problem.code == "invalid_request"
+    assert response.status_code == 422
     assert planner.calls == []
 
 
@@ -164,13 +170,13 @@ async def test_workflow_plan_adapters_blame_the_request_only_for_request_errors(
     planner = _FailingPlanner(WorkflowRequestError("ad workflow only has episode 1"))
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
 
-    outcome = await _agent_plan(pm, tmp_path, {"episode": 2})
+    outcome = await _agent_plan(pm, tmp_path, {"episode_id": 2})
 
     assert outcome.problem is not None
     assert outcome.problem.code == "invalid_request"
 
     with TestClient(_adapter_app(pm, monkeypatch), raise_server_exceptions=False) as client:
-        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode": 2})
+        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode_id": 2})
 
     assert response.status_code == 400
 
@@ -182,7 +188,7 @@ async def test_workflow_plan_adapters_report_corrupt_script_as_server_failure(
     planner = _FailingPlanner(ValueError("segments must be an array of objects"))
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
 
-    outcome = await _agent_plan(pm, tmp_path, {"episode": 1})
+    outcome = await _agent_plan(pm, tmp_path, {"episode_id": 1})
 
     assert outcome.problem is not None
     assert outcome.problem.model_dump() == {
@@ -191,6 +197,6 @@ async def test_workflow_plan_adapters_report_corrupt_script_as_server_failure(
     }
 
     with TestClient(_adapter_app(pm, monkeypatch), raise_server_exceptions=False) as client:
-        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode": 1})
+        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode_id": 1})
 
     assert response.status_code == 500

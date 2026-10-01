@@ -45,6 +45,7 @@ def build_reference_units_split_prompt(
     max_reference_images: int | None,
     default_duration: int | None,
     episode: int,
+    source_kind: str = "novel",
     target_language: str = "中文",
     source_language: str | None = None,
     speech_rate_override: float | None = None,
@@ -70,6 +71,8 @@ def build_reference_units_split_prompt(
         max_duration: 单次视频生成的时长上限（秒），即档位最大值。
         max_reference_images: 单 unit 参考图上限；None 时不写入硬性数量约束。
         default_duration: 用户项目偏好的默认秒数；须为 supported_durations 成员或 None。
+        source_kind: 本集源文件类型；``"screenplay"`` 走提取分支（照用场次、台词逐字照搬），
+            其余取值一律按 ``"novel"`` 渲染。
         source_language: 项目源文语言码（zh / en / vi 或 None），供台词口播时长下界取语速。
         speech_rate_override: 项目级语速覆盖（阅读单位 / 秒，由调用方经
             ``project_speech_rate_override`` 解析）；None 即无覆盖、回退语言默认。
@@ -123,6 +126,7 @@ def build_reference_units_split_prompt(
 
     return builtin_templates.render(
         "text/reference_video_script_plan",
+        source_kind="screenplay" if source_kind == "screenplay" else "novel",
         target_language=target_language,
         project_overview=_overview_slot(project_overview),
         assets=_project_asset_appearances(characters, scenes, props),

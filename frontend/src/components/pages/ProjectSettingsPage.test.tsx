@@ -62,6 +62,15 @@ function mockBuiltinAgentProfile() {
   });
 }
 
+function mockNarrationDefaults() {
+  vi.spyOn(API, "getNarrationDefaults").mockResolvedValue({
+    audio_backend: "dashscope/qwen3-tts-flash",
+    narration_voice: "Ethan",
+    narration_speed: 1.2,
+  });
+  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+}
+
 function renderAt(path: string) {
   const location = memoryLocation({ path, record: true });
   return {
@@ -86,6 +95,7 @@ describe("ProjectSettingsPage – style picker", () => {
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
     mockBuiltinAgentProfile();
     mockEmptyAgentMemory();
+    mockNarrationDefaults();
   });
 
   it("shows customized Agent Profile files and resets only after destructive confirmation", async () => {
@@ -574,6 +584,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
     mockBuiltinAgentProfile();
     mockEmptyAgentMemory();
+    mockNarrationDefaults();
   });
 
   it.each([false, true])("keeps bucket resolution edits consistent through save (shared model: %s)", async (sharedModel) => {
@@ -803,6 +814,7 @@ describe("ProjectSettingsPage – 按用途指定模型", () => {
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
     mockBuiltinAgentProfile();
     mockEmptyAgentMemory();
+    mockNarrationDefaults();
   });
 
   it("loads project sub-field overrides and writes each back to its own key", async () => {
@@ -906,6 +918,7 @@ describe("ProjectSettingsPage — 项目记忆", () => {
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
     mockBuiltinAgentProfile();
     mockEmptyAgentMemory();
+    mockNarrationDefaults();
   });
 
   it("挂出项目记忆文件柜，并按当前项目的路径拉取", async () => {
@@ -922,5 +935,90 @@ describe("ProjectSettingsPage — 项目记忆", () => {
       { level: "project", projectName: "demo" },
       expect.anything(),
     );
+  });
+});
+
+describe("ProjectSettingsPage – narration delivery", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...FAKE_CONFIG,
+      options: { ...FAKE_CONFIG.options, audio_backends: ["dashscope/qwen3-tts-flash"] },
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(API, "getModelCandidates").mockResolvedValue(
+      FAKE_CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>,
+    );
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
+    vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+    mockBuiltinAgentProfile();
+    mockEmptyAgentMemory();
+    mockNarrationDefaults();
+  });
+
+  function mockProject(project: Record<string, unknown>) {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", generation_mode: "storyboard", episodes: [], characters: {}, ...project },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    return vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+  }
+
+  it("switching a TTS project to post-production writes only the delivery and keeps the snapshot", async () => {
+    const updateSpy = mockProject({
+      content_mode: "drama",
+      narration_delivery: "use_tts",
+      audio_backend: "dashscope/qwen3-tts-flash",
+      narration_voice: "Cherry",
+      narration_speed: 0.9,
+    });
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByLabelText("旁白音色 ID")).toHaveValue("Cherry");
+    fireEvent.click(screen.getByRole("radio", { name: "后期配音" }));
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    const patch = updateSpy.mock.calls[0][1];
+    expect(patch).toHaveProperty("narration_delivery", "post_production");
+    for (const key of ["audio_backend", "narration_voice", "narration_speed"]) {
+      expect(patch).not.toHaveProperty(key);
+    }
+  });
+
+  it("prefills a project without a snapshot from the global defaults when switched to TTS", async () => {
+    const updateSpy = mockProject({ content_mode: "narration", narration_delivery: "post_production" });
+    renderAt("/app/projects/demo/settings");
+
+    fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
+    expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("Ethan");
+    expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(1.2);
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1]).toMatchObject({
+      narration_delivery: "use_tts",
+      audio_backend: "dashscope/qwen3-tts-flash",
+      narration_voice: "Ethan",
+      narration_speed: 1.2,
+    });
+  });
+
+  it("leaves a legacy post-production audio backend untouched when saving other settings", async () => {
+    const updateSpy = mockProject({
+      content_mode: "narration",
+      narration_delivery: "post_production",
+      audio_backend: "dashscope",
+    });
+    renderAt("/app/projects/demo/settings");
+
+    fireEvent.click(await screen.findByRole("switch", { name: /多宫格分镜/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("audio_backend");
   });
 });

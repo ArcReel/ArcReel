@@ -6,7 +6,7 @@ import type { SseStreamHandle } from "@/utils/sse-stream";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { SCRIPT_PLAN_TASK_TYPES, useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { errMsg } from "@/utils/async";
 import {
@@ -100,6 +100,9 @@ const PANE_ROUTES: Record<ProjectChangePane, (focus: ProjectChangeFocus) => stri
   episode: (focus) =>
     typeof focus.episode === "number" ? `/${WORKSPACE_ROUTE_EPISODES}/${focus.episode}` : null,
 };
+
+/** 草稿视图订阅的实体 ID 后缀：`draft:episode_N_<kind>`。 */
+const DRAFT_DOC_KINDS = ["script_plan", "prompt_authoring"] as const;
 
 function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTarget | null {
   const focus = change.focus;
@@ -264,6 +267,13 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const previousFingerprint = lastFingerprintRef.current;
         lastFingerprintRef.current = payload.fingerprint;
         if (previousFingerprint && previousFingerprint !== payload.fingerprint) {
+          // 草稿视图各自取数、只随 draft 事件重拉；断线期间错过的草稿变化在这里一并作废。
+          const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          invalidateEntities(
+            episodes.flatMap(({ episode }) =>
+              DRAFT_DOC_KINDS.map((kind) => buildEntityRevisionKey("draft", `episode_${episode}_${kind}`)),
+            ),
+          );
           void refreshProject();
         }
         // 快照在每次建连时到达。首次之外的每一次都意味着断过一次线：断线期间的结算与
@@ -304,6 +314,29 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const invalidationKeys = entityChanges.map((change) =>
           buildEntityRevisionKey(change.entity_type, change.entity_id),
         );
+        // 正式脚本规划不在项目快照里，重新规划完成不会产生实体变更；按任务终态作废各集的
+        // 脚本规划视图，内容确认页据此重拉。任务事件不带集号，逐集作废，只有挂载的视图会发请求。
+        if (taskChanges.some((c) => c.action === "task_succeeded" && SCRIPT_PLAN_TASK_TYPES.has(c.task_type ?? ""))) {
+          const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          invalidationKeys.push(
+            ...episodes.map(({ episode }) => buildEntityRevisionKey("draft", `episode_${episode}_script_plan`)),
+          );
+        }
+        // 草稿 AI 修复由 worker 写回草稿或采用为正式内容，同样没有实体变更；按终态作废各集的草稿视图。
+        if (
+          taskChanges.some(
+            (c) =>
+              (c.action === "task_succeeded" || c.action === "task_failed" || c.action === "task_cancelled") &&
+              c.task_type === "text_draft_repair",
+          )
+        ) {
+          const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          invalidationKeys.push(
+            ...episodes.flatMap(({ episode }) =>
+              DRAFT_DOC_KINDS.map((kind) => buildEntityRevisionKey("draft", `episode_${episode}_${kind}`)),
+            ),
+          );
+        }
         if (invalidationKeys.length > 0) {
           invalidateEntities(invalidationKeys);
         }
@@ -312,19 +345,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           groupChangesByType(entityChanges),
         );
 
-        if (entityChanges.length > 0 && payload.source !== "webui") {
-          for (const group of groupedChanges) {
-            if (!hasImportantChanges(group)) {
-              continue;
-            }
-            pushNotification(
-              formatGroupedNotificationText(group, tEventsRef.current),
-              "success",
-            );
-          }
-        }
+        const notifyChanges = entityChanges.length > 0 && payload.source !== "webui";
+        const workspaceNotifications: { group: (typeof groupedChanges)[number]; target: WorkspaceNotificationTarget }[] =
+          [];
 
-        if (entityChanges.length > 0 && payload.source !== "webui") {
+        if (notifyChanges) {
           // Draft 事件 — 自动导航到剧集脚本规划 Tab
           let draftHandled = false;
           for (const change of entityChanges) {
@@ -350,10 +375,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
                   if (!target) {
                     return null;
                   }
-                  pushWorkspaceNotification({
-                    text: formatGroupedDeferredText(group, tEventsRef.current),
-                    target,
-                  });
+                  workspaceNotifications.push({ group, target });
                   return target;
                 })
                 .find(Boolean) ?? null;
@@ -384,7 +406,27 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         // 每个批次都重拉，纯任务终态批次也不例外：后端每次广播都会把项目快照 rebase
         // 到最新，与之并发的文件变更来不及被扫描 diff 出来就失去基线；refreshProject
         // 是这类漏广播的兜底，不能因为「本批次只有任务事件」就跳过。
-        void refreshProject();
+        // 通知里的集标题与播出位置取刷新后的账本：Agent 新建、改名或调序的集在事件到达时
+        // 还不在本地账本里，按旧账本成文会显示成未命名集或旧标题，推出后无法再改。
+        void refreshProject().finally(() => {
+          if (disposed || !notifyChanges) return;
+          const episodeLedger = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          for (const group of groupedChanges) {
+            if (!hasImportantChanges(group)) {
+              continue;
+            }
+            pushNotification(
+              formatGroupedNotificationText(group, tEventsRef.current, episodeLedger),
+              "success",
+            );
+          }
+          for (const { group, target } of workspaceNotifications) {
+            pushWorkspaceNotification({
+              text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger),
+              target,
+            });
+          }
+        });
 
         // Refresh cost data when generation completes
         const hasCompletionEvent = entityChanges.some((c) =>

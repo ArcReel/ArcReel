@@ -27,16 +27,19 @@ from lib.project.project_migrations.v12_to_v13_legacy_media_provenance import mi
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, canonical_narration_text
 from lib.speech.speech_artifact_provenance import (
+    build_mechanical_subtitle_basis,
     build_video_duration_basis,
     build_video_speech_basis,
     media_content_digest,
 )
 from lib.speech.speech_composition import admit_script_unit
+from server.services.presentation.jianying_draft_service import JianyingDraftService
 from server.services.presentation.presentation_bundle import PresentationBundleService
 from server.services.presentation.presentation_read_model import (
     PresentationReadModelService,
     PresentationUnavailableError,
 )
+from tests.factories import make_test_video, make_test_video_with_audio_tail, run_bundled_ffmpeg, wav_bytes
 from tests.legacy_project_shapes import advance_project_schema, write_legacy_storyboard_project
 
 
@@ -53,7 +56,12 @@ def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
 
-def _setup_narrator_project(tmp_path: Path) -> tuple[ProjectManager, Path, TtsSynthesisSettings]:
+def _setup_narrator_project(
+    tmp_path: Path,
+    *,
+    video_bytes: bytes = b"provider-video-v1",
+    audio_bytes: bytes = b"tts-audio-v1",
+) -> tuple[ProjectManager, Path, TtsSynthesisSettings]:
     projects_root = tmp_path / "projects"
     project_path = projects_root / "demo"
     for subdir in ("scripts", "storyboards", "videos", "audio"):
@@ -86,9 +94,9 @@ def _setup_narrator_project(tmp_path: Path) -> tuple[ProjectManager, Path, TtsSy
     storyboard = project_path / "storyboards" / "scene_E1S01.png"
     storyboard.write_bytes(b"storyboard")
     video = project_path / "videos" / "scene_E1S01.mp4"
-    video.write_bytes(b"provider-video-v1")
+    video.write_bytes(video_bytes)
     audio = project_path / "audio" / "segment_E1S01.wav"
-    audio.write_bytes(b"tts-audio-v1")
+    audio.write_bytes(audio_bytes)
 
     preparation = admit_script_unit("segments", item).preparation
     visual = build_storyboard_video_artifact_visual_basis(
@@ -251,7 +259,7 @@ async def test_current_tts_presentation_materializes_manifest_and_actual_media_b
     assert adapter.get_entry(ArtifactKey.episode_presentation(1, "E1S01", "use_tts")) is not None
 
 
-async def test_persisted_presentation_becomes_stale_when_the_live_transition_changes(tmp_path: Path) -> None:
+async def test_persisted_presentation_records_no_transition_and_stays_current(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
@@ -268,17 +276,16 @@ async def test_persisted_presentation_becomes_stale_when_the_live_transition_cha
         variant="post_production",
     )
     assert result.presentation_artifact_path is not None
-    script_path = project_path / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["segments"][0]["transition_to_next"] = "dissolve"
-    _write_json(script_path, script)
+    persisted = json.loads((project_path / result.presentation_artifact_path).read_text(encoding="utf-8"))
+    assert "transition_to_next" not in persisted
+    assert "transition_to_next" not in result.to_dict()
 
     comparison = ArtifactCurrencyResolver(project_path).compare(
         ArtifactKey.episode_presentation(1, "E1S01", "post_production"),
         artifact_path=result.presentation_artifact_path,
     )
 
-    assert comparison.status is ArtifactStatus.STALE
+    assert comparison.status is ArtifactStatus.CURRENT
 
 
 async def test_video_and_audio_use_their_semantic_duration_probes(tmp_path: Path) -> None:
@@ -617,6 +624,71 @@ async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles
     assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == audio_before
 
 
+@pytest.mark.parametrize(
+    ("video_shape", "video_microseconds", "audio_microseconds"),
+    [("silent_cfr", 6_000_000, 4_500_000), ("silent_vfr", 1_866_667, 1_000_000), ("audio_tail", 1_000_000, 500_000)],
+)
+async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, video_shape: str, video_microseconds: int, audio_microseconds: int
+) -> None:
+    """系统 PATH 上没有 ffmpeg / ffprobe 时，预览、素材包与剪映草稿都用随包 ffmpeg 探出真实时长。"""
+    source_video = tmp_path / "source" / "clip.mp4"
+    if video_shape == "silent_vfr":
+        source_video.parent.mkdir(parents=True)
+        run_bundled_ffmpeg(
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=64x64:rate=30:duration=2",
+            "-vf",
+            r"select=if(lt(t\,1)\,not(mod(n\,2))\,not(mod(n\,5)))",
+            "-fps_mode",
+            "vfr",
+            "-c:v",
+            "libx264",
+            str(source_video),
+        )
+    elif video_shape == "audio_tail":
+        make_test_video_with_audio_tail(source_video, video_duration_sec=1, audio_duration_sec=1.5)
+    else:
+        make_test_video(source_video, duration_sec=6, fps=5)
+    pm, _project_path, settings = _setup_narrator_project(
+        tmp_path, video_bytes=source_video.read_bytes(), audio_bytes=wav_bytes(audio_microseconds / 1_000_000)
+    )
+    empty_bin = tmp_path / "empty-bin"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
+    read_model = PresentationReadModelService(
+        pm, settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings)
+    )
+
+    preview = await read_model.materialize_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+    )
+    bundle = await PresentationBundleService(pm, presentation_reader=read_model).export_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+    )
+    draft = await JianyingDraftService(pm, presentation_reader=read_model).export_episode_draft(
+        "demo", 1, "/mock/JianyingDrafts", variant="use_tts"
+    )
+
+    assert preview.presentation.video.duration_microseconds == video_microseconds
+    assert preview.presentation.narration_audio is not None
+    assert preview.presentation.narration_audio.duration_microseconds == audio_microseconds
+    with zipfile.ZipFile(bundle) as archive:
+        model = json.loads(archive.read("presentation.json"))
+    assert model["video"]["duration_microseconds"] == video_microseconds
+    assert model["narration_audio"]["duration_microseconds"] == audio_microseconds
+    with zipfile.ZipFile(draft) as archive:
+        content = json.loads(
+            archive.read(next(name for name in archive.namelist() if name.endswith("draft_info.json")))
+        )
+    video_track = next(track for track in content["tracks"] if track.get("type") == "video")
+    audio_track = next(track for track in content["tracks"] if track.get("type") == "audio")
+    assert video_track["segments"][0]["target_timerange"] == {"start": 0, "duration": video_microseconds}
+    assert audio_track["segments"][0]["target_timerange"] == {"start": 0, "duration": audio_microseconds}
+
+
 async def test_overlong_selected_tts_is_unavailable_instead_of_clipped(tmp_path: Path) -> None:
     pm, _project_path, settings = _setup_narrator_project(tmp_path)
 
@@ -794,4 +866,77 @@ async def test_legacy_video_materializes_after_the_provenance_backfill_migration
         1,
         "videos",
         "episode_1.json",
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_cues"),
+    [
+        ("甲。乙乙乙！", ["甲。", "乙乙乙！"]),
+        ("中文。Hello. Bye", ["中文。", "Hello. Bye"]),
+        ("Kho\u0302ng sao. Đi thôi!", ["Không sao.", "Đi thôi!"]),
+    ],
+)
+async def test_legacy_subtitle_policy_is_stale_and_regenerates_as_current(
+    tmp_path: Path, text: str, expected_cues: list[str]
+) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["segments"][0]["novel_text"] = text
+    _write_json(script_path, script)
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    result = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+    assert result.subtitle_artifact_path is not None
+    subtitle_key = ArtifactKey.episode_subtitle(1, "E1S01", "post_production")
+    assert [cue.text for cue in result.presentation.subtitles] == expected_cues
+    assert (
+        ArtifactCurrencyResolver(project_path).compare(subtitle_key, artifact_path=result.subtitle_artifact_path).status
+        is ArtifactStatus.CURRENT
+    )
+    preparation = admit_script_unit(
+        "segments", json.loads((project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))["segments"][0]
+    ).preparation
+    legacy_basis = build_mechanical_subtitle_basis(
+        preparation,
+        variant="post_production",
+        video=result.presentation.video.media.evidence,
+        timing_policy={"kind": "mechanical-text-length", "version": 1},
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        subtitle_key,
+        artifact_path=result.subtitle_artifact_path,
+        basis=legacy_basis,
+    )
+
+    resolver = ArtifactCurrencyResolver(project_path)
+    assert resolver.compare(subtitle_key, artifact_path=result.subtitle_artifact_path).status is ArtifactStatus.STALE
+
+    regenerated = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+
+    assert regenerated.subtitle_artifact_path is not None
+    assert [cue.text for cue in regenerated.presentation.subtitles] == expected_cues
+    assert (
+        ArtifactCurrencyResolver(project_path)
+        .compare(subtitle_key, artifact_path=regenerated.subtitle_artifact_path)
+        .status
+        is ArtifactStatus.CURRENT
     )

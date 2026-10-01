@@ -26,7 +26,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 1. 提示用户在 Web 端先创建项目，**创建时指定 content_mode（narration / drama）与 generation_mode（storyboard / reference_video）**；两者创建后均不可变更，Agent 无对应写入权限。session 启动后 cwd 已绑定到对应项目根
 2. 使用 Read 工具读取 `project.json`，确认 `title`、`content_mode`、`generation_mode` 字段（本 session 当前 content_mode 为 `drama`，创建后不可变更）
-3. 请用户将小说文本放入 `source/`
+3. 请用户在 Web 端上传小说文本（整本源文），或经 `mcp__arcreel__upload_source` 写入；直接放进 `source/` 而未登记的文件不是源文。用户给的是写好的成品剧本时，经工具登记要带 `source_kind=screenplay`，缺省按小说
 4. **上传后自动生成项目概述**（synopsis、genre、theme、world_setting）
 
 > 标准项目子目录由 `create_project()` 自动建好：`source/`、`scripts/`、`drafts/`、`characters/`、`scenes/`、`props/`、`storyboards/`、`grids/`、`videos/`、`reference_videos/`、`thumbnails/`、`output/`。
@@ -35,27 +35,30 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 1. session cwd 已经绑定到目标项目根
 2. 调用 `mcp__arcreel__get_workflow_plan({})` 取得服务端权威计划
-3. 按返回的 `next_action` 从上次未完成的动作继续
+3. 按返回的 `next_action` 继续（分岔处的备选在 `next_alternatives`）
 
 ---
 
 ## 计划查询
 
 进入工作流、用户说“继续/下一步/查看进度”、以及每次工具或子智能体完成后，都调用
-`mcp__arcreel__get_workflow_plan({})` 取回权威计划（用户指定集数时传 `{"episode": N}`），
+`mcp__arcreel__get_workflow_plan({})` 取回权威计划（用户指定某一集时，按其说的播出位置或标题在项目 `episodes[]` 里找到那一集，传它的集 ID `{"episode_id": X}`），
 再按 `next_action.type` 路由到下面同名的小节。
 
 计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
 [.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按创作类型
-或生成模式展开的步骤表**：哪些步骤适用、当前停在哪一步，一律读 `plan.steps[]` 与 `plan.next_action`，
-它们是阶段判断的唯一真相源。`plan.status` 内嵌完整状态快照（`project` / `target` / `state` /
-`blockers` / `gates` / `artifacts`），不需要再单独查一次状态。
+或生成模式展开的步骤表**：哪些步骤适用、建议的下一步、哪些操作此刻能执行，一律读 `plan.steps[]`、
+`plan.next_action` 与 `plan.status.operations`，它们是阶段判断的唯一真相源。`plan.status` 内嵌完整状态快照
+（`project` / `target` / `content` / `operations` / `blockers` / `issues` / `gates` / `artifacts`），不需要再单独查一次状态。
 
-调用后把 `plan.status.target.episode` 作为目标集，把 `next_action.args` 与 `requested_ids` 原样带入
+调用后把 `plan.status.target.episode`（目标集的集 ID，下文路径与参数中的 N 即它）作为目标集，把 `next_action.args` 与 `requested_ids` 原样带入
 对应动作。Read / Glob 只用于执行已选定动作所需的内容，不用于另建状态机；不得根据空资产 bucket、
 文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
-下文各节以 `next_action.type` 为标题。`export` 表示工作流完成，`none` 表示展示 `blockers` 并停止变更。
+下文各节以 `next_action.type` 为标题；没有单列小节的动作（如 `resolve_draft`、`start_blank_script`、
+`add_script_items`）按 workflow-plan 参考的受控动作表执行。`none` 时有 `blockers` 就展示并停止变更；
+`steps` 中 `edit` 为 `completed` 表示工作流已走完；其余情况把 `status.issues` 与 `status.content` 讲给用户。
+用户点名操作与说「继续」的区别见「灵活入口」。
 
 ---
 
@@ -72,26 +75,6 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ---
 
-## `analyze_assets`：全局角色/场景/道具提取
-
-**触发**：`next_action.type == "analyze_assets"`。空 bucket 是合法分析结果，不得凭空 bucket 重跑。
-
-**dispatch `analyze-assets` 子智能体**：
-
-```text
-项目名称：{project_name}
-分析范围：{next_action.args.scope 对应的权威范围；workflow 默认整部小说}
-分析 scope：{next_action.args.scope}
-expected source revision：{next_action.args.expected_source_revision}
-已有角色：{已有角色名列表，或"无"}
-已有场景：{已有场景名列表，或"无"}
-已有道具：{已有道具名列表，或"无"}
-
-请分析小说原文，提取角色 / 场景 / 道具信息，写入 project.json，返回摘要。
-```
-
----
-
 ## `plan_episodes` / `reset_episode_planning`：分集规划
 
 **恢复触发**：`next_action.type` 为 `"reset_episode_planning"` 时，先按 `next_action.args` 调
@@ -100,18 +83,18 @@ expected source revision：{next_action.args.expected_source_revision}
 
 **触发**：`next_action.type == "plan_episodes"`
 
-**用户已自行分集时不走本节**：用户把拆好的 `source/episode_N.txt` 直接放进 `source/`（没有整本原文）时，这些文件本身就是源文，账本会按文件自动登记（条目无原文范围记录），计划不会给出 `plan_episodes`，而是逐集直接进入脚本规划。**不要**把它们合并成全本、**不要**调 `plan_episodes` 重切、**不要**改名或重排；`plan_episodes` 对这类账本一律拒绝并指路全量重置，而全量重置会把这些集文件改名留底——只有用户明确要求重新切分时才走那条路，且须事前告知这一后果并取得确认。
+**用户已自行分集时不走本节**：用户拆好的每集原文逐集经 `mcp__arcreel__upload_source`（`role=episode`）登记为自带原文的集，或在集页直接填写；这些集不参与分集规划，计划逐集直接进入脚本规划。把每一集原样登记为一集，保持用户给出的分集与先后；合并成全本再用 `plan_episodes` 重切只在用户明确要求重新切分时才做。分集规划与重置只动切自整本源文的集，自带原文与无原文的集原样保留。
 
-分集规划由服务端工具完成：工具内部从 `planning_cursor` 起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围 + 分集大纲：故事节点与下集预告），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主 Agent 只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
+分集规划由服务端工具完成：工具内部按整本源文文件清单（`whole_source_files`）的顺序，从最后一个切出集的结尾起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围 + 分集大纲：故事节点与下集预告），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主 Agent 只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
 
 1. 规划前快速核对 `project.json`：
    - `source_language` 是否与源文实际语言一致。优先级：**用户显式配置 > 自动推断**（正常路径由 overview 生成自动落盘）；发现不一致时**提醒用户（WARN）、说明后果并建议修正**（错误配置会使规划的体量度量与语言前提失真），用户未修正时按显式配置继续，不阻塞流程。字段缺失或经用户确认有误时，走 `mcp__arcreel__patch_project({"settings": {"source_language": "en"|"vi"|"zh"}})` 写入
    - `episode_target_units`（每集目标体量，按 `source_language` 解读为阅读单位）：已设置则直接沿用；缺失且用户在对话中明确给过字数 → 经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 写入；缺失但项目设了 `episode_target_duration` 时，工具会按该时长经口播语速折算出每集体量，**不必再问用户字数**；两者都没有也可直接规划（工具会按短视频节奏自行把握体量），无需强制询问
-2. 调用 `mcp__arcreel__plan_episodes({})`。窗口字数与每批集数上限为工具内部默认，项目设置 `planning_window_chars` / `planning_max_episodes` 可覆盖（经 patch_project settings 写入）。**用户在规划前给出分集附加指令时**（如"严格按章节切分，一章一集""每集在某处收尾"），把附加指令原文经 `instructions` 传入：`mcp__arcreel__plan_episodes({"instructions": "附加指令原文"})`；附加指令原样注入规划 prompt 的「附加指令」分节，遵循强度由正文表达——用户明确要求硬性遵循时，把强度措辞一并写进正文（如「必须全部落实：一章一集」）。长篇会分多批规划（每批一次工具调用），该附加指令**不持久化**，须在规划完成前**每一批调用都重复带上同一 `instructions`**
+2. 调用 `mcp__arcreel__plan_episodes({})`。窗口大小与每批集数由工具按文本模型的最大输出长度决定，不可配置；本批报「找不到完整切分点」时请用户手工切出这一段再继续，报输出截断时按报错指名的模型引导用户登记最大输出长度（自定义供应商）或换文本模型（内置）。**用户在规划前给出分集附加指令时**（如"严格按章节切分，一章一集""每集在某处收尾"），把附加指令原文经 `instructions` 传入：`mcp__arcreel__plan_episodes({"instructions": "附加指令原文"})`；附加指令原样注入规划 prompt 的「附加指令」分节，遵循强度由正文表达——用户明确要求硬性遵循时，把强度措辞一并写进正文（如「必须全部落实：一章一集」）。长篇会分多批规划（每批一次工具调用），该附加指令**不持久化**，须在规划完成前**每一批调用都重复带上同一 `instructions`**
 3. **批级审阅**：把工具返回的账本摘要展示给用户，征求意见；每一集的首尾原文都展示给用户才算完成——用户靠它核对分集边界是否切对
-4. 用户提出意见（一句话可同时包含任意多处意见，含全局偏好）→ 走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning({"from_episode": N})`，`from_episode` 取意见中最早受影响的集，保留其前的集不受影响
+4. 用户提出意见（一句话可同时包含任意多处意见，含全局偏好）→ 走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning({"episode_id": X})`，`episode_id` 取意见中播出顺序最早受影响那一集的集 ID，保留播出顺序中其前的集不受影响；最早受影响的是第一个切出集时省略 `episode_id`，即全量重置
 5. **已消费集警告确认**：重置会波及已消费集（已有 script_plan/剧本/媒体产物）时，工具会返回受影响集清单而不执行——把影响范围告知用户、获得明确确认后，追加 `"confirm_consumed": true` 重新调用；确认执行后这些集的账本条目被清除，产物本身不删除
-6. 重置完成后，全局性意见（如每集体量）先经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 显式写入，再带调整后的 `instructions` 重新调用 `mcp__arcreel__plan_episodes` 从 `from_episode` 起分批规划、结果再次展示审阅；若新提交的集号与原消费范围重叠，工具会自动标 stale（产物不删除，需重做下游产物），无需额外确认。**规划完毕后返回会附全局核对材料**（累计集数、体量最小几集、体量中位数、目标体量——目标体量由 `episode_target_duration` 折算而来时会标明来源，核对时按软目标看待）：若用户给过总集数、按章节对齐等结构性偏好，须对照核对，有偏差须向用户明确说明（可引导用户重新走「重置 + 重新规划」修正）
+6. 重置完成后，全局性意见（如每集体量）先经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 显式写入，再带调整后的 `instructions` 重新调用 `mcp__arcreel__plan_episodes` 从保留段之后起分批规划、结果再次展示审阅；重新规划出的集一律分配新的集 ID，被清除的集 ID 不再复用，其剧本与媒体产物留在磁盘上、不会接到新集上，新集的下游产物需重新制作。**规划完毕后返回会附全局核对材料**（累计集数、体量最小几集、体量中位数、目标体量——目标体量由 `episode_target_duration` 折算而来时会标明来源，核对时按软目标看待）：若用户给过总集数、按章节对齐等结构性偏好，须对照核对，有偏差须向用户明确说明（可引导用户重新走「重置 + 重新规划」修正）
 7. 用户对本批规划满意后刷新计划继续。**用户显式授权全自主时**（如"直接跑完整个流程不用逐步确认"），可跳过批级审阅直接继续
 
 ---
@@ -125,10 +108,10 @@ dispatch `next_action.args.preprocessor` 指名的子智能体，产出 `drafts/
 `preprocessor`，profile 侧再推一遍只会造出第二个真相源。各 script_plan 文件与 schema 的对应关系见
 `.claude/references/generation-modes.md`。
 
-dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径；可选附加指令（用户对本次生成的要求等任何需带给子智能体的临时上下文，原文透传）。
+dispatch prompt 通用参数：项目名称、项目路径、目标集的集 ID（`target.episode`）及其标题与播出位置、本集小说文件路径（`target.source`）；可选附加指令（用户对本次生成的要求等任何需带给子智能体的临时上下文，原文透传）。
 
 若 `next_action.args` 含 `expected_stale_script_plan_revision`，子智能体成功产出正式 script_plan 后必须调用
-`mcp__arcreel__complete_script_plan_rebuild({"episode": N, "expected_stale_script_plan_revision": next_action.args.expected_stale_script_plan_revision})`。
+`mcp__arcreel__complete_script_plan_rebuild({"episode_id": N, "expected_stale_script_plan_revision": next_action.args.expected_stale_script_plan_revision})`。
 该完成事实不可用“文件内容是否变化”推断：确定性重建可能产出完全相同的 JSON。工具报冲突时刷新计划，
 不得用旧参数重试。
 
@@ -137,11 +120,13 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 拿到模型能力与用户偏好；主 Agent 不需要预先注入角色/场景/道具列表或
 `supported_durations` / `max_duration` / `max_reference_images` / `default_duration` / `episode_target_duration` 等数据。）
 
+**本集新增资产随规划产出**：资产识别在逐集脚本规划里完成。子智能体以已登记资产的名字、别名与描述认人，本集未登记的角色 / 场景 / 道具写进 script_plan 顶层的 `new_assets`，每项带处理决定（`register` 登记为新资产 / `merge` 归到已有资产 / `derivative` 登记为角色衍生 / `skip` 不登记）与一句依据。资产表为空时照常 dispatch 脚本规划。
+
 **内容确认后的内容修改在正式脚本上做**：内容确认把脚本规划整集转为正式脚本 `scripts/episode_{N}.json`，此后正式脚本是该集内容的唯一真相源，脚本规划只读（Web 端保存，以及 Agent 取回、修改、晋升编辑副本，都返回 `script_plan_confirmed`）。
 
-- **修改内容**：用户要改分镜台词 `utterances` 与对应原文 `source_text`，或参考生视频单元正文 `text` 与对应原文 `source_text` 时，先 `mcp__arcreel__get_episode_script` 取正文与 revision，再用一次 `mcp__arcreel__patch_episode_script` 的 `update` 写回，不改脚本规划、不重跑编写。写入的非空对应原文须是本集源文 `source/episode_{N}.txt` 的逐字子串（空白归一后比对，可截取首尾、中间不得删改；本集源文缺失时比对项目源文），项目有源文时服务端校验，不符以 `source_text_not_verbatim` 拒绝；清空对应原文不校验。分镜改了台词后若要让提示词跟上，由用户决定是否用 `generate_episode_script` 带 `entry_ids` 显式重写这几条；参考生视频的编写会改写单元正文，对刚改过正文的单元传 `entry_ids` 会覆盖这次修改，须先向用户说明
-- **整集重做**：只有用户要推倒整集时，才重新 dispatch 脚本规划子智能体（操作类型写「整集重做」）重跑脚本规划。新的脚本规划写出后本集内容确认回到待确认（计划的 `gates.script_plan_review.state` 为 `pending`），但旧正式脚本仍在用，计划不会停在 `confirm_script_plan`，`next_action` 照常指向旧正式脚本的下游动作；整集重做时不要跟随它，也不要调 `generate_episode_script`——它会去编写即将被覆盖的旧正式脚本，按下述流程直接调 `confirm_script_review`。该集已有正式脚本时确认就是覆盖：`confirm_script_review` 返回 `script_overwrite_required`，`params.script_overwrite` 列出将被移除的条目与产物。须先向用户说明——旧条目全部移除、其分镜图与视频不再显示、手改的提示词一并丢弃——取得明确同意后，才以 `overwrite_revision=params.script_overwrite.revision` 重新确认；覆盖后全部条目待编写
-- **提示词编写**：`generate_episode_script` 默认只补待编写条目，已有视觉层的条目（包括用户手写的）原样保留；只在用户明确要求重写某几条时传 `entry_ids`
+- **修改内容**：用户要改分镜台词 `utterances` 与对应原文 `source_text`，或参考生视频单元正文 `text` 与对应原文 `source_text` 时，先 `mcp__arcreel__get_episode_script` 取正文与 revision，再用一次 `mcp__arcreel__patch_episode_script` 的 `update` 写回，不改脚本规划、不重跑编写。写入的非空对应原文须是本集源文 `source/episode_{N}.txt` 的逐字子串（空白归一后比对，可截取首尾、中间不得删改；本集源文缺失时比对项目源文），项目有源文时服务端校验，不符以 `source_text_not_verbatim` 拒绝；清空对应原文不校验。分镜改了台词后若要让提示词跟上，由用户决定是否用 `generate_episode_script` 带 `entry_ids` 与 `rewrite: true` 显式重写这几条；参考生视频的编写会改写单元正文，对刚改过正文的单元显式重写会覆盖这次修改，须先向用户说明
+- **整集重做**：只有用户要推倒整集时，才重新 dispatch 脚本规划子智能体（操作类型写「整集重做」）重跑脚本规划。新的脚本规划写出后本集内容确认回到待确认（计划的 `gates.script_plan_review.state` 为 `pending`），但旧正式脚本仍在用，计划不会停在 `confirm_script_plan`，`next_action` 照常指向旧正式脚本的下游动作；整集重做时不要跟随它，也不要调 `generate_episode_script`——它会去编写即将被覆盖的旧正式脚本，按下述流程直接调 `confirm_script_review`。该集已有正式脚本时确认就是覆盖：`confirm_script_review` 返回 `script_overwrite_required`，回执正文是服务端生成的丢失清单（与 Web 确认框同一份文本，含配音、尾帧、宫格归属）。先把清单原文转述给用户，得到明确同意后，才以 `overwrite_revision=params.script_overwrite.revision` 重新确认；覆盖后全部条目待编写
+- **提示词编写**：`generate_episode_script` 默认补缺，已有的图片 / 视频提示词（包括用户手写的）原样保留；`entry_ids` 只划定范围，只在用户明确要求覆盖某几条时再加 `rewrite: true`，并按回执的丢失清单取得同意后传回令牌
 
 ---
 
@@ -152,76 +137,33 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 - `next_action.type == "confirm_script_plan"` → 先完成下述内容确认，刷新计划后再路由
 - `next_action.type == "generate_script"` → dispatch 剧本生成
 
-**script_plan→prompt_authoring 内容确认（阻塞）**：`prepare_script_plan` 产出的脚本规划须经**显式确认**才放行提示词编写（三种结构化 script_plan 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `script_plan_reference_units.json` 同样须确认，不要跳过。ad 无 script_plan，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。该集尚无正式脚本时，未确认的计划停在 `confirm_script_plan`、不会路由到提示词编写（已有正式脚本时不挡下游，见上方「整集重做」）；尚无正式脚本时 `generate_episode_script` 直接报「尚无正式脚本」。确认即把脚本规划整集转为正式脚本、全部条目待编写；该集已有正式脚本时确认会覆盖它，须按上方「整集重做」先取得用户同意。
+**script_plan→prompt_authoring 内容确认（阻塞）**：`prepare_script_plan` 产出的脚本规划须经**显式确认**才放行提示词编写（三种结构化 script_plan 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `script_plan_reference_units.json` 同样须确认，不要跳过。ad 无 script_plan，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode_id": N})`（全自主模式下按用户总体授权确认）。该集尚无正式脚本时，未确认的计划停在 `confirm_script_plan`、不会路由到提示词编写（已有正式脚本时不挡下游，见上方「整集重做」）；尚无正式脚本时 `generate_episode_script` 直接报「尚无正式脚本」。确认即把脚本规划整集转为正式脚本、全部条目待编写；该集已有正式脚本时确认会覆盖它，须按上方「整集重做」先取得用户同意。
 
-**dispatch `create-episode-script` 子智能体**：传入项目名称、项目路径、集数；可选附加指令（用户对本次生成的要求等任何需带给子智能体的临时上下文，原文透传）。
+确认时 `new_assets` 随正式脚本一并登记：按处理决定新建资产、给已有资产记别名或登记衍生，引用随之改写；与已登记同类资产同名的新增项自动归入该资产。在对话中确认前，把新增资产与各自的处理逐项告诉用户；用户要改处理时，请其在 Web 端内容确认页的「本集新增资产」区修改，或取回脚本规划草稿改 `new_assets` 后晋升。处理解析不出（归入的资产或衍生的本体不存在）时确认返回 `invalid_new_assets`，按回执修正后重新确认。
+
+**dispatch `create-episode-script` 子智能体**：传入项目名称、项目路径、目标集的集 ID（`target.episode`）及其标题与播出位置；可选附加指令（用户对本次生成的要求等任何需带给子智能体的临时上下文，原文透传）。
 
 ---
 
-## `generate_asset_sheets`：资产设计（character / scene / prop 三类并行）
+## `generate_asset_sheets`：本集资产图
 
-**触发**：`next_action.type == "generate_asset_sheets"`。空资产 bucket 是 `analyze_assets` 的合法完成结果，
-不得据此回退；对每个资产类型，取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集作为
-该类型的 `names`，同时传给子智能体和工具：
-- character 缺 character_sheet
-- scene 缺 scene_sheet
-- prop 缺 prop_sheet
+**触发**：`next_action.type == "generate_asset_sheets"`，`next_action.args.episode_id` 是目标集的集 ID。
+资产随内容确认登记，空资产 bucket 是合法状态，不得据此回退。
 
-**调度规则（显式条件判断，按类型独立决定）**：
-
-```text
-对于 type ∈ {character, scene, prop}:
-  names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids
-  若 names 非空 → dispatch 对应的 `generate-assets` 子智能体，并把 names 原样传给子智能体和工具
-  若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids
-
-三类判断彼此独立，结果可能 dispatch 0~3 个子智能体。
-所有 dispatch 的子智能体返回后，合并摘要展示给用户，进入动作间确认。
-```
-
-下面三个 dispatch 块是模板，只实例化满足上述条件的那几个：
-
-### 子智能体 — 角色设计
-
-**触发**：该类 `names` 交集非空
+「本集引用了哪些资产」由服务端算：按集 ID 调一次 `generate_assets`，服务端生成本集引用、仍缺资产图的全部资产
+（角色 / 场景 / 道具 / 商品及衍生），与 Web 集层「生成待生成的资产」同一份名单；衍生与本体同批，本体图生成成功后才提交衍生。
 
 ```text
 dispatch `generate-assets` 子智能体：
-  任务类型：character
+  任务类型：asset_sheets
   项目名称：{project_name}
-  待生成项：{names 交集}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "character", "names": [该类型 names]})
-  验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
+    mcp__arcreel__generate_assets({"episode_id": <next_action.args.episode_id>})
+  验证方式：按返回的 requested / succeeded / failed / blocked 逐 ID 汇报
 ```
 
-### 子智能体 — 场景设计
-
-**触发**：该类 `names` 交集非空
-
-```text
-dispatch `generate-assets` 子智能体：
-  任务类型：scene
-  项目名称：{project_name}
-  待生成项：{names 交集}
-  工具调用：
-    mcp__arcreel__generate_assets({"type": "scene", "names": [该类型 names]})
-  验证方式：重新读取 project.json，检查对应场景的 scene_sheet 字段
-```
-
-### 子智能体 — 道具设计
-
-**触发**：该类 `names` 交集非空
-
-```text
-dispatch `generate-assets` 子智能体：
-  任务类型：prop
-  项目名称：{project_name}
-  待生成项：{names 交集}
-  工具调用：
-    mcp__arcreel__generate_assets({"type": "prop", "names": [该类型 names]})
-  验证方式：重新读取 project.json，检查对应道具的 prop_sheet 字段
-```
+子智能体返回后，把摘要展示给用户，进入动作间确认。`blocked` 项的处理见
+[workflow-plan](../../references/workflow-plan.md) 的 `generate_asset_sheets` 行。
 
 ---
 
@@ -253,15 +195,10 @@ dispatch `generate-assets` 子智能体：
 
 **触发**：`next_action.type == "generate_videos"`
 
-入队前计划可能先交回两个受控动作，按 [workflow-plan](../../references/workflow-plan.md) 处理完再重查计划：
-
-- `choose_narration_delivery` — 本次请求含叙述旁白。向用户**显式说明**这次要发起的是叙述旁白视频
-  请求，并在「使用当前 TTS」与「后期配音」之间二选一；选择经 `narration_delivery` 带进下一次
-  `mcp__arcreel__get_workflow_plan`，不持久化，之后每次查询都要重新带上。未配置 TTS 时默认后期配音，
-  不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时先显式生成并让用户试听，再按
-  预检返回的 `problems[].action` 处理（action 是权威，不要按 `code` 自己推）
-- `confirm_request_duration` — 整批准入判定要求确认申请档位。按 `admission.confirmation.tiers[]` 逐档位
-  展示涉及的视频单元与费用，取得确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
+入队前计划可能先交回 `confirm_request_duration`：整批准入判定要求确认申请档位。按
+`admission.confirmation.tiers[]` 逐档位展示涉及的视频单元与费用，取得确认后经
+`confirmed_request_durations` 带回下一次 `mcp__arcreel__get_workflow_plan`（见
+[workflow-plan](../../references/workflow-plan.md)）。
 
 只有 `plan.steps[].admission.decision == "admitted"` 才入队；`blocked` 或 `confirmation_required` 时
 **一个任务都不入队**。此时逐视频单元报告 `admission.units[]` 的 `unit_id`、`problems[].code`、原因与
@@ -277,22 +214,32 @@ dispatch `generate-assets` 子智能体：
 dispatch `generate-assets` 子智能体：
   任务类型：video
   项目名称：{project_name}
-  工具调用（两个工具的 narration_delivery 均为必填，填本次已向用户确认的那个值）：
+  工具调用：
     requested_ids 非空 →
       mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids},
-                                             "force": true, "narration_delivery": chosen_narration_delivery})
+                                             "force": true})
     requested_ids == []（计划未点名；工具调用不传 scene_ids）→
-      mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode": target.episode},
-                                            "narration_delivery": chosen_narration_delivery})
+      mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode_id": target.episode}})
   验证方式：重新读取 target.script，检查各分镜的 video_clip 字段
 ```
-
-`narration_delivery` 省略或写错值一律返回工具错误、不入队任何任务，也不退回后期配音。凑够必填项
-不等于做过选择：没和用户确认过就先走 `choose_narration_delivery`，不要自己填一个值。
 
 返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤状态、
 队列任务、供应商 checkpoint、产物时效四轴**分开说**——「任务成功」不等于「当前产物有效」。
 stale 产物照常可预览、可导出、可参与成片，是否重做由用户明确决定；不自动删除、覆盖或重生已付费产物。
+
+---
+
+## `create_edit_timeline`：剪辑
+
+**触发**：`next_action.type == "create_edit_timeline"`，本集视频已齐、还没有剪辑时间线。
+
+TTS 配音项目（`plan.status.artifacts.audio.missing_ids` 非空）先补齐缺失的旁白配音：按 `generate-narration-audio`
+skill 调 `mcp__arcreel__generate_narration_audio({"script": target.script_filename})`，不带 `segment_ids`。项目选择
+TTS 即已授权，无需另行确认。剪辑时间线一建好这一步就完成，之后工作流不会再回到这里补配音。
+
+再调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 按脚本
+机械新建一条剪辑时间线，至少有一条剪辑时间线，这一步即完成。之后按 `edit-video` skill 在它上面剪辑，
+只在用户要求时出成片或导出剪映草稿。
 
 ---
 
@@ -325,11 +272,11 @@ revision 重试。改完后按上面的请求选择语义点名重做这些 ID�
 
 工作流**不强制从头开始**。根据计划结果，自动从正确的动作开始：
 
-- "分析小说角色" → 只执行 `analyze_assets`
-- "创建第2集剧本" → 从 `plan_episodes` 开始（如果角色已有）
-- "继续" → 计划给出第一个未完成动作
-- 指定具体动作（如"生成分镜图"）→ 该动作只是用户意图，仍先查计划：与 `next_action.type` 一致才执行；
-  不一致或有 blockers 时不入队，改为说明计划当前要求的动作与原因
+- "继续" → 执行计划的 `next_action`；`next_alternatives` 非空时是分岔，列出选项由用户选
+- 点名具体操作（如"分析小说角色""规划第2集脚本""生成分镜图"）→ 先查计划，`plan.status.operations`
+  里该操作为 `admitted`（或未列出）就执行，即使 `next_action` 指向别处；为 `refused` 时把 `reason`
+  转述给用户，说明缺什么、怎样补上。有 `blockers` 时一律不执行
+- 用户说「第 N 集」指播出顺序第 N 个：按 `episodes[]` 的排列取那一集的集 ID，再查它的计划
 
 ---
 
@@ -337,4 +284,4 @@ revision 重试。改完后按上面的请求选择语义点名重做这些 ID�
 
 - 角色 / 场景 / 道具完整定义**只存 project.json**，剧本中仅引用名称
 - 项目摘要 `episodes[]` 的派生字段（item_count、status、progress）**读时计算**，不存储
-- 剧集元数据（episode/title/script_file）在剧本保存时**写时同步**
+- 剧集元数据（episode 集 ID / title / script_file）在剧本保存时**写时同步**

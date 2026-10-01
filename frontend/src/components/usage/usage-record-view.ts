@@ -1,5 +1,6 @@
 import type {
   CallType,
+  EpisodeItemRef,
   TaskItem,
   TaskMediaType,
   UsageRecord,
@@ -27,6 +28,8 @@ export interface UsageRecordView {
   status: UsageRecordStatus;
   purpose: string | null;
   segmentId: string | null;
+  /** segmentId 所属集的标题与播出位置，界面据此显示「标题 · S01」。 */
+  segmentRef: EpisodeItemRef | null;
   errorCode: string | null;
   errorMessage: string | null;
   /** 已结束调用的开始时刻；进行中行用它排序与计时。 */
@@ -49,6 +52,7 @@ export function usageRecordToView(record: UsageRecord): UsageRecordView {
     status: record.status,
     purpose: record.purpose,
     segmentId: record.segment_id,
+    segmentRef: record.segment_ref ?? null,
     errorCode: record.error_code,
     errorMessage: record.error_message,
     startedAt: record.started_at,
@@ -86,6 +90,7 @@ const SEGMENT_RESOURCE_TYPES: Record<TaskMediaType, ReadonlySet<string> | null> 
   image: new Set(["storyboards", "videos", "grids"]),
   video: new Set(["storyboards", "videos", "reference_videos"]),
   audio: null,
+  render: new Set(),
 };
 
 /**
@@ -106,9 +111,11 @@ export function taskSegmentId(task: TaskItem): string | null {
 
 /**
  * 进行中的任务投影成记录行。任务侧没有模型与调用行，模型留空由界面显示「待解析」；
- * 计时起点取 `started_at`，尚未开始时取 `queued_at`。
+ * 计时起点取 `started_at`，尚未开始时取 `queued_at`。本地渲染任务（`render`）不调用
+ * 供应商、不记用量，没有对应的行，返回 null。
  */
-export function taskToUsageRecordView(task: TaskItem): UsageRecordView {
+export function taskToUsageRecordView(task: TaskItem): UsageRecordView | null {
+  if (task.media_type === "render") return null;
   return {
     key: `task:${task.task_id}`,
     recordId: null,
@@ -120,6 +127,7 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView {
     status: "pending",
     purpose: "generation_task",
     segmentId: taskSegmentId(task),
+    segmentRef: taskSegmentId(task) === null ? null : (task.resource_ref ?? null),
     errorCode: null,
     errorMessage: null,
     startedAt: task.started_at ?? task.queued_at,

@@ -14,7 +14,7 @@
 import logging
 from collections.abc import Callable, Sequence
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -25,6 +25,7 @@ from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import ApiError
 from lib.script.script_editor import ScriptEditError
 from server.i18n import get_translator
+from server.services.project.episode_display import present_request_diagnostics
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,13 @@ def register_error_handlers(
         content: dict[str, object] = {"detail": render_generation_input_error(exc.key, exc.params, _t)}
         if exc.diagnostic is not None:
             content["diagnostic"] = exc.diagnostic
+        content = await present_request_diagnostics(content, request, _t)
         return JSONResponse(status_code=exc.status_code, content=content)
+
+    @app.exception_handler(HTTPException)
+    async def _handle_http_error(request: Request, exc: HTTPException) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        detail = await present_request_diagnostics(exc.detail, request, get_translator(request))
+        return JSONResponse(status_code=exc.status_code, content={"detail": detail}, headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def _handle_request_validation(request: Request, exc: RequestValidationError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
@@ -108,7 +115,8 @@ def register_error_handlers(
     @app.exception_handler(TaskSpecValidationError)
     async def _handle_task_spec_error(request: Request, exc: TaskSpecValidationError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         _t = get_translator(request)
-        return JSONResponse(status_code=400, content={"detail": _t(exc.code, **exc.params)})
+        detail = await present_request_diagnostics(_t(exc.code, **exc.params), request, _t)
+        return JSONResponse(status_code=400, content={"detail": detail})
 
     @app.exception_handler(ActiveTaskRequestConflict)
     async def _handle_active_task_request_conflict(  # pyright: ignore[reportUnusedFunction]
@@ -116,21 +124,20 @@ def register_error_handlers(
         exc: ActiveTaskRequestConflict,
     ) -> JSONResponse:
         _t = get_translator(request)
+        detail = await present_request_diagnostics(
+            _t("video_request_conflicts_with_active_task", resource_id=exc.resource_id), request, _t
+        )
         return JSONResponse(
             status_code=409,
-            content={
-                "detail": _t(
-                    "video_request_conflicts_with_active_task",
-                    resource_id=exc.resource_id,
-                )
-            },
+            content={"detail": detail},
         )
 
     @app.exception_handler(ScriptEditError)
     async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误
         _t = get_translator(request)
-        return JSONResponse(status_code=400, content={"detail": script_edit_detail(exc, _t)})
+        detail = await present_request_diagnostics(script_edit_detail(exc, _t), request, _t)
+        return JSONResponse(status_code=400, content={"detail": detail})
 
     @app.exception_handler(FileNotFoundError)
     async def _handle_file_not_found(request: Request, exc: FileNotFoundError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]

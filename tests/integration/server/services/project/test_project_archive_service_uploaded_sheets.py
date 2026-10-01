@@ -117,7 +117,7 @@ def test_archive_import_reaches_the_backfill_conclusion(tmp_path, scope, envelop
     assert _statuses(imported_dir, _EXPECTED) == _EXPECTED
     imported_status = WorkflowStateService(pm).get_status("demo")
     assert imported_status.blockers == source_status.blockers == []
-    assert imported_status.state == source_status.state
+    assert imported_status.content == source_status.content
     assert imported_status.next_action == source_status.next_action
     assert imported_status.artifacts["asset_sheets"] == source_status.artifacts["asset_sheets"]
 

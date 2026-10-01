@@ -31,20 +31,21 @@ import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
 import { EndFrameRow } from "./EndFrameRow";
 import { NarrationAudioCard } from "./NarrationAudioCard";
-import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
-import { ReferenceDurationConfirmDialog } from "../reference/ReferenceDurationConfirmDialog";
 import { NotesDrawer } from "./NotesDrawer";
 import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
-import { ShotStructureActions } from "./ShotStructureActions";
+import { ShotStructureActions, type InsertShotHandler } from "./ShotStructureActions";
+import { SegmentBreakToggle } from "./SegmentBreakToggle";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Popover } from "@/components/ui/Popover";
-import { API, NarratedVideoDurationError } from "@/api";
+import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, isScriptFileBusy } from "@/stores/tasks-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { speakerCandidates } from "@/utils/plan-new-assets";
+import { durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
 import { errMsg } from "@/utils/async";
 import {
   emptyImagePrompt,
@@ -53,7 +54,8 @@ import {
   isStructuredVideoPrompt,
 } from "@/utils/prompt-shape";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
-import type { NarratedVideoDurationAdmission, ReferenceGenerationRequestOptions } from "@/types";
+import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
@@ -70,9 +72,10 @@ interface ShotDetailProps {
   contentMode: DetailContentMode;
   aspectRatio: "9:16" | "16:9";
   projectName: string;
+  /** 当前集号；给了才提供单条「编写提示词」入口 */
+  episode?: number;
   /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
   scriptFile?: string;
-  isGridMode?: boolean;
   /** Total shot count for "1/N" indicator */
   selectedIndex: number;
   totalCount: number;
@@ -83,21 +86,18 @@ interface ShotDetailProps {
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => void | Promise<void>;
-  /** 广告/短片分镜顺序调整（向前/向后移动一位） */
+  /** 分镜改序：向前或向后移动一位 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
   /** 分镜重排请求在途，移动按钮禁用 */
   movePending?: boolean;
   /** 在当前分镜之后新增分镜（旁白带正文），resolve 为是否成功；缺省时不渲染入口。 */
-  onInsertShot?: (afterId: string, novelText?: string) => Promise<boolean>;
+  onInsertShot?: InsertShotHandler;
   /** 移除当前分镜，resolve 为是否成功；缺省时不渲染入口。 */
   onRemoveShot?: (itemId: string) => Promise<boolean>;
   /** 分镜新增 / 移除请求在途，切镜与增删入口禁用 */
   structurePending?: boolean;
   onGenerateStoryboard?: (segmentId: string) => void;
-  onGenerateVideo?: (
-    segmentId: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => void | Promise<void>;
+  onGenerateVideo?: (segmentId: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string) => void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
@@ -274,18 +274,8 @@ function DurationPill({
   }
   const isIncompatible =
     durationOptions.length > 0 && !durationOptions.includes(seconds);
-  // 越界文案按成因分开：模型全集就不含该值才是「模型不支持」，被分辨率 / 参考图路径的联动约束
-  // 收窄掉时说清是哪一条——用户据此改对应设置，而不是被引去以为模型换不了这个时长。
   // 与项目默认时长的三种提示同一套判定（见 useModelCapabilities.durationOutOfRangeReason）。
-  const incompatibleKey = {
-    model: "duration_incompatible_warning",
-    resolution: "duration_incompatible_resolution_warning",
-    reference: "duration_incompatible_reference_warning",
-  }[durationWarningReason?.(seconds) ?? "model"];
-  const incompatibleLabel = t(incompatibleKey, {
-    value: seconds,
-    supported: durationOptions.join(", "),
-  });
+  const incompatibleLabel = durationIncompatibleLabel(t, seconds, durationOptions, durationWarningReason?.(seconds));
   const useSlider =
     isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
 
@@ -459,8 +449,8 @@ export function ShotDetail({
   contentMode,
   aspectRatio,
   projectName,
+  episode,
   scriptFile,
-  isGridMode,
   selectedIndex,
   totalCount,
   onPrev,
@@ -525,51 +515,6 @@ export function ShotDetail({
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
   const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
-  const [narrationDeliverySelection, setNarrationDeliverySelection] = useState<{
-    delivery: "post_production" | "use_tts";
-    narrationText: string;
-  }>({ delivery: "post_production", narrationText });
-  const narrationDelivery =
-    hasNarrationText && narrationDeliverySelection.narrationText === narrationText
-      ? narrationDeliverySelection.delivery
-      : "post_production";
-  const [pendingDurationConfirmation, setPendingDurationConfirmation] = useState<{
-    admission: NarratedVideoDurationAdmission;
-    delivery: "post_production" | "use_tts";
-    narrationText: string;
-  } | null>(null);
-
-  const requestVideo = async (
-    delivery: "post_production" | "use_tts",
-    confirmedRequestDuration?: number,
-  ) => {
-    if (!onGenerateVideo) return;
-    const requestOptions: ReferenceGenerationRequestOptions = {
-      narration_delivery: delivery,
-      ...(confirmedRequestDuration == null
-        ? {}
-        : { confirmed_request_duration_seconds: confirmedRequestDuration }),
-    };
-    try {
-      await onGenerateVideo(segmentId, requestOptions);
-      setPendingDurationConfirmation(null);
-    } catch (error) {
-      if (
-        error instanceof NarratedVideoDurationError
-        && error.admission.request_duration !== null
-        && error.admission.problems.some(
-          ({ blocking, code }) => blocking && code === "reference_duration_confirmation_required",
-        )
-      ) {
-        setPendingDurationConfirmation({ admission: error.admission, delivery, narrationText });
-        return;
-      }
-      useAppStore
-        .getState()
-        .pushToast(t("generate_video_failed", { message: errMsg(error) }), "error");
-    }
-  };
-
   const handleUpload = async (kind: "storyboard" | "video", file: File) => {
     // 单个分镜同时只允许一个上传：两张卡写同一后端资源族，避免并发覆写
     if (!scriptFile || uploadingKind) return;
@@ -609,6 +554,9 @@ export function ShotDetail({
     }
     setSyncedUpstreamSig(upstreamSig);
   }
+
+  const projectCharacters = useProjectsStore((s) => s.currentProjectData?.characters);
+  const speakerNames = useMemo(() => speakerCandidates(projectCharacters ?? {}), [projectCharacters]);
 
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
@@ -960,6 +908,7 @@ export function ShotDetail({
             utterances={draft.utterances ?? EMPTY_UTTERANCES}
             onChange={handleUtterancesChange}
             disabled={saving || refsReadOnly}
+            speakerCandidates={speakerNames}
           />
         </div>
       ) : (
@@ -1058,15 +1007,27 @@ export function ShotDetail({
 
   const midColumn = (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
-      <div
-        className="text-[10.5px] font-bold uppercase"
-        style={{
-          color: "var(--color-text-4)",
-          letterSpacing: "1px",
-          fontFamily: "var(--font-mono)",
-        }}
-      >
-        {t("detail_section_prompts")}
+      <div className="flex items-center gap-2">
+        <div
+          className="text-[10.5px] font-bold uppercase"
+          style={{
+            color: "var(--color-text-4)",
+            letterSpacing: "1px",
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          {t("detail_section_prompts")}
+        </div>
+        <span className="flex-1" />
+        {episode !== undefined && (
+          <PromptAuthoringButton
+            projectName={projectName}
+            episode={episode}
+            scope="current"
+            currentEntryId={segmentId}
+            className="sv-navbtn"
+          />
+        )}
       </div>
 
       {segment.pending_authoring === true && (
@@ -1175,7 +1136,6 @@ export function ShotDetail({
         segmentId={segmentId}
         assetPath={assets?.storyboard_image ?? null}
         aspectRatio={aspectRatio}
-        hideGenerateButton={isGridMode}
         generating={generatingStoryboard}
         estimatedCost={sbEstimate ?? undefined}
         onGenerate={onGenerateStoryboard ? () => onGenerateStoryboard(segmentId) : undefined}
@@ -1190,20 +1150,6 @@ export function ShotDetail({
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />
       <div className="flex flex-col">
-        {hasNarrationText && onGenerateVideo && (
-          <div className="mb-2 flex justify-end">
-            <NarrationDeliveryChoice
-              value={narrationDelivery}
-              onChange={(value) => {
-                setPendingDurationConfirmation(null);
-                setNarrationDeliverySelection({ delivery: value, narrationText });
-              }}
-              disabled={generatingVideo || dirty || saving}
-              ttsDurationEndpointFixed={durationEndpointFixed}
-              compact
-            />
-          </div>
-        )}
         {scriptFile && onGenerateVideo && (
           <EndFrameRow
             projectName={projectName}
@@ -1229,8 +1175,8 @@ export function ShotDetail({
           generating={generatingVideo}
           generateDisabled={!hasStoryboard || dirty || saving}
           generateDisabledHint={dirty ? dirtyHint : undefined}
-          estimatedCost={narrationDelivery === "use_tts" ? undefined : vidEstimate ?? undefined}
-          onGenerate={onGenerateVideo ? () => void requestVideo(narrationDelivery) : undefined}
+          estimatedCost={vidEstimate ?? undefined}
+          onGenerate={onGenerateVideo ? () => void onGenerateVideo(segmentId) : undefined}
           onRestore={onRestoreVideo}
           onUpload={
             scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined
@@ -1250,37 +1196,6 @@ export function ShotDetail({
           generateDisabledHint={!hasNarrationText ? t("no_original_text") : dirty ? dirtyHint : undefined}
           estimatedCost={narrationEstimate ?? undefined}
           onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
-        />
-      )}
-      {pendingDurationConfirmation?.narrationText === narrationText
-        && pendingDurationConfirmation.admission.request_duration != null && (
-        <ReferenceDurationConfirmDialog
-          open
-          items={[{
-            unitId: segmentId,
-            precheck: {
-              needs_confirmation: true,
-              script_duration: pendingDurationConfirmation.admission.planned_duration,
-              current_visual_duration: pendingDurationConfirmation.admission.current_visual_duration,
-              duration_input: pendingDurationConfirmation.admission.duration_input,
-              request_duration: pendingDurationConfirmation.admission.request_duration,
-              adjustment: pendingDurationConfirmation.admission.adjustment ?? "up",
-              declared_capability: "i2v",
-              hydrated_capability: "i2v",
-              provider_id: null,
-              model_id: null,
-              request_cost: pendingDurationConfirmation.admission.request_cost,
-              problems: pendingDurationConfirmation.admission.problems,
-            },
-          }]}
-          onConfirm={() => {
-            const pending = pendingDurationConfirmation;
-            setPendingDurationConfirmation(null);
-            if (pending.admission.request_duration !== null) {
-              void requestVideo(pending.delivery, pending.admission.request_duration);
-            }
-          }}
-          onCancel={() => setPendingDurationConfirmation(null)}
         />
       )}
       <ConfirmDialog
@@ -1330,7 +1245,7 @@ export function ShotDetail({
               "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 2px 6px -2px var(--color-accent-glow)",
           }}
         >
-          {segmentId}
+          {itemIdWithinEpisode(segmentId)}
         </span>
         <DurationPill
           seconds={segment.duration_seconds ?? 0}
@@ -1344,6 +1259,13 @@ export function ShotDetail({
           busy={!!generatingStoryboard || !!generatingVideo}
         />
         <StatusBadge status={status} />
+        {(isNarration || isDrama) && onUpdatePrompt && (
+          <SegmentBreakToggle
+            checked={(segment as NarrationSegment | DramaScene).segment_break === true}
+            onChange={(next) => onUpdatePrompt(segmentId, "segment_break", next)}
+            disabled={!!generatingStoryboard || !!generatingVideo}
+          />
+        )}
         <span className="flex-1" />
 
         <div className="flex items-center gap-1.5">
@@ -1356,7 +1278,7 @@ export function ShotDetail({
               total: totalCount,
             })}
           </span>
-          {isAd && onMoveShot && (
+          {onMoveShot && (
             <>
               <button
                 type="button"

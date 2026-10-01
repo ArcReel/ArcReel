@@ -37,7 +37,7 @@ _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
 _CONTROLLABLE = "ark/doubao-seedance-2-0-260128"
 
 
-_EPISODE_1 = {"scope": "episode", "episode": 1}
+_EPISODE_1 = {"scope": "episode", "episode_id": 1}
 
 
 def _admission_codes(out: ToolOutcome[Any]) -> dict[str, list[str]]:
@@ -120,11 +120,7 @@ class TestReferenceRouteGate:
         async def _no_active(**_kwargs):
             return []
 
-        async def _passthrough_options(*, options, **_kwargs):
-            return options
-
         monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _no_active)
-        monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _passthrough_options)
 
     async def test_projects_each_pending_unit_and_skips_done_units(self, tmp_path, monkeypatch):
         seen: list[str] = []
@@ -135,7 +131,6 @@ class TestReferenceRouteGate:
             cost = None
             planned_duration = 8
             request_duration = None
-            current_visual_duration = None
 
             def to_advisory_payload(self):
                 return {"allowed": True, "unit_id": "test", "problems": []}

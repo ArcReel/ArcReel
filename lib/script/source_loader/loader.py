@@ -67,6 +67,27 @@ class SourceLoader:
         )
 
     @classmethod
+    def extract(
+        cls,
+        src: Path,
+        *,
+        original_filename: str | None = None,
+        max_bytes: int = DEFAULT_MAX_BYTES,
+    ) -> ExtractedText:
+        """只把上传文件规范化为 UTF-8 文本，不落盘；格式与大小校验与 :meth:`load` 相同。
+
+        供逐集原文登记使用：文本写到集文件，不按原文件名落到 ``source/``，也不保留原始格式备份。
+        """
+        original_filename = original_filename or src.name
+        ext = Path(original_filename).suffix.lower()
+        if ext not in cls.SUPPORTED_EXTS:
+            raise UnsupportedFormatError(ext=ext)
+        size = src.stat().st_size
+        if size > max_bytes:
+            raise FileSizeExceededError(filename=original_filename, size_bytes=size, limit_bytes=max_bytes)
+        return _EXTRACTORS[ext]().extract(src)
+
+    @classmethod
     def load(
         cls,
         src: Path,

@@ -174,6 +174,35 @@ def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) ->
     )
 
 
+def build_uploaded_storyboard_basis(*, content_digest: str) -> ArtifactBasis:
+    """Describe a storyboard image the author uploaded as finished content.
+
+    The basis is the uploaded bytes alone: the prompt, referenced asset sheets,
+    project style, and the previous storyboard are not inputs, so editing them
+    never makes the upload stale.
+    """
+
+    return ArtifactBasis.build(
+        "artifact-visual/storyboard-upload",
+        kind_version=1,
+        inputs={"upload": {"sha256": _require_sha256("uploaded storyboard content_digest", content_digest)}},
+    )
+
+
+def build_uploaded_video_basis(*, content_digest: str) -> ArtifactBasis:
+    """Describe a video the author uploaded as finished content.
+
+    The basis is the uploaded bytes alone: prompts, speech, duration, the
+    storyboard image, and reference assets are not inputs.
+    """
+
+    return ArtifactBasis.build(
+        "artifact-video/upload",
+        kind_version=1,
+        inputs={"upload": {"sha256": _require_sha256("uploaded video content_digest", content_digest)}},
+    )
+
+
 def build_storyboard_image_visual_basis(
     *,
     resource_id: str,
@@ -562,6 +591,8 @@ __all__ = [
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",
     "build_uploaded_asset_sheet_basis",
+    "build_uploaded_storyboard_basis",
+    "build_uploaded_video_basis",
     "snapshot_visual_references",
     "visual_file_digest",
     "visual_references_match_snapshot",

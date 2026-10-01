@@ -28,7 +28,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 几条不由计划表达、需要在这里说清的事实：
 
-- `reference_video` **只跳过分镜图**这一步。它不跳过 audio：旁白交付选择在两种生成模式下都要逐次做，
+- `reference_video` **只跳过分镜图**这一步。TTS 配音项目在两种生成模式下都能生成旁白配音，
   只是参考生视频没有按段批量 TTS 的入口（无 `segments[]`）。
 - 视频入队按项目 `generation_mode` 定生成模式，剧本骨架只作校验；失配（如 storyboard 项目里残留
   `video_units[]` 旧剧本）直接拒绝入队，正解是按项目当前生成模式重跑脚本规划与剧本生成，而非指望旧剧本被执行。
@@ -40,7 +40,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 - **单分镜时长**（storyboard，含 grid_storyboard）：取值必须在模型 `supported_durations` 内；项目 `default_duration` 非 null 时作默认值（项目创建时按 content_mode 写入 project.json），为 null 时由脚本规划按内容节奏自行取值
 - **单集目标时长**（非 ad 项目）：项目 `episode_target_duration` 非 null 时，脚本规划据它决定本集拆多少个分镜 / 视频单元；未显式设 `episode_target_units` 时，分集规划也按它经口播语速折算出每集塞多少原文。两处均为软目标，内容不足宁少拆、内容确实需要可超出，超出只提示不阻断
 - **单个视频单元时长**（参考生视频）：视频单元是一次生成调用的单元，一个视频单元一个时长——取值必须在该视频单元**引用状态对应**的生效档位内（`get_video_capabilities` 返回的 `reference_unit_durations.with_references` / `.without_references`；部分型号对带参考图的生成另有时长限制）；内容装不下所选档位时重拆视频单元，不违约时长。具体数值由子智能体在执行时通过 `mcp__arcreel__get_video_capabilities` 工具查得，**不在本文档固化**。已有正式视频单元实际落的桶与档位以同一返回里 `reference_unit_durations.units[unit_id]` 的服务端判定为准：它按此刻可用的参考图定桶，登记了资产却没有资产图的引用不算带图，并在 `problems` / `unavailable_references` 里点名
-- **拼接**：全部模式用 ffmpeg concat；Veo extend 仅用于**单片段延长**，不串联不同镜头
+- **剪辑与出片**：全部模式按 `edit-video` skill 在剪辑时间线上衔接并出成片；Veo extend 仅用于**单片段延长**，不串联不同镜头
 - **BGM**：生成端已在视频 prompt 末尾自动追加 `Avoid: BGM、文字字幕、水印`，无需手动追加，prompt 里也不要描述 BGM / 配乐
 
 ## Prompt 语言

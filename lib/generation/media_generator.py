@@ -886,9 +886,9 @@ class MediaGenerator:
             resolution=resolution,
         )
         # 总时长校验需要读音频元数据，只能在这层（拿得到文件路径）探测好再传给纯函数的
-        # gate_video_request；探测失败（ffprobe 不可用等）按 None 传入，由其按既有降级口径跳过
+        # gate_video_request；探测失败（随包 ffmpeg 不可用等）按 None 传入，由其按既有降级口径跳过
         # 该项校验，不阻断请求。仅当 caps 声明了总时长约束才探测——未声明该约束的后端
-        # （如 wan2.7）不必为每个请求多付一轮 ffprobe 子进程开销。
+        # （如 wan2.7）不必为每个请求多付一轮探测子进程开销。
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
             if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None

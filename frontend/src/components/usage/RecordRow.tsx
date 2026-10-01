@@ -14,6 +14,7 @@ import {
   purposeKey,
   truncateReason,
 } from "./usage-record-format";
+import { episodeItemRefLabel } from "@/utils/episode-display";
 import type { UsageRecordView } from "./usage-record-view";
 
 export interface RecordRowProps {
@@ -34,7 +35,9 @@ const CELL_CLS = "px-2 py-1.5 align-middle text-[11.5px] text-text-2";
 /** 目标列：有分镜显示分镜，否则显示来源；两者都没有显示破折号。 */
 function useTargetLabel(record: UsageRecordView): string {
   const { t } = useTranslation("dashboard");
-  if (record.segmentId) return t("usage_target_segment", { id: record.segmentId });
+  if (record.segmentId) {
+    return t("usage_target_segment", { id: episodeItemRefLabel(record.segmentId, record.segmentRef, t) });
+  }
   const key = purposeKey(record.purpose);
   if (key) return t(key);
   return "—";

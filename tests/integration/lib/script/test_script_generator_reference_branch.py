@@ -1,6 +1,6 @@
 """ScriptGenerator reference_video 分支测试。
 
-提示词编写只读正式剧本的 video_units：默认改写带待编写标记的单元正文，``entry_ids`` 显式重写；
+提示词编写只读正式剧本的 video_units：默认改写带待编写标记的单元正文，``entry_ids`` 划定范围、``rewrite`` 显式重写；
 脚本规划只在内容确认转换（``materialize_script_plan``）里被读取。
 """
 
@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
+from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.project import project_manager as project_manager_module
@@ -31,6 +32,7 @@ from lib.script.reference_video.request_projection import configured_reference_r
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
 from lib.script.script_generator import PlanningVideoFacts, ScriptGenerator
+from server.services.project.episode_drafts import EpisodeDraftService
 from tests.factories import make_video_request_facts
 
 SCRIPT_PLAN_UNIT = {"unit_id": "E1U01", "text": "@[主角] 推开 @[酒馆] 的门", "duration_seconds": 4}
@@ -335,7 +337,12 @@ async def test_entry_ids_rewrite_an_authored_unit_keeping_other_fields(reference
 
     await ScriptGenerator(
         reference_project, generator=_fake_prompt_authoring_generator(PROMPT_AUTHORING_UNIT_TEXT)
-    ).generate(episode=1, entry_ids=["E1U01"])
+    ).generate(
+        episode=1,
+        entry_ids=["E1U01"],
+        rewrite=True,
+        overwrite_revision=script_review.content_fingerprint(reference_project / "scripts" / "episode_1.json"),
+    )
 
     unit = _formal_units(reference_project)["E1U01"]
     assert unit == {"unit_id": "E1U01", "text": PROMPT_AUTHORING_UNIT_TEXT, "duration_seconds": 4, "note": "保留"}
@@ -613,6 +620,32 @@ async def test_script_generator_rejects_prompt_authoring_unregistered_mention(re
         reference_project, generator=_fake_prompt_authoring_generator("镜头1：@[主角] 与 @[路人乙] 对视")
     )
     with pytest.raises(ValueError, match="未登记"):
+        await gen.generate(episode=1)
+
+
+@pytest.mark.asyncio
+async def test_prompt_authoring_keeps_an_unregistered_speaker_from_the_formal_unit(reference_project: Path):
+    """确认时选为「不登记」的说话人留在正式正文里：提示词编写逐字保留它，不因未登记而拒绝。"""
+    _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "text": "路人 拦住 @[主角]\n@[路人]{借过。}"}])
+    gen = ScriptGenerator(
+        reference_project,
+        generator=_fake_prompt_authoring_generator("镜头1：中景。路人 拦住 @[主角] 的去路\n@[路人]{借过。}"),
+    )
+
+    await gen.generate(episode=1)
+
+    assert _formal_units(reference_project)["E1U01"]["text"].endswith("@[路人]{借过。}")
+
+
+@pytest.mark.asyncio
+async def test_prompt_authoring_refuses_a_speaker_the_formal_unit_did_not_have(reference_project: Path):
+    _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "text": "@[主角] 推门\n@[主角]{我来了。}"}])
+    gen = ScriptGenerator(
+        reference_project,
+        generator=_fake_prompt_authoring_generator("镜头1：@[主角] 推门\n@[主角]{我来了。}\n@[路人乙]{谁？}"),
+    )
+
+    with pytest.raises(ValueError, match="说话人"):
         await gen.generate(episode=1)
 
 
@@ -1448,7 +1481,9 @@ async def test_promote_prompt_authoring_draft_rejects_schema_breach_with_report(
     assert path.exists()
     assert _script_path(reference_project).read_bytes() == formal_before
     refreshed = _json.loads(path.read_text(encoding="utf-8"))
-    assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
+    assert [(v["code"], v.get("item_index"), v.get("item_id")) for v in refreshed["violations"]] == [
+        ("schema_invalid", 0, "E1U01")
+    ]
 
 
 @pytest.mark.asyncio
@@ -1529,3 +1564,39 @@ async def test_promote_prompt_authoring_draft_revalidates_edited_formal_unit(ref
 async def test_promote_prompt_authoring_draft_without_draft(reference_project: Path):
     with pytest.raises(FileNotFoundError, match="没有可晋升的 prompt_authoring 待修复草稿"):
         await ScriptGenerator(reference_project).promote_reference_prompt_authoring_draft(episode=1)
+
+
+@pytest.mark.asyncio
+async def test_rewrite_completed_unit_draft_can_be_hand_fixed_and_adopted(reference_project: Path, monkeypatch):
+    original = "镜头1：远景。@[主角] 站在 @[酒馆] 门口。"
+    _write_formal_units(
+        reference_project,
+        [{"unit_id": "E1U01", "text": original, "duration_seconds": 4, "pending_authoring": False}],
+    )
+    formal = _script_path(reference_project)
+    gen = ScriptGenerator(
+        reference_project,
+        generator=_fake_prompt_authoring_generator("镜头1：@[路人甲] 走进 @[酒馆]"),
+    )
+    with pytest.raises(DraftViolation):
+        await gen.generate(
+            episode=1,
+            entry_ids=["E1U01"],
+            rewrite=True,
+            overwrite_revision=script_review.content_fingerprint(formal),
+        )
+    service = EpisodeDraftService(ProjectManager.for_project_dir(reference_project))
+    view = await service.get_draft(reference_project.name, 1, "reference_prompt_authoring")
+    assert view["item_ids"] == ["E1U01"]
+    monkeypatch.setattr(TextGenerator, "create", AsyncMock(return_value=_idle_generator()))
+    fixed = "镜头1：中景。@[主角] 走进 @[酒馆]。"
+    result = await service.save_draft(
+        reference_project.name,
+        1,
+        "reference_prompt_authoring",
+        {"title": "修复稿", "units": [{"text": fixed}]},
+        view["revision"],
+    )
+    assert result["adopted"] is True
+    assert _formal_units(reference_project)["E1U01"]["text"] == fixed
+    assert not _prompt_authoring_quarantine(reference_project).exists()

@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from lib.artifacts.artifact_activation import register_current_artifact_if_provable
+from lib.artifacts.artifact_activation import activate_artifact_target_state, register_current_artifact_if_provable
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.generation.generation_batch import GenerationBatchRequestSnapshot
 from lib.generation.generation_queue import GenerationQueue
@@ -31,7 +31,7 @@ from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services, TextGenerationResult
-from tests.factories import make_video_request_facts
+from tests.factories import make_video_request_facts, register_project_sources
 from tests.fakes import refuse_resume_execution
 from tests.integration.server.agent_tool_support import ToolHarness
 
@@ -45,16 +45,15 @@ class _Planner:
                 "source_revision": None,
                 "project": {"content_mode": "ad", "generation_mode": "storyboard", "grid_storyboard": False},
                 "target": {
-                    "episode": request.episode,
+                    "episode": request.episode_id,
                     "script": "scripts/episode_1.json",
                     "script_filename": "episode_1.json",
                     "source": "source/episode_1.txt",
                 },
-                "state": "FINAL_SCRIPT",
+                "content": None,
                 "blockers": [],
                 "gates": {"script_plan_review": {"state": "not_applicable", "revision": None}},
                 "artifacts": {
-                    "asset_inventory": {"state": "not_applicable"},
                     "asset_sheets": {},
                     "script_plan": {"state": "not_applicable"},
                     "script": {"state": "missing"},
@@ -65,7 +64,7 @@ class _Planner:
                 "next_action": {"type": "generate_script", "reason": "script missing"},
             }
         )
-        return build_workflow_plan(status, narration_delivery=request.narration_delivery)
+        return build_workflow_plan(status)
 
 
 class _Capabilities:
@@ -89,8 +88,7 @@ def remote_projects(tmp_path: Path) -> ProjectManager:
     manager.create_project("demo", content_mode="drama")
     manager.create_project_metadata("demo", "Demo", "", "drama")
     project_dir = projects_root / "demo"
-    (project_dir / "source").mkdir(exist_ok=True)
-    (project_dir / "source" / "episode_1.txt").write_text("第一集原文", encoding="utf-8")
+    register_project_sources(manager, "demo", own_episodes=("第一集原文",))
     (project_dir / "scripts").mkdir(exist_ok=True)
     (project_dir / "scripts" / "episode_1.json").write_text('{"episode":1,"scenes":[]}', encoding="utf-8")
     drafts = project_dir / "drafts" / "episode_1"
@@ -101,6 +99,7 @@ def remote_projects(tmp_path: Path) -> ProjectManager:
         '"scene_description":"山门前。","utterances":[],"source_text":"第一集原文"}]}',
         encoding="utf-8",
     )
+    activate_artifact_target_state(project_dir, bump_schema=False)
     (projects_root / "empty").mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -314,21 +313,21 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     ):
         await session.initialize()
         tools = await session.list_tools()
-        result = await session.call_tool("get_workflow_plan", {"project": " demo ", "episode": 1})
+        result = await session.call_tool("get_workflow_plan", {"project": " demo ", "episode_id": 1})
         capabilities = await session.call_tool("get_video_capabilities", {"project": "demo"})
         patched = await session.call_tool("patch_project", {"project": "demo", "overview": {"synopsis": "远程更新"}})
         project_content = await session.call_tool("get_project_content", {"project": "demo"})
         source_files = await session.call_tool("list_source_files", {"project": "demo"})
         source_text = await session.call_tool("get_source_text", {"project": "demo", "path": "source/episode_1.txt"})
         script = await session.call_tool("get_episode_script", {"project": "demo", "script": "episode_1.json"})
-        script_plan = await session.call_tool("get_script_plan_content", {"project": "demo", "episode": 1})
+        script_plan = await session.call_tool("get_script_plan_content", {"project": "demo", "episode_id": 1})
         project_files = await session.call_tool("list_project_files", {"project": "demo"})
         project_file = await session.call_tool("read_project_file", {"project": "demo", "path": "project.json"})
-        missing = await session.call_tool("get_workflow_plan", {"episode": 1})
-        traversal = await session.call_tool("get_workflow_plan", {"project": "../demo", "episode": 1})
-        nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode": 1})
-        empty = await session.call_tool("get_workflow_plan", {"project": "empty", "episode": 1})
-        escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode": 1})
+        missing = await session.call_tool("get_workflow_plan", {"episode_id": 1})
+        traversal = await session.call_tool("get_workflow_plan", {"project": "../demo", "episode_id": 1})
+        nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode_id": 1})
+        empty = await session.call_tool("get_workflow_plan", {"project": "empty", "episode_id": 1})
+        escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode_id": 1})
         declared_missing = await session.call_tool("get_source_text", {"path": "source/episode_1.txt"})
         declared_escape = await session.call_tool(
             "get_source_text", {"project": "escape", "path": "source/episode_1.txt"}
@@ -342,7 +341,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "patch_episode_meta",
         "rename_asset",
         "retry_project_migration",
-        "complete_asset_inventory",
         "complete_script_plan_rebuild",
     }
     readers = {
@@ -398,6 +396,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert {branch["properties"]["op"]["const"] for branch in operation_branches} == {
         "update",
         "insert",
+        "move",
         "remove",
         "split",
     }
@@ -751,30 +750,30 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
             "generate_script_plan",
             {
                 "project": "demo",
-                "episode": 1,
+                "episode_id": 1,
                 "source": "source/episode_1.txt",
                 "dry_run": True,
             },
             progress_callback=record_progress,
         )
-        refused = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
+        refused = await session.call_tool("confirm_script_review", {"project": "demo", "episode_id": 1})
         refused_problem = refused.structuredContent["problem"]
         confirmed = await session.call_tool(
             "confirm_script_review",
             {
                 "project": "demo",
-                "episode": 1,
+                "episode_id": 1,
                 "overwrite_revision": refused_problem["params"]["script_overwrite"]["revision"],
             },
         )
         script = await session.call_tool(
             "generate_episode_script",
-            {"project": "ad-demo", "episode": 1, "dry_run": True},
+            {"project": "ad-demo", "episode_id": 1, "dry_run": True},
             progress_callback=record_progress,
         )
         scoped = await session.call_tool(
             "generate_episode_script",
-            {"project": "ad-demo", "episode": 1, "dry_run": True, "scope": "all"},
+            {"project": "ad-demo", "episode_id": 1, "dry_run": True, "scope": "all"},
         )
         patched = await session.call_tool(
             "patch_episode_script",
@@ -792,6 +791,8 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert refused.isError
     assert refused_problem["code"] == "script_overwrite_required"
     assert refused_problem["params"]["script_overwrite"]["entries"] == []
+    # 回执正文就是服务端生成的丢失清单，与 params 里的文本同一份。
+    assert refused_problem["params"]["script_overwrite"]["text"] in refused_problem["detail"]
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
     assert not script.isError
@@ -882,7 +883,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
             ClientSession(read, write) as session,
         ):
             await session.initialize()
-            remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode": 1})
+            remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode_id": 1})
             await started.wait()
             embedded_ctx = ToolHarness(
                 project_name="demo",
@@ -893,7 +894,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
             embedded = asyncio.create_task(
                 invoke_declaration(
                     GENERATE_EPISODE_SCRIPT,
-                    {"episode": 1},
+                    {"episode_id": 1},
                     embedded_ctx.scope,
                     embedded_ctx.caller,
                     embedded_ctx.services,
@@ -957,7 +958,7 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
         await session.initialize()
         args = {
             "project": "demo",
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "drama_script_plan",
             "source": "source/episode_1.txt",
         }

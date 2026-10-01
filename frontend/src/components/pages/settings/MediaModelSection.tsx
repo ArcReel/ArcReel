@@ -487,6 +487,7 @@ export function MediaModelSection() {
         ) : (
           emptyHint(t("no_audio_providers_hint"))
         )}
+        <p className="mt-2 text-[11px] leading-relaxed text-text-4">{t("global_tts_defaults_prefill_hint")}</p>
 
         <div className="mt-4 space-y-3.5">
           <div>

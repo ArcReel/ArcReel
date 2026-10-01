@@ -28,7 +28,6 @@ from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_worker import GenerationWorker
 from lib.project.project_manager import ProjectManager
 from lib.script.reference_video.execution_checkpoint import (
-    NarrationExecutionFacts,
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
 )
@@ -68,7 +67,7 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     - ``get_project_manager`` 在链路各消费模块（resolver / generation_context /
       resume_executor / finalize helpers / worker 清理）逐点换成 tmp 下的真
       ProjectManager——resolver 等在模块顶部绑定了该名字，只 patch 定义处不生效。
-    - 缩略图抽取走 ffprobe 子进程，替换为 no-op 保持测试封闭。
+    - 缩略图抽取走 ffmpeg 子进程，替换为 no-op 保持测试封闭。
     """
     monkeypatch.setattr("lib.db.async_session_factory", session_factory)
     bind_safe_session_factory(monkeypatch, session_factory)
@@ -196,14 +195,6 @@ def _storyboard_checkpoint_json(task_id: str, *, provider_id: str, endpoint_guar
             duration_tiers=(8,),
             reference_image_limit=None,
             parent_version=0,
-        ),
-        # delivery=post_production：resume 不声明 audio lane，链路不触碰 TTS。
-        narration=NarrationExecutionFacts(
-            delivery="post_production",
-            tts_status="not_applicable",
-            artifact_path="",
-            basis_digest=None,
-            actual_duration_seconds=None,
         ),
         media=(
             StagedProviderMedia(

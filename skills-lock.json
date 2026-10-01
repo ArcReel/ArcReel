@@ -115,6 +115,12 @@
       "skillPath": "skills/productivity/teach/SKILL.md",
       "computedHash": "b8a69574c7a019bed84e84313dc8bf02e1d1bf925ba43057d433217c63863206"
     },
+    "tech-doc-style-chinese": {
+      "source": "Fenng/tech-doc-style-chinese",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "849a13e837207523fd26ee67b76c0d37bed207a3bcc219d28e792b69397b7ce8"
+    },
     "to-questionnaire": {
       "source": "mattpocock/skills",
       "sourceType": "github",
