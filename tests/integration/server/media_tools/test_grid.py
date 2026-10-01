@@ -12,6 +12,7 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.generation.generation_queue_client import BatchTaskResult, is_interrupted_wait_error
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.media_tools.grid import GridPlanPreview
+from server.tool_runtime import CallerContext
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     read_generation_result,
@@ -186,6 +187,27 @@ async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(fa
     assert not result.ok
     assert result.failed == ["E1S01"]
     item = result.items[0]
+    assert item.artifact_path == "storyboards/E1S01.png"
+
+
+async def test_remote_grid_failure_reports_the_prior_storyboard(fake_ctx: ToolHarness) -> None:
+    """远程批次入队后任务才失败时，终态读取仍需回带提交前的分镜图信息。"""
+    _enable_grid(fake_ctx)
+    for segment in fake_ctx.pm.script_payload["segments"]:
+        segment["generated_assets"] = {"storyboard_image": f"storyboards/{segment['segment_id']}.png"}
+    fake_ctx.caller = CallerContext(user_id=fake_ctx.caller.user_id, source="mcp")
+
+    submitted = await run_declared_tool("generate_grid", fake_ctx, {"script": "episode_1.json", "scene_ids": ["E1S01"]})
+    assert submitted.value is not None
+    batch_id = submitted.value.batch_id
+    task = await fake_ctx.queue.claim_next_task("image")
+    assert task is not None
+    await fake_ctx.queue.mark_task_failed(task["task_id"], "provider failed")
+
+    settled = await run_declared_tool("get_generation_batch", fake_ctx, {"batch_id": batch_id})
+    assert settled.value is not None
+    item = next(item for item in settled.value.generation_result.items if item.unit_id == "E1S01")
+    assert item.artifact_key == ArtifactKey.episode_storyboard(1, "E1S01").encode()
     assert item.artifact_path == "storyboards/E1S01.png"
 
 

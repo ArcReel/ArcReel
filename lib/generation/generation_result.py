@@ -437,6 +437,9 @@ class GenerationTargetState:
     candidate: GenerationCandidate
     status: ArtifactStatus | None = None
     blocker: ArtifactBlocker | None = None
+    prior_artifact_key: ArtifactKey | None = None
+    prior_artifact_path: str | None = None
+    prior_artifact_status: ArtifactStatus | None = None
 
     @property
     def unit_id(self) -> str:

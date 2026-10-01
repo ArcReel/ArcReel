@@ -336,12 +336,22 @@ async def _submit(
         grid_id = submission.grid.id
         report_ids = submission.report_ids
         for scene_id in report_ids:
+            prior_artifact_key = _scene_artifact_key(episode, scene_id)
+            prior_artifact_path = plan.storyboard_paths.get(scene_id)
+            prior_artifact_status, _blocker = observe_artifact_status(
+                resolver=resolver,
+                key=prior_artifact_key,
+                artifact_path=prior_artifact_path,
+            )
             states[scene_id] = GenerationTargetState(
                 candidate=GenerationCandidate(
                     unit_id=scene_id,
                     artifact_key=grid_artifact_key(episode, grid_id),
                     artifact_path=grid_artifact_path(grid_id),
-                )
+                ),
+                prior_artifact_key=prior_artifact_key,
+                prior_artifact_path=prior_artifact_path,
+                prior_artifact_status=prior_artifact_status,
             )
         report_ids_by_grid[grid_id] = report_ids
         grid_id_by_result[grid_id] = grid_id
