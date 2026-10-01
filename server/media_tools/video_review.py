@@ -1,7 +1,9 @@
 """Host-neutral read-only tool that renders contact sheets for video units so an Agent can look at them.
 
-Each unit's chosen video version is read from its version snapshot, sampled evenly and laid out by
-``lib.video_review.contact_sheet``; the sheets travel back as image content blocks after the JSON.
+Each unit's chosen video version is read from its version snapshot. Its machine-check signals (black spans,
+freeze spans, shot cuts) are computed lazily and cached per version (``lib.video_review.signals``); frames are
+sampled around them and laid out by ``lib.video_review.contact_sheet``. The sheets travel back as image content
+blocks after the JSON, which carries the signals too.
 """
 
 from __future__ import annotations
@@ -16,9 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.infra.ffmpeg import FfmpegUnavailableError
-from lib.infra.media_probe import MediaProbeError
+from lib.infra.media_probe import MediaProbeError, probe_video_frame_times
 from lib.project.project_manager import is_reference_video_project
-from lib.video_review.contact_sheet import ContactSheet, ContactSheetError, build_contact_sheets
+from lib.video_review.contact_sheet import MAX_SHOT_FRAMES, ContactSheet, ContactSheetError, build_contact_sheets
+from lib.video_review.signals import SignalDetectionError, VideoSignals, signals_for
 from server.agent_toolset.declaration import ToolImage
 from server.media_tools.context import tool_error, tool_problem
 from server.media_tools.video_versions import project_video_unit_ids
@@ -26,10 +29,11 @@ from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutco
 
 _OPERATION = "inspect_video_units"
 
-MAX_FRAMES_PER_UNIT = 24
+MAX_FRAMES_PER_UNIT = MAX_SHOT_FRAMES
 MAX_FRAMES_PER_CALL = 96
 DEFAULT_FRAMES_PER_UNIT = 8
 _EXTRACT_CONCURRENCY = 3
+_SIGNALS_CACHE_DIR = Path(".cache") / "video_signals"
 
 type UnitStatus = Literal["ok", "video_missing", "video_unreadable"]
 
@@ -50,7 +54,11 @@ class InspectVideoUnitsRequest(BaseModel):
         default=DEFAULT_FRAMES_PER_UNIT,
         ge=1,
         le=MAX_FRAMES_PER_UNIT,
-        description=f"每个视频单元均匀抽取的帧数，默认 {DEFAULT_FRAMES_PER_UNIT}",
+        description=(
+            f"每个视频单元的帧数预算，默认 {DEFAULT_FRAMES_PER_UNIT}；"
+            "镜头数超过预算时，每个镜头至少一帧优先，实际帧数提到镜头数（至多 "
+            f"{MAX_FRAMES_PER_UNIT}）"
+        ),
     )
 
 
@@ -60,6 +68,8 @@ class InspectedUnit:
     version: int | None
     status: UnitStatus
     sheets: tuple[ContactSheet, ...] = ()
+    signals: VideoSignals | None = None
+    signals_cached: bool = False
     detail: str | None = None
 
 
@@ -92,17 +102,33 @@ def _available_versions(versions: VersionManager, resource_type: str, unit_id: s
     ]
 
 
+def _signals_cache_file(project_path: Path, resource_type: str, unit_id: str, version: int) -> Path:
+    return project_path / _SIGNALS_CACHE_DIR / resource_type / f"{unit_id}_v{version}.json"
+
+
 async def _inspect_unit(
-    video: Path | None, *, unit_id: str, version: int | None, frames: int, limiter: asyncio.Semaphore
+    video: Path | None,
+    *,
+    cache_file: Path | None,
+    unit_id: str,
+    version: int | None,
+    frames: int,
+    limiter: asyncio.Semaphore,
 ) -> InspectedUnit:
-    if video is None or version is None:
+    if video is None or version is None or cache_file is None:
         return InspectedUnit(unit_id=unit_id, version=version, status="video_missing")
     async with limiter:
         try:
-            sheets = await build_contact_sheets(video, unit_id=unit_id, version=version, frames=frames)
-        except (MediaProbeError, ContactSheetError) as exc:
+            frame_times = await probe_video_frame_times(video)
+            signals, cached = await signals_for(video, frame_times, cache_file=cache_file)
+            sheets = await build_contact_sheets(
+                video, unit_id=unit_id, version=version, frames=frames, frame_times=frame_times, signals=signals
+            )
+        except (MediaProbeError, ContactSheetError, SignalDetectionError) as exc:
             return InspectedUnit(unit_id=unit_id, version=version, status="video_unreadable", detail=str(exc))
-    return InspectedUnit(unit_id=unit_id, version=version, status="ok", sheets=sheets)
+    return InspectedUnit(
+        unit_id=unit_id, version=version, status="ok", sheets=sheets, signals=signals, signals_cached=cached
+    )
 
 
 async def inspect_video_units(
@@ -153,7 +179,16 @@ async def inspect_video_units(
         limiter = asyncio.Semaphore(_EXTRACT_CONCURRENCY)
         units = await asyncio.gather(
             *(
-                _inspect_unit(video, unit_id=unit_id, version=version, frames=frames, limiter=limiter)
+                _inspect_unit(
+                    video,
+                    cache_file=_signals_cache_file(project_path, resource_type, unit_id, version)
+                    if version is not None
+                    else None,
+                    unit_id=unit_id,
+                    version=version,
+                    frames=frames,
+                    limiter=limiter,
+                )
                 for unit_id, version, video in targets
             )
         )
@@ -168,6 +203,16 @@ def _sheets_in_order(value: InspectVideoUnitsResult) -> list[ContactSheet]:
     return [sheet for unit in value.units for sheet in unit.sheets]
 
 
+def _signals_projection(signals: VideoSignals) -> dict[str, Any]:
+    return {
+        "duration_seconds": signals.duration_seconds,
+        "black": [{"start": span.start, "end": span.end} for span in signals.black],
+        "freeze": [{"start": span.start, "end": span.end} for span in signals.freeze],
+        "cuts": list(signals.cuts),
+        "shots": len(signals.shots),
+    }
+
+
 def inspect_video_units_projection(value: InspectVideoUnitsResult) -> dict[str, Any]:
     image_number = 0
     units: list[dict[str, Any]] = []
@@ -175,13 +220,25 @@ def inspect_video_units_projection(value: InspectVideoUnitsResult) -> dict[str, 
         sheets: list[dict[str, Any]] = []
         for sheet in unit.sheets:
             image_number += 1
-            sheets.append({"image": image_number, "times": [round(frame.time_seconds, 3) for frame in sheet.frames]})
+            sheets.append(
+                {
+                    "image": image_number,
+                    "times": [round(frame.time_seconds, 3) for frame in sheet.frames],
+                    "marked_frames": [
+                        {"time": round(frame.time_seconds, 3), "tags": list(frame.tags)}
+                        for frame in sheet.frames
+                        if frame.tags
+                    ],
+                }
+            )
         entry: dict[str, Any] = {
             "unit_id": unit.unit_id,
             "version": unit.version,
             "status": unit.status,
             "sheets": sheets,
         }
+        if unit.signals is not None:
+            entry["signals"] = _signals_projection(unit.signals)
         if unit.detail is not None:
             entry["detail"] = unit.detail
         units.append(entry)

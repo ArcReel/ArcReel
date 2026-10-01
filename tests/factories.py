@@ -79,6 +79,29 @@ def make_test_clip(path: Path, *, size: str, fps: int, seconds: float, tone: boo
     )
 
 
+def make_signal_clip(path: Path) -> None:
+    """用随包 ffmpeg 合成 25 fps、320x180、共 5 秒的带信号素材。
+
+    0–1 s 运动画面，1–2 s 纯黑，2–3 s 另一段运动画面，3–5 s 定格；镜头切换点在 1、2、3 s。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    run_bundled_ffmpeg(
+        "-filter_complex",
+        "testsrc=size=320x180:rate=25:duration=1[moving];"
+        "color=black:size=320x180:rate=25:duration=1[black];"
+        "testsrc2=size=320x180:rate=25:duration=1[other];"
+        "testsrc=size=320x180:rate=25:duration=0.04,loop=loop=49:size=1,setpts=N/25/TB[still];"
+        "[moving][black][other][still]concat=n=4:v=1:a=0[v]",
+        "-map",
+        "[v]",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        str(path),
+    )
+
+
 def install_current_video(project_path: Path, resource_type: str, unit_id: str, source: Path) -> int:
     """把 ``source`` 登记为视频单元的新 current 版本并放到正式路径上；返回版本号。"""
     import shutil
