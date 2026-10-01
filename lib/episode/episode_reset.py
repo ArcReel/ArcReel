@@ -326,33 +326,39 @@ def _resolve_partial_reset(project_dir: Path, project: Mapping[str, Any], *, epi
 
     text_by_rel = {doc.rel_path: doc.text for doc in current_sources}
     source_order = {doc.rel_path: idx for idx, doc in enumerate(current_sources)}
-    prev: tuple[str, int] | None = None
+    prev: tuple[int, int] | None = None
     for num, entry in retained:
         if not is_cut_episode(entry):
             continue
-        coords = parse_source_range(entry)
-        if coords is None:
+        span = parse_source_range(entry)
+        if span is None:
             raise EpisodeResetError(
                 f"保留段里的集 ID {num} 是没有带可信原文范围记录（source_range）的切出集，部分重置后仍无法接续"
                 f"分集规划，{_FULL_RESET_HINT}"
             )
-        rel, start, end = coords
-        text = text_by_rel.get(rel)
-        if text is None or not (0 <= start < end <= len(text)):
-            length = len(text) if text is not None else 0
+        first, last = source_order.get(span.source_file), source_order.get(span.end_file)
+        start_text, end_text = text_by_rel.get(span.source_file), text_by_rel.get(span.end_file)
+        if (
+            first is None
+            or last is None
+            or start_text is None
+            or end_text is None
+            or last < first
+            or not 0 <= span.start <= len(start_text)
+            or not 0 <= span.end <= len(end_text)
+            or (first == last and span.start >= span.end)
+        ):
+            length = len(start_text) if start_text is not None else 0
             raise EpisodeResetError(
-                f"集 ID {num} 的原文范围无效（源文件 {rel} 当前长度 {length}，记录范围 [{start}, {end})），"
+                f"集 ID {num} 的原文范围无效（源文件 {span.source_file} 当前长度 {length}，"
+                f"记录范围 [{span.start}, {span.end})），无法安全部分重置，{_FULL_RESET_HINT}"
+            )
+        if prev is not None and (first, span.start) < prev:
+            raise EpisodeResetError(
+                f"集 ID {num} 的原文范围与播出顺序中前一个切出集重叠或倒退，账本可能已损坏，"
                 f"无法安全部分重置，{_FULL_RESET_HINT}"
             )
-        if prev is not None:
-            prev_rel, prev_end = prev
-            advances = start >= prev_end if rel == prev_rel else source_order[rel] > source_order[prev_rel]
-            if not advances:
-                raise EpisodeResetError(
-                    f"集 ID {num} 的原文范围与播出顺序中前一个切出集重叠或倒退，账本可能已损坏，"
-                    f"无法安全部分重置，{_FULL_RESET_HINT}"
-                )
-        prev = (rel, end)
+        prev = (last, span.end)
 
     return _PartialReset(retained=tuple(num for num, _entry in retained), texts=text_by_rel)
 

@@ -18,6 +18,7 @@ import type { SourceKind } from "@/types/episodes-view";
 
 import { SourceKindSelect } from "./SourceKindSelect";
 import { isReservedEpisodeFileName, type SourceUploadMode } from "./episodes-view-model";
+import { useSourceFileChange } from "./useSourceFileChange";
 
 type Row =
   | { key: string; kind: "existing"; name: string; sourceKind?: SourceKind }
@@ -111,6 +112,7 @@ export function SourceUploadDialog({
   const [progress, setProgress] = useState<{ current: number; total: number; name: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const busy = progress !== null;
+  const change = useSourceFileChange();
 
   // 对话框卸载（切换项目、离开页面）时中止在途上传，不再上传剩下的文件，也不再提示
   const unmountController = useRef<AbortController | null>(null);
@@ -166,6 +168,7 @@ export function SourceUploadDialog({
     const result: SourceUploadResult = { wholeSourceFiles: [], episodes: [] };
     const renamed: string[] = [];
     let failure: { name: string; message: string } | null = null;
+    let cancelled = false;
     for (const [index, row] of queue.entries()) {
       if (row.kind !== "new") continue;
       setProgress({ current: index + 1, total: queue.length, name: row.file.name });
@@ -173,13 +176,24 @@ export function SourceUploadDialog({
         if (mode === "whole_source") {
           const position = working.findIndex((item) => item.key === row.key);
           const insertAt = working.slice(0, position).filter((item) => item.kind === "existing").length;
-          const res = await API.uploadFile(projectName, "source", row.file, null, {
-            role: "whole_source",
-            onConflict: "rename",
-            insertAt,
-            sourceKind: withSourceKind ? row.sourceKind : undefined,
-            signal,
-          });
+          // 插入处落在一个跨文件的集内部时，新文件归入那一集：先确认受影响集清单
+          const res = await change.run(
+            t("dashboard:source_file_insert_title", { name: row.file.name }),
+            t("dashboard:source_file_insert_confirm"),
+            (revision) =>
+              API.uploadFile(projectName, "source", row.file, null, {
+                role: "whole_source",
+                onConflict: "rename",
+                insertAt,
+                sourceKind: withSourceKind ? row.sourceKind : undefined,
+                revision: revision ?? undefined,
+                signal,
+              }),
+          );
+          if (res === null) {
+            cancelled = true;
+            break;
+          }
           const saved = res.filename ?? row.file.name;
           const expected = `${row.file.name.replace(/\.[^.]*$/, "")}.txt`;
           if (saved !== expected) renamed.push(saved);
@@ -208,6 +222,11 @@ export function SourceUploadDialog({
     await useProjectsStore.getState().refreshProject(projectName);
     if (signal?.aborted) return;
     setProgress(null);
+    if (cancelled) {
+      // 取消了一次插入确认：已上传的保留，取消的与之后的文件仍在列表里
+      if (result.wholeSourceFiles.length > 0) onUploaded?.(result);
+      return;
+    }
     if (failure) {
       useAppStore.getState().pushToast(t("dashboard:source_upload_failed_partway", failure), "error");
       if (result.wholeSourceFiles.length > 0 || result.episodes.length > 0) onUploaded?.(result);
@@ -485,6 +504,7 @@ export function SourceUploadDialog({
           </PrimaryButton>
         </footer>
       </div>
+      {change.dialog}
     </GlassModal>
   );
 }

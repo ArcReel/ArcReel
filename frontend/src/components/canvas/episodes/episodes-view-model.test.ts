@@ -13,7 +13,7 @@ import {
 } from "./episodes-view-model";
 
 function segment(overrides: Partial<EpisodesViewSegment>): EpisodesViewSegment {
-  return { kind: "unsplit", start: 0, end: 0, text: "", episode: null, gap: false, units: 0, ...overrides };
+  return { kind: "unsplit", start: 0, end: 0, text: "", episode: null, gap: false, units: 0, continued: false, continues: false, ...overrides };
 }
 
 function info(episode: number, overrides: Partial<EpisodesViewEpisode> = {}): EpisodesViewEpisode {
@@ -22,6 +22,7 @@ function info(episode: number, overrides: Partial<EpisodesViewEpisode> = {}): Ep
     origin: "whole_source",
     placed: true,
     source_file: "source/a.txt",
+    end_file: "source/a.txt",
     units: 10,
     spoken_seconds: 3,
     first_sentence: "",
@@ -99,6 +100,37 @@ describe("episodes-view-model", () => {
       1,
     ]);
     expect(otherEpisodes(layout, [meta(1), meta(2), meta(3)]).map(({ episode }) => episode.episode)).toEqual([3]);
+  });
+
+  it("lists an episode that crosses files only under the file it starts in", () => {
+    const file = (name: string, segments: EpisodesViewSegment[]) => ({
+      source_file: `source/${name}`,
+      name,
+      original_filename: null,
+      missing: false,
+      length: 10,
+      units: 10,
+      cut_units: 10,
+      segments,
+      source_kind: null,
+    });
+    const layout = view({
+      files: [
+        file("a.txt", [segment({ kind: "episode", episode: 1, start: 0, end: 10, continues: true })]),
+        file("b.txt", [
+          segment({ kind: "episode", episode: 1, start: 0, end: 4, continued: true }),
+          segment({ kind: "episode", episode: 2, start: 4, end: 10 }),
+        ]),
+      ],
+      episodes: [info(1, { end_file: "source/b.txt" }), info(2, { source_file: "source/b.txt", end_file: "source/b.txt" })],
+    });
+
+    const groups = railFileGroups(layout, [meta(1), meta(2)]);
+
+    expect(groups.map((group) => [group.file.name, group.rows.map((row) => row.kind === "episode" && row.episode.episode)])).toEqual([
+      ["a.txt", [1]],
+      ["b.txt", [2]],
+    ]);
   });
 
   it("reserves episode_N file names for episode sources", () => {

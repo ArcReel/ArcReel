@@ -15,8 +15,9 @@
 原文范围变了且有产物的集标 stale。波及有产物的集时先返回 :class:`ManualSplitConfirmationRequired`，
 创作者确认后带上确认过的集 ID 重新调用；锁内复核出确认清单之外的有产物集时同样退回确认。
 
-偏移落在 ``normalize_source_text`` 的坐标系内（文件内的字符下标），一集的原文范围不跨文件。改动原文范围前先核对
-源文指纹：文件在服务之外被改动过时拒绝，账本更新前不能在它上面切分；清除之后的切分不改原文范围，不受限。
+落点是「文件 + 文件内偏移」，偏移落在 ``normalize_source_text`` 的坐标系内。一集的原文范围可以沿整本源文的文件
+顺序跨文件，但不新跨过源文件类型的切换处（ADR 0097）。改动原文范围前先核对范围经过的文件的源文指纹：文件在服务之外
+被改动过时拒绝，账本更新前不能在它上面切分；清除之后的切分不改原文范围，不受限。
 """
 
 from __future__ import annotations
@@ -32,10 +33,10 @@ from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
     compute_source_fingerprints,
-    discover_product_episode_nums,
-    episode_has_products,
+    episodes_with_products,
     has_downstream_products,
     parse_positive_episode_num,
+    source_range_value,
 )
 from lib.episode.episode_paths import episode_script_relpath, episode_source_path
 from lib.episode.episode_sources import (
@@ -50,6 +51,7 @@ from lib.episode.episode_sources import (
     sync_source_snapshots,
     whole_source_files,
 )
+from lib.episode.source_kinds import whole_source_file_kind
 from lib.infra.text_metrics import count_reading_units, reading_unit_noun
 from lib.project.project_manager import ProjectManager
 from lib.script import script_review
@@ -111,10 +113,10 @@ ManualSplitOutcome = ManualSplitResult | ManualSplitConfirmationRequired
 
 @dataclass
 class _Edit:
-    """一次手工切分对账本的改动，由落位推出，提交时照此改写。"""
+    """一次手工切分对账本的改动，由落位推出，提交时照此改写。偏移是整本源文的全局位置（见 :class:`_Layout`）。"""
 
-    #: 原文范围所在的文件；只移除切分时为 None（不改任何原文范围）。
-    source: SourceDoc | None = None
+    #: 改动原文范围（有新集或范围变了）时为 True；只移除切分时为 False。
+    touches_source: bool = False
     #: 已有切出集的新原文范围。
     ranges: dict[int, tuple[int, int]] = field(default_factory=dict)
     #: 新的一集：原文范围、标题，以及插在第几个条目之前（下标指改动前的 ``episodes``）。
@@ -140,16 +142,75 @@ class _NeedsConfirmation(Exception):
 
 @dataclass(frozen=True)
 class _Layout:
+    """整本源文与落位。全局位置是把整本源文的文件按顺序接起来之后的字符下标。"""
+
     docs: list[SourceDoc]
     entries: list[dict[str, Any]]
     placements: dict[int, CutPlacement]
     language: str | None = None
+    #: 源文件类型切换处的全局位置：一集的原文范围不跨过它。
+    kind_walls: tuple[int, ...] = ()
+
+    @property
+    def bases(self) -> list[int]:
+        bases = [0]
+        for doc in self.docs:
+            bases.append(bases[-1] + len(doc.text))
+        return bases
+
+    @property
+    def text(self) -> str:
+        return "".join(doc.text for doc in self.docs)
+
+    def units_between(self, start: int, end: int) -> int:
+        """全局范围 ``[start, end)`` 的阅读单位数，逐文件计数：词不会跨文件边界连成一个。"""
+        bases = self.bases
+        total = 0
+        for index, doc in enumerate(self.docs):
+            lo, hi = max(start, bases[index]), min(end, bases[index + 1])
+            if lo < hi:
+                total += count_reading_units(doc.text[lo - bases[index] : hi - bases[index]], self.language)
+        return total
 
     def doc_index(self, source_file: str) -> int:
         index = next((i for i, doc in enumerate(self.docs) if doc.rel_path == source_file), None)
         if index is None:
             raise ManualSplitError("source_file_not_found", f"整本源文里没有这个可读的文件：{source_file}")
         return index
+
+    def to_global(self, source_file: str, offset: int) -> int:
+        index = self.doc_index(source_file)
+        if not 0 <= offset <= len(self.docs[index].text):
+            raise ManualSplitError("position_invalid", f"位置 {offset} 超出文件范围")
+        return self.bases[index] + offset
+
+    def start_point(self, position: int) -> tuple[str, int]:
+        """全局位置作为起点时的「文件 + 文件内偏移」：落在文件交界上时取后一个文件的开头。"""
+        bases = self.bases
+        for index, doc in enumerate(self.docs):
+            if bases[index] <= position < bases[index + 1]:
+                return doc.rel_path, position - bases[index]
+        return self.docs[-1].rel_path, len(self.docs[-1].text)
+
+    def end_point(self, position: int) -> tuple[str, int]:
+        """全局位置作为终点时的「文件 + 文件内偏移」：落在文件交界上时取前一个文件的末尾。"""
+        bases = self.bases
+        for index, doc in enumerate(self.docs):
+            if bases[index] < position <= bases[index + 1]:
+                return doc.rel_path, position - bases[index]
+        return self.docs[0].rel_path, 0
+
+    def span(self, placement: CutPlacement) -> tuple[int, int]:
+        bases = self.bases
+        return bases[placement.file_index] + placement.start, bases[placement.end_file_index] + placement.end
+
+    def files_between(self, start: int, end: int) -> list[SourceDoc]:
+        """全局范围 ``[start, end)`` 经过的文件。"""
+        bases = self.bases
+        return [doc for index, doc in enumerate(self.docs) if bases[index] < end and bases[index + 1] > start]
+
+    def walls_inside(self, start: int, end: int) -> set[int]:
+        return {wall for wall in self.kind_walls if start < wall < end}
 
     def placement(self, episode: int) -> CutPlacement:
         if all(parse_positive_episode_num(entry.get("episode")) != episode for entry in self.entries):
@@ -174,11 +235,19 @@ def _layout(project_dir: Path, project: Mapping[str, Any]) -> _Layout:
     if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
         raise ManualSplitError("ledger_invalid", "分集账本的形状异常，不能手工切分")
     docs = discover_sources(project_dir, project)
+    kinds = [whole_source_file_kind(project, doc.rel_path) for doc in docs]
+    walls: list[int] = []
+    offset = 0
+    for index, doc in enumerate(docs):
+        if index > 0 and kinds[index] != kinds[index - 1]:
+            walls.append(offset)
+        offset += len(doc.text)
     return _Layout(
         docs=docs,
         entries=list(raw),
         placements=cut_episode_placements(project, docs),
         language=_language(project),
+        kind_walls=tuple(walls),
     )
 
 
@@ -187,8 +256,8 @@ def _language(project: Mapping[str, Any]) -> str | None:
     return raw if isinstance(raw, str) else None
 
 
-def _require_text(doc: SourceDoc, start: int, end: int) -> None:
-    if not doc.text[start:end].strip():
+def _require_text(layout: _Layout, start: int, end: int) -> None:
+    if not layout.text[start:end].strip():
         raise ManualSplitError("empty_range", "分出的集没有正文")
 
 
@@ -197,49 +266,70 @@ def _require_inside(at: int, low: int, high: int) -> None:
         raise ManualSplitError("position_invalid", f"分集点 {at} 不在 ({low}, {high}) 之内")
 
 
+def _require_same_kind(layout: _Layout, new: tuple[int, int], *old: tuple[int, int]) -> None:
+    """改动后的原文范围不能新跨过源文件类型的切换处。"""
+    allowed = set().union(*(layout.walls_inside(*span) for span in old))
+    if layout.walls_inside(*new) - allowed:
+        raise ManualSplitError("crosses_source_kind", "一集的原文不能跨过源文件类型不同的两个文件")
+
+
 def _plan_cut(layout: _Layout, *, source_file: str, end: int, title: str) -> _Edit:
     index = layout.doc_index(source_file)
-    doc = layout.docs[index]
-    if not 0 < end <= len(doc.text):
+    if not 0 < end <= len(layout.docs[index].text):
         raise ManualSplitError("position_invalid", f"分集点 {end} 超出文件范围")
-    in_file = [p for p in layout.ordered() if p.file_index == index]
-    if any(p.start < end < p.end for p in in_file):
+    at = layout.to_global(source_file, end)
+    spans = [layout.span(p) for p in layout.ordered()]
+    if any(low < at < high for low, high in spans):
         raise ManualSplitError("inside_episode", "这个位置在一集的原文里，应当拆分这一集")
-    start = max((p.end for p in in_file if p.end <= end), default=0)
-    _require_text(doc, start, end)
+    # 从前面最近的切出集结尾（没有时从整本源文开头）切起，不跨过源文件类型的切换处
+    start = max([high for _low, high in spans if high <= at] + [wall for wall in layout.kind_walls if wall < at] + [0])
+    _require_text(layout, start, at)
     insert_before = cut_insert_index(layout.entries, layout.placements, (index, end))
-    return _Edit(source=doc, new_range=(start, end), new_title=title.strip(), insert_before=insert_before)
+    return _Edit(touches_source=True, new_range=(start, at), new_title=title.strip(), insert_before=insert_before)
 
 
-def _plan_split(layout: _Layout, *, episode: int, at: int) -> _Edit:
+def _point(layout: _Layout, placement: CutPlacement, at: int, source_file: str | None) -> int:
+    """手工切分落点的全局位置；没给文件时按这一集起点所在的文件算。"""
+    return layout.to_global(source_file or layout.docs[placement.file_index].rel_path, at)
+
+
+def _plan_split(layout: _Layout, *, episode: int, at: int, source_file: str | None) -> _Edit:
     placement = layout.placement(episode)
-    doc = layout.docs[placement.file_index]
-    _require_inside(at, placement.start, placement.end)
-    _require_text(doc, placement.start, at)
-    _require_text(doc, at, placement.end)
+    low, high = layout.span(placement)
+    point = _point(layout, placement, at, source_file)
+    _require_inside(point, low, high)
+    _require_text(layout, low, point)
+    _require_text(layout, point, high)
     return _Edit(
-        source=doc,
-        ranges={episode: (placement.start, at)},
-        new_range=(at, placement.end),
+        touches_source=True,
+        ranges={episode: (low, point)},
+        new_range=(point, high),
         insert_before=layout.entry_index(episode) + 1,
     )
 
 
-def _plan_move(layout: _Layout, *, episode: int, at: int) -> _Edit:
+def _plan_move(layout: _Layout, *, episode: int, at: int, source_file: str | None) -> _Edit:
     left = layout.placement(episode)
+    left_span = layout.span(left)
     right = next(
-        (p for p in layout.ordered() if p.file_index == left.file_index and p.start == left.end and p.end > p.start),
+        (p for p in layout.ordered() if (span := layout.span(p))[0] == left_span[1] and span[1] > span[0]),
         None,
     )
     if right is None:
         raise ManualSplitError("no_adjacent_episode", f"集（id={episode}）与之后的切出集之间没有相连的分界")
-    doc = layout.docs[left.file_index]
-    _require_inside(at, left.start, right.end)
-    if at == left.end:
+    right_span = layout.span(right)
+    point = layout.to_global(source_file or layout.docs[left.end_file_index].rel_path, at)
+    _require_inside(point, left_span[0], right_span[1])
+    if point == left_span[1]:
         raise ManualSplitError("position_invalid", "分界没有移动")
-    _require_text(doc, left.start, at)
-    _require_text(doc, at, right.end)
-    return _Edit(source=doc, ranges={left.episode: (left.start, at), right.episode: (at, right.end)})
+    _require_text(layout, left_span[0], point)
+    _require_text(layout, point, right_span[1])
+    _require_same_kind(layout, (left_span[0], point), left_span)
+    _require_same_kind(layout, (point, right_span[1]), right_span)
+    return _Edit(
+        touches_source=True,
+        ranges={left.episode: (left_span[0], point), right.episode: (point, right_span[1])},
+    )
 
 
 def _plan_merge(layout: _Layout, *, episode: int) -> _Edit:
@@ -249,14 +339,15 @@ def _plan_merge(layout: _Layout, *, episode: int) -> _Edit:
     if not following:
         raise ManualSplitError("no_next_episode", f"集（id={episode}）之后没有切出集")
     nxt = following[0]
-    if nxt.file_index != placement.file_index:
-        raise ManualSplitError("merge_across_files", f"集（id={episode}）的下一集在另一个文件里")
-    doc = layout.docs[placement.file_index]
+    own, nxt_span = layout.span(placement), layout.span(nxt)
+    merged = (own[0], nxt_span[1])
+    if layout.walls_inside(*merged) - layout.walls_inside(*own) - layout.walls_inside(*nxt_span):
+        raise ManualSplitError("merge_across_kinds", f"集（id={episode}）的下一集在源文件类型不同的文件里")
     return _Edit(
-        source=doc,
-        ranges={episode: (placement.start, nxt.end)},
+        touches_source=True,
+        ranges={episode: merged},
         dropped=[nxt.episode],
-        merged_units=count_reading_units(doc.text[placement.end : nxt.start], layout.language),
+        merged_units=layout.units_between(own[1], nxt_span[0]),
     )
 
 
@@ -279,37 +370,38 @@ def _impact(project_dir: Path, layout: _Layout, edit: _Edit) -> ManualSplitImpac
     restaled: list[int] = []
     retired: list[int] = []
     removed: list[int] = []
-    placements = layout.placements
-    # 有产物的口径见 episode_has_products，与重新规划、重置一致
-    product_nums = discover_product_episode_nums(project_dir)
-
-    def _has_products(entry: Mapping[str, Any], episode: int) -> bool:
-        return episode_has_products(project_dir, episode, entry, product_nums=product_nums)
-
+    with_products = episodes_with_products(project_dir, layout.entries)
     for entry in layout.entries:
         episode = parse_positive_episode_num(entry.get("episode"))
         if episode is None:
             continue
         if episode in edit.dropped:
-            (retired if _has_products(entry, episode) else removed).append(episode)
+            (retired if episode in with_products else removed).append(episode)
         elif episode in edit.ranges:
-            placement = placements[episode]
-            changed = edit.ranges[episode] != (placement.start, placement.end)
-            if changed and _has_products(entry, episode):
+            changed = edit.ranges[episode] != layout.span(layout.placements[episode])
+            if changed and episode in with_products:
                 restaled.append(episode)
     return ManualSplitImpact(restaled=restaled, retired=retired, removed=removed, merged_units=edit.merged_units)
 
 
-def _check_fingerprint(project: dict[str, Any], doc: SourceDoc) -> None:
-    """原文范围绑定这个文件的当前文本：已记录的指纹不符时拒绝，没记录时补记。"""
-    current = compute_source_fingerprints([doc])[doc.rel_path]
+def _touched_docs(layout: _Layout, edit: _Edit) -> list[SourceDoc]:
+    """改动的原文范围经过的文件。"""
+    spans = [*edit.ranges.values(), *([edit.new_range] if edit.new_range is not None else [])]
+    return [doc for doc in layout.docs if any(doc in layout.files_between(*span) for span in spans)]
+
+
+def _check_fingerprints(project: dict[str, Any], docs: list[SourceDoc]) -> None:
+    """原文范围绑定这些文件的当前文本：已记录的指纹不符时拒绝，没记录时补记。"""
     raw = project.get(SOURCE_FINGERPRINTS_KEY)
     recorded = dict(raw) if isinstance(raw, Mapping) else {}
-    previous = recorded.get(doc.rel_path)
-    if isinstance(previous, str) and previous != current:
-        raise ManualSplitError("source_changed", f"源文件在服务之外被改动过：{doc.rel_path}")
-    recorded[doc.rel_path] = current
-    project[SOURCE_FINGERPRINTS_KEY] = recorded
+    for doc in docs:
+        current = compute_source_fingerprints([doc])[doc.rel_path]
+        previous = recorded.get(doc.rel_path)
+        if isinstance(previous, str) and previous != current:
+            raise ManualSplitError("source_changed", f"源文件在服务之外被改动过：{doc.rel_path}")
+        recorded[doc.rel_path] = current
+    if docs:
+        project[SOURCE_FINGERPRINTS_KEY] = recorded
 
 
 def _write_derived(project_dir: Path, episode: int, text: str, *, fresh: bool) -> None:
@@ -326,32 +418,34 @@ def _remove_derived(project_dir: Path, episode: int) -> None:
     episode_source_path(project_dir, episode).unlink(missing_ok=True)
 
 
+def _range_value(layout: _Layout, start: int, end: int) -> dict[str, Any]:
+    start_file, start_offset = layout.start_point(start)
+    end_file, end_offset = layout.end_point(end)
+    return source_range_value(start_file, start_offset, end_file, end_offset)
+
+
 def _apply(
     project_dir: Path, project: dict[str, Any], layout: _Layout, edit: _Edit, impact: ManualSplitImpact
 ) -> int | None:
     """按改动改写 ``project`` 并落盘集文件与快照，返回新集 ID。"""
-    doc = edit.source
-    if doc is not None:
-        _check_fingerprint(project, doc)
+    if edit.touches_source:
+        _check_fingerprints(project, _touched_docs(layout, edit))
     by_id = {parse_positive_episode_num(entry.get("episode")): entry for entry in layout.entries}
-    # 只移除切分时不带文件，也不改任何原文范围
-    if doc is not None:
-        for episode, (start, end) in edit.ranges.items():
-            entry = by_id[episode]
-            entry["source_range"] = {"source_file": doc.rel_path, "start": start, "end": end}
-            if episode in impact.restaled:
-                script_review.mark_ledger_stale(project_dir, project, entry, episode)
+    for episode, (start, end) in edit.ranges.items():
+        entry = by_id[episode]
+        entry["source_range"] = _range_value(layout, start, end)
+        if episode in impact.restaled:
+            script_review.mark_ledger_stale(project_dir, project, entry, episode)
     new_episode: int | None = None
     entries = list(layout.entries)
-    if edit.new_range is not None and doc is not None:
+    if edit.new_range is not None:
         (new_episode,) = allocate_episode_ids(project, 1)
-        start, end = edit.new_range
         new_entry: dict[str, Any] = {
             "episode": new_episode,
             "title": edit.new_title,
             "script_file": episode_script_relpath(new_episode),
             SOURCE_ORIGIN_FIELD: SourceOrigin.WHOLE_SOURCE.value,
-            "source_range": {"source_file": doc.rel_path, "start": start, "end": end},
+            "source_range": _range_value(layout, *edit.new_range),
             "ledger_status": "planned",
         }
         if has_downstream_products(project_dir, new_episode, new_entry):
@@ -368,15 +462,15 @@ def _apply(
             retired_entries.append(entry)
     project["episodes"] = [*entries, *retired_entries]
 
-    if doc is not None:
-        for episode, (start, end) in edit.ranges.items():
-            _write_derived(project_dir, episode, doc.text[start:end], fresh=False)
-        if new_episode is not None and edit.new_range is not None:
-            start, end = edit.new_range
-            _write_derived(project_dir, new_episode, doc.text[start:end], fresh=True)
+    text = layout.text
+    for episode, (start, end) in edit.ranges.items():
+        _write_derived(project_dir, episode, text[start:end], fresh=False)
+    if new_episode is not None and edit.new_range is not None:
+        start, end = edit.new_range
+        _write_derived(project_dir, new_episode, text[start:end], fresh=True)
     for episode in edit.dropped:
         _remove_derived(project_dir, episode)
-    sync_source_snapshots(project_dir, project, {doc.rel_path: doc.text} if doc is not None else {})
+    sync_source_snapshots(project_dir, project, {doc.rel_path: doc.text for doc in layout.docs})
     return new_episode
 
 
@@ -402,8 +496,8 @@ def _run(
     project = pm.load_project(project_name)
     layout = _layout(project_dir, project)
     edit = plan(layout)
-    if edit.source is not None:
-        _check_fingerprint(project, edit.source)
+    if edit.touches_source:
+        _check_fingerprints(project, _touched_docs(layout, edit))
     impact = _impact(project_dir, layout, edit)
     if dry_run or _needs_confirmation(impact):
         return ManualSplitConfirmationRequired(impact=impact)
@@ -467,13 +561,17 @@ def split_episode(
     episode: int,
     *,
     at: int,
+    source_file: str | None = None,
     confirm_episodes: Collection[int] = (),
     dry_run: bool = False,
 ) -> ManualSplitOutcome:
-    """在切出集内 ``at`` 处拆分：前一段保留集 ID，后一段是新的一集，紧接在前一段之后。"""
+    """在切出集内的 ``source_file`` 第 ``at`` 处拆分：前一段保留集 ID，后一段是新的一集，紧接在前一段之后。
+
+    ``source_file`` 缺省时按这一集起点所在的文件算。
+    """
     return _run(
         project_path,
-        lambda layout: _plan_split(layout, episode=episode, at=at),
+        lambda layout: _plan_split(layout, episode=episode, at=at, source_file=source_file),
         confirm_episodes=confirm_episodes,
         dry_run=dry_run,
     )
@@ -484,13 +582,17 @@ def move_episode_boundary(
     episode: int,
     *,
     at: int,
+    source_file: str | None = None,
     confirm_episodes: Collection[int] = (),
     dry_run: bool = False,
 ) -> ManualSplitOutcome:
-    """把这一集与紧接其后的切出集之间的分界移到 ``at``，两侧保留集 ID。"""
+    """把这一集与紧接其后的切出集之间的分界移到 ``source_file`` 第 ``at`` 处，两侧保留集 ID。
+
+    ``source_file`` 缺省时按这一集终点所在的文件算。
+    """
     return _run(
         project_path,
-        lambda layout: _plan_move(layout, episode=episode, at=at),
+        lambda layout: _plan_move(layout, episode=episode, at=at, source_file=source_file),
         confirm_episodes=confirm_episodes,
         dry_run=dry_run,
     )

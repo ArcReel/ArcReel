@@ -25,6 +25,7 @@ from typing import Any, TypeGuard
 from lib.episode.episode_ledger import (
     SOURCE_TEXT_SUFFIXES,
     SourceDoc,
+    SourceSpan,
     is_derived_episode_name,
     normalize_source_text,
     parse_positive_episode_num,
@@ -227,84 +228,156 @@ def discover_sources(project_dir: Path, project: Mapping[str, Any]) -> list[Sour
 def planning_start(project: Mapping[str, Any], docs: list[SourceDoc]) -> tuple[str, int] | None:
     """接续规划的起点：按源文位置排在最后的切出集的结尾；还没有切出集时是第一个文件的开头。
 
-    原文范围所在文件不在 ``docs`` 里的切出集不参与推导；文件按 NFC 归一后的路径对应。整本源文没有文件时返回 None。
+    原文范围的终点文件不在 ``docs`` 里的切出集不参与推导；文件按 NFC 归一后的路径对应。整本源文没有文件时返回 None。
     """
     order = {unicodedata.normalize("NFC", doc.rel_path): index for index, doc in enumerate(docs)}
-    last: tuple[int, int, str] | None = None
+    last: tuple[int, int] | None = None
     for entry in _entries(project):
         if not is_cut_episode(entry):
             continue
-        coords = parse_source_range(entry)
-        index = None if coords is None else order.get(unicodedata.normalize("NFC", coords[0]))
-        if coords is None or index is None:
+        span = parse_source_range(entry)
+        index = None if span is None else order.get(unicodedata.normalize("NFC", span.end_file))
+        if span is None or index is None:
             continue
-        _rel, _start, end = coords
-        position = (index, end, docs[index].rel_path)
-        if last is None or position[:2] > last[:2]:
-            last = position
+        if last is None or (index, span.end) > last:
+            last = (index, span.end)
     if last is not None:
-        return last[2], last[1]
+        return docs[last[0]].rel_path, last[1]
     return (docs[0].rel_path, 0) if docs else None
 
 
 @dataclass(frozen=True)
 class CutPlacement:
-    """一个切出集在整本源文里的位置：``docs`` 里的文件下标与文件内的 ``[start, end)``。"""
+    """一个切出集在整本源文里的位置：起点 ``(file_index, start)``，终点 ``(end_file_index, end)``（不含）。
+
+    下标指 ``docs`` 里的文件，偏移是各自文件内的下标。原文范围可以跨文件，中间的文件整个属于这一集。
+    """
 
     episode: int
     file_index: int
     start: int
+    end_file_index: int
     end: int
 
     @property
     def position(self) -> tuple[int, int]:
-        """按源文位置排序的键：文件先后，再按文件内起点。"""
+        """按源文位置排序的键：起点的文件先后，再按文件内偏移。"""
         return self.file_index, self.start
+
+    @property
+    def end_position(self) -> tuple[int, int]:
+        """终点按源文位置的键。"""
+        return self.end_file_index, self.end
+
+    @property
+    def crosses_files(self) -> bool:
+        return self.end_file_index != self.file_index
+
+    def portion(self, file_index: int, length: int) -> tuple[int, int] | None:
+        """这一集落在第 ``file_index`` 个文件（长 ``length``）里的那部分 ``[start, end)``；不经过这个文件时为 None。"""
+        if not self.file_index <= file_index <= self.end_file_index:
+            return None
+        return (
+            self.start if file_index == self.file_index else 0,
+            self.end if file_index == self.end_file_index else length,
+        )
+
+
+def placement_text(docs: Sequence[SourceDoc], placement: CutPlacement) -> str:
+    """切出集的原文：起点到终点之间，沿文件顺序接起来的文字。"""
+    parts: list[str] = []
+    for index in range(placement.file_index, placement.end_file_index + 1):
+        text = docs[index].text
+        portion = placement.portion(index, len(text))
+        if portion is not None:
+            parts.append(text[portion[0] : portion[1]])
+    return "".join(parts)
+
+
+def span_text(texts: Mapping[str, str], order: Sequence[str], span: SourceSpan) -> str | None:
+    """账本里一段原文范围的文字：``texts`` 是文件的规范化全文，``order`` 是整本源文的文件顺序。
+
+    单个文件内的范围不看 ``order``。跨文件时起止文件不在 ``order`` 里、先后颠倒，或文件文字缺失、偏移越界时返回 None。
+    """
+    if not span.crosses_files:
+        text = texts.get(span.source_file)
+        return text[span.start : span.end] if text is not None and 0 <= span.start <= span.end <= len(text) else None
+    if span.source_file not in order or span.end_file not in order:
+        return None
+    first, last = order.index(span.source_file), order.index(span.end_file)
+    if last < first:
+        return None
+    parts: list[str] = []
+    for index in range(first, last + 1):
+        text = texts.get(order[index])
+        if text is None:
+            return None
+        lo = span.start if index == first else 0
+        hi = span.end if index == last else len(text)
+        if not 0 <= lo <= hi <= len(text):
+            return None
+        parts.append(text[lo:hi])
+    return "".join(parts)
 
 
 def cut_episode_placements(project: Mapping[str, Any], docs: list[SourceDoc]) -> dict[int, CutPlacement]:
     """能落进整本源文的切出集，按集 ID 索引。
 
-    原文范围所在文件不在 ``docs`` 里、起点越界的不落位；文件按 NFC 归一后的路径对应。同一文件里按起点排序，
-    与前一集重叠的不落位。终点超出文件长度时截到文件末尾。「分集」视图与手工切分按同一份落位认集。
+    起止文件不在 ``docs`` 里、终点文件排在起点文件之前、起点越界的不落位；文件按 NFC 归一后的路径对应。
+    按源文位置排序，与前一集重叠的不落位。终点超出文件长度时截到文件末尾。「分集」视图与手工切分按同一份落位认集。
     """
     order = {unicodedata.normalize("NFC", doc.rel_path): index for index, doc in enumerate(docs)}
-    per_file: dict[int, list[CutPlacement]] = {}
+    candidates: list[CutPlacement] = []
     for entry in _entries(project):
         episode = parse_positive_episode_num(entry.get("episode"))
-        coords = parse_source_range(entry)
-        if episode is None or coords is None or not is_cut_episode(entry):
+        span = parse_source_range(entry)
+        if episode is None or span is None or not is_cut_episode(entry):
             continue
-        rel, start, end = coords
-        index = order.get(unicodedata.normalize("NFC", rel))
-        if index is None or start < 0 or end < start or start > len(docs[index].text):
+        first = order.get(unicodedata.normalize("NFC", span.source_file))
+        last = order.get(unicodedata.normalize("NFC", span.end_file))
+        if first is None or last is None or last < first:
             continue
-        per_file.setdefault(index, []).append(
-            CutPlacement(episode=episode, file_index=index, start=start, end=min(end, len(docs[index].text)))
+        if span.start < 0 or span.start > len(docs[first].text) or span.end < 0:
+            continue
+        if first == last and span.end < span.start:
+            continue
+        candidates.append(
+            CutPlacement(
+                episode=episode,
+                file_index=first,
+                start=span.start,
+                end_file_index=last,
+                end=min(span.end, len(docs[last].text)),
+            )
         )
     placed: dict[int, CutPlacement] = {}
-    for items in per_file.values():
-        cursor = 0
-        for item in sorted(items, key=lambda p: (p.start, p.end)):
-            if item.start < cursor or item.episode in placed:
-                continue
-            placed[item.episode] = item
-            cursor = item.end
+    cursor = (0, 0)
+    for item in sorted(candidates, key=lambda p: (p.position, p.end_position)):
+        if item.position < cursor or item.episode in placed:
+            continue
+        placed[item.episode] = item
+        cursor = item.end_position
     return placed
 
 
 def unsplit_range_ending_at(
     placements: Mapping[int, CutPlacement], *, file_index: int, end: int
 ) -> tuple[int, int] | None:
-    """文件里以 ``end`` 为终点的那段未切分原文 ``[start, end)``：从前面最近的切出集结尾（没有时从文件开头）起。
+    """文件里以 ``end`` 为终点的那段未切分原文 ``[start, end)``：从这个文件里前面最近的切出集结尾（没有时从文件开头）起。
 
     ``end`` 落在某个切出集的原文里时返回 None。
     """
-    in_file = [p for p in placements.values() if p.file_index == file_index]
-    if any(p.start < end < p.end for p in in_file):
-        return None
-    start = max((p.end for p in in_file if p.end <= end), default=0)
-    return start, end
+    ends_before = 0
+    for p in placements.values():
+        if not p.file_index <= file_index <= p.end_file_index:
+            continue
+        low = p.start if p.file_index == file_index else 0
+        high = p.end if p.end_file_index == file_index else None
+        if low < end and (high is None or end < high):
+            return None
+        if high is not None and high <= end:
+            ends_before = max(ends_before, high)
+    return ends_before, end
 
 
 def cut_insert_index(
@@ -378,12 +451,20 @@ def source_snapshot_path(project_dir: Path, rel: str) -> Path:
 
 
 def cut_episode_source_files(project: Mapping[str, Any]) -> list[str]:
-    """登记过切出集的整本源文文件，按首次出现的播出顺序去重。"""
+    """登记过切出集的整本源文文件，按首次出现的播出顺序去重；跨文件的集经过的中间文件也算。"""
+    order = whole_source_files(project)
     files: list[str] = []
     for entry in _entries(project):
-        coords = parse_source_range(entry) if is_cut_episode(entry) else None
-        if coords is not None and is_whole_source_file_path(coords[0]) and coords[0] not in files:
-            files.append(coords[0])
+        span = parse_source_range(entry) if is_cut_episode(entry) else None
+        if span is None:
+            continue
+        if span.source_file in order and span.end_file in order:
+            covered = order[order.index(span.source_file) : order.index(span.end_file) + 1] or [span.source_file]
+        else:
+            covered = [span.source_file, span.end_file]
+        for rel in covered:
+            if is_whole_source_file_path(rel) and rel not in files:
+                files.append(rel)
     return files
 
 
@@ -423,6 +504,7 @@ __all__ = [
     "append_whole_source_file",
     "cut_episode_placements",
     "cut_episode_source_files",
+    "cut_insert_index",
     "discover_sources",
     "episode_entry",
     "episode_source_origin",
@@ -431,10 +513,13 @@ __all__ = [
     "is_episode_source_file",
     "is_whole_source_file_path",
     "legacy_cut_episode_ids",
+    "placement_text",
     "planning_start",
     "remove_whole_source_file",
     "source_snapshot_path",
+    "span_text",
     "sync_source_snapshots",
     "unplanned_text_remains",
+    "unsplit_range_ending_at",
     "whole_source_files",
 ]

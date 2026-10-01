@@ -53,8 +53,11 @@ function EpisodeHeader({
   const { t } = useTranslation("dashboard");
   const position = episodePosition(episodes, episode);
   const r = meta?.source_range;
-  const chars = r?.start != null && r?.end != null ? r.end - r.start : null;
-  const sourceName = r?.source_file?.replace(/^source\//, "");
+  // 跨文件的原文范围：起止偏移在不同文件里，不能直接相减，只显示起止文件
+  const crossesFiles = r?.end_file != null && r.end_file !== r.source_file;
+  const chars = !crossesFiles && r?.start != null && r?.end != null ? r.end - r.start : null;
+  const fileName = (path: string | undefined) => path?.replace(/^source\//, "");
+  const sourceName = crossesFiles ? `${fileName(r?.source_file)} – ${fileName(r?.end_file)}` : fileName(r?.source_file);
   return (
     <header className="flex items-start gap-3.5">
       <div
