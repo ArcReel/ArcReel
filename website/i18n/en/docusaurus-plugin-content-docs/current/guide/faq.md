@@ -282,9 +282,11 @@ For disaster recovery, use the full-instance backup approach described above and
 
 ### Why is my Jianying draft missing or missing clips? {#jianying-draft-issues}
 
-When exporting, select the 5.x or 6+ format that matches your local Jianying version, extract the ZIP directly into the Jianying drafts directory, and restart Jianying. A draft contains only successfully generated video clips. Generate any missing clips in ArcReel before exporting again.
+When downloading, select the 5.x or 6+ format that matches your local Jianying version, extract the ZIP directly into the Jianying drafts directory, and restart Jianying.
 
-Narration/Commentary currently exports the original novel text as subtitles, Ad / Short Video exports spoken promotional copy as subtitles, and Drama exports dialogue and voice-over subtitles. Narration/Commentary also includes generated voice-over tracks. See the [Jianying draft export guide](./jianying-export.md) for the complete steps.
+A Jianying draft is generated from the selected edit timeline and contains only the clips on that edit timeline. If a video unit on the edit timeline has no usable video yet, the **Render** button is disabled; resolve it from the issue list in the edit view first.
+
+Narration/Commentary currently exports the original novel text as subtitles, Ad / Short Video exports spoken promotional copy as subtitles, and Drama exports dialogue and voice-over subtitles. The narration track appears only in the version with narration: TTS narration projects export the version with narration by default, and other projects export the version without narration. See the [Jianying draft export guide](./jianying-export.md) for the complete steps.
 
 ### Is there a mobile app? Which platforms are supported? {#mobile-app-support}
 

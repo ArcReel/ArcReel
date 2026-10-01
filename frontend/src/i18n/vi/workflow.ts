@@ -95,6 +95,8 @@ export default {
   'act_agent': 'Giao cho Agent',
   'act_agent_edit': 'Giao cho Agent dựng',
   'act_create_edit_timeline': 'Tạo timeline dựng',
+  'act_open_edit_view': 'Mở chế độ dựng',
+  'act_go_render': 'Đi xuất phim',
   'act_agent_plan_script': 'Giao cho Agent lập kế hoạch kịch bản',
   'act_author_prompts': 'AI viết',
   'act_asset_batch_one': 'Tạo {{count}} ảnh tài sản',

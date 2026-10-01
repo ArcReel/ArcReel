@@ -9,8 +9,8 @@ from typing import Any
 from jsonpath_rfc9535 import JSONPathError, find
 
 from arcreel_market_core.definition_diagnostics import DefinitionErrorCode, message_key
+from arcreel_market_core.job_contract import ProviderJobStatus, normalize_provider_status
 from arcreel_market_core.validation_messages import ValidationMessage, code_translator
-from arcreel_market_core.video_backend_contract import ProviderJobStatus, normalize_provider_status
 
 from .jsonpath_subset import parse_json_path
 

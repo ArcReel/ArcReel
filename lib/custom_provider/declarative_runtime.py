@@ -24,12 +24,8 @@ from arcreel_market_core.endpoint_definition import (
     map_status,
     render_request,
 )
+from arcreel_market_core.job_contract import ProviderJobStatus, ProviderResponseStage, ResumeExpiredError
 from arcreel_market_core.validation_messages import ValidationMessage
-from arcreel_market_core.video_backend_contract import (
-    ProviderJobStatus,
-    ProviderResponseStage,
-    ResumeExpiredError,
-)
 from lib.backends.backend_runtime import (
     poll_with_retry,
     request_with_scoped_credentials,
@@ -186,7 +182,11 @@ def extract_runtime_state(
     """按一节 extract 读取媒体无关状态、错误与二次取件 id。"""
     try:
         failure = extract_value(extract["failure"], body) if "failure" in extract else None
-        mapped = status or map_status(extract_value(extract.get("status"), body), status_map)
+        if status is None:
+            raw_status = extract_value(extract["status"], body)
+            mapped = map_status(raw_status, status_map)
+        else:
+            mapped = status
         if failure is not None:
             mapped = ProviderJobStatus.FAILED
         return ProviderRuntimeState(

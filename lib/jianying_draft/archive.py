@@ -74,7 +74,10 @@ def canvas_size(aspect_ratio: str) -> tuple[int, int]:
 
 
 def _subtitle_style(width: int, height: int) -> tuple[TextStyle, TextBorder, TextShadow, ClipSettings]:
-    """字幕样式沿用现有基线：白字、粗体、描边、阴影；竖屏字号 12、横屏字号 8。"""
+    """字幕样式沿用现有基线：白字、粗体、描边、阴影；竖屏字号 12、横屏字号 8。
+
+    剪辑视图预览按这里的字号、位置与行宽换算字幕外观（frontend/src/components/canvas/edit/preview-tracks.ts ``subtitleLayout``）。
+    """
     portrait = height > width
     return (
         TextStyle(

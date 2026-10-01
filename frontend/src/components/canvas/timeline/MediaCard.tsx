@@ -1,6 +1,7 @@
 import { Sparkles, ImageIcon, Film } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { usePlaybackStart } from "@/hooks/usePlaybackStart";
 import { useProjectsStore } from "@/stores/projects-store";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
@@ -83,6 +84,7 @@ export function MediaCard({
   const assetFp = useProjectsStore((s) =>
     assetPath ? s.getAssetFingerprint(assetPath) : null,
   );
+  const playbackStart = usePlaybackStart("videos", segmentId);
   const assetUrl = assetPath ? API.getFileUrl(projectName, assetPath, assetFp) : null;
 
   const Icon = kind === "storyboard" ? ImageIcon : Film;
@@ -177,6 +179,7 @@ export function MediaCard({
                 resourceType="videos"
                 resourceId={segmentId}
                 posterPath={posterPath}
+                {...playbackStart}
               />
             </AspectFrame>
           </div>

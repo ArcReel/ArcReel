@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  PlaybackStartRequest,
   WorkspaceFocusTarget,
   WorkspaceFocusTargetInput,
   WorkspaceNotification,
@@ -18,6 +19,7 @@ interface FocusedContext {
   id: string;
 }
 
+const PLAYBACK_START_TTL_MS = 8000;
 const ALL_ENTITIES_REVISION_KEY = "__all__";
 
 export const ASSISTANT_PANEL_DEFAULT_WIDTH = 505;
@@ -77,6 +79,9 @@ interface AppState {
   scrollTarget: WorkspaceFocusTarget | null;
   triggerScrollTo: (target: WorkspaceFocusTargetInput) => void;
   clearScrollTarget: (requestId?: string) => void;
+  playbackStart: PlaybackStartRequest | null;
+  requestPlaybackStart: (input: Omit<PlaybackStartRequest, "request_id">) => void;
+  clearPlaybackStart: (requestId?: string) => void;
   assistantToolActivitySuppressed: boolean;
   setAssistantToolActivitySuppressed: (suppressed: boolean) => void;
 
@@ -188,6 +193,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       if (!requestId || s.scrollTarget?.request_id === requestId) {
         return { scrollTarget: null };
+      }
+      return s;
+    }),
+  playbackStart: null,
+  requestPlaybackStart: (input) => {
+    const requestId = `${Date.now()}-${Math.random()}`;
+    set({ playbackStart: { ...input, request_id: requestId } });
+    // 单元没有可播放的视频时播放器不会出现，到期后作废，免得日后打开该单元时突然开播。
+    setTimeout(() => get().clearPlaybackStart(requestId), PLAYBACK_START_TTL_MS);
+  },
+  clearPlaybackStart: (requestId) =>
+    set((s) => {
+      if (!requestId || s.playbackStart?.request_id === requestId) {
+        return { playbackStart: null };
       }
       return s;
     }),

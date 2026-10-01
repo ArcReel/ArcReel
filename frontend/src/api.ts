@@ -12,6 +12,10 @@ import type {
   ImportConflictPolicy,
   ImportProjectResponse,
   ExportDiagnostics,
+  FinalCutStatus,
+  JianyingDraftStatus,
+  JianyingVersion,
+  RenderSubmission,
   ImportFailureDiagnostics,
   EpisodeScript,
   TaskItem,
@@ -114,7 +118,12 @@ import type {
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
-import type { EditTimelineReadout, EditTimelineSummary, EpisodeEditOverview } from "@/types/edit-timeline";
+import type {
+  EditTimelinePreviewMedia,
+  EditTimelineReadout,
+  EditTimelineSummary,
+  EpisodeEditOverview,
+} from "@/types/edit-timeline";
 import type {
   AdoptSourceFileTarget,
   CreateEpisodeBody,
@@ -600,16 +609,71 @@ class API {
     return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export?download_token=${encodeURIComponent(downloadToken)}&scope=${encodeURIComponent(scope)}`;
   }
 
-  /** 构造剪映草稿下载 URL */
+  // ==================== 剪辑时间线与出片 ====================
+
+  /** 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切）；显示名在集内重名时 409，本集没有可用视频时 422。 */
+  static async createEditTimeline(projectName: string, episode: number, name: string): Promise<EditTimelineReadout> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/edit-timelines`, {
+      method: "POST",
+      body: JSON.stringify({ from: "script", name }),
+    });
+  }
+
+  private static editTimelinePath(projectName: string, timelineId: string): string {
+    return `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`;
+  }
+
+  static async getFinalCutStatus(
+    projectName: string,
+    timelineId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<FinalCutStatus> {
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/final-cut`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 入队渲染成片（最新修订）。组件经 actions/render 调用。 */
+  static async renderFinalCut(projectName: string, timelineId: string): Promise<RenderSubmission> {
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/final-cut`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  /** 剪映草稿现状；旁白版本按项目默认。 */
+  static async getJianyingDraftStatus(
+    projectName: string,
+    timelineId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<JianyingDraftStatus> {
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/jianying-draft`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 入队导出剪映草稿（最新修订，旁白版本按项目默认）。组件经 actions/render 调用。 */
+  static async exportJianyingDraft(projectName: string, timelineId: string): Promise<RenderSubmission> {
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/jianying-draft`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  /** 已登记剪映草稿的下载地址：本机草稿目录与剪映版本在下载时代入。 */
   static getJianyingDraftDownloadUrl(
     projectName: string,
-    episode: number,
+    timelineId: string,
     draftPath: string,
     downloadToken: string,
-    jianyingVersion: string = "6",
-    narrationDelivery: "post_production" | "use_tts" = "post_production",
+    jianyingVersion: JianyingVersion
   ): string {
-    return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export/jianying-draft?episode=${encodeURIComponent(episode)}&draft_path=${encodeURIComponent(draftPath)}&download_token=${encodeURIComponent(downloadToken)}&jianying_version=${encodeURIComponent(jianyingVersion)}&narration_delivery=${encodeURIComponent(narrationDelivery)}`;
+    const query = new URLSearchParams({
+      draft_path: draftPath,
+      download_token: downloadToken,
+      jianying_version: jianyingVersion,
+    });
+    return `${API_BASE}${this.editTimelinePath(projectName, timelineId)}/jianying-draft/download?${query.toString()}`;
   }
 
   static async getPresentation(
@@ -634,6 +698,62 @@ class API {
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] ?? `${resourceId}_presentation.zip`;
     return { blob: await response.blob(), filename };
+  }
+
+  /** 一集的剪辑时间线列表，按创建顺序排列。 */
+  static async listEditTimelines(
+    projectName: string,
+    episode: number,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ timelines: EditTimelineSummary[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/edit-timelines?episode=${episode}`,
+      { signal: options.signal },
+    );
+  }
+
+  /** 剪辑时间线最新修订的读取结果。 */
+  static async getEditTimeline(
+    projectName: string,
+    timelineId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EditTimelineReadout> {
+    return this.request(
+      this.editTimelinePath(projectName, timelineId),
+      { signal: options.signal },
+    );
+  }
+
+  /** 重命名剪辑时间线：只改显示名，不产生修订。 */
+  static async renameEditTimeline(
+    projectName: string,
+    timelineId: string,
+    name: string,
+  ): Promise<EditTimelineSummary> {
+    return this.request(
+      this.editTimelinePath(projectName, timelineId),
+      { method: "PATCH", body: JSON.stringify({ name }) },
+    );
+  }
+
+  /** 删除剪辑时间线及其成片与剪映草稿；仍有渲染任务在排队或执行时服务端拒绝。 */
+  static async deleteEditTimeline(projectName: string, timelineId: string): Promise<void> {
+    await this.request(
+      this.editTimelinePath(projectName, timelineId),
+      { method: "DELETE" },
+    );
+  }
+
+  /** 剪辑时间线最新修订的预览素材层：各视频单元的旁白配音与字幕条目。 */
+  static async getEditTimelinePreviewMedia(
+    projectName: string,
+    timelineId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EditTimelinePreviewMedia> {
+    return this.request(
+      `${this.editTimelinePath(projectName, timelineId)}/preview-media`,
+      { signal: options.signal },
+    );
   }
 
   static async importProject(
@@ -1655,19 +1775,6 @@ class API {
     });
   }
 
-  /** 一集的剪辑时间线，按创建时间排列。 */
-  static async listEditTimelines(projectName: string, episode: number): Promise<{ timelines: EditTimelineSummary[] }> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/edit-timelines?episode=${episode}`);
-  }
-
-  /** 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切）；显示名在集内重名时 409。 */
-  static async createEditTimeline(projectName: string, episode: number, name: string): Promise<EditTimelineReadout> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/edit-timelines`, {
-      method: "POST",
-      body: JSON.stringify({ from: "script", name }),
-    });
-  }
-
   /** 一集的剪辑概况：剪辑时间线条数、最近修改那条的问题数、成片已落后的几条。 */
   static async getEpisodeEditOverview(
     projectName: string,
@@ -2240,7 +2347,8 @@ class API {
   // ==================== 任务队列 API ====================
 
   static async getTask(taskId: string): Promise<TaskItem> {
-    return this.request(`/tasks/${encodeURIComponent(taskId)}`);
+    const { task } = await this.request<{ task: TaskItem }>(`/tasks/${encodeURIComponent(taskId)}`);
+    return task;
   }
 
   static async listTasks(

@@ -9,6 +9,7 @@ import { useWorkflowStore } from "@/stores/workflow-store";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { makeContent, makePlan, makeStatus, makeStep, makeTask } from "@/test/factories";
 import type { ProjectData } from "@/types";
+import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 import type {
   WorkflowActionType,
   WorkflowContent,
@@ -33,6 +34,33 @@ interface Scenario {
 function scenario({ next, content, status, steps }: Scenario): WorkflowPlan {
   const built = makeStatus({ content: makeContent(content), next_action: next, ...status });
   return makePlan({ status: built, next_action: next, next_alternatives: built.next_alternatives, steps: steps ?? [] });
+}
+
+function timelineSummary(id: string, name: string): EditTimelineSummary {
+  return {
+    id,
+    name,
+    episode: 1,
+    revision: 1,
+    clip_count: 2,
+    created_at: "",
+    updated_at: "",
+    updated_by: { kind: "creator", user_id: null },
+    update_summary: "",
+    agent_turn: null,
+  };
+}
+
+function createdTimeline(id: string, name: string): EditTimelineReadout {
+  return {
+    timeline: { id, name, episode: 1 },
+    revision: 1,
+    latest_revision: 1,
+    duration: 0,
+    clips: [],
+    bgm: [],
+    issues: [],
+  };
 }
 
 function mockPlan(plan: WorkflowPlan) {
@@ -261,11 +289,9 @@ describe("WorkflowPanel 剪辑", () => {
 
   it("新建剪辑时间线按脚本机械新建，集内已有「完整版」时依次加序号，然后刷新项目与计划", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({
-      timelines: [{ id: "tl-1", name: "完整版", episode: 1, revision: 1, clip_count: 2, created_at: "", updated_at: "" }],
+      timelines: [timelineSummary("tl-1", "完整版")],
     });
-    const create = vi
-      .spyOn(API, "createEditTimeline")
-      .mockResolvedValue({ timeline: { id: "tl-2", name: "完整版 2", episode: 1 }, revision: 1 });
+    const create = vi.spyOn(API, "createEditTimeline").mockResolvedValue(createdTimeline("tl-2", "完整版 2"));
     const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
     await renderExpanded(scenario({ next: nextAction("create_edit_timeline"), status: videosReady }));
     const plans = vi.mocked(API.getWorkflowPlan).mock.calls.length;
@@ -297,6 +323,14 @@ describe("WorkflowPanel 剪辑", () => {
     expect(within(row).getByRole("button", { name: "交给 Agent 剪辑" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "新建剪辑时间线" })).toBeInTheDocument();
     expect(overview).toHaveBeenCalledWith("proj", 1, expect.anything());
+
+    fireEvent.click(within(row).getByRole("button", { name: "去出片" }));
+    expect(window.location.pathname).toBe("/episodes/1");
+    expect(new URLSearchParams(window.location.search).get("tl")).toBe("tl-1");
+
+    fireEvent.click(within(row).getByRole("button", { name: "打开剪辑视图" }));
+    expect(window.location.search).toBe("?view=edit");
+    window.history.replaceState(null, "", "/");
   });
 
   it("本集没有可用视频时剪辑入口不可点，悬停说明需要先生成视频", async () => {

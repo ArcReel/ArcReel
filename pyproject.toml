@@ -193,6 +193,15 @@ forbidden_modules = [
     "arcreel_market_core.endpoint_definition.jsonpath_subset",
 ]
 
+# 声明式运行时是媒体无关执行通道，不得反向依赖视频调用契约。供应商任务状态、响应阶段与续跑过期
+# 异常定义在 arcreel_market_core.job_contract；video_backend_contract 只为兼容旧调用方 re-export。
+[[tool.importlinter.contracts]]
+name = "媒体无关声明式运行时不依赖视频契约"
+type = "forbidden"
+source_modules = ["lib.custom_provider.declarative_runtime"]
+forbidden_modules = ["arcreel_market_core.video_backend_contract"]
+allow_indirect_imports = true
+
 # arcreel_market_core 是最底层：市场源工具与端点定义校验器被市场源仓库的 CI 与官方服务单独安装，
 # 装不到 ArcReel 应用的其余部分。子包需要应用侧能力（翻译目录、共享 HTTP 客户端）时由调用方以参数
 # 注入，主仓依赖子包，反向一律不许。

@@ -20,7 +20,8 @@ from typing import Any
 import httpx
 
 from arcreel_market_core.auth_section import render_auth
-from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, ProviderResponseStage
+from arcreel_market_core.job_contract import ProviderResponseStage
+from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
 from lib.backends.backend_runtime import (
     request_with_scoped_credentials,
     should_retry_submit,

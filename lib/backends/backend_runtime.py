@@ -44,7 +44,8 @@ from lib.infra.retry import (
 )
 
 if TYPE_CHECKING:
-    from arcreel_market_core.video_backend_contract import ProviderResponseStage, VideoGenerationRequest
+    from arcreel_market_core.job_contract import ProviderResponseStage
+    from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
 # 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
@@ -969,7 +970,7 @@ def resume_expiry_gate[T](
     """
     if resume_job_id is None:
         return poll_fn
-    from arcreel_market_core.video_backend_contract import ResumeExpiredError
+    from arcreel_market_core.job_contract import ResumeExpiredError
 
     async def gated() -> T:
         try:

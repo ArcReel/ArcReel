@@ -11,7 +11,7 @@ import type {
   WorkflowPlan,
   WorkflowPlanStep,
 } from "@/types/workflow";
-import { ROUTE_APP_SETTINGS, WORKSPACE_ROUTE_PRODUCTS } from "@/app-routes";
+import { ROUTE_APP_SETTINGS, WORKSPACE_ROUTE_PRODUCTS, episodeEditViewPath } from "@/app-routes";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import type { EpisodeSurface } from "@/stores/episode-surface-store";
 import { formatNameList } from "@/utils/list-format";
@@ -499,12 +499,22 @@ function editActs(facts: Facts, ctx: StepListContext): StepAct[] {
   ];
 }
 
+/** 本集剪辑时间线条数：优先取剪辑概况，取不到时按计划里的剪辑时间线 ID 计。 */
+function editTimelineCount(facts: Facts, ctx: StepListContext): number {
+  const ids = facts.plan.status.artifacts.edit_timelines?.timeline_ids;
+  return ctx.editOverview?.timeline_count ?? (Array.isArray(ids) ? ids.length : 0);
+}
+
+/** 已有剪辑时间线时去剪辑视图的文字链；给出 `timelineId` 时切到那条剪辑时间线。 */
+function openEditViewAct(ctx: StepListContext, key: string, label: string, timelineId?: string): StepAct {
+  return { key, label, kind: "nav", intent: { type: "route", path: episodeEditViewPath(ctx.episodeId, timelineId) } };
+}
+
 function editRow(facts: Facts, ctx: StepListContext): StepRowView {
   const { t } = ctx;
   const { plan, content } = facts;
   const overview = ctx.editOverview;
-  const ids = plan.status.artifacts.edit_timelines?.timeline_ids;
-  const count = overview?.timeline_count ?? (Array.isArray(ids) ? ids.length : 0);
+  const count = editTimelineCount(facts, ctx);
   const issues = overview?.latest?.issue_count ?? 0;
   let status: string;
   if (count === 0) status = t("workflow:status_edit_none");
@@ -520,11 +530,13 @@ function editRow(facts: Facts, ctx: StepListContext): StepRowView {
         count: stale.length,
         names: formatNameList(stale.map((timeline) => timeline.name), ctx.lang),
       }),
+      act: openEditViewAct(ctx, "final-cut-stale-render", t("workflow:act_go_render"), stale[0].id),
     });
   }
   // 剪辑是下一步时入口就地展开在下一步里；其余时候有正式脚本条目就常驻在本行，准入不满足时置灰。
   const hasItems = content.formal_script === "present" && (content.script_item_count ?? 0) > 0;
   const acts = hasItems && plan.next_action.type !== "create_edit_timeline" ? editActs(facts, ctx) : [];
+  if (count > 0) acts.push(openEditViewAct(ctx, "open-edit-view", t("workflow:act_open_edit_view")));
   return {
     key: "edit",
     title: t("workflow:row_edit"),
@@ -872,6 +884,10 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         detail: t("workflow:next_detail_create_edit_timeline"),
         instruction: { initial: "", persist: null },
         primary: editActs(facts, ctx),
+        alternatives:
+          editTimelineCount(facts, ctx) > 0
+            ? [openEditViewAct(ctx, "open-edit-view", t("workflow:act_open_edit_view"))]
+            : [],
       };
     case "wait_for_task":
       if (rowKey === "source") {

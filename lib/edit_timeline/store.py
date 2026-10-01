@@ -1,6 +1,6 @@
 """剪辑时间线的文件存储：``edit_timelines/episode_{N}/{timeline_id}.json``，每条一个文件。
 
-剪辑时间线是正式内容，随项目归档导出，不进产物清单。同一集的新建、改名与写入修订在该集的
+剪辑时间线是正式内容，随项目归档导出，不进产物清单。同一集的新建、改名、删除与写入修订在该集的
 目录锁下串行，保证显示名在集内不重名、修订号连续。
 """
 
@@ -113,15 +113,23 @@ class EditTimelineStore:
         path = self._episode_dir(document.episode) / f"{document.id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(path, document.model_dump(mode="json"))
+        self._notify(document.episode)
+
+    def delete(self, document: EditTimelineDocument) -> None:
+        """删除一条剪辑时间线的文件；调用方须持有该集的锁。"""
+        (self._episode_dir(document.episode) / f"{document.id}.json").unlink(missing_ok=True)
+        self._notify(document.episode)
+
+    def _notify(self, episode: int) -> None:
         emit_project_change_batch(
             self._project_name,
             [
                 {
                     "entity_type": "episode",
                     "action": "updated",
-                    "entity_id": str(document.episode),
-                    "episode": document.episode,
-                    **build_change_label("episode", episode=document.episode),
+                    "entity_id": str(episode),
+                    "episode": episode,
+                    **build_change_label("episode", episode=episode),
                     "focus": None,
                     "important": False,
                 }

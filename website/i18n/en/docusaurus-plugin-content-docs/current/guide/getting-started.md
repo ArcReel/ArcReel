@@ -17,7 +17,7 @@ By the end of this guide, you will be able to:
 3. Create a project from a novel, finished screenplay, or ad/short video;
 4. Generate characters, scenes, props, storyboards, and video clips;
 5. Monitor task status and costs;
-6. Compose a drama episode, or export a draft and generated clips for further post-production.
+6. Edit an episode, then render the final cut or export a Jianying draft for further post-production.
 
 ## Estimated Time and Cost {#time-and-cost}
 
@@ -366,26 +366,28 @@ On the Usage page, review:
 - Text, image, video, and audio usage;
 - Statistics by provider and currency.
 
-## 7. Compose and Export {#compose-and-export}
+## 7. Edit and Render {#compose-and-export}
 
-### 7.1 Compose the Final Video for a Drama Episode {#compose-final-video}
+### 7.1 Edit and render the final cut {#compose-final-video}
 
-For Drama projects using Storyboard mode, you can use ArcReel to compose the final video after confirming every video clip. For Narration/Commentary and Ad / Short Video projects using Storyboard mode, export a Jianying draft. For Reference-to-video projects, download the generated clips and continue in post-production.
+After the videos are generated, switch to the **Edit** view at the top of the episode page. An episode's final form is defined by its edit timeline: let the Agent make a cut, or create an edit timeline from the script and then ask the Agent to adjust it in the chat. Every script layout uses the same entry points.
 
-Before composing, check:
+Click **Render** at the top of the edit view and select **Final cut** in the "Render · <edit timeline name>" dialog. An up-to-date final cut can be downloaded directly. When there is no final cut yet, or it is behind the edit timeline, start a render; the dialog shows its progress, and you can download the result when it finishes.
 
-- Clip order;
-- Aspect ratio;
-- The actual duration of each clip;
-- Voice-over alignment with the visuals;
-- Whether background music is needed;
-- Whether adjacent shots need transitions.
+Before rendering, check:
 
-### 7.2 Export a Jianying Draft or Generated Clips {#export-jianying-draft}
+- clip order;
+- aspect ratio;
+- the actual duration of each clip;
+- alignment between narration and visuals;
+- whether background music is needed;
+- whether adjacent clips need transitions.
 
-Narration/Commentary and Ad / Short Video projects using Storyboard mode complete the final video through a Jianying draft. Drama projects can also use this option when subtitles, audio tracks, transitions, or pacing need more work. Reference-to-video projects can download the generated video clips and continue editing them in Jianying or another post-production tool.
+### 7.2 Export a Jianying draft {#export-jianying-draft}
 
-For detailed instructions, see [Jianying Draft Export Guide](./jianying-export.md).
+To keep refining subtitles, audio tracks, transitions, and pacing in Jianying, select **Jianying draft** in the same render dialog. See the [Jianying Draft Export guide](./jianying-export.md) for detailed steps.
+
+**Export project** in the top bar only downloads the whole project as an archive; it does not export final cuts or Jianying drafts.
 
 ## 8. First Project Completion Checklist {#first-project-checklist}
 
@@ -397,7 +399,7 @@ Do not define completion as "every asset has been generated once." At a minimum,
 - Subjects and directions of motion connect across adjacent shots;
 - Video clips have no obvious generation failures;
 - Costs are within the expected range;
-- The project can be successfully composed or exported;
+- At least one episode can be rendered successfully;
 - The project has been backed up or archived at least once.
 
 ## 9. Next Steps {#next-steps}
