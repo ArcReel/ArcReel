@@ -16,6 +16,7 @@ from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_models import item_duration
 from lib.speech.audio_utils import probe_existing_audio_duration_seconds, probe_existing_video_duration_seconds
+from lib.speech.narration_config import USE_TTS, project_narration_delivery
 from lib.speech.speech_composition import SpeechMode, admit_script_unit
 
 
@@ -50,8 +51,11 @@ class UnitMedia:
 
 @dataclass(frozen=True, slots=True)
 class EpisodeSources:
+    """``tts_narration`` 为项目的旁白交付方式是否为 TTS 配音；后期配音项目不检查旁白。"""
+
     script: EpisodeScriptUnits
     media: Mapping[str, UnitMedia]
+    tts_narration: bool
 
     def unit(self, unit_id: str) -> ScriptUnit | None:
         return next((unit for unit in self.script.units if unit.unit_id == unit_id), None)
@@ -135,8 +139,9 @@ _PROBE_CONCURRENCY = 4
 async def load_episode_sources(
     projects: ProjectManager, project_name: str, script: EpisodeScriptUnits, unit_ids: set[str]
 ) -> EpisodeSources:
-    """读取 ``unit_ids`` 中仍在脚本里的视频单元的 current 视频与旁白配音。"""
+    """读取 ``unit_ids`` 中仍在脚本里的视频单元的 current 视频与旁白配音，以及项目的旁白交付方式。"""
     project_path = projects.get_project_path(project_name)
+    project = await asyncio.to_thread(projects.load_project, project_name)
     versions = VersionManager(project_path)
     wanted = [unit.unit_id for unit in script.units if unit.unit_id in unit_ids]
     limiter = asyncio.Semaphore(_PROBE_CONCURRENCY)
@@ -146,7 +151,11 @@ async def load_episode_sources(
             return await _unit_media(project_path, versions, script.video_resource_type, unit_id)
 
     media = await asyncio.gather(*(probe(unit_id) for unit_id in wanted))
-    return EpisodeSources(script=script, media=dict(zip(wanted, media, strict=True)))
+    return EpisodeSources(
+        script=script,
+        media=dict(zip(wanted, media, strict=True)),
+        tts_narration=project_narration_delivery(project) == USE_TTS,
+    )
 
 
 __all__ = [

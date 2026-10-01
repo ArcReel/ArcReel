@@ -32,10 +32,6 @@ MediaCurrency = Literal["current", "stale"]
 PresentationProvenance = Literal["verified", "unavailable"]
 
 
-class PresentationBoundaryError(ValueError):
-    """A requested narration track cannot fit inside its video unit."""
-
-
 def presentation_artifact_paths(episode: int, resource_id: str, variant: RenditionVariant) -> tuple[str, str]:
     """Return the canonical persisted subtitle and presentation paths."""
 
@@ -396,13 +392,11 @@ def materialize_speech_presentation(
         raise ValueError("post_production presentation cannot include narration audio")
 
     video_duration = _duration_microseconds(video.evidence.actual_duration_seconds)
+    # Narration may outlast its video: on an edit timeline it extends onto the following clips,
+    # and subtitles that follow narration span the whole narration.
     narration_duration: int | None = None
     if narration_audio is not None:
         narration_duration = _duration_microseconds(narration_audio.evidence.actual_duration_seconds)
-        if narration_duration > video_duration:
-            raise PresentationBoundaryError(
-                f"narration audio exceeds video boundary: {narration_duration} > {video_duration} microseconds"
-            )
 
     timing_adapter = timing or MechanicalSubtitleTiming()
     utterances = project_subtitle_utterances(preparation, subtitle_sentences_prepared=subtitle_sentences_prepared)
@@ -508,7 +502,6 @@ __all__ = [
     "MediaCurrency",
     "MediaSelection",
     "NarrationPresentationTrack",
-    "PresentationBoundaryError",
     "PresentationMedia",
     "PresentationProvenance",
     "PresentationValue",

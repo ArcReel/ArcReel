@@ -677,8 +677,8 @@ async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
     assert model["narration_audio"]["duration_microseconds"] == audio_microseconds
 
 
-async def test_overlong_selected_tts_is_unavailable_instead_of_clipped(tmp_path: Path) -> None:
-    pm, _project_path, settings = _setup_narrator_project(tmp_path)
+async def test_tts_longer_than_its_video_is_presented_whole_for_preview_and_bundle(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
         return 7.0 if path.suffix == ".wav" else 6.25
@@ -689,13 +689,29 @@ async def test_overlong_selected_tts_is_unavailable_instead_of_clipped(tmp_path:
         duration_probe=probe,
     )
 
-    with pytest.raises(PresentationUnavailableError, match="cannot form"):
-        await service.materialize_unit(
-            project_name="demo",
-            resource_type="videos",
-            resource_id="E1S01",
-            variant="use_tts",
-        )
+    result = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+
+    presentation = result.presentation
+    assert presentation.video.duration_microseconds == 6_250_000
+    assert presentation.narration_audio is not None
+    assert presentation.narration_audio.duration_microseconds == 7_000_000
+    assert presentation.subtitles[-1].end_microseconds == 7_000_000
+    assert result.presentation_artifact_path is not None
+    assert (project_path / result.presentation_artifact_path).is_file()
+    bundle = await PresentationBundleService(pm, presentation_reader=service).export_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+    with zipfile.ZipFile(bundle) as archive:
+        packaged = json.loads(archive.read("presentation.json"))
+    assert packaged["narration_audio"]["duration_microseconds"] == 7_000_000
 
 
 async def test_manual_upload_uses_explicit_unverified_raw_presentation_everywhere(tmp_path: Path) -> None:

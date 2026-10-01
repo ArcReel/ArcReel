@@ -14,6 +14,9 @@ const ISSUE_DOT: Record<EditTimelineIssueCode, string> = {
   unit_unused: "bg-text-4",
   video_missing: "bg-danger",
   hold_too_long: "bg-warn",
+  narration_missing: "bg-danger",
+  narration_overrun: "bg-warn",
+  narration_source_collision: "bg-warn",
 };
 
 interface ClipInspectorProps {
@@ -137,7 +140,9 @@ export function IssueList({ issues, onSelectClip }: IssueListProps) {
               unit: issue.unit_id ? itemIdWithinEpisode(issue.unit_id) : "",
               code: issue.code,
             };
-            const text = t(`edit_view_issue_${issue.code}`, {
+            // 同一种 issue 按 params.cause 分成几种说法，如旁白越界分「压到下一段旁白」与「超出末尾」。
+            const cause = typeof issue.params.cause === "string" ? `_${issue.params.cause}` : "";
+            const text = t(`edit_view_issue_${issue.code}${cause}`, {
               ...params,
               defaultValue: t("edit_view_issue_other", params),
             });
