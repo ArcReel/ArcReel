@@ -31,7 +31,7 @@ from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import files
+from server.routers import episode_management, files
 from server.services.currency import upload_finalize
 from tests.factories import wav_bytes
 
@@ -376,6 +376,93 @@ class TestFilesRouter:
             "source/卷二.txt",
             "source/卷三.txt",
         ]
+
+    def test_registered_whole_source_writes_go_through_the_remap(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        source_dir = pm.get_project_path("demo") / "source"
+        (source_dir / "a.txt").write_text("甲乙丙丁", encoding="utf-8")
+        (source_dir / "b.txt").write_text("戊己庚辛", encoding="utf-8")
+        (source_dir / "episode_1.txt").write_text("丙丁戊己", encoding="utf-8")
+        crossing = {
+            "episode": 1,
+            "title": "",
+            "script_file": "scripts/episode_1.json",
+            "source_origin": "whole_source",
+            "source_range": {"source_file": "source/a.txt", "start": 2, "end_file": "source/b.txt", "end": 2},
+            "ledger_status": "planned",
+        }
+        pm.update_project(
+            "demo",
+            lambda project: project.update(
+                whole_source_files=[{"source_file": "source/a.txt"}, {"source_file": "source/b.txt"}],
+                episodes=[crossing],
+                episode_id_high_water=1,
+            ),
+        )
+
+        with client:
+            inserted = client.post(
+                "/api/v1/projects/demo/upload/source?insert_at=1", files={"file": ("插.txt", "插叙", "text/plain")}
+            )
+            written_before_confirm = (source_dir / "插.txt").exists()
+            confirmed = client.post(
+                f"/api/v1/projects/demo/upload/source?insert_at=1&revision={inserted.json()['revision']}",
+                files={"file": ("插.txt", "插叙", "text/plain")},
+            )
+            put = client.put(
+                "/api/v1/projects/demo/source/b.txt", content="戊己庚辛壬", headers={"content-type": "text/plain"}
+            )
+            deleted = client.delete("/api/v1/projects/demo/source/a.txt")
+
+        assert (inserted.json()["status"], inserted.json()["success"]) == ("confirmation_required", False)
+        assert inserted.json()["impact"]["changed_without_products"] == [1]
+        assert written_before_confirm is False
+        assert (confirmed.json()["status"], confirmed.json()["filename"]) == ("applied", "插.txt")
+        assert (source_dir / "episode_1.txt").read_text(encoding="utf-8") == "丙丁插叙戊己"
+        assert put.json()["status"] == "applied"
+        assert (deleted.status_code, deleted.json()["status"]) == (200, "confirmation_required")
+        assert (source_dir / "a.txt").exists()
+
+    def test_deleting_a_whole_source_file_is_refused_while_a_removed_episode_has_active_tasks(
+        self, tmp_path, monkeypatch
+    ):
+        client, pm = _client(monkeypatch, tmp_path)
+        source_dir = pm.get_project_path("demo") / "source"
+        (source_dir / "a.txt").write_text("甲乙丙丁", encoding="utf-8")
+        pm.update_project(
+            "demo",
+            lambda project: project.update(
+                whole_source_files=[{"source_file": "source/a.txt"}],
+                episodes=[
+                    {
+                        "episode": 1,
+                        "title": "",
+                        "script_file": "scripts/episode_1.json",
+                        "source_origin": "whole_source",
+                        "source_range": {"source_file": "source/a.txt", "start": 0, "end": 4},
+                        "ledger_status": "planned",
+                    }
+                ],
+                episode_id_high_water=1,
+            ),
+        )
+
+        class _Queue:
+            async def list_tasks(self, *, project_name, status, page, page_size):
+                del project_name, page, page_size
+                items = [{"resource_id": "script_plan", "script_file": None, "payload": {"episode": 1}}]
+                return {"items": items if status == "queued" else []}
+
+        monkeypatch.setattr(episode_management, "get_generation_queue", lambda: _Queue())
+
+        with client:
+            preview = client.delete("/api/v1/projects/demo/source/a.txt")
+            refused = client.delete(f"/api/v1/projects/demo/source/a.txt?revision={preview.json()['revision']}")
+
+        assert preview.json()["impact"]["removed"] == [1]
+        assert refused.status_code == 409
+        assert (source_dir / "a.txt").exists()
+        assert [entry["episode"] for entry in pm.load_project("demo")["episodes"]] == [1]
 
     def test_source_upload_race_project_deleted_reports_project_not_found(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)

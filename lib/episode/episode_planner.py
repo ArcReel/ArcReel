@@ -42,6 +42,7 @@ from lib.episode.episode_ids import allocate_episode_ids, episode_id_high_water
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
+    SourceSpan,
     compute_source_fingerprints,
     discover_episode_file_aliases,
     has_downstream_products,
@@ -69,6 +70,7 @@ from lib.episode.episode_sources import (
     legacy_cut_episode_ids,
     planning_start,
     source_snapshot_path,
+    span_text,
     sync_source_snapshots,
     unsplit_range_ending_at,
     whole_source_files,
@@ -1001,6 +1003,13 @@ class EpisodePlanner:
             raise EpisodePlanningError("整本源文还没有文件，请先上传小说原文")
         return start
 
+    @staticmethod
+    def _span_files(order: list[str], span: SourceSpan) -> list[str]:
+        """原文范围经过的文件，按整本源文顺序；起止文件不在清单里时只给起止两个文件。"""
+        if span.source_file in order and span.end_file in order:
+            return order[order.index(span.source_file) : order.index(span.end_file) + 1]
+        return list(dict.fromkeys((span.source_file, span.end_file)))
+
     def _load_normalized_source(self, rel: str) -> str:
         try:
             path = safe_join(self.project_path, rel, allow_base=True)
@@ -1094,30 +1103,30 @@ class EpisodePlanner:
         if source_dir.is_symlink():
             raise EpisodePlanningError("source/ 不能是符号链接，拒绝派生集文件")
         writes: list[tuple[Path, str]] = []
+        order = whole_source_files(project)
         for entry in project.get("episodes") or []:
             if not isinstance(entry, dict):
                 continue
             num = parse_episode_num(entry.get("episode"))
             if num is None or num not in new_ids:
                 continue
-            coords = parse_source_range(entry)
-            if coords is None:
+            span = parse_source_range(entry)
+            if span is None:
                 raise EpisodePlanningError(f"集（id={num}）原文范围记录非法，无法写入集文件，提交已中止")
-            rel, seg_start, seg_end = coords
-            text = text_cache.get(rel)
-            if text is None:
-                try:
-                    text = self._load_normalized_source(rel)
-                except EpisodePlanningError as exc:
-                    raise EpisodePlanningError(f"集（id={num}）集文件写入失败，提交已中止：{exc}") from exc
-                text_cache[rel] = text
+            for rel in self._span_files(order, span):
+                if rel not in text_cache:
+                    try:
+                        text_cache[rel] = self._load_normalized_source(rel)
+                    except EpisodePlanningError as exc:
+                        raise EpisodePlanningError(f"集（id={num}）集文件写入失败，提交已中止：{exc}") from exc
             # Python 切片对负值/越界静默容忍，脏坐标会写出与账本不符的内容，必须显式拦截
-            if not 0 <= seg_start <= seg_end <= len(text):
+            content = span_text(text_cache, order, span)
+            if content is None:
                 raise EpisodePlanningError(
-                    f"集（id={num}）原文范围越界（start={seg_start}，end={seg_end}，源文长度 {len(text)}），"
+                    f"集（id={num}）原文范围越界（{span.source_file} start={span.start}，{span.end_file} end={span.end}），"
                     "无法写入集文件，提交已中止"
                 )
-            writes.append((episode_source_path(self.project_path, num), text[seg_start:seg_end]))
+            writes.append((episode_source_path(self.project_path, num), content))
         source_dir.mkdir(exist_ok=True)
         for num, aliases in discover_episode_file_aliases(self.project_path).items():
             if num in new_ids:
@@ -1141,6 +1150,7 @@ class EpisodePlanner:
         """
         language = _language_of(project)
         text_cache: dict[str, str] = {}
+        order = whole_source_files(project)
         units_by_episode: dict[int, int] = {}
         for entry in project.get("episodes") or []:
             if not isinstance(entry, dict):
@@ -1148,30 +1158,19 @@ class EpisodePlanner:
             num = parse_episode_num(entry.get("episode"))
             if num is None:
                 continue
-            source_range = entry.get("source_range")
-            if not isinstance(source_range, Mapping):
+            span = parse_source_range(entry)
+            if span is None:
                 continue
-            rel = source_range.get("source_file")
-            start = source_range.get("start")
-            end = source_range.get("end")
-            if (
-                not isinstance(rel, str)
-                or not isinstance(start, int)
-                or not isinstance(end, int)
-                or isinstance(start, bool)
-                or isinstance(end, bool)
-            ):
+            try:
+                for rel in self._span_files(order, span):
+                    if rel not in text_cache:
+                        text_cache[rel] = self._load_normalized_source(rel)
+            except EpisodePlanningError:
                 continue
-            text = text_cache.get(rel)
+            text = span_text(text_cache, order, span)
             if text is None:
-                try:
-                    text = self._load_normalized_source(rel)
-                except EpisodePlanningError:
-                    continue
-                text_cache[rel] = text
-            if not 0 <= start <= end <= len(text):
                 continue
-            units_by_episode[num] = count_reading_units(text[start:end], language)
+            units_by_episode[num] = count_reading_units(text, language)
 
         ordered = sorted(units_by_episode.items(), key=lambda pair: (pair[1], pair[0]))
         values = sorted(units_by_episode.values())

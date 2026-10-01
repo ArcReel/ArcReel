@@ -112,21 +112,22 @@ export function useManualSplit(
     (point: PointAction): { request: ManualSplitAction; dialogTitle: string } | null => {
       if (!view) return null;
       const sourceFile = view.files[point.file]?.source_file;
-      if (point.kind === "cut" && sourceFile) {
+      if (!sourceFile) return null;
+      if (point.kind === "cut") {
         return {
-          request: { action: "cut", source_file: sourceFile, end: point.end, title },
+          request: { action: "cut", source_file: sourceFile, end: point.offset, title },
           dialogTitle: t("manual_split_cut_confirm"),
         };
       }
       if (point.kind === "split") {
         return {
-          request: { action: "split", episode: point.episode, at: point.at },
+          request: { action: "split", episode: point.episode, at: point.offset, source_file: sourceFile },
           dialogTitle: t("manual_split_split_confirm"),
         };
       }
       if (point.kind === "move") {
         return {
-          request: { action: "move_boundary", episode: point.left, at: point.at },
+          request: { action: "move_boundary", episode: point.left, at: point.offset, source_file: sourceFile },
           dialogTitle: t("manual_split_move_dialog_title"),
         };
       }

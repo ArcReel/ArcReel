@@ -421,8 +421,8 @@ function CutEpisodeActions({ view, episode, actions }: { view: EpisodesView; epi
   const available = cutEpisodeActions(view, episode);
   if (!available.placed) return null;
   const mergeHint =
-    available.merge === "across_files"
-      ? t("manual_split_merge_across_files")
+    available.merge === "across_kinds"
+      ? t("manual_split_merge_across_kinds")
       : available.merge === "none"
         ? t("manual_split_merge_none")
         : undefined;

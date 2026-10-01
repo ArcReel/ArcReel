@@ -2,10 +2,23 @@ import { describe, expect, it } from "vitest";
 
 import type { EpisodesView, EpisodesViewFile, EpisodesViewSegment } from "@/types";
 
-import { pointInRun, resolvePointAction, stepPoint, textRuns } from "./manual-split-model";
+import {
+  adjacentBoundaries,
+  cutEpisodeActions,
+  pointInRun,
+  rangeUnits,
+  resolvePointAction,
+  stepPoint,
+  textRuns,
+} from "./manual-split-model";
+
+/** 每个码位都是一个汉字的原文，便于按阅读单位核对体量。 */
+function chars(count: number): string {
+  return "字".repeat(count);
+}
 
 function segment(overrides: Partial<EpisodesViewSegment>): EpisodesViewSegment {
-  return { kind: "unsplit", start: 0, end: 0, text: "", episode: null, gap: false, units: 0, ...overrides };
+  return { kind: "unsplit", start: 0, end: 0, text: "", episode: null, gap: false, units: 0, continued: false, continues: false, ...overrides };
 }
 
 function file(name: string, length: number, segments: EpisodesViewSegment[]): EpisodesViewFile {
@@ -58,15 +71,41 @@ describe("落点", () => {
     expect(resolvePointAction(view, { file: 0, offset: 5 })).toEqual({
       kind: "split",
       file: 0,
+      offset: 5,
       episode: 1,
       start: 0,
       at: 5,
       end: 10,
     });
-    expect(resolvePointAction(view, { file: 0, offset: 25 })).toEqual({ kind: "cut", file: 0, start: 20, end: 25 });
-    expect(resolvePointAction(view, { file: 1, offset: 3 })).toEqual({ kind: "cut", file: 1, start: 0, end: 3 });
+    expect(resolvePointAction(view, { file: 0, offset: 25 })).toEqual({
+      kind: "cut",
+      file: 0,
+      offset: 25,
+      start: 20,
+      end: 25,
+    });
     expect(resolvePointAction(view, { file: 0, offset: 20 })).toBeNull();
     expect(resolvePointAction(view, { file: 1, offset: 0 })).toBeNull();
+  });
+
+  it("后一个文件里的切分从前一个文件里未切分的原文接起，新集跨文件", () => {
+    // 全局偏移：a.txt 占 [0, 30)，b.txt 从 30 起
+    expect(resolvePointAction(view, { file: 1, offset: 3 })).toEqual({
+      kind: "cut",
+      file: 1,
+      offset: 3,
+      start: 20,
+      end: 33,
+    });
+  });
+
+  it("切分不跨过源文件类型的切换处", () => {
+    const kinds: EpisodesView = {
+      ...view,
+      files: [{ ...view.files[0], source_kind: "novel" }, { ...view.files[1], source_kind: "screenplay" }],
+    };
+    expect(resolvePointAction(kinds, { file: 1, offset: 3 })).toMatchObject({ kind: "cut", start: 30, end: 33 });
+    expect(cutEpisodeActions(kinds, 2)).toEqual({ placed: true, merge: "none", clearAfter: false });
   });
 
   it("移动分界时只接受两集范围之内、原分界之外的落点", () => {
@@ -103,5 +142,74 @@ describe("←/→ 微调", () => {
     expect(stepPoint(view, { file: 0, offset: 21 }, -1)).toEqual({ file: 0, offset: 21 });
     expect(stepPoint(view, { file: 0, offset: 19 }, 1, 1)).toEqual({ file: 0, offset: 19 });
     expect(stepPoint(view, { file: 1, offset: 8 }, 1)).toEqual({ file: 1, offset: 8 });
+  });
+});
+
+describe("跨文件的集", () => {
+  // a.txt：第 1 集 [0, 10)、第 2 集从 [10, 20) 接到 b.txt 的 [0, 4)；b.txt：第 3 集 [4, 8)
+  const crossing: EpisodesView = {
+    ...view,
+    files: [
+      file("a.txt", 20, [
+        segment({ kind: "episode", episode: 1, start: 0, end: 10, text: chars(10) }),
+        segment({ kind: "episode", episode: 2, start: 10, end: 20, text: chars(10), continues: true }),
+      ]),
+      file("b.txt", 8, [
+        segment({ kind: "episode", episode: 2, start: 0, end: 4, text: chars(4), continued: true }),
+        segment({ kind: "episode", episode: 3, start: 4, end: 8, text: chars(4) }),
+      ]),
+    ],
+  };
+
+  it("在后一个文件里拆分：前半段从这一集在前一个文件里的起点算起", () => {
+    expect(resolvePointAction(crossing, { file: 1, offset: 2 })).toEqual({
+      kind: "split",
+      file: 1,
+      offset: 2,
+      episode: 2,
+      start: 10,
+      at: 22,
+      end: 24,
+    });
+    expect(rangeUnits(crossing, 10, 22)).toBe(12);
+  });
+
+  it("分界按钮放在右侧一集起点所在的文件里，可以把分界移回前一个文件", () => {
+    expect(adjacentBoundaries(crossing)).toEqual([
+      { left: 1, right: 2, file: 0 },
+      { left: 2, right: 3, file: 1 },
+    ]);
+    expect(resolvePointAction(crossing, { file: 0, offset: 15 }, 2)).toMatchObject({
+      kind: "move",
+      file: 0,
+      offset: 15,
+      left: 2,
+      right: 3,
+      start: 10,
+      boundary: 24,
+      at: 15,
+      end: 28,
+    });
+  });
+
+  it("合并不跨过源文件类型的切换处", () => {
+    const kinds: EpisodesView = {
+      ...crossing,
+      files: [
+        { ...crossing.files[0], source_kind: "novel" },
+        { ...crossing.files[1], source_kind: "novel" },
+      ],
+    };
+    expect(cutEpisodeActions(kinds, 2).merge).toBe("ok");
+    const switched: EpisodesView = {
+      ...crossing,
+      files: [
+        { ...crossing.files[0], source_kind: "novel" },
+        { ...crossing.files[1], source_kind: "screenplay" },
+      ],
+    };
+    // 第 1 集与第 2 集合并不新跨切换处；第 2 集原本就跨着它，与第 3 集合并也不新增
+    expect(cutEpisodeActions(switched, 1).merge).toBe("ok");
+    expect(resolvePointAction(switched, { file: 1, offset: 6 }, 2)).toMatchObject({ kind: "move", at: 26 });
   });
 });

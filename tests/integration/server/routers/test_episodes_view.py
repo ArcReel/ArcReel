@@ -393,3 +393,110 @@ class TestSourceFileKind:
         assert narration.status_code == 409
         assert narration.json()["detail"] == zh_errors.MESSAGES["source_kind_not_applicable"]
         assert unknown.status_code == 404
+
+
+def _two_episode_project(monkeypatch, tmp_path):
+    text = "第一章。少年下山。\n第二章。城里起火。\n"
+    second = text.index("第二章")
+    client, pm, source_dir = _client(
+        monkeypatch,
+        tmp_path,
+        whole_source_files=[{"source_file": "source/a.txt"}, {"source_file": "source/b.txt"}],
+        episodes=[
+            _entry(1, "whole_source", source_range={"source_file": "source/a.txt", "start": 0, "end": second}),
+            _entry(2, "whole_source", source_range={"source_file": "source/a.txt", "start": second, "end": len(text)}),
+        ],
+        episode_id_high_water=2,
+    )
+    (source_dir / "a.txt").write_text(text, encoding="utf-8")
+    (source_dir / "b.txt").write_text("第三章。夜雨。\n", encoding="utf-8")
+    return client, pm, source_dir, text
+
+
+class TestSourceFileChanges:
+    def test_edit_returns_the_grouped_impact_then_applies_with_its_revision(self, tmp_path, monkeypatch):
+        client, pm, source_dir, text = _two_episode_project(monkeypatch, tmp_path)
+        new_text = text.replace("少年下山", "少年走下山")
+
+        with client:
+            preview = client.put("/api/v1/projects/demo/source-files/a.txt/text", json={"text": new_text})
+            body = preview.json()
+            applied = client.put(
+                "/api/v1/projects/demo/source-files/a.txt/text",
+                json={"text": new_text, "revision": body["revision"]},
+            )
+
+        assert preview.status_code == 200
+        assert body["status"] == "confirmation_required"
+        assert (body["impact"]["changed_without_products"], body["impact"]["shifted"]) == ([1], [2])
+        assert body["impact"]["text"].split("\n") == [
+            zh_errors.MESSAGES["source_file_impact_shifted"].format(episodes="第 2 集"),
+            zh_errors.MESSAGES["source_file_impact_changed_without_products"].format(episodes="第 1 集"),
+        ]
+        assert applied.json()["status"] == "applied"
+        assert (source_dir / "a.txt").read_text(encoding="utf-8") == new_text
+        assert pm.load_project("demo")["episodes"][0]["ledger_status"] == "stale"
+
+    def test_move_delete_and_replace_go_through_the_same_protocol(self, tmp_path, monkeypatch):
+        client, pm, source_dir, _text = _two_episode_project(monkeypatch, tmp_path)
+
+        with client:
+            moved = client.post("/api/v1/projects/demo/source-files/b.txt/move", json={"direction": "up"})
+            replaced = client.post(
+                "/api/v1/projects/demo/source-files/b.txt/replace",
+                files={"file": ("新的第三章.txt", "第三章。大雨。\n".encode(), "text/plain")},
+            )
+            replaced_text = (source_dir / "b.txt").read_text(encoding="utf-8")
+            deleted = client.post("/api/v1/projects/demo/source-files/b.txt/delete", json={})
+
+        # b.txt 里没有切出集，调序不改变任何集的先后，直接执行
+        assert moved.json()["status"] == "applied"
+        assert replaced.json()["status"] == "applied"
+        assert replaced_text == "第三章。大雨。\n"
+        assert deleted.json()["status"] == "applied"
+        assert [item["source_file"] for item in pm.load_project("demo")["whole_source_files"]] == ["source/a.txt"]
+        assert [entry["episode"] for entry in pm.load_project("demo")["episodes"]] == [1, 2]
+
+    def test_change_is_refused_while_a_displaced_episode_has_active_tasks(self, tmp_path, monkeypatch):
+        client, pm, source_dir, text = _two_episode_project(monkeypatch, tmp_path)
+        before = (pm.get_project_path("demo") / "project.json").read_bytes()
+
+        class _Queue:
+            async def list_tasks(self, *, project_name, status, page, page_size):
+                del project_name, page, page_size
+                items = [{"resource_id": "script_plan", "script_file": None, "payload": {"episode": 2}}]
+                return {"items": items if status == "running" else []}
+
+        monkeypatch.setattr(episode_management, "get_generation_queue", lambda: _Queue())
+
+        with client:
+            preview = client.post("/api/v1/projects/demo/source-files/a.txt/delete", json={})
+            revision = preview.json()["revision"]
+            deleted = client.post("/api/v1/projects/demo/source-files/a.txt/delete", json={"revision": revision})
+            edited = client.put("/api/v1/projects/demo/source-files/a.txt/text", json={"text": "第一章。少年下山。\n"})
+            edited_applied = client.put(
+                "/api/v1/projects/demo/source-files/a.txt/text",
+                json={"text": "第一章。少年下山。\n", "revision": edited.json()["revision"]},
+            )
+
+        assert preview.json()["impact"]["removed"] == [1, 2]
+        for resp in (deleted, edited_applied):
+            assert resp.status_code == 409
+            assert resp.json()["detail"] == zh_errors.MESSAGES["source_file_change_tasks_active"]
+        assert (pm.get_project_path("demo") / "project.json").read_bytes() == before
+        assert (source_dir / "a.txt").read_text(encoding="utf-8") == text
+
+    def test_refusals_map_to_status_codes(self, tmp_path, monkeypatch):
+        client, _pm, _source_dir, _text = _two_episode_project(monkeypatch, tmp_path)
+
+        with client:
+            first_up = client.post("/api/v1/projects/demo/source-files/a.txt/move", json={"direction": "up"})
+            unknown = client.put("/api/v1/projects/demo/source-files/x.txt/text", json={"text": "x"})
+            empty = client.put("/api/v1/projects/demo/source-files/a.txt/text", json={"text": "  "})
+
+        assert (first_up.status_code, first_up.json()["detail"]) == (
+            409,
+            zh_errors.MESSAGES["source_file_change_move_out_of_range"],
+        )
+        assert unknown.status_code == 404
+        assert empty.status_code == 422

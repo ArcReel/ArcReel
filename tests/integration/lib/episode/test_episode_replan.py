@@ -279,6 +279,41 @@ class TestAdoption:
 
         assert _order(project_dir) == [7, 8, 9]
 
+    async def test_an_episode_after_a_cross_file_episode_follows_where_that_episode_ends(self, tmp_path: Path):
+        # 源文分成两个文件：a.txt 是第一、二章，b.txt 是第三、四章；第 2 集从第二章跨到第三章结尾
+        project_dir = _project_dir(tmp_path, [])
+        source_dir = project_dir / "source"
+        (source_dir / "novel.txt").unlink()
+        (source_dir / "a.txt").write_text(CH[0] + CH[1], encoding="utf-8")
+        (source_dir / "b.txt").write_text(CH[2] + CH[3], encoding="utf-8")
+        ch = len(CH[0])
+        crossing = {
+            **_cut(2, 1),
+            "source_range": {"source_file": "source/a.txt", "start": ch, "end_file": "source/b.txt", "end": ch},
+        }
+        tail = {**_cut(3, 3), "source_range": {"source_file": "source/b.txt", "start": ch, "end": 2 * ch}}
+        project = _load(project_dir)
+        project["whole_source_files"] = [{"source_file": "source/a.txt"}, {"source_file": "source/b.txt"}]
+        project["episodes"] = [
+            {**_cut(1, 0), "source_range": {"source_file": "source/a.txt", "start": 0, "end": ch}},
+            crossing,
+            _own(7),
+            tail,
+        ]
+        project["episode_id_high_water"] = 7
+        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        (source_dir / "episode_7.txt").write_text("番外原文。", encoding="utf-8")
+        # 新方案：第二章、第三章、第四章各一集；第 2 集原来的结尾在第三章结尾。窗口逐个文件取，生成到源文结尾
+        candidate_id = create_replan_candidate(project_dir, episode=2, instructions=None)
+        planner = EpisodePlanner(project_dir, generator=_Generator(["城里起火。", "夜雨相逢。", "重逢离别。"]))
+        while not (await planner.plan_candidate(candidate_id, None)).source_exhausted:
+            pass
+
+        result = _adopt(project_dir, candidate_id)
+
+        assert result.episodes == [8, 9, 10]
+        assert _order(project_dir) == [1, 8, 9, 7, 10]
+
     async def test_a_ledger_change_after_generation_rejects_the_adoption(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, [_cut(1, 0), _cut(2, 1), _cut(3, 2), _cut(4, 3)])
         candidate_id = await _generate(project_dir, 3, ["重逢离别。"])

@@ -80,10 +80,10 @@ def entry_source_kind(project: Mapping[str, Any], entry: Mapping[str, Any]) -> S
         return None
     if origin is SourceOrigin.OWN:
         return _recorded(entry)
-    coords = parse_source_range(entry)
-    if coords is None or coords[0] not in whole_source_files(project):
+    span = parse_source_range(entry)
+    if span is None or span.source_file not in whole_source_files(project):
         return DEFAULT_SOURCE_KIND
-    return _recorded(_whole_source_item(project, coords[0]))
+    return _recorded(_whole_source_item(project, span.source_file))
 
 
 def episode_source_kind(project: Mapping[str, Any], episode: int) -> SourceKind | None:
@@ -136,9 +136,9 @@ def episodes_from_whole_source_file(project: Mapping[str, Any], rel: str) -> lis
     for entry in raw if isinstance(raw, list) else []:
         if not isinstance(entry, Mapping) or episode_source_origin(entry) is not SourceOrigin.WHOLE_SOURCE:
             continue
-        coords = parse_source_range(entry)
+        span = parse_source_range(entry)
         episode = parse_positive_episode_num(entry.get("episode"))
-        if coords is not None and coords[0] == rel and episode is not None:
+        if span is not None and span.source_file == rel and episode is not None:
             ids.append(episode)
     return ids
 

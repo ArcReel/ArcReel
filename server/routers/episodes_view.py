@@ -1,14 +1,16 @@
-"""「分集」视图：整本源文按集分段的只读投影、``source/`` 里没有登记的文件的处置，以及整本源文文件的类型。"""
+"""「分集」视图：整本源文按集分段的只读投影、``source/`` 里没有登记的文件的处置，以及整本源文文件的类型、
+替换、编辑、删除与调序。"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from lib.episode.episode_layout import build_episode_layout
@@ -30,13 +32,28 @@ from lib.episode.episode_source_commands import (
     adopt_source_file_as_whole_source,
     set_whole_source_file_kind,
 )
+from lib.episode.source_file_changes import (
+    MoveDirection,
+    SourceFileChangeError,
+    SourceFileChangeOutcome,
+    delete_whole_source_file,
+    edit_whole_source_file,
+    move_whole_source_file,
+    replace_whole_source_file,
+)
 from lib.episode.source_kinds import SourceKind
 from lib.infra.api_errors import ApiError, NotFoundError
 from lib.project.project_change_hints import project_change_source
-from lib.project.project_manager import get_project_manager
+from lib.project.project_manager import ProjectManager, get_project_manager
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._episode_source_errors import episode_source_http_error
+from server.routers._source_file_changes import (
+    ensure_no_displaced_tasks,
+    source_file_change_http_error,
+    source_file_change_payload,
+)
+from server.routers._source_uploads import extract_uploaded_source_text
 from server.routers.episode_management import episode_has_active_tasks
 
 logger = logging.getLogger(__name__)
@@ -126,12 +143,16 @@ class SplitRequest(_ManualSplitBase):
     action: Literal["split"]
     episode: int
     at: int
+    #: ``at`` 所在的整本源文文件；缺省时按这一集起点所在的文件算。
+    source_file: str | None = None
 
 
 class MoveBoundaryRequest(_ManualSplitBase):
     action: Literal["move_boundary"]
     episode: int
     at: int
+    #: ``at`` 所在的整本源文文件；缺省时按这一集终点所在的文件算。
+    source_file: str | None = None
 
 
 class MergeNextRequest(_ManualSplitBase):
@@ -162,9 +183,9 @@ def _run_manual_split(project_dir: Path, req: _ManualSplitBody) -> ManualSplitOu
     if isinstance(req, CutRequest):
         return cut_unsplit_source(project_dir, source_file=req.source_file, end=req.end, title=req.title, **options)
     if isinstance(req, SplitRequest):
-        return split_episode(project_dir, req.episode, at=req.at, **options)
+        return split_episode(project_dir, req.episode, at=req.at, source_file=req.source_file, **options)
     if isinstance(req, MoveBoundaryRequest):
-        return move_episode_boundary(project_dir, req.episode, at=req.at, **options)
+        return move_episode_boundary(project_dir, req.episode, at=req.at, source_file=req.source_file, **options)
     if isinstance(req, MergeNextRequest):
         return merge_with_next_episode(
             project_dir, req.episode, confirm_merged_units=req.confirm_merged_units, **options
@@ -262,3 +283,148 @@ async def set_source_file_kind(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+# ---------------------------------------------------------------------------
+# 整本源文文件的替换、编辑、删除与调序
+# ---------------------------------------------------------------------------
+
+
+class _SourceFileChangeBase(BaseModel):
+    #: 创作者确认过的受影响集清单的版本；缺省或与锁内重算的不一致时只返回清单，不写入。
+    revision: str | None = None
+
+
+class EditSourceFileRequest(_SourceFileChangeBase):
+    text: str
+
+
+class MoveSourceFileRequest(_SourceFileChangeBase):
+    direction: MoveDirection
+
+
+class DeleteSourceFileRequest(_SourceFileChangeBase):
+    pass
+
+
+async def _run_source_file_change(
+    name: str,
+    _t: Translator,
+    revision: str | None,
+    command: Callable[[ProjectManager, bool], SourceFileChangeOutcome],
+) -> dict[str, Any]:
+    """``command(manager, dry_run)`` 跑一个整本源文文件改动命令，``revision`` 已经传给了它。"""
+
+    def _manager() -> ProjectManager:
+        manager = get_project_manager()
+        if not manager.project_exists(name):
+            raise NotFoundError("project_not_found", name=name)
+        return manager
+
+    def _sync() -> dict[str, Any]:
+        manager = _manager()
+        project = manager.load_project(name)
+        with project_change_source("webui"):
+            outcome = command(manager, False)
+        return source_file_change_payload(outcome, project, _t)
+
+    try:
+        await ensure_no_displaced_tasks(name, revision, lambda: command(_manager(), True), _t)
+        return await asyncio.to_thread(_sync)
+    except SourceFileChangeError as exc:
+        raise source_file_change_http_error(exc, _t) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.put(
+    "/projects/{name}/source-files/{filename}/text",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def edit_source_file(name: str, filename: str, req: EditSourceFileRequest, _t: Translator) -> dict[str, Any]:
+    """编辑整本源文文件的全文，按改动前后的对齐重映射触及它的切出集。
+
+    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
+    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
+    要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
+    """
+    return await _run_source_file_change(
+        name,
+        _t,
+        req.revision,
+        lambda pm, dry_run: edit_whole_source_file(
+            pm, name, filename, req.text, revision=req.revision, dry_run=dry_run
+        ),
+    )
+
+
+@router.post(
+    "/projects/{name}/source-files/{filename}/replace",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def replace_source_file(
+    name: str,
+    filename: str,
+    _t: Translator,
+    file: UploadFile = File(...),
+    source_kind: Annotated[SourceKind | None, Form()] = None,
+    revision: Annotated[str | None, Form()] = None,
+) -> dict[str, Any]:
+    """用上传的文件替换整本源文文件：保留位置与文件名，类型缺省时不变。
+
+    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
+    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
+    要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
+    """
+    text = await asyncio.to_thread(extract_uploaded_source_text, file, _t)
+    return await _run_source_file_change(
+        name,
+        _t,
+        revision,
+        lambda pm, dry_run: replace_whole_source_file(
+            pm, name, filename, text, source_kind=source_kind, revision=revision, dry_run=dry_run
+        ),
+    )
+
+
+@router.post(
+    "/projects/{name}/source-files/{filename}/move",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def move_source_file(name: str, filename: str, req: MoveSourceFileRequest, _t: Translator) -> dict[str, Any]:
+    """把整本源文文件上移或下移一位，其中的切出集整块跟着走。
+
+    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
+    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
+    要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
+    """
+    return await _run_source_file_change(
+        name,
+        _t,
+        req.revision,
+        lambda pm, dry_run: move_whole_source_file(
+            pm, name, filename, direction=req.direction, revision=req.revision, dry_run=dry_run
+        ),
+    )
+
+
+@router.post(
+    "/projects/{name}/source-files/{filename}/delete",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def delete_whole_source(name: str, filename: str, req: DeleteSourceFileRequest, _t: Translator) -> dict[str, Any]:
+    """删除整本源文文件，等同于删掉它的全部文字。
+
+    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
+    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
+    要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
+    """
+    return await _run_source_file_change(
+        name,
+        _t,
+        req.revision,
+        lambda pm, dry_run: delete_whole_source_file(pm, name, filename, revision=req.revision, dry_run=dry_run),
+    )

@@ -137,6 +137,64 @@ describe("SourceUploadDialog", () => {
     expect(screen.getByRole("button", { name: "上传 2 个文件" })).toBeEnabled();
   });
 
+  it("confirms the impact list when the inserted file lands inside an episode, then uploads with its revision", async () => {
+    const impact = {
+      shifted: [],
+      changed_with_products: [],
+      changed_without_products: [1],
+      retired: [],
+      removed: [],
+      kind_stale: [],
+    };
+    const upload = vi
+      .spyOn(API, "uploadFile")
+      .mockResolvedValueOnce({
+        success: false,
+        status: "confirmation_required",
+        impact: { ...impact, text: "原文有变化、还没有产物：第 1 集" },
+        revision: "r1",
+      })
+      .mockResolvedValueOnce({ success: true, status: "applied", impact, path: "source/x.txt", filename: "x.txt" });
+    const { onClose } = renderDialog({ initialFiles: [txt("x.txt")] });
+    fireEvent.click(screen.getByRole("button", { name: "上移 x.txt" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
+    expect(await screen.findByText("原文有变化、还没有产物：第 1 集")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "插入" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(upload.mock.calls.map((call) => [call[4]?.insertAt, call[4]?.revision])).toEqual([
+      [1, undefined],
+      [1, "r1"],
+    ]);
+  });
+
+  it("keeps the file in the list when the insertion is not confirmed", async () => {
+    vi.spyOn(API, "uploadFile").mockResolvedValue({
+      success: false,
+      status: "confirmation_required",
+      impact: {
+        shifted: [],
+        changed_with_products: [1],
+        changed_without_products: [],
+        retired: [],
+        removed: [],
+        kind_stale: [],
+        text: "清单",
+      },
+      revision: "r1",
+    });
+    const { onClose } = renderDialog({ initialFiles: [txt("x.txt")] });
+
+    fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
+    await screen.findByText("清单");
+    fireEvent.click(within(screen.getByRole("dialog", { name: "插入「x.txt」" })).getByRole("button", { name: "取消" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "上传 1 个文件" })).toBeEnabled());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(listedNames()).toEqual(["a.txt", "b.txt", "x.txt"]);
+  });
+
   it("skips files in unsupported formats", () => {
     renderDialog({ initialFiles: [txt("x.txt"), new File(["img"], "cover.png", { type: "image/png" })] });
 

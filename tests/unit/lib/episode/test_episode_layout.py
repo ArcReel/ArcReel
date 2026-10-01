@@ -52,6 +52,26 @@ class TestSegments:
         assert a_file.segments[1].gap is False
         assert a_file.segments[1].text == "第二章。城里起火。"
 
+    def test_an_episode_crossing_files_shows_one_part_in_each_file(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, **{"a.txt": VOLUME_A, "b.txt": VOLUME_B})
+        second_start = VOLUME_A.index("第二章")
+        crossing = _cut(3, "a.txt", second_start, 4)
+        crossing["source_range"]["end_file"] = "source/b.txt"
+        project = _project("a.txt", "b.txt", episodes=[_cut(1, "a.txt", 0, second_start), crossing])
+
+        layout = build_episode_layout(project_dir, project)
+
+        a_file, b_file = layout.files
+        assert [(s.episode, s.continued, s.continues) for s in a_file.segments] == [(1, False, False), (3, False, True)]
+        assert [(s.kind, s.episode, s.start, s.end, s.continued) for s in b_file.segments] == [
+            ("episode", 3, 0, 4, True),
+            ("unsplit", None, 4, len(VOLUME_B), False),
+        ]
+        episode = next(e for e in layout.episodes if e.episode == 3)
+        assert (episode.source_file, episode.end_file) == ("source/a.txt", "source/b.txt")
+        assert episode.first_sentence.startswith("第二章")
+        assert a_file.cut_units + b_file.cut_units == layout.cut_units
+
     def test_unsplit_text_between_cut_episodes_is_a_gap_and_blank_gaps_are_dropped(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, **{"a.txt": VOLUME_A})
         first_end = VOLUME_A.index("遇见")

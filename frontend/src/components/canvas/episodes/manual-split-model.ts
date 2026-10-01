@@ -1,4 +1,4 @@
-import type { EpisodesView, EpisodesViewFile } from "@/types";
+import type { EpisodesView } from "@/types";
 
 /**
  * 手工切分的落点：整本源文清单里第 `file` 个文件、文件内第 `offset` 个码位之前。
@@ -10,16 +10,20 @@ export interface ManuscriptPoint {
   offset: number;
 }
 
-/** 落点上能做的手工切分。偏移都是 `file` 内的码位偏移。 */
+/**
+ * 落点上能做的手工切分。`file` / `offset` 是落点本身（随请求发给服务端）；`start`、`at`、`end`、`boundary`
+ * 是整本源文里的全局码位偏移（前面各文件的码位数之和加文件内偏移），一集的原文可以跨文件。
+ */
 export type PointAction =
   /** 在未切分的原文上切分：`[start, end)` 成为新的一集。 */
-  | { kind: "cut"; file: number; start: number; end: number }
+  | { kind: "cut"; file: number; offset: number; start: number; end: number }
   /** 在切出集内拆分：`[start, at)` 保留集 ID，`[at, end)` 是新的一集。 */
-  | { kind: "split"; file: number; episode: number; start: number; at: number; end: number }
+  | { kind: "split"; file: number; offset: number; episode: number; start: number; at: number; end: number }
   /** 把 `left` 与 `right` 的分界从 `boundary` 移到 `at`。 */
   | {
       kind: "move";
       file: number;
+      offset: number;
       left: number;
       right: number;
       start: number;
@@ -72,11 +76,15 @@ function lengths(view: EpisodesView): number[] {
   return view.files.map((file) => (file.missing ? 0 : file.length));
 }
 
+function bases(view: EpisodesView): number[] {
+  const result = [0];
+  for (const length of lengths(view)) result.push(result[result.length - 1] + length);
+  return result;
+}
+
 /** 落点在整本源文里的全局偏移：前面各文件的码位数之和加文件内偏移。 */
-function toGlobal(view: EpisodesView, point: ManuscriptPoint): number {
-  return lengths(view)
-    .slice(0, point.file)
-    .reduce((sum, length) => sum + length, point.offset);
+export function toGlobal(view: EpisodesView, point: ManuscriptPoint): number {
+  return bases(view)[point.file] + point.offset;
 }
 
 /**
@@ -101,38 +109,76 @@ interface Span {
   end: number;
 }
 
-function episodeSpans(file: EpisodesViewFile): Span[] {
-  return file.segments
-    .filter((segment) => segment.kind === "episode" && segment.episode !== null)
-    .map((segment) => ({ episode: segment.episode ?? 0, start: segment.start, end: segment.end }))
-    .sort((a, b) => a.start - b.start);
+/** 落位的切出集在整本源文里的全局范围，按起点排序；跨文件的集合成一段。 */
+function episodeSpans(view: EpisodesView): Span[] {
+  const base = bases(view);
+  const spans = new Map<number, Span>();
+  view.files.forEach((file, index) => {
+    for (const segment of file.segments) {
+      if (segment.kind !== "episode" || segment.episode === null) continue;
+      const start = base[index] + segment.start;
+      const end = base[index] + segment.end;
+      const known = spans.get(segment.episode);
+      spans.set(segment.episode, known ? { ...known, end } : { episode: segment.episode, start, end });
+    }
+  });
+  return [...spans.values()].sort((a, b) => a.start - b.start);
 }
 
-function movingPair(view: EpisodesView, moving: number): { file: number; left: Span; right: Span } | null {
-  for (const [index, file] of view.files.entries()) {
-    const spans = episodeSpans(file);
-    const at = spans.findIndex((span) => span.episode === moving);
-    if (at < 0) continue;
-    const right = spans[at + 1];
-    return right && right.start === spans[at].end ? { file: index, left: spans[at], right } : null;
-  }
-  return null;
+/** 源文件类型切换处的全局偏移：一集的原文不跨过它。非剧情演绎项目没有类型，也就没有切换处。 */
+function kindWalls(view: EpisodesView): number[] {
+  const base = bases(view);
+  const readable = view.files.map((file, index) => ({ file, index })).filter(({ file }) => !file.missing);
+  return readable.slice(1).flatMap(({ file, index }, i) =>
+    file.source_kind !== readable[i].file.source_kind ? [base[index]] : [],
+  );
 }
 
-/** 两集之间相连的分界：左侧一集的集 ID 与分界所在的偏移，供左栏放分界按钮。 */
-export function adjacentBoundaries(file: EpisodesViewFile): { left: number; right: number; at: number }[] {
-  const spans = episodeSpans(file);
+function wallsInside(walls: number[], start: number, end: number): number[] {
+  return walls.filter((wall) => start < wall && wall < end);
+}
+
+/** 改动后的范围 `[start, end)` 是否新跨过源文件类型的切换处（原来的范围 `old` 里已有的不算）。 */
+function crossesNewWall(walls: number[], start: number, end: number, ...old: Span[]): boolean {
+  const allowed = new Set(old.flatMap((span) => wallsInside(walls, span.start, span.end)));
+  return wallsInside(walls, start, end).some((wall) => !allowed.has(wall));
+}
+
+function movingPair(view: EpisodesView, moving: number): { left: Span; right: Span } | null {
+  const spans = episodeSpans(view);
+  const at = spans.findIndex((span) => span.episode === moving);
+  if (at < 0) return null;
+  const right = spans[at + 1];
+  return right && right.start === spans[at].end ? { left: spans[at], right } : null;
+}
+
+/**
+ * 两集之间相连的分界，供左栏放分界按钮：左右两集的集 ID，以及右侧一集起点所在的文件（按钮放在那里）。
+ * 分界可以落在文件交界上。
+ */
+export function adjacentBoundaries(view: EpisodesView): { left: number; right: number; file: number }[] {
+  const spans = episodeSpans(view);
+  const startFile = new Map<number, number>();
+  view.files.forEach((file, index) => {
+    for (const segment of file.segments) {
+      if (segment.kind === "episode" && segment.episode !== null && !segment.continued) {
+        startFile.set(segment.episode, index);
+      }
+    }
+  });
   return spans.slice(1).flatMap((right, index) => {
     const left = spans[index];
-    return left.end === right.start ? [{ left: left.episode, right: right.episode, at: right.start }] : [];
+    const file = startFile.get(right.episode);
+    return left.end === right.start && file !== undefined ? [{ left: left.episode, right: right.episode, file }] : [];
   });
 }
 
 /**
  * 落点上能做的手工切分；做不了时返回 null。
  *
- * - 正在移动分界时，只接受两集合起来的范围之内、原分界之外的落点。
- * - 落在切出集内部为拆分；落在未切分的原文上为切分，新集从这段未切分原文的开头起。
+ * - 正在移动分界时，只接受两集合起来的范围之内、原分界之外的落点，两侧都不能新跨过源文件类型的切换处。
+ * - 落在切出集内部为拆分；落在未切分的原文上为切分，新集从这段未切分原文的开头起（可以从前一个文件接过来），
+ *   不跨过源文件类型的切换处。
  */
 export function resolvePointAction(
   view: EpisodesView,
@@ -141,15 +187,19 @@ export function resolvePointAction(
 ): PointAction | null {
   const file = view.files[point.file];
   if (!file || file.missing || point.offset < 0 || point.offset > file.length) return null;
-  const at = point.offset;
+  const at = toGlobal(view, point);
+  const { file: fileIndex, offset } = point;
+  const walls = kindWalls(view);
   if (moving !== null) {
     const pair = movingPair(view, moving);
-    if (!pair || pair.file !== point.file) return null;
+    if (!pair) return null;
     const { left, right } = pair;
     if (!(left.start < at && at < right.end) || at === left.end) return null;
+    if (crossesNewWall(walls, left.start, at, left) || crossesNewWall(walls, at, right.end, right)) return null;
     return {
       kind: "move",
-      file: point.file,
+      file: fileIndex,
+      offset,
       left: left.episode,
       right: right.episode,
       start: left.start,
@@ -158,13 +208,18 @@ export function resolvePointAction(
       end: right.end,
     };
   }
-  const spans = episodeSpans(file);
+  const spans = episodeSpans(view);
   const inside = spans.find((span) => span.start < at && at < span.end);
   if (inside) {
-    return { kind: "split", file: point.file, episode: inside.episode, start: inside.start, at, end: inside.end };
+    return { kind: "split", file: fileIndex, offset, episode: inside.episode, start: inside.start, at, end: inside.end };
   }
-  const start = Math.max(0, ...spans.filter((span) => span.end <= at).map((span) => span.end));
-  return at > start ? { kind: "cut", file: point.file, start, end: at } : null;
+  if (offset === 0) return null;
+  const start = Math.max(
+    0,
+    ...spans.filter((span) => span.end <= at).map((span) => span.end),
+    ...walls.filter((wall) => wall < at),
+  );
+  return at > start ? { kind: "cut", file: fileIndex, offset, start, end: at } : null;
 }
 
 function sameAction(a: PointAction, b: PointAction): boolean {
@@ -210,17 +265,21 @@ export function stepPoint(
 const ZH_UNIT = /[\u3400-\u9fff\uf900-\ufaff\u3000-\u303f\uff00-\uffef\u{20000}-\u{323af}]/gu;
 const WORD_UNIT = /[\p{L}\p{N}_]+/gu;
 
-/** 文件内 `[start, end)` 的阅读单位数，供操作条预览两侧体量。 */
-export function rangeUnits(file: EpisodesViewFile, start: number, end: number, unit: EpisodesView["unit"]): number {
-  const pattern = unit === "words" ? WORD_UNIT : ZH_UNIT;
+/** 整本源文里全局范围 `[start, end)` 的阅读单位数，供操作条预览两侧体量。 */
+export function rangeUnits(view: EpisodesView, start: number, end: number): number {
+  const pattern = view.unit === "words" ? WORD_UNIT : ZH_UNIT;
+  const base = bases(view);
   let count = 0;
-  for (const segment of file.segments) {
-    const from = Math.max(start, segment.start);
-    const to = Math.min(end, segment.end);
-    if (from >= to) continue;
-    const chars = [...segment.text].slice(from - segment.start, to - segment.start).join("");
-    count += chars.match(pattern)?.length ?? 0;
-  }
+  view.files.forEach((file, index) => {
+    for (const segment of file.segments) {
+      const from = Math.max(start, base[index] + segment.start);
+      const to = Math.min(end, base[index] + segment.end);
+      if (from >= to) continue;
+      const offset = base[index] + segment.start;
+      const chars = [...segment.text].slice(from - offset, to - offset).join("");
+      count += chars.match(pattern)?.length ?? 0;
+    }
+  });
   return count;
 }
 
@@ -228,14 +287,15 @@ export function rangeUnits(file: EpisodesViewFile, start: number, end: number, u
 export function cutEpisodeActions(
   view: EpisodesView,
   episode: number,
-): { placed: boolean; merge: "ok" | "none" | "across_files"; clearAfter: boolean } {
-  const ordered = view.files.flatMap((file, index) => episodeSpans(file).map((span) => ({ ...span, file: index })));
+): { placed: boolean; merge: "ok" | "none" | "across_kinds"; clearAfter: boolean } {
+  const ordered = episodeSpans(view);
   const at = ordered.findIndex((span) => span.episode === episode);
   if (at < 0) return { placed: false, merge: "none", clearAfter: false };
+  const own = ordered[at];
   const next = ordered[at + 1];
-  return {
-    placed: true,
-    merge: next === undefined ? "none" : next.file === ordered[at].file ? "ok" : "across_files",
-    clearAfter: next !== undefined,
-  };
+  let merge: "ok" | "none" | "across_kinds" = "none";
+  if (next !== undefined) {
+    merge = crossesNewWall(kindWalls(view), own.start, next.end, own, next) ? "across_kinds" : "ok";
+  }
+  return { placed: true, merge, clearAfter: next !== undefined };
 }

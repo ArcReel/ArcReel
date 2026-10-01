@@ -33,6 +33,7 @@ from lib.episode.episode_sources import (
     episode_source_origin,
     is_episode_source_file,
     is_whole_source_file_path,
+    placement_text,
     whole_source_files,
 )
 from lib.episode.source_kinds import SourceKind, entry_source_kind, whole_source_file_kind
@@ -56,6 +57,10 @@ class LayoutSegment:
     #: 未切分段排在按源文位置最后一个切出集之前（夹在切出集之间，或在第一个切出集之前）。
     gap: bool = False
     units: int = 0
+    #: 集段接着上一个文件里的同一集（这一集跨文件，起点在前面的文件里）。
+    continued: bool = False
+    #: 集段在下一个文件里接着（这一集跨文件，终点在后面的文件里）。
+    continues: bool = False
 
 
 @dataclass(frozen=True)
@@ -85,7 +90,7 @@ class LayoutEpisode:
     origin: SourceOrigin
     #: 原文段出现在左栏整本源文里。
     placed: bool
-    #: 原文段所在的整本源文文件（仅 ``placed``）。
+    #: 原文范围起点所在的整本源文文件（仅 ``placed``）。
     source_file: str | None
     #: 读不到原文（无原文的集，或集文件缺失）时为 None。
     units: int | None
@@ -94,6 +99,8 @@ class LayoutEpisode:
     last_sentence: str
     #: 源文件类型：自带原文的集取条目记录，切出集取范围起点所在文件；无原文的集与非剧情演绎项目为 None。
     source_kind: SourceKind | None = None
+    #: 原文范围终点所在的整本源文文件（仅 ``placed``）；不跨文件时与 ``source_file`` 相同。
+    end_file: str | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +143,7 @@ def _raw_backup_names(project_dir: Path) -> dict[str, str]:
 
 def _file_segments(
     doc: SourceDoc,
+    file_index: int,
     placements: list[CutPlacement],
     *,
     gap_until: int,
@@ -158,21 +166,26 @@ def _file_segments(
                 )
             )
 
+    portions = [
+        (portion, item) for item in placements if (portion := item.portion(file_index, len(doc.text))) is not None
+    ]
     cursor = 0
-    for item in sorted(placements, key=lambda p: p.start):
-        unsplit(cursor, item.start)
-        text = doc.text[item.start : item.end]
+    for (start, end), item in sorted(portions, key=lambda pair: pair[0]):
+        unsplit(cursor, start)
+        text = doc.text[start:end]
         segments.append(
             LayoutSegment(
                 kind="episode",
-                start=item.start,
-                end=item.end,
+                start=start,
+                end=end,
                 text=text,
                 episode=item.episode,
                 units=count_reading_units(text, language),
+                continued=item.file_index < file_index,
+                continues=item.end_file_index > file_index,
             )
         )
-        cursor = item.end
+        cursor = end
     unsplit(cursor, len(doc.text))
     return segments
 
@@ -221,7 +234,7 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
     docs = discover_sources(project_dir, project)
     readable = {doc.rel_path for doc in docs}
     placements = cut_episode_placements(project, docs)
-    last = max(((p.file_index, p.end) for p in placements.values()), default=None)
+    last = max((p.end_position for p in placements.values()), default=None)
     raw_names = _raw_backup_names(project_dir)
 
     files: list[LayoutFile] = []
@@ -253,7 +266,8 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
             gap_until = last[1]
         segments = _file_segments(
             doc,
-            [p for p in placements.values() if p.file_index == index],
+            index,
+            list(placements.values()),
             gap_until=gap_until,
             language=language,
         )
@@ -271,11 +285,7 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
             )
         )
 
-    episode_text: dict[int, tuple[str, str]] = {}
-    for layout_file in files:
-        for segment in layout_file.segments:
-            if segment.episode is not None:
-                episode_text[segment.episode] = (segment.text, layout_file.source_file)
+    episode_text = {episode: (placement_text(docs, placement), placement) for episode, placement in placements.items()}
 
     episodes: list[LayoutEpisode] = []
     for entry in _entries(project):
@@ -297,12 +307,13 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
                 episode=episode,
                 origin=origin,
                 placed=placed is not None,
-                source_file=placed[1] if placed is not None else None,
+                source_file=docs[placed[1].file_index].rel_path if placed is not None else None,
                 units=None if text is None else count_reading_units(text, language),
                 spoken_seconds=None if text is None else estimate_spoken_seconds(text, language, rate_override),
                 first_sentence=first,
                 last_sentence=last_sentence,
                 source_kind=entry_source_kind(project, entry),
+                end_file=docs[placed[1].end_file_index].rel_path if placed is not None else None,
             )
         )
 

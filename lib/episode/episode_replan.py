@@ -117,10 +117,10 @@ def candidate_cursor(candidate: Mapping[str, Any]) -> tuple[str, int]:
     """候选接着生成的起点：最后一个候选集的原文结尾；还没有候选集时是重新规划的起点。"""
     episodes = candidate_episodes(candidate)
     if episodes:
-        coords = parse_source_range(episodes[-1])
-        if coords is None:
+        span = parse_source_range(episodes[-1])
+        if span is None:
             raise ReplanError("candidate_invalid", "候选集的原文范围形状异常")
-        return coords[0], coords[2]
+        return span.end_file, span.end
     return candidate_start(candidate)
 
 
@@ -308,8 +308,11 @@ class _Adoption:
 
 
 def _source_position(order: Mapping[str, int], source_range: Mapping[str, Any]) -> tuple[int, int, int] | None:
+    """候选集的原文范围（分集规划逐个文件取窗口，候选集不跨文件）落到（文件下标，起点，结尾）。"""
     rel, start, end = source_range.get("source_file"), source_range.get("start"), source_range.get("end")
     if not isinstance(rel, str) or rel not in order or not isinstance(start, int) or not isinstance(end, int):
+        return None
+    if source_range.get("end_file", rel) != rel:
         return None
     return order[rel], start, end
 
@@ -362,6 +365,7 @@ def _plan_adoption(project_dir: Path, project: Mapping[str, Any], candidate: Map
         for num in retired
         if not anchors_valid
         or (placement := placements.get(num)) is None
+        or placement.crosses_files
         or (placement.file_index, placement.start, placement.end) not in exact
     ]
 
@@ -383,10 +387,10 @@ def _plan_adoption(project_dir: Path, project: Mapping[str, Any], candidate: Map
             before.append(num)
         elif placement is None or not anchors_valid:
             unanchored.append(num)
-        elif (placement.file_index, placement.end) <= start:
+        elif placement.end_position <= start:
             before.append(num)
         else:
-            anchor = (placement.file_index, placement.end)
+            anchor = placement.end_position
             slot = next(
                 (i for i, (fi, _s, end) in enumerate(positions) if (fi, end) >= anchor),
                 len(positions) - 1,
@@ -645,10 +649,10 @@ def replan_candidate_summary(project_dir: Path, project: Mapping[str, Any]) -> d
     episodes: list[dict[str, Any]] = []
     total_units = 0
     for draft in candidate_episodes(candidate):
-        coords = parse_source_range(draft)
-        if coords is None:
+        span = parse_source_range(draft)
+        if span is None or span.crosses_files:
             continue
-        rel, start, end = coords
+        rel, start, end = span.source_file, span.start, span.end
         segment = texts.get(rel, "")[start:end]
         units = count_reading_units(segment, language)
         total_units += units
@@ -658,11 +662,11 @@ def replan_candidate_summary(project_dir: Path, project: Mapping[str, Any]) -> d
         if anchors_valid and rel in order:
             for num in sorted(replaced, key=lambda n: placements[n].position if n in placements else (0, 0)):
                 placement = placements.get(num)
-                if placement is None or placement.file_index != order[rel]:
+                if placement is None:
                     continue
-                if placement.start < end and start < placement.end:
+                if placement.position < (order[rel], end) and (order[rel], start) < placement.end_position:
                     overlaps.append(num)
-                if (placement.start, placement.end) == (start, end):
+                if not placement.crosses_files and placement.position == (order[rel], start) and placement.end == end:
                     same_as = num
         episodes.append(
             {

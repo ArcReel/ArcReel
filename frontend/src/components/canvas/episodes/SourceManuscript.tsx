@@ -7,6 +7,7 @@ import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
 import { PlanGapButton } from "./PlanGapButton";
 import { ReplannedBadge } from "./ReplannedBadge";
+import { SourceFileActions } from "./SourceFileActions";
 import { SourceFileKindControl } from "./SourceFileKindControl";
 import { episodeColor, formatSpoken, formatVolume } from "./episodes-view-model";
 import { adjacentBoundaries, pointInRun, textRuns, type ManuscriptPoint, type TextRun } from "./manual-split-model";
@@ -103,7 +104,8 @@ export function SourceManuscript({
     .flatMap((file) => file.segments.map((segment) => ({ file, segment })))
     .find(({ segment }) => segment.kind === "unsplit" && !segment.gap);
 
-  const movingPair = moving === null ? null : view.files.flatMap(adjacentBoundaries).find((b) => b.left === moving);
+  const allBoundaries = adjacentBoundaries(view);
+  const movingPair = moving === null ? null : allBoundaries.find((b) => b.left === moving);
   const caretMark = (fileIndex: number): CaretMark =>
     caret !== null && caret.point.file === fileIndex
       ? { offset: caret.point.offset, node: <CaretMarker color={caret.color}>{caret.toolbar}</CaretMarker> }
@@ -123,7 +125,7 @@ export function SourceManuscript({
       {view.files.map((file, index) => {
         const mark = caretMark(index);
         const hostRun = mark === null ? null : caretRunStart(file, mark.offset);
-        const boundaries = new Map(adjacentBoundaries(file).map((b) => [b.right, b]));
+        const boundaries = new Map(allBoundaries.filter((b) => b.file === index).map((b) => [b.right, b]));
         return (
           <section key={file.source_file} aria-label={file.name}>
             <FileBar
@@ -141,7 +143,7 @@ export function SourceManuscript({
                 movingPair != null &&
                 !(segment.kind === "episode" && (segment.episode === movingPair.left || segment.episode === movingPair.right));
               if (segment.kind === "episode" && segment.episode !== null) {
-                const boundary = boundaries.get(segment.episode);
+                const boundary = segment.continued ? undefined : boundaries.get(segment.episode);
                 const episodeInfo = info.get(segment.episode);
                 return (
                   <Fragment key={`${segment.episode}`}>
@@ -330,6 +332,7 @@ function FileBar({
           })}
         </span>
       )}
+      <SourceFileActions projectName={projectName} file={file} index={index} total={total} />
     </div>
   );
 }
@@ -365,6 +368,30 @@ const EpisodeBlock = memo(function EpisodeBlock({
   const id = segment.episode ?? 0;
   const color = episodeColor(id);
   const title = episode?.title?.trim();
+  const name =
+    position === null ? t("common:episode_unlisted_name") : t("common:episode_position_name", { position });
+  // 跨文件的一集只在起点所在文件里显示完整集头（也只有它登记为滚动目标）；后续文件里的部分只标明接续
+  if (segment.continued) {
+    return (
+      <article className="mb-6 transition-opacity" style={{ opacity: dimmed ? 0.45 : 1 }} aria-label={name}>
+        <button
+          type="button"
+          data-no-caret
+          onClick={() => onSelect(id)}
+          aria-pressed={selected}
+          className="focus-ring mb-2 block w-full rounded-md px-3 py-1 text-left text-[12px] text-text-3 transition-colors"
+          style={{
+            borderLeft: `3px solid ${color}`,
+            background: selected ? "var(--color-accent-dim)" : "oklch(0.21 0.01 265 / 0.4)",
+          }}
+        >
+          <span style={{ color }}>{t("dashboard:episodes_view_episode_continued", { name })}</span>
+          <span className="num ml-2.5 text-[11px] text-text-4">{formatVolume(t, segment.units, unit)}</span>
+        </button>
+        <EpisodeBody id={id} fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} />
+      </article>
+    );
+  }
   return (
     <article
       className="mb-6 transition-opacity"
@@ -385,7 +412,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
       >
         <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
           <span id={`episode-${id}-title`} className="text-[13px] font-semibold" style={{ color }}>
-            {position === null ? t("common:episode_unlisted_name") : t("common:episode_position_name", { position })}
+            {name}
           </span>
           <span className="min-w-0 text-[13px] text-text">{title || t("dashboard:episodes_view_untitled")}</span>
           <span className="num text-[11px] text-text-4">
@@ -400,18 +427,36 @@ const EpisodeBlock = memo(function EpisodeBlock({
           </span>
         ) : null}
       </button>
-      <div className="flex gap-4">
-        <span aria-hidden className="w-[3px] shrink-0 rounded-full" style={{ background: episodeColor(id, 0.7) }} />
-        <div
-          className={`min-w-0 flex-1 space-y-3 text-text-2 ${MANUSCRIPT_TEXT_CLS}`}
-          style={manuscriptTextStyle(caret !== null)}
-        >
-          <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} />
-        </div>
-      </div>
+      <EpisodeBody id={id} fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} />
     </article>
   );
 });
+
+function EpisodeBody({
+  id,
+  fileIndex,
+  segment,
+  caret,
+  hostRun,
+}: {
+  id: number;
+  fileIndex: number;
+  segment: EpisodesViewSegment;
+  caret: CaretMark;
+  hostRun: number | null;
+}) {
+  return (
+    <div className="flex gap-4">
+      <span aria-hidden className="w-[3px] shrink-0 rounded-full" style={{ background: episodeColor(id, 0.7) }} />
+      <div
+        className={`min-w-0 flex-1 space-y-3 text-text-2 ${MANUSCRIPT_TEXT_CLS}`}
+        style={manuscriptTextStyle(caret !== null)}
+      >
+        <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} />
+      </div>
+    </div>
+  );
+}
 
 function UnsplitBlock({
   fileIndex,

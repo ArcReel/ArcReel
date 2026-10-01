@@ -134,12 +134,30 @@ class TestCut:
         assert _order(project_dir) == [1, 3, 2]
         assert _range(project_dir, 3) == ("source/a.txt", 0, CH2)
 
-    def test_cut_in_a_later_file_starts_at_that_file_and_goes_after_earlier_cuts(self, tmp_path: Path):
+    def test_cut_in_a_later_file_continues_from_the_previous_cut_across_files(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2)])
 
         cut_unsplit_source(project_dir, source_file="source/b.txt", end=CH5)
 
         assert _order(project_dir) == [1, 2]
+        assert _entry(project_dir, 2)["source_range"] == {
+            "source_file": "source/a.txt",
+            "start": CH2,
+            "end_file": "source/b.txt",
+            "end": CH5,
+        }
+        assert _episode_text(project_dir, 2) == A[CH2:] + B[:CH5]
+        snapshots = project_dir / "source" / "snapshots"
+        assert sorted(path.name for path in snapshots.iterdir()) == ["a.txt", "b.txt"]
+
+    def test_cut_does_not_cross_a_source_kind_switch(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2)], content_mode="drama")
+        project = _load(project_dir)
+        project["whole_source_files"][1]["source_kind"] = "screenplay"
+        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+        cut_unsplit_source(project_dir, source_file="source/b.txt", end=CH5)
+
         assert _range(project_dir, 2) == ("source/b.txt", 0, CH5)
 
     def test_cut_ids_are_never_reused(self, tmp_path: Path):
@@ -287,13 +305,33 @@ class TestMerge:
         assert pending == ManualSplitConfirmationRequired(impact=ManualSplitImpact(retired=[2]))
         assert _order(project_dir) == [1, 2]
 
-    def test_next_episode_in_another_file_cannot_be_merged(self, tmp_path: Path):
+    def test_next_episode_in_another_file_is_merged_across_files(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", CH3, len(A)), _cut(2, "b.txt", 0, CH5)])
+
+        result = merge_with_next_episode(project_dir, 1)
+
+        assert isinstance(result, ManualSplitResult)
+        assert _order(project_dir) == [1]
+        assert _entry(project_dir, 1)["source_range"] == {
+            "source_file": "source/a.txt",
+            "start": CH3,
+            "end_file": "source/b.txt",
+            "end": CH5,
+        }
+        assert _episode_text(project_dir, 1) == A[CH3:] + B[:CH5]
+
+    def test_next_episode_of_another_source_kind_cannot_be_merged(self, tmp_path: Path):
+        project_dir = _project_dir(
+            tmp_path, [_cut(1, "a.txt", CH3, len(A)), _cut(2, "b.txt", 0, CH5)], content_mode="drama"
+        )
+        project = _load(project_dir)
+        project["whole_source_files"][1]["source_kind"] = "screenplay"
+        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
 
         with pytest.raises(ManualSplitError) as excinfo:
             merge_with_next_episode(project_dir, 1)
 
-        assert excinfo.value.code == "merge_across_files"
+        assert excinfo.value.code == "merge_across_kinds"
 
     def test_unsplit_text_between_the_two_episodes_needs_confirmation_of_its_volume(self, tmp_path: Path):
         meet = A.index("遇见老人")
@@ -311,6 +349,51 @@ class TestMerge:
         assert result == ManualSplitResult(impact=ManualSplitImpact(removed=[2], merged_units=5))
         assert _range(project_dir, 1) == ("source/a.txt", 0, CH3)
         assert _episode_text(project_dir, 1) == A[:CH3]
+
+
+class TestAcrossFiles:
+    def test_split_a_crossing_episode_in_its_later_file(self, tmp_path: Path):
+        crossing = _cut(1, "a.txt", CH3, CH5)
+        crossing["source_range"]["end_file"] = "source/b.txt"
+        project_dir = _project_dir(tmp_path, [crossing])
+        (project_dir / "source" / "episode_1.txt").write_text(A[CH3:] + B[:CH5], encoding="utf-8")
+
+        result = split_episode(project_dir, 1, at=3, source_file="source/b.txt")
+
+        assert isinstance(result, ManualSplitResult)
+        assert _entry(project_dir, 1)["source_range"] == {
+            "source_file": "source/a.txt",
+            "start": CH3,
+            "end_file": "source/b.txt",
+            "end": 3,
+        }
+        assert _range(project_dir, 2) == ("source/b.txt", 3, CH5)
+        assert _episode_text(project_dir, 1) == A[CH3:] + B[:3]
+
+    def test_move_a_boundary_back_into_the_previous_file(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, len(A)), _cut(2, "b.txt", 0, CH5)])
+
+        move_episode_boundary(project_dir, 1, at=CH3, source_file="source/a.txt")
+
+        assert _range(project_dir, 1) == ("source/a.txt", 0, CH3)
+        assert _entry(project_dir, 2)["source_range"] == {
+            "source_file": "source/a.txt",
+            "start": CH3,
+            "end_file": "source/b.txt",
+            "end": CH5,
+        }
+
+    def test_unsplit_text_across_files_is_counted_in_the_merged_volume(self, tmp_path: Path):
+        # 两集之间夹着 a.txt 的「第三章。夜雨。」与 b.txt 的「第四章。重逢。」，各 7 字
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH3), _cut(2, "b.txt", CH5, len(B))])
+
+        pending = merge_with_next_episode(project_dir, 1)
+        assert pending == ManualSplitConfirmationRequired(impact=ManualSplitImpact(removed=[2], merged_units=14))
+
+        result = merge_with_next_episode(project_dir, 1, confirm_merged_units=14)
+
+        assert isinstance(result, ManualSplitResult)
+        assert _episode_text(project_dir, 1) == A + B
 
 
 class TestClearAfter:

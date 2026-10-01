@@ -137,6 +137,7 @@ import type {
   ReplanAdoptionResponse,
   ReplanPreview,
   StopEpisodePlanningResponse,
+  SourceFileChangeResponse,
   SourceKind,
   SourceKindChangeResult,
 } from "@/types/episodes-view";
@@ -1582,11 +1583,20 @@ class API {
       insertAt?: number;
       /** 仅 source：剧情演绎项目这份原文的源文件类型，缺省为小说。 */
       sourceKind?: SourceKind;
+      /**
+       * 仅 source 的 whole_source：确认过的受影响集清单的版本。插入或覆盖整本源文文件波及切出集时，
+       * 不带它的上传不写入，返回 `status=confirmation_required`、受影响集清单与 `revision`。
+       */
+      revision?: string;
       signal?: AbortSignal;
     } = {}
   ): Promise<{
     success: boolean;
-    path: string;
+    path?: string;
+    /** 整本源文文件的插入或覆盖：是否已执行，以及受影响集清单。 */
+    status?: SourceFileChangeResponse["status"];
+    impact?: SourceFileChangeResponse["impact"];
+    revision?: string;
     url?: string;
     filename?: string;
     /** role=episode：新登记的集 ID。 */
@@ -1613,6 +1623,9 @@ class API {
     }
     if (uploadType === "source" && options.sourceKind) {
       qsParts.push(`source_kind=${options.sourceKind}`);
+    }
+    if (uploadType === "source" && options.revision) {
+      qsParts.push(`revision=${encodeURIComponent(options.revision)}`);
     }
     const qs = qsParts.join("&");
     const url = `/projects/${encodeURIComponent(projectName)}/upload/${uploadType}${qs ? "?" + qs : ""}`;
@@ -1647,7 +1660,10 @@ class API {
     await throwIfNotOk(response, "上传失败");
     return (await response.json()) as {
       success: boolean;
-      path: string;
+      path?: string;
+      status?: SourceFileChangeResponse["status"];
+      impact?: SourceFileChangeResponse["impact"];
+      revision?: string;
       url: string;
       filename?: string;
       normalized?: boolean;
@@ -1823,12 +1839,13 @@ class API {
    */
   static async getSourceContent(
     projectName: string,
-    filename: string
+    filename: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<string> {
     const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
     const response = await fetch(
       `${API_BASE}${url}`,
-      withAuth(url)
+      withAuth(url, { signal: options.signal })
     );
     await throwIfNotOk(response, "获取文件内容失败");
     return response.text();
@@ -1990,6 +2007,64 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/source-kind`,
       { method: "PUT", body: JSON.stringify({ source_kind: sourceKind, confirm }) }
+    );
+  }
+
+  /**
+   * 整本源文文件的编辑、替换、调序与删除。不带 `revision` 时，波及切出集的改动不写入，返回服务端成文的
+   * 受影响集清单与 `revision`；带上它重新提交才执行，清单在两次调用之间变了时再次返回确认。没有受影响的集时直接执行。
+   */
+  static async editSourceFile(
+    projectName: string,
+    filename: string,
+    text: string,
+    revision: string | null = null
+  ): Promise<SourceFileChangeResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/text`,
+      { method: "PUT", body: JSON.stringify({ text, revision }) }
+    );
+  }
+
+  /** 用上传的文件替换整本源文文件：保留位置与文件名；`sourceKind` 缺省时类型不变。确认协议同 `editSourceFile`。 */
+  static async replaceSourceFile(
+    projectName: string,
+    filename: string,
+    file: File,
+    options: { sourceKind?: SourceKind; revision?: string | null } = {}
+  ): Promise<SourceFileChangeResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (options.sourceKind) formData.append("source_kind", options.sourceKind);
+    if (options.revision) formData.append("revision", options.revision);
+    const url = `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/replace`;
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url, { method: "POST", body: formData }));
+    await throwIfNotOk(response, "替换文件失败");
+    return (await response.json()) as SourceFileChangeResponse;
+  }
+
+  /** 把整本源文文件上移或下移一位，其中的切出集整块跟着走。确认协议同 `editSourceFile`。 */
+  static async moveSourceFile(
+    projectName: string,
+    filename: string,
+    direction: "up" | "down",
+    revision: string | null = null
+  ): Promise<SourceFileChangeResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/move`,
+      { method: "POST", body: JSON.stringify({ direction, revision }) }
+    );
+  }
+
+  /** 删除整本源文文件：等同于删掉它的全部文字，再移出整本源文。确认协议同 `editSourceFile`。 */
+  static async deleteWholeSourceFile(
+    projectName: string,
+    filename: string,
+    revision: string | null = null
+  ): Promise<SourceFileChangeResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/delete`,
+      { method: "POST", body: JSON.stringify({ revision }) }
     );
   }
 
