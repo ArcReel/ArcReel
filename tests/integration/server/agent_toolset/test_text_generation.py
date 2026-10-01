@@ -12,6 +12,8 @@ import pytest
 from lib.artifacts.artifact_activation import register_current_artifact
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.backends.providers import CallPurpose
+from lib.backends.text_backends.base import TextOutputTruncatedError
+from lib.generation.generation_result import GenerationAction
 from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
@@ -27,8 +29,10 @@ from server.tool_runtime import (
 from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
+    nr_source,
     problem_of,
     run_declared_tool,
+    rv_source,
     said,
     use_fake_caps,
 )
@@ -1369,3 +1373,82 @@ async def test_get_video_capabilities_annotates_each_formal_unit(
     assert units["E1U1"]["allowed_durations"] == [5, 10]
     assert units["E1U2"]["hydrated_capability"] == "i2v"
     assert units["E1U2"]["problems"] == []
+
+
+# ---------------------------------------------------------------------------
+# 输出截断：脚本规划与提示词编写落到同一个问题码
+# ---------------------------------------------------------------------------
+
+_TRUNCATION_PARAMS = {"provider_id": "custom-3", "model": "my-llm", "custom_model": True}
+
+
+def _truncated() -> TextOutputTruncatedError:
+    return TextOutputTruncatedError(
+        provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
+    )
+
+
+def _drama_source(fake_ctx: ToolHarness) -> None:
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True)
+    (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+
+
+@pytest.mark.parametrize("prepare", [nr_source, rv_source, _drama_source], ids=["narration", "reference", "drama"])
+async def test_generate_script_plan_truncation_offers_the_way_out(
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts, prepare
+) -> None:
+    """脚本规划的输出被截断：问题码、出路与分集规划相同，带供应商、模型与是否为自定义模型。"""
+    from server import text_generation as mod
+
+    prepare(fake_ctx)
+
+    class _TruncatingGenerator:
+        async def generate(self, _request, project_name=None):
+            raise _truncated()
+
+    async def fake_create(_task_type, project_name=None, **_kwargs):
+        return _TruncatingGenerator()
+
+    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+
+    problem = problem_of(await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1}))
+
+    assert (problem.code, problem.action, problem.params) == (
+        "text_output_truncated",
+        GenerationAction.CONFIGURE_PROVIDER,
+        _TRUNCATION_PARAMS,
+    )
+    assert "my-llm" in problem.detail
+
+
+async def test_generate_episode_script_truncation_offers_the_way_out(fake_ctx: ToolHarness, monkeypatch) -> None:
+    from server import text_generation as mod
+
+    project_path = fake_ctx.project_path
+    _write_formal_script(project_path)
+    (project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
+
+    class _TruncatingScriptGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+        content_mode = "narration"
+
+        @classmethod
+        async def create(cls, _path, **_kwargs):
+            return cls()
+
+        async def generate(self, **_kwargs) -> Path:
+            raise _truncated()
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _TruncatingScriptGenerator)
+    _prepare_script_admission(project_path)
+
+    problem = problem_of(await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1}))
+
+    assert (problem.code, problem.action, problem.params) == (
+        "text_output_truncated",
+        GenerationAction.CONFIGURE_PROVIDER,
+        _TRUNCATION_PARAMS,
+    )

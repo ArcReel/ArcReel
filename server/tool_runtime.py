@@ -23,6 +23,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
+from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -46,7 +47,6 @@ from lib.episode.episode_planner import (
     EpisodePlanningError,
     LedgerStats,
     NoCutPointError,
-    PlanningOutputTruncatedError,
     PlanResult,
 )
 from lib.episode.episode_replan import (
@@ -592,6 +592,16 @@ def _prompt_overwrite_problem(exc: PromptOverwriteRequiredError) -> ToolProblem:
     return ToolProblem("prompt_overwrite_required", str(exc), params={"prompt_overwrite": exc.overwrite})
 
 
+def _truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
+    """文本模型输出被截断：各文本任务同一个问题码，出路是登记最大输出长度（自定义模型）或换一个文本模型。"""
+    return ToolProblem(
+        "text_output_truncated",
+        str(exc),
+        action=GenerationAction.CONFIGURE_PROVIDER,
+        params={"provider_id": exc.provider_id or exc.provider, "model": exc.model, "custom_model": exc.custom_model},
+    )
+
+
 def _not_admitted_problem(exc: OperationNotAdmittedError) -> ToolProblem:
     """准入不成立的拒绝：``params.reason`` 与制作状态 ``operations`` 里同一操作的理由码一致。"""
     return ToolProblem(
@@ -616,6 +626,8 @@ async def _run_text_generation(
         return ToolOutcome(problem=_prompt_overwrite_problem(exc))
     except OperationNotAdmittedError as exc:
         return ToolOutcome(problem=_not_admitted_problem(exc))
+    except TextOutputTruncatedError as exc:
+        return ToolOutcome(problem=_truncation_problem(exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -1388,6 +1400,8 @@ async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, A
         return ToolOutcome(value=await call)
     except DraftWorkflowError as exc:
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
+    except TextOutputTruncatedError as exc:
+        return ToolOutcome(problem=_truncation_problem(exc))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", str(exc)))
 
@@ -1521,6 +1535,8 @@ async def _execute_draft_repair(
             request.episode_id, request.doc_type, request.base_revision, request.instructions
         )
     )
+    if outcome.problem is not None and outcome.problem.code == "text_output_truncated":
+        return ToolOutcome(problem=outcome.problem)
     if outcome.problem is not None:
         # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。
         key = _DRAFT_REPAIR_FAILURE_KEYS.get(outcome.problem.code, "draft_save_failed")
@@ -2460,15 +2476,8 @@ async def _execute_plan_episodes(
             result = await planner.plan(
                 instructions=request.value.instructions, on_more_to_plan=chain.queue_next_window, gap=gap
             )
-    except PlanningOutputTruncatedError as exc:
-        return ToolOutcome(
-            problem=ToolProblem(
-                "text_output_truncated",
-                f"❌ 分集规划失败：{exc}",
-                action=GenerationAction.CONFIGURE_PROVIDER,
-                params={"provider_id": exc.provider_id, "model": exc.model, "custom_model": exc.custom_model},
-            )
-        )
+    except TextOutputTruncatedError as exc:
+        return ToolOutcome(problem=_truncation_problem(exc))
     except NoCutPointError as exc:
         return ToolOutcome(
             problem=ToolProblem(
@@ -2698,15 +2707,8 @@ async def _execute_replan_window(
         result: CandidatePlanResult = await planner.plan_candidate(
             candidate_id, planning_instructions, on_more_to_plan=chain.queue_next_window
         )
-    except PlanningOutputTruncatedError as exc:
-        return ToolOutcome(
-            problem=ToolProblem(
-                "text_output_truncated",
-                f"❌ 重新规划失败：{exc}",
-                action=GenerationAction.CONFIGURE_PROVIDER,
-                params={"provider_id": exc.provider_id, "model": exc.model, "custom_model": exc.custom_model},
-            )
-        )
+    except TextOutputTruncatedError as exc:
+        return ToolOutcome(problem=_truncation_problem(exc))
     except NoCutPointError as exc:
         return ToolOutcome(
             problem=ToolProblem(

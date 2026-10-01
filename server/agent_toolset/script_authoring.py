@@ -10,7 +10,7 @@ from typing import Any
 
 from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
-from server.agent_toolset.declaration import BLOCKED, ToolDeclaration
+from server.agent_toolset.declaration import BLOCKED, TEXT_OUTPUT_TRUNCATED_NOTE, ToolDeclaration
 from server.agent_toolset.envelope import json_value
 from server.tool_runtime import (
     ConfirmScriptReviewRequest,
@@ -50,7 +50,7 @@ GENERATE_EPISODE_SCRIPT = ToolDeclaration(
         "会覆盖已有内容时返回 prompt_overwrite_required，回执正文即服务端生成的丢失清单，"
         "params.prompt_overwrite.revision 是认可令牌；先向用户转述清单，得到同意后才以该 revision 作为 overwrite_revision 重新调用。"
         "内容字段、备注、尾帧与已生成产物原样保留。ad 项目尚无正式脚本时整份生成。"
-        "dry_run=true 时直接返回 prompt，不提交生成任务。"
+        "dry_run=true 时直接返回 prompt，不提交生成任务。" + TEXT_OUTPUT_TRUNCATED_NOTE
     ),
     request_model=GenerateEpisodeScriptRequest,
     migration=BLOCKED,
@@ -65,7 +65,7 @@ GENERATE_SCRIPT_PLAN = ToolDeclaration(
     description=(
         "按项目创作类型生成结构化 script_plan：剧情分镜、旁白分镜或参考生视频单元，"
         "同时在 new_assets 里带出本集未登记的资产与各自的处理决定。"
-        "广告/短片项目无 script_plan。dry_run=true 时直接返回 prompt，不提交生成任务。"
+        "广告/短片项目无 script_plan。dry_run=true 时直接返回 prompt，不提交生成任务。" + TEXT_OUTPUT_TRUNCATED_NOTE
     ),
     request_model=GenerateScriptPlanRequest,
     migration=BLOCKED,

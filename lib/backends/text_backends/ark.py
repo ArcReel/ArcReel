@@ -200,7 +200,7 @@ class ArkTextBackend:
         text = choice.message.content
         input_tokens = getattr(getattr(response, "usage", None), "prompt_tokens", None)
         output_tokens = getattr(getattr(response, "usage", None), "completion_tokens", None)
-        check_truncation(
+        truncated = check_truncation(
             getattr(choice, "finish_reason", None),
             provider=PROVIDER_ARK,
             model=self._model,
@@ -213,4 +213,5 @@ class ArkTextBackend:
             model=self._model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            truncated=truncated,
         )

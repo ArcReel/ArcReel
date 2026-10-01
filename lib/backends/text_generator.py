@@ -102,11 +102,14 @@ class TextGenerator:
         self,
         request: TextGenerationRequest,
         project_name: str | None = None,
+        *,
+        require_complete: bool = False,
     ) -> TextGenerationResult:
         """生成文本并自动记录用量。
 
         结构化输出被截断时重新抛出的 :class:`TextOutputTruncatedError` 带上解析层 provider_id、
-        模型 ID 与是否为自定义供应商的模型。
+        模型 ID 与是否为自定义供应商的模型。``require_complete`` 供需要完整回复的自由文本请求使用
+        （如回复须整段解析为 JSON）：截断时同样抛出该异常，不返回残缺的结果。
         """
         ceiling = self._max_output_tokens
         request = replace(
@@ -125,12 +128,17 @@ class TextGenerator:
             try:
                 result = await self.backend.generate(request)
             except TextOutputTruncatedError as exc:
-                raise TextOutputTruncatedError(
-                    provider=exc.provider,
-                    model=self.backend.model,
-                    output_tokens=exc.output_tokens,
-                    provider_id=self._provider_id,
-                    custom_model=self._custom_model,
-                ) from exc
+                raise self._truncation(exc.provider, exc.output_tokens) from exc
+            if result.truncated and require_complete:
+                raise self._truncation(result.provider, result.output_tokens)
             call.success(result)
             return result
+
+    def _truncation(self, provider: str, output_tokens: int | None) -> TextOutputTruncatedError:
+        return TextOutputTruncatedError(
+            provider=provider,
+            model=self.backend.model,
+            output_tokens=output_tokens,
+            provider_id=self._provider_id,
+            custom_model=self._custom_model,
+        )

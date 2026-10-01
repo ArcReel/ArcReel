@@ -46,6 +46,7 @@ import { PromptAuthoringHost } from "@/components/canvas/shared/PromptAuthoringD
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import { ScriptPlanHost } from "@/components/canvas/shared/ScriptPlanDialog";
 import { previewAspect } from "@/utils/preview-aspect";
+import { TextTaskFailureNote } from "@/components/canvas/shared/TextTaskFailureNote";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -757,6 +758,9 @@ export function StudioCanvasRouter() {
                       : undefined
                   }
                 />
+              )}
+              {!demoMode && currentProjectName && (
+                <TextTaskFailureNote projectName={currentProjectName} episode={epNum} />
               )}
               {!demoMode && currentProjectName && (
                 <ScriptPlanHost

@@ -258,7 +258,7 @@ class TestCapabilityAwareStructured:
     async def test_truncation_warning_logged_on_finish_reason_length(
         self, backend_no_structured, sync_to_thread, caplog
     ):
-        """当 Ark 返回 finish_reason=length 时应记录 WARNING。"""
+        """当 Ark 返回 finish_reason=length 时应记录 WARNING，并在结果上标记截断。"""
         import logging
 
         mock_resp = SimpleNamespace(
@@ -273,8 +273,9 @@ class TestCapabilityAwareStructured:
         backend_no_structured._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
 
         with caplog.at_level(logging.WARNING, logger="lib.backends.text_backends.base"):
-            await backend_no_structured.generate(TextGenerationRequest(prompt="hi"))
+            result = await backend_no_structured.generate(TextGenerationRequest(prompt="hi"))
 
+        assert result.truncated is True
         assert any("被截断" in r.message for r in caplog.records)
 
     async def test_native_structured_truncation_raises_and_skips_instructor_fallback(

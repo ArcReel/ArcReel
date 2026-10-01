@@ -140,6 +140,12 @@ type AgentToolDeclaration = ToolDeclaration[Any, Any] | UnscopedToolDeclaration[
 
 MIGRATION_REFUSAL_NOTE = "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
 
+#: 调用文本模型的工具共用：输出被截断时的问题码与出路。
+TEXT_OUTPUT_TRUNCATED_NOTE = (
+    "输出被文本模型的最大输出长度截断时返回 text_output_truncated problem，params.model 指名模型："
+    "params.custom_model 为 true 时请用户在设置里为它登记最大输出长度，否则请用户换一个文本模型；原样重试会再次截断。"
+)
+
 
 def tool_description(declaration: AgentToolDeclaration) -> str:
     """两宿主共用的工具描述：迁移阻断策略为 ``BLOCKED`` 的声明在末尾追加迁移拒绝说明。"""
@@ -201,6 +207,7 @@ __all__ = [
     "BLOCKED",
     "MIGRATION_REFUSAL_NOTE",
     "READ_CHECK",
+    "TEXT_OUTPUT_TRUNCATED_NOTE",
     "AgentToolDeclaration",
     "Blocked",
     "Exempt",

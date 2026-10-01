@@ -115,7 +115,7 @@ class GrokTextBackend:
             choices = getattr(response, "choices", None) or []
             if choices:
                 finish_reason = getattr(choices[0], "finish_reason", None)
-        check_truncation(
+        truncated = check_truncation(
             finish_reason,
             provider=PROVIDER_GROK,
             model=self._model,
@@ -129,6 +129,7 @@ class GrokTextBackend:
             model=self._model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            truncated=truncated,
         )
 
 
