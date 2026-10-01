@@ -384,8 +384,8 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: website/pnpm-lock.yaml
 
-      - name: Translation lock unit tests
-        run: node --test .claude/skills/translate-docs/scripts/translation-lock.test.mjs
+      - name: translate-docs script unit tests
+        run: node --test .claude/skills/translate-docs/scripts/translation-lock.test.mjs .claude/skills/translate-docs/scripts/ui-messages.test.mjs
 
       - name: Website script unit tests
         run: node --test website/scripts/*.test.mjs
