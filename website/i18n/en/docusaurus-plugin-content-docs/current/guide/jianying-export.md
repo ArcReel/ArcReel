@@ -6,7 +6,7 @@ sidebar_position: 6
 
 # Jianying Draft Export {#jianying-export}
 
-Export an episode's edit timeline as a Jianying draft, then open it in Jianying Desktop to keep refining the pacing, subtitle styles, transitions, voice-over, and more. Jianying drafts and final cuts are built from the same edit timeline, so trims, clip order, source volume, and holds match the final cut.
+Export an episode's edit timeline as a Jianying draft, then open it in Jianying Desktop to keep refining the pacing, subtitle styles, transitions, voice-over, and more. Jianying drafts and final cuts are built from the same edit timeline, so trims, clip order, source volume, holds, and transition types match the final cut.
 
 ArcReel currently exports the draft format for the mainland-China edition of Jianying Desktop. CapCut is Jianying's international counterpart, but it is a separate product; ArcReel has not verified draft compatibility with CapCut.
 
@@ -101,7 +101,7 @@ The Jianying draft is generated from a revision of the edit timeline and follows
 
 A manually uploaded video has no generation provenance, so it is exported unchanged and is explicitly marked as having unavailable provenance. ArcReel does not generate TTS or subtitles for it. The uploaded video is finished content itself: editing prompts does not make it stale.
 
-Edit timelines with transitions or BGM cannot be exported as Jianying drafts yet; the export reports the reason.
+Edit timelines with BGM cannot be exported as Jianying drafts yet; the export reports the reason.
 
 ### Canvas Size {#canvas-size}
 

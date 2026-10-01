@@ -1,7 +1,8 @@
 """用随包 ffmpeg 执行成片的渲染规划，并验收渲染结果。
 
-画面按硬切边界分段渲染：每段按项目画布缩放补边、规整到固定帧率，取定帧数的源画面后用出点帧的
-静帧补足定格延长，各段用同一组编码参数输出，最后以 ``-c copy`` 无损拼接。音频不分段：整集原声
+画面按硬切边界分段渲染：段内每个片段按项目画布缩放补边、规整到固定帧率，取定帧数的源画面后用
+边缘帧的静帧补足定格延长与转场借帧的余量缺口，非重叠型转场在片段两端淡入淡出，重叠型转场用
+``xfade`` 在切点窗口内交叉过渡；各段用同一组编码参数输出，最后以 ``-c copy`` 无损拼接。音频不分段：整集原声
 按片段音量与帧边界一次混音、一次编码，再与拼好的画面封装，避免各段 AAC 编码的前置填充在段边界
 产生缝隙与累积偏差。
 """
@@ -54,38 +55,68 @@ def _seconds(microseconds: int) -> str:
     return f"{microseconds / 1_000_000:.6f}"
 
 
-def segment_args(ffmpeg: str, segment: RenderSegment, plan: RenderPlan, output: Path) -> list[str]:
-    """一段硬切片段的画面渲染参数：只含画面，按帧数精确截止。"""
-    if segment.has_transitions:
-        raise FinalCutError("final_cut_content_unsupported", "成片暂不支持渲染转场")
-    (planned,) = segment.clips
+def _frames_seconds(frames: int, fps: int) -> str:
+    return f"{frames / fps:.6f}"
+
+
+def _clip_chain(index: int, planned: PlannedClip, plan: RenderPlan) -> str:
+    """一个片段的画面滤镜链：规整画布与帧率，截出所需源画面，两端用边缘帧定格补齐，再加淡入淡出。"""
     profile = plan.profile
     width, height = profile.width, profile.height
-    video_filter = ",".join(
-        (
-            f"fps={profile.fps}",
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2",
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black",
-            "setsar=1",
-            "format=yuv420p",
-            f"trim=end_frame={max(planned.source_frames, 1)}",
-            "tpad=stop_mode=clone:stop=-1",
+    source_frames = planned.lead.source_frames + planned.source_frames + planned.trail.source_frames
+    filters = [
+        f"fps={profile.fps}",
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2",
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black",
+        "setsar=1",
+        "format=yuv420p",
+        f"trim=end_frame={max(source_frames, 1)}",
+        f"tpad=start_mode=clone:start={planned.lead.freeze_frames}:stop_mode=clone:stop=-1",
+        # tpad 的输出不声明帧率，xfade 要求输入是恒定帧率；在无尽的补帧流上重新声明，再按帧数截止。
+        f"fps={profile.fps}",
+        f"trim=end_frame={planned.stream_frames}",
+    ]
+    if planned.fade_in is not None:
+        filters.append(f"fade=t=in:s=0:n={planned.fade_in.frames}:c={planned.fade_in.color}")
+    if planned.fade_out is not None:
+        start = planned.stream_frames - planned.fade_out.frames
+        filters.append(f"fade=t=out:s={start}:n={planned.fade_out.frames}:c={planned.fade_out.color}")
+    return f"[{index}:v:0]{','.join(filters)}[v{index}]"
+
+
+def segment_args(ffmpeg: str, segment: RenderSegment, plan: RenderPlan, output: Path) -> list[str]:
+    """一段片段的画面渲染参数：只含画面，按帧数精确截止。"""
+    fps = plan.profile.fps
+    inputs: list[str] = []
+    chains: list[str] = []
+    for index, planned in enumerate(segment.clips):
+        lead_us = planned.lead.source_frames * 1_000_000 // fps
+        inputs += [
+            "-ss",
+            _seconds(max(planned.clip.source_in_us - lead_us, 0)),
+            *local_file_input(planned.clip.video_path),
+        ]
+        chains.append(_clip_chain(index, planned, plan))
+    label = "[v0]"
+    for index, crossfade in enumerate(segment.crossfades, start=1):
+        joined = f"[x{index}]"
+        chains.append(
+            f"{label}[v{index}]xfade=transition={crossfade.effect}:duration={_frames_seconds(crossfade.frames, fps)}"
+            f":offset={_frames_seconds(crossfade.offset_frames, fps)}{joined}"
         )
-    )
+        label = joined
     return [
         *_base_args(ffmpeg),
-        "-ss",
-        _seconds(planned.clip.source_in_us),
-        *local_file_input(planned.clip.video_path),
+        *inputs,
+        "-filter_complex",
+        ";".join(chains),
         "-map",
-        "0:v:0",
+        label,
         "-an",
         "-sn",
         "-dn",
-        "-vf",
-        video_filter,
         "-frames:v",
-        str(planned.frames),
+        str(segment.frames),
         "-c:v",
         "libx264",
         "-preset",
@@ -95,7 +126,7 @@ def segment_args(ffmpeg: str, segment: RenderSegment, plan: RenderPlan, output: 
         "-pix_fmt",
         "yuv420p",
         "-r",
-        str(profile.fps),
+        str(fps),
         "-f",
         "mp4",
         str(output),

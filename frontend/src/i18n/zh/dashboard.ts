@@ -3160,10 +3160,10 @@ export default {
   'edit_transition_wipe_down': '向下擦除',
   'edit_transition_circle': '圆形遮罩',
   'edit_transition_curtain_horizontal': '横向拉幕',
-  'edit_transition_curtain_vertical': '纵向拉幕',
+  'edit_transition_curtain_vertical': '竖向拉幕',
   'edit_transition_mosaic': '马赛克',
   'edit_transition_blur': '模糊',
-  'edit_transition_radial': '径向擦除',
+  'edit_transition_radial': '放射',
   'edit_transition_gradient_wipe': '渐变擦除',
-  'edit_transition_squeeze': '挤压',
+  'edit_transition_squeeze': '压缩',
 } satisfies Record<keyof typeof enDashboard, string>;

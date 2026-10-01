@@ -747,7 +747,7 @@ MESSAGES = {
     # Final cut
     "final_cut_variant_unsupported": "Final cuts can currently only be rendered without narration and without burned-in subtitles",
     "final_cut_blocked": "The edit timeline has issues that block rendering the final cut, in video units: {units}. Resolve them, then submit the render again",
-    "final_cut_content_unsupported": "Final cuts do not support transitions or BGM yet; only edit timelines with hard cuts throughout and no BGM can be rendered",
+    "final_cut_content_unsupported": "Final cuts do not support BGM yet; only edit timelines without BGM can be rendered",
     "final_cut_empty": "The edit timeline has no clips to render",
     "final_cut_ffmpeg_unavailable": "The bundled ffmpeg is unavailable, so the final cut cannot be rendered",
     "final_cut_render_failed": "Rendering the final cut failed; please try again",
@@ -756,7 +756,7 @@ MESSAGES = {
     # Jianying draft
     "jianying_draft_narration_unavailable": "Only TTS voiceover projects can export the Jianying draft version with narration",
     "jianying_draft_blocked": "The edit timeline has issues that block exporting the Jianying draft, in video units: {units}. Resolve them, then submit the export again",
-    "jianying_draft_content_unsupported": "Jianying drafts do not support transitions or BGM yet; only edit timelines with hard cuts throughout and no BGM can be exported",
+    "jianying_draft_content_unsupported": "Jianying drafts do not support BGM yet; only edit timelines without BGM can be exported",
     "jianying_draft_empty": "The edit timeline has no clips to export",
     "jianying_draft_export_in_progress": "A Jianying draft export with different parameters is already queued or running for this edit timeline ({task_id}); submit again after it finishes",
     "jianying_draft_not_exported": "Edit timeline '{timeline_id}' has no exported Jianying draft for this narration version yet; export it first",

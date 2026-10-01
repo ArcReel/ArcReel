@@ -1,6 +1,7 @@
 """把剪辑时间线的一个修订摆成剪映草稿里的片段：纯函数，时间一律是整数微秒。
 
 剪辑片段首尾相接排在主视频轨上，截取只对其依据的视频版本有效；定格延长以出点帧静帧接在片段之后。
+转场挂在前一片段上，只保留到下一个参与导出的片段之间的切点：最后一个参与导出的片段上的转场没有效果。
 旁白从承载片段的起点开始；字幕在带旁白的单元上跟随旁白，否则按源素材时间保留、只显示落在入出点之内的部分。
 草稿只有一条旁白轨和一条字幕轨，同一条轨内的片段不能重叠：后一段开始时前一段截止，超出时间线末尾的部分截断。
 剪辑视图预览的字幕摆放（frontend/src/components/canvas/edit/preview-tracks.ts ``placeSubtitles``）与这里同口径，改动摆放规则时一并修改。
@@ -9,9 +10,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from lib.edit_timeline.model import EditClip, EditTimelineContent
+from lib.edit_timeline.model import EditClip, EditTimelineContent, Transition
 from lib.edit_timeline.readout import effective_source_range_us
 
 
@@ -51,7 +52,7 @@ class UnitMaterial:
 
 @dataclass(frozen=True, slots=True)
 class PlacedClip:
-    """主视频轨上的一个剪辑片段；``hold_us`` 大于 0 时其后接一段出点帧静帧。"""
+    """主视频轨上的一个剪辑片段；``hold_us`` 大于 0 时其后接一段出点帧静帧，``transition_to_next`` 是到下一片段的转场。"""
 
     clip_id: str
     unit_id: str
@@ -61,6 +62,7 @@ class PlacedClip:
     source_duration_us: int
     volume: float
     hold_us: int
+    transition_to_next: Transition | None = None
 
     @property
     def source_out_us(self) -> int:
@@ -151,12 +153,15 @@ def place_timeline(content: EditTimelineContent, units: Mapping[str, UnitMateria
             source_duration_us=source_out - source_in,
             volume=clip.source_volume * unit.source_gain,
             hold_us=clip.hold_us,
+            transition_to_next=clip.transition_to_next,
         )
         clips.append(placed)
         if clip.carries_narration and unit.narration_path is not None and unit.narration_duration_us is not None:
             narrations.append(PlacedNarration(clip.id, unit.narration_path, cursor, unit.narration_duration_us))
         subtitles.extend(_clip_subtitles(placed, unit, carries=clip.carries_narration))
         cursor += placed.source_duration_us + placed.hold_us
+    if clips and clips[-1].transition_to_next is not None:
+        clips[-1] = replace(clips[-1], transition_to_next=None)
     return DraftPlacement(
         duration_us=cursor,
         clips=tuple(clips),

@@ -749,7 +749,7 @@ MESSAGES = {
     # Final cut
     "final_cut_variant_unsupported": "Hiện chỉ có thể kết xuất video thành phẩm không có lời dẫn và không ghi phụ đề vào hình",
     "final_cut_blocked": "Dòng thời gian dựng có vấn đề chặn việc kết xuất video thành phẩm, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi kết xuất lại",
-    "final_cut_content_unsupported": "Video thành phẩm chưa hỗ trợ chuyển cảnh và nhạc nền; chỉ kết xuất được dòng thời gian dựng toàn cắt thẳng, không có nhạc nền",
+    "final_cut_content_unsupported": "Video thành phẩm chưa hỗ trợ nhạc nền; chỉ kết xuất được dòng thời gian dựng không có nhạc nền",
     "final_cut_empty": "Dòng thời gian dựng không có đoạn nào để kết xuất",
     "final_cut_ffmpeg_unavailable": "Không dùng được ffmpeg đi kèm, nên không thể kết xuất video thành phẩm",
     "final_cut_render_failed": "Kết xuất video thành phẩm thất bại, vui lòng thử lại",
@@ -758,7 +758,7 @@ MESSAGES = {
     # Jianying draft
     "jianying_draft_narration_unavailable": "Chỉ dự án lồng tiếng TTS mới xuất được bản nháp Jianying có lời dẫn",
     "jianying_draft_blocked": "Dòng thời gian dựng có vấn đề chặn việc xuất bản nháp Jianying, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi xuất lại",
-    "jianying_draft_content_unsupported": "Bản nháp Jianying chưa hỗ trợ chuyển cảnh và nhạc nền; chỉ xuất được dòng thời gian dựng toàn cắt thẳng, không có nhạc nền",
+    "jianying_draft_content_unsupported": "Bản nháp Jianying chưa hỗ trợ nhạc nền; chỉ xuất được dòng thời gian dựng không có nhạc nền",
     "jianying_draft_empty": "Dòng thời gian dựng không có đoạn nào để xuất",
     "jianying_draft_export_in_progress": "Dòng thời gian dựng này đã có một tác vụ xuất bản nháp Jianying với tham số khác đang chờ hoặc đang chạy ({task_id}); hãy gửi lại sau khi tác vụ đó kết thúc",
     "jianying_draft_not_exported": "Dòng thời gian dựng '{timeline_id}' chưa xuất bản nháp Jianying cho phiên bản lời dẫn này; hãy xuất trước",
