@@ -28,6 +28,7 @@ from server.tool_runtime import (
     ProjectScope,
     Services,
     ToolRequest,
+    continue_episode_replan,
     execute_queued_text_task,
     plan_episodes,
     start_episode_planning,
@@ -52,8 +53,10 @@ class _Generator:
 
     model = "fake-model"
 
-    def __init__(self, *, hold: bool = False, max_output_tokens: int = 64000) -> None:
+    def __init__(self, *, hold: bool = False, max_output_tokens: int = 64000, stuck: bool = False) -> None:
         self.max_output_tokens = max_output_tokens
+        #: 置位时窗口里找不到切分点：一集都不回。
+        self.stuck = stuck
         self.prompts: list[str] = []
         self.started = asyncio.Event()
         self.release = asyncio.Event()
@@ -69,7 +72,7 @@ class _Generator:
         episodes = [
             {"title": f"第{index + 1}集", "hook": "悬念", "end_anchor": anchor}
             for index, anchor in enumerate(_ANCHORS)
-            if anchor in window
+            if anchor in window and not self.stuck
         ]
         body = {"episodes": episodes}
         return TextGenerationResult(text=json.dumps(body, ensure_ascii=False), provider="fake", model="fake-model")
@@ -377,3 +380,39 @@ async def test_a_truncated_replan_window_fails_with_the_way_out(planning, monkey
         GenerationAction.CONFIGURE_PROVIDER,
         {"provider_id": "custom-3", "model": "my-llm", "custom_model": True},
     )
+
+
+async def test_a_replan_stuck_without_a_cut_point_keeps_its_part_and_continues_with_the_same_instructions(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    first = projects.load_project("planning")["episodes"][0]["episode"]
+    _use_generator(monkeypatch, _Generator(stuck=True))
+
+    await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest(instructions="节奏放慢")), _scope(projects), _WEB, services, episode=first
+    )
+    await _wait_until_idle(session_factory)
+
+    candidate = projects.load_project("planning")["episode_replan"]
+    assert (candidate["complete"], candidate["interrupted"], candidate["episodes"]) == (False, "no_cut_point", [])
+
+    generator = _Generator()
+    _use_generator(monkeypatch, generator)
+    outcome = await continue_episode_replan(candidate["id"], _scope(projects), _WEB, services)
+
+    assert outcome.problem is None
+    await _wait_until_idle(session_factory)
+    candidate = projects.load_project("planning")["episode_replan"]
+    assert candidate["complete"] is True
+    assert "interrupted" not in candidate
+    assert len(candidate["episodes"]) == 3
+    assert generator.prompts
+    assert all("节奏放慢" in prompt for prompt in generator.prompts)
+
+    again = await continue_episode_replan(candidate["id"], _scope(projects), _WEB, services)
+    assert again.problem is not None
+    assert again.problem.params["reason"] == "candidate_complete"

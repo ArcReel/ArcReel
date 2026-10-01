@@ -539,6 +539,19 @@ export async function enqueueEpisodeReplan(
   return { taskIds, deduped };
 }
 
+/** 接着生成中途停止的新的分集方案，与分集规划占同一对槽。服务端的拒绝原样抛出。 */
+export async function enqueueEpisodeReplanContinue(projectName: string, candidateId: string): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_episode_plan", EPISODE_PLANNING_SLOTS[0], "text_episode_plan")],
+    () => API.continueEpisodeReplan(projectName, candidateId),
+    (response) => memberTaskIds(response.batch),
+  );
+  const taskIds = memberTaskIds(res.batch);
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(deduped, null);
+  return { taskIds, deduped };
+}
+
 /** 草稿 AI 修复任务的占用槽：一份草稿一个，resource_id 与服务端 `episode-{N}-{doc_type}` 一致。 */
 export function draftRepairResourceId(episode: number, docType: DraftDocType): string {
   return `episode-${episode}-${docType}`;

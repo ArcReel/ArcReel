@@ -329,6 +329,7 @@ describe("EpisodesView", () => {
       episode: 2,
       instructions: "节奏放慢",
       complete: true,
+      interrupted: null,
       stale: null,
       start: { source_file: "source/上卷.txt", offset: 10 },
       end: { source_file: "source/上卷.txt", offset: 30 },
@@ -339,6 +340,7 @@ describe("EpisodesView", () => {
       retired: [2],
       removed: [],
       needs_review: [2],
+      uncovered: [],
       moved: [{ episode: 3, from: 3, to: 4 }],
       episodes: [
         { title: "新一", hook: "", source_file: "source/上卷.txt", start: 10, end: 20, units: 10, first_sentence: "第二集的原文。", last_sentence: "第二集的原文。", same_as: 2, overlaps: [2] },
@@ -369,9 +371,75 @@ describe("EpisodesView", () => {
       expect(dialog).toHaveTextContent("采纳前现有分集不变");
       expect(dialog).toHaveTextContent("其中已开始制作：转折。");
       fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "节奏放慢" } });
+      const scroll = vi.mocked(Element.prototype.scrollIntoView);
+      scroll.mockClear();
       fireEvent.click(within(dialog).getByRole("button", { name: "开始重新规划" }));
 
       await waitFor(() => expect(start).toHaveBeenCalledWith("demo", 2, "节奏放慢"));
+      // 左栏滚到重新规划的起点
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      expect(scroll.mock.contexts.at(-1)).toHaveTextContent("转折");
+    });
+
+    it("marks the boundaries that differ between the current episodes and the new plan", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({
+        ...VIEW,
+        replan: {
+          ...REPLAN,
+          episodes: [
+            { ...REPLAN.episodes[0], start: 10, end: 14 },
+            { ...REPLAN.episodes[1], start: 14, end: 30 },
+          ],
+        },
+      });
+      renderView();
+
+      const manuscript = await screen.findByRole("main", { name: "整本源文" });
+      // 14 落在第 2 集那一行中间，20 是第 2 集的结尾、新方案在这里不分集
+      await waitFor(() => expect(manuscript.querySelectorAll("[data-replan-diff]")).toHaveLength(2));
+      expect(within(manuscript).getAllByText("新旧分界不同")).toHaveLength(2);
+      expect(manuscript.querySelectorAll('[data-replan-lane="new"]').length).toBeGreaterThan(0);
+      expect(within(manuscript).queryByText("等待规划")).not.toBeInTheDocument();
+      expect(screen.getByRole("list", { name: "新旧分法对照的图例" })).toHaveTextContent("右侧：新方案");
+    });
+
+    it("continues, adopts the finished part or discards a plan that stopped without a cut point", async () => {
+      const partial = {
+        ...REPLAN,
+        episode: 1,
+        complete: false,
+        interrupted: "no_cut_point" as const,
+        start: { source_file: "source/上卷.txt", offset: 0 },
+        end: { source_file: "source/上卷.txt", offset: 5 },
+        old_count: 2,
+        new_count: 1,
+        retired: [2],
+        removed: [1],
+        needs_review: [2],
+        uncovered: [2],
+        moved: [],
+        episodes: [{ ...REPLAN.episodes[0], start: 0, end: 5, same_as: null, overlaps: [1] }],
+      };
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: partial });
+      const resume = vi.spyOn(API, "continueEpisodeReplan").mockResolvedValue({
+        batch: { batch_id: "batch-2", members: [{ unit_id: "episode-planning", task_id: "plan-2" }] },
+      });
+      renderView();
+
+      const panel = (await screen.findByRole("heading", { name: "新的分集方案" })).closest("section") as HTMLElement;
+      expect(within(panel).getByRole("status")).toHaveTextContent("AI 在 上卷.txt 17% 之后的原文里找不到合适的切分点");
+      expect(within(panel).getByRole("status")).toHaveTextContent("超出方案范围的集同样按被替换的集处理");
+      expect(within(panel).getByText("超出方案范围").nextElementSibling).toHaveTextContent("转折");
+      expect(within(panel).getByRole("button", { name: "采纳已完成的部分" })).toBeInTheDocument();
+      expect(within(panel).getByRole("button", { name: "放弃新方案" })).toBeInTheDocument();
+
+      const manuscript = screen.getByRole("main", { name: "整本源文" });
+      expect(within(manuscript).getByText("等待规划")).toBeInTheDocument();
+      expect(manuscript.querySelectorAll('[data-replan-lane="pending"]').length).toBeGreaterThan(0);
+
+      fireEvent.click(within(panel).getByRole("button", { name: "继续生成" }));
+
+      await waitFor(() => expect(resume).toHaveBeenCalledWith("demo", "cand-1"));
     });
 
     it("summarizes a pending plan in place of planning and adopts it with the retired episodes deleted", async () => {
@@ -384,6 +452,7 @@ describe("EpisodesView", () => {
         retired: [2],
         removed: [],
         needs_review: [2],
+        uncovered: [],
         moved: [{ episode: 3, from: 3, to: 4 }],
         revision: "rev-1",
         text: "服务端成文的后果",

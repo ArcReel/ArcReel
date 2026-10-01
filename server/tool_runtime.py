@@ -53,8 +53,10 @@ from lib.episode.episode_replan import (
     ReplanError,
     create_replan_candidate,
     discard_replan_candidate,
+    record_replan_interruption,
     replan_candidate,
     replan_scope,
+    resume_replan_candidate,
 )
 from lib.episode.episode_reset import (
     EpisodeResetError,
@@ -2724,12 +2726,49 @@ async def start_episode_replan(
         )
     except ReplanError as exc:
         return ToolOutcome(problem=_replan_refused(exc))
+    outcome = await _submit_replan_window(candidate_id, request.value.instructions, scope, caller, services)
+    if outcome.problem is not None:
+        # 首窗没能排进队列：候选还是空的，撤掉它，不留下挡住规划的空候选
+        with contextlib.suppress(ReplanError):
+            await _run_sync_transaction(discard_replan_candidate, project_path, candidate_id)
+    return outcome
+
+
+async def continue_episode_replan(
+    candidate_id: str, scope: ProjectScope, caller: CallerContext, services: Services
+) -> ToolOutcome[Any]:
+    """接着生成中途停止的候选：从候选的结尾逐窗生成到整本源文结尾，沿用发起时的附加指令。
+
+    候选已不在、已覆盖到结尾或已过时时拒绝；分集规划在进行时拒绝。候选本身挡住分集规划的准入，这里不走它。
+    """
+    if problem := await migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    if active := await _active_planning_windows(scope, caller, services):
+        return ToolOutcome(
+            problem=ToolProblem(
+                "generation_active_task_conflict",
+                "generation_active_task_conflict",
+                action=GenerationAction.WAIT_FOR_TASK,
+                params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
+            )
+        )
+    project_path = services.projects.get_project_path(scope.project_name)
+    try:
+        instructions = await _run_sync_transaction(resume_replan_candidate, project_path, candidate_id)
+    except ReplanError as exc:
+        return ToolOutcome(problem=_replan_refused(exc))
+    return await _submit_replan_window(candidate_id, instructions, scope, caller, services)
+
+
+async def _submit_replan_window(
+    candidate_id: str, instructions: str | None, scope: ProjectScope, caller: CallerContext, services: Services
+) -> ToolOutcome[Any]:
     payload: dict[str, Any] = {
-        **request.value.model_dump(mode="json"),
+        **PlanEpisodesRequest(instructions=instructions).model_dump(mode="json"),
         "continue_to_end": True,
         "replan": candidate_id,
     }
-    outcome = await _submit_text_task(
+    return await _submit_text_task(
         task_type=_TEXT_EPISODE_PLAN,
         operation="plan_episodes",
         unit_id=EPISODE_PLANNING_SLOT,
@@ -2739,11 +2778,6 @@ async def start_episode_replan(
         services=services,
         conflict_resource_ids=EPISODE_PLANNING_SLOTS,
     )
-    if outcome.problem is not None:
-        # 首窗没能排进队列：候选还是空的，撤掉它，不留下挡住规划的空候选
-        with contextlib.suppress(ReplanError):
-            await _run_sync_transaction(discard_replan_candidate, project_path, candidate_id)
-    return outcome
 
 
 async def _execute_replan_window(
@@ -2755,9 +2789,31 @@ async def _execute_replan_window(
     planner_cls: type[EpisodePlanner],
     chain: _PlanningChain,
 ) -> ToolOutcome[Any]:
-    """重新规划的一窗：从候选的结尾取窗口，产出的集追加到候选；还有原文待规划时排下一窗。"""
+    """重新规划的一窗：从候选的结尾取窗口，产出的集追加到候选；还有原文待规划时排下一窗。
+
+    找不到切分点或出错时在候选上记下中断原因，已生成的部分保留。
+    """
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
+    outcome = await _draft_replan_window(
+        candidate_id, instructions, scope, services, planner_cls=planner_cls, chain=chain
+    )
+    if outcome.problem is not None:
+        reason = "no_cut_point" if outcome.problem.code == "episode_planning_no_cut_point" else "failed"
+        project_path = services.projects.get_project_path(scope.project_name)
+        await _run_sync_transaction(record_replan_interruption, project_path, candidate_id, reason)
+    return outcome
+
+
+async def _draft_replan_window(
+    candidate_id: str,
+    instructions: object,
+    scope: ProjectScope,
+    services: Services,
+    *,
+    planner_cls: type[EpisodePlanner],
+    chain: _PlanningChain,
+) -> ToolOutcome[Any]:
     planning_instructions = instructions if isinstance(instructions, str) else None
     try:
         planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))

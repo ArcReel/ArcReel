@@ -9,9 +9,13 @@
 - 候选集：标题、钩子、原文范围（剧情演绎另含分集大纲），按源文位置排列，尚未分配集 ID。生成由
   :meth:`lib.episode.episode_planner.EpisodePlanner.plan_candidate` 逐窗追加。
 
-采纳时替换起点及以后的全部切出集：
+生成可能在中途停止（创作者主动停止、AI 找不到切分点、模型出错），已生成的部分仍是候选：可以接着生成
+（:func:`resume_replan_candidate`，沿用发起时的附加指令）、采纳或放弃。找不到切分点与模型出错时，候选记下中断原因
+（:func:`record_replan_interruption`）。
 
-- 候选集一律分配新集 ID。被替换下来的旧切出集有产物的转为无原文的集、标 stale，产物仍归它，按原相对顺序移到
+采纳时替换起点及以后的全部切出集，候选没有覆盖到的也一样：
+
+- 候选集一律分配新集 ID。被替换下来的旧切出集（含原文超出候选覆盖范围的）有产物的转为无原文的集、标 stale，产物仍归它，按原相对顺序移到
   播出顺序末尾；勾选「一并删除」时，这些集在采纳后按删除一集的口径硬删除。没有产物的直接移除。
 - 夹在范围里的其他来源的集按锚点落位：锚点是播出顺序中它前面最近的切出集的原文结尾。锚点不在起点之后时排在全部
   候选集之前，否则排在第一个原文结尾不早于锚点的候选集之后（候选没有覆盖到锚点时排在最后一个候选集之后）。
@@ -76,6 +80,9 @@ logger = logging.getLogger(__name__)
 
 #: ``project.json`` 里存放候选的键。
 REPLAN_CANDIDATE_KEY = "episode_replan"
+
+#: 生成中途停止的原因：AI 在窗口里找不到切分点、模型或其他错误。创作者主动停止不记原因。
+REPLAN_INTERRUPTIONS = ("no_cut_point", "failed")
 
 
 class ReplanError(ValueError):
@@ -279,6 +286,51 @@ def discard_replan_candidate(project_path: str | Path, candidate_id: str) -> Non
     logger.info("已放弃重新规划的候选：项目 %s，候选 %s", project_dir.name, candidate_id)
 
 
+def record_replan_interruption(project_path: str | Path, candidate_id: str, reason: str) -> None:
+    """记下候选生成中途停止的原因；候选已不在（已采纳或放弃）时什么都不做。"""
+    if reason not in REPLAN_INTERRUPTIONS:
+        raise ValueError(f"未知的中断原因：{reason}")
+    project_dir = Path(project_path)
+    pm = ProjectManager.for_project_dir(project_dir)
+
+    def _matches(p: Mapping[str, Any]) -> dict[str, Any] | None:
+        candidate = replan_candidate(p)
+        return candidate if candidate is not None and candidate.get("id") == candidate_id else None
+
+    if _matches(pm.load_project(project_dir.name)) is None:
+        return
+
+    def _commit(p: dict[str, Any]) -> None:
+        if (candidate := _matches(p)) is not None:
+            candidate["interrupted"] = reason
+
+    pm.update_project(project_dir.name, _commit)
+
+
+def resume_replan_candidate(project_path: str | Path, candidate_id: str) -> str | None:
+    """接着生成中途停止的候选：清掉中断原因，返回发起时的附加指令。
+
+    候选已覆盖到整本源文结尾（``candidate_complete``）或已过时（``ledger_changed`` / ``source_changed``）时拒绝。
+    """
+    project_dir = Path(project_path)
+    resumed: dict[str, str | None] = {}
+
+    def _commit(p: dict[str, Any]) -> None:
+        candidate = _require_candidate(p, candidate_id)
+        if candidate.get("complete"):
+            raise ReplanError("candidate_complete", "新的分集方案已覆盖到整本源文结尾")
+        stale = candidate_staleness(p, candidate, discover_sources(project_dir, p))
+        if stale is not None:
+            raise ReplanError(stale, "生成这份方案之后分集或源文有改动，需要重新生成")
+        candidate.pop("interrupted", None)
+        instructions = candidate.get("instructions")
+        resumed["instructions"] = instructions if isinstance(instructions, str) else None
+
+    ProjectManager.for_project_dir(project_dir).update_project(project_dir.name, _commit)
+    logger.info("接着生成重新规划的候选：项目 %s，候选 %s", project_dir.name, candidate_id)
+    return resumed["instructions"]
+
+
 def _require_candidate(project: Mapping[str, Any], candidate_id: str) -> dict[str, Any]:
     candidate = replan_candidate(project)
     if candidate is None or candidate.get("id") != candidate_id:
@@ -301,6 +353,8 @@ class _Adoption:
     removed: list[int]
     #: 已开始制作、且原文范围在候选里找不到一模一样的一集。
     needs_review: list[int]
+    #: 原文超出候选覆盖范围的被替换集（候选没有生成到整本源文结尾时）。
+    uncovered: list[int]
     #: 播出位置变了的其他集：（集 ID，原位置，新位置）。
     moved: list[tuple[int, int, int]]
     #: 采纳后的播出顺序：``("old", 集 ID)`` 或 ``("new", 候选集下标)``；退下的集在末尾。
@@ -369,6 +423,14 @@ def _plan_adoption(project_dir: Path, project: Mapping[str, Any], candidate: Map
         or (placement.file_index, placement.start, placement.end) not in exact
     ]
 
+    uncovered: list[int] = []
+    if not candidate.get("complete"):
+        cursor_file, cursor_offset = candidate_cursor(candidate)
+        cursor = (order.get(cursor_file, len(order)), cursor_offset)
+        uncovered = [
+            num for num in replaced if (placement := placements.get(num)) is None or placement.end_position > cursor
+        ]
+
     # 其他来源的集按锚点落位；第一个被替换的集之前的条目原位不动
     first = min((index for index, num in enumerate(ids) if num in replaced_set), default=len(entries))
     before: list[int] = []
@@ -416,6 +478,7 @@ def _plan_adoption(project_dir: Path, project: Mapping[str, Any], candidate: Map
         retired=retired,
         removed=removed,
         needs_review=needs_review,
+        uncovered=uncovered,
         moved=moved,
         order=new_order,
     )
@@ -437,6 +500,8 @@ class ReplanAdoptionImpact:
     removed: list[int]
     #: 已开始制作且原文范围有变化。
     needs_review: list[int]
+    #: 原文超出新方案覆盖范围、同样按被替换处理的集（新方案没有生成到整本源文结尾时）。
+    uncovered: list[int]
     #: 播出位置变了的其他集：（集 ID，原位置，新位置）。
     moved: list[tuple[int, int, int]]
     #: 勾选「一并删除」时退下的集会丢失的内容：集 ID → 删除一集的丢失清单。
@@ -468,6 +533,7 @@ def _adoption_impact(
         retired=adoption.retired,
         removed=adoption.removed,
         needs_review=adoption.needs_review,
+        uncovered=adoption.uncovered,
         moved=adoption.moved,
         losses=losses,
     )
@@ -684,11 +750,13 @@ def replan_candidate_summary(project_dir: Path, project: Mapping[str, Any]) -> d
         )
     source_file, offset = candidate_start(candidate)
     cursor_file, cursor_offset = candidate_cursor(candidate)
+    interrupted = candidate.get("interrupted")
     return {
         "id": candidate["id"],
         "episode": candidate.get("episode"),
         "instructions": candidate.get("instructions"),
         "complete": bool(candidate.get("complete")),
+        "interrupted": interrupted if interrupted in REPLAN_INTERRUPTIONS else None,
         "stale": stale,
         "start": {"source_file": source_file, "offset": offset},
         "end": {"source_file": cursor_file, "offset": cursor_offset},
@@ -699,6 +767,7 @@ def replan_candidate_summary(project_dir: Path, project: Mapping[str, Any]) -> d
         "retired": adoption.retired if adoption is not None else [],
         "removed": adoption.removed if adoption is not None else [],
         "needs_review": adoption.needs_review if adoption is not None else [],
+        "uncovered": adoption.uncovered if adoption is not None else [],
         "moved": [
             {"episode": num, "from": old, "to": new}
             for num, old, new in (adoption.moved if adoption is not None else [])
@@ -732,6 +801,10 @@ def render_replan_adoption_text(
             new=data["new_count"],
         )
     ]
+    if data.get("uncovered"):
+        lines.append(
+            translate("episode_replan_adopt_uncovered", episodes=separator.join(name(num) for num in data["uncovered"]))
+        )
     if data["retired"]:
         lines.append(
             translate("episode_replan_adopt_retired", episodes=separator.join(name(num) for num in data["retired"]))
@@ -767,6 +840,7 @@ def render_replan_adoption_text(
 
 __all__ = [
     "REPLAN_CANDIDATE_KEY",
+    "REPLAN_INTERRUPTIONS",
     "ReplanAdoptionImpact",
     "ReplanAdoptionResult",
     "ReplanConfirmationRequired",
@@ -780,8 +854,10 @@ __all__ = [
     "create_replan_candidate",
     "discard_replan_candidate",
     "ledger_layout_revision",
+    "record_replan_interruption",
     "render_replan_adoption_text",
     "replan_candidate",
     "replan_candidate_summary",
     "replan_scope",
+    "resume_replan_candidate",
 ]
