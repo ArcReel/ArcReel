@@ -226,7 +226,6 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
   return {
     title: t("demo_project_title"),
     content_mode: "narration",
-    source_kind: "novel",
     style: t("demo_project_style"),
     aspect_ratio: "9:16",
     default_duration: 5,

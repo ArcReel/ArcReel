@@ -7,7 +7,8 @@ from pathlib import Path
 from jinja2 import Environment, nodes
 
 from lib.agent.profile_manifest import VALID_CONTENT_MODES
-from lib.project.project_manager import VALID_GENERATION_MODES, VALID_SOURCE_KINDS
+from lib.episode.source_kinds import SOURCE_KINDS
+from lib.project.project_manager import VALID_GENERATION_MODES
 from lib.prompts.prompt_builders_ad import AD_DURATION_TIERS
 from lib.prompts.prompt_templates import PromptTemplates
 from lib.prompts.prompt_templates.builtin import BUILTIN_DIRECTORY
@@ -50,7 +51,7 @@ def test_builtin_applies_to_values_are_real_project_values():
     known = {
         "content_mode": set(VALID_CONTENT_MODES),
         "generation_mode": set(VALID_GENERATION_MODES),
-        "source_kind": set(VALID_SOURCE_KINDS),
+        "source_kind": set(SOURCE_KINDS),
         "ad_duration_tier": {str(tier) for tier in AD_DURATION_TIERS},
     }
     for entry in PromptTemplates(BUILTIN_DIRECTORY).list_templates():

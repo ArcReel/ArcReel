@@ -214,8 +214,12 @@ def write_legacy_episode_sources_project(
     pre_split: bool = False,
     legacy_split: bool = False,
     edited_outside: bool = False,
+    content_mode: str = "narration",
+    source_kind: str = "novel",
 ) -> Path:
     """整本源文按 ``source/`` 文件名排序认定、没有账本条目的集文件读时补登的项目。
+
+    ``content_mode`` 与项目级的 ``source_kind`` 原样写入 ``project.json``（schema ≤ 15 的源文件类型形态）。
 
     默认形态：``第10章.txt`` 按文件名排在 ``第2章.txt`` 之前，账本切出两集、``planning_cursor`` 停在
     ``第10章.txt`` 中段，另有一个没有账本条目的 ``episode_7.txt``。``pre_split=True`` 时 ``source/``
@@ -231,9 +235,9 @@ def write_legacy_episode_sources_project(
     project: dict[str, Any] = {
         "schema_version": schema_version,
         "title": "旧分集项目",
-        "content_mode": "narration",
+        "content_mode": content_mode,
         "generation_mode": "storyboard",
-        "source_kind": "novel",
+        "source_kind": source_kind,
         "source_language": "zh",
         "style": "写实",
         "aspect_ratio": "9:16",
@@ -738,8 +742,11 @@ def write_legacy_script_plan_project(
     *,
     variant: ScriptPlanVariantName,
     schema_version: int = 14,
+    source_kind: str = "novel",
 ) -> Path:
     """条目指纹时期写出的脚本规划项目，三集各是一种要在 v15 收编的旧形态。
+
+    ``source_kind`` 是项目级的源文件类型（schema ≤ 15 的形态，v15→v16 改为随源文件记录）。
 
     - 第 1 集：已确认，正式脚本带条目指纹与整集指纹；第 2 条视觉层为空而无待编写标记；drama 分镜
       缺视觉改编描述、参考单元缺对应原文。
@@ -802,7 +809,7 @@ def write_legacy_script_plan_project(
         "title": "旧脚本规划项目",
         "content_mode": content_mode,
         "generation_mode": generation_mode,
-        "source_kind": "novel",
+        "source_kind": source_kind,
         "source_language": "中文",
         "style": "写实",
         "style_description": "电影感",

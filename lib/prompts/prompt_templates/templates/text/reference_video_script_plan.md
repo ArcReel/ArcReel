@@ -10,8 +10,10 @@ invoked_by:
 applies_to:
   content_mode: [drama, narration]
   generation_mode: [reference_video]
+  source_kind: [novel, screenplay]
 output_schema: lib.script.script_models:ReferenceScriptPlanFlatDraft
 slots:
+  source_kind: 源文类型；只有剧情演绎会取 screenplay
   target_language: 输出语言
   project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
   assets: 资产外观，对象 {characters, scenes, props}，每项是 [{name, appearance}] 列表（尖括号已中和）
@@ -35,13 +37,13 @@ protected: false
 ---
 # 角色与任务
 
-你是一位视频单元架构师，本任务是把源文拆分为适配多模态参考生视频模型的 video_unit 表（script_plan 脚本规划）。
+{{ variant("text/reference_video_script_plan/task", source_kind) }}
 每个 video_unit 对应**一次视频生成调用**，正文是一段连续的画面描述，一次生成完整覆盖它。
 本阶段定的是**结构与内容契约**：unit 边界、时长（时长即计费单位）、台词落位、核心资产指认——用户会逐 unit 审阅确认这份契约。
 视觉编排（景别 / 构图 / 运镜扩写）由后续 prompt_authoring 以你的拆分为基底生成，本阶段不写。
 
 **输出语言**：所有字符串值必须使用 {{ target_language }}；JSON 键名保持英文。
-例外（逐字保留、不翻译）：`@[名称]` 中的资产名须逐字等于下方候选表中的登记名；`source_text` 须逐字复制小说原文。
+例外（逐字保留、不翻译）：`@[名称]` 中的资产名须逐字等于下方候选表中的登记名；`source_text` 须逐字复制源文。
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 # 上下文
@@ -50,11 +52,11 @@ protected: false
 
 {{ partial("shared/lists/asset_appearance_blocks") }}
 
-## 小说原文
+{{ variant("text/reference_video_script_plan/source_heading", source_kind) }}
 
-<novel>
+<{{ source_kind }}>
 {{ novel_text }}
-</novel>
+</{{ source_kind }}>
 
 {% if episode_outline %}
 <episode_outline>
@@ -78,9 +80,8 @@ protected: false
 
 当前正在生成第 {{ episode }} 集。请覆盖全部源文情节，按叙事顺序逐 unit 产出。
 
-- **unit 边界**：每个 unit 对应一个连贯的视频生成片段——同一时间、同一地点、主体动作连续；
-  时间 / 空间 / 情节重大切换点开新 unit。
-- **source_text**：该 unit 所依据的小说原文片段，**逐字复制**（可截断首尾，但中间不得删字、改写、翻译或概括）。
+- **unit 边界**：{{ variant("text/reference_video_script_plan/unit_rule", source_kind) }}
+- **source_text**：该 unit 所依据的源文片段，**逐字复制**（可截断首尾，但中间不得删字、改写、翻译或概括）。
   它是追溯锚，用于把生成结果对回原文；不逐字复制会被机械校验拒绝。
 - **时长决策序**（自上而下，高优先级是硬边界，低优先级在其内做优化）：
   1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{{ durations }}）中的值。
@@ -109,8 +110,7 @@ protected: false
   - character: {{ partial("shared/asset_name_candidates", names=character_names) }}
   - scene: {{ partial("shared/asset_name_candidates", names=scene_names) }}
   - prop: {{ partial("shared/asset_name_candidates", names=prop_names) }}
-- 原文里的人物对白写成台词记号（`@[角色]{台词}`），旁白 / 心声写成画外音记号（`{台词}`），逐字保留原文措辞；
-  台词是内容契约的一部分，prompt_authoring 不会再改动它。
+{{ variant("text/reference_video_script_plan/dialogue_rule", source_kind) }}
 - 每个 unit 的正文都要 `@` 引用它发生地的场景资产；地点切换到新 unit 时换成新地点的场景，
   地点不变的连续 unit 逐条重复引用同一个场景（候选表里没有匹配的场景时才用文字写地点）。
 - 本阶段不写景别 / 构图 / 运镜（prompt_authoring 补），把叙事内容与动作过程写清楚即可。

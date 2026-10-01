@@ -45,12 +45,13 @@ const VIEW: EpisodesViewData = {
         { kind: "episode", start: 10, end: 20, text: "第二集的原文。", episode: 2, gap: false, units: 10 },
         { kind: "unsplit", start: 20, end: 30, text: "还没分集的原文。", episode: null, gap: false, units: 10 },
       ],
+      source_kind: null,
     },
   ],
   episodes: [
-    { episode: 1, origin: "whole_source", placed: true, source_file: "source/上卷.txt", units: 10, spoken_seconds: 3, first_sentence: "第一集的原文。", last_sentence: "第一集的原文。" },
-    { episode: 2, origin: "whole_source", placed: true, source_file: "source/上卷.txt", units: 10, spoken_seconds: 3, first_sentence: "", last_sentence: "" },
-    { episode: 3, origin: "own", placed: false, source_file: null, units: 8, spoken_seconds: 2, first_sentence: "", last_sentence: "" },
+    { episode: 1, origin: "whole_source", placed: true, source_file: "source/上卷.txt", units: 10, spoken_seconds: 3, first_sentence: "第一集的原文。", last_sentence: "第一集的原文。", source_kind: null },
+    { episode: 2, origin: "whole_source", placed: true, source_file: "source/上卷.txt", units: 10, spoken_seconds: 3, first_sentence: "", last_sentence: "", source_kind: null },
+    { episode: 3, origin: "own", placed: false, source_file: null, units: 8, spoken_seconds: 2, first_sentence: "", last_sentence: "", source_kind: null },
   ],
   unregistered: [],
 };
@@ -197,5 +198,40 @@ describe("EpisodesView", () => {
       expect(await screen.findByText(/请在设置中换一个文本模型后再试/)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "去登记最大输出长度" })).not.toBeInTheDocument();
     });
+  });
+
+  it("changes a drama file's source kind after confirming the started episodes it stales", async () => {
+    useProjectsStore.setState({ currentProjectData: { ...PROJECT, content_mode: "drama" } });
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    vi.spyOn(API, "getEpisodesView").mockResolvedValue({
+      ...VIEW,
+      files: VIEW.files.map((file) => ({ ...file, source_kind: "novel" as const })),
+    });
+    const change = vi
+      .spyOn(API, "setSourceFileKind")
+      .mockResolvedValueOnce({ success: true, applied: false, needs_confirmation: true, affected_episodes: [2] })
+      .mockResolvedValueOnce({ success: true, applied: true, needs_confirmation: false, affected_episodes: [2] });
+    renderView();
+
+    const select = await screen.findByRole("combobox", { name: "上卷.txt 的源文件类型" });
+    fireEvent.change(select, { target: { value: "screenplay" } });
+
+    const dialog = await screen.findByRole("dialog", { name: "修改 上卷.txt 的源文件类型？" });
+    expect(within(dialog).getByText("第 2 集：转折")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "修改类型" }));
+
+    await waitFor(() => expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo"));
+    expect(change.mock.calls).toEqual([
+      ["demo", "上卷.txt", "screenplay", false],
+      ["demo", "上卷.txt", "screenplay", true],
+    ]);
+  });
+
+  it("shows no source kind outside drama projects", async () => {
+    vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+    renderView();
+
+    await screen.findByRole("main", { name: "整本源文" });
+    expect(screen.queryByRole("combobox", { name: /源文件类型/ })).not.toBeInTheDocument();
   });
 });

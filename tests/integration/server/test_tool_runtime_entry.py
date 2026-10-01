@@ -553,3 +553,30 @@ async def test_upload_source_registers_whole_source_files_and_own_source_episode
     project_dir = services.projects.get_project_path("demo")
     assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "第一集原文"
     assert not (project_dir / "source" / "episode_3.txt").exists()
+
+
+async def test_upload_source_records_the_source_kind_for_drama_projects(tmp_path: Path) -> None:
+    services = _services(tmp_path)
+    caller = CallerContext(user_id="test", source="mcp")
+    await create_project(
+        ToolRequest(
+            CreateProjectToolRequest(name="demo", title="Demo", content_mode="drama", generation_mode="storyboard")
+        ),
+        caller,
+        services,
+    )
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
+
+    async def upload(**fields: Any) -> Any:
+        return await upload_source(ToolRequest(UploadSourceRequest(**fields)), scope, caller, services)
+
+    assert (await upload(filename="剧本.txt", content="第一场", source_kind="screenplay")).problem is None
+    assert (await upload(filename="小说.txt", content="第一章")).problem is None
+    assert (
+        await upload(filename="番外.txt", content="番外原文", role="episode", source_kind="screenplay")
+    ).problem is None
+
+    project = services.projects.load_project("demo")
+    assert "source_kind" not in project
+    assert [item["source_kind"] for item in project["whole_source_files"]] == ["screenplay", "novel"]
+    assert project["episodes"][0]["source_kind"] == "screenplay"

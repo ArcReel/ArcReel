@@ -1,4 +1,4 @@
-"""「分集」视图：整本源文按集分段的只读投影，以及 ``source/`` 里没有登记的文件的处置。"""
+"""「分集」视图：整本源文按集分段的只读投影、``source/`` 里没有登记的文件的处置，以及整本源文文件的类型。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,9 @@ from lib.episode.episode_source_commands import (
     EpisodeSourceError,
     adopt_source_file_as_episode,
     adopt_source_file_as_whole_source,
+    set_whole_source_file_kind,
 )
+from lib.episode.source_kinds import SourceKind
 from lib.infra.api_errors import ApiError, NotFoundError
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
@@ -186,6 +188,49 @@ async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> di
         raise HTTPException(
             status_code=_MANUAL_SPLIT_STATUS.get(exc.code, 409), detail=_t(f"manual_split_{exc.code}")
         ) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+class SetSourceFileKindRequest(BaseModel):
+    source_kind: SourceKind
+    #: 已确认会让已开始制作的集的脚本规划判 stale。
+    confirm: bool = False
+
+
+@router.put(
+    "/projects/{name}/source-files/{filename}/source-kind",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def set_source_file_kind(
+    name: str, filename: str, req: SetSourceFileKindRequest, _t: Translator
+) -> dict[str, Any]:
+    """改整本源文文件的源文件类型（只对剧情演绎开放）；不改源文指纹，也不动分集账本。
+
+    会让已开始制作的集的脚本规划判 stale 而 ``confirm`` 为 false 时不写入，返回 ``needs_confirmation``
+    与这些集的集 ID（``affected_episodes``）。
+    """
+
+    def _sync() -> dict[str, Any]:
+        manager = get_project_manager()
+        if not manager.project_exists(name):
+            raise NotFoundError("project_not_found", name=name)
+        with project_change_source("webui"):
+            change = set_whole_source_file_kind(manager, name, filename, req.source_kind, confirm=req.confirm)
+        return {
+            "success": True,
+            "applied": change.applied,
+            "needs_confirmation": change.changed and not change.applied,
+            "affected_episodes": change.affected_episodes,
+        }
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except EpisodeSourceError as exc:
+        raise episode_source_http_error(exc, _t, filename=filename) from exc
     except (HTTPException, ApiError):
         raise
     except Exception as exc:

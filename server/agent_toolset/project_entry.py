@@ -26,7 +26,7 @@ LIST_PROJECTS = UnscopedToolDeclaration(
 CREATE_PROJECT = UnscopedToolDeclaration(
     name="create_project",
     description=(
-        "创建一个 ArcReel 项目并写入完整的项目元数据（标题、内容模式、源文类型、生成模式、画面比例、旁白交付方式等），"
+        "创建一个 ArcReel 项目并写入完整的项目元数据（标题、内容模式、生成模式、画面比例、旁白交付方式等），"
         "返回规范化后的项目 name 与 project.json 内容；后续工具以该 name 寻址项目。"
         "旁白交付方式缺省后期配音；选 use_tts 时省略的 TTS 模型、音色与语速以全局默认预填，写入后成为项目快照。"
         "同名项目已存在时返回 project_exists，不覆盖。广告/短片项目（content_mode=ad）不接受 default_duration "
@@ -44,7 +44,8 @@ UPLOAD_SOURCE = ToolDeclaration(
         "与章节数。role=whole_source（默认）登记为整本源文的文件，接在文件清单末尾，供分集规划切分；只接受 .txt / .md "
         "文件名，episode_N.txt 形式的文件名留给集文件，会被拒绝；同名文件的处理由 on_conflict 决定。role=episode 登记为"
         "一集自带原文的集：分配新集 ID、写入 source/episode_{集 ID}.txt、接在播出顺序末尾，另返回集 ID，用户自行拆好的"
-        "分集逐个这样上传。直接写进 source/ 而未经登记的文件不是源文。写入项目文件。"
+        "分集逐个这样上传。剧情演绎项目用 source_kind 标明这份原文是小说（缺省）还是用户写好的成品剧本，其他创作类型"
+        "忽略这个参数。直接写进 source/ 而未经登记的文件不是源文。写入项目文件。"
     ),
     request_model=UploadSourceRequest,
     migration=BLOCKED,

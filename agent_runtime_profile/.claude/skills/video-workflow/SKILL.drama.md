@@ -26,7 +26,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 1. 提示用户在 Web 端先创建项目，**创建时指定 content_mode（narration / drama）与 generation_mode（storyboard / reference_video）**；两者创建后均不可变更，Agent 无对应写入权限。session 启动后 cwd 已绑定到对应项目根
 2. 使用 Read 工具读取 `project.json`，确认 `title`、`content_mode`、`generation_mode` 字段（本 session 当前 content_mode 为 `drama`，创建后不可变更）
-3. 请用户在 Web 端上传小说文本（整本源文），或经 `mcp__arcreel__upload_source` 写入；直接放进 `source/` 而未登记的文件不是源文
+3. 请用户在 Web 端上传小说文本（整本源文），或经 `mcp__arcreel__upload_source` 写入；直接放进 `source/` 而未登记的文件不是源文。用户给的是写好的成品剧本时，经工具登记要带 `source_kind=screenplay`，缺省按小说
 4. **上传后自动生成项目概述**（synopsis、genre、theme、world_setting）
 
 > 标准项目子目录由 `create_project()` 自动建好：`source/`、`scripts/`、`drafts/`、`characters/`、`scenes/`、`props/`、`storyboards/`、`grids/`、`videos/`、`reference_videos/`、`thumbnails/`、`output/`。

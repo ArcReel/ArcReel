@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -6,6 +6,19 @@ import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import type { EpisodeMeta } from "@/types";
+import type { EpisodeSourceWriteResult } from "@/types/episodes-view";
+
+function written(overrides: Partial<EpisodeSourceWriteResult> = {}): EpisodeSourceWriteResult {
+  return {
+    success: true,
+    episode: 4,
+    source_origin: "own",
+    applied: true,
+    needs_confirmation: false,
+    affected_episodes: [],
+    ...overrides,
+  };
+}
 
 function makeEpisode(overrides: Partial<EpisodeMeta> = {}): EpisodeMeta {
   return {
@@ -22,6 +35,7 @@ function makeEpisode(overrides: Partial<EpisodeMeta> = {}): EpisodeMeta {
 describe("EpisodeSourceReview", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
@@ -75,7 +89,7 @@ describe("EpisodeSourceReview", () => {
 
   it("lets a no-source episode fill in its source and refreshes the project after saving", async () => {
     vi.spyOn(API, "getSourceContent").mockRejectedValue(new Error("404"));
-    const save = vi.spyOn(API, "updateEpisodeSource").mockResolvedValue({ success: true });
+    const save = vi.spyOn(API, "updateEpisodeSource").mockResolvedValue(written());
     const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
     const noSource = makeEpisode({ episode: 4, source_origin: "none", source_range: undefined });
 
@@ -88,8 +102,67 @@ describe("EpisodeSourceReview", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存集原文" }));
 
     await waitFor(() => expect(screen.getByText("粘贴进来的本集原文")).toBeInTheDocument());
-    expect(save).toHaveBeenCalledWith("demo", 4, "粘贴进来的本集原文");
+    expect(save).toHaveBeenCalledWith("demo", 4, "粘贴进来的本集原文", undefined, false);
     expect(refresh).toHaveBeenCalledWith("demo");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("records the chosen source kind when a drama episode fills in its source", async () => {
+    useProjectsStore.setState({
+      currentProjectData: {
+        title: "Demo",
+        content_mode: "drama",
+        style: "",
+        episodes: [],
+        characters: {},
+      },
+    });
+    vi.spyOn(API, "getSourceContent").mockRejectedValue(new Error("404"));
+    const save = vi.spyOn(API, "updateEpisodeSource").mockResolvedValue(written());
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    const noSource = makeEpisode({ episode: 4, source_origin: "none", source_range: undefined });
+
+    render(<EpisodeSourceReview projectName="demo" episode={4} episodes={[noSource]} />);
+
+    const box = await screen.findByRole("textbox", { name: "填写或粘贴本集的集原文" });
+    expect(screen.getByRole("combobox", { name: "源文件类型" })).toHaveValue("novel");
+    fireEvent.change(box, { target: { value: "剧本原文" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "源文件类型" }), { target: { value: "screenplay" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存集原文" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("demo", 4, "剧本原文", "screenplay", false));
+  });
+
+  it("confirms before a kind change stales this episode's script plan, then saves", async () => {
+    useProjectsStore.setState({
+      currentProjectData: { title: "Demo", content_mode: "drama", style: "", episodes: [], characters: {} },
+    });
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("自带的原文");
+    const save = vi
+      .spyOn(API, "updateEpisodeSource")
+      .mockResolvedValueOnce(
+        written({ episode: 6, applied: false, needs_confirmation: true, affected_episodes: [6] }),
+      )
+      .mockResolvedValueOnce(written({ episode: 6, affected_episodes: [6] }));
+    const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    const own = makeEpisode({ episode: 6, title: "番外", source_origin: "own", source_range: undefined, source_kind: "novel" });
+
+    render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[own]} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "编辑集原文" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "源文件类型" }), { target: { value: "screenplay" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存集原文" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "修改本集的源文件类型？" });
+    expect(within(dialog).getByText("第 1 集：番外")).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存并修改类型" }));
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo"));
+    expect(save.mock.calls).toEqual([
+      ["demo", 6, "自带的原文", "screenplay", false],
+      ["demo", 6, "自带的原文", "screenplay", true],
+    ]);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 

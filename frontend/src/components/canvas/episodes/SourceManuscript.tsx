@@ -6,6 +6,7 @@ import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode, EpisodesViewFile, 
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
 import { ReplannedBadge } from "./ReplannedBadge";
+import { SourceFileKindControl } from "./SourceFileKindControl";
 import { episodeColor, formatSpoken, formatVolume } from "./episodes-view-model";
 import { adjacentBoundaries, pointInRun, textRuns, type ManuscriptPoint, type TextRun } from "./manual-split-model";
 
@@ -13,6 +14,7 @@ import { adjacentBoundaries, pointInRun, textRuns, type ManuscriptPoint, type Te
 const MANUSCRIPT_TEXT_CLS = "cursor-text text-[14.5px] leading-[1.95] [font-family:var(--font-editorial)]";
 
 interface SourceManuscriptProps {
+  projectName: string;
   view: EpisodesView;
   episodes: EpisodeMeta[];
   selected: number | null;
@@ -80,6 +82,7 @@ function pointFromMouse(event: MouseEvent): ManuscriptPoint | null {
  * 最后一个切出集之后是「以下内容尚未分集」分隔线。
  */
 export function SourceManuscript({
+  projectName,
   view,
   episodes,
   selected,
@@ -122,7 +125,15 @@ export function SourceManuscript({
         const boundaries = new Map(adjacentBoundaries(file).map((b) => [b.right, b]));
         return (
           <section key={file.source_file} aria-label={file.name}>
-            <FileBar file={file} index={index} total={view.files.length} unit={view.unit} register={registerFileBar} />
+            <FileBar
+              projectName={projectName}
+              file={file}
+              episodes={episodes}
+              index={index}
+              total={view.files.length}
+              unit={view.unit}
+              register={registerFileBar}
+            />
             {file.segments.map((segment) => {
               const hosted = hostRun !== null && segment.start <= hostRun && hostRun < segment.end ? mark : null;
               const dimmed =
@@ -271,13 +282,17 @@ function BoundaryButton({
 }
 
 function FileBar({
+  projectName,
   file,
+  episodes,
   index,
   total,
   unit,
   register,
 }: {
+  projectName: string;
   file: EpisodesViewFile;
+  episodes: EpisodeMeta[];
   index: number;
   total: number;
   unit: EpisodesView["unit"];
@@ -298,6 +313,7 @@ function FileBar({
       </span>
       <span className="min-w-0 truncate text-[12.5px] font-medium text-text">{file.name}</span>
       <span className="flex-1" />
+      <SourceFileKindControl projectName={projectName} file={file} episodes={episodes} />
       {file.missing ? (
         <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--color-warm)]">
           <TriangleAlert className="h-3.5 w-3.5" aria-hidden />

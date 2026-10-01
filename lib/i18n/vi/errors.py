@@ -557,6 +557,7 @@ MESSAGES = {
     "source_file_not_found": "Không tìm thấy {filename} trong source/; tệp có thể đã bị xóa",
     "source_file_registered": "{filename} đã được đăng ký; hãy làm mới để xem tệp đang được dùng như thế nào",
     "source_file_unreadable": "{filename} không phải văn bản UTF-8, không thể đọc",
+    "source_kind_not_applicable": "Chỉ dự án phim truyện mới phân biệt loại tệp nguồn",
     "source_name_not_whole_source": "Tên tệp bắt đầu bằng dấu gạch dưới hoặc có dạng episode_N.txt không thể thêm vào toàn bộ văn bản nguồn; hãy dùng {filename} làm nguyên văn của một tập hoặc xóa tệp",
     "about_update_check_failed": "Kiểm tra cập nhật thất bại, vui lòng thử lại sau",
     "about_version_read_failed": "Không đọc được phiên bản ứng dụng",

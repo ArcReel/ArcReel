@@ -63,11 +63,12 @@ from lib.episode.episode_sources import (
     whole_source_files,
 )
 from lib.episode.episode_target_volume import EpisodeTargetVolume, resolve_episode_target_volume
+from lib.episode.source_kinds import DEFAULT_SOURCE_KIND, whole_source_file_kind
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.text_metrics import count_reading_units, reading_unit_noun
 from lib.infra.text_utils import strip_json_code_fences
-from lib.project.project_manager import ProjectManager, resolve_source_kind
+from lib.project.project_manager import ProjectManager
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.script import script_review
 
@@ -542,9 +543,13 @@ class EpisodePlanner:
                 window_units=count_reading_units(window, language),
             )
 
+        # 窗口只取一个文件里的原文，一个窗口内只有一种源文件类型
+        source_kind = whole_source_file_kind(project, source_rel) or DEFAULT_SOURCE_KIND
+
         def _prompt(failure: list[str] | None) -> str:
             return _build_planning_prompt(
                 project=project,
+                source_kind=source_kind,
                 window=window,
                 window_is_final=window_is_final,
                 max_episodes=max_episodes,
@@ -994,6 +999,7 @@ def _context_entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
 def _build_planning_prompt(
     *,
     project: Mapping[str, Any],
+    source_kind: str,
     window: str,
     window_is_final: bool,
     max_episodes: int | None,
@@ -1016,7 +1022,7 @@ def _build_planning_prompt(
     return builtin_templates.render(
         "text/episode_plan",
         content_mode=content_mode,
-        source_kind=resolve_source_kind(project),
+        source_kind=source_kind,
         synopsis=overview.get("synopsis") or None,
         genre=overview.get("genre") or None,
         unit_noun=reading_unit_noun(language),

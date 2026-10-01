@@ -138,7 +138,9 @@ def _write_project(
     extra: dict | None = None,
     source_text: str = SOURCE,
     whole_source: tuple[str, ...] = ("novel.txt",),
+    source_kinds: tuple[str, ...] | None = None,
 ) -> Path:
+    """``source_kinds`` 与 ``whole_source`` 逐个对应，记在整本源文清单项上；缺省不记。"""
     project_dir = tmp_path / "projects" / "demo-proj"
     (project_dir / "source").mkdir(parents=True)
     project = {
@@ -150,7 +152,10 @@ def _write_project(
         "scenes": {},
         "props": {},
         "episodes": episodes or [],
-        "whole_source_files": [{"source_file": f"source/{name}"} for name in whole_source],
+        "whole_source_files": [
+            {"source_file": f"source/{name}", **({} if source_kinds is None else {"source_kind": source_kinds[i]})}
+            for i, name in enumerate(whole_source)
+        ],
     }
     if extra:
         project.update(extra)
@@ -317,9 +322,7 @@ class TestPlan:
 
     async def test_plan_summary_splits_english_sentence_before_closing_quote(self, tmp_path: Path):
         source = '"Hello." She left. The end.'
-        project_dir = _write_project(
-            tmp_path, source_text=source, extra={"source_kind": "screenplay", "source_language": "en"}
-        )
+        project_dir = _write_project(tmp_path, source_text=source, extra={"source_language": "en"})
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "One", "hook": "End", "end_anchor": "She left. The end."}])]
         )
@@ -332,9 +335,7 @@ class TestPlan:
     async def test_plan_summary_keeps_english_scene_heading_as_one_sentence(self, tmp_path: Path):
         """全大写缩写（INT. / EXT.）后的句点不断句：场景标题整行作为首句。"""
         source = "INT. KITCHEN - NIGHT\nJohn enters. He sits down.\nEXT. PARK - DAY\n"
-        project_dir = _write_project(
-            tmp_path, source_text=source, extra={"source_kind": "screenplay", "source_language": "en"}
-        )
+        project_dir = _write_project(tmp_path, source_text=source, extra={"source_language": "en"})
         fake = _FakeTextGenerator([_plan_response([{"title": "One", "hook": "Park", "end_anchor": "EXT. PARK - DAY"}])])
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
@@ -1024,7 +1025,7 @@ class TestPlan:
 
     async def test_plan_screenplay_respects_author_divisions(self, tmp_path: Path):
         """screenplay：mock 返回尊重作者分集的规划 → 账本落作者的边界 / 标题 / 钩子 / 大纲。"""
-        project_dir = _write_project(tmp_path, content_mode="drama", extra={"source_kind": "screenplay"})
+        project_dir = _write_project(tmp_path, content_mode="drama", source_kinds=("screenplay",))
         fake = _FakeTextGenerator(
             [
                 _plan_response(
@@ -1081,7 +1082,7 @@ class TestPlan:
                 ]
             )
 
-        screenplay_dir = _write_project(tmp_path / "scr", content_mode="drama", extra={"source_kind": "screenplay"})
+        screenplay_dir = _write_project(tmp_path / "scr", content_mode="drama", source_kinds=("screenplay",))
         scr_fake = _one_episode_generator()
         await EpisodePlanner(screenplay_dir, generator=scr_fake).plan()
         scr_prompt = scr_fake.requests[0].prompt
@@ -1236,6 +1237,37 @@ class TestPlan:
         assert result.cursor == {"source_file": "source/novel2.txt", "offset": len(source2)}
         assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == source2
         assert result.source_exhausted is True  # 第二个文件也到结尾，且没有更多源文件
+
+    async def test_each_whole_source_file_is_planned_by_its_own_source_kind(self, tmp_path: Path):
+        """剧情演绎里小说文件与剧本文件各按自己的类型规划，一个窗口只取一个文件的原文。"""
+        source2 = "第一场 夜 山门\n李恒：师父，我走了。\n"
+        project_dir = _write_project(
+            tmp_path,
+            content_mode="drama",
+            whole_source=("novel.txt", "novel2.txt"),
+            source_kinds=("novel", "screenplay"),
+        )
+        (project_dir / "source" / "novel2.txt").write_text(source2, encoding="utf-8")
+        fake = _FakeTextGenerator(
+            [
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。", "story_beats": ["甲"]}]),
+                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "我走了。", "story_beats": ["乙"]}]),
+            ]
+        )
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        first = await planner.plan()
+        second = await planner.plan()
+
+        novel_prompt, screenplay_prompt = (request.prompt for request in fake.requests)
+        assert "# 小说原文片段" in novel_prompt
+        assert "李恒：师父" not in novel_prompt
+        assert "# 剧本原文片段" in screenplay_prompt
+        assert "卷入漩涡之中。" not in screenplay_prompt
+        assert first.cursor == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
+        assert second.source_exhausted is True
+        eps = _load_project(project_dir)["episodes"]
+        assert [e["source_range"]["source_file"] for e in eps] == ["source/novel.txt", "source/novel2.txt"]
 
     async def test_plan_not_exhausted_when_more_source_files_remain(self, tmp_path: Path):
         """规划到当前源文件结尾但还有后续源文件：不报源文耗尽。"""
@@ -1407,13 +1439,14 @@ class TestPlan:
 
         assert fake.requests[0].prompt == _expected_planning_prompt(_TARGET_VOLUME_UNSET_LINE)
 
-    @pytest.mark.parametrize("source_kind", ["novel", "screenplay"])
-    @pytest.mark.parametrize("content_mode", ["narration", "drama"])
+    @pytest.mark.parametrize(
+        ("content_mode", "source_kind"), [("narration", "novel"), ("drama", "novel"), ("drama", "screenplay")]
+    )
     async def test_plan_prompt_locks_each_content_mode_and_source_kind(
         self, tmp_path: Path, content_mode: str, source_kind: str
     ):
-        """创作类型与源文类型的四种组合各自逐字锁住开篇句、切分规则与原文片段标题。"""
-        project_dir = _write_project(tmp_path, content_mode=content_mode, extra={"source_kind": source_kind})
+        """创作类型与源文类型的组合各自逐字锁住开篇句、切分规则与原文片段标题；只有剧情演绎有源文类型。"""
+        project_dir = _write_project(tmp_path, content_mode=content_mode, source_kinds=(source_kind,))
         draft = {"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}
         if content_mode == "drama":
             draft |= {"story_beats": ["李恒获得古玉"], "next_episode_teaser": None}

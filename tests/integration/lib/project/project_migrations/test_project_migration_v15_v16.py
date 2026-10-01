@@ -10,6 +10,7 @@ import pytest
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
+    ArtifactKind,
     ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
@@ -20,6 +21,7 @@ from lib.artifacts.media_artifact_currency import build_current_video_artifact_b
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.episode.episode_ids import EPISODE_ID_HIGH_WATER_KEY, allocate_episode_ids
+from lib.episode.episode_layout import build_episode_layout
 from lib.episode.episode_reset import EpisodeResetError, reset_episode_planning
 from lib.episode.episode_sources import discover_sources, planning_start, source_snapshot_path
 from lib.project.project_manager import ProjectManager
@@ -367,8 +369,9 @@ def test_project_without_registered_narration_audio_becomes_post_production(tmp_
     migrate_v15_to_v16(project_dir)
 
     project = _read_json(project_dir / "project.json")
+    assert legacy["source_kind"] == "novel"
     assert project == {
-        **legacy,
+        **{key: value for key, value in legacy.items() if key != "source_kind"},
         "episodes": [{**entry, "source_origin": "none"} for entry in legacy["episodes"]],
         "whole_source_files": [{"source_file": "source/1-7-0227.txt"}],
         "narration_delivery": "post_production",
@@ -658,6 +661,61 @@ def test_script_plans_stale_only_by_the_next_episode_outline_stay_current(tmp_pa
     assert status.artifacts["script_plan"]["state"] == "current"
 
 
+def _register_script_plans_as_v15_did(project_dir: Path, variant: str) -> None:
+    """按 v15 的口径重登记脚本规划：剧情演绎的依据含项目级类型，参考生视频的依据不分类型。"""
+    project = _read_json(project_dir / "project.json")
+    view = project
+    if variant == "drama":
+        kind = project["source_kind"]
+        view = {
+            **project,
+            "episodes": [{**entry, "source_origin": "own", "source_kind": kind} for entry in project["episodes"]],
+        }
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    stored = adapter.snapshot_entries()
+    planned = TargetStatePlanner(
+        project_dir, project_bytes=json.dumps(view).encode(), allow_stale_formal_targets=True
+    ).plan()
+    replacements = {
+        key: entry
+        for key, entry in planned.entries.items()
+        if key.kind is ArtifactKind.EPISODE_SCRIPT_PLAN and stored.get(key) != entry
+    }
+    assert (variant == "drama") == bool(replacements)
+    assert not replacements or adapter.replace_entries_if_matches_atomically(
+        expected={key: stored[key] for key in replacements}, replacements=replacements
+    )
+
+
+@pytest.mark.parametrize(
+    ("variant", "plan_name", "expected"),
+    [
+        ("drama", "script_plan_normalized_script.json", ArtifactStatus.CURRENT),
+        ("reference_video", "script_plan_reference_units.json", ArtifactStatus.STALE),
+    ],
+)
+def test_screenplay_project_records_the_source_kind_on_each_source(
+    tmp_path: Path, variant: str, plan_name: str, expected: ArtifactStatus
+) -> None:
+    """项目级类型补记到各集原文上：剧情演绎的脚本规划依据不变；参考生视频此前按小说出稿，改后读为过期。"""
+
+    project_dir = write_legacy_script_plan_project(
+        tmp_path / "projects", variant=variant, schema_version=10, source_kind="screenplay"
+    )
+    advance_project_schema(project_dir, to_version=15)
+    _register_script_plans_as_v15_did(project_dir, variant)
+
+    migrate_project_dir(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    assert "source_kind" not in project
+    assert [(entry["source_origin"], entry["source_kind"]) for entry in project["episodes"]] == [
+        ("own", "screenplay")
+    ] * 3
+    key = ArtifactKey.episode_script_plan(1)
+    assert _status(project_dir, key, f"drafts/episode_1/{plan_name}") is expected
+
+
 def _migrated_episode_sources(tmp_path: Path, **shape: bool) -> tuple[Path, dict[str, Any]]:
     project_dir = write_legacy_episode_sources_project(tmp_path / "projects", **shape)
     migrate_project_dir(project_dir)
@@ -695,6 +753,37 @@ def test_episode_file_without_a_ledger_entry_becomes_an_own_source_episode(tmp_p
     assert status.content.episode_source == "present"
     assert status.content.source_remaining is True
     assert status.operations["prepare_script_plan"].state == "admitted"
+
+
+def test_screenplay_whole_source_files_and_cut_episodes_read_as_screenplay(tmp_path: Path) -> None:
+    """剧情演绎的项目级类型补记到整本源文的每个文件与自带原文的集上；切出集取范围起点所在文件。"""
+
+    project_dir = write_legacy_episode_sources_project(
+        tmp_path / "projects", content_mode="drama", source_kind="screenplay"
+    )
+    migrate_project_dir(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    assert "source_kind" not in project
+    assert project["whole_source_files"] == [
+        {"source_file": "source/第10章.txt", "source_kind": "screenplay"},
+        {"source_file": "source/第2章.txt", "source_kind": "screenplay"},
+    ]
+    assert [(entry["episode"], entry.get("source_kind")) for entry in project["episodes"]] == [
+        (1, None),
+        (2, None),
+        (7, "screenplay"),
+    ]
+    layout = build_episode_layout(project_dir, project)
+    assert [(file.source_file, file.source_kind) for file in layout.files] == [
+        ("source/第10章.txt", "screenplay"),
+        ("source/第2章.txt", "screenplay"),
+    ]
+    assert [(episode.episode, episode.source_kind) for episode in layout.episodes] == [
+        (1, "screenplay"),
+        (2, "screenplay"),
+        (7, "screenplay"),
+    ]
 
 
 def test_pre_split_episode_files_become_own_source_episodes(tmp_path: Path) -> None:

@@ -14,9 +14,14 @@ import { errMsg } from "@/utils/async";
 import { formatNameList } from "@/utils/list-format";
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_FORMATS_LABEL, isSupportedSourceFile } from "@/utils/source-files";
 
+import type { SourceKind } from "@/types/episodes-view";
+
+import { SourceKindSelect } from "./SourceKindSelect";
 import { isReservedEpisodeFileName, type SourceUploadMode } from "./episodes-view-model";
 
-type Row = { key: string; kind: "existing"; name: string } | { key: string; kind: "new"; file: File };
+type Row =
+  | { key: string; kind: "existing"; name: string; sourceKind?: SourceKind }
+  | { key: string; kind: "new"; file: File; sourceKind: SourceKind };
 
 export interface SourceUploadResult {
   /** 登记进整本源文的文件名（服务端落盘后的名字）。 */
@@ -51,7 +56,7 @@ function moveKey(rows: Row[], fromKey: string, toIndex: number): Row[] {
 /** 新选文件的行 key：同名文件可以重复加入，按加入顺序取号。 */
 let newRowSeq = 0;
 
-function toNewRows(files: File[]): { rows: Row[]; skipped: string[] } {
+function toNewRows(files: File[], sourceKind: SourceKind = "novel"): { rows: Row[]; skipped: string[] } {
   const rows: Row[] = [];
   const skipped: string[] = [];
   for (const file of files) {
@@ -60,7 +65,7 @@ function toNewRows(files: File[]): { rows: Row[]; skipped: string[] } {
       continue;
     }
     newRowSeq += 1;
-    rows.push({ key: `new:${newRowSeq}`, kind: "new", file });
+    rows.push({ key: `new:${newRowSeq}`, kind: "new", file, sourceKind });
   }
   return { rows, skipped };
 }
@@ -72,6 +77,9 @@ function toNewRows(files: File[]): { rows: Row[]; skipped: string[] } {
  * - 逐集原文：「文件 → 将成为第 N 集」，确认后按列表顺序追加到播出顺序末尾。
  *
  * 文件名不决定先后。上传中途失败时停下，已上传的文件保留，剩下的文件留在列表里。
+ *
+ * 剧情演绎项目逐个文件选源文件类型，缺省为小说；逐集原文另有一个整批选择，选一次套用到列表里的全部文件，
+ * 之后加入的文件也取这个类型，单个文件仍可以再改。
  */
 export function SourceUploadDialog({
   projectName,
@@ -84,18 +92,20 @@ export function SourceUploadDialog({
   const titleId = useId();
   const project = useProjectsStore((s) => s.currentProjectData);
   const episodeCount = project?.episodes?.length ?? 0;
+  const withSourceKind = project?.content_mode === "drama";
 
   const [mode, setMode] = useState<SourceUploadMode>(initialMode);
   const [rows, setRows] = useState<Row[]>(() => {
-    const existing: Row[] = (project?.whole_source_files ?? []).map(({ source_file }) => {
+    const existing: Row[] = (project?.whole_source_files ?? []).map(({ source_file, source_kind }) => {
       const name = source_file.replace(/^source\//, "");
-      return { key: `existing:${name}`, kind: "existing", name };
+      return { key: `existing:${name}`, kind: "existing", name, sourceKind: source_kind ?? "novel" };
     });
     return [...existing, ...toNewRows(initialFiles ?? []).rows];
   });
   const [skipped, setSkipped] = useState<string[]>(() =>
     (initialFiles ?? []).filter((file) => !isSupportedSourceFile(file.name)).map((file) => file.name),
   );
+  const [batchKind, setBatchKind] = useState<SourceKind>("novel");
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number; name: string } | null>(null);
@@ -116,12 +126,20 @@ export function SourceUploadDialog({
 
   const addFiles = useCallback(
     (files: File[]) => {
-      const added = toNewRows(files);
+      const added = toNewRows(files, mode === "episode" ? batchKind : "novel");
       setRows((prev) => [...prev, ...added.rows]);
       setSkipped(added.skipped);
     },
-    [],
+    [mode, batchKind],
   );
+
+  const setRowKind = (key: string, sourceKind: SourceKind) =>
+    setRows((prev) => prev.map((row) => (row.key === key && row.kind === "new" ? { ...row, sourceKind } : row)));
+
+  const applyBatchKind = (sourceKind: SourceKind) => {
+    setBatchKind(sourceKind);
+    setRows((prev) => prev.map((row) => (row.kind === "new" ? { ...row, sourceKind } : row)));
+  };
 
   const moveBy = (key: string, delta: number) => {
     setRows((prev) => {
@@ -159,6 +177,7 @@ export function SourceUploadDialog({
             role: "whole_source",
             onConflict: "rename",
             insertAt,
+            sourceKind: withSourceKind ? row.sourceKind : undefined,
             signal,
           });
           const saved = res.filename ?? row.file.name;
@@ -166,10 +185,16 @@ export function SourceUploadDialog({
           if (saved !== expected) renamed.push(saved);
           result.wholeSourceFiles.push(saved);
           working = working.map((item) =>
-            item.key === row.key ? { key: `existing:${saved}`, kind: "existing", name: saved } : item,
+            item.key === row.key
+              ? { key: `existing:${saved}`, kind: "existing", name: saved, sourceKind: row.sourceKind }
+              : item,
           );
         } else {
-          const res = await API.uploadFile(projectName, "source", row.file, null, { role: "episode", signal });
+          const res = await API.uploadFile(projectName, "source", row.file, null, {
+            role: "episode",
+            sourceKind: withSourceKind ? row.sourceKind : undefined,
+            signal,
+          });
           if (res.episode !== undefined) result.episodes.push(res.episode);
           working = working.filter((item) => item.key !== row.key);
         }
@@ -277,6 +302,17 @@ export function SourceUploadDialog({
         <p className="mt-4 px-6 text-[12px] leading-[1.6] text-text-3">
           {mode === "whole_source" ? t("dashboard:source_upload_order_whole") : t("dashboard:source_upload_order_episode")}
         </p>
+        {withSourceKind && mode === "episode" ? (
+          <div className="mt-2 flex items-center gap-2 px-6 text-[12px] text-text-3">
+            <span>{t("dashboard:source_upload_batch_kind")}</span>
+            <SourceKindSelect
+              value={batchKind}
+              onChange={applyBatchKind}
+              disabled={busy}
+              label={t("dashboard:source_upload_batch_kind")}
+            />
+          </div>
+        ) : null}
 
         <div
           className="mx-6 mt-2 min-h-[140px] flex-1 overflow-y-auto rounded-[10px] border transition-colors"
@@ -336,8 +372,26 @@ export function SourceUploadDialog({
                     {isNew ? (
                       <span className="num shrink-0 text-[10.5px] text-text-4">{fileSizeLabel(row.file.size)}</span>
                     ) : (
-                      <span className="shrink-0 text-[11px] text-text-4">{t("dashboard:source_upload_existing")}</span>
+                      <span className="shrink-0 text-[11px] text-text-4">
+                        {withSourceKind
+                          ? t("dashboard:source_upload_existing_kind", {
+                              kind: t(
+                                row.sourceKind === "screenplay"
+                                  ? "dashboard:source_kind_screenplay"
+                                  : "dashboard:source_kind_novel",
+                              ),
+                            })
+                          : t("dashboard:source_upload_existing")}
+                      </span>
                     )}
+                    {isNew && withSourceKind ? (
+                      <SourceKindSelect
+                        value={row.sourceKind}
+                        onChange={(value) => setRowKind(row.key, value)}
+                        disabled={busy}
+                        label={t("dashboard:source_kind_of", { name })}
+                      />
+                    ) : null}
                     {isNew && mode === "episode" ? (
                       <span className="shrink-0 text-[11.5px] text-accent-2">
                         {t("dashboard:source_upload_becomes", { position: episodeCount + index + 1 })}

@@ -36,6 +36,7 @@ from lib.episode.episode_source_commands import (
     register_whole_source_file,
     unregister_source_file,
 )
+from lib.episode.source_kinds import SourceKind
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
@@ -323,6 +324,7 @@ async def upload_file(
     on_conflict: OnConflict = "fail",
     role: SourceUploadRole = "whole_source",
     insert_at: Annotated[int | None, Query(ge=0)] = None,
+    source_kind: SourceKind | None = None,
 ):
     """
     上传文件
@@ -337,6 +339,7 @@ async def upload_file(
         role: source 类型独有 — whole_source 登记为整本源文的文件，接在清单末尾；episode 登记为
             播出顺序末尾的一集自带原文的集
         insert_at: role=whole_source 独有 — 登记后文件在整本源文清单里的下标，缺省或超出末尾时接在末尾
+        source_kind: source 类型独有 — 剧情演绎项目这份原文的源文件类型，缺省为小说；其他创作类型忽略
     """
     spec = UPLOAD_SPECS.get(upload_type)
     if spec is None:
@@ -365,12 +368,15 @@ async def upload_file(
         # 源文登记写的是当前 schema 的字段；迁移没完成的项目先写进去，重试迁移时会把旧整本源文漏登
         await asyncio.to_thread(assert_project_migration_ok, project_name)
         if role == "episode":
-            return await _handle_episode_source_upload(project_name=project_name, file=file, _t=_t)
+            return await _handle_episode_source_upload(
+                project_name=project_name, file=file, source_kind=source_kind, _t=_t
+            )
         return await _handle_source_upload(
             project_name=project_name,
             file=file,
             on_conflict=on_conflict,
             insert_at=insert_at,
+            source_kind=source_kind,
             _t=_t,
         )
 
@@ -532,6 +538,7 @@ async def _handle_source_upload(
     file: UploadFile,
     on_conflict: OnConflict,
     insert_at: int | None,
+    source_kind: SourceKind | None,
     _t: Translator,
 ):
     """Source 分支：通过 SourceLoader 规范化为 UTF-8 .txt，并按需备份原始字节，登记为整本源文的文件。"""
@@ -563,7 +570,9 @@ async def _handle_source_upload(
                     original_filename=original_filename,
                     on_conflict=on_conflict,
                 )
-                register_whole_source_file(project, f"source/{result.normalized_path.name}", index=insert_at)
+                register_whole_source_file(
+                    project, f"source/{result.normalized_path.name}", index=insert_at, source_kind=source_kind
+                )
                 return result
         finally:
             tmp_path.unlink(missing_ok=True)
@@ -634,7 +643,9 @@ async def _handle_source_upload(
     }
 
 
-async def _handle_episode_source_upload(*, project_name: str, file: UploadFile, _t: Translator):
+async def _handle_episode_source_upload(
+    *, project_name: str, file: UploadFile, source_kind: SourceKind | None, _t: Translator
+):
     """逐集原文：规范化为文本，登记为播出顺序末尾的一集自带原文的集。"""
     original_filename = _require_filename(file, _t)
 
@@ -654,7 +665,7 @@ async def _handle_episode_source_upload(*, project_name: str, file: UploadFile, 
         finally:
             tmp_path.unlink(missing_ok=True)
         with project_change_source("webui"), manager.locked_source_registration(project_name) as (_dir, project, undo):
-            return add_own_source_episode(project_dir, project, extracted.text, undo=undo)
+            return add_own_source_episode(project_dir, project, extracted.text, undo=undo, source_kind=source_kind)
 
     try:
         episode = await asyncio.to_thread(_sync)

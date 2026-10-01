@@ -153,8 +153,6 @@ export interface CreateProjectPayload {
   title: string;
   name?: string;
   content_mode?: "narration" | "drama" | "ad";
-  /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
-  source_kind?: "novel" | "screenplay";
   aspect_ratio?: "9:16" | "16:9";
   /** 生成模式，创建时必填二选一、无默认值（后端缺失即 422）。 */
   generation_mode: GenerationRoute;

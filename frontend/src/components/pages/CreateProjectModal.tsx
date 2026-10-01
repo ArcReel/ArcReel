@@ -149,7 +149,6 @@ export function CreateProjectModal() {
   const [basics, setBasics] = useState<WizardStep1Value>({
     title: "",
     contentMode: "narration",
-    sourceKind: "novel",
     aspectRatio: "9:16",
     generationRoute: null,
     gridStoryboard: false,
@@ -329,8 +328,6 @@ export function CreateProjectModal() {
       const resp = await API.createProject({
         title: basics.title.trim(),
         content_mode: basics.contentMode,
-        // source_kind 仅 drama 暴露与生效；其余模式由服务端缺省 novel
-        ...(basics.contentMode === "drama" ? { source_kind: basics.sourceKind } : {}),
         aspect_ratio: basics.aspectRatio,
         generation_mode: basics.generationRoute,
         grid_storyboard: basics.gridStoryboard,

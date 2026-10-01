@@ -4,6 +4,9 @@
 - 逐集原文：每个文件登记为播出顺序末尾的一集自带原文的集，分配新集 ID（:func:`add_own_source_episode`）。
 - 集页填写：无原文的集填上原文后转为自带原文的集；自带原文的集改写原文；切出集的集文件是派生物，
   不经这里改写（:func:`set_episode_source_text`）。
+- 源文件类型（ADR 0036）：剧情演绎项目登记原文时一并记类型，缺省为小说；整本源文文件的类型可以单独改
+  （:func:`set_whole_source_file_kind`）。改类型不改源文指纹，也不动账本；会让已有脚本规划的集判 stale 时
+  先确认。
 
 写源文与改 ``project.json`` 在同一把项目锁内完成（``ProjectManager.locked_source_registration``）。
 """
@@ -11,6 +14,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -28,7 +32,18 @@ from lib.episode.episode_sources import (
     remove_whole_source_file,
     whole_source_files,
 )
+from lib.episode.source_kinds import (
+    DEFAULT_SOURCE_KIND,
+    SourceKind,
+    entry_source_kind,
+    episodes_from_whole_source_file,
+    record_episode_kind,
+    record_whole_source_file_kind,
+    source_kind_applies,
+    whole_source_file_kind,
+)
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.script import script_review
 
 if TYPE_CHECKING:
     from lib.project.project_manager import ProjectManager
@@ -42,15 +57,21 @@ class EpisodeSourceError(ValueError):
         self.code = code
 
 
-def register_whole_source_file(project: dict[str, Any], rel: str, *, index: int | None = None) -> bool:
+def register_whole_source_file(
+    project: dict[str, Any], rel: str, *, index: int | None = None, source_kind: SourceKind | None = None
+) -> bool:
     """把直接位于 ``source/`` 下的源文件登记进整本源文，返回是否新增。
 
     ``index`` 是登记后文件在清单里的下标，缺省时接在末尾。已登记、不是源文文件名（点 / 下划线前缀、
-    扩展名不是 .txt / .md），或是账本里某一集的集文件时不登记。
+    扩展名不是 .txt / .md），或是账本里某一集的集文件时不登记。剧情演绎项目新登记的文件记
+    ``source_kind``，缺省为小说；已登记的文件类型不变。
     """
     if not is_whole_source_file_path(rel) or is_episode_source_file(project, rel):
         return False
-    return append_whole_source_file(project, rel, index=index)
+    added = append_whole_source_file(project, rel, index=index)
+    if added:
+        record_whole_source_file_kind(project, rel, source_kind)
+    return added
 
 
 def unregister_source_file(project: dict[str, Any], rel: str) -> None:
@@ -106,34 +127,62 @@ def _require_text(text: str) -> str:
 
 
 def add_own_source_episode(
-    project_dir: Path, project: dict[str, Any], text: str, *, undo: ExitStack, title: str = ""
+    project_dir: Path,
+    project: dict[str, Any],
+    text: str,
+    *,
+    undo: ExitStack,
+    title: str = "",
+    source_kind: SourceKind | None = None,
 ) -> int:
     """在 ``locked_source_registration`` 块内登记一集自带原文的集：分配新集 ID、写集文件、接在播出顺序末尾。
 
-    盘上与新集 ID 同名、没有登记的 ``episode_N.txt`` 先改名留底，不被覆盖。返回新集 ID。
+    盘上与新集 ID 同名、没有登记的 ``episode_N.txt`` 先改名留底，不被覆盖。剧情演绎项目的条目记
+    ``source_kind``，缺省为小说。返回新集 ID。
     """
     normalized = _require_text(text)
     (episode,) = allocate_episode_ids(project, 1)
     _write_episode_file(project_dir, episode, normalized, archive_existing=True, undo=undo)
     raw_episodes = project.get("episodes")
     episodes = list(raw_episodes) if isinstance(raw_episodes, list) else []
-    episodes.append(
-        {
-            "episode": episode,
-            "title": title,
-            "script_file": episode_script_relpath(episode),
-            SOURCE_ORIGIN_FIELD: SourceOrigin.OWN.value,
-        }
-    )
+    entry: dict[str, Any] = {
+        "episode": episode,
+        "title": title,
+        "script_file": episode_script_relpath(episode),
+        SOURCE_ORIGIN_FIELD: SourceOrigin.OWN.value,
+    }
+    record_episode_kind(project, entry, source_kind)
+    episodes.append(entry)
     project["episodes"] = episodes
     return episode
 
 
-def set_episode_source_text(pm: ProjectManager, project_name: str, episode: int, text: str) -> SourceOrigin:
+@dataclass(frozen=True)
+class EpisodeSourceWrite:
+    """集页写本集原文的结果。"""
+
+    #: 已写入。为 False 时表示改类型还需要确认，原文与类型都没有写。
+    applied: bool
+    #: 本集写入后（未写入时为写入前）的原文来源。
+    origin: SourceOrigin
+    #: 会因改类型让脚本规划判 stale 的集：本集已有脚本规划且类型变了时为本集。
+    affected_episodes: list[int]
+
+
+def set_episode_source_text(
+    pm: ProjectManager,
+    project_name: str,
+    episode: int,
+    text: str,
+    *,
+    source_kind: SourceKind | None = None,
+    confirm: bool = False,
+) -> EpisodeSourceWrite:
     """集页填写或改写本集原文：写集文件，无原文的集转为自带原文的集。
 
     切出集的集文件由账本派生，改动要走分集规划，这里拒绝。无原文的集在盘上恰有同名文件时，那份文件不是
-    本集原文，先改名留底再写。返回写入后的来源。
+    本集原文，先改名留底再写。剧情演绎项目同时记 ``source_kind``：缺省时保留已有类型，没有记录时记小说。
+    改类型会让已开始制作的本集（已有脚本规划）的脚本规划判 stale 时，``confirm`` 为 False 就不写入。
     """
     normalized = _require_text(text)
     project_dir = pm.get_project_path(project_name)
@@ -155,9 +204,21 @@ def set_episode_source_text(pm: ProjectManager, project_name: str, episode: int,
                 "episode_source_derived",
                 f"集（id={episode}）切自整本源文，集原文由分集规划派生，不能直接改写",
             )
+        affected = (
+            [episode]
+            if source_kind is not None
+            and source_kind_applies(project)
+            and (entry_source_kind(project, entry) or DEFAULT_SOURCE_KIND) != source_kind
+            and (plan := script_review.script_plan_path(project_dir, project, episode)) is not None
+            and plan.is_file()
+            else []
+        )
+        if affected and not confirm:
+            return EpisodeSourceWrite(applied=False, origin=origin, affected_episodes=affected)
         _write_episode_file(project_dir, episode, normalized, archive_existing=origin is SourceOrigin.NONE, undo=undo)
         entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.OWN.value
-    return SourceOrigin.OWN
+        record_episode_kind(project, entry, source_kind)
+    return EpisodeSourceWrite(applied=True, origin=SourceOrigin.OWN, affected_episodes=affected)
 
 
 def _unregistered_source_path(project_dir: Path, project: dict[str, Any], filename: str) -> Path:
@@ -204,6 +265,7 @@ def adopt_source_file_as_whole_source(pm: ProjectManager, project_name: str, fil
             raise EpisodeSourceError("source_name_not_whole_source", f"这个文件名不能用作整本源文：{filename}")
         _read_source_bytes(path)
         append_whole_source_file(project, rel)
+        record_whole_source_file_kind(project, rel, None)
 
 
 def adopt_source_file_as_episode(pm: ProjectManager, project_name: str, filename: str, episode: int | None) -> int:
@@ -239,15 +301,59 @@ def adopt_source_file_as_episode(pm: ProjectManager, project_name: str, filename
             return add_own_source_episode(project_dir, project, text, undo=undo)
         _write_episode_file(project_dir, episode, text, archive_existing=True, undo=undo)
         entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.OWN.value
+        record_episode_kind(project, entry, None)
         return episode
+
+
+@dataclass(frozen=True)
+class SourceKindChange:
+    """改整本源文文件类型的结果。"""
+
+    #: 类型确实变了（已写入，或待确认）。
+    changed: bool
+    #: 已写入。``changed`` 为 True 而它为 False 时，表示还需要确认。
+    applied: bool
+    #: 会因改类型让脚本规划判 stale 的切出集（原文范围起点在这个文件、已有脚本规划），按播出顺序。
+    affected_episodes: list[int]
+
+
+def set_whole_source_file_kind(
+    pm: ProjectManager, project_name: str, filename: str, source_kind: SourceKind, *, confirm: bool
+) -> SourceKindChange:
+    """改整本源文文件 ``source/<filename>`` 的类型。
+
+    只改清单项上的记录，不改源文指纹，也不动账本。会让已开始制作的集（已有脚本规划）的脚本规划判
+    stale 时，``confirm`` 为 False 就不写入，只返回这些集；没有这类集时直接写入。只有剧情演绎项目有类型。
+    """
+    project_dir = pm.get_project_path(project_name)
+    rel = f"source/{filename}"
+    with pm.locked_source_registration(project_name) as (_source_dir, project, _undo):
+        if not source_kind_applies(project):
+            raise EpisodeSourceError("source_kind_not_applicable", "只有剧情演绎项目有源文件类型")
+        if rel not in whole_source_files(project):
+            raise EpisodeSourceError("source_file_not_found", f"整本源文里没有这个文件：{filename}")
+        if whole_source_file_kind(project, rel) == source_kind:
+            return SourceKindChange(changed=False, applied=False, affected_episodes=[])
+        affected = [
+            episode
+            for episode in episodes_from_whole_source_file(project, rel)
+            if (plan := script_review.script_plan_path(project_dir, project, episode)) is not None and plan.is_file()
+        ]
+        if affected and not confirm:
+            return SourceKindChange(changed=True, applied=False, affected_episodes=affected)
+        record_whole_source_file_kind(project, rel, source_kind)
+    return SourceKindChange(changed=True, applied=True, affected_episodes=affected)
 
 
 __all__ = [
     "EpisodeSourceError",
+    "EpisodeSourceWrite",
+    "SourceKindChange",
     "add_own_source_episode",
     "adopt_source_file_as_episode",
     "adopt_source_file_as_whole_source",
     "register_whole_source_file",
     "set_episode_source_text",
+    "set_whole_source_file_kind",
     "unregister_source_file",
 ]

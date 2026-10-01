@@ -26,6 +26,7 @@ function info(episode: number, overrides: Partial<EpisodesViewEpisode> = {}): Ep
     spoken_seconds: 3,
     first_sentence: "",
     last_sentence: "",
+    source_kind: null,
     ...overrides,
   };
 }
@@ -70,6 +71,7 @@ describe("episodes-view-model", () => {
             segment({ kind: "episode", episode: 1, units: 30, start: 40 }),
             segment({ start: 70, units: 30 }),
           ],
+          source_kind: null,
         },
         {
           source_file: "source/b.txt",
@@ -80,6 +82,7 @@ describe("episodes-view-model", () => {
           units: 50,
           cut_units: 0,
           segments: [segment({ units: 50 })],
+          source_kind: null,
         },
       ],
       episodes: [info(1), info(2), info(3, { origin: "own", placed: false, source_file: null })],
