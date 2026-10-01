@@ -34,6 +34,14 @@ const ENTRY_TYPES = [
   { id: "style", labelKey: "market_type_style", available: false },
 ] as const;
 
+const MEDIA_FILTERS = [
+  { id: "all", labelKey: "market_media_all" },
+  { id: "image", labelKey: "media_type_image" },
+  { id: "video", labelKey: "media_type_video" },
+] as const;
+
+type MediaFilter = (typeof MEDIA_FILTERS)[number]["id"];
+
 /**
  * 按 id 合并刷新结果，只改写刷新产出的字段、保持原顺序；显示名与启停以本地为准，
  * 迟到的刷新响应不会覆盖期间完成的修改。
@@ -104,6 +112,7 @@ export function MarketSection() {
   const [query, setQuery] = useState("");
   const [hiddenSourceIds, setHiddenSourceIds] = useState<ReadonlySet<number>>(new Set());
   const [onlyInstalled, setOnlyInstalled] = useState(false);
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [installationRevision, setInstallationRevision] = useState(0);
   const [selected, setSelected] = useState<MarketEntry | null>(null);
   const [official, setOfficial] = useState<OfficialServiceState | null>(null);
@@ -280,6 +289,7 @@ export function MarketSection() {
       sourcesById.get(entry.source_id)?.is_enabled === true &&
       !hiddenSourceIds.has(entry.source_id) &&
       matchesQuery(entry, trimmedQuery) &&
+      (mediaFilter === "all" || entry.media_type === mediaFilter) &&
       (!onlyInstalled || !!entry.installation),
   );
 
@@ -389,6 +399,34 @@ export function MarketSection() {
                 )}
               </button>
             ))}
+          </div>
+          <span className="hidden h-4 w-px bg-hairline sm:block" aria-hidden />
+          <div
+            role="group"
+            aria-label={t("market_media_filter_label")}
+            className="flex flex-wrap items-center gap-1.5"
+          >
+            <span className={`${KICKER_CLS} mr-1`} aria-hidden>
+              Media
+            </span>
+            {MEDIA_FILTERS.map((filter) => {
+              const on = mediaFilter === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setMediaFilter(filter.id)}
+                  className={`rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
+                    on
+                      ? "border-accent/45 bg-accent-dim text-text"
+                      : "border-hairline-soft text-text-3 hover:text-text"
+                  }`}
+                >
+                  {t(filter.labelKey)}
+                </button>
+              );
+            })}
           </div>
           <span className="hidden h-4 w-px bg-hairline sm:block" aria-hidden />
           <div
