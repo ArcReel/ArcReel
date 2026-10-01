@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +33,7 @@ from lib.edit_timeline.model import EditTimelineContent, microseconds_to_seconds
 from lib.edit_timeline.readout import unrendered_effects
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ids import episode_file_label
+from lib.i18n import _ as translate_default
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_frame_before
@@ -76,11 +77,17 @@ def _applicable_issues(issues: tuple[TimelineIssue, ...], narration: DraftNarrat
 
 
 def draft_folder_name(
-    project_name: str, project: Mapping[str, Any], *, episode: int, timeline_name: str, narration: DraftNarration
+    project_name: str,
+    project: Mapping[str, Any],
+    *,
+    episode: int,
+    timeline_name: str,
+    narration: DraftNarration,
+    translate: Callable[..., str] = translate_default,
 ) -> str:
-    """剪映草稿文件夹名：``{两位播出位置}_{集标题}`` 与剪辑时间线显示名，集不在账本里时以项目标题代替集；
-    带旁白版本另加后缀，两个版本可以并存。"""
-    base = episode_file_label(project, episode)
+    """剪映草稿文件夹名：``{两位播出位置}_{集名}`` 与剪辑时间线显示名，集不在账本里时以项目标题代替集；
+    带旁白版本另加后缀，两个版本可以并存。空标题的集名按 ``translate`` 的语言成文。"""
+    base = episode_file_label(project, episode, translate)
     if base is None:
         raw_title = project.get("title")
         base = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
@@ -402,6 +409,7 @@ class TimelineJianyingDraftService:
         narration: DraftNarration | None = None,
         draft_root: str,
         jianying_version: JianyingVersion,
+        translate: Callable[..., str] = translate_default,
     ) -> tuple[Path, str]:
         """把已登记的剪映草稿代入本机草稿目录与剪映版本打包；过期的草稿照常可下载。
 
@@ -420,7 +428,12 @@ class TimelineJianyingDraftService:
         project = await asyncio.to_thread(self._projects.load_project, project_name)
         project_dir = await asyncio.to_thread(self._projects.get_project_path, project_name)
         name = draft_folder_name(
-            project_name, project, episode=document.episode, timeline_name=document.name, narration=narration
+            project_name,
+            project,
+            episode=document.episode,
+            timeline_name=document.name,
+            narration=narration,
+            translate=translate,
         )
         temp_dir = Path(tempfile.mkdtemp(prefix="arcreel_jy_download_"))
         output = temp_dir / f"{name}.zip"

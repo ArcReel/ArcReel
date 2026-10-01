@@ -265,6 +265,18 @@ class TestDataValidator:
         assert result.valid
         assert any("缺少 duration_seconds" in w for w in result.warnings)
 
+    def test_validate_episode_accepts_an_empty_title(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("narration"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "", "content_mode": "narration", "segments": []},
+        )
+
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not any("title" in error for error in result.errors)
+
     def test_validate_episode_rejects_missing_narration_audio_file(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))

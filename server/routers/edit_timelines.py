@@ -541,7 +541,12 @@ async def download_jianying_draft(
     root = _draft_root(draft_path, _t)
     try:
         package, name = await service.package_download(
-            project_name, timeline_id, narration=narration, draft_root=root, jianying_version=jianying_version
+            project_name,
+            timeline_id,
+            narration=narration,
+            draft_root=root,
+            jianying_version=jianying_version,
+            translate=_t,
         )
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc

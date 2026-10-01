@@ -4,7 +4,7 @@ import { Check, Pencil, X } from "lucide-react";
 
 interface EditableEpisodeTitleProps {
   title: string;
-  /** 标题为空时展示的集名（播出位置「第 N 集」），也是输入框的占位文字。 */
+  /** 标题为空时展示的集名（按播出位置派生的「第 N 集」），也是输入框的占位文字。 */
   placeholder?: string;
   /** 保存回调；reject 时组件保持编辑态，错误提示由调用方负责（如 toast）。 */
   onSave: (next: string) => Promise<void>;
@@ -17,7 +17,7 @@ interface EditableEpisodeTitleProps {
 
 /**
  * 分集标题的可编辑包装：展示态 hover 出铅笔，点击进入 inline 输入，Enter 保存 / Esc 取消还原。
- * 空/纯空白禁用保存。canEdit=false 时退化为纯 <h1> 展示。timeline / reference / grid 三处 header 复用。
+ * 清空后保存即回到派生集名（placeholder）。canEdit=false 时退化为纯 <h1> 展示。timeline / reference / grid 三处 header 复用。
  */
 export function EditableEpisodeTitle({
   title,
@@ -43,7 +43,7 @@ export function EditableEpisodeTitle({
   }, [isEditing]);
 
   const trimmed = draft.trim();
-  const canSave = trimmed.length > 0 && !saving;
+  const canSave = !saving;
 
   const enterEdit = () => {
     setDraft(title);
@@ -57,7 +57,7 @@ export function EditableEpisodeTitle({
 
   const save = async () => {
     if (!canSave) return;
-    if (trimmed === title) {
+    if (trimmed === title.trim()) {
       setIsEditing(false);
       return;
     }

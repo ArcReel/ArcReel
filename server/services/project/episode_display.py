@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import Request
 
-from lib.episode.episode_ids import episode_position, episode_title
+from lib.episode.episode_ids import episode_display_name
 from lib.project.project_manager import get_project_manager
 
 _EPISODE_REF = re.compile(r"(?:集（id=(\d+)）|(?:episode|tập) \(id=(\d+)\))", re.IGNORECASE)
@@ -26,11 +26,7 @@ def render_episode_text(message: str, project: Mapping[str, Any], translate: Cal
     """把已成文的诊断改成标题或播出位置；已移出账本的集显示为未命名集。"""
 
     def name(episode_id: int) -> str:
-        title = episode_title(project, episode_id)
-        if title:
-            return title
-        position = episode_position(project, episode_id)
-        return translate("episode_position_name", position=position) if position else translate("episode_unlisted_name")
+        return episode_display_name(project, episode_id, translate)
 
     message = _EPISODE_REF.sub(lambda m: name(int(m.group(1) or m.group(2))), message)
     message = _SCRIPT_REF.sub(lambda m: translate("episode_script_name", name=name(int(m.group(1)))), message)

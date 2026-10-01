@@ -932,6 +932,23 @@ async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: To
     assert rv_script_plan_path(fake_ctx).read_text(encoding="utf-8") == formal_before
 
 
+async def test_open_reference_prompt_authoring_keeps_an_empty_title_empty(fake_ctx: ToolHarness) -> None:
+    rv_project(fake_ctx)
+    _write_reference_prompt_authoring(
+        fake_ctx,
+        {
+            "title": "",
+            "content_mode": "narration",
+            "episode": 1,
+            "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
+        },
+    )
+
+    out = await run_declared_tool("open_draft", fake_ctx, {"episode_id": 1, "doc_type": "reference_prompt_authoring"})
+
+    assert draft_of(out)["content"]["title"] == ""
+
+
 async def test_open_reference_prompt_authoring_returns_flat_editable_content(fake_ctx: ToolHarness) -> None:
     rv_project(fake_ctx)
     _write_reference_prompt_authoring(

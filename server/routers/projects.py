@@ -1741,10 +1741,9 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
     已移除（title 不在 EpisodePatch 上），杜绝第二真相源。
 
     还没有剧本的集（新建的空集、尚未规划脚本的集）标题只记在账本条目上；之后建出的剧本以它为初值。
+    标题可以清空，空标题的集名由呈现层按播出位置派生。
     """
     title = req.title.strip()
-    if not title:
-        raise HTTPException(status_code=422, detail=_t("episode_title_empty"))
 
     try:
 

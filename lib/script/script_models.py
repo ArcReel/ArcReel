@@ -279,7 +279,7 @@ class NovelInfo(BaseModel):
     """小说来源信息
 
     title/chapter 都带 default,以便 SkipJsonSchema[NovelInfo] 的 default_factory=NovelInfo 构造。
-    真实值由 ``ScriptGenerator._add_metadata`` setdefault 注入(项目 title + ``f"第N集"``);
+    真实值由 ``ScriptGenerator._add_metadata`` setdefault 注入(项目 title + 分集账本标题,账本标题为空时留空);
     LLM 不再被引导填写,避免虚构章节名污染下游消费方。
     """
 
@@ -307,7 +307,7 @@ class NarrationEpisodeScript(BaseModel):
     title: str = Field(description="剧集标题")
     # content_mode 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
     content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="创作类型")
-    # novel 由 _add_metadata 注入 {项目 title, f"第N集"};LLM 自由发挥反而不可预测
+    # novel 由 _add_metadata 注入 {项目 title, 分集账本标题};LLM 自由发挥反而不可预测
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # hook / next_episode_teaser 由 _add_metadata 从分集账本注入（账本是钩子设计的
     # 单一真相源，LLM 不参与填写）；账本无规划数据时为 null。
