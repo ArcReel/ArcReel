@@ -35,6 +35,7 @@ const VIEW: EpisodesViewData = {
       name: "上卷.txt",
       original_filename: "上卷.docx",
       missing: false,
+      length: 30,
       units: 30,
       cut_units: 20,
       segments: [
@@ -124,7 +125,7 @@ describe("EpisodesView", () => {
     renderView("/episodes?episode=2");
 
     const manuscript = await screen.findByRole("main", { name: "整本源文" });
-    const header = within(manuscript).getByRole("button", { name: /转折/ });
+    const header = within(manuscript).getByRole("button", { name: /^第 2 集\s*转折/ });
     expect(header).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(header.scrollIntoView).toHaveBeenCalled());
   });

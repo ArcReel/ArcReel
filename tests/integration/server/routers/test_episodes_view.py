@@ -183,3 +183,53 @@ class TestAdoptSourceFile:
 
         assert pm.load_project("demo") == before
         assert (source_dir / "_remaining.txt").read_text(encoding="utf-8") == "剩余"
+
+
+class TestManualSplit:
+    def test_split_with_products_returns_the_confirmation_text_before_writing(self, tmp_path, monkeypatch):
+        cut = _entry(1, "whole_source", source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})
+        cut["title"] = "雨夜"
+        client, pm, source_dir = _client(
+            monkeypatch,
+            tmp_path,
+            whole_source_files=[{"source_file": "source/novel.txt"}],
+            episodes=[cut],
+            episode_id_high_water=1,
+        )
+        (source_dir / "novel.txt").write_text("少年下山。\n城里起火。", encoding="utf-8")
+        scripts = pm.get_project_path("demo") / "scripts"
+        scripts.mkdir(exist_ok=True)
+        (scripts / "episode_1.json").write_text("{}", encoding="utf-8")
+        body = {"action": "split", "episode": 1, "at": 5}
+
+        with client:
+            pending = client.post("/api/v1/projects/demo/episodes-view/manual-split", json=body)
+            applied = client.post(
+                "/api/v1/projects/demo/episodes-view/manual-split", json={**body, "confirm_episodes": [1]}
+            )
+
+        assert pending.status_code == 200
+        assert pending.json()["status"] == "confirmation_required"
+        assert pending.json()["impact"]["restaled"] == [1]
+        assert "雨夜" in pending.json()["impact"]["text"]
+        assert applied.json() == {
+            "status": "applied",
+            "episode": 2,
+            "impact": {"restaled": [1], "retired": [], "removed": []},
+        }
+        assert [e["episode"] for e in pm.load_project("demo")["episodes"]] == [1, 2]
+
+    def test_refusal_maps_to_a_status_code(self, tmp_path, monkeypatch):
+        client, _pm, source_dir = _client(
+            monkeypatch, tmp_path, whole_source_files=[{"source_file": "source/novel.txt"}]
+        )
+        (source_dir / "novel.txt").write_text("少年下山。", encoding="utf-8")
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/episodes-view/manual-split",
+                json={"action": "cut", "source_file": "source/novel.txt", "end": 99},
+            )
+
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == zh_errors.MESSAGES["manual_split_position_invalid"]

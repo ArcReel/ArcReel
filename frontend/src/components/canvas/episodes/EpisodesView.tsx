@@ -12,6 +12,8 @@ import { errMsg } from "@/utils/async";
 import { EpisodesRail } from "./EpisodesRail";
 import { SourceManuscript } from "./SourceManuscript";
 import { SourceUploadDialog } from "./SourceUploadDialog";
+import { ManualSplitToolbar, caretColor } from "./ManualSplitToolbar";
+import { useManualSplit } from "./useManualSplit";
 import {
   EPISODES_VIEW_EPISODE_PARAM,
   EPISODES_VIEW_UPLOAD_PARAM,
@@ -126,6 +128,34 @@ export function EpisodesView({ projectName }: { projectName: string }) {
 
   const openUpload = useCallback(() => setUpload("whole_source"), []);
 
+  const onSplitApplied = useCallback(
+    (episode: number | null) => {
+      reload();
+      if (episode !== null) setSelected(episode);
+    },
+    [reload],
+  );
+  const split = useManualSplit(projectName, view, onSplitApplied);
+  const caret =
+    view !== null && split.pending !== null && split.action !== null
+      ? {
+          point: split.pending,
+          color: caretColor(split.action),
+          toolbar: (
+            <ManualSplitToolbar
+              view={view}
+              episodes={episodes}
+              action={split.action}
+              title={split.title}
+              onTitleChange={split.setTitle}
+              busy={split.busy}
+              onConfirm={split.confirmPending}
+              onCancel={split.cancel}
+            />
+          ),
+        }
+      : null;
+
   if (view === null) {
     return (
       <div className="grid h-full place-items-center px-6 text-center text-[12.5px] text-text-4" aria-busy={!error}>
@@ -148,6 +178,10 @@ export function EpisodesView({ projectName }: { projectName: string }) {
               onSelect={setSelected}
               registerEpisodeHeader={registerEpisodeHeader}
               registerFileBar={registerFileBar}
+              caret={caret}
+              moving={split.moving}
+              onPlace={split.place}
+              onToggleMoving={split.toggleMoving}
             />
           )}
         </div>
@@ -166,11 +200,15 @@ export function EpisodesView({ projectName }: { projectName: string }) {
           onScrollToFile={scrollToFile}
           onUpload={openUpload}
           onChanged={reload}
+          splitBusy={split.busy}
+          onMergeWithNext={split.mergeWithNext}
+          onClearAfter={split.clearAfter}
         />
       </aside>
       {upload !== null ? (
         <SourceUploadDialog projectName={projectName} initialMode={upload} onClose={() => setUpload(null)} />
       ) : null}
+      {split.dialog}
     </div>
   );
 }

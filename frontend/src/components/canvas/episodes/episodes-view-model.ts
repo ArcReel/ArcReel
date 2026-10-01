@@ -43,11 +43,6 @@ export function formatSpoken(t: TFunction, seconds: number): string {
     : t("dashboard:episodes_view_spoken_minutes", { count: minutes });
 }
 
-/** 原文按换行拆成段落；空行只作段间距，不单独成段。 */
-export function paragraphs(text: string): string[] {
-  return text.split("\n").filter((line) => line.trim() !== "");
-}
-
 export type RailRow =
   | { kind: "episode"; episode: EpisodeMeta; info: EpisodesViewEpisode }
   | { kind: "gap"; units: number; key: string };

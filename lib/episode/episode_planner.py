@@ -548,11 +548,7 @@ class EpisodePlanner:
                 # 新集 ID 在磁盘上已有剧本/script_plan 产物（历史最高号之外的手工残留），说明该 ID
                 # 实际已被消费过；标 stale 提示主 Agent 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
-                    entry["ledger_status"] = "stale"
-                    script_plan_path = script_review.script_plan_path(self.project_path, p, num)
-                    entry[script_review.STALE_SCRIPT_PLAN_REVISION_FIELD] = (
-                        script_review.content_fingerprint(script_plan_path) if script_plan_path is not None else None
-                    )
+                    script_review.mark_ledger_stale(self.project_path, p, entry, num)
                     committed["stale"].append(num)
                 new_entries.append(entry)
                 segment = text[prev:abs_end]

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
-import { ArrowUpRight, FileText, Upload } from "lucide-react";
+import { ArrowUpRight, Combine, FileText, ListX, Upload } from "lucide-react";
 
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -12,6 +12,7 @@ import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode } from "@/types";
 import { episodePosition } from "@/utils/episode-display";
 
 import { ReplannedBadge } from "./ReplannedBadge";
+import { cutEpisodeActions } from "./manual-split-model";
 import { UnregisteredFilesPanel } from "./UnregisteredFilesPanel";
 import {
   episodeColor,
@@ -31,6 +32,17 @@ interface EpisodesRailProps {
   onScrollToFile: (sourceFile: string) => void;
   onUpload: () => void;
   onChanged: () => void;
+  /** 手工切分的请求在途。 */
+  splitBusy: boolean;
+  onMergeWithNext: (episode: number) => void;
+  onClearAfter: (episode: number) => void;
+}
+
+/** 选中切出集后就地展开的单集操作。 */
+interface CutActions {
+  busy: boolean;
+  onMergeWithNext: (episode: number) => void;
+  onClearAfter: (episode: number) => void;
 }
 
 /**
@@ -46,7 +58,11 @@ export function EpisodesRail({
   onScrollToFile,
   onUpload,
   onChanged,
+  splitBusy,
+  onMergeWithNext,
+  onClearAfter,
 }: EpisodesRailProps) {
+  const cutActions: CutActions = { busy: splitBusy, onMergeWithNext, onClearAfter };
   const { t } = useTranslation(["dashboard", "common"]);
   const groups = railFileGroups(view, episodes);
   const others = otherEpisodes(view, episodes);
@@ -122,6 +138,7 @@ export function EpisodesRail({
                       episodes={episodes}
                       selected={row.kind === "episode" && selected === row.episode.episode}
                       onSelect={onSelect}
+                      cutActions={cutActions}
                     />
                   </li>
                 ))}
@@ -174,12 +191,14 @@ function RailRowView({
   episodes,
   selected,
   onSelect,
+  cutActions,
 }: {
   row: RailRow;
   view: EpisodesView;
   episodes: EpisodeMeta[];
   selected: boolean;
   onSelect: (episode: number) => void;
+  cutActions: CutActions;
 }) {
   const { t } = useTranslation("dashboard");
   if (row.kind === "gap") {
@@ -200,6 +219,7 @@ function RailRowView({
       episodes={episodes}
       selected={selected}
       onSelect={onSelect}
+      cutActions={cutActions}
     />
   );
 }
@@ -212,6 +232,7 @@ function EpisodeCard({
   selected,
   onSelect,
   origin = false,
+  cutActions,
 }: {
   episode: EpisodeMeta;
   info: EpisodesViewEpisode | null;
@@ -220,6 +241,7 @@ function EpisodeCard({
   selected: boolean;
   onSelect: (episode: number) => void;
   origin?: boolean;
+  cutActions?: CutActions;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, setLocation] = useLocation();
@@ -277,7 +299,8 @@ function EpisodeCard({
         ) : null}
       </button>
       {selected ? (
-        <div className="px-2.5 pb-2">
+        <div className="space-y-1.5 px-2.5 pb-2">
+          {cutActions ? <CutEpisodeActions view={view} episode={id} actions={cutActions} /> : null}
           <button
             type="button"
             className={GHOST_BTN_CLS}
@@ -289,5 +312,44 @@ function EpisodeCard({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CutEpisodeActions({ view, episode, actions }: { view: EpisodesView; episode: number; actions: CutActions }) {
+  const { t } = useTranslation("dashboard");
+  const available = cutEpisodeActions(view, episode);
+  if (!available.placed) return null;
+  const mergeHint =
+    available.merge === "across_files"
+      ? t("manual_split_merge_across_files")
+      : available.merge === "none"
+        ? t("manual_split_merge_none")
+        : undefined;
+  return (
+    <>
+      <p className="text-[11px] leading-[1.6] text-text-4">{t("manual_split_rail_hint")}</p>
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          className={GHOST_BTN_CLS}
+          disabled={actions.busy || available.merge !== "ok"}
+          title={mergeHint}
+          onClick={() => actions.onMergeWithNext(episode)}
+        >
+          <Combine className="h-3.5 w-3.5" aria-hidden />
+          {t("manual_split_merge")}
+        </button>
+        <button
+          type="button"
+          className={GHOST_BTN_CLS}
+          disabled={actions.busy || !available.clearAfter}
+          title={available.clearAfter ? undefined : t("manual_split_clear_after_none")}
+          onClick={() => actions.onClearAfter(episode)}
+        >
+          <ListX className="h-3.5 w-3.5" aria-hidden />
+          {t("manual_split_clear_after")}
+        </button>
+      </div>
+    </>
   );
 }

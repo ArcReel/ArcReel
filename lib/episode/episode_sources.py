@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import unicodedata
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, TypeGuard
@@ -246,6 +247,52 @@ def planning_start(project: Mapping[str, Any], docs: list[SourceDoc]) -> tuple[s
     return (docs[0].rel_path, 0) if docs else None
 
 
+@dataclass(frozen=True)
+class CutPlacement:
+    """一个切出集在整本源文里的位置：``docs`` 里的文件下标与文件内的 ``[start, end)``。"""
+
+    episode: int
+    file_index: int
+    start: int
+    end: int
+
+    @property
+    def position(self) -> tuple[int, int]:
+        """按源文位置排序的键：文件先后，再按文件内起点。"""
+        return self.file_index, self.start
+
+
+def cut_episode_placements(project: Mapping[str, Any], docs: list[SourceDoc]) -> dict[int, CutPlacement]:
+    """能落进整本源文的切出集，按集 ID 索引。
+
+    原文范围所在文件不在 ``docs`` 里、起点越界的不落位；同一文件里按起点排序，与前一集重叠的不落位。
+    终点超出文件长度时截到文件末尾。「分集」视图与手工切分按同一份落位认集。
+    """
+    order = {doc.rel_path: index for index, doc in enumerate(docs)}
+    per_file: dict[int, list[CutPlacement]] = {}
+    for entry in _entries(project):
+        episode = parse_positive_episode_num(entry.get("episode"))
+        coords = parse_source_range(entry)
+        if episode is None or coords is None or not is_cut_episode(entry):
+            continue
+        rel, start, end = coords
+        index = order.get(rel)
+        if index is None or start < 0 or end < start or start > len(docs[index].text):
+            continue
+        per_file.setdefault(index, []).append(
+            CutPlacement(episode=episode, file_index=index, start=start, end=min(end, len(docs[index].text)))
+        )
+    placed: dict[int, CutPlacement] = {}
+    for items in per_file.values():
+        cursor = 0
+        for item in sorted(items, key=lambda p: (p.start, p.end)):
+            if item.start < cursor or item.episode in placed:
+                continue
+            placed[item.episode] = item
+            cursor = item.end
+    return placed
+
+
 def unplanned_text_remains(project: Mapping[str, Any], docs: list[SourceDoc]) -> bool:
     """规划起点之后是否还有非空白的原文。"""
     start = planning_start(project, docs)
@@ -324,8 +371,10 @@ __all__ = [
     "SOURCE_ORIGIN_FIELD",
     "SOURCE_SNAPSHOTS_DIR",
     "WHOLE_SOURCE_FILES_KEY",
+    "CutPlacement",
     "SourceOrigin",
     "append_whole_source_file",
+    "cut_episode_placements",
     "cut_episode_source_files",
     "discover_sources",
     "episode_entry",
