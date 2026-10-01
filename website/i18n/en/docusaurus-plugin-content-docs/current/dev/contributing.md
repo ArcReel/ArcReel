@@ -7,30 +7,33 @@ custom_edit_url: https://github.com/ArcReel/ArcReel/blob/main/CONTRIBUTING.md
 
 # Contributing Guide {#contributing}
 
-Contributions of code, bug reports, and feature proposals are welcome!
+Contributions of code, bug reports, and feature proposals are welcome.
 
-Contributions whose main purpose is to promote a commercial service (for example, adding an integration for one particular service, or adding service recommendations and links to the docs) do not go through pull requests, and such pull requests will be closed. For collaboration, contact support@arc-reel.com.
+Contributions whose main purpose is to promote a commercial service (for example, adding an integration for one particular service, or adding service recommendations and links to the docs) do not go through the PR process, and such PRs will be closed. For collaboration, contact support@arc-reel.com.
+
+ArcReel assumes that contributors develop with a coding Agent. `AGENTS.md` at the repository root (`CLAUDE.md` is a link to it) is the Agent's entry point; gate commands, test selection, and coding standards are all linked from there. This page covers only what contributors themselves need to know.
 
 ## Local Development Environment {#local-development}
 
 ```bash
 # Prerequisites: Python 3.12+, Node.js 20+, uv, pnpm (ffmpeg ships with the Python dependency imageio-ffmpeg)
 # The documentation site website/ also needs Node 24 (pinned in website/.node-version)
-# Operating system: Linux / MacOS / Windows WSL2 (native Windows is unsupported)
+# Operating system: Linux / macOS / Windows WSL2; native Windows can run project creation and basic workflows,
+# but the Agent sandbox on Windows degrades to a command-prefix allowlist (see docs/adr/0025); WSL2/Docker is recommended for production
 
 # Install dependencies
 uv sync
 cd frontend && pnpm install && cd ..
 
-# Install the pre-commit hooks once (ruff / eslint / pull_request_target tripwire)
+# Install the pre-commit hooks once (ruff / eslint / actionlint / zizmor)
 uv run pre-commit install
 
 # Initialize the database
 uv run alembic upgrade head
 
 # Start the backend (terminal 1)
-# Note: --reload-dir is required to limit the watched directories; otherwise watchfiles
-# scans node_modules / .venv / .git / .worktrees and hundreds of thousands of files, costing 50%+ of one core
+# Note: --reload-dir is required to limit the watched directories; otherwise watchfiles scans
+# node_modules / .venv / .git / .worktrees and hundreds of thousands of files, using over 50% of one CPU core
 uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
 
 # Start the frontend (terminal 2)
@@ -47,166 +50,34 @@ cd frontend && pnpm dev
 cd website && pnpm install
 
 pnpm start        # Development preview
-pnpm build        # Dual-locale build; a broken link or anchor fails outright
+pnpm build        # Dual-locale build; a broken link or anchor fails the build
 pnpm typecheck
+pnpm lint         # ESLint
+pnpm format       # Writes prettier formatting; format:check only verifies without modifying
+pnpm check        # sync-contributing + typecheck + lint + format:check + check-consistency; excludes build and scripts/*.test.mjs
 
 # Site search only works against build output, not in the dev server
 pnpm build && pnpm serve
 
-# Sync the repo-root CONTRIBUTING.md into the docs-site page (start / build already run this automatically, so a manual run is rarely needed)
+# Sync the repo-root CONTRIBUTING.md into the development-section page (start / build already run this automatically, so a manual run is rarely needed)
 pnpm sync-contributing
 
-# CI consistency gate: page inventory / orphan translations / docs-site headings missing an explicit anchor / UI JSON key completeness — a non-zero exit on any hit;
-# it reads output already synced by sync-contributing, so run sync-contributing first
+# CI consistency check: page inventory / orphan translations / published headings missing an explicit anchor / UI JSON key completeness — exits non-zero if any check fails;
+# it depends on the output of sync-contributing, so run sync-contributing first
 pnpm check-consistency
 ```
 
 ## Testing {#testing}
 
-```bash
-# Backend tests; single file: uv run python -m pytest path/to/test.py, -k to filter by keyword, -v for verbose output
-uv run python -m pytest
-
-# Frontend typecheck + lint + tests
-cd frontend && pnpm check
-```
-
-pytest runs with `asyncio_mode = "auto"`; async tests need no manual marking.
-
-> **Transition note**: this chapter describes the target state after remediation; the existing suite and the related engineering configuration are being aligned with it in batches under a remediation spec. Where a rule does not match the current tree (frontend calls that bypass the `API` class with direct `fetch`, the current CI/lint configuration for coverage and the eslint-enforced rules, vitest settings such as `testTimeout`, the not-yet-created `src/test/` shared infrastructure), the chapter is the direction of travel. `scripts/audit_tests.py` and the CI `test-lint` step do not exist yet; they land with the first gate, and each gate ships in the same PR that clears its remaining violations. Delete this note once remediation completes.
-
-### Tiers and layout {#test-tiers}
-
-Every backend test belongs to exactly one tier; CI runs `-m "not e2e"` by default:
-
-| Tier | Meaning | Boundary |
-|---|---|---|
-| `unit` | Fast and isolated | No real DB, subprocesses, or network; `tmp_path` local filesystem is allowed |
-| `integration` | Real cross-module collaboration | Real DB, filesystem, bundled ffmpeg subprocesses; anything touching a real DB (including all alembic migration tests) belongs here |
-| `e2e` | End-to-end | Depends on real external services (remote APIs, LLM calls); skipped in CI by default, run locally when needed |
-
-- The layout is `tests/unit|integration|e2e/<mirror of the top-level source package>` (such as `tests/unit/lib/…`, `tests/integration/server/…`). Tier markers are injected automatically by conftest based on the path—never written by hand; `uses_db` combined with `unit` fails at collection time. Mirror correctness relies on review; there is no mechanical check.
-- alembic migration tests keep one file per migration script, under `tests/integration/lib/db/migrations/`, sharing that directory's conftest `alembic_cfg`; migration tests stay on SQLite, with the PostgreSQL side covered by the CI workflow's alembic upgrade/downgrade commands.
-
-### File size and naming {#test-file-size}
-
-- One test file corresponds to one subject under test; when a single subject outgrows readable size, split by behavior area using semantic topic suffixes.
-- Two gates: the split-naming suffixes `_more` / `_full` / `_coverage` / `_extra` / `_additional` are forbidden; a 3000-line circuit breaker per file (it exists to stop unbounded file growth, not as a size standard).
-
-### Test doubles {#test-doubles}
-
-- **Priority**: real objects (in-memory SQLite, `tmp_path`) > handwritten doubles in `tests/fakes.py` (admission criteria in its module docstring) > `spec`/`autospec` Mocks > bare `MagicMock`/`AsyncMock`. Mocks may only replace repository boundaries (third-party SDKs, network transport, subprocesses, filesystem, clocks); collaborators inside the repository use real objects or handwritten fakes.
-- **Never patch private symbols of production code** (gate, no exemptions): `patch("lib.x._y")`, `monkeypatch.setattr(mod, "_y")`, and `patch.object(Cls, "_y")` are all forbidden. Use a seam when internal behavior must be controlled.
-- **A seam is explicit parameter injection**: a constructor or keyword parameter with a production default and no behavior change, such as `retry_async(operation, *, clock=..., jitter=...)`; never a module-level replaceable global. Applies to: polling clocks/intervals/backoff, HTTP probe clients, filesystem and subprocesses.
-- **Consumers construct video request facts result objects for video capabilities**: consumer tests for quoting, prechecks, execution and the like construct video request facts result or failure objects directly (`make_video_request_facts` in `tests/factories.py`), instead of faking at the capability resolver layer or hand-building capability dicts; the evaluation itself is tested with a real `ConfigResolver` plus the test database.
-- **Assert outbound HTTP with respx**: keep the real httpx client and intercept at the transport layer (`AsyncOpenAI` traffic is captured the same way), asserting the actually serialized request.
-- **Patch consolidation** (gate): a patch target string appearing in ≥3 test files must be consolidated into a shared fixture / helper, no longer written inline per file; for FastAPI route dependencies prefer `app.dependency_overrides` over patching.
-
-### Meaningless-test criteria {#meaningless-tests}
-
-Meaningless tests are negative value; deletion beats retention. Four mechanical criteria (gate):
-
-1. **All assertions land on double call records**—the test's subject has become the mock itself. Assert real output instead: the returned object's type and attributes, the real request captured by respx, or observable state.
-2. **Patching the unit under test's own logic steps and then testing that unit**—an integration test mocking the public entry point of the module under test is a special case of this.
-3. **Zero-assertion tests**—if you can say what to protect, add the assertion; if you cannot, delete the test.
-4. **Tests with equivalent bodies inside one file**—two tests whose bodies share the same normalized representation once docstrings are stripped (`ast.unparse` flattens line breaks, parentheses, and quote style; this is not a byte-level source comparison), or one test whose body equals a single row of a `@parametrize` table in the same file. The check is confined to one file (same-named local helpers across files would produce a batch of false positives) and requires identical parameter names (defaults included), non-parametrize decorators, and class-level context—class decorators, base classes, and every non-test member of the class body (`setup_method`, class-level fixtures, `pytestmark`); it scans the backend `tests/` only, and the frontend equivalent is left to review.
-
-On a hit, disposal follows three fixed steps, with no per-case discretion: ① the behavior is already substantively covered by another test → delete, with no coverage compensation; ② uncovered but not worth protecting (no real branch or contract) → delete; ③ worth protecting → rework, and cases needing a production seam move to the seam-consolidation batch.
-
-Four audit criteria rely on review and dedicated audits, not gates: weakened duplication (same path as another test with weaker assertions—the "equivalent bodies" sub-form is now criterion 4 above, leaving forms such as a strict assertion subset to human judgment), over-specification (asserting log text, dict key order, private attributes, and other implementation details rather than contracts), severe setup-to-assertion imbalance, and assertion helpers that only assert double call records internally.
-
-### Shared infrastructure {#shared-test-fixtures}
-
-- **Three roles**: `tests/conftest.py` holds only fixtures and collection-time hooks and must never be imported (gate); `tests/fakes.py` holds double implementations, no fixtures; `tests/factories.py` holds test input builders (data and media file builders). Topic-specific shared modules (such as `tests/auth_deps.py`) are allowed; every public symbol in fakes / factories / topic modules must be used by ≥2 test files (gate)—single-file symbols move back into that file.
-- **Local conftest**: provides fixtures for its own directory only; must not share a fixture name with the root conftest; fixtures shared across directories move up to the root conftest; conftests never import each other (gate).
-- **Fixture overriding and duplication** (gate): a test file must not define a fixture with the same name as any conftest fixture; a fixture name defined in ≥3 test files moves up to a conftest.
-- **DB fixtures**: all derive from the single dialect-aware engine fixture, thereby automatically receiving the `uses_db` marker and inclusion in the PostgreSQL compatibility selection.
-
-### Timing and flakiness {#timing-and-flakiness}
-
-- Waiting, retry, and timeout logic is always driven through a clock seam or event handshake—no real `time.sleep` wall-clock waits.
-- Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. No automatic retries (pytest-rerunfailures, CI job-level retry)—automatic retry hides failures that should stay visible.
-- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/integration/lib/project/test_project_manager_concurrent_save.py`.
-
-### Coverage {#coverage}
-
-Coverage is a signal, not a gate: CI never fails on a coverage number, and Codecov is the sole signal carrier (PR coverage comments and trend graphs, all statuses informational). Never write tests for a coverage number; deleting meaningless tests is allowed to lower coverage.
-
-### Gates {#test-gates}
-
-- Single entry point: `uv run python scripts/audit_tests.py --check`, the same command locally and in CI (a standalone `test-lint` step); output is `rule-id file:line fix guidance`.
-- Zero tolerance: the violation count is always 0—no baseline, no ratchet, no exemption annotations; a script false positive is fixed in the script, never by tagging the test as an exception; a new rule ships in the same PR that clears its existing violations.
-- Division of labor: the AST script owns code structure; pytest collection time does only tier-related checks; no new runtime checks. Frontend semantic rules belong to eslint; structural rules are scanned by the same script over `frontend/src/**/*.test.*`.
-
-### Frontend tests (vitest) {#frontend-vitest}
-
-- **API stubbing**: `vi.spyOn(API, method)` is the standard stubbing boundary (the `API` class is the frontend's only outbound gateway); tests of `api.ts` itself use handwritten fetch/Response stubs; msw is not introduced. Whole-module `vi.mock("@/api")` and `vi.mock("react-i18next")` are forbidden (enforced by eslint; the global setup already loads the real Chinese i18n, and mocking it hides missing translations).
-- **SSE stubbing**: hook tests use the shared `FakeSseStream` handle in `src/test/`, returned from a spy on `API.openProjectEventStream` / `API.openAssistantEntriesStream`; the `openSseStream` client and the `api.ts` stream wrappers use the controllable fetch response stream in `src/test/fakeSseFetch.ts`.
-- **Mocking internal child components** requires one of three categories: heavyweight (virtualization/animation/canvas), side-effecting (sends requests/starts timers), or pure display irrelevant to the test; a component mocked in ≥3 files moves up to `src/__mocks__/`.
-- **Shared infrastructure**: cross-cutting utilities unrelated to the subject under test (`createDeferred`, `FakeSseStream`, factories) appearing in ≥3 files move up to `src/test/`; API spy combinations are exempt from consolidation (each file spies a different combination of methods; there is no common shape to extract); local `renderXxx` helpers move up only when ≥3 files repeat the same shape.
-- **Layout and size**: test files sit next to their source files, without `__tests__/` directories; "one file, one subject", the split-naming ban, and the 3000-line circuit breaker match the backend, with semantic topic suffixes allowed (such as `ShotDetail.drama.test.tsx`).
-- **Testability rework**: no production behavior changes; structural extraction at the pure-function or hook level is allowed.
-- **Configuration and lint**: `testTimeout` stays at the vitest default of 5s, with individual slow tests overriding it explicitly with an explanation; eslint enables the vitest, testing-library, and jest-dom plugins (`expect-expect` catches zero-assertion tests); bare `toHaveBeenCalled` has no ban—assertion strength is a review concern.
-
-### Running the gates in worktrees and sandboxes {#gates-in-worktrees-and-sandboxes}
-
-A worktree has no `.venv` or `node_modules`, and an agent sandbox may forbid binding local ports. Run the gates as follows and the results match the main checkout:
-
-- **Share the main checkout's `.venv` for Python**: `UV_PROJECT_ENVIRONMENT=<main-repo-root>/.venv uv run --no-sync <command>`. `--no-sync` makes `uv run` use that environment as is; without it, `uv run` syncs a full copy of the dependencies into that directory according to the worktree's `pyproject.toml`, and the `uv run ruff` in the post-save formatting hook of `.claude/settings.json` triggers the same sync. When the worktree changes `pyproject.toml` or `uv.lock`, the main checkout's `.venv` does not reflect the new dependencies: drop `UV_PROJECT_ENVIRONMENT` and `--no-sync` so that `uv run` creates and syncs the worktree's own `.venv`, and basedpyright then needs no `--venvpath`.
-- **Point basedpyright at the main checkout**: `venvPath` in `pyproject.toml` makes it look for `.venv` in the current directory, so in a worktree it exits with code 3 and `venv .venv subdirectory not found`; pass `--venvpath <main-repo-root>` and no symlink is needed.
-- **Run port-binding tests where local ports are allowed**: `tests/integration/agent_runtime_profile/test_custom_endpoint_adapter_skill.py` starts a local HTTP server and fails with `PermissionError` when the sandbox forbids binding `127.0.0.1`. Run the full backend suite once in an environment that allows local ports instead of running it in the sandbox first and again afterwards.
-- **Limit workers when running the frontend gate concurrently**: several agents running `pnpm check` at once let vitest's default worker count push the machine into test timeouts; use `pnpm check --maxWorkers=2`, which lands on the trailing `vitest run` of the script.
-- **Install frontend and docs-site dependencies per worktree**: run `pnpm install --frozen-lockfile` in the worktree's `frontend/` and `website/` separately.
+For the development loop and the full gate before pushing, see "工具链与校验" (Toolchain and checks) in [`AGENTS.md`](https://github.com/ArcReel/ArcReel/blob/main/AGENTS.md) and [`docs/agents/testing.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/testing.md). CI runs the same set of checks.
 
 ## Code Quality {#code-quality}
 
-**Lint & Format (ruff):**
+The entry point for coding standards is [`CODING_STANDARDS.md`](https://github.com/ArcReel/ArcReel/blob/main/CODING_STANDARDS.md): it maps changed paths to the domain standards under `docs/standards/`, and it contains only project conventions that require judgment and cannot be replaced by tooling. Both local reviews and the AI reviewer on PRs use it as their basis.
 
-```bash
-uv run ruff check . && uv run ruff format .
-```
+### Dependency Management {#dependency-management}
 
-- Rules: `E`/`F`/`I`/`UP`, with `E402` and `E501` ignored
-- line-length: 120
-- Enforced in CI: `ruff check . && ruff format --check .`
-
-**Lint (frontend ESLint):**
-
-```bash
-cd frontend && pnpm lint          # Check
-cd frontend && pnpm lint:fix      # Auto-fix what can be fixed
-```
-
-- Configuration: `frontend/eslint.config.js` (flat config)
-- Rules: `typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
-- Typed linting enables `projectService: true`, allowing async-related checks such as `no-floating-promises` and `no-misused-promises`
-- Enforced in CI: the `frontend-tests` job's `Lint` step
-
-### ESLint disable conventions {#eslint-disable-policy}
-
-The project has followed a zero-warning policy since PR 3 (#219); every rule is an error. If a rule must be bypassed, follow these conventions:
-
-- **Form**: `// eslint-disable-next-line <rule> -- <中文理由>`; the reason after `--` is **required**
-- **Forbidden**: file-level `/* eslint-disable */`, `// eslint-disable-line` without a reason, and combined use with `@ts-ignore`
-- **PR description requirement**: every new disable must be listed in the PR body as a table with `rule | file:line | 理由`
-- **File-level disabling** is allowed only through an `eslint.config.js` `files` override, with the reason documented in a config comment
-- **Unacceptable reasons**: "too much trouble," "leave it like this for now," or "later fix"
-- **Acceptable reason examples**: "React setter reference is stable," "mount-only initialization," or "generated preview video has no subtitle source"
-
-**Local IDE recommendation (do not commit to the repository):**
-
-`.vscode/` is already in `.gitignore`. Add `frontend/.vscode/settings.json` locally to make VS Code / Cursor show lint warnings in real time and apply automatic fixes when saving:
-
-```json
-{
-  "eslint.workingDirectories": [{ "pattern": "./frontend" }],
-  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" }
-}
-```
-
-**Known constraint:**
-
-- TypeScript version lock: the peer range of `typescript-eslint@8.x` is `typescript <6.1`; upgrade `typescript-eslint` before upgrading TypeScript to 6.1+
+For the steps to add or upgrade a dependency, see [`docs/agents/dependencies.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/dependencies.md).
 
 ## Documentation Maintenance {#docs-maintenance}
 
@@ -214,7 +85,7 @@ The only published location for user documentation is [docs.arc-reel.com](https:
 
 This file is the source of truth for the contributing guide. During builds, it is copied to the site's development section (`website/scripts/sync-contributing.mjs`); the Chinese copy is not committed.
 
-### Page responsibilities {#page-responsibilities}
+### Page Responsibilities {#page-responsibilities}
 
 Published pages also declare their documentation-refresh coverage tier via the `update_docs` frontmatter key; the criteria live in `.agents/skills/update-docs/SKILL.md`.
 
@@ -222,10 +93,11 @@ Published pages also declare their documentation-refresh coverage tier via the `
 |---|---|---|
 | `README.md` | Product positioning, core value, and the shortest path to getting started | A complete model list, every environment variable, or internal implementation details |
 | `website/docs/index.mdx` | Documentation-site positioning, primary entry points, and a navigation overview | Complete instructions for specific features |
-| `website/docs/guide/getting-started.md` | The complete path from deployment to the first generated video | Production-grade reverse proxy and backup strategies |
-| `website/docs/guide/workflows.md` | Content modes, video generation modes, review checkpoints, and selection guidance | Provider credentials and operations commands |
+| `website/docs/guide/getting-started.md` | The complete path from deployment to the first final video | Production-grade reverse proxy and backup strategies |
+| `website/docs/guide/workflows.md` | Content modes, generation modes, content review checkpoints, and selection guidance | Provider credentials and operations commands |
 | `website/docs/guide/providers.md` | Provider types, capability coverage, selection principles, and configuration hierarchy | Price promises likely to become outdated |
-| `website/docs/guide/market.md` | Managing market sources, confirming, updating, and uninstalling market entries | Contribution workflow and steps for hosting a market source (the official market source repository docs are authoritative) |
+| `website/docs/guide/comfyui.md` | Importing ComfyUI workflows, node binding, conversion semantics for size/duration/seed, testing, and runtime limits | Deploying ComfyUI itself or installing custom nodes |
+| `website/docs/guide/market.md` | Managing market sources, confirming installation of market entries, updating, and uninstalling | Contribution workflow and steps for hosting a market source (the official market source repository docs are authoritative) |
 | `website/docs/guide/jianying-export.md` | Locating the Jianying draft directory, exporting, and further editing steps | The video generation process itself |
 | `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
 | `website/docs/ops/deployment.md` | Deployment, upgrades, backup, recovery, monitoring, and security | Product marketing copy |
@@ -234,46 +106,42 @@ Published pages also declare their documentation-refresh coverage tier via the `
 | `SECURITY.md` | Supported versions, supported deployment boundaries, private vulnerability reporting, and coordinated disclosure policy | Details of unfixed vulnerabilities and dynamic risk registers |
 | `docs/security/threat-model.md` | Security assets, trust boundaries, attack surfaces, existing controls, and reassessment triggers | Directly exploitable unfixed vulnerabilities and patch history |
 
-### Writing conventions {#writing-conventions}
+### Writing Conventions {#writing-conventions}
 
-- **Keep the README stable**: the README only needs to help a first-time repository visitor answer, "What is ArcReel, is it right for me, how is it different from calling a model API directly, and what is the fastest way to run it?" Put specific model names, prices, and API parameters on the corresponding site pages so that the homepage does not need to be rewritten every time a provider changes.
-- **Treat runtime capabilities as authoritative for provider information**: documentation describes the media types covered, how ArcReel unifies configuration, how to choose between different capabilities, and where to confirm specifics; the models actually selectable on the Settings page and the provider's official documentation are definitive.
-- **Give headings explicit anchor IDs**: write every heading on a published page as `## 标题 {#english-id}`. The Chinese and English locales share the same anchor to prevent changes to copy from invalidating automatically generated Chinese slugs. Use relative file paths for cross-references within the site (such as `../ops/deployment.md`), and use absolute GitHub links when pointing to repository files not published on the site.
-- **Commit documentation changes with feature changes**: when adding a content mode or video generation mode, adding a provider or media capability, or changing deployment directories, ports, environment variables, data directories, backup methods, migration behavior, public APIs, licenses, or commercial-use terms, update the corresponding documentation at the same time.
-- **No JSX or import in docs-site `.md` files**: `website/docusaurus.config.ts` sets `markdown.format: "detect"`, so `.md` files are parsed as CommonMark rather than MDX. Neither raises a compile error, and neither is executed as MDX: a JSX tag is output verbatim as raw HTML (a tag with children leaks that content directly onto the page), and an import statement is displayed verbatim as page text. Use `.mdx` for pages that need JSX.
+For writing standards for published pages and the README, see [`docs/standards/docs.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/docs.md). For which documents a feature change must update, see "功能变更与对应文档在同一个 PR 里" (Feature changes and their documentation land in the same PR) in [`docs/standards/general.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/general.md). Write every heading on a published page as `## 标题 {#english-id}`; the Chinese and English locales share the same anchor.
 
 ## Workflow {#workflow}
 
-### Branch strategy (trunk-based) {#branching-strategy}
+### Branch Strategy (trunk-based) {#branching-strategy}
 
 - `main` is the only long-lived branch. Complete all work on short-lived branches created from the latest `main`, then merge them back into `main` through a PR
-- Never push directly with `git push origin main`. Even personal branches use the PR workflow; review the diff and acceptance checklist yourself first
+- Never push directly to `main`. Personal branches are merged through the PR process as well; review the diff and acceptance checklist yourself before submitting
 
-### Branch naming convention {#branch-naming}
+### Branch Naming Convention {#branch-naming}
 
 Use `<type>/<slug>`, where `type` is one of the conventional commit types:
 
-Short-lived AFK workflow branches are the exception: use `afk/<batch-id>/stage-<K>` and `issue/<N>`.
+Short-lived run branches of the AFK team workflow are the exception: they use `afk/<batch-id>/stage-<K>` and `issue/<N>`.
 
 - `feat/` — New feature (for example, `feat/reference-video-backend`)
 - `fix/` — Bug fix (for example, `fix/queue-lease-timeout`)
 - `refactor/` — Refactoring (for example, `refactor/session-actor`)
 - `docs/` — Documentation only (for example, `docs/contribution-infra`)
-- `chore/` — Builds, tooling, version numbers, or cleanup (for example, `chore/freeze-versions`)
+- `chore/` — Builds / tooling / version numbers / cleanup (for example, `chore/freeze-versions`)
 - `ci/` — CI configuration (for example, `ci/testing-discipline`)
 - `test/` — Tests only
 
-Use lowercase words separated by hyphens for `slug`, briefly describing the branch's focus.
+Use lowercase words separated by hyphens for `slug`, briefly describing the branch's topic.
 
-### Short branch lifetime {#short-lived-branches}
+### Short Branch Lifetime {#short-lived-branches}
 
-The time from creation to merge must be ≤3 days. If it runs longer, split it or rebase it onto the main branch first—**do not** drag a one-month-old branch directly into review.
+The time from creation to merge must be ≤ 3 days. If a branch runs longer, split it or rebase it onto the main line first; avoid submitting a long-lived branch directly for review.
 
-### Squash merge {#squash-merge}
+### Squash Merge {#squash-merge}
 
-Squash each PR into one commit when merging into `main`, with a conventional commit message (see the next section). Choose "Squash and merge" from the GitHub merge button.
+Squash each PR into one commit when merging back into `main`, with a commit message that follows the conventional commits specification (see the next section). Choose "Squash and merge" on GitHub.
 
-Stage PRs created by `afk-team-workflow` are the exception: rebase-merge them to preserve each issue's conventional commit; squash non-issue cleanup and review-loop commits into one conventional integration-fix commit before merging.
+Stage PRs created by `afk-team-workflow` are the exception: they use "Rebase and merge" to preserve each issue's conventional commit; non-issue commits produced by cleanup and the review loop are squashed into one conventional integration-fix commit before merging.
 
 ## Commit Conventions {#commit-convention}
 
@@ -287,14 +155,16 @@ docs: 文档变更
 chore: 构建/工具变更
 ```
 
+The title format is `type(scope): 摘要`; scope is optional. With squash merging, the PR title becomes the changelog entry: describe the benefit users can perceive, use product terminology rather than implementation terminology (status_code, internal class names, and so on) for scope words, and qualify the scope accurately. For type values and changelog categories, see "Release Process" below and `.release-please-config.json`.
+
 ## Release Process {#release-process}
 
 Version numbers and the changelog are maintained automatically by [release-please](https://github.com/googleapis/release-please) (configuration in `.release-please-config.json`, workflow in `.github/workflows/release-please.yml`). **Developers do not need to bump version numbers manually**—only write compliant conventional commits.
 
 ### Workflow {#release-workflow}
 
-1. Squash-merge ordinary PRs into `main` according to the conventional commits specification; rebase-merge `afk-team-workflow` stage PRs as described above
-2. release-please scans commits since the previous release and automatically opens or updates a Release PR titled like `chore(main): release X.Y.Z`, containing the next version bump and an updated `CHANGELOG.md`
+1. Squash-merge ordinary PRs into `main` according to the conventional commits specification; rebase-merge `afk-team-workflow` stage PRs as described in the exception above
+2. release-please scans commits since the previous release and automatically opens or updates a Release PR titled like `chore(main): release X.Y.Z`, containing the next version number and an updated `CHANGELOG.md`
 3. Merging that Release PR automatically creates a `vX.Y.Z` tag and publishes a GitHub Release
 
 ### commit type → version increment {#commit-type-version-bump}
@@ -309,7 +179,7 @@ Version numbers and the changelog are maintained automatically by [release-pleas
 
 > By default, only `feat` and `fix` (as well as breaking changes) trigger a version bump in release-please. Configuring `perf`/`refactor`/`docs`/`revert` with `hidden: false` affects only their presentation in the changelog; it does not make them trigger a patch bump. If an iteration contains only these commit types, no Release PR is produced until the next `fix`/`feat` commit arrives.
 
-The fields in `pyproject.toml` and `frontend/package.json` named `version` are maintained automatically by release-please (see the `pyproject.toml` comment `# managed by release-please`) and are **read-only for developers**. `uv.lock` is also synchronized automatically by running `uv lock` in the release-please workflow on the Release PR branch. The actual version state is defined by the git tag and `.release-please-manifest.json`.
+The `version` fields in `pyproject.toml` and `frontend/package.json` are maintained automatically by release-please (see the `# managed by release-please` comment in `pyproject.toml`) and are **read-only for developers**. `uv.lock` is likewise synchronized automatically by `uv lock` in the release-please workflow on the Release PR branch. The actual version state is defined by the git tag and `.release-please-manifest.json`.
 
 ### commit examples {#commit-examples}
 
@@ -326,7 +196,7 @@ feat(grid): 支持 grid_12 布局
 将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**This repository does not use breaking-change markers.** The frontend and backend are released together, and the backend API does not make versioned compatibility guarantees—the bundled frontend evolves with each version, while external integrations use `/agent-installation-guide.md` to find the current installation entry point rather than depending on a version number. When the external Agent installation flow changes, update `public/agent-installation-guide.md` at the same time. Classify API changes normally as `fix`/`refactor`; do not add a `!` suffix or a `BREAKING CHANGE:` footer. Correct an incorrectly marked merge according to its merge method: for an ordinary squash PR, append a `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` block to the PR description and wait for the next main push or rerun the workflow; for an AFK rebase stage, wait for the final main push to update the Release PR, correct its generated version and changelog artifacts, pass its integrity checks, and then merge it. During the 0.x stage, `bump-minor-pre-major` limits the version jump caused by an incorrect marker to minor, but does not correct the changelog.
+**This repository does not use breaking-change markers.** The frontend and backend are released together from one repository, and the backend API makes no versioned external guarantees—the bundled frontend evolves with each version, while external integrations use `/agent-installation-guide.md` to find the current installation entry point rather than depending on a version number. Classify API removals and changes normally as `fix`/`refactor`; do not add a `!` suffix or write a `BREAKING CHANGE:` footer. Correct an incorrectly marked merge according to its merge method: for an ordinary squash PR, edit the PR body to append a `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` block, then wait for the next main push or rerun the workflow manually; for an AFK rebase stage, after the final main push has updated the Release PR, correct its version and changelog artifacts directly, pass the integrity checks, and then merge the Release PR. During the 0.x stage, `bump-minor-pre-major` only limits the version jump caused by an incorrect marker to minor; it does not correct the changelog.
 
 The following syntax is documented only to help identify incorrect markers. There are two equivalent ways to mark a **breaking change**:
 

@@ -2,6 +2,7 @@
 id: getting-started
 title: Complete Getting Started Guide
 sidebar_position: 1
+update_docs: full
 ---
 
 # Complete Getting Started Guide {#getting-started}
@@ -53,9 +54,9 @@ The default workflow uses remote model APIs and normally does not require a loca
 
 ArcReel uses two types of credentials for different purposes.
 
-#### AI Assistant Credentials {#assistant-credentials}
+#### Agent Credentials {#assistant-credentials}
 
-These credentials power project conversations, content understanding, episode planning, script planning (including asset identification), and workflow orchestration.
+The Agent drives project conversations, content understanding, episode planning, script planning (including asset identification), and workflow orchestration.
 
 You can use Anthropic's official service or a compatible service supported by ArcReel, and configure the Base URL and model name as needed.
 
@@ -173,11 +174,11 @@ For complete production deployment, upgrade, backup, and reverse proxy instructi
 
 ## 3. Complete the Initial Setup {#first-time-setup}
 
-After signing in, first complete the onboarding tour and open the read-only demo project. It introduces the project lobby, workbench, AI assistant, and settings without consuming model credits.
+After signing in, first complete the onboarding tour and open the read-only demo project. It introduces the project lobby, workbench, Agent, and settings without consuming model credits.
 
 Then open **Settings**.
 
-### 3.1 Configure the AI Assistant {#configure-assistant}
+### 3.1 Configure the Agent {#configure-assistant}
 
 Enter:
 
@@ -250,15 +251,15 @@ Prepare:
 
 For a detailed comparison, see [Workflows and Modes](./workflows.md).
 
-## 5. Run the Workflow with the AI Assistant {#run-workflow-with-assistant}
+## 5. Run the Workflow with the Agent {#run-workflow-with-assistant}
 
-Open the AI assistant panel on the right side of the project workbench.
+Open the Agent panel on the right side of the project workbench.
 
 Work through the process in stages instead of asking it to "generate the entire final video" at once.
 
 ### 5.1 Content Analysis {#content-analysis}
 
-Ask the AI assistant to analyze:
+Ask the Agent to analyze:
 
 - Main characters;
 - Important scenes;
@@ -315,10 +316,10 @@ After confirming the direction, generate them in batches.
 
 Choose a video generation mode based on the project:
 
-- Storyboard mode (storyboard image-to-video, with multi-grid storyboards as an option);
-- Reference-to-video mode.
+- Storyboard to video (narration/commentary and drama projects can enable multi-grid storyboards);
+- Reference to video.
 
-With multi-grid storyboards enabled, Storyboard mode first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
+When storyboard to video has multi-grid storyboards enabled, it first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
 
 Review the results for:
 

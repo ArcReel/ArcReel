@@ -2,17 +2,18 @@
 id: providers
 title: Provider and Model Configuration
 sidebar_position: 3
+update_docs: fact-check
 ---
 
 # Provider and Model Configuration {#providers}
 
-ArcReel treats the AI assistant, text generation, image generation, video generation, and TTS as separate capabilities. You can choose different providers for different projects and media types instead of tying the entire production pipeline to one platform.
+ArcReel treats the Agent, text generation, image generation, video generation, and TTS as separate capabilities. You can choose different providers for different projects and media types instead of tying the entire production pipeline to one platform.
 
 ## 1. Start by Distinguishing Two Provider Categories {#two-provider-categories}
 
-### 1.1 AI Assistant Providers {#assistant-providers}
+### 1.1 Agent Providers {#assistant-providers}
 
-The AI assistant is responsible for:
+The Agent is responsible for:
 
 - Understanding user intent;
 - Analyzing novels and screenplays;
@@ -23,7 +24,7 @@ The AI assistant is responsible for:
 
 ArcReel's Agent Runtime is based on the Claude Agent SDK and supports Anthropic's official service as well as compatible configurations supported by the project.
 
-The AI assistant provider does not necessarily handle the actual image and video generation.
+The Agent provider does not necessarily handle the actual image and video generation.
 
 ### 1.2 Media and Text Providers {#media-and-text-providers}
 
@@ -36,7 +37,7 @@ These providers are responsible for:
 
 A complete project can use a combination of providers, for example:
 
-- AI assistant: a high-quality reasoning model;
+- Agent: a high-quality reasoning model;
 - Text structuring: a faster text model;
 - Character design: a high-quality image model;
 - Batch storyboards: a low-cost image model;
@@ -387,7 +388,7 @@ definition → run the shared validator → check responses offline → preview 
 save.” The definition reference and thin HTTP script are downloaded with the skill; the adaptation flow adds no
 MCP or SDK tool. Response checks and request previews do not contact the provider. A connection test performs a real
 generation and may incur charges, so the Agent must obtain your explicit approval first. When a definition with
-the same author and name exists, the Agent may save a copy and report it; overwriting the existing endpoint always
+the same author and name exists, the Agent may save a copy directly; overwriting the existing endpoint always
 requires your explicit approval.
 
 Pass required assets with `--start-image`, `--end-image`, repeatable `--reference-images`, and repeatable

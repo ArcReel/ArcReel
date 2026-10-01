@@ -2,6 +2,7 @@
 id: deployment
 title: Deployment and Operations
 sidebar_position: 1
+update_docs: fact-check
 ---
 
 # Deployment and Operations {#deployment}
@@ -67,7 +68,7 @@ The default Compose configuration mounts:
 | Host Path | Container Path | Contents |
 |---|---|---|
 | `deploy/.env` | `/app/.env` | Authentication and runtime configuration |
-| `deploy/projects/` | `/app/projects` | Data root: projects, generated assets, the default SQLite database, logs, Google Vertex AI credentials, and all other runtime data |
+| `deploy/projects/` | `/app/projects` | Data root: projects, generated assets, the default SQLite database, logs, Vertex AI credentials, and all other runtime data |
 | `deploy/claude_data/` | `/root/.claude` | Agent runtime data |
 
 `deploy/projects/` is ArcReel's data root (`ARCREEL_DATA_DIR`, `/app/projects` inside the container). Projects live in its `projects/` subdirectory, and all other runtime data sits alongside it:
@@ -645,7 +646,7 @@ If the container has just started, check whether database migrations are still r
 
 ### Agent Requests Fail {#agent-request-fails}
 
-- Verify the AI assistant credentials;
+- Verify the Agent credentials;
 - Check the Base URL and model name;
 - Check the network and proxy;
 - Check whether the provider is rate-limiting requests;

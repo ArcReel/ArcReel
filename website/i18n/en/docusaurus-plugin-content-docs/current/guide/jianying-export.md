@@ -2,6 +2,7 @@
 id: jianying-export
 title: Jianying Draft Export
 sidebar_position: 6
+update_docs: fact-check
 ---
 
 # Jianying Draft Export {#jianying-export}
@@ -40,8 +41,8 @@ C:\Users\<username>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.dr
 
 If the episode has no edit timeline yet, the edit view offers two entries:
 
-- **Edit with Agent**: fills an editing request into the chat input so the Agent can make a cut
-- **Create edit timeline**: creates one directly from the script, using every video unit in full with hard cuts between clips
+- **Hand to Agent to edit**: fills an editing request into the chat input so the Agent can make a cut
+- **New edit timeline**: creates one directly from the script, using every video unit in full with hard cuts between clips
 
 Both entries require at least one generated video in the episode. Rendering never creates an edit timeline automatically.
 

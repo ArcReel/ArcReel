@@ -2,6 +2,7 @@
 id: comfyui
 title: Connect a ComfyUI Workflow
 sidebar_position: 4
+update_docs: fact-check
 ---
 
 # Connect a ComfyUI Workflow {#comfyui}
@@ -17,7 +18,7 @@ Before you begin, prepare:
 - A ComfyUI instance reachable over HTTP from the ArcReel server;
 - A workflow that runs successfully in ComfyUI, with all required models and custom nodes installed;
 - An **API-format** JSON export from ComfyUI;
-- The Base URL and API Key if ComfyUI is behind an authenticated reverse proxy.
+- The matching Base URL and API Key if ComfyUI sits behind a reverse proxy.
 
 ArcReel talks to ComfyUI over HTTP and nothing else. Assets are uploaded through `POST /upload/image`, and artifacts are retrieved through `/history` and the download endpoint, so the two machines **do not need a shared filesystem** and you do not need to mount ArcReel's media directory into ComfyUI. Running ComfyUI locally or on another machine takes the same code path and the same configuration — a local install just means a local address in the Base URL.
 
@@ -42,7 +43,7 @@ Import steps:
 2. Give the endpoint a descriptive name and confirm whether its media type is image or video.
 3. Review the detected node bindings (see section 3).
 4. Confirm the positive prompt and output node. Both require a target, and two semantic bindings cannot occupy the same field.
-5. Save the endpoint, then attach it to a model row of your ComfyUI provider.
+5. Save the endpoint, then go to Providers and select it for a model row of your ComfyUI provider.
 
 One model row represents one workflow. Fixed values such as checkpoints, LoRAs, and samplers remain in the workflow rather than the model row. To change them, edit the workflow in ComfyUI, export it again, and update the endpoint with Re-import. Re-import attempts to rematch existing bindings by node identity; manually review every item marked for confirmation.
 
