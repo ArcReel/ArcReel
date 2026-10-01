@@ -147,6 +147,42 @@ describe("EditTimelineView", () => {
     );
   });
 
+  it("plays the source at the clip volume times the provider audio switch of its unit", async () => {
+    const quiet: EditTimelineReadout = {
+      ...INITIAL_CUT,
+      clips: [
+        { ...INITIAL_CUT.clips[0], source_volume: 0.6 },
+        INITIAL_CUT.clips[1],
+        { ...INITIAL_CUT.clips[2], source_volume: 0.5 },
+      ],
+    };
+    const unit = (unit_id: string, provider_audio: boolean) => ({
+      unit_id,
+      provider_audio,
+      narration_audio: null,
+      subtitles_follow_narration: false,
+      subtitles: [],
+    });
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(quiet);
+    vi.spyOn(API, "getEditTimelinePreviewMedia").mockResolvedValue({
+      timeline_id: "tl-00000002",
+      revision: 3,
+      narration: "without_narration",
+      units: [unit("E1U1", false), unit("E1U3", true)],
+      bgm: [],
+    });
+
+    renderView();
+
+    await waitFor(() => {
+      expect((screen.getByTestId("edit-player-video-0") as HTMLVideoElement).volume).toBe(0);
+    });
+    expect((screen.getByTestId("edit-player-video-1") as HTMLVideoElement).volume).toBe(0.5);
+  });
+
   it("marks stale trims, deleted footage and unused units, and lists them as issues", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({
       timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
@@ -415,6 +451,7 @@ describe("EditTimelineView", () => {
       units: [
         {
           unit_id: "E1U1",
+          provider_audio: true,
           narration_audio: { path: "audio/E1U1.mp3", version: 2 },
           subtitles_follow_narration: true,
           subtitles: [{ start: 0, duration: 4.5, text: "门后传来脚步声。" }],
@@ -532,6 +569,7 @@ describe("EditTimelineView", () => {
     };
     const narrationOf = (unit_id: string) => ({
       unit_id,
+      provider_audio: true,
       narration_audio: { path: `audio/${unit_id}.mp3`, version: 1 },
       subtitles_follow_narration: true,
       subtitles: [],

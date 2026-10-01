@@ -72,6 +72,7 @@ const MEDIA: EditTimelinePreviewMedia = {
   units: [
     {
       unit_id: "E1U1",
+      provider_audio: true,
       narration_audio: { path: "audio/E1U1.mp3", version: 1 },
       subtitles_follow_narration: true,
       subtitles: [
@@ -81,12 +82,14 @@ const MEDIA: EditTimelinePreviewMedia = {
     },
     {
       unit_id: "E1U2",
+      provider_audio: true,
       narration_audio: { path: "audio/E1U2.mp3", version: 3 },
       subtitles_follow_narration: true,
       subtitles: [{ start: 0, duration: 2, text: "第三句。" }],
     },
     {
       unit_id: "E1U5",
+      provider_audio: true,
       narration_audio: null,
       subtitles_follow_narration: false,
       subtitles: [
@@ -174,7 +177,7 @@ describe("bgmPlacements", () => {
 
 describe("placeSubtitles", () => {
   it("hangs narration subtitles on the carrying clip and windows source-time subtitles to the trim", () => {
-    const plan = buildPlaybackPlan(READOUT);
+    const plan = buildPlaybackPlan(READOUT, null);
 
     expect(placeSubtitles(READOUT, plan, MEDIA)).toEqual([
       // 旁白字幕从 c1 起点算起，延伸到 c2 上
@@ -196,7 +199,7 @@ describe("placeSubtitles", () => {
       bgm: [],
     };
 
-    expect(placeSubtitles(readout, buildPlaybackPlan(readout), MEDIA)).toEqual([
+    expect(placeSubtitles(readout, buildPlaybackPlan(readout, null), MEDIA)).toEqual([
       { start: 0, end: 0.5, text: "台词一" },
       { start: 0.5, end: 2, text: "台词二" },
     ]);
@@ -214,7 +217,7 @@ describe("placeSubtitles", () => {
     };
 
     // 旁白字幕 0–2.5、2.5–5 与 c2 的台词 2–3、3–4 交错：按起点排列，每条在下一条开始时截止
-    expect(placeSubtitles(readout, buildPlaybackPlan(readout), MEDIA)).toEqual([
+    expect(placeSubtitles(readout, buildPlaybackPlan(readout, null), MEDIA)).toEqual([
       { start: 0, end: 2, text: "第一句。" },
       { start: 2, end: 2.5, text: "台词一" },
       { start: 2.5, end: 3, text: "第二句。" },
@@ -223,7 +226,7 @@ describe("placeSubtitles", () => {
   });
 
   it("has nothing to show before the preview media arrives", () => {
-    expect(placeSubtitles(READOUT, buildPlaybackPlan(READOUT), null)).toEqual([]);
+    expect(placeSubtitles(READOUT, buildPlaybackPlan(READOUT, null), null)).toEqual([]);
   });
 });
 

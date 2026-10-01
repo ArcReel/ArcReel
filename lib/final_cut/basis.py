@@ -145,8 +145,23 @@ def current_video(
         artifact_path=artifact_path,
         content_digest=digest(snapshot.relative_to(project_dir).as_posix()),
         snapshot=snapshot,
-        provider_audio=record.get("execution_generate_audio") is not False,
+        provider_audio=provider_audio_recorded(record),
     )
+
+
+def provider_audio_recorded(record: Mapping[str, Any]) -> bool:
+    """版本记录的供应商原声开关：只有明确记录为未生成原声才为 False，没有记录按带原声处理。"""
+    return record.get("execution_generate_audio") is not False
+
+
+def current_provider_audio(versions: VersionManager, resource_type: str, unit_id: str) -> bool:
+    """视频单元 current 版本的供应商原声开关；没有版本记录时按带原声处理。"""
+    info = versions.get_versions(resource_type, unit_id)
+    current = info["current_version"]
+    for record in info["versions"]:
+        if record.get("version") == current:
+            return provider_audio_recorded(record)
+    return True
 
 
 def _version_snapshot(
