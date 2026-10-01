@@ -8,7 +8,7 @@ import { relative, resolve } from "node:path";
 
 const UI_ROOT = "website/i18n/en";
 const FOOTER_PATH = `${UI_ROOT}/docusaurus-theme-classic/footer.json`;
-const CJK = /[㐀-鿿豈-﫿]/;
+const CJK = /\p{Script=Han}/u;
 
 function jsonFiles(directory) {
   if (!existsSync(directory)) return [];

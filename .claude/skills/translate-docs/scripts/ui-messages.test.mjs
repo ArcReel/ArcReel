@@ -39,6 +39,7 @@ test("reports every message that still carries Chinese text, ignoring keys and d
   write(root, "website/i18n/en/code.json", {
     "theme.done": { message: "Done", description: "完成" },
     "theme.search": { message: "搜索", description: "Search" },
+    "theme.rare": { message: "\u{20000}", description: "Supplementary-plane Han" },
   });
   write(root, "website/i18n/en/docusaurus-theme-classic/navbar.json", {
     "item.label.指南": { message: "指南" },
@@ -50,6 +51,7 @@ test("reports every message that still carries Chinese text, ignoring keys and d
   assert.equal(
     result.stdout,
     "website/i18n/en/code.json\ttheme.search\t搜索\n" +
+      "website/i18n/en/code.json\ttheme.rare\t\u{20000}\n" +
       "website/i18n/en/docusaurus-theme-classic/navbar.json\titem.label.指南\t指南\n",
   );
 });
