@@ -22,8 +22,8 @@ export default {
   'workbench_lorebook_body': '角色、场景和道具在左侧统一管理，每项资产都可以生成资产图。资产图会作为分镜图生成和参考生视频的参考图，用于保持画面一致。',
   'workbench_timeline_title': '分镜画布',
   'workbench_timeline_body': '每一集的分镜按时间线排列，包含画面提示词、分镜图和视频。可以先生成分镜图确认构图，再生成视频，单个分镜支持随时重新生成。',
-  'workbench_export_title': '导出',
-  'workbench_export_body': '制作完成后，从顶栏导出剪映草稿继续剪辑，或打包下载整个项目。演示项目没有成片，导出按钮不可用。',
+  'workbench_export_title': '导出项目',
+  'workbench_export_body': '需要备份或迁移时，从顶栏「导出项目」打包下载整个项目。成片与剪映草稿在各集的剪辑视图中导出。演示项目不能导出，导出按钮不可用。',
   'finish_title': '开始你的第一个项目',
   'finish_body': '新建项目并导入小说或剧本，即可开始制作。本引导可随时在「设置 → 关于」中重新查看。',
 

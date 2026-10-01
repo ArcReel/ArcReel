@@ -489,7 +489,7 @@ describe("OnboardingTour", () => {
       ["Agent", DEMO_WORKBENCH],
       ["角色、场景与道具", `${DEMO_WORKBENCH}/characters`],
       ["分镜画布", DEMO_EPISODE],
-      ["导出", DEMO_EPISODE],
+      ["导出项目", DEMO_EPISODE],
       ["开始你的第一个项目", "/app/projects"],
     ];
 

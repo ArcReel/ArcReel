@@ -17,3 +17,4 @@ export * from "./workflow";
 export * from "./episodes-view";
 export * from "./asset-sheet";
 export * from "./storyboard-batch";
+export * from "./edit-render";

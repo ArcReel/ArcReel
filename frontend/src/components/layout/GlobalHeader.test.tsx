@@ -21,26 +21,35 @@ vi.mock("./WorkspaceNotificationsDrawer", () => ({
     open ? <div data-testid="notifications-drawer" /> : null,
 }));
 
-/** 打开导出弹窗，并在剪映分支上走完「选剪映草稿 → 提交表单」两步。 */
-async function openExportScope(option: "current" | "full" | "jianying") {
-  screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
-  if (option === "jianying") {
-    (await screen.findByRole("button", { name: /导出为剪映草稿/ })).click();
-    (await screen.findByRole("button", { name: "导出草稿" })).click();
-    return;
-  }
+/** 打开「导出项目」弹窗并选择归档范围。 */
+async function openExportScope(option: "current" | "full") {
+  screen.getByRole("button", { name: "导出项目归档" }).click();
   const name = option === "current" ? /仅当前版本/ : /全部数据/;
   (await screen.findByRole("button", { name })).click();
 }
 
-function renderHeader() {
-  const { hook } = memoryLocation({ path: "/characters" });
-  return render(
-    <Router hook={hook}>
+function renderHeader(path = "/characters") {
+  const location = memoryLocation({ path, record: true });
+  render(
+    <Router hook={location.hook}>
       <GlobalHeader />
     </Router>,
   );
+  return location;
 }
+
+const PROJECT_WITH_EPISODES = {
+  title: "旁白项目",
+  content_mode: "narration",
+  style: "Anime",
+  episodes: [
+    { episode: 1, title: "开端", script_file: "scripts/episode_1.json" },
+    { episode: 2, title: "转折", script_file: "scripts/episode_2.json" },
+  ],
+  characters: {},
+  scenes: {},
+  props: {},
+} as const;
 
 describe("GlobalHeader", () => {
   beforeEach(() => {
@@ -123,147 +132,40 @@ describe("GlobalHeader", () => {
     expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
   });
 
-  it("ad 参考生视频导出不做旧签名预检", async () => {
-    vi.spyOn(API, "requestExportToken").mockResolvedValue({
-      download_token: "test-download-token",
-      expires_in: 300,
-      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
-    });
-    const listUnits = vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
-      units: [
-        {
-          unit_id: "E1U1",
-          shot_ids: ["E1S1"],
-          references: [],
-          generated_assets: { video_clip: "reference_videos/E1U1.mp4", status: "completed" },
-          stale: true,
-        },
-        {
-          unit_id: "E1U2",
-          shot_ids: ["E1S2"],
-          references: [],
-          generated_assets: { video_clip: "reference_videos/E1U2.mp4", status: "completed" },
-        },
-      ],
-    } as never);
-    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-
-    useProjectsStore.setState({
-      currentProjectName: "ad-demo",
-      currentProjectData: {
-        title: "带货短片",
-        content_mode: "ad",
-        generation_mode: "reference_video",
-        style: "明亮写实",
-        episodes: [],
-        characters: {},
-        scenes: {},
-        props: {},
-      },
-    });
+  it("「导出项目」只剩项目归档，并提示成片与剪映草稿在剪辑视图导出", async () => {
+    useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT_WITH_EPISODES as never });
 
     renderHeader();
-    await openExportScope("jianying");
+    screen.getByRole("button", { name: "导出项目归档" }).click();
 
-    await waitFor(() => {
-      expect(anchorClick).toHaveBeenCalled();
-    });
-    expect(listUnits).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: /仅当前版本/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /全部数据/ })).toBeInTheDocument();
+    expect(screen.queryByText(/剪映草稿目录/)).not.toBeInTheDocument();
+    expect(screen.getByText(/成片与剪映草稿在各集的剪辑视图中导出/)).toBeInTheDocument();
   });
 
-  it("ad 参考生视频导出不受 unit 查询故障影响", async () => {
-    vi.spyOn(API, "requestExportToken").mockResolvedValue({
-      download_token: "test-download-token",
-      expires_in: 300,
-      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
-    });
-    vi.spyOn(API, "listReferenceVideoUnits").mockRejectedValue(new Error("boom"));
-    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  it("在集页时，提示里的链接跳到当前集的剪辑视图", async () => {
+    useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT_WITH_EPISODES as never });
 
-    useProjectsStore.setState({
-      currentProjectName: "ad-demo",
-      currentProjectData: {
-        title: "带货短片",
-        content_mode: "ad",
-        generation_mode: "reference_video",
-        style: "明亮写实",
-        episodes: [],
-        characters: {},
-        scenes: {},
-        props: {},
-      },
-    });
-
-    renderHeader();
-    await openExportScope("jianying");
+    const location = renderHeader("/episodes/2");
+    screen.getByRole("button", { name: "导出项目归档" }).click();
+    (await screen.findByRole("button", { name: "打开第 2 集剪辑视图" })).click();
 
     await waitFor(() => {
-      expect(API.requestExportToken).toHaveBeenCalledWith("ad-demo", "current");
+      expect(location.history?.at(-1)).toBe("/app/projects/demo/episodes/2?view=edit");
     });
-    expect(anchorClick).toHaveBeenCalled();
   });
 
-  it("ad 分镜图生视频项目导出剪映草稿不做 stale 预检", async () => {
-    vi.spyOn(API, "requestExportToken").mockResolvedValue({
-      download_token: "test-download-token",
-      expires_in: 300,
-      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
-    });
-    const listUnits = vi.spyOn(API, "listReferenceVideoUnits");
-    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  it("不在集页时，提示里的链接跳到第一集的剪辑视图", async () => {
+    useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT_WITH_EPISODES as never });
 
-    useProjectsStore.setState({
-      currentProjectName: "ad-demo",
-      currentProjectData: {
-        title: "带货短片",
-        content_mode: "ad",
-        generation_mode: "storyboard",
-        style: "明亮写实",
-        episodes: [],
-        characters: {},
-        scenes: {},
-        props: {},
-      },
-    });
-
-    renderHeader();
-    await openExportScope("jianying");
+    const location = renderHeader();
+    screen.getByRole("button", { name: "导出项目归档" }).click();
+    (await screen.findByRole("button", { name: "打开第 1 集剪辑视图" })).click();
 
     await waitFor(() => {
-      expect(anchorClick).toHaveBeenCalled();
+      expect(location.history?.at(-1)).toBe("/app/projects/demo/episodes/1?view=edit");
     });
-    expect(listUnits).not.toHaveBeenCalled();
-  });
-
-  it("非 ad 项目导出剪映草稿不做 stale 预检", async () => {
-    vi.spyOn(API, "requestExportToken").mockResolvedValue({
-      download_token: "test-download-token",
-      expires_in: 300,
-      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
-    });
-    const listUnits = vi.spyOn(API, "listReferenceVideoUnits");
-    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-
-    useProjectsStore.setState({
-      currentProjectName: "demo",
-      currentProjectData: {
-        title: "旁白项目",
-        content_mode: "narration",
-        style: "Anime",
-        episodes: [],
-        characters: {},
-        scenes: {},
-        props: {},
-      },
-    });
-
-    renderHeader();
-    await openExportScope("jianying");
-
-    await waitFor(() => {
-      expect(anchorClick).toHaveBeenCalled();
-    });
-    expect(listUnits).not.toHaveBeenCalled();
   });
 
   it("closes an already-open export dialog when the workbench switches to the demo project", async () => {
@@ -281,11 +183,11 @@ describe("GlobalHeader", () => {
     });
 
     renderHeader();
-    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    screen.getByRole("button", { name: "导出项目归档" }).click();
     expect(await screen.findByText("选择导出范围")).toBeInTheDocument();
 
     // 浏览器前进/后退等场景会复用同一个 GlobalHeader 实例切到演示项目——已打开的
-    // 导出弹窗须随之关闭，不能继续展示可点击的导出/剪映草稿操作
+    // 导出弹窗须随之关闭，不能继续展示可点击的导出操作
     useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
 
     await waitFor(() => {
