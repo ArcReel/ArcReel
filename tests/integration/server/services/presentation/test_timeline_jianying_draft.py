@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pyJianYingDraft import TransitionType as JianyingTransition
 
 from lib.artifacts.artifact_activation import reconcile_artifact_target_claims
 from lib.artifacts.artifact_manifest import (
@@ -18,7 +19,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.edit_timeline import EditTimelineService
 from lib.edit_timeline.model import BgmClip, EditTimelineContent
-from lib.edit_timeline.operations import SetReason, SetTransition, SetVolume, TransitionSpec
+from lib.edit_timeline.operations import SetHold, SetReason, SetTransition, SetVolume, TransitionSpec
 from lib.edit_timeline.store import EditTimelineStore
 from lib.jianying_draft.errors import JianyingDraftError
 from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
@@ -239,42 +240,88 @@ async def test_export_is_refused_on_blocking_issues_and_unavailable_narration_va
     assert not (project_path / "renders" / "episode_1" / blocked_id).exists()
 
 
-async def test_transitions_and_bgm_are_refused_like_the_final_cut(tmp_path: Path) -> None:
+def _transitions(content: dict[str, Any]) -> list[tuple[int, int, str, int, bool, str]]:
+    """主视频轨上挂了转场的段：(段序号, 段起点, 转场名, 时长, 是否重叠, 效果 ID)。"""
+    transitions = _materials(content, "transitions")
+    rows = []
+    for index, segment in enumerate(_track(content, "video")["segments"]):
+        for ref in segment["extra_material_refs"]:
+            if ref in transitions:
+                material = transitions[ref]
+                rows.append(
+                    (
+                        index,
+                        segment["target_timerange"]["start"],
+                        material["name"],
+                        material["duration"],
+                        material["is_overlap"],
+                        material["effect_id"],
+                    )
+                )
+    return rows
+
+
+async def test_transitions_hang_on_the_last_segment_of_the_previous_clip(tmp_path: Path) -> None:
     pm, project_path = setup_project(tmp_path)
     timeline_id = await edited_timeline(pm)
     service = TimelineJianyingDraftService(pm)
-    await EditTimelineService(pm).edit(
+    editor = EditTimelineService(pm)
+    await editor.edit(
         "demo",
         timeline_id,
         base_revision=2,
         summary="加转场",
         operations=[
-            SetTransition(op="set_transition", clip="c1", transition=TransitionSpec(type="dissolve", duration=0.4))
+            SetTransition(op="set_transition", clip="c1", transition=TransitionSpec(type="push_left", duration=0.4))
         ],
         author=CREATOR,
     )
 
-    with pytest.raises(JianyingDraftError) as transition_refused:
-        await service.render("demo", timeline_id, narration="without_narration")
-    assert transition_refused.value.code == "jianying_draft_content_unsupported"
-    assert transition_refused.value.params == {"clip_ids": ["c1"], "bgm_ids": []}
+    with_hold = await service.render("demo", timeline_id, narration="without_narration")
 
+    # c1 带 0.5 秒定格：转场挂在出点帧静帧这一段（主轨第 2 段）上；草稿总长不变。
+    assert with_hold.duration == 3.0
+    content = _draft_content(project_path / with_hold.artifact_path)
+    assert _transitions(content) == [(1, 1_000_000, "向左", 400_000, False, JianyingTransition.向左.value.effect_id)]
+
+    await editor.edit(
+        "demo",
+        timeline_id,
+        base_revision=3,
+        summary="去掉定格，改为叠化",
+        operations=[
+            SetHold(op="set_hold", clip="c1", hold=0),
+            SetTransition(op="set_transition", clip="c1", transition=TransitionSpec(type="dissolve", duration=0.6)),
+        ],
+        author=CREATOR,
+    )
+
+    without_hold = await service.render("demo", timeline_id, narration="without_narration")
+
+    content = _draft_content(project_path / without_hold.artifact_path)
+    assert _transitions(content) == [(0, 0, "叠化", 600_000, True, JianyingTransition.叠化.value.effect_id)]
+    assert [_timing(segment) for segment in _track(content, "video")["segments"]] == [
+        (0, 1_000_000),
+        (1_000_000, 1_500_000),
+    ]
+
+
+async def test_bgm_is_refused_like_the_final_cut(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
     store = EditTimelineStore(pm, "demo")
     document = store.find(timeline_id)
-    content = document.latest.content
-    hard_cut = content.model_copy(
-        update={
-            "clips": tuple(clip.model_copy(update={"transition_to_next": None}) for clip in content.clips),
-            "bgm": (BgmClip(id="b1", bgm_id="theme", start_us=0, in_us=0, out_us=1_000_000),),
-        }
+    content = document.latest.content.model_copy(
+        update={"bgm": (BgmClip(id="b1", bgm_id="theme", start_us=0, in_us=0, out_us=1_000_000),)}
     )
     with store.locked_episode(document.episode):
         store.write(document.model_copy(update={"next_bgm_number": 2}))
-    append_revision(pm, timeline_id, hard_cut)
+    append_revision(pm, timeline_id, content)
 
     with pytest.raises(JianyingDraftError) as bgm_refused:
-        await service.check("demo", timeline_id, narration="without_narration")
-    assert bgm_refused.value.params == {"clip_ids": [], "bgm_ids": ["b1"]}
+        await TimelineJianyingDraftService(pm).check("demo", timeline_id, narration="without_narration")
+    assert bgm_refused.value.code == "jianying_draft_content_unsupported"
+    assert bgm_refused.value.params == {"bgm_ids": ["b1"]}
     assert not (project_path / "renders" / "episode_1" / timeline_id).exists()
 
 

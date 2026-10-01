@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
+from lib.edit_timeline.model import BgmClip, TimelineRevision
 from lib.edit_timeline.operations import SetReason
+from lib.edit_timeline.store import EditTimelineStore
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
@@ -113,36 +116,47 @@ class _RefusingService:
         raise self.error
 
 
-@pytest.mark.parametrize("operation", ["transition", "empty"])
+def _add_bgm(timeline_project: ProjectManager, timeline_id: str) -> None:
+    store = EditTimelineStore(timeline_project, "demo")
+    document = store.find(timeline_id)
+    latest = document.latest
+    revision = TimelineRevision(
+        number=latest.number + 1,
+        parent=latest.number,
+        author=RevisionAuthor(kind="creator", user_id="u1"),
+        summary="加 BGM",
+        created_at=datetime.now(UTC).isoformat(),
+        content=latest.content.model_copy(
+            update={"bgm": (BgmClip(id="b1", bgm_id="theme", start_us=0, in_us=0, out_us=500_000),)}
+        ),
+    )
+    with store.locked_episode(document.episode):
+        store.write(document.model_copy(update={"next_bgm_number": 2, "revisions": (*document.revisions, revision)}))
+
+
+@pytest.mark.parametrize("content", ["bgm", "empty"])
 async def test_unsupported_or_empty_timelines_answer_422(
-    operation: str,
+    content: str,
     tmp_path: Path,
     timeline_project: ProjectManager,
     final_cut_client: AsyncClient,
 ) -> None:
-    from lib.edit_timeline.model import TransitionType
-    from lib.edit_timeline.operations import DeleteClip, SetTransition, TransitionSpec
+    from lib.edit_timeline.operations import DeleteClip
 
     for unit_id in ("E1U1", "E1U2"):
         _install(timeline_project, tmp_path, unit_id)
     timeline_id = await _timeline(timeline_project)
-    operations = (
-        [
-            SetTransition(
-                op="set_transition", clip="c1", transition=TransitionSpec(type=TransitionType.DISSOLVE, duration=0.4)
-            )
-        ]
-        if operation == "transition"
-        else [DeleteClip(op="delete", clip="c1"), DeleteClip(op="delete", clip="c2")]
-    )
-    await EditTimelineService(timeline_project).edit(
-        "demo",
-        timeline_id,
-        base_revision=1,
-        summary="调整片段",
-        operations=operations,
-        author=RevisionAuthor(kind="creator", user_id="u1"),
-    )
+    if content == "bgm":
+        _add_bgm(timeline_project, timeline_id)
+    else:
+        await EditTimelineService(timeline_project).edit(
+            "demo",
+            timeline_id,
+            base_revision=1,
+            summary="调整片段",
+            operations=[DeleteClip(op="delete", clip="c1"), DeleteClip(op="delete", clip="c2")],
+            author=RevisionAuthor(kind="creator", user_id="u1"),
+        )
 
     response = await final_cut_client.post(f"/api/v1/projects/demo/edit-timelines/{timeline_id}/final-cut")
 

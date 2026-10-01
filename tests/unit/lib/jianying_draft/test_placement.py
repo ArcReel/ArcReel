@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lib.edit_timeline.model import ClipTrim, EditClip, EditTimelineContent
+from lib.edit_timeline.model import ClipTrim, EditClip, EditTimelineContent, Transition, TransitionType
 from lib.jianying_draft.placement import (
     PlacedNarration,
     PlacedSubtitle,
@@ -134,3 +134,21 @@ def test_source_time_subtitles_show_only_inside_each_clips_window() -> None:
         PlacedSubtitle(1_500_000, 500_000, "丙"),
         PlacedSubtitle(3 * S, 500_000, "甲"),
     )
+
+
+def test_transitions_stay_on_the_previous_clip_and_only_reach_the_next_exported_clip() -> None:
+    dissolve = Transition(type=TransitionType.DISSOLVE, duration_us=400_000)
+    content = EditTimelineContent(
+        clips=(
+            _clip("c1", "U1", transition_to_next=dissolve),
+            _clip("c2", "GONE"),
+            _clip("c3", "U3", transition_to_next=dissolve),
+            _clip("c4", "GONE"),
+        )
+    )
+
+    placement = place_timeline(content, {"U1": _unit("U1"), "U3": _unit("U3")})
+
+    # c2 的视频单元已删除，c1 的转场衔接到 c3；c3 之后没有参与导出的片段，它的转场没有效果。
+    assert [(clip.clip_id, clip.transition_to_next) for clip in placement.clips] == [("c1", dissolve), ("c3", None)]
+    assert placement.duration_us == 8 * S

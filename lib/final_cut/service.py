@@ -159,13 +159,10 @@ class FinalCutService:
                 "剪辑时间线有阻断出片的问题：" + "、".join(f"{issue.code}({issue.unit_id})" for issue in blocking),
                 issues=[issue.model_dump(mode="json") for issue in blocking],
             )
-        transitions, bgm_ids = unrendered_effects(readout)
-        if transitions or bgm_ids:
+        bgm_ids = unrendered_effects(readout)
+        if bgm_ids:
             raise FinalCutError(
-                "final_cut_content_unsupported",
-                "成片目前只能渲染硬切、不带 BGM 的剪辑时间线",
-                clip_ids=transitions,
-                bgm_ids=bgm_ids,
+                "final_cut_content_unsupported", "成片目前只能渲染不带 BGM 的剪辑时间线", bgm_ids=bgm_ids
             )
         if not any(clip.status != "unit_deleted" for clip in readout.clips):
             raise FinalCutError("final_cut_empty", "剪辑时间线没有可渲染的剪辑片段", timeline_id=document.id)

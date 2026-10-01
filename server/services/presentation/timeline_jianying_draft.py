@@ -224,13 +224,10 @@ class TimelineJianyingDraftService:
                 "剪辑时间线有阻断导出的问题：" + "、".join(f"{issue.code}({issue.unit_id})" for issue in blocking),
                 issues=[issue.model_dump(mode="json") for issue in blocking],
             )
-        transitions, bgm_ids = unrendered_effects(readout)
-        if transitions or bgm_ids:
+        bgm_ids = unrendered_effects(readout)
+        if bgm_ids:
             raise JianyingDraftError(
-                "jianying_draft_content_unsupported",
-                "剪映草稿目前只能导出硬切、不带 BGM 的剪辑时间线",
-                clip_ids=transitions,
-                bgm_ids=bgm_ids,
+                "jianying_draft_content_unsupported", "剪映草稿目前只能导出不带 BGM 的剪辑时间线", bgm_ids=bgm_ids
             )
         if not any(clip.status != "unit_deleted" for clip in readout.clips):
             raise JianyingDraftError(

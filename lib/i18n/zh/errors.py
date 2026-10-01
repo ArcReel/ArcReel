@@ -684,7 +684,7 @@ MESSAGES = {
     # Final cut
     "final_cut_variant_unsupported": "成片暂只支持渲染不带旁白、不烧入字幕的版本",
     "final_cut_blocked": "剪辑时间线有阻止渲染成片的问题，涉及视频单元：{units}。处理这些问题后再提交渲染",
-    "final_cut_content_unsupported": "成片暂不支持转场和 BGM，只能渲染全部为硬切、不带 BGM 的剪辑时间线",
+    "final_cut_content_unsupported": "成片暂不支持 BGM，只能渲染不带 BGM 的剪辑时间线",
     "final_cut_empty": "剪辑时间线没有可渲染的剪辑片段",
     "final_cut_ffmpeg_unavailable": "随包 ffmpeg 不可用，无法渲染成片",
     "final_cut_render_failed": "成片渲染失败，请重试",
@@ -693,7 +693,7 @@ MESSAGES = {
     # Jianying draft
     "jianying_draft_narration_unavailable": "只有 TTS 配音项目可以导出带旁白版本的剪映草稿",
     "jianying_draft_blocked": "剪辑时间线有阻止导出剪映草稿的问题，涉及视频单元：{units}。处理这些问题后再提交导出",
-    "jianying_draft_content_unsupported": "剪映草稿暂不支持转场和 BGM，只能导出全部为硬切、不带 BGM 的剪辑时间线",
+    "jianying_draft_content_unsupported": "剪映草稿暂不支持 BGM，只能导出不带 BGM 的剪辑时间线",
     "jianying_draft_empty": "剪辑时间线没有可导出的剪辑片段",
     "jianying_draft_export_in_progress": "这条剪辑时间线已有一个参数不同的剪映草稿导出任务在排队或执行（{task_id}），请等它结束后再提交",
     "jianying_draft_not_exported": "剪辑时间线「{timeline_id}」还没有导出过这个旁白版本的剪映草稿，请先导出",

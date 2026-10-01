@@ -32,13 +32,15 @@ from pyJianYingDraft import (
     TextStyle,
     TrackSpec,
     TrackType,
+    TransitionType,
     VideoMaterial,
     VideoSegment,
     trange,
 )
 
+from lib.edit_timeline.transitions import transition_preset
 from lib.infra.path_safety import PathTraversalError, safe_join
-from lib.jianying_draft.placement import DraftPlacement
+from lib.jianying_draft.placement import DraftPlacement, PlacedClip
 
 type JianyingVersion = Literal["5", "6"]
 
@@ -144,6 +146,16 @@ def _map_strings(value: Any, transform: Callable[[str], str]) -> Any:
     return value
 
 
+def _attach_transition(segments: list[VideoSegment], clip: PlacedClip) -> None:
+    """转场挂在片段的最后一段画面上：有定格延长时是出点帧静帧，否则是源素材那一段。"""
+    transition = clip.transition_to_next
+    if transition is None or not segments:
+        return
+    segments[-1].add_transition(
+        TransitionType[transition_preset(transition.type).jianying], duration=transition.duration_us
+    )
+
+
 def write_jianying_draft(
     placement: DraftPlacement,
     *,
@@ -170,8 +182,9 @@ def write_jianying_draft(
     script.append_tracks(tracks)
 
     for clip in placement.clips:
+        segments: list[VideoSegment] = []
         if clip.source_duration_us > 0:
-            script.add_segment(
+            segments.append(
                 VideoSegment(
                     VideoMaterial(staging.project_file(clip.video_path)),
                     trange(clip.start_us, clip.source_duration_us),
@@ -181,13 +194,16 @@ def write_jianying_draft(
             )
         if clip.hold_us > 0:
             still = staging.bundled_file(hold_frames[clip.clip_id], f"hold_{clip.clip_id}.png")
-            script.add_segment(
+            segments.append(
                 VideoSegment(
                     VideoMaterial(still),
                     trange(clip.hold_start_us, clip.hold_us),
                     source_timerange=trange(0, clip.hold_us),
                 )
             )
+        _attach_transition(segments, clip)
+        for segment in segments:
+            script.add_segment(segment)
 
     for narration in placement.narrations:
         script.add_segment(

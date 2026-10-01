@@ -15,8 +15,8 @@ from lib.artifacts.artifact_currency import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactStatus
 from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
-from lib.edit_timeline.model import EditTimelineContent, TimelineRevision
-from lib.edit_timeline.operations import SetReason, SetVolume
+from lib.edit_timeline.model import BgmClip, EditTimelineContent, TimelineRevision
+from lib.edit_timeline.operations import SetReason, SetTransition, SetTrim, SetVolume, TransitionSpec, TrimSpec
 from lib.edit_timeline.store import EditTimelineStore
 from lib.final_cut.basis import FinalCutVariant, final_cut_key
 from lib.final_cut.errors import FinalCutError
@@ -278,14 +278,56 @@ async def test_a_unit_without_usable_video_blocks_rendering(render_project: Proj
 
 
 @pytest.mark.usefixtures("media")
-async def test_transitions_are_refused_until_they_can_be_rendered(render_project: ProjectManager) -> None:
+async def test_transitions_render_without_changing_the_timeline_duration(render_project: ProjectManager) -> None:
     timeline_id = await _create_timeline(render_project)
-    _append_revision(
-        render_project, timeline_id, {"c1": {"transition_to_next": {"type": "dissolve", "duration_us": 400_000}}}
+    edited = await EditTimelineService(render_project).edit(
+        "demo",
+        timeline_id,
+        base_revision=1,
+        summary="加转场",
+        operations=[
+            SetTrim(op="set_trim", clip="c2", trim=TrimSpec(source_in=0.3, source_out=1.2)),
+            SetTransition(op="set_transition", clip="c1", transition=TransitionSpec(type="dissolve", duration=0.4)),
+            SetTransition(op="set_transition", clip="c2", transition=TransitionSpec(type="fade_black", duration=0.3)),
+        ],
+        author=CREATOR,
     )
+
+    result = await FinalCutService(render_project).render("demo", timeline_id)
+
+    # 1.0 + 0.9（截取）+ 0.7：叠化借帧、闪黑淡出淡入都不改变总时长。
+    assert edited.duration == pytest.approx(2.6)
+    assert result.acceptance.expected_duration == pytest.approx(edited.duration, abs=0.034)
+    assert result.acceptance.video_duration == pytest.approx(edited.duration, abs=0.05)
+    assert result.acceptance.audio_duration == pytest.approx(edited.duration, abs=0.05)
+    assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.CURRENT
+
+
+@pytest.mark.usefixtures("media")
+async def test_bgm_is_refused_until_it_can_be_rendered(render_project: ProjectManager) -> None:
+    timeline_id = await _create_timeline(render_project)
+    store = EditTimelineStore(render_project, "demo")
+    document = store.find(timeline_id)
+    with store.locked_episode(document.episode):
+        store.write(document.model_copy(update={"next_bgm_number": 2}))
+    latest = store.find(timeline_id).latest
+    content = latest.content.model_copy(
+        update={"bgm": (BgmClip(id="b1", bgm_id="theme", start_us=0, in_us=0, out_us=1_000_000),)}
+    )
+    revision = TimelineRevision(
+        number=latest.number + 1,
+        parent=latest.number,
+        author=CREATOR,
+        summary="加 BGM",
+        created_at=datetime.now(UTC).isoformat(),
+        content=content,
+    )
+    document = store.find(timeline_id)
+    with store.locked_episode(document.episode):
+        store.write(document.model_copy(update={"revisions": (*document.revisions, revision)}))
 
     with pytest.raises(FinalCutError) as caught:
         await FinalCutService(render_project).check("demo", timeline_id)
 
     assert caught.value.code == "final_cut_content_unsupported"
-    assert caught.value.params["clip_ids"] == ["c1"]
+    assert caught.value.params["bgm_ids"] == ["b1"]
