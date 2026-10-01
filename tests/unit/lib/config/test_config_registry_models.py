@@ -153,6 +153,15 @@ class TestProviderRegistry:
         ]
         assert unregistered == [], f"带 text_generation 能力的内置模型须登记最大输出长度：{unregistered}"
 
+    def test_dashscope_qwen_long_does_not_declare_structured_output(self):
+        capabilities = PROVIDER_REGISTRY["dashscope"].models["qwen-long"].capabilities
+        assert "structured_output" not in capabilities
+
+    @pytest.mark.parametrize("model_id", ["qwen-plus", "qwen3.6-plus", "qwen3-max", "qwen3.7-max", "qwen3.6-flash"])
+    def test_dashscope_native_structured_models_still_declare_structured_output(self, model_id):
+        capabilities = PROVIDER_REGISTRY["dashscope"].models[model_id].capabilities
+        assert "structured_output" in capabilities
+
     def test_each_media_type_has_default(self):
         for provider_id, meta in PROVIDER_REGISTRY.items():
             by_type: dict[str, list[ModelInfo]] = {}
