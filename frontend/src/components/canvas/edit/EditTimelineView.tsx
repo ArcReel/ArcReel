@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { useParams, useSearchParams } from "wouter";
 
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
   EditPreviewNarrationAudio,
@@ -10,6 +12,7 @@ import type {
   EditTimelineReadout,
   EditTimelineSummary,
 } from "@/types/edit-timeline";
+import { LINK_TIME_PARAM, LINK_TIMELINE_PARAM, parseSeconds } from "@/utils/app-link";
 import { errMsg } from "@/utils/async";
 import { formatRelativeTime } from "@/utils/date-format";
 import type { PreviewAspect } from "@/utils/preview-aspect";
@@ -18,7 +21,7 @@ import { ClipInspector, ISSUE_LIST_HEADING_ID, IssueList } from "./EditTimelineD
 import { EditTimelineMenu } from "./EditTimelineMenu";
 import { EditTimelinePlayer } from "./EditTimelinePlayer";
 import { EditTimelineTracks } from "./EditTimelineTracks";
-import { buildPlaybackPlan, type PlaybackPlan, type PlaybackSegment } from "./playback-schedule";
+import { buildPlaybackPlan, locate, type PlaybackPlan, type PlaybackSegment } from "./playback-schedule";
 import {
   bgmPlacements,
   narrationPlacements,
@@ -63,6 +66,12 @@ interface EditTimelineViewProps {
   renderEmptyState?: (context: EditTimelineEmptyStateContext) => ReactNode;
 }
 
+/** 应用内链接带来的一次性定位：打开哪条剪辑时间线（缺省为当前选中的）、定位到全局时间的哪一秒（缺省为不动播放头）。 */
+interface LinkJump {
+  timelineId: string | null;
+  seconds: number | null;
+}
+
 type Loaded<T> = { key: string; value: T } | { key: string; error: string };
 
 /**
@@ -84,6 +93,28 @@ export function EditTimelineView({
   const [list, setList] = useState<Loaded<EditTimelineSummary[]> | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const reload = useCallback(() => setRetry((n) => n + 1), []);
+
+  // 链接参数 tl / t 读入后立刻从地址栏去掉：它们是一次性的定位指令，刷新页面不应再次跳走。
+  const [searchParams, setSearchParams] = useSearchParams();
+  // 跳到别的项目时，地址先变、当前项目后切：这一刻地址栏里的参数属于即将挂载的那个视图，不在这里消费。
+  const routeProject = useParams<{ projectName?: string }>().projectName;
+  const linkForOtherProject = routeProject !== undefined && routeProject !== projectName;
+  const linkTimeline = searchParams.get(LINK_TIMELINE_PARAM);
+  const linkTime = searchParams.get(LINK_TIME_PARAM);
+  const [jump, setJump] = useState<LinkJump | null>(null);
+  useEffect(() => {
+    if (linkForOtherProject || (linkTimeline === null && linkTime === null)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅地址栏的一次性参数：读入后清掉，再点同一条链接才能重新触发
+    setJump({ timelineId: linkTimeline || null, seconds: parseSeconds(linkTime) });
+    setSearchParams(
+      (params) => {
+        params.delete(LINK_TIMELINE_PARAM);
+        params.delete(LINK_TIME_PARAM);
+        return params;
+      },
+      { replace: true },
+    );
+  }, [linkForOtherProject, linkTimeline, linkTime, setSearchParams]);
   // 删除后选中的标签回落到默认那条（最近修改的）。
   const handleDeleted = useCallback(() => {
     setChosenId(null);
@@ -112,6 +143,28 @@ export function EditTimelineView({
 
   // 刷新期间沿用上一次的列表，避免每次项目变更都闪回加载态。
   const timelines = list && "value" in list ? list.value : null;
+
+  // 列表到了才能判断链接指向的剪辑时间线还在不在：在就切过去，不在就提示并放弃这次定位。
+  const jumpTimelineId = jump?.timelineId ?? null;
+  const jumpTimelineKnown = timelines !== null && jumpTimelineId !== null && timelines.some((item) => item.id === jumpTimelineId);
+  // 沿用中的旧列表可能还没有刚新建的那条，只按本轮读到的列表判定「不存在」。
+  const listFresh = list?.key === listKey;
+  useEffect(() => {
+    if (!jump || !timelines) return;
+    if (timelines.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 没有剪辑时间线可定位，作废这次定位
+      setJump(null);
+      return;
+    }
+    if (jumpTimelineId === null) return;
+    if (jumpTimelineKnown) {
+      setChosenId(jumpTimelineId);
+    } else if (listFresh) {
+      useAppStore.getState().pushToast(t("edit_view_link_timeline_missing"), "warning");
+      setJump(null);
+    }
+  }, [jump, jumpTimelineId, jumpTimelineKnown, listFresh, timelines, t]);
+  const handleJumpApplied = useCallback(() => setJump(null), []);
   const selectedId =
     timelines && chosenId && timelines.some((item) => item.id === chosenId)
       ? chosenId
@@ -187,7 +240,11 @@ export function EditTimelineView({
                 type="button"
                 role="tab"
                 aria-selected={item.id === selected.id}
-                onClick={() => setChosenId(item.id)}
+                onClick={() => {
+                  setChosenId(item.id);
+                  // 手动切换标签后放弃尚未完成的链接定位。
+                  setJump(null);
+                }}
                 className={`focus-ring rounded-[7px] px-3 py-1.5 text-[12.5px] transition-colors ${
                   item.id === selected.id ? "bg-accent-dim text-text" : "text-text-3 hover:text-text"
                 }`}
@@ -226,6 +283,8 @@ export function EditTimelineView({
           media={previewMedia?.timelineId === selected.id ? previewMedia.value : null}
           script={script}
           aspect={aspect}
+          seekRequest={jump && (jump.timelineId === null || jump.timelineId === selected.id) ? jump : null}
+          onSeekHandled={handleJumpApplied}
         />
       ) : current && "error" in current ? (
         <LoadFailed message={current.error} onRetry={reload} />
@@ -242,9 +301,20 @@ interface TimelinePreviewProps {
   media: EditTimelinePreviewMedia | null;
   script: unknown;
   aspect: PreviewAspect;
+  /** 链接要求定位的位置；处理完调用 `onSeekHandled`。 */
+  seekRequest: LinkJump | null;
+  onSeekHandled: () => void;
 }
 
-function TimelinePreview({ projectName, readout, media, script, aspect }: TimelinePreviewProps) {
+function TimelinePreview({
+  projectName,
+  readout,
+  media,
+  script,
+  aspect,
+  seekRequest,
+  onSeekHandled,
+}: TimelinePreviewProps) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [showSubtitles, setShowSubtitles] = useState(true);
 
@@ -288,6 +358,20 @@ function TimelinePreview({ projectName, readout, media, script, aspect }: Timeli
   const narration = useMemo(() => narrationSpans(readout), [readout]);
   const subtitles = useMemo(() => placeSubtitles(readout, plan, media), [readout, plan, media]);
   const bgm = useMemo(() => audio.filter((placement) => placement.kind === "bgm"), [audio]);
+
+  // 链接带了时间点：播放头移过去（暂停在那一刻），并选中落在该时间的片段。
+  const { seek } = playback;
+  useEffect(() => {
+    if (!seekRequest) return;
+    if (seekRequest.seconds !== null) {
+      seek(seekRequest.seconds);
+      const location = locate(plan, seekRequest.seconds);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 一次性的链接定位：移动播放头的同时选中对应片段
+      if (location) setSelectedClipId(plan.segments[location.index].clipId);
+    }
+    // 处理完立即作废，plan 随后的刷新不会再把播放头拉回去。
+    onSeekHandled();
+  }, [seekRequest, seek, plan, onSeekHandled]);
 
   const trimIgnored = useMemo(() => issueClipIds(readout, "trim_ignored"), [readout]);
   const unused = useMemo(() => unusedUnitIds(readout), [readout]);

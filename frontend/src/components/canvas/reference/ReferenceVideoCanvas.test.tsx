@@ -1588,6 +1588,25 @@ describe("ReferenceVideoCanvas", () => {
     );
   });
 
+  it("窄屏下带起始时间的单元链接把预览子页签切到前台", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 600 } as DOMRect);
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U1"));
+    const previewTab = screen.getByRole("tab", { name: /^(Video|视频)$/ });
+    expect(previewTab).toHaveAttribute("aria-selected", "false");
+
+    act(() => {
+      useAppStore.getState().triggerScrollTo({ type: "reference_unit", id: "E1U2", route: "/episodes/1" });
+      useAppStore.getState().requestPlaybackStart({ resource_type: "reference_videos", resource_id: "E1U2", seconds: 2 });
+    });
+
+    await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2"));
+    expect(screen.getByRole("tab", { name: /^(Video|视频)$/ })).toHaveAttribute("aria-selected", "true");
+    act(() => useAppStore.getState().clearPlaybackStart());
+  });
+
   // 慢网/冷启动回归：units 仍在加载（loadUnits 未返回）时，即便 target 已过期也不该
   // 提前清除——否则 units 到达后无法再选中目标 unit，"点击通知回跳"失效。
   it("keeps a reference_unit target while units are still loading, even past expiry", async () => {

@@ -21,8 +21,18 @@ interface PresentationPlayerProps {
   audioVersion?: number;
   posterPath?: string | null;
   initialVariant?: PresentationVariant;
+  /**
+   * 载入后从该时间（秒，单元视频自身的时间轴）开始播放；超出可播放范围时夹到范围内。
+   * 同一个 `requestId` 只生效一次，换一个 `requestId` 就再定位一次。浏览器拦截自动播放时停在该位置等用户点播放。
+   */
+  startAt?: { seconds: number; requestId: string };
+  /** `startAt` 生效后回调，参数为该请求的 `requestId`。 */
+  onStartApplied?: (requestId: string) => void;
   className?: string;
 }
+
+/** 起始位置离可播放范围末尾至少留出这么多，免得一播放就撞上边界停住。 */
+const START_END_MARGIN_SECONDS = 0.05;
 
 interface PresentationLoadState {
   resourceKey: string;
@@ -40,6 +50,8 @@ export function PresentationPlayer({
   audioVersion,
   posterPath,
   initialVariant = "post_production",
+  startAt,
+  onStartApplied,
   className = "",
 }: PresentationPlayerProps) {
   const { t } = useTranslation("dashboard");
@@ -212,6 +224,30 @@ export function PresentationPlayer({
     },
     [presentation, synchronizeNarrationControls],
   );
+
+  const appliedStartRef = useRef<string | null>(null);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!startAt || !presentation || !video || appliedStartRef.current === startAt.requestId) return;
+    const first = presentation.video.start_microseconds / 1_000_000;
+    const end = first + presentation.video.duration_microseconds / 1_000_000;
+    const target = Math.min(Math.max(startAt.seconds, first), Math.max(first, end - START_END_MARGIN_SECONDS));
+    const apply = () => {
+      appliedStartRef.current = startAt.requestId;
+      video.currentTime = target;
+      // 播放器可能在可滚动栏里的折叠位置之下，先滚到可见处。
+      video.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      void video.play().catch(() => undefined);
+      onStartApplied?.(startAt.requestId);
+    };
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      apply();
+      return;
+    }
+    video.addEventListener("loadedmetadata", apply, { once: true });
+    return () => video.removeEventListener("loadedmetadata", apply);
+    // 视频元素在 presentation 就绪后才挂载，所以载入结果变化时要重跑。
+  }, [startAt, presentation, onStartApplied]);
 
   const stopAtPresentationBoundary = useCallback(
     (video: HTMLVideoElement) => {

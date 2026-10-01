@@ -2938,6 +2938,7 @@ export default {
   'edit_view_loading': 'Đang tải dòng thời gian dựng phim…',
   'edit_view_load_failed': 'Không tải được dòng thời gian dựng phim: {{message}}',
   'edit_view_retry': 'Thử lại',
+  'edit_view_link_timeline_missing': 'Dòng thời gian dựng phim mà liên kết trỏ tới không còn tồn tại. Đang hiển thị dòng thời gian hiện tại.',
   'edit_view_empty_title': 'Chưa có dòng thời gian dựng phim',
   'edit_view_empty_hint': 'Sau khi Agent dựng một bản, bạn có thể xem trước tại đây.',
   'edit_view_player_aria': 'Xem trước bản dựng',

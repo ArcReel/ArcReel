@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useAppStore } from "@/stores/app-store";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import type { ReferenceVideoUnit, UnitGeneratedAssets } from "@/types";
 
@@ -21,8 +22,8 @@ vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
 }));
 
 vi.mock("@/components/shared/PresentationPlayer", () => ({
-  PresentationPlayer: ({ resourceId }: { resourceId: string }) => (
-    <div data-testid="presentation-player" data-resource-id={resourceId} />
+  PresentationPlayer: ({ resourceId, startAt }: { resourceId: string; startAt?: { seconds: number } }) => (
+    <div data-testid="presentation-player" data-resource-id={resourceId} data-start-at={startAt?.seconds} />
   ),
 }));
 
@@ -198,6 +199,32 @@ describe("UnitPreviewPanel", () => {
       fireEvent.click(screen.getByTestId("start-restore"));
 
       expect(onRestoringChange).toHaveBeenCalledWith("E1U2", true);
+    });
+  });
+
+  describe("链接带来的起始播放请求", () => {
+    const readyUnit = () =>
+      mkUnit({
+        generated_assets: { ...mkUnit().generated_assets, video_clip: "reference_videos/E1U1.mp4", status: "completed" },
+      });
+
+    it("把针对本单元的请求交给播放器，针对其他单元的不理会", () => {
+      render(<UnitPreviewPanel unit={readyUnit()} projectName="demo" status="ready" />);
+      expect(screen.getByTestId("presentation-player")).not.toHaveAttribute("data-start-at");
+
+      act(() => useAppStore.getState().requestPlaybackStart({ resource_type: "reference_videos", resource_id: "E1U2", seconds: 9 }));
+      expect(screen.getByTestId("presentation-player")).not.toHaveAttribute("data-start-at");
+
+      act(() => useAppStore.getState().requestPlaybackStart({ resource_type: "reference_videos", resource_id: "E1U1", seconds: 3.5 }));
+      expect(screen.getByTestId("presentation-player")).toHaveAttribute("data-start-at", "3.5");
+      act(() => useAppStore.setState({ playbackStart: null }));
+    });
+
+    it("不带时间点的请求不让播放器定位", () => {
+      render(<UnitPreviewPanel unit={readyUnit()} projectName="demo" status="ready" />);
+      act(() => useAppStore.getState().requestPlaybackStart({ resource_type: "reference_videos", resource_id: "E1U1", seconds: null }));
+      expect(screen.getByTestId("presentation-player")).not.toHaveAttribute("data-start-at");
+      act(() => useAppStore.setState({ playbackStart: null }));
     });
   });
 });

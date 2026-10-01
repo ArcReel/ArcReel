@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { StreamMarkdown } from "./StreamMarkdown";
 
 const URL_ATTRS = ["href", "src", "xlink:href", "action", "formaction", "srcdoc", "data"];
@@ -144,4 +146,88 @@ describe("StreamMarkdown 渲染惰性", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open link" }));
     expect(open).toHaveBeenCalledWith("https://example.com/a", "_blank", "noreferrer");
   });
+});
+
+describe("StreamMarkdown 应用内链接", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+    useAppStore.setState({ scrollTarget: null, playbackStart: null });
+    vi.restoreAllMocks();
+  });
+
+  it("剪辑视图链接渲染为真实链接，点击在应用内跳转而不开新窗口", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const href = "/app/projects/demo/episodes/1?view=edit&tl=tl_ab&t=12.5";
+    const { container } = await renderLoaded(`[看这里](${href})`);
+    const link = container.querySelector("a");
+    expect(link?.getAttribute("href")).toBe(href);
+    expect(link?.textContent).toBe("看这里");
+    fireEvent.click(link!);
+    expect(window.location.pathname + window.location.search).toBe(href);
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Open link" })).not.toBeInTheDocument();
+  });
+
+  it("不以斜杠开头的站内写法，链接地址规范成从站点根开始，新开标签页也落到同一处", async () => {
+    window.history.replaceState(null, "", "/app/projects/demo/characters");
+    const { container } = await renderLoaded("[看这里](app/projects/demo/episodes/1?view=edit&t=4)");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/app/projects/demo/episodes/1?view=edit&t=4");
+  });
+
+  it("带修饰键的点击保留浏览器默认行为", async () => {
+    const { container } = await renderLoaded("[看这里](/app/projects/demo/episodes/1?view=edit)");
+    let prevented: boolean | null = null;
+    document.addEventListener(
+      "click",
+      (event) => {
+        prevented = event.defaultPrevented;
+        event.preventDefault(); // 挡掉 jsdom 的真实导航
+      },
+      { once: true },
+    );
+    fireEvent.click(container.querySelector("a")!, { ctrlKey: true });
+    expect(prevented).toBe(false);
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("单元链接跳到该集、选中单元并请求从起始时间播放，一次性参数不留在地址栏", async () => {
+    useProjectsStore.setState({ currentProjectData: { generation_mode: "reference_video" } as never });
+    const { container } = await renderLoaded("[E1U3 的问题](/app/projects/demo/episodes/2?unit=E1U3&t=4.5)");
+    fireEvent.click(container.querySelector("a")!);
+    expect(window.location.pathname + window.location.search).toBe("/app/projects/demo/episodes/2");
+    expect(useAppStore.getState().scrollTarget).toMatchObject({ type: "reference_unit", id: "E1U3" });
+    expect(useAppStore.getState().playbackStart).toMatchObject({
+      resource_type: "reference_videos",
+      resource_id: "E1U3",
+      seconds: 4.5,
+    });
+  });
+
+  it("不带时间点的单元链接只请求打开单元预览，不指定起始时间", async () => {
+    useProjectsStore.setState({ currentProjectData: { generation_mode: "storyboard" } as never });
+    const { container } = await renderLoaded("[问题](/app/projects/demo/episodes/1?unit=E1S02)");
+    fireEvent.click(container.querySelector("a")!);
+    expect(useAppStore.getState().playbackStart).toMatchObject({
+      resource_type: "videos",
+      resource_id: "E1S02",
+      seconds: null,
+    });
+  });
+
+  it("分镜图生视频项目的单元链接按分镜单元处理", async () => {
+    useProjectsStore.setState({ currentProjectData: { generation_mode: "storyboard" } as never });
+    const { container } = await renderLoaded("[问题](/app/projects/demo/episodes/1?unit=E1S02&t=1)");
+    fireEvent.click(container.querySelector("a")!);
+    expect(useAppStore.getState().scrollTarget).toMatchObject({ type: "segment", id: "E1S02" });
+    expect(useAppStore.getState().playbackStart).toMatchObject({ resource_type: "videos", resource_id: "E1S02" });
+  });
+
+  it.each(["//example.com/app/projects/x", "https://example.com/app/projects/x", "/api/v1/projects/x/export"])(
+    "非应用内链接 %s 仍走外链确认",
+    async (href) => {
+      const { container } = await renderLoaded(`[站点](${href})`);
+      expect(container.querySelector("a")).toBeNull();
+      expect(container.querySelector('[data-streamdown="link"]')?.tagName).toBe("BUTTON");
+    },
+  );
 });
