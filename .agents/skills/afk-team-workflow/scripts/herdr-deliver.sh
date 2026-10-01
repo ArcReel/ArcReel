@@ -33,7 +33,7 @@ agent=$1 prompt_file=$2; shift 2
 attempts=3
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --attempts) attempts=${2:?--attempts needs a value}; shift 2 ;;
+    --attempts) [[ ${2:-} =~ ^[1-9][0-9]*$ ]] || usage; attempts=$2; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -70,5 +70,6 @@ for ((i = 1; ; i++)); do
   exit 1
 done
 
-s=$(status)
+# Delivery is settled; a failed status read must not turn it into an error.
+s=$(status 2>/dev/null) || s=unknown
 echo "DELIVERED $agent status=$s"
