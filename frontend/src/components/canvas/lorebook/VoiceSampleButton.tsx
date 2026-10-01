@@ -160,7 +160,7 @@ export function VoiceSampleButton({
   const handleGenerate = async () => {
     const trimmed = text.trim();
     if (!trimmed || !selectedVoice || generating || confirming) return;
-    // 弹窗打开期间 busy 态可能已变化，提交前用 store 新鲜读复核（frontend-ui-conventions 纪律）。
+    // 弹窗打开期间 busy 态可能已变化，提交前用 store 新鲜读复核（见 docs/standards/frontend-ui.md）。
     if (isResourceBusy("character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;

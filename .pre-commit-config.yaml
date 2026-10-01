@@ -31,7 +31,7 @@ repos:
         pass_filenames: true
 
   # workflow 闸门的本地对应物；两个 rev 须与 .github/workflows/test.yml 的
-  # workflow-static job 同步升级
+  # workflow-static job 同步升级（scripts/audit_conventions.py 校验）
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:

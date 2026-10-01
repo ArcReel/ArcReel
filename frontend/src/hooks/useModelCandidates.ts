@@ -38,7 +38,7 @@ export function useModelCandidates(): ModelCandidatesState {
   const abortRef = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
-    // 接管方轮换 controller（见 .claude/rules/frontend-async-race.md）：重试可能在上一轮
+    // 接管方轮换 controller（见 docs/standards/frontend-async.md）：重试可能在上一轮
     // 请求尚未回来时触发，旧响应回来时已经过期。
     abortRef.current?.abort();
     const controller = new AbortController();

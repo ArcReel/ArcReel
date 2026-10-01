@@ -48,7 +48,7 @@ export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
   const abortRef = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
-    // 接管方轮换 controller（见 .claude/rules/frontend-async-race.md）。
+    // 接管方轮换 controller（见 docs/standards/frontend-async.md）。
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
