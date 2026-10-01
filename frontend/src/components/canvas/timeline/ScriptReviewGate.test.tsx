@@ -922,3 +922,191 @@ describe("ScriptReviewGate new assets", () => {
     expect(screen.queryByLabelText("「将军」的处理方式")).not.toBeInTheDocument();
   });
 });
+
+describe("ScriptReviewGate item fields", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+  });
+
+  function withProject(data: Partial<ProjectData>) {
+    useProjectsStore.setState({
+      currentProjectData: { characters: {}, scenes: {}, props: {}, ...data } as unknown as ProjectData,
+    });
+  }
+
+  function planAsset(overrides: Partial<PlanNewAsset>): PlanNewAsset {
+    return {
+      type: "character",
+      name: "将军",
+      decision: "register",
+      reason: "首次出场",
+      description: "银甲",
+      aliases: [],
+      target: "",
+      asset_name: "",
+      ...overrides,
+    };
+  }
+
+  function narrationWith(
+    segment: Partial<NarrationScriptPlanDraft["segments"][number]>,
+    newAssets: PlanNewAsset[] = [],
+    overrides: Partial<ScriptReviewState> = {},
+  ): ScriptReviewState {
+    return narrationState({
+      content: { segments: [{ ...NARRATION_SEGMENT, ...segment }], new_assets: newAssets },
+      ...overrides,
+    });
+  }
+
+  async function saveAndReadContent(save: MockInstance<typeof API.saveScriptReviewContent>) {
+    fireEvent.click(await screen.findByText("修复后保存"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    return save.mock.calls[0][2];
+  }
+
+  it("picks a duration from the current tiers and saves it", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(narrationWith({}));
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(narrationWith({ duration_seconds: 8 }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" durationOptions={[4, 6, 8]} />);
+    const select = await screen.findByLabelText("S01 时长");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["4 秒", "6 秒", "8 秒"]);
+    fireEvent.change(select, { target: { value: "8" } });
+
+    expect(await saveAndReadContent(save)).toMatchObject({ segments: [{ duration_seconds: 8 }] });
+  });
+
+  it("marks a duration outside the tiers in red with its cause and blocks confirming", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(narrationWith({ duration_seconds: 6 }));
+
+    render(
+      <ScriptReviewGate
+        projectName="p"
+        episode={1}
+        contentMode="narration"
+        videoModelUnresolved={false}
+        durationOptions={[4, 8]}
+        durationWarningReason={() => "resolution"}
+      />,
+    );
+
+    expect(await screen.findByText("当前秒数 6 在当前分辨率下不可用，可选 [4, 8]")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "确认并继续" });
+    expect(confirm).toBeDisabled();
+    expect(confirm).toHaveAttribute("title", "有分镜的时长不在当前档位内，请改选后再确认");
+
+    fireEvent.change(screen.getByLabelText("S01 时长"), { target: { value: "8" } });
+    expect(screen.queryByText("当前秒数 6 在当前分辨率下不可用，可选 [4, 8]")).not.toBeInTheDocument();
+    expect(confirm).toBeEnabled();
+  });
+
+  it("offers the planning tiers when the endpoint fixes the clip length, and blocks durations outside them", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(narrationWith({ duration_seconds: 6 }));
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue({
+      ...VIDEO_CAPS,
+      supported_durations: [],
+      duration_endpoint_fixed: true,
+      duration_constraints: { resolution: null, uses_reference_images: false, allowed: [], excluded: {}, planning: [4, 8] },
+    });
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    const select = await screen.findByLabelText("S01 时长");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["4 秒", "6 秒", "8 秒"]);
+    expect(screen.getByText("时长由端点固定：每段成片多长由 workflow 决定。")).toBeInTheDocument();
+    expect(screen.getByText("当前秒数 6 不在模型支持范围 [4, 8] 内")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "确认并继续" });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(select, { target: { value: "8" } });
+    expect(confirm).toBeEnabled();
+  });
+
+  it("toggles the chapter break point and saves it", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(narrationWith({}));
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(narrationWith({ segment_break: true }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" durationOptions={[6]} />);
+    fireEvent.click(await screen.findByRole("switch", { name: "设为章节切分点" }));
+
+    expect(await saveAndReadContent(save)).toMatchObject({ segments: [{ segment_break: true }] });
+  });
+
+  it("offers registered assets and this episode's registered new assets as references, not skipped ones", async () => {
+    withProject({ characters: { 裴与: { description: "将军" } } } as Partial<ProjectData>);
+    const newAssets = [
+      planAsset({ name: "小桃", description: "女童" }),
+      planAsset({ name: "路人", decision: "skip", description: "" }),
+      planAsset({ type: "scene", name: "旧宅", description: "破败院落" }),
+    ];
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      narrationWith({ characters_in_segment: ["裴与", "路人"] }, newAssets),
+    );
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(narrationWith({}));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" durationOptions={[6]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑引用" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const xiaotao = within(dialog).getByRole("button", { name: /小桃/ });
+    expect(within(xiaotao).getByText("本集新增")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /旧宅/ })).toBeInTheDocument();
+    // 「不登记」的项不作候选；已选的那一项说明确认时会被移出，而不是失效引用。
+    const passerby = within(dialog).getByRole("button", { name: /路人/ });
+    expect(within(passerby).getByText("已选「不登记」，确认时从引用中移除")).toBeInTheDocument();
+
+    fireEvent.click(xiaotao);
+    fireEvent.click(within(dialog).getByRole("button", { name: /旧宅/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    expect(await saveAndReadContent(save)).toMatchObject({
+      segments: [{ characters_in_segment: ["裴与", "路人", "小桃"], scenes: ["旧宅"] }],
+    });
+  });
+
+  it("suggests registered and new characters as speakers but still accepts other names", async () => {
+    withProject({ characters: { 阿离: { description: "少女" } } } as Partial<ProjectData>);
+    const state = dramaState();
+    const content = state.content as NonNullable<ReturnType<typeof dramaState>["content"]> & { new_assets?: PlanNewAsset[] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...state,
+      content: {
+        ...content,
+        new_assets: [planAsset({ name: "小桃" }), planAsset({ name: "路人", decision: "skip", description: "" })],
+      },
+    } as ScriptReviewState);
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(dramaState());
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" durationOptions={[8]} />);
+    const speaker = await screen.findByDisplayValue("阿离");
+    const listId = speaker.getAttribute("list");
+    expect(listId).toBeTruthy();
+    const options = [...document.getElementById(listId!)!.querySelectorAll("option")].map((o) => o.value);
+    expect(options).toEqual(["阿离", "小桃"]);
+
+    fireEvent.change(speaker, { target: { value: "店小二" } });
+    expect(await saveAndReadContent(save)).toMatchObject({
+      scenes: [{ utterances: [{ kind: "voiceover" }, { kind: "dialogue", speaker: "店小二" }] }],
+    });
+  });
+
+  it("points structural edits to the timeline while pending and hides field controls once confirmed", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(narrationWith({}));
+    const { unmount } = render(
+      <ScriptReviewGate projectName="p" episode={1} contentMode="narration" durationOptions={[6]} />,
+    );
+    expect(await screen.findByText("确认后可在时间线增删、调整顺序")).toBeInTheDocument();
+    unmount();
+
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(narrationWith({ scenes: ["旧宅"] }, [], CONFIRMED));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" durationOptions={[6]} />);
+    expect(await screen.findByText("旧宅")).toBeInTheDocument();
+    expect(screen.queryByText("确认后可在时间线增删、调整顺序")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("S01 时长")).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑引用" })).not.toBeInTheDocument();
+  });
+});

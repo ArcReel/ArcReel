@@ -34,6 +34,8 @@ import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnreso
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
+import { PlanDurationSelect } from "@/components/canvas/shared/PlanDurationSelect";
+import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
@@ -307,30 +309,15 @@ function UnitCard({
           <span className="text-[11px] text-amber-300" title={durationProblem.hint}>
             {durationProblem.label}
           </span>
-        ) : durationOptions && onDurationChange ? (
-          <select
-            value={unit.duration_seconds}
-            onChange={(e) => onDurationChange(Number(e.target.value))}
-            disabled={busy}
-            aria-label={t("reference_script_plan_duration_label", { unit: itemIdWithinEpisode(unit.key) })}
-            className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {/* 存量草稿的秒数可能已不在当前档位表内：补一个当前值选项，否则 select 会静默
-                跳到首档，用户看到的秒数与盘上的对不上。 */}
-            {(durationOptions.includes(unit.duration_seconds)
-              ? durationOptions
-              : [...durationOptions, unit.duration_seconds].sort((a, b) => a - b)
-            ).map((d) => (
-              <option key={d} value={d}>
-                {t("reference_script_plan_duration_option", { seconds: d })}
-              </option>
-            ))}
-          </select>
         ) : (
-          <span className="text-[11px] text-text-4" title={durationEndpointFixed ? t("duration_not_driven_notice") : undefined}>
-            {t("reference_script_plan_duration_option", { seconds: unit.duration_seconds })}
-            {durationEndpointFixed && ` · ${t("duration_not_driven_notice")}`}
-          </span>
+          <PlanDurationSelect
+            seconds={unit.duration_seconds}
+            options={durationOptions}
+            onChange={(seconds) => onDurationChange?.(seconds)}
+            disabled={busy}
+            label={t("reference_script_plan_duration_label", { unit: itemIdWithinEpisode(unit.key) })}
+            endpointFixed={durationEndpointFixed}
+          />
         )}
         {outOfTier && (
           <span className="rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
@@ -639,6 +626,7 @@ export function ReferenceScriptPlanPreviewPanel({
             onChange={updateNewAssets}
           />
         )}
+        {content != null && <PlanStructureHint />}
         <div className="flex flex-col gap-2.5">
           {displayUnits.map((unit, i) => (
             <UnitCard
@@ -844,6 +832,8 @@ export function ReferenceScriptPlanPreviewPanel({
           onChange={updateNewAssets}
         />
       )}
+
+      {!readOnly && <PlanStructureHint />}
 
       <div className="flex flex-col gap-2.5">
         {displayUnits.map((unit, i) => {

@@ -632,6 +632,7 @@ class TestScriptGenerator:
             _write_drama_ledger_project(
                 project_path,
                 [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+                characters={"姜月茴": {"description": "", "character_sheet": ""}},
             )
             _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
             response = _drama_visual_response()

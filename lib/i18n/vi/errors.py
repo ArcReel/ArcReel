@@ -268,6 +268,7 @@ MESSAGES = {
     "text_output_truncated": "Đầu ra của mô hình văn bản {model} vượt quá độ dài đầu ra tối đa nên không đầy đủ",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_invalid_new_assets": "Một số tài sản mới của tập này không thể xử lý theo lựa chọn nên kế hoạch chưa được xác nhận; hãy kiểm tra tài sản được gộp vào và nhân vật gốc của biến thể rồi thử lại",
+    "script_review_unregistered_references": "Chưa xác nhận được kế hoạch vì các mục sau tham chiếu những tên chưa đăng ký và cũng không phải tài sản mới được đăng ký trong tập này: {details}. Hãy gỡ các tên này khỏi tham chiếu hoặc chọn tài sản đã đăng ký rồi thử lại",
     "script_review_foreign_formal_script": (
         "Tệp kịch bản được gán cho tập (id={episode}) không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "
         "của tập khác nên xác nhận chưa hoàn tất — ghi vào đó sẽ dựng lại kịch bản của tập kia; hãy trỏ script_file "

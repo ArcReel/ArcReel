@@ -55,6 +55,8 @@ interface TimelineCanvasProps {
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
+  /** 内容确认页的剧本规划档位；时长由端点固定时与 `durationOptions` 不同。 */
+  planDurationOptions?: number[];
   /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
   durationEndpointFixed?: boolean;
   videoModelUnresolved?: boolean;
@@ -95,6 +97,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     scriptFile,
     projectData,
     durationOptions,
+    planDurationOptions,
     durationEndpointFixed,
     videoModelUnresolved,
     lastFrame,
@@ -390,6 +393,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
               episode={episode}
               contentMode={editorContentMode}
               videoModelUnresolved={videoModelUnresolved}
+              durationOptions={planDurationOptions}
+              durationEndpointFixed={durationEndpointFixed}
+              durationWarningReason={durationWarningReason}
               onOpenTimeline={hasScript ? () => setActiveTab("timeline") : undefined}
             />
           </div>

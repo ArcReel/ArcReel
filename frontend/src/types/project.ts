@@ -308,6 +308,11 @@ export interface DurationConstraints {
   uses_reference_images: boolean;
   /** 收窄结果，升序。 */
   allowed: number[];
+  /**
+   * 剧本规划可选的档位，升序：通常等于 `allowed`；时长由端点固定时是规划借用的档位。内容确认按它
+   * 判越档，与服务端确认转换同一口径。只有项目端点给出。
+   */
+  planning?: number[];
   /** 全集中被剔除的时长（键为秒数字符串）→ 成因。 */
   excluded: Record<string, DurationExclusionReason>;
 }

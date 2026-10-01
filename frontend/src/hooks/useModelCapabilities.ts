@@ -44,6 +44,11 @@ export interface ModelCapabilities {
   rawDurations: number[] | null;
   /** 按当前上下文收窄后的时长候选（升序）；未知为 null。 */
   supportedDurations: number[] | null;
+  /**
+   * 剧本规划可选的时长档位（升序）；未知为 null。时长由端点固定时 `supportedDurations` 为空，
+   * 这里是服务端规划借用的档位，内容确认页据此选时长、判越档。
+   */
+  planningDurations: number[] | null;
   /** 全集中被联动约束剔除的时长（键为秒数字符串）→ 成因；未知为空表。 */
   excludedDurations: Record<string, DurationExclusionReason>;
   /**
@@ -184,6 +189,7 @@ export function useModelCapabilities({
   return {
     rawDurations: caps?.supported_durations?.length ? ascending(caps.supported_durations) : null,
     supportedDurations: constraints ? constraints.allowed : null,
+    planningDurations: constraints ? (constraints.planning ?? constraints.allowed) : null,
     excludedDurations: constraints?.excluded ?? EMPTY_EXCLUSIONS,
     durationEndpointFixed: caps?.duration_endpoint_fixed ?? false,
     resolvedVideoBackend: caps ? `${caps.provider_id}/${caps.model}` : null,

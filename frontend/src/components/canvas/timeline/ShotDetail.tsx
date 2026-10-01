@@ -44,6 +44,8 @@ import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, isScriptFileBusy } from "@/stores/tasks-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { speakerCandidates } from "@/utils/plan-new-assets";
+import { durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
 import { errMsg } from "@/utils/async";
 import {
   emptyImagePrompt,
@@ -272,18 +274,8 @@ function DurationPill({
   }
   const isIncompatible =
     durationOptions.length > 0 && !durationOptions.includes(seconds);
-  // 越界文案按成因分开：模型全集就不含该值才是「模型不支持」，被分辨率 / 参考图路径的联动约束
-  // 收窄掉时说清是哪一条——用户据此改对应设置，而不是被引去以为模型换不了这个时长。
   // 与项目默认时长的三种提示同一套判定（见 useModelCapabilities.durationOutOfRangeReason）。
-  const incompatibleKey = {
-    model: "duration_incompatible_warning",
-    resolution: "duration_incompatible_resolution_warning",
-    reference: "duration_incompatible_reference_warning",
-  }[durationWarningReason?.(seconds) ?? "model"];
-  const incompatibleLabel = t(incompatibleKey, {
-    value: seconds,
-    supported: durationOptions.join(", "),
-  });
+  const incompatibleLabel = durationIncompatibleLabel(t, seconds, durationOptions, durationWarningReason?.(seconds));
   const useSlider =
     isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
 
@@ -562,6 +554,9 @@ export function ShotDetail({
     }
     setSyncedUpstreamSig(upstreamSig);
   }
+
+  const projectCharacters = useProjectsStore((s) => s.currentProjectData?.characters);
+  const speakerNames = useMemo(() => speakerCandidates(projectCharacters ?? {}), [projectCharacters]);
 
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
@@ -913,6 +908,7 @@ export function ShotDetail({
             utterances={draft.utterances ?? EMPTY_UTTERANCES}
             onChange={handleUtterancesChange}
             disabled={saving || refsReadOnly}
+            speakerCandidates={speakerNames}
           />
         </div>
       ) : (

@@ -268,6 +268,7 @@ MESSAGES = {
     "text_output_truncated": "The output of text model {model} exceeded its maximum output length and is incomplete",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_invalid_new_assets": "Some new assets in this episode cannot be handled as chosen, so the plan was not confirmed; check the assets they are merged into and the base characters of derivatives, then retry",
+    "script_review_unregistered_references": "The plan was not confirmed because these items reference names that are neither registered nor new assets registered in this episode: {details}. Remove these names from the references or pick registered assets instead, then retry",
     "script_review_foreign_formal_script": (
         "The script file bound to episode (id={episode}) is gone and the canonical path scripts/{filename} holds another "
         "episode's script, so the confirmation was not completed — writing there would rebuild that other episode; "

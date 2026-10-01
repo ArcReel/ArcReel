@@ -56,7 +56,7 @@ from lib.episode.episode_target_duration import (
     is_valid_episode_target_duration,
 )
 from lib.episode.source_kinds import SourceKind
-from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
+from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.json_io import domain_error_on_value_error
@@ -870,6 +870,8 @@ async def get_video_capabilities(
             resolution_override=resolution_override,
         )
         caps["duration_constraints"] = duration_constraints_payload(request_facts)
+        # 内容确认页的时长按剧本规划档位选与判：确认转换用的是同一份 planning_durations。
+        caps["duration_constraints"]["planning"] = planning_durations(request_facts)
         return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
