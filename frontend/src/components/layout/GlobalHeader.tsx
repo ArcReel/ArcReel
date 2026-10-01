@@ -1,5 +1,5 @@
 import { startTransition, useState, useEffect, useRef } from "react";
-import { errMsg, voidPromise } from "@/utils/async";
+import { errMsg } from "@/utils/async";
 import { useLocation } from "wouter";
 import { ChevronLeft, Settings, Bell, Download, Loader2, Package } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -19,17 +19,9 @@ import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { ROUTE_APP_PROJECTS, episodeEditViewPath } from "@/app-routes";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
-
-/** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
-function triggerBrowserDownload(url: string) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
+import { triggerBrowserDownload } from "@/utils/download";
 
 interface GlobalHeaderProps {
   onNavigateBack?: () => void;
@@ -43,13 +35,12 @@ interface GlobalHeaderProps {
  */
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const { t } = useTranslation();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const { setUsagePanelOpen, triggerScrollTo, markWorkspaceNotificationRead } = useAppStore();
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [exportingProject, setExportingProject] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [jianyingExporting, setJianyingExporting] = useState(false);
   const [exportDiagnostics, setExportDiagnostics] = useState<ExportDiagnostics | null>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
   const exportAnchorRef = useRef<HTMLDivElement>(null);
@@ -57,6 +48,15 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
+  // 「导出项目」提示里的剪辑视图链接：在集页时指向当前集，否则指向第一集；文案按播出位置称呼集。
+  const routeEpisode = /\/episodes\/(\d+)/.exec(location)?.[1];
+  const projectEpisodes = currentProjectData?.episodes ?? [];
+  const editViewIndex =
+    routeEpisode !== undefined ? projectEpisodes.findIndex((ep) => ep.episode === Number(routeEpisode)) : 0;
+  const editViewEpisode =
+    editViewIndex >= 0 && editViewIndex < projectEpisodes.length
+      ? { episode: projectEpisodes[editViewIndex].episode, position: editViewIndex + 1 }
+      : null;
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
   // 数据升级失败时中段是唯一的重试入口，窄屏也要显示。
   const needsRepair = currentProjectData?.status?.needs_repair === true;
@@ -103,40 +103,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
       highlight_style: target.highlight_style ?? "flash",
       expires_at: Date.now() + 3000,
     });
-  };
-
-  const handleJianyingExport = async (
-    episode: number,
-    draftPath: string,
-    jianyingVersion: string,
-    narrationDelivery: "post_production" | "use_tts",
-  ) => {
-    if (!currentProjectName || jianyingExporting) return;
-
-    setJianyingExporting(true);
-    try {
-      const { download_token } = await API.requestExportToken(currentProjectName, "current");
-      const url = API.getJianyingDraftDownloadUrl(
-        currentProjectName,
-        episode,
-        draftPath,
-        download_token,
-        jianyingVersion,
-        narrationDelivery,
-      );
-      triggerBrowserDownload(url);
-      setExportDialogOpen(false);
-      useAppStore.getState().pushToast(t("dashboard:jianying_export_started"), "success");
-    } catch (err) {
-      useAppStore
-        .getState()
-        .pushNotification(
-          t("dashboard:jianying_export_failed", { message: errMsg(err) }),
-          "error",
-        );
-    } finally {
-      setJianyingExporting(false);
-    }
   };
 
   const handleExportProject = async (scope: "current" | "full") => {
@@ -270,7 +236,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             style={{ background: "var(--color-hairline)" }}
           />
 
-          {/* Export — accent CTA */}
+          {/* Export project archive */}
           <div
             className="relative"
             ref={exportAnchorRef}
@@ -280,13 +246,19 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               type="button"
               onClick={() => setExportDialogOpen(!exportDialogOpen)}
               disabled={!currentProjectName || exportingProject || demoMode}
-              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{
-                background:
-                  "linear-gradient(180deg, oklch(0.82 0.09 295), oklch(0.72 0.09 295))",
-                color: "oklch(0.15 0 0)",
-                boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-accent-glow)",
+                color: exportDialogOpen ? "var(--color-text)" : "var(--color-text-3)",
+                background: exportDialogOpen ? "oklch(0.28 0.012 265 / 0.6)" : "transparent",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
+                e.currentTarget.style.color = "var(--color-text)";
+              }}
+              onMouseLeave={(e) => {
+                if (exportDialogOpen) return;
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "var(--color-text-3)";
               }}
               title={
                 demoMode
@@ -307,13 +279,16 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             <ExportScopeDialog
               open={exportDialogOpen}
               onClose={() => setExportDialogOpen(false)}
-              onSelect={(scope) => {
-                if (scope !== "jianying-draft") void handleExportProject(scope);
-              }}
+              onSelect={(scope) => void handleExportProject(scope)}
               anchorRef={exportAnchorRef}
-              episodes={currentProjectData?.episodes ?? []}
-              onJianyingExport={voidPromise(handleJianyingExport)}
-              jianyingExporting={jianyingExporting}
+              editViewEpisode={editViewEpisode}
+              onOpenEditView={(episode) => {
+                setExportDialogOpen(false);
+                if (!currentProjectName) return;
+                setLocation(
+                  `~${ROUTE_APP_PROJECTS}/${encodeURIComponent(currentProjectName)}${episodeEditViewPath(episode)}`,
+                );
+              }}
             />
           </div>
 

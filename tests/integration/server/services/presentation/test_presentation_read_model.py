@@ -33,7 +33,6 @@ from lib.speech.speech_artifact_provenance import (
     media_content_digest,
 )
 from lib.speech.speech_composition import admit_script_unit
-from server.services.presentation.jianying_draft_service import JianyingDraftService
 from server.services.presentation.presentation_bundle import PresentationBundleService
 from server.services.presentation.presentation_read_model import (
     PresentationReadModelService,
@@ -631,7 +630,7 @@ async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles
 async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, video_shape: str, video_microseconds: int, audio_microseconds: int
 ) -> None:
-    """系统 PATH 上没有 ffmpeg / ffprobe 时，预览、素材包与剪映草稿都用随包 ffmpeg 探出真实时长。"""
+    """系统 PATH 上没有 ffmpeg / ffprobe 时，预览与素材包都用随包 ffmpeg 探出真实时长。"""
     source_video = tmp_path / "source" / "clip.mp4"
     if video_shape == "silent_vfr":
         source_video.parent.mkdir(parents=True)
@@ -668,9 +667,6 @@ async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
     bundle = await PresentationBundleService(pm, presentation_reader=read_model).export_unit(
         project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
     )
-    draft = await JianyingDraftService(pm, presentation_reader=read_model).export_episode_draft(
-        "demo", 1, "/mock/JianyingDrafts", variant="use_tts"
-    )
 
     assert preview.presentation.video.duration_microseconds == video_microseconds
     assert preview.presentation.narration_audio is not None
@@ -679,14 +675,6 @@ async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
         model = json.loads(archive.read("presentation.json"))
     assert model["video"]["duration_microseconds"] == video_microseconds
     assert model["narration_audio"]["duration_microseconds"] == audio_microseconds
-    with zipfile.ZipFile(draft) as archive:
-        content = json.loads(
-            archive.read(next(name for name in archive.namelist() if name.endswith("draft_info.json")))
-        )
-    video_track = next(track for track in content["tracks"] if track.get("type") == "video")
-    audio_track = next(track for track in content["tracks"] if track.get("type") == "audio")
-    assert video_track["segments"][0]["target_timerange"] == {"start": 0, "duration": video_microseconds}
-    assert audio_track["segments"][0]["target_timerange"] == {"start": 0, "duration": audio_microseconds}
 
 
 async def test_overlong_selected_tts_is_unavailable_instead_of_clipped(tmp_path: Path) -> None:

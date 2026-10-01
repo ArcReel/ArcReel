@@ -641,6 +641,12 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledOnce();
     });
 
+    it("unwraps the task row from the single-task response", async () => {
+      vi.spyOn(API, "request").mockResolvedValue({ task: { task_id: "t1", status: "failed" } } as never);
+
+      await expect(API.getTask("t1")).resolves.toMatchObject({ task_id: "t1", status: "failed" });
+    });
+
     it("covers task, assistant, version and usage query builders", async () => {
       const requestSpy = vi
         .spyOn(API, "request")
@@ -1226,9 +1232,11 @@ describe("API", () => {
         );
       });
 
-      it("includes the selected presentation variant in Jianying download URLs", () => {
-        expect(API.getJianyingDraftDownloadUrl("demo", 1, "/drafts", "token", "6", "use_tts"))
-          .toContain("narration_delivery=use_tts");
+      it("builds the Jianying draft download URL on the edit timeline with the local draft path", () => {
+        expect(API.getJianyingDraftDownloadUrl("demo", "tl-1", "/Users/a/Drafts", "token", "5")).toBe(
+          "/api/v1/projects/demo/edit-timelines/tl-1/jianying-draft/download" +
+            "?draft_path=%2FUsers%2Fa%2FDrafts&download_token=token&jianying_version=5",
+        );
       });
     });
   });

@@ -31,6 +31,9 @@ import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { EditTimelineView } from "./edit/EditTimelineView";
+import { EditTimelineEmptyState } from "./edit-render/EditTimelineEmptyState";
+import { RenderButton } from "./edit-render/RenderButton";
+import { scriptHasUsableVideo } from "./edit-render/edit-render-model";
 import { EpisodeViewSwitch, episodeViewOf, type EpisodeView } from "./EpisodeViewSwitch";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
 import { API } from "@/api";
@@ -774,6 +777,26 @@ export function StudioCanvasRouter() {
                     episode={epNum}
                     script={script}
                     aspect={previewAspect(currentProjectData)}
+                    renderActions={({ timelineId, timelineName, issues, showIssues }) =>
+                      // 读取完成前不知道有没有阻断级 issue，先不给出片入口。
+                      issues === null ? null : (
+                        <RenderButton
+                          projectName={currentProjectName}
+                          timelineId={timelineId}
+                          timelineName={timelineName}
+                          issues={issues}
+                          onShowIssues={showIssues}
+                        />
+                      )
+                    }
+                    renderEmptyState={({ reload }) => (
+                      <EditTimelineEmptyState
+                        projectName={currentProjectName}
+                        episode={epNum}
+                        hasUsableVideo={scriptHasUsableVideo(script)}
+                        onCreated={reload}
+                      />
+                    )}
                   />
                 ) : demoMode && !script ? (
                   <DemoEpisodePlaceholder />

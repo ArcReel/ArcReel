@@ -11,7 +11,12 @@ import type {
   ProjectSummary,
   ImportConflictPolicy,
   ImportProjectResponse,
+  CreatedEditTimeline,
   ExportDiagnostics,
+  FinalCutStatus,
+  JianyingDraftStatus,
+  JianyingVersion,
+  RenderSubmission,
   ImportFailureDiagnostics,
   EpisodeScript,
   TaskItem,
@@ -600,16 +605,75 @@ class API {
     return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export?download_token=${encodeURIComponent(downloadToken)}&scope=${encodeURIComponent(scope)}`;
   }
 
-  /** 构造剪映草稿下载 URL */
-  static getJianyingDraftDownloadUrl(
+  // ==================== 剪辑时间线与出片 ====================
+
+  /** 按当前脚本机械新建一条剪辑时间线：每个视频单元整段使用、全部硬切。 */
+  static async createEditTimelineFromScript(
     projectName: string,
     episode: number,
+    name: string
+  ): Promise<CreatedEditTimeline> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${encodeURIComponent(episode)}/edit-timelines`,
+      { method: "POST", body: JSON.stringify({ from: "script", name }) }
+    );
+  }
+
+  private static editTimelinePath(projectName: string, timelineId: string): string {
+    return `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`;
+  }
+
+  static async getFinalCutStatus(
+    projectName: string,
+    timelineId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<FinalCutStatus> {
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/final-cut`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 入队渲染成片（最新修订）。组件经 actions/render 调用。 */
+  static async renderFinalCut(projectName: string, timelineId: string): Promise<RenderSubmission> {
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/final-cut`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  /** 剪映草稿现状；旁白版本按项目默认。 */
+  static async getJianyingDraftStatus(
+    projectName: string,
+    timelineId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<JianyingDraftStatus> {
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/jianying-draft`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 入队导出剪映草稿（最新修订，旁白版本按项目默认）。组件经 actions/render 调用。 */
+  static async exportJianyingDraft(projectName: string, timelineId: string): Promise<RenderSubmission> {
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/jianying-draft`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  /** 已登记剪映草稿的下载地址：本机草稿目录与剪映版本在下载时代入。 */
+  static getJianyingDraftDownloadUrl(
+    projectName: string,
+    timelineId: string,
     draftPath: string,
     downloadToken: string,
-    jianyingVersion: string = "6",
-    narrationDelivery: "post_production" | "use_tts" = "post_production",
+    jianyingVersion: JianyingVersion
   ): string {
-    return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export/jianying-draft?episode=${encodeURIComponent(episode)}&draft_path=${encodeURIComponent(draftPath)}&download_token=${encodeURIComponent(downloadToken)}&jianying_version=${encodeURIComponent(jianyingVersion)}&narration_delivery=${encodeURIComponent(narrationDelivery)}`;
+    const query = new URLSearchParams({
+      draft_path: draftPath,
+      download_token: downloadToken,
+      jianying_version: jianyingVersion,
+    });
+    return `${API_BASE}${this.editTimelinePath(projectName, timelineId)}/jianying-draft/download?${query.toString()}`;
   }
 
   static async getPresentation(
@@ -2259,7 +2323,8 @@ class API {
   // ==================== 任务队列 API ====================
 
   static async getTask(taskId: string): Promise<TaskItem> {
-    return this.request(`/tasks/${encodeURIComponent(taskId)}`);
+    const { task } = await this.request<{ task: TaskItem }>(`/tasks/${encodeURIComponent(taskId)}`);
+    return task;
   }
 
   static async listTasks(

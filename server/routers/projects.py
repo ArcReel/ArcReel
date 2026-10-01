@@ -15,14 +15,10 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal
-
-if TYPE_CHECKING:
-    from server.services.presentation.jianying_draft_service import JianyingDraftService
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
@@ -389,10 +385,6 @@ def _cleanup_temp_file(path: str) -> None:
         return
 
 
-def _cleanup_temp_dir(dir_path: str) -> None:
-    shutil.rmtree(dir_path, ignore_errors=True)
-
-
 @router.post("/projects/import")
 async def import_project_archive(
     _t: Translator,
@@ -532,96 +524,6 @@ async def export_project_archive(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
-
-
-# --- 剪映草稿导出 ---
-
-
-def get_jianying_draft_service() -> JianyingDraftService:
-    from server.services.presentation.jianying_draft_service import JianyingDraftService
-
-    return JianyingDraftService(get_project_manager())
-
-
-# 具体类型只在 TYPE_CHECKING 下可见：pyJianYingDraft 是重依赖，运行期仍按需惰性导入。
-JianyingDraftServiceDep = Annotated[Any, Depends(get_jianying_draft_service)]
-
-
-def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
-    """校验 draft_path 合法性"""
-    if not draft_path or not draft_path.strip():
-        raise HTTPException(status_code=422, detail=_t("jianying_path_invalid"))
-    if len(draft_path) > 1024:
-        raise HTTPException(status_code=422, detail=_t("jianying_path_too_long"))
-    if any(ord(c) < 32 for c in draft_path):
-        raise HTTPException(status_code=422, detail=_t("jianying_path_illegal"))
-    return draft_path.strip()
-
-
-@self_auth_router.get("/projects/{name}/export/jianying-draft")
-async def export_jianying_draft(
-    name: str,
-    _t: Translator,
-    svc: JianyingDraftServiceDep,
-    episode: int = Query(..., description="集数编号"),
-    draft_path: str = Query(..., description="用户本地剪映草稿目录"),
-    download_token: str = Query(..., description="下载 token"),
-    jianying_version: str = Query("6", description="剪映版本：6 或 5"),
-    narration_delivery: Literal["post_production", "use_tts"] = Query(
-        "post_production",
-        description="旁白交付版本",
-    ),
-):
-    """导出指定集的剪映草稿 ZIP"""
-    import jwt as pyjwt
-
-    # 1. 验证 download_token
-    try:
-        verify_download_token(download_token, name)
-    except pyjwt.ExpiredSignatureError as exc:
-        raise HTTPException(status_code=401, detail=_t("download_expired")) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=403, detail=_t("download_token_mismatch")) from exc
-    except pyjwt.InvalidTokenError as exc:
-        raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
-
-    # 2. 校验 draft_path
-    draft_path = _validate_draft_path(draft_path, _t)
-
-    # 3. 调用服务
-    from server.services.presentation.jianying_draft_service import NoCompletedSegmentsError
-    from server.services.presentation.presentation_read_model import PresentationUnavailableError
-
-    try:
-        zip_path = await svc.export_episode_draft(
-            project_name=name,
-            episode=episode,
-            draft_path=draft_path,
-            variant=narration_delivery,
-            use_draft_info_name=(jianying_version != "5"),
-        )
-    except FileNotFoundError:
-        # 项目/剧集/模板不存在：交给 app 级 FileNotFoundError handler 统一 404，
-        # str(e) 可能含服务器路径，不在此回传
-        raise
-    except NoCompletedSegmentsError as e:
-        logger.warning("剪映草稿导出参数错误: project=%s episode=%d (%s)", name, episode, e)
-        raise ApiError("jianying_no_completed_segments", status_code=422, episode=episode) from e
-    except PresentationUnavailableError as exc:
-        logger.warning("剪映草稿 presentation 不可用: project=%s episode=%d (%s)", name, episode, exc)
-        raise ApiError("presentation_unavailable", status_code=422) from exc
-    except Exception as exc:
-        # 含暂存/写入阶段的路径越界守卫（ValueError，str(e) 带真实路径）：属安全告警而非
-        # 常规空态，不应误报为「本集无已完成片段」，一律降级为通用 500，细节只进日志
-        logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
-        raise HTTPException(status_code=500, detail=_t("jianying_export_failed")) from exc
-
-    return FileResponse(
-        path=str(zip_path),
-        media_type="application/zip",
-        filename=zip_path.name,
-        background=BackgroundTask(_cleanup_temp_dir, str(zip_path.parent)),
-    )
 
 
 @router.get("/projects")
