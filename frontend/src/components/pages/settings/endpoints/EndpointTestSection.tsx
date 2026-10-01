@@ -401,7 +401,13 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                       {run.error}
                     </p>
                   )}
-                  {artifactUrl ? (
+                  {artifactUrl && run.media_type === "image" ? (
+                    <img
+                      src={artifactUrl}
+                      alt={t("ce_trial_artifact")}
+                      className="w-full rounded-[8px] border border-hairline bg-black object-contain"
+                    />
+                  ) : artifactUrl ? (
                     // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
                     <video
                       controls

@@ -152,4 +152,28 @@ describe("EndpointTestSection", () => {
     unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:trial-artifact");
   });
+
+  it("shows an image definition's artifact as an image", async () => {
+    vi.spyOn(API, "getTrialRunArtifact").mockResolvedValue(new Blob(["image"]));
+    vi.spyOn(API, "createTrialRun").mockResolvedValue({
+      ...FINISHED,
+      model: "gpt-image-2",
+      media_type: "image",
+      has_artifact: true,
+    });
+    render(
+      <EndpointTestSection
+        definition={{ ...DEFINITION, media_type: "image", inputs: undefined }}
+        providers={[]}
+      />,
+    );
+
+    await userEvent.type(screen.getAllByLabelText("模型")[1], "gpt-image-2");
+    await userEvent.click(screen.getByRole("button", { name: "开始测试" }));
+
+    expect(await screen.findByRole("img", { name: "测试连接产物" })).toHaveAttribute(
+      "src",
+      "blob:trial-artifact",
+    );
+  });
 });

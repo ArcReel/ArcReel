@@ -30,8 +30,8 @@ from lib.custom_provider.endpoint_test import (
     provider_from_base_url,
 )
 from lib.db.models.api_call import ApiCall
-from tests.factories import custom_endpoint_definition
-from tests.fakes import bounded_poll_clock
+from tests.factories import custom_endpoint_definition, image_endpoint_definition
+from tests.fakes import PNG_BYTES, bounded_poll_clock
 from tests.http_capture import capture_http
 
 PARAMETERS = EndpointTestParameters(model="video-x", prompt="纸船顺流而下", duration_seconds=5)
@@ -91,6 +91,70 @@ def _mock_pending_run(router) -> asyncio.Event:
         return_value=httpx.Response(200, json={"status": "processing"})
     )
     return submitted
+
+
+IMAGE_PARAMETERS = EndpointTestParameters(model="gpt-image-2", prompt="黄昏的灯塔")
+
+
+def _image_target():
+    return declarative_target(image_endpoint_definition(), CREDENTIALS, IMAGE_PARAMETERS)
+
+
+def _image_task(status: str, **data: object) -> httpx.Response:
+    return httpx.Response(200, json={"code": 200, "data": {"status": status, **data}})
+
+
+def _mock_image_submit(router) -> None:
+    router.post("https://relay.test/v1/images/generations").mock(
+        return_value=httpx.Response(200, json={"code": 200, "data": [{"status": "submitted", "task_id": "task_9"}]})
+    )
+
+
+class TestImageDefinitionTrialRun:
+    async def test_an_image_definition_runs_to_an_image_artifact(
+        self, trial_runs: TrialRunManager, db_factory: async_sessionmaker
+    ):
+        with capture_http() as router, bounded_poll_clock():
+            _mock_image_submit(router)
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                side_effect=[
+                    _image_task("processing"),
+                    _image_task("completed", result={"images": [{"url": ["https://cdn.test/img/a.png"]}]}),
+                ]
+            )
+            router.get("https://cdn.test/img/a.png").mock(return_value=httpx.Response(200, content=PNG_BYTES))
+            started = await trial_runs.start(_image_target(), IMAGE_PARAMETERS)
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.SUCCEEDED
+        assert run.media_type == "image"
+        assert run.has_artifact
+        assert trial_runs.artifact_path(run.id).read_bytes() == PNG_BYTES
+        assert run.extractions["poll"]["image_url"] == "https://cdn.test/img/a.png"
+        async with db_factory() as session:
+            rows = (await session.execute(select(ApiCall))).scalars().all()
+        assert [row.call_type for row in rows] == ["image"]
+
+    @pytest.mark.parametrize(
+        ("poll_body", "reason"),
+        [
+            (_image_task("failed", error={"message": "content policy violation"}), "content policy violation"),
+            (_image_task("cancelled"), "cancelled"),
+        ],
+    )
+    async def test_a_provider_side_failure_lands_as_a_failed_image_run(
+        self, trial_runs: TrialRunManager, poll_body: httpx.Response, reason: str
+    ):
+        with capture_http() as router, bounded_poll_clock():
+            _mock_image_submit(router)
+            router.get("https://relay.test/v1/tasks/task_9").mock(return_value=poll_body)
+            started = await trial_runs.start(_image_target(), IMAGE_PARAMETERS)
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.FAILED
+        assert run.media_type == "image"
+        assert not run.has_artifact
+        assert reason in (run.error or "")
 
 
 class TestTrialRun:
