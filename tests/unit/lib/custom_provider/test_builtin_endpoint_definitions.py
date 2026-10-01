@@ -162,6 +162,7 @@ def test_spec_kind_is_read_from_the_definition():
     """``kind`` 读定义本体，不由「有没有定义」推断——第二种 kind 的端点同样持有一份定义。"""
     template = _example_template()
     template["kind"] = "comfyui"
+    template["media_type"] = "video"
 
     assert declarative_endpoint_spec("demo-video", template).kind == "comfyui"
 

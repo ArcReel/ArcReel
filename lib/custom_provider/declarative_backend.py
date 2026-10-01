@@ -1,4 +1,4 @@
-"""声明式 JSON 提交/轮询视频调用通道。
+"""声明式 JSON 提交/轮询调用通道：媒体无关的运行时引擎，以及在其上组装的视频 backend。
 
 住在 ``lib.custom_provider`` 而非 ``lib.backends.video_backends``：本 backend 的输入是自定义调用端点
 的定义格式，读定义要用模板引擎与响应提取，而分层契约（``pyproject.toml``
@@ -11,11 +11,12 @@ from __future__ import annotations
 import logging
 import mimetypes
 import re
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Collection, Generator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import quote
 
 import httpx
@@ -44,7 +45,7 @@ from arcreel_market_core.video_backend_contract import (
 from lib.backends.artifact_download_guard import VIDEO_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
-    notify_provider_response,
+    notify_provider_response_to,
     poll_with_retry,
     request_with_scoped_credentials,
     should_retry_poll,
@@ -180,15 +181,48 @@ class DeclarativeRuntimeError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class ProviderState:
-    """一次供应商响应按定义读出的结果：状态、产物地址、错误、二次取件 id 与计费时长。"""
+class JobState:
+    """一次供应商响应按定义读出的媒体无关部分：状态、错误与二次取件 id。"""
 
     body: object
     status: ProviderJobStatus
-    video_url: str | None
     error: str | None
     result_id: str | None
+
+
+@dataclass(frozen=True)
+class ProviderState(JobState):
+    """视频定义的判读结果：在 :class:`JobState` 之上加产物地址与计费时长。"""
+
+    video_url: str | None
     duration_seconds: int | None
+
+
+@contextmanager
+def response_extract_guard() -> Generator[None]:
+    """把按 ``extract`` 读响应时的求值失败收成稳定错误码，供各媒体类型的判读函数共用。"""
+    try:
+        yield
+    except JsonPathEvaluationError as exc:
+        raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=exc.message) from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
+
+
+def extract_job_status(
+    body: object,
+    extract: Mapping[str, Any],
+    *,
+    status_map: Mapping[str, str] | None = None,
+    status: ProviderJobStatus | None = None,
+) -> ProviderJobStatus:
+    """按 ``extract`` 的 ``status`` / ``failure`` 读任务状态：命中 ``failure`` 一律判失败。
+
+    ``status`` 给定时（二次取件节只在轮询判成功之后才发得出去）不再读状态路径。
+    """
+    failure = extract_value(extract["failure"], body) if "failure" in extract else None
+    mapped = status or map_status(extract_value(extract.get("status"), body), status_map)
+    return ProviderJobStatus.FAILED if failure is not None else mapped
 
 
 def extract_provider_state(
@@ -198,29 +232,21 @@ def extract_provider_state(
     status_map: Mapping[str, str] | None = None,
     status: ProviderJobStatus | None = None,
 ) -> ProviderState:
-    """按一节 ``extract`` 读一份响应体。运行时与验证响应共用的唯一判读实现。
+    """按视频定义的一节 ``extract`` 读一份响应体。运行时与验证响应共用的唯一判读实现。
 
     验证响应之所以能替代真花钱的调用，全靠它给出的判定与运行时逐字一致；两处各读一遍
     ``extract``，只要有一处对 ``failure`` 或状态回落的处理稍有出入，验证就会在用户最信任它的
     场合给出反的结论。
     """
-    try:
-        failure = extract_value(extract["failure"], body) if "failure" in extract else None
-        mapped = status or map_status(extract_value(extract.get("status"), body), status_map)
-        if failure is not None:
-            mapped = ProviderJobStatus.FAILED
+    with response_extract_guard():
         return ProviderState(
             body=body,
-            status=mapped,
+            status=extract_job_status(body, extract, status_map=status_map, status=status),
             video_url=extract_text(extract.get("video_url"), body),
             error=extract_text(extract.get("error"), body),
             result_id=extract_text(extract.get("result_id"), body),
             duration_seconds=extract_duration((extract.get("usage") or {}).get("duration_seconds"), body),
         )
-    except JsonPathEvaluationError as exc:
-        raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=exc.message) from exc
-    except (KeyError, TypeError, ValueError) as exc:
-        raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
 
 
 def text_or_none(value: object | None) -> str | None:
@@ -251,7 +277,55 @@ def extract_duration(spec: object | None, body: object) -> int | None:
     return value if 0 < value <= MAX_BILLED_DURATION_SECONDS else None
 
 
-class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
+class StateReader[StateT: JobState](Protocol):
+    """按一节 ``extract`` 读响应体的判读函数，签名同 :func:`extract_provider_state`。"""
+
+    def __call__(
+        self,
+        body: object,
+        extract: Mapping[str, Any],
+        *,
+        status_map: Mapping[str, str] | None = None,
+        status: ProviderJobStatus | None = None,
+    ) -> StateT: ...
+
+
+#: 一次请求地址的源：``(scheme, host, port)``，见 :func:`url_origin`。
+Origin = tuple[str, str, int | None]
+#: 模板素材输入：单个文件、文件列表或缺席。
+AssetPaths = Path | list[Path] | None
+
+
+@dataclass(frozen=True)
+class JobCall:
+    """一次生成调用交给引擎的媒体无关部分：轮询预算与响应留痕。"""
+
+    poll_timeout_seconds: float
+    on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None
+    #: 留痕写入失败时日志里的调用标识。
+    label: str | None
+
+
+@dataclass(frozen=True)
+class JobOutcome[StateT: JobState]:
+    """供应商判成功后的读数。
+
+    ``result_state`` 是二次取件节的判读，定义没有 ``result`` 节时为 ``None``；``trusted_origins``
+    是本次调用带凭证访问过的请求源，产物下载据此决定是否附带凭证。
+    """
+
+    poll_state: StateT
+    result_state: StateT | None
+    trusted_origins: frozenset[Origin]
+
+
+class DeclarativeJobEngine[StateT: JobState]:
+    """声明式定义的提交、轮询、状态映射、二次取件与产物下载，与媒体类型无关。
+
+    媒体专属的部分由组装方给出：模板变量与素材、判读响应的 ``read_state``（产物字段）、产物
+    体积上限与结果对象。错误一律收成 :class:`DeclarativeRuntimeError` 的稳定错误码。
+    """
+
     def __init__(
         self,
         *,
@@ -260,46 +334,31 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         model: str,
         definition: Mapping[str, Any],
         provider: str,
+        read_state: StateReader[StateT],
+        log_label: str,
     ) -> None:
         self._api_key = api_key
         self._base_url = normalize_declarative_base_url(base_url, definition)
         self._model = model
         self._definition = definition
         self._provider = provider
+        self._read_state = read_state
+        self._log_label = log_label
 
     @property
-    def name(self) -> str:
-        return self._provider
+    def base_url(self) -> str:
+        """归一化后的配置域名。"""
+        return self._base_url
 
-    @property
-    def model(self) -> str:
-        return self._model
-
-    @property
-    def video_capabilities(self) -> VideoCapabilities:
-        # 延迟导入：能力合成模块经 endpoints.py 反向依赖本模块，模块级导入会成环。
-        from lib.custom_provider.capabilities import video_capabilities_from_definition
-
-        return video_capabilities_from_definition(self._definition)
-
-    async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        context = self._request_context(request, require_declared_inputs=True)
-        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            job_id = await self._submit(client, context, request)
-            # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
-            # 把一笔已付费的任务误判成过期丢掉。
-            await self._persist_provider_job_id(request, job_id, provider=self._provider, endpoint=self._base_url)
-            return await self._poll_download(client, job_id, request, context=context, is_resume=False)
-
-    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        context = self._request_context(request)
-        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            return await self._poll_download(client, job_id, request, context=context, is_resume=True)
-
-    def _request_context(
-        self, request: VideoGenerationRequest, *, require_declared_inputs: bool = False
+    def request_context(
+        self,
+        variables: Mapping[str, object],
+        assets: Mapping[str, AssetPaths],
+        *,
+        submitted_base_url: str | None = None,
+        require_declared_inputs: bool = False,
     ) -> dict[str, object]:
-        """构造模板上下文。
+        """构造模板上下文：凭证、域名与模型之外的变量和素材由组装方按媒体类型给出。
 
         ``require_declared_inputs`` 只在提交路径为真：素材是提交的输入，续跑的请求本就不带
         素材（校验器也禁止 poll / result 模板引用 inputs），在续跑上查必需项会把每一笔
@@ -309,13 +368,11 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         try:
             # 素材读盘也在守卫内：文件在任务准备与执行之间被删掉时抛的是 OSError，落在守卫外
             # 就会绕过稳定错误码，让 worker 存下一段没有译文的裸文本。
-            assets: dict[str, AssetData | list[AssetData] | None] = {
-                "start_image": self._asset(request.start_image),
-                "end_image": self._asset(request.end_image),
-                "reference_images": self._assets(request.reference_images),
-                "reference_audio_files": self._assets(request.reference_audio_files),
+            loaded = {
+                name: self._assets(paths) if isinstance(paths, list) else self._asset(paths)
+                for name, paths in assets.items()
             }
-            encoded = encode_inputs(declarations, assets)
+            encoded = encode_inputs(declarations, loaded)
             # 声明为必需的素材缺席时就地失败：模板会把整串占位符的键直接删掉，请求照样发得出去，
             # 于是供应商收到一个残缺请求、照常建任务照常计费。
             missing = (
@@ -332,15 +389,9 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 {
                     "api_key": self._api_key,
                     # 续跑回放提交时的域名（提交路径恒 None）：域名是连接维度，不是协议维度。
-                    "base_url": request.submitted_base_url or self._base_url,
+                    "base_url": submitted_base_url or self._base_url,
                     "model": self._model,
-                    "prompt": request.prompt,
-                    "duration": request.duration_seconds,
-                    "duration_seconds": request.duration_seconds,
-                    "aspect_ratio": request.aspect_ratio,
-                    "resolution": request.resolution,
-                    "generate_audio": request.generate_audio,
-                    "seed": request.seed,
+                    **variables,
                 },
                 encoded,
                 self._definition.get("defaults"),
@@ -378,9 +429,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         except (KeyError, TypeError, ValueError) as exc:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
 
-    def _endpoint_origin(
-        self, section: Mapping[str, Any], context: Mapping[str, object]
-    ) -> tuple[str, str, int | None]:
+    def _endpoint_origin(self, section: Mapping[str, Any], context: Mapping[str, object]) -> Origin:
         """该节渲染出的请求地址的源——凭证实际发往的那个。
 
         取的是渲染结果而不是响应上的 URL：后者是跟随重定向之后的终点，跨源跳转时凭证早已
@@ -401,19 +450,15 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             raise redacted_status_error(exc) from None
         return response
 
-    async def _submit(
-        self,
-        client: httpx.AsyncClient,
-        context: Mapping[str, object],
-        request: VideoGenerationRequest,
-    ) -> str:
+    async def submit(self, client: httpx.AsyncClient, context: Mapping[str, object], call: JobCall) -> str:
+        """发提交请求并取供应商任务 id。"""
         section = self._definition["submit"]
 
         async def operation() -> httpx.Response:
             async def post() -> httpx.Response:
                 response = await self._send_without_status(client, section, context)
                 if response.status_code >= 400:
-                    await self._record_response(response, request, "submit")
+                    await self._record_response(response, call, "submit")
                 return response
 
             return await submit_post(
@@ -422,7 +467,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             )
 
         response = await retry_async(operation, retry_if=should_retry_submit)
-        body = await self._response_body(response, request, "submit")
+        body = await self._response_body(response, call, "submit")
         try:
             job_id = extract_value(section["extract"]["task_id"], body)
             error = extract_text(section["extract"].get("error"), body)
@@ -448,7 +493,8 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> httpx.Response:
         rendered = self._render(section, context)
         logger.info(
-            "声明式视频请求: %s",
+            "%s: %s",
+            self._log_label,
             format_kwargs_for_log(
                 {
                     "method": rendered.method,
@@ -468,15 +514,20 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             auth_query=rendered.auth_query,
         )
 
-    async def _poll_download(
+    async def poll(
         self,
         client: httpx.AsyncClient,
         job_id: str,
-        request: VideoGenerationRequest,
+        call: JobCall,
         *,
         context: Mapping[str, object],
         is_resume: bool,
-    ) -> VideoGenerationResult:
+    ) -> JobOutcome[StateT]:
+        """轮询到供应商判成功，定义有 ``result`` 节时再二次取件。
+
+        供应商判失败抛 ``poll_with_retry`` 的终态错误；续跑期轮询端点 404 抛
+        :class:`ResumeExpiredError`。产物字段是否齐全由组装方判定。
+        """
         poll_context = {**context, "task_id": job_id}
         # 定义可以把端点写在与 base_url 不同的主机上，产物地址往往就出自那些主机。信任集只收
         # 真实带凭证访问的请求源：提交源进入轮询前已带凭证访问过（续跑时它同样是任务所在的
@@ -503,14 +554,14 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             try:
                 response = await self._send(client, section, section_context)
             except httpx.HTTPStatusError as exc:
-                await self._record_response(exc.response, request, stage)
+                await self._record_response(exc.response, call, stage)
                 if expire_on_404 and is_resume and exc.response.status_code == 404:
                     raise ResumeExpiredError(job_id=job_id, provider=self._provider) from exc
                 raise
             trusted_origins.add(self._endpoint_origin(section, section_context))
-            return await self._response_body(response, request, stage)
+            return await self._response_body(response, call, stage)
 
-        async def poll_once() -> ProviderState:
+        async def poll_once() -> StateT:
             return self._extract_state(
                 # 缺省 true（404=任务已不存在，续跑一击判过期）；供应商对在跑任务可能瞬时 404 的
                 # 定义写 false，按瞬态错误重试到预算耗尽。
@@ -531,63 +582,38 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             is_failed=lambda state: (
                 (state.error or "provider reported failure") if state.status is ProviderJobStatus.FAILED else None
             ),
-            max_wait=request.poll_timeout_seconds,
+            max_wait=call.poll_timeout_seconds,
             retry_if=should_retry_poll,
             label=self._provider,
         )
-        video_url = final.video_url
-        duration = final.duration_seconds
-        if "result" in self._definition:
-            result_context = {**poll_context, "result_id": final.result_id}
+        if "result" not in self._definition:
+            return JobOutcome(poll_state=final, result_state=None, trusted_origins=frozenset(trusted_origins))
+        result_context = {**poll_context, "result_id": final.result_id}
 
-            async def fetch_result() -> object:
-                return await fetch(self._definition["result"], result_context, stage="result", expire_on_404=False)
+        async def fetch_result() -> object:
+            return await fetch(self._definition["result"], result_context, stage="result", expire_on_404=False)
 
-            # 走到这里供应商任务已经成功、钱已经花了，二次取件与产物下载同属「任务已建成后的
-            # 幂等取件」：共用同一份预算，别让一次 429 / 5xx / 尚未收敛的 404 直接废掉成片。
-            # 预算耗尽同样落 artifact_download_failed——「重试下载」走 resume 会重跑轮询与二次
-            # 取件，恢复路径与下载失败完全一致，不必重新提交。
-            try:
-                result_body = await with_artifact_retry(
-                    fetch_result,
-                    label=f"{self._provider} result",
-                    retry_if=should_retry_poll,
-                    max_wait=request.poll_timeout_seconds,
-                )
-            except (ResumeExpiredError, DeclarativeRuntimeError, NonRetryableError):
-                raise
-            except Exception as exc:
-                raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
-            result_state = self._extract_state(
-                result_body,
-                self._definition["result"]["extract"],
-                status=ProviderJobStatus.SUCCEEDED,
+        # 走到这里供应商任务已经成功、钱已经花了，二次取件与产物下载同属「任务已建成后的
+        # 幂等取件」：共用同一份预算，别让一次 429 / 5xx / 尚未收敛的 404 直接废掉成品。
+        # 预算耗尽同样落 artifact_download_failed——「重试下载」走 resume 会重跑轮询与二次
+        # 取件，恢复路径与下载失败完全一致，不必重新提交。
+        try:
+            result_body = await with_artifact_retry(
+                fetch_result,
+                label=f"{self._provider} result",
+                retry_if=should_retry_poll,
+                max_wait=call.poll_timeout_seconds,
             )
-            video_url = result_state.video_url
-            duration = result_state.duration_seconds or duration
-            final = result_state
-        if not video_url:
-            raise DeclarativeRuntimeError(
-                "declarative_response_extract_failed",
-                detail=final.error or "provider reported success but no video URL matched the definition",
-            )
-        await self._download(
-            client,
-            video_url,
-            request.output_path,
-            context,
-            request.poll_timeout_seconds,
-            trusted_origins=trusted_origins,
+        except (ResumeExpiredError, DeclarativeRuntimeError, NonRetryableError):
+            raise
+        except Exception as exc:
+            raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
+        result_state = self._extract_state(
+            result_body,
+            self._definition["result"]["extract"],
+            status=ProviderJobStatus.SUCCEEDED,
         )
-        return VideoGenerationResult(
-            video_path=request.output_path,
-            provider=self._provider,
-            model=self._model,
-            duration_seconds=duration or request.duration_seconds,
-            video_uri=video_url,
-            task_id=job_id,
-            generate_audio=request.generate_audio,
-        )
+        return JobOutcome(poll_state=final, result_state=result_state, trusted_origins=frozenset(trusted_origins))
 
     def _extract_state(
         self,
@@ -595,45 +621,44 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         extract: Mapping[str, Any],
         *,
         status: ProviderJobStatus | None = None,
-    ) -> ProviderState:
-        return extract_provider_state(body, extract, status_map=self._definition.get("status_map"), status=status)
+    ) -> StateT:
+        return self._read_state(body, extract, status_map=self._definition.get("status_map"), status=status)
 
     @staticmethod
-    async def _response_body(
-        response: httpx.Response, request: VideoGenerationRequest, stage: ProviderResponseStage
-    ) -> object:
+    async def _response_body(response: httpx.Response, call: JobCall, stage: ProviderResponseStage) -> object:
         try:
             body = response.json()
         except ValueError as exc:
             # 2xx 但不是 JSON（网关的 HTML 错误页、被截断的响应）：原文先留痕再抛。诊断字段
             # 若停在上一次轮询的响应上，正好在最需要看到这次响应的场合给出误导。
-            await notify_provider_response(request, stage, response.text)
+            await _notify(call, stage, response.text)
             raise DeclarativeRuntimeError(
                 "declarative_response_extract_failed", detail="provider response was not valid JSON"
             ) from exc
-        await notify_provider_response(request, stage, body)
+        await _notify(call, stage, body)
         return body
 
     @staticmethod
-    async def _record_response(
-        response: httpx.Response, request: VideoGenerationRequest, stage: ProviderResponseStage
-    ) -> None:
+    async def _record_response(response: httpx.Response, call: JobCall, stage: ProviderResponseStage) -> None:
         """留痕失败响应；非 JSON 体存截断后的原文，不因此让任务多失败一种方式。"""
         try:
             body: object = response.json()
         except ValueError:
             body = response.text
-        await notify_provider_response(request, stage, body)
+        await _notify(call, stage, body)
 
-    async def _download(
+    async def download(
         self,
         client: httpx.AsyncClient,
         url: str,
         output_path: Path,
         context: Mapping[str, object],
+        *,
+        max_bytes: int,
         max_wait: float,
-        trusted_origins: set[tuple[str, str, int | None]],
+        trusted_origins: Collection[Origin],
     ) -> None:
+        """把产物地址下载到 ``output_path``，体积超过 ``max_bytes`` 即中止。"""
         # 与已携带凭证访问过的某个源同源，才按 auth 节渲染凭证；其余（对象存储 / CDN 的
         # 签名 URL）裸请求——附带凭证会破坏签名、并把 query 凭证写进第三方访问日志。
         # 凭证的作用域取产物地址自身的源，一路带到重定向跟随处，换源即卸。
@@ -647,7 +672,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 client,
                 rendered.url if rendered is not None else url,
                 output_path,
-                max_bytes=VIDEO_ARTIFACT_MAX_BYTES,
+                max_bytes=max_bytes,
                 headers=rendered.headers if rendered is not None else None,
                 credential_origin=credential_origin if rendered is not None else None,
                 auth_query=rendered.auth_query if rendered is not None else None,
@@ -664,3 +689,136 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             raise
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
+
+
+async def _notify(call: JobCall, stage: ProviderResponseStage, body: object) -> None:
+    await notify_provider_response_to(call.on_provider_response, stage, body, label=call.label)
+
+
+class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
+    """声明式视频定义的调用通道：在 :class:`DeclarativeJobEngine` 上组装视频的请求与产物语义。"""
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        definition: Mapping[str, Any],
+        provider: str,
+    ) -> None:
+        self._engine = DeclarativeJobEngine(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            definition=definition,
+            provider=provider,
+            read_state=extract_provider_state,
+            log_label="声明式视频请求",
+        )
+        self._model = model
+        self._definition = definition
+        self._provider = provider
+
+    @property
+    def name(self) -> str:
+        return self._provider
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        # 延迟导入：能力合成模块经 endpoints.py 反向依赖本模块，模块级导入会成环。
+        from lib.custom_provider.capabilities import video_capabilities_from_definition
+
+        return video_capabilities_from_definition(self._definition)
+
+    async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        context = self._request_context(request, require_declared_inputs=True)
+        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            job_id = await self._engine.submit(client, context, _job_call(request))
+            # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
+            # 把一笔已付费的任务误判成过期丢掉。
+            await self._persist_provider_job_id(
+                request, job_id, provider=self._provider, endpoint=self._engine.base_url
+            )
+            return await self._poll_download(client, job_id, request, context=context, is_resume=False)
+
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        context = self._request_context(request)
+        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            return await self._poll_download(client, job_id, request, context=context, is_resume=True)
+
+    def _request_context(
+        self, request: VideoGenerationRequest, *, require_declared_inputs: bool = False
+    ) -> dict[str, object]:
+        return self._engine.request_context(
+            {
+                "prompt": request.prompt,
+                "duration": request.duration_seconds,
+                "duration_seconds": request.duration_seconds,
+                "aspect_ratio": request.aspect_ratio,
+                "resolution": request.resolution,
+                "generate_audio": request.generate_audio,
+                "seed": request.seed,
+            },
+            {
+                "start_image": request.start_image,
+                "end_image": request.end_image,
+                "reference_images": request.reference_images,
+                "reference_audio_files": request.reference_audio_files,
+            },
+            submitted_base_url=request.submitted_base_url,
+            require_declared_inputs=require_declared_inputs,
+        )
+
+    async def _poll_download(
+        self,
+        client: httpx.AsyncClient,
+        job_id: str,
+        request: VideoGenerationRequest,
+        *,
+        context: Mapping[str, object],
+        is_resume: bool,
+    ) -> VideoGenerationResult:
+        outcome = await self._engine.poll(client, job_id, _job_call(request), context=context, is_resume=is_resume)
+        final = outcome.poll_state
+        video_url = final.video_url
+        duration = final.duration_seconds
+        if outcome.result_state is not None:
+            video_url = outcome.result_state.video_url
+            duration = outcome.result_state.duration_seconds or duration
+            final = outcome.result_state
+        if not video_url:
+            raise DeclarativeRuntimeError(
+                "declarative_response_extract_failed",
+                detail=final.error or "provider reported success but no video URL matched the definition",
+            )
+        await self._engine.download(
+            client,
+            video_url,
+            request.output_path,
+            context,
+            max_bytes=VIDEO_ARTIFACT_MAX_BYTES,
+            max_wait=request.poll_timeout_seconds,
+            trusted_origins=outcome.trusted_origins,
+        )
+        return VideoGenerationResult(
+            video_path=request.output_path,
+            provider=self._provider,
+            model=self._model,
+            duration_seconds=duration or request.duration_seconds,
+            video_uri=video_url,
+            task_id=job_id,
+            generate_audio=request.generate_audio,
+        )
+
+
+def _job_call(request: VideoGenerationRequest) -> JobCall:
+    return JobCall(
+        poll_timeout_seconds=request.poll_timeout_seconds,
+        on_provider_response=request.on_provider_response,
+        label=request.task_id,
+    )
