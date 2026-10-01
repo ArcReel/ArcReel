@@ -4,13 +4,16 @@
 按媒体类型选用的那一份判读函数（视频 :func:`extract_provider_state`、图片
 :func:`extract_image_state`）——验证之所以能替代真花钱的调用，全靠这两处不另写一遍。
 本模块产出的报告同时是测试连接结果体里的「逐阶段提取」段。
+
+``image_b64`` 取到的是整张图的 base64，报告里只给解出的字节数（解不出图片时为 ``None``），
+不回显原串。
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from arcreel_market_core.endpoint_definition import (
@@ -28,7 +31,7 @@ from lib.custom_provider.declarative_backend import (
     extract_provider_state,
     text_or_none,
 )
-from lib.custom_provider.declarative_image_backend import ImageJobState, extract_image_state
+from lib.custom_provider.declarative_image_backend import ImageJobState, decode_image_b64, extract_image_state
 
 from .errors import EndpointTestDefinitionError
 
@@ -72,6 +75,8 @@ class StageReport:
     status: str | None
     video_url: str | None
     image_url: str | None
+    #: 按 ``image_b64`` 取到的图片解码后的字节数；没取到或解不出图片为 ``None``。
+    image_bytes: int | None
     error: str | None
     result_id: str | None
     duration_seconds: int | None
@@ -106,6 +111,7 @@ def check_response(definition: Mapping[str, Any], stage: str, response_body: obj
     except DeclarativeRuntimeError as exc:
         raise EndpointTestDefinitionError.from_render_failure(f"{stage}.extract", str(exc)) from exc
     video = state if isinstance(state, ProviderState) else None
+    image = state if isinstance(state, ImageJobState) else None
     return StageReport(
         stage=stage,
         fields=fields,
@@ -113,7 +119,8 @@ def check_response(definition: Mapping[str, Any], stage: str, response_body: obj
         raw_status=values.get("status"),
         status=state.status.value if state else None,
         video_url=video.video_url if video else None,
-        image_url=state.image_url if isinstance(state, ImageJobState) else None,
+        image_url=image.image_url if image else None,
+        image_bytes=_image_bytes(image.image_b64) if image and image.image_b64 else None,
         error=state.error if state else text_or_none(values.get("error")),
         result_id=state.result_id if state else None,
         duration_seconds=video.duration_seconds if video else None,
@@ -145,6 +152,7 @@ def stage_report_payload(report: StageReport) -> dict[str, Any]:
         "status": report.status,
         "video_url": report.video_url,
         "image_url": report.image_url,
+        "image_bytes": report.image_bytes,
         "error": report.error,
         "result_id": report.result_id,
         "duration_seconds": report.duration_seconds,
@@ -171,13 +179,37 @@ def _task_id(value: object | None) -> str | None:
     return text_or_none(value)
 
 
+def _image_bytes(text: str) -> int | None:
+    try:
+        return len(decode_image_b64(text))
+    except ValueError:
+        return None
+
+
+def _image_summary(value: object | None) -> object | None:
+    """``image_b64`` 的命中值换成字节数摘要。"""
+    if value is None:
+        return None
+    text = text_or_none(value)
+    return {"image_bytes": _image_bytes(text) if text else None}
+
+
+def _summarized(report: FieldExtraction) -> FieldExtraction:
+    return replace(
+        report,
+        attempts=tuple(replace(attempt, value=_image_summary(attempt.value)) for attempt in report.attempts),
+        value=_image_summary(report.value),
+    )
+
+
 def _field_reports(extract: Mapping[str, Any], body: object):
     for key, spec in extract.items():
         if key == "usage" and isinstance(spec, Mapping):
             for usage_key, usage_spec in spec.items():
                 yield _field_report(f"usage.{usage_key}", usage_spec, body)
             continue
-        yield _field_report(key, spec, body)
+        report = _field_report(key, spec, body)
+        yield _summarized(report) if key == "image_b64" else report
 
 
 def _field_report(key: str, spec: object, body: object) -> FieldExtraction:

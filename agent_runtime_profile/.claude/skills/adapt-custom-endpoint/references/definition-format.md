@@ -55,8 +55,9 @@
   在 poll 提取 `result_id`，并增加 `result` 节从 `task_id` / `result_id` 获取 `video_url`。
 - 图片定义写 `"media_type": "image"`，不写即视频。图片定义的模板变量只有 `base_url`、`api_key`（仅 auth）、
   `model`、`prompt`、`aspect_ratio`、`resolution`、`seed`、`width`、`height`、`task_id` 与 `result_id`；
-  `capabilities` 至少声明 `text_to_image` 或 `image_to_image` 之一，两者可同时声明；取图路径写在 `image_url`，
-  有 `result` 节时写在 `result.extract`。图片定义里出现时长、音频、首尾帧等视频专用项时校验失败。
+  `capabilities` 至少声明 `text_to_image` 或 `image_to_image` 之一，两者可同时声明；取图路径写在 `image_url`（图片地址）
+  或 `image_b64`（响应内联的 base64，裸串与 `data:image/...;base64,` 都认），至少写一项，两者都写时先取地址；
+  有 `result` 节时写在 `result.extract`。图片定义里出现时长、音频、首尾帧、`usage` 等视频专用项时校验失败。
 - 图片定义的素材只接受 `source: "reference_images"`，编码为 `data_uri` 或 `base64`，在 submit 里经 `$each` 展开。
   声明 `image_to_image` 须同时写正数 `max_reference_images`，并在 submit 引用参考图素材；
   同时声明 `text_to_image` 时参考图输入不能设为必需。图片编辑的编辑指令随 `prompt` 下发。

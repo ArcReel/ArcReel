@@ -50,6 +50,21 @@ def _completed() -> httpx.Response:
     return _task("completed", result={"images": [{"url": ["https://cdn.test/img/first.png"]}]})
 
 
+def _url_then_base64_definition() -> dict[str, Any]:
+    definition = image_endpoint_definition()
+    definition["poll"]["extract"]["image_b64"] = ["$.data.result.images[0].b64_json"]
+    return definition
+
+
+def _base64_only_definition() -> dict[str, Any]:
+    definition = _url_then_base64_definition()
+    del definition["poll"]["extract"]["image_url"]
+    return definition
+
+
+PNG_B64 = base64.b64encode(PNG_BYTES).decode("ascii")
+
+
 def _request(tmp_path: Path, **overrides) -> ImageGenerationRequest:
     values = {
         "prompt": "a lighthouse at dusk",
@@ -175,6 +190,59 @@ class TestDeclarativeImageBackend:
 
             with pytest.raises(DeclarativeRuntimeError) as caught:
                 await _backend().generate(_request(tmp_path))
+
+        assert caught.value.code == "declarative_response_extract_failed"
+        assert not (tmp_path / "out.png").exists()
+
+    @pytest.mark.parametrize("encoded", [PNG_B64, f"data:image/png;base64,{PNG_B64}"])
+    async def test_inline_base64_image_is_written_without_a_download(self, tmp_path: Path, encoded: str):
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_task("completed", result={"images": [{"b64_json": encoded}]})
+            )
+
+            result = await _backend(_base64_only_definition()).generate(_request(tmp_path))
+
+        assert result.image_path.read_bytes() == PNG_BYTES
+        assert result.image_uri is None
+
+    async def test_url_wins_when_both_artifact_paths_match(self, tmp_path: Path):
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_task(
+                    "completed",
+                    result={"images": [{"url": ["https://cdn.test/img/a.png"], "b64_json": "bm90LXRoaXM="}]},
+                )
+            )
+            router.get("https://cdn.test/img/a.png").mock(return_value=httpx.Response(200, content=PNG_BYTES))
+
+            result = await _backend(_url_then_base64_definition()).generate(_request(tmp_path))
+
+        assert result.image_path.read_bytes() == PNG_BYTES
+        assert result.image_uri == "https://cdn.test/img/a.png"
+
+    async def test_base64_is_the_fallback_when_the_url_path_misses(self, tmp_path: Path):
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_task("completed", result={"images": [{"b64_json": PNG_B64}]})
+            )
+
+            result = await _backend(_url_then_base64_definition()).generate(_request(tmp_path))
+
+        assert result.image_path.read_bytes() == PNG_BYTES
+
+    async def test_undecodable_base64_fails_with_a_stable_code(self, tmp_path: Path):
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_task("completed", result={"images": [{"b64_json": "not base64!"}]})
+            )
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await _backend(_base64_only_definition()).generate(_request(tmp_path))
 
         assert caught.value.code == "declarative_response_extract_failed"
         assert not (tmp_path / "out.png").exists()

@@ -76,6 +76,7 @@ export interface EndpointPollSpec {
     status?: EndpointExtractSpec;
     video_url?: EndpointExtractSpec;
     image_url?: EndpointExtractSpec;
+    image_b64?: EndpointExtractSpec;
     error?: EndpointExtractSpec;
     failure?: EndpointExtractSpec;
     result_id?: EndpointExtractSpec;
@@ -90,6 +91,7 @@ export interface EndpointResultSpec {
   extract: {
     video_url?: EndpointExtractSpec;
     image_url?: EndpointExtractSpec;
+    image_b64?: EndpointExtractSpec;
     error?: EndpointExtractSpec;
     usage?: Record<string, EndpointExtractSpec>;
   };
@@ -447,6 +449,8 @@ export interface EndpointStageReport {
   status?: EndpointStandardStatus | null;
   video_url?: string | null;
   image_url?: string | null;
+  /** `image_b64` 取到的图片解码后的字节数；解不出图片为 null。 */
+  image_bytes?: number | null;
   error?: string | null;
   result_id?: string | null;
   duration_seconds?: number | null;

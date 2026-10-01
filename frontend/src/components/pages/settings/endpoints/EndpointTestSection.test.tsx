@@ -121,6 +121,33 @@ describe("EndpointTestSection", () => {
     ));
   });
 
+  it("summarizes a base64 image hit by its size instead of echoing it", async () => {
+    vi.spyOn(API, "checkEndpointResponse").mockResolvedValue({
+      stage: "poll",
+      fields: [
+        {
+          key: "image_b64",
+          value: { image_bytes: 2048 },
+          attempts: [{ path: "$.b64_json", json_decode: false, matched: true, value: { image_bytes: 2048 } }],
+        },
+        {
+          key: "error",
+          value: { image_bytes: null },
+          attempts: [{ path: "$.error", json_decode: false, matched: true, value: { image_bytes: null } }],
+        },
+      ],
+      status: "succeeded",
+      image_bytes: 2048,
+    });
+    render(<EndpointTestSection definition={DEFINITION} providers={[]} />);
+
+    await userEvent.type(screen.getByLabelText("响应内容"), "{{}");
+    await userEvent.click(screen.getByRole("button", { name: "检查取值" }));
+
+    expect(await screen.findByText("取到 2048 字节图片")).toBeInTheDocument();
+    expect(screen.getByText('{"image_bytes":null}')).toBeInTheDocument();
+  });
+
   it("plays a successful artifact in place and deep-links its API call to the usage record", async () => {
     vi.spyOn(API, "getTrialRunArtifact").mockResolvedValue(new Blob(["video"]));
     vi.spyOn(API, "createTrialRun").mockResolvedValue({
