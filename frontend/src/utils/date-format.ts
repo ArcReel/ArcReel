@@ -57,7 +57,18 @@ const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["minute", 60_000],
 ];
 
-// 相对当前的粗粒度时间（「3 小时前」），按界面语言成文；不足一分钟算「现在」，解析失败返回 null
+const JUST_NOW_MS = 60_000;
+
+// 与当前相差不足一分钟（含时钟偏差造成的略晚于当前）算「刚刚」；解析失败返回 false。
+// 「刚刚」要嵌进整句话，措辞因句子而异，由调用方各自选文案，不交给 Intl 的「现在」。
+export function isJustNow(value: string | null | undefined, now: number = Date.now()): boolean {
+  if (!value) return false;
+  const time = parseIsoTimestamp(value).getTime();
+  return !Number.isNaN(time) && Math.abs(time - now) < JUST_NOW_MS;
+}
+
+// 相对当前的粗粒度时间（「3 小时前」），按界面语言成文；不足一分钟交给 Intl 成文（「现在」），解析失败返回 null。
+// 需要「刚刚」的调用方先用 isJustNow 判断。
 export function formatRelativeTime(
   value: string | null | undefined,
   lang: string,

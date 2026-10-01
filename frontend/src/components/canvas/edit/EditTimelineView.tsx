@@ -14,7 +14,7 @@ import type {
 } from "@/types/edit-timeline";
 import { LINK_TIME_PARAM, LINK_TIMELINE_PARAM, parseSeconds } from "@/utils/app-link";
 import { errMsg } from "@/utils/async";
-import { formatRelativeTime } from "@/utils/date-format";
+import { formatRelativeTime, isJustNow } from "@/utils/date-format";
 import type { PreviewAspect } from "@/utils/preview-aspect";
 
 import { ClipInspector, ISSUE_LIST_HEADING_ID, IssueList } from "./EditTimelineDetails";
@@ -239,6 +239,7 @@ export function EditTimelineView({
     tabs.current.get(next.id)?.focus();
   };
   const authorName = t(`edit_view_author_${selected.updated_by.kind}`);
+  const updatedJustNow = isJustNow(selected.updated_at);
   const updatedAt = formatRelativeTime(selected.updated_at, i18n.language) ?? selected.updated_at;
 
   return (
@@ -277,7 +278,9 @@ export function EditTimelineView({
           />
         </div>
         <span className="text-[12px] text-text-4">
-          {t("edit_view_updated", { author: authorName, time: updatedAt })}
+          {updatedJustNow
+            ? t("edit_view_updated_just_now", { author: authorName })
+            : t("edit_view_updated", { author: authorName, time: updatedAt })}
         </span>
         {renderActions && (
           <div className="ml-auto flex items-center gap-2">
