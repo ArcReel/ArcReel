@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
-from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
-from arcreel_market_core.endpoint_definition.media_type import DECLARATIVE_MEDIA_TYPE
+from arcreel_market_core.endpoint_definition import definition_media_type
+from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND, DECLARATIVE_KIND
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.image_backends.base import ImageCapability
@@ -61,7 +61,8 @@ from lib.custom_provider.comfyui.capabilities import (
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.comfyui.failures import ComfyuiError
-from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
+from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
+from lib.custom_provider.declarative_runtime import request_urls
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -611,9 +612,14 @@ def declarative_endpoint_spec(
     通路（返回同一份常量），而不是只能表达参考图上限的 video_max_reference_images。
     """
     caps = declarative_video_capabilities(definition)
+    try:
+        media_type = definition_media_type(definition)
+    except KeyError:
+        # 本投影只由 declarative 分派；保留直接投影跨 kind 混合定义的旧兼容行为。
+        media_type = definition_media_type({"kind": DECLARATIVE_KIND})
     spec = EndpointSpec(
         key=key,
-        media_type=DECLARATIVE_MEDIA_TYPE,
+        media_type=media_type,
         family=CUSTOM_ENDPOINT_FAMILY if source == "custom" else declarative_family(key),
         # 声明式端点的显示名取 meta.name，不进 i18n 目录（见 EndpointSpec.display_name）。
         display_name_key="",
@@ -691,7 +697,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
     子包的 ``comfyui.capabilities`` 里——它只依赖绑定表与 workflow，与 ``EndpointSpec`` 无关；
     两种媒体类型的装箱各借对应 backend 模块那一份，backend 自己的能力声明也用它。
     """
-    media_type = str(definition["media_type"])
+    media_type = definition_media_type(definition)
     is_video = media_type == "video"
     # 生成前的能力闸门读的是 backend 那一份、不是这里投影出来的 caps，两处各写一份就会在闸门上
     # 打架，故两种媒体类型的能力都借 backend 模块的装箱函数算。
