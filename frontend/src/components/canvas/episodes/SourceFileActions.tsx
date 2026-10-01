@@ -34,12 +34,14 @@ type Editor = "edit" | "replace" | "delete" | null;
  *
  * 波及切出集的改动先呈现服务端成文的受影响集清单，确认后才执行；没有受影响的集时直接执行。
  * 删除一个不含切出集的文件不波及任何集，改由本地确认框提醒删除不可恢复。
+ * 文件在 ArcReel 之外被改动过、还没有更新分集账本时，只有删除可用。
  */
 export function SourceFileActions({ projectName, file, index, total }: SourceFileActionsProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const change = useSourceFileChange();
   const [editor, setEditor] = useState<Editor>(null);
   const hasEpisodes = file.segments.some((segment) => segment.kind === "episode");
+  const paused = change.busy || file.changed_outside;
 
   /** 跑一次改动；执行后刷新项目并提示，返回是否已执行。 */
   const perform = async (
@@ -89,28 +91,28 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
             key: "up",
             label: t("dashboard:source_file_move_up"),
             icon: ArrowUp,
-            disabled: index === 0 || change.busy,
+            disabled: index === 0 || paused,
             onSelect: () => move("up"),
           },
           {
             key: "down",
             label: t("dashboard:source_file_move_down"),
             icon: ArrowDown,
-            disabled: index === total - 1 || change.busy,
+            disabled: index === total - 1 || paused,
             onSelect: () => move("down"),
           },
           {
             key: "edit",
             label: t("dashboard:source_file_edit"),
             icon: PencilLine,
-            disabled: file.missing || change.busy,
+            disabled: file.missing || paused,
             onSelect: () => setEditor("edit"),
           },
           {
             key: "replace",
             label: t("dashboard:source_file_replace"),
             icon: FileUp,
-            disabled: file.missing || change.busy,
+            disabled: file.missing || paused,
             onSelect: () => setEditor("replace"),
           },
           {

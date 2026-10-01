@@ -22,6 +22,7 @@ interface SourceFileKindControlProps {
  * 文件条上的源文件类型下拉。改类型不改原文，也不动分集。
  *
  * 会让已开始制作的集的脚本规划判 stale 时，先列出这些集请创作者确认；没有这类集时直接改。
+ * 文件在 ArcReel 之外被改动过、还没有更新分集账本时暂停。
  */
 export function SourceFileKindControl({ projectName, file, episodes }: SourceFileKindControlProps) {
   const { t } = useTranslation("dashboard");
@@ -52,7 +53,7 @@ export function SourceFileKindControl({ projectName, file, episodes }: SourceFil
       <SourceKindSelect
         value={file.source_kind}
         onChange={(kind) => void apply(kind, false)}
-        disabled={busy || file.missing}
+        disabled={busy || file.missing || file.changed_outside}
         label={t("source_kind_of", { name: file.name })}
       />
       <ConfirmDialog

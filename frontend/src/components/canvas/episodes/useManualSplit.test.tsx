@@ -2,6 +2,7 @@ import { act, fireEvent, render, renderHook, screen } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import type { EpisodesView } from "@/types";
 
 import { useManualSplit } from "./useManualSplit";
@@ -14,12 +15,14 @@ const view: EpisodesView = {
   episodes: [],
   unregistered: [],
   replan: null,
+  external_changes: [],
   files: [
     {
       source_file: "source/a.txt",
       name: "a.txt",
       original_filename: null,
       missing: false,
+      changed_outside: false,
       length: 30,
       units: 0,
       cut_units: 0,
@@ -39,6 +42,20 @@ function mount<T extends HTMLElement>(element: T): T {
   document.body.append(element);
   return element;
 }
+
+describe("useManualSplit on a file changed outside ArcReel", () => {
+  it("places no caret and says splitting waits for the ledger update", () => {
+    const changed: EpisodesView = { ...view, files: [{ ...view.files[0], changed_outside: true }] };
+    const hook = renderHook(() => useManualSplit("p", changed, () => {}));
+
+    act(() => hook.result.current.place({ file: 0, offset: 12 }));
+
+    expect(hook.result.current.pending).toBeNull();
+    expect(useAppStore.getState().toast?.text).toBe(
+      "这个文件在 ArcReel 之外被改动过。先在页面顶部更新分集账本，再在这个文件上切分",
+    );
+  });
+});
 
 describe("useManualSplit keyboard", () => {
   afterEach(() => {

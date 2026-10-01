@@ -48,6 +48,7 @@ from lib.episode.episode_sources import (
     CutPlacement,
     SourceOrigin,
     archive_episode_file_path,
+    changed_outside_service,
     cut_episode_placements,
     cut_insert_index,
     discover_sources,
@@ -394,16 +395,14 @@ def _touched_docs(layout: _Layout, edit: _Edit) -> list[SourceDoc]:
     return [doc for doc in layout.docs if any(doc in layout.files_between(*span) for span in spans)]
 
 
-def _check_fingerprints(project: dict[str, Any], docs: list[SourceDoc]) -> None:
-    """原文范围绑定这些文件的当前文本：已记录的指纹不符时拒绝，没记录时补记。"""
+def _check_fingerprints(project_dir: Path, project: dict[str, Any], docs: list[SourceDoc]) -> None:
+    """原文范围绑定这些文件的当前文本：文件在服务之外被改动过时拒绝，没记录指纹时补记。"""
     raw = project.get(SOURCE_FINGERPRINTS_KEY)
     recorded = dict(raw) if isinstance(raw, Mapping) else {}
     for doc in docs:
-        current = compute_source_fingerprints([doc])[doc.rel_path]
-        previous = recorded.get(doc.rel_path)
-        if isinstance(previous, str) and previous != current:
+        if changed_outside_service(project_dir, project, doc):
             raise ManualSplitError("source_changed", f"源文件在服务之外被改动过：{doc.rel_path}")
-        recorded[doc.rel_path] = current
+        recorded[doc.rel_path] = compute_source_fingerprints([doc])[doc.rel_path]
     if docs:
         project[SOURCE_FINGERPRINTS_KEY] = recorded
 
@@ -433,7 +432,7 @@ def _apply(
 ) -> int | None:
     """按改动改写 ``project`` 并落盘集文件与快照，返回新集 ID。"""
     if edit.touches_source:
-        _check_fingerprints(project, _touched_docs(layout, edit))
+        _check_fingerprints(project_dir, project, _touched_docs(layout, edit))
     by_id = {parse_positive_episode_num(entry.get("episode")): entry for entry in layout.entries}
     for episode, (start, end) in edit.ranges.items():
         entry = by_id[episode]
@@ -501,7 +500,7 @@ def _run(
     layout = _layout(project_dir, project)
     edit = plan(layout)
     if edit.touches_source:
-        _check_fingerprints(project, _touched_docs(layout, edit))
+        _check_fingerprints(project_dir, project, _touched_docs(layout, edit))
     impact = _impact(project_dir, layout, edit)
     if dry_run or _needs_confirmation(impact):
         return ManualSplitConfirmationRequired(impact=impact)

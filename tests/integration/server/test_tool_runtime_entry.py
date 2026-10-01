@@ -93,6 +93,7 @@ async def test_entry_handlers_create_list_and_upload_a_readable_source(tmp_path:
         }
     ]
     assert uploaded.value == {
+        "confirmation_required": False,
         "filename": "novel.txt",
         "path": "source/novel.txt",
         "original_filename": "novel.txt",

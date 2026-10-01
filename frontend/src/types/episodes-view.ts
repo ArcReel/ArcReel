@@ -38,6 +38,19 @@ export interface EpisodesViewFile {
   segments: EpisodesViewSegment[];
   /** 非剧情演绎项目为 null。 */
   source_kind: SourceKind | null;
+  /** 文件在 ArcReel 之外被改动过、还没有更新分集账本：替换、编辑、调序、改类型与切分都暂停，删除仍可用。 */
+  changed_outside: boolean;
+}
+
+/**
+ * 一个在 ArcReel 之外被改动过的文件：按快照对齐算出的受影响集清单。`revision` 原样带给 `acceptExternalSourceChange`
+ * 即确认这份清单。算不出清单时 `impact` 与 `revision` 为 null，`problem` 是服务端成文的原因。
+ */
+export interface ExternalSourceChange {
+  source_file: string;
+  impact: (SourceFileImpact & { text: string }) | null;
+  revision: string | null;
+  problem: string | null;
 }
 
 export interface EpisodesViewEpisode {
@@ -75,6 +88,8 @@ export interface EpisodesView {
   unregistered: UnregisteredSourceFile[];
   /** 尚未采纳或放弃的重新规划候选；没有时为 null。 */
   replan: ReplanSummary | null;
+  /** 在 ArcReel 之外被改动过的文件，按文件顺序。 */
+  external_changes: ExternalSourceChange[];
 }
 
 /** 整本源文里的一个位置：文件与文件内的码位偏移。 */

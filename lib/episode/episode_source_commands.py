@@ -26,6 +26,8 @@ from lib.episode.episode_sources import (
     SourceOrigin,
     append_whole_source_file,
     archive_episode_file_path,
+    changed_outside_service,
+    discover_sources,
     episode_source_origin,
     is_episode_source_file,
     is_whole_source_file_path,
@@ -326,7 +328,7 @@ def set_whole_source_file_kind(
 ) -> SourceKindChange:
     """改整本源文文件 ``source/<filename>`` 的类型。
 
-    只改清单项上的记录，不改源文指纹，也不动账本。会让已开始制作的集（已有脚本规划）的脚本规划判
+    只改清单项上的记录，不改源文指纹，也不动账本。文件在服务之外被改动过、还没有更新分集账本时拒绝。会让已开始制作的集（已有脚本规划）的脚本规划判
     stale 时，``confirm`` 为 False 就不写入，只返回这些集；没有这类集时直接写入。只有剧情演绎项目有类型。
     """
     project_dir = pm.get_project_path(project_name)
@@ -338,6 +340,11 @@ def set_whole_source_file_kind(
             raise EpisodeSourceError("source_file_not_found", f"整本源文里没有这个文件：{filename}")
         if whole_source_file_kind(project, rel) == source_kind:
             return SourceKindChange(changed=False, applied=False, affected_episodes=[])
+        if any(
+            doc.rel_path == rel and changed_outside_service(project_dir, project, doc)
+            for doc in discover_sources(project_dir, project)
+        ):
+            raise EpisodeSourceError("source_changed_outside", f"源文件在服务之外被改动过：{filename}")
         affected = [
             episode
             for episode in episodes_from_whole_source_file(project, rel)

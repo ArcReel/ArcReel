@@ -449,6 +449,16 @@ class TestSourceChangedOutside:
         assert isinstance(clear_cuts_after(project_dir, 1), ManualSplitResult)
         assert _order(project_dir) == [1]
 
+    def test_a_file_that_differs_from_its_snapshot_counts_as_changed(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2), _cut(2, "a.txt", CH2, CH3)])
+        (project_dir / "source" / "snapshots").mkdir()
+        (project_dir / "source" / "snapshots" / "a.txt").write_text(A.replace("少年", "青年"), encoding="utf-8")
+
+        with pytest.raises(ManualSplitError) as excinfo:
+            split_episode(project_dir, 1, at=3)
+
+        assert excinfo.value.code == "source_changed"
+
 
 def test_confirmation_text_names_episodes_by_title_or_position():
     project = {"episodes": [{"episode": 4, "title": "雨夜"}, {"episode": 9, "title": ""}, {"episode": 2}]}

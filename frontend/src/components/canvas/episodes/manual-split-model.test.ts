@@ -27,6 +27,7 @@ function file(name: string, length: number, segments: EpisodesViewSegment[]): Ep
     name,
     original_filename: null,
     missing: false,
+    changed_outside: false,
     length,
     units: 0,
     cut_units: 0,
@@ -43,6 +44,7 @@ const view: EpisodesView = {
   episodes: [],
   unregistered: [],
   replan: null,
+  external_changes: [],
   files: [
     file("a.txt", 30, [
       segment({ kind: "episode", episode: 1, start: 0, end: 10 }),

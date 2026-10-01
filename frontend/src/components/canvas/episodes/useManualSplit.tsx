@@ -145,6 +145,11 @@ export function useManualSplit(
   const place = useCallback(
     (point: ManuscriptPoint) => {
       if (!view || busy) return;
+      if (view.files[point.file]?.changed_outside) {
+        setPending(null);
+        useAppStore.getState().pushToast(t("manual_split_paused_changed_outside"), "warning");
+        return;
+      }
       const next = resolvePointAction(view, point, moving);
       if (next === null) {
         setPending(null);
@@ -153,7 +158,7 @@ export function useManualSplit(
       if (next.kind === "cut" && action?.kind !== "cut") setTitle("");
       setPending(point);
     },
-    [action, busy, moving, view],
+    [action, busy, moving, t, view],
   );
 
   const toggleMoving = useCallback((left: number) => {

@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.episode.episode_ledger import SourceDoc, compute_source_fingerprints
 from lib.i18n.zh import errors as zh_errors
 from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
@@ -318,7 +319,7 @@ class TestSourceFileKind:
                 _entry(1, "whole_source", source_range={"source_file": "source/a.txt", "start": 0, "end": 5}),
                 _entry(2, "whole_source", source_range={"source_file": "source/b.txt", "start": 0, "end": 5}),
             ],
-            source_fingerprints={"source/a.txt": "f" * 64},
+            source_fingerprints=compute_source_fingerprints([SourceDoc("source/a.txt", "少年下山。")]),
             episode_id_high_water=2,
         )
         (source_dir / "a.txt").write_text("少年下山。", encoding="utf-8")
@@ -393,6 +394,18 @@ class TestSourceFileKind:
         assert narration.status_code == 409
         assert narration.json()["detail"] == zh_errors.MESSAGES["source_kind_not_applicable"]
         assert unknown.status_code == 404
+
+    def test_change_is_paused_while_the_file_was_changed_outside(self, tmp_path, monkeypatch):
+        client, pm = self._drama(monkeypatch, tmp_path, with_script_plan=False)
+        (pm.get_project_path("demo") / "source" / "a.txt").write_text("少年走下山。", encoding="utf-8")
+
+        with client:
+            resp = client.put(
+                "/api/v1/projects/demo/source-files/a.txt/source-kind", json={"source_kind": "screenplay"}
+            )
+
+        assert (resp.status_code, resp.json()["detail"]) == (409, zh_errors.MESSAGES["source_changed_outside"])
+        assert pm.load_project("demo")["whole_source_files"][0]["source_kind"] == "novel"
 
 
 def _two_episode_project(monkeypatch, tmp_path):
@@ -500,3 +513,62 @@ class TestSourceFileChanges:
         )
         assert unknown.status_code == 404
         assert empty.status_code == 422
+
+
+class TestExternalSourceChange:
+    def _changed(self, monkeypatch, tmp_path, *, snapshot: bool = True):
+        client, pm, source_dir, text = _two_episode_project(monkeypatch, tmp_path)
+        if snapshot:
+            (source_dir / "snapshots").mkdir()
+            (source_dir / "snapshots" / "a.txt").write_text(text, encoding="utf-8")
+        new_text = text.replace("少年下山", "少年走下山")
+        (source_dir / "a.txt").write_text(new_text, encoding="utf-8")
+        return client, pm, source_dir, new_text
+
+    def test_the_view_lists_affected_episodes_and_accepting_updates_the_ledger(self, tmp_path, monkeypatch):
+        client, pm, source_dir, new_text = self._changed(monkeypatch, tmp_path)
+
+        with client:
+            view = client.get("/api/v1/projects/demo/episodes-view").json()
+            (change,) = view["external_changes"]
+            accepted = client.post(
+                "/api/v1/projects/demo/source-files/a.txt/accept-external", json={"revision": change["revision"]}
+            )
+            after = client.get("/api/v1/projects/demo/episodes-view").json()
+
+        assert [f["changed_outside"] for f in view["files"]] == [True, False]
+        assert change["source_file"] == "source/a.txt"
+        assert change["problem"] is None
+        assert (change["impact"]["changed_without_products"], change["impact"]["shifted"]) == ([1], [2])
+        assert change["impact"]["text"].split("\n") == [
+            zh_errors.MESSAGES["source_file_impact_shifted"].format(episodes="第 2 集"),
+            zh_errors.MESSAGES["source_file_impact_changed_without_products"].format(episodes="第 1 集"),
+        ]
+        assert accepted.json()["status"] == "applied"
+        assert pm.load_project("demo")["episodes"][0]["ledger_status"] == "stale"
+        assert (source_dir / "snapshots" / "a.txt").read_text(encoding="utf-8") == new_text
+        assert after["external_changes"] == []
+        assert [f["changed_outside"] for f in after["files"]] == [False, False]
+
+    def test_a_file_that_cannot_be_aligned_states_why(self, tmp_path, monkeypatch):
+        client, pm, _source_dir, _text = self._changed(monkeypatch, tmp_path, snapshot=False)
+        pm.update_project("demo", lambda project: project.update(source_fingerprints={"source/a.txt": "0" * 64}))
+
+        with client:
+            (change,) = client.get("/api/v1/projects/demo/episodes-view").json()["external_changes"]
+            accepted = client.post("/api/v1/projects/demo/source-files/a.txt/accept-external", json={})
+
+        assert change["impact"] is None
+        assert change["problem"] == zh_errors.MESSAGES["source_file_change_source_snapshot_missing"]
+        assert accepted.status_code == 409
+
+    def test_accepting_an_unchanged_file_is_refused(self, tmp_path, monkeypatch):
+        client, _pm, _source_dir, _text = _two_episode_project(monkeypatch, tmp_path)
+
+        with client:
+            resp = client.post("/api/v1/projects/demo/source-files/a.txt/accept-external", json={})
+
+        assert (resp.status_code, resp.json()["detail"]) == (
+            409,
+            zh_errors.MESSAGES["source_file_change_source_not_changed"],
+        )
