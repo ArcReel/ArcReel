@@ -800,6 +800,7 @@ export function StudioCanvasRouter() {
                     episode={epNum}
                     script={script}
                     aspect={previewAspect(currentProjectData)}
+                    ttsNarration={currentProjectData?.narration_delivery === "use_tts"}
                     renderActions={({ timelineId, timelineName, issues, showIssues }) =>
                       // 读取完成前不知道有没有阻断级 issue，先不给出片入口。
                       issues === null ? null : (

@@ -26,13 +26,17 @@ export interface AudioPlacement {
   name?: string | null;
 }
 
-/** 旁白轨上的一段旁白。没有旁白配音时按承载片段的长度占位，`missingAudio` 为 true。 */
+/**
+ * 旁白轨上的一段旁白。TTS 项目没有旁白配音时按承载片段的长度占位，`missingAudio` 为 true；
+ * 后期配音项目的旁白不在预览里出声，也不检查配音，一律按 `postProduction` 占位，`missingAudio` 恒为 false。
+ */
 export interface NarrationSpan {
   clipId: string;
   unitId: string;
   start: number;
   end: number;
   missingAudio: boolean;
+  postProduction: boolean;
   /** 与前面的旁白重叠时下移一行，0 起。 */
   lane: number;
 }
@@ -57,14 +61,26 @@ function lanesFor<T extends { start: number; end: number }>(items: readonly T[])
   });
 }
 
-/** 旁白按读取结果的实际起止显示，可以延伸到后续片段上；超出时间线末尾的部分不画。 */
-export function narrationSpans(readout: EditTimelineReadout): NarrationSpan[] {
+/**
+ * 旁白按读取结果的实际起止显示，可以延伸到后续片段上；超出时间线末尾的部分不画。
+ * `ttsNarration` 为项目的旁白交付方式是否为 TTS 配音，与读取结果的问题列表同口径：后期配音项目不报缺配音。
+ */
+export function narrationSpans(readout: EditTimelineReadout, ttsNarration: boolean): NarrationSpan[] {
   const spans = readout.clips.flatMap((clip) => {
     if (clip.status === "unit_deleted" || !clip.narration) return [];
     const start = clip.narration.start;
     const end = Math.min(clip.narration.end ?? clip.start + clip.duration, readout.duration);
     if (end <= start) return [];
-    return [{ clipId: clip.id, unitId: clip.unit_id, start, end, missingAudio: clip.narration.end === null }];
+    return [
+      {
+        clipId: clip.id,
+        unitId: clip.unit_id,
+        start,
+        end,
+        missingAudio: ttsNarration && clip.narration.end === null,
+        postProduction: !ttsNarration,
+      },
+    ];
   });
   spans.sort((a, b) => a.start - b.start);
   const lanes = lanesFor(spans);

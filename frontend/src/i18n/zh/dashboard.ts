@@ -3111,6 +3111,7 @@ export default {
   'edit_view_track_bgm': 'BGM',
   'edit_view_narration_title': '{{unit}} 的旁白，挂在 {{clip}} 上：{{start}}–{{end}}s',
   'edit_view_narration_missing': '{{unit}} 还没有旁白配音，挂在 {{clip}} 上',
+  'edit_view_narration_post_production': '{{unit}} 的旁白由后期配音，预览不出声，挂在 {{clip}} 上',
   'edit_view_bgm_title': '{{bgm}}：{{start}}–{{end}}s，音量 {{volume}}，淡入 {{fadeIn}}s，淡出 {{fadeOut}}s',
   'edit_view_bgm_upload': '上传 BGM',
   'edit_view_bgm_uploading': '正在上传 BGM…',

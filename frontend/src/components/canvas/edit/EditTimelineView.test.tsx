@@ -83,9 +83,16 @@ const SCRIPT = { episode: 1, video_units: [{ unit_id: "E1U1" }, { unit_id: "E1U3
 
 const NO_TIMELINE = () => <p>no timeline</p>;
 
-function renderView() {
+function renderView(ttsNarration = true) {
   return render(
-    <EditTimelineView projectName="demo" episode={1} script={SCRIPT} aspect="16:9" renderEmptyState={NO_TIMELINE} />,
+    <EditTimelineView
+      projectName="demo"
+      episode={1}
+      script={SCRIPT}
+      aspect="16:9"
+      ttsNarration={ttsNarration}
+      renderEmptyState={NO_TIMELINE}
+    />,
   );
 }
 
@@ -320,6 +327,7 @@ describe("EditTimelineView", () => {
         episode={1}
         script={SCRIPT}
         aspect="16:9"
+        ttsNarration
         renderEmptyState={NO_TIMELINE}
         renderActions={({ timelineId, timelineName, issues, showIssues }) => (
           <button type="button" onClick={showIssues}>
@@ -343,6 +351,7 @@ describe("EditTimelineView", () => {
         episode={1}
         script={SCRIPT}
         aspect="16:9"
+        ttsNarration
         renderEmptyState={({ reload }) => (
           <button type="button" onClick={reload}>
             新建
@@ -355,6 +364,35 @@ describe("EditTimelineView", () => {
     fireEvent.click(await screen.findByRole("button", { name: "新建" }));
 
     expect(await screen.findByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("marks missing narration audio with a dashed placeholder in a TTS project but not in a post-production one", async () => {
+    const missing: EditTimelineReadout = {
+      ...INITIAL_CUT,
+      clips: [
+        { ...INITIAL_CUT.clips[0], carries_narration: true, narration: { start: 0, end: null } },
+        INITIAL_CUT.clips[1],
+        INITIAL_CUT.clips[2],
+      ],
+    };
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(missing);
+
+    const tts = renderView(true);
+    const dashed = await screen.findByTestId("edit-narration-c1");
+    expect(dashed).toHaveAttribute("data-missing-audio", "true");
+    expect(dashed).not.toHaveAttribute("data-post-production");
+    expect(dashed).toHaveAttribute("title", "U1 还没有旁白配音，挂在 c1 上");
+    tts.unmount();
+
+    renderView(false);
+    const neutral = await screen.findByTestId("edit-narration-c1");
+    expect(neutral).not.toHaveAttribute("data-missing-audio");
+    expect(neutral).toHaveAttribute("data-post-production", "true");
+    expect(neutral).toHaveAttribute("title", "U1 的旁白由后期配音，预览不出声，挂在 c1 上");
+    expect(neutral).not.toHaveClass("border-dashed");
   });
 
   it("shows narration over the clips it runs across, subtitles that can be hidden, and BGM once there is any", async () => {
@@ -698,6 +736,7 @@ describe("EditTimelineView", () => {
             episode={1}
             script={SCRIPT}
             aspect="16:9"
+            ttsNarration
             renderEmptyState={NO_TIMELINE}
           />
         </Route>

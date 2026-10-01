@@ -3112,6 +3112,7 @@ export default {
   'edit_view_track_bgm': 'BGM',
   'edit_view_narration_title': '{{unit}} narration, attached to {{clip}}: {{start}}–{{end}}s',
   'edit_view_narration_missing': '{{unit}} has no narration audio yet, attached to {{clip}}',
+  'edit_view_narration_post_production': '{{unit}} narration is dubbed in post-production and is silent in the preview, attached to {{clip}}',
   'edit_view_bgm_title': '{{bgm}}: {{start}}–{{end}}s, volume {{volume}}, fade in {{fadeIn}}s, fade out {{fadeOut}}s',
   'edit_view_bgm_upload': 'Upload BGM',
   'edit_view_bgm_uploading': 'Uploading BGM…',
