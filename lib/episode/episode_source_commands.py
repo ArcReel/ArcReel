@@ -103,7 +103,9 @@ def _restore_file(path: Path, content: bytes | None) -> None:
         path.write_bytes(content)
 
 
-def _write_episode_file(project_dir: Path, episode: int, text: str, *, archive_existing: bool, undo: ExitStack) -> None:
+def write_episode_source_file(
+    project_dir: Path, episode: int, text: str, *, archive_existing: bool, undo: ExitStack
+) -> None:
     """写集文件，并把撤销登记进 ``undo``。``archive_existing`` 时盘上已有的同名文件不是这一集的原文，先改名留底再写。"""
     path = episode_source_path(project_dir, episode)
     if path.is_symlink():
@@ -142,7 +144,7 @@ def add_own_source_episode(
     """
     normalized = _require_text(text)
     (episode,) = allocate_episode_ids(project, 1)
-    _write_episode_file(project_dir, episode, normalized, archive_existing=True, undo=undo)
+    write_episode_source_file(project_dir, episode, normalized, archive_existing=True, undo=undo)
     raw_episodes = project.get("episodes")
     episodes = list(raw_episodes) if isinstance(raw_episodes, list) else []
     entry: dict[str, Any] = {
@@ -215,7 +217,9 @@ def set_episode_source_text(
         )
         if affected and not confirm:
             return EpisodeSourceWrite(applied=False, origin=origin, affected_episodes=affected)
-        _write_episode_file(project_dir, episode, normalized, archive_existing=origin is SourceOrigin.NONE, undo=undo)
+        write_episode_source_file(
+            project_dir, episode, normalized, archive_existing=origin is SourceOrigin.NONE, undo=undo
+        )
         entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.OWN.value
         record_episode_kind(project, entry, source_kind)
     return EpisodeSourceWrite(applied=True, origin=SourceOrigin.OWN, affected_episodes=affected)
@@ -299,7 +303,7 @@ def adopt_source_file_as_episode(pm: ProjectManager, project_name: str, filename
         undo.callback(_restore_file, path, original)
         if entry is None or episode is None:
             return add_own_source_episode(project_dir, project, text, undo=undo)
-        _write_episode_file(project_dir, episode, text, archive_existing=True, undo=undo)
+        write_episode_source_file(project_dir, episode, text, archive_existing=True, undo=undo)
         entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.OWN.value
         record_episode_kind(project, entry, None)
         return episode
@@ -356,4 +360,5 @@ __all__ = [
     "set_episode_source_text",
     "set_whole_source_file_kind",
     "unregister_source_file",
+    "write_episode_source_file",
 ]

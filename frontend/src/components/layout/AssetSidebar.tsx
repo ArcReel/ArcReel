@@ -10,16 +10,24 @@ import {
   Users,
   Landmark,
   Package,
+  FilePlus,
   Plus,
   Search,
   ShoppingBag,
+  Upload,
 } from "lucide-react";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { normalizeRoute } from "@/utils/generation-mode";
+import { ActionMenu } from "@/components/ui/ActionMenu";
+import { CreateEpisodeDialog } from "@/components/canvas/episodes/CreateEpisodeDialog";
+import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
+import { useDeleteEpisode } from "@/components/canvas/episodes/useDeleteEpisode";
+import { useMoveEpisode } from "@/components/canvas/episodes/useMoveEpisode";
 import { EpisodeCard } from "./EpisodeCard";
+import { SidebarEpisodeList } from "./SidebarEpisodeList";
 
 interface AssetSidebarProps {
   className?: string;
@@ -46,6 +54,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const [location, setLocation] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
+  /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
+  const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
 
   const characterCount = Object.keys(currentProjectData?.characters ?? {}).length;
   const sceneCount = Object.keys(currentProjectData?.scenes ?? {}).length;
@@ -67,6 +77,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     const m = location.match(/^\/episodes\/(\d+)/);
     return m ? parseInt(m[1], 10) : null;
   }, [location]);
+
+  const moveEpisode = useMoveEpisode(currentProjectName);
+  const deletion = useDeleteEpisode(currentProjectName ?? "", (episode) => {
+    // 删的是正在看的那一集时回到「分集」视图
+    if (episode === activeEp) setLocation(episodesViewPath());
+  });
 
   const navItems: NavItem[] = [
     { key: "overview", path: "/", label: t("dashboard:workspace_nav_overview"), icon: LayoutDashboard },
@@ -231,20 +247,29 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   {episodes.length}
                 </span>
                 <span className="flex-1" />
-                <button
-                  type="button"
-                  disabled
-                  aria-disabled="true"
-                  className="grid h-5 w-5 place-items-center rounded focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    background: "oklch(0.28 0.012 250 / 0.6)",
-                    color: "var(--color-text-3)",
-                  }}
-                  title={t("dashboard:add_episode_unavailable")}
-                  aria-label={t("dashboard:add_episode")}
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
+                {demoMode ? null : (
+                  <ActionMenu
+                    label={t("dashboard:add_episode")}
+                    triggerClassName="grid h-5 w-5 place-items-center rounded focus-ring hover:text-text"
+                    triggerStyle={{ background: "oklch(0.28 0.012 250 / 0.6)", color: "var(--color-text-3)" }}
+                    items={[
+                      {
+                        key: "create",
+                        label: t("dashboard:episode_create_title"),
+                        icon: FilePlus,
+                        onSelect: () => setCreateAfter(null),
+                      },
+                      {
+                        key: "upload",
+                        label: t("dashboard:episode_menu_upload_sources"),
+                        icon: Upload,
+                        onSelect: () => setLocation(episodesViewPath({ upload: "episode" })),
+                      },
+                    ]}
+                  >
+                    <Plus className="h-3 w-3" aria-hidden />
+                  </ActionMenu>
+                )}
               </>
             )}
           </div>
@@ -285,7 +310,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   ? t("dashboard:no_episodes_yet")
                   : t("dashboard:no_episode_search_results")}
               </div>
-            ) : (
+            ) : isAd || demoMode ? (
               filteredEps.map(({ ep, position }) => (
                 <EpisodeCard
                   key={ep.episode}
@@ -298,6 +323,19 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   route={normalizeRoute(currentProjectData?.generation_mode)}
                 />
               ))
+            ) : (
+              <SidebarEpisodeList
+                episodes={episodes}
+                shown={filteredEps}
+                wholeSourceFiles={currentProjectData?.whole_source_files ?? []}
+                activeEp={activeEp}
+                route={normalizeRoute(currentProjectData?.generation_mode)}
+                reorderable={!search}
+                onOpen={(episode) => setLocation(`/episodes/${episode}`)}
+                onCreateAfter={setCreateAfter}
+                onMove={(episode, after) => void moveEpisode(episode, after)}
+                onDelete={(episode) => void deletion.requestDelete(episode)}
+              />
             )}
           </div>
         </>
@@ -362,6 +400,18 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           )}
         </button>
       </div>
+      {createAfter !== undefined && currentProjectName ? (
+        <CreateEpisodeDialog
+          projectName={currentProjectName}
+          initialAfter={createAfter}
+          onClose={() => setCreateAfter(undefined)}
+          onCreated={(episode) => {
+            setCreateAfter(undefined);
+            setLocation(`/episodes/${episode}`);
+          }}
+        />
+      ) : null}
+      {deletion.dialog}
     </aside>
   );
 }

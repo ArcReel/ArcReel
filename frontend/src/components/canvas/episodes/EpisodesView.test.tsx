@@ -148,6 +148,94 @@ describe("EpisodesView", () => {
     expect(await screen.findByText("读取分集失败：网络错误")).toBeInTheDocument();
   });
 
+  describe("episode management", () => {
+    const GAP_VIEW: EpisodesViewData = {
+      ...VIEW,
+      files: [
+        {
+          ...VIEW.files[0],
+          segments: [
+            { kind: "episode", start: 0, end: 10, text: "第一集的原文。", episode: 1, gap: false, units: 10 },
+            { kind: "unsplit", start: 10, end: 20, text: "删掉的那一集的原文。", episode: null, gap: true, units: 10 },
+            { kind: "episode", start: 20, end: 30, text: "第二集的原文。", episode: 2, gap: false, units: 10 },
+          ],
+        },
+      ],
+    };
+
+    it("plans the unsplit source left between two episodes up to its end", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(GAP_VIEW);
+      const plan = vi.spyOn(API, "planEpisodes").mockResolvedValue({
+        batch: { batch_id: "batch-1", members: [{ unit_id: "episode-planning", task_id: "plan-1" }] },
+      });
+      renderView();
+
+      const manuscript = await screen.findByRole("main", { name: "整本源文" });
+      fireEvent.click(within(manuscript).getByRole("button", { name: "规划这段未切分的原文" }));
+
+      await waitFor(() =>
+        expect(plan).toHaveBeenCalledWith("demo", null, { source_file: "source/上卷.txt", end: 20 }),
+      );
+    });
+
+    it("does not call the whole source split while a gap is left", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(GAP_VIEW);
+      renderView();
+
+      expect(await screen.findByRole("heading", { name: "已规划到整本源文结尾，中间还有未切分的原文" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "整本源文已全部分集" })).not.toBeInTheDocument();
+    });
+
+    it("creates an episode after the selected one", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      const create = vi.spyOn(API, "createEpisode").mockResolvedValue({ episode: 4 });
+      useProjectsStore.setState({ refreshProject: vi.fn().mockResolvedValue(undefined) });
+      renderView("/episodes?episode=1");
+
+      const rail = await screen.findByRole("complementary", { name: "分集清单" });
+      fireEvent.click(within(rail).getByRole("button", { name: "在这一集之后新建" }));
+      const dialog = await screen.findByRole("dialog", { name: "新建一集" });
+      expect(within(dialog).getByLabelText("标题")).toHaveAttribute("placeholder", "第 2 集");
+      fireEvent.click(within(dialog).getByRole("button", { name: "新建" }));
+
+      await waitFor(() =>
+        expect(create).toHaveBeenCalledWith("demo", {
+          after: 1,
+          title: "",
+          hook: "",
+          source_text: null,
+          source_kind: null,
+        }),
+      );
+    });
+
+    it("confirms a deletion with the loss list written by the server", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      const impact = {
+        episode: 3,
+        origin: "own",
+        recoverable: false,
+        revision: "rev-1",
+        text: "删除「番外」后无法恢复，以下内容会一并删除：\n集原文（8 字）、正式脚本",
+      };
+      const remove = vi
+        .spyOn(API, "deleteEpisode")
+        .mockResolvedValueOnce({ status: "confirmation_required", impact } as never)
+        .mockResolvedValueOnce({ status: "deleted", impact } as never);
+      useProjectsStore.setState({ refreshProject: vi.fn().mockResolvedValue(undefined) });
+      renderView("/episodes?episode=3");
+
+      const rail = await screen.findByRole("complementary", { name: "分集清单" });
+      fireEvent.click(within(rail).getByRole("button", { name: "删除这一集" }));
+      const dialog = await screen.findByRole("dialog", { name: "删除「番外」" });
+      expect(dialog).toHaveTextContent("删除「番外」后无法恢复，以下内容会一并删除：");
+      expect(dialog).toHaveTextContent("集原文（8 字）、正式脚本");
+      fireEvent.click(within(dialog).getByRole("button", { name: "删除" }));
+
+      await waitFor(() => expect(remove).toHaveBeenLastCalledWith("demo", 3, "rev-1"));
+    });
+  });
+
   describe("AI planning", () => {
     function truncatedPlanning(params: Record<string, unknown>): TaskItem {
       return makeTask({
@@ -173,7 +261,7 @@ describe("EpisodesView", () => {
       });
       fireEvent.click(screen.getByRole("button", { name: "AI 规划剩余内容" }));
 
-      await waitFor(() => expect(plan).toHaveBeenCalledWith("demo", "按章节切"));
+      await waitFor(() => expect(plan).toHaveBeenCalledWith("demo", "按章节切", null));
     });
 
     it("sends a truncated custom model to its entry in settings", async () => {

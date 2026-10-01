@@ -22,6 +22,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type {
   AuthorPromptsRequest,
   DraftDocType,
+  PlanningGap,
   PlanScriptRequest,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
@@ -502,10 +503,14 @@ export const EPISODE_PLANNING_SLOTS = ["episode-planning", "episode-planning-nex
  * 提交 AI 规划分集：从规划起点逐窗规划到整本源文结尾。已有进行中的分集规划或准入不成立时，
  * 服务端的错误原样抛出。附加指令只随本次提交，不写进项目。
  */
-export async function enqueueEpisodePlanning(projectName: string, instructions: string | null): Promise<EnqueueResult> {
+export async function enqueueEpisodePlanning(
+  projectName: string,
+  instructions: string | null,
+  gap: PlanningGap | null = null,
+): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "text_episode_plan", EPISODE_PLANNING_SLOTS[0], "text_episode_plan")],
-    () => API.planEpisodes(projectName, instructions),
+    () => API.planEpisodes(projectName, instructions, gap),
     (response) => memberTaskIds(response.batch),
   );
   const taskIds = memberTaskIds(res.batch);

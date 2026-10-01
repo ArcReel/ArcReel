@@ -68,6 +68,8 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
 
   const remaining = remainingUnits(view);
   const started = view.cut_units > 0;
+  // 删除中间的切出集留下的空段不在接续规划的范围里，要用空段上的按钮单独规划
+  const hasGaps = view.files.some((file) => file.segments.some((segment) => segment.gap && segment.units > 0));
   const percent = view.units === 0 ? 0 : Math.round((view.cut_units / view.units) * 100);
 
   const updateInstruction = (value: string) => {
@@ -133,7 +135,7 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
       <section aria-labelledby="episode-planning-title" className="space-y-2 border-t border-hairline pt-4">
         <h3 id="episode-planning-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
           <CheckCircle2 aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--color-good)" }} />
-          {t("dashboard:episode_planning_done")}
+          {hasGaps ? t("dashboard:episode_planning_done_with_gaps") : t("dashboard:episode_planning_done")}
         </h3>
         {stats ? (
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">

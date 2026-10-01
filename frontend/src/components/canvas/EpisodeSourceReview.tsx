@@ -8,6 +8,8 @@ import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
 import { useAppStore } from "@/stores/app-store";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
+import { EpisodeDeleteButton } from "@/components/canvas/episodes/EpisodeDeleteButton";
 import { SourceKindSelect } from "@/components/canvas/episodes/SourceKindSelect";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { EpisodeMeta } from "@/types";
@@ -32,18 +34,20 @@ function sourceOriginOf(meta: EpisodeMeta | undefined): SourceOrigin {
 }
 
 // ---------------------------------------------------------------------------
-// 标题区：播出位置徽标 + 标题 + 状态 chip + 源文元信息 + 起步入口
+// 标题区：播出位置徽标 + 标题 + 状态 chip + 删除 + 源文元信息 + 起步入口
 // ---------------------------------------------------------------------------
 
 function EpisodeHeader({
   episode,
   episodes,
   meta,
+  onSaveTitle,
   actions,
 }: {
   episode: number;
   episodes: EpisodeMeta[];
   meta: EpisodeMeta | undefined;
+  onSaveTitle: (next: string) => Promise<void>;
   actions: React.ReactNode;
 }) {
   const { t } = useTranslation("dashboard");
@@ -66,9 +70,14 @@ function EpisodeHeader({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2.5">
-          <h2 className="truncate text-[17px] font-semibold leading-tight" style={{ color: "var(--color-text)" }}>
-            {meta?.title ?? ""}
-          </h2>
+          <EditableEpisodeTitle
+            title={meta?.title ?? ""}
+            placeholder={episodeDisplayName(episodes, episode, t)}
+            canEdit={meta !== undefined}
+            onSave={onSaveTitle}
+            headingClassName="truncate text-[17px] font-semibold leading-tight"
+            headingStyle={{ color: "var(--color-text)" }}
+          />
           <span
             className="shrink-0 rounded-full px-2.5 py-0.5 text-[10.5px]"
             style={{
@@ -79,6 +88,7 @@ function EpisodeHeader({
           >
             {t("episode_workspace_script_pending")}
           </span>
+          <EpisodeDeleteButton episode={episode} />
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-text-4)" }}>
           {sourceName ? <span className="truncate">{sourceName}</span> : null}
@@ -404,6 +414,20 @@ export function EpisodeSourceReview({
     [projectName, episode, t],
   );
 
+  const handleSaveTitle = useCallback(
+    async (title: string) => {
+      try {
+        await API.updateEpisode(projectName, episode, { title });
+        await useProjectsStore.getState().refreshProject(projectName);
+        useAppStore.getState().pushToast(t("episode_title_updated"), "success");
+      } catch (err) {
+        useAppStore.getState().pushToast(t("episode_title_update_failed", { message: errMsg(err) }), "error");
+        throw err;
+      }
+    },
+    [projectName, episode, t],
+  );
+
   return (
     <div className="flex h-full flex-col p-6">
       <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
@@ -411,6 +435,7 @@ export function EpisodeSourceReview({
           episode={episode}
           episodes={episodes}
           meta={meta}
+          onSaveTitle={handleSaveTitle}
           actions={
             <>
               <StartBlankScriptButton

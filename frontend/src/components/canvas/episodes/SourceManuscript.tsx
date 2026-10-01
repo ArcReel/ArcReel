@@ -5,6 +5,7 @@ import { FileText, MoveHorizontal, TriangleAlert } from "lucide-react";
 import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode, EpisodesViewFile, EpisodesViewSegment } from "@/types";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
+import { PlanGapButton } from "./PlanGapButton";
 import { ReplannedBadge } from "./ReplannedBadge";
 import { SourceFileKindControl } from "./SourceFileKindControl";
 import { episodeColor, formatSpoken, formatVolume } from "./episodes-view-model";
@@ -176,6 +177,7 @@ export function SourceManuscript({
                 <UnsplitBlock
                   key={`${file.source_file}:${segment.start}`}
                   fileIndex={index}
+                  sourceFile={file.source_file}
                   segment={segment}
                   unit={view.unit}
                   divider={firstTail?.segment === segment}
@@ -412,6 +414,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
 
 function UnsplitBlock({
   fileIndex,
+  sourceFile,
   segment,
   unit,
   divider,
@@ -420,6 +423,7 @@ function UnsplitBlock({
   hostRun,
 }: {
   fileIndex: number;
+  sourceFile: string;
   segment: EpisodesViewSegment;
   unit: EpisodesView["unit"];
   divider: boolean;
@@ -439,6 +443,9 @@ function UnsplitBlock({
           <span className="font-medium text-text-2">{t("episodes_view_gap_title")}</span>
           <span className="num text-[11px] text-text-4">{formatVolume(t, segment.units, unit)}</span>
           <span className="basis-full text-[11.5px] text-text-4">{t("episodes_view_gap_hint")}</span>
+          <span className="mt-1 basis-full">
+            <PlanGapButton sourceFile={sourceFile} end={segment.end} />
+          </span>
         </div>
       ) : divider ? (
         <div role="separator" data-no-caret className="mb-4 mt-2 flex items-center gap-3 text-[12px] text-accent-2">

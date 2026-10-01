@@ -3,8 +3,10 @@
 import json
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.episode.episode_management import create_episode
 from lib.i18n.zh import errors as zh_errors
 from lib.project.project_manager import ProjectManager
+from lib.script.blank_script import start_blank_script
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     build_projects_client,
@@ -234,13 +236,17 @@ class TestProjectsRouter:
             assert resp.status_code == 404
             assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="nope")
 
-    def test_update_episode_stale_script_binding_404(self, tmp_path, monkeypatch):
-        """项目在但 project.json 指向的剧本文件已丢失（stale 绑定）→ 404 而非 500。"""
-        fake_pm = _FakePM(tmp_path)
-        fake_pm.project_data["ready"]["episodes"][0]["script_file"] = "scripts/gone.json"
+    def test_update_episode_title_without_script_is_kept_on_the_ledger_entry(self, tmp_path, monkeypatch):
+        """还没有剧本的集改标题记在账本条目上，之后从空白开始建出的剧本以它为标题。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        episode = create_episode(pm, "demo")
 
-        client = build_projects_client(monkeypatch, fake_pm)
-        with client:
-            resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "x"})
-            assert resp.status_code == 404
-            assert resp.json()["detail"] == zh_errors.MESSAGES["ref_script_missing"]
+        with build_projects_client(monkeypatch, pm) as client:
+            resp = client.patch(f"/api/v1/projects/demo/episodes/{episode}", json={"title": "番外：雪夜"})
+
+        assert resp.status_code == 200, resp.text
+        assert pm.load_project("demo")["episodes"][0]["title"] == "番外：雪夜"
+        filename = start_blank_script(pm, "demo", episode)
+        assert pm.load_script("demo", filename)["title"] == "番外：雪夜"

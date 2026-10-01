@@ -1833,10 +1833,12 @@ async def update_segment(
 async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t: Translator):
     """更新分集顶层元数据（当前仅标题）。
 
-    以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在
+    有剧本时以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在
     「脚本锁 → 项目锁」临界区内改剧本 title，并内联 _apply_episode_sync 把镜像同步回
     project.json 的 episodes[].title，原子且无 TOCTOU。镜像由 PATCH /projects 改写的入口
     已移除（title 不在 EpisodePatch 上），杜绝第二真相源。
+
+    还没有剧本的集（新建的空集、尚未规划脚本的集）标题只记在账本条目上；之后建出的剧本以它为初值。
     """
     title = req.title.strip()
     if not title:
@@ -1854,6 +1856,17 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                     raise HTTPException(status_code=404, detail=_t("episode_not_found", episode=episode))
                 return meta["script_file"]
 
+            def _retitle_ledger_entry(project: dict) -> None:
+                script_file = _resolve(project)
+                script_path = (
+                    manager.get_project_path(name) / "scripts" / manager.normalize_script_filename(script_file)
+                )
+                if script_path.is_file():
+                    # 剧本在两次读取之间被建出：标题改由剧本承载，请调用方重试
+                    raise HTTPException(status_code=409, detail=_t("ref_script_rebound"))
+                meta = next(e for e in project["episodes"] if e.get("episode") == episode)
+                meta["title"] = title
+
             with project_change_source("webui"):
                 try:
                     with manager.locked_episode_script(name, _resolve) as script:
@@ -1861,8 +1874,8 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                 except FileNotFoundError as exc:
                     if not manager.project_exists(name):
                         raise NotFoundError("project_not_found", name=name) from exc
-                    # project.json 指向的脚本文件已删除/移动（stale 绑定）
-                    raise NotFoundError("ref_script_missing") from exc
+                    # 这一集还没有剧本：标题记在账本条目上
+                    manager.update_project(name, _retitle_ledger_entry)
                 except EpisodeScriptReboundError as exc:
                     logger.info("episode script rebound during title update: %s", exc)
                     raise HTTPException(status_code=409, detail=_t("ref_script_rebound")) from exc

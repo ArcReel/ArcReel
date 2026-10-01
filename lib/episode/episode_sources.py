@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
@@ -291,6 +291,53 @@ def cut_episode_placements(project: Mapping[str, Any], docs: list[SourceDoc]) ->
             placed[item.episode] = item
             cursor = item.end
     return placed
+
+
+def unsplit_range_ending_at(
+    placements: Mapping[int, CutPlacement], *, file_index: int, end: int
+) -> tuple[int, int] | None:
+    """文件里以 ``end`` 为终点的那段未切分原文 ``[start, end)``：从前面最近的切出集结尾（没有时从文件开头）起。
+
+    ``end`` 落在某个切出集的原文里时返回 None。
+    """
+    in_file = [p for p in placements.values() if p.file_index == file_index]
+    if any(p.start < end < p.end for p in in_file):
+        return None
+    start = max((p.end for p in in_file if p.end <= end), default=0)
+    return start, end
+
+
+def cut_insert_index(
+    entries: Sequence[object], placements: Mapping[int, CutPlacement], position: tuple[int, int]
+) -> int:
+    """源文位置为 ``position`` 的新切出集在账本里的插入下标。
+
+    排在按源文位置前面最近的切出集之后；前面没有切出集时排在后面最近的切出集之前；一个落位的切出集都没有时
+    排在最后一个切出集之后，账本里还没有切出集时排在末尾。
+    """
+    ordered = sorted(placements.values(), key=lambda p: p.position)
+    before = [p for p in ordered if p.position < position]
+    after = [p for p in ordered if p.position >= position]
+
+    def _index(episode: int) -> int:
+        return next(
+            i
+            for i, entry in enumerate(entries)
+            if isinstance(entry, Mapping) and parse_positive_episode_num(entry.get("episode")) == episode
+        )
+
+    if before:
+        return _index(before[-1].episode) + 1
+    if after:
+        return _index(after[0].episode)
+    return next(
+        (
+            i + 1
+            for i in range(len(entries) - 1, -1, -1)
+            if isinstance(entry := entries[i], Mapping) and is_cut_episode(entry)
+        ),
+        len(entries),
+    )
 
 
 def unplanned_text_remains(project: Mapping[str, Any], docs: list[SourceDoc]) -> bool:

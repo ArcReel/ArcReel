@@ -42,8 +42,8 @@ from lib.episode.episode_sources import (
     SourceOrigin,
     archive_episode_file_path,
     cut_episode_placements,
+    cut_insert_index,
     discover_sources,
-    is_cut_episode,
     source_snapshot_path,
     sync_source_snapshots,
     whole_source_files,
@@ -184,18 +184,7 @@ def _plan_cut(layout: _Layout, *, source_file: str, end: int, title: str) -> _Ed
         raise ManualSplitError("inside_episode", "这个位置在一集的原文里，应当拆分这一集")
     start = max((p.end for p in in_file if p.end <= end), default=0)
     _require_text(doc, start, end)
-    before = [p for p in layout.ordered() if p.position < (index, end)]
-    after = [p for p in layout.ordered() if p.position >= (index, end)]
-    if before:
-        insert_before = layout.entry_index(before[-1].episode) + 1
-    elif after:
-        insert_before = layout.entry_index(after[0].episode)
-    else:
-        # 没有落位的切出集时，与分集规划同口径：排在最后一个切出集之后，账本里还没有切出集时排在末尾
-        insert_before = next(
-            (i + 1 for i in range(len(layout.entries) - 1, -1, -1) if is_cut_episode(layout.entries[i])),
-            len(layout.entries),
-        )
+    insert_before = cut_insert_index(layout.entries, layout.placements, (index, end))
     return _Edit(source=doc, new_range=(start, end), new_title=title.strip(), insert_before=insert_before)
 
 

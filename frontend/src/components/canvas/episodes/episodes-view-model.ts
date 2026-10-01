@@ -3,16 +3,20 @@ import type { TFunction } from "i18next";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode, EpisodesViewFile } from "@/types";
 
-/** 「分集」视图的查询参数：`upload` 打开上传对话框并预选方式，`episode` 选中一集。 */
+/** 「分集」视图的查询参数：`upload` 打开上传对话框并预选方式，`episode` 选中一集，`create` 打开新建一集对话框。 */
 export const EPISODES_VIEW_UPLOAD_PARAM = "upload";
 export const EPISODES_VIEW_EPISODE_PARAM = "episode";
+export const EPISODES_VIEW_CREATE_PARAM = "create";
 
 export type SourceUploadMode = "whole_source" | "episode";
 
 /** 「分集」视图的地址（工作区内的相对路由）。 */
-export function episodesViewPath(options: { upload?: SourceUploadMode; episode?: number } = {}): string {
+export function episodesViewPath(
+  options: { upload?: SourceUploadMode; episode?: number; create?: boolean } = {},
+): string {
   const params = new URLSearchParams();
   if (options.upload) params.set(EPISODES_VIEW_UPLOAD_PARAM, options.upload);
+  if (options.create) params.set(EPISODES_VIEW_CREATE_PARAM, "1");
   if (options.episode !== undefined) params.set(EPISODES_VIEW_EPISODE_PARAM, String(options.episode));
   const query = params.toString();
   return `/${WORKSPACE_ROUTE_EPISODES}${query ? `?${query}` : ""}`;
@@ -45,7 +49,7 @@ export function formatSpoken(t: TFunction, seconds: number): string {
 
 export type RailRow =
   | { kind: "episode"; episode: EpisodeMeta; info: EpisodesViewEpisode }
-  | { kind: "gap"; units: number; key: string };
+  | { kind: "gap"; units: number; key: string; sourceFile: string; end: number };
 
 export interface RailFileGroup {
   file: EpisodesViewFile;
@@ -68,7 +72,13 @@ export function railFileGroups(view: EpisodesView, episodes: EpisodeMeta[]): Rai
         const episodeInfo = info.get(segment.episode);
         if (episode && episodeInfo) rows.push({ kind: "episode", episode, info: episodeInfo });
       } else if (segment.gap) {
-        rows.push({ kind: "gap", units: segment.units, key: `${file.source_file}:${segment.start}` });
+        rows.push({
+          kind: "gap",
+          units: segment.units,
+          key: `${file.source_file}:${segment.start}`,
+          sourceFile: file.source_file,
+          end: segment.end,
+        });
       } else {
         tailUnits += segment.units;
       }

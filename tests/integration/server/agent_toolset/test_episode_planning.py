@@ -47,7 +47,7 @@ def _fake_planner_cls(result: PlanResult | BaseException, captured: dict[str, An
                 captured["project_path"] = project_path
             return cls()
 
-        async def plan(self, instructions: str | None = None) -> PlanResult:
+        async def plan(self, instructions: str | None = None, gap: tuple[str, int] | None = None) -> PlanResult:
             if captured is not None:
                 captured["plan_instructions"] = instructions
             if isinstance(result, BaseException):
