@@ -125,11 +125,15 @@ function newAssetEntries(units: DisplayUnit[]): NewAssetEntryRefs[] {
   }));
 }
 
-/** 本集新增项的称呼与已登记名一样可以写进正文，高亮时按它的类型着色。 */
+/**
+ * 本集新增项的称呼与已登记名一样可以写进正文，高亮时按它的类型着色。「不登记」的项确认时退为
+ * 纯文本，不算资产。
+ */
 function lookupWithNewAssets(lookup: MentionLookup, items: PlanNewAsset[]): MentionLookup {
   if (items.length === 0) return lookup;
   const merged: MentionLookup = Object.assign(Object.create(null) as MentionLookup, lookup);
   for (const item of items) {
+    if (item.decision === "skip") continue;
     const name = normalizeAssetName(item.name);
     if (!(name in merged)) merged[name] = item.type;
   }

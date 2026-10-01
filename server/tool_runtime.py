@@ -2392,15 +2392,23 @@ def _format_plan(result: PlanResult, project: Mapping[str, Any], *, gap: bool = 
     return "\n".join(lines)
 
 
+#: 请求过停止的执行中窗口（任务 ID）。停止请求可能落在下一窗排入之前：本窗刚被领取，或本窗含结尾、
+#: 要等模型返回本批才知道还要不要排下一窗。这些窗口不再排下一窗。worker 与停止请求同在服务进程内。
+_STOPPED_PLANNING_WINDOWS: set[str] = set()
+
+
 @dataclass(frozen=True, slots=True)
 class _PlanningChain:
     """Web 逐窗串联中正在执行的那一窗：本批之后还有原文待规划时，把下一窗排进另一个占用槽，
-    依赖本窗成功后才执行。窗口不含结尾时在请求模型之前排入，停止规划即可取消它。"""
+    依赖本窗成功后才执行。窗口不含结尾时在请求模型之前排入，停止规划即可取消它；停止时还没排入的，
+    本窗不再排。"""
 
     task: Mapping[str, Any]
     services: Services
 
     async def queue_next_window(self) -> None:
+        if str(self.task["task_id"]) in _STOPPED_PLANNING_WINDOWS:
+            return
         slot = (
             EPISODE_PLANNING_NEXT_SLOT
             if self.task.get("resource_id") == EPISODE_PLANNING_SLOT
@@ -2460,6 +2468,9 @@ async def _execute_plan_episodes(
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("plan_episodes", exc))
+    finally:
+        if chain is not None:
+            _STOPPED_PLANNING_WINDOWS.discard(str(chain.task["task_id"]))
     project = services.projects.load_project(scope.project_name)
     value = PlanEpisodesResult(
         message=_format_plan(result, project, gap=gap is not None),
@@ -2585,7 +2596,7 @@ class StopEpisodePlanningResult:
 async def stop_episode_planning(
     scope: ProjectScope, caller: CallerContext, services: Services
 ) -> StopEpisodePlanningResult:
-    """停止分集规划：取消排队中的窗口；执行中的那一窗照常完成，它切出的集保留。"""
+    """停止分集规划：取消排队中的窗口；执行中的那一窗照常完成，它切出的集保留，但不再排下一窗。"""
     active = await services.queue.get_active_tasks_for_resources(
         project_name=scope.project_name,
         task_type=_TEXT_EPISODE_PLAN,
@@ -2596,15 +2607,16 @@ async def stop_episode_planning(
     running: list[str] = []
     for task in active:
         task_id = str(task["task_id"])
-        if task.get("status") != "queued":
-            running.append(task_id)
-            continue
-        try:
-            await services.queue.cancel_task(task_id)
-        except TaskNotCancellableError:
-            running.append(task_id)
-        else:
-            cancelled.append(task_id)
+        if task.get("status") == "queued":
+            try:
+                await services.queue.cancel_task(task_id)
+            except TaskNotCancellableError:
+                pass
+            else:
+                cancelled.append(task_id)
+                continue
+        running.append(task_id)
+        _STOPPED_PLANNING_WINDOWS.add(task_id)
     return StopEpisodePlanningResult(cancelled=cancelled, running=running)
 
 

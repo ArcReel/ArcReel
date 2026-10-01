@@ -534,6 +534,28 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByDisplayValue("仍然不对。")).toBeInTheDocument();
   });
 
+  it("falls back to presenting violations when the draft's new assets carry an unknown type or decision", async () => {
+    const broken = { name: "宝剑", reason: "", description: "", target: "", asset_name: "", aliases: [] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      narrationState({
+        quarantine: draftView({
+          content: {
+            segments: [NARRATION_SEGMENT],
+            new_assets: [
+              { ...broken, type: "product", decision: "register" },
+              { ...broken, type: "prop", decision: "keep" },
+            ],
+          },
+          violations: [{ code: "invalid_new_assets", label: "", message: "新增资产的类型不对", line: null }],
+        }),
+      }),
+    );
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    await waitFor(() => expect(screen.getByText("新增资产的类型不对")).toBeInTheDocument());
+    expect(screen.queryByDisplayValue("裴与出征后的第二年。")).not.toBeInTheDocument();
+  });
+
   it("queues an AI repair of the saved draft with one-off instructions and adopts once the task clears the violations", async () => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     const get = vi.spyOn(API, "getScriptReview").mockResolvedValue(

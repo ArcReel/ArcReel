@@ -6,6 +6,7 @@ import { ActionMenu } from "@/components/ui/ActionMenu";
 import type { EpisodeMeta } from "@/types";
 import type { GenerationRoute } from "@/utils/generation-mode";
 import { episodeMoveCheck } from "@/utils/episode-order";
+import { stepAnchor } from "@/utils/move-anchor";
 
 import { EpisodeCard } from "./EpisodeCard";
 
@@ -65,8 +66,8 @@ export function SidebarEpisodeList({
     <>
       {shown.map(({ ep, position }) => {
         const index = ids.indexOf(ep.episode);
-        const earlier = index > 0 ? (index >= 2 ? ids[index - 2] : null) : undefined;
-        const later = index < ids.length - 1 ? ids[index + 1] : undefined;
+        const earlier = stepAnchor(ids, index, "earlier");
+        const later = stepAnchor(ids, index, "later");
         const name = ep.title?.trim() || t("common:episode_position_name", { position });
         const edge = drop?.episode === ep.episode && dragId !== ep.episode ? drop.edge : null;
         return (
