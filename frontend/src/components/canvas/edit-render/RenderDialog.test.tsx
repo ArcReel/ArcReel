@@ -97,6 +97,21 @@ describe("RenderDialog", () => {
     expect(renderSpy).not.toHaveBeenCalled();
   });
 
+  it("刚渲染完的成片显示「刚刚生成」，更早的显示相对时间", async () => {
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(
+      finalCut({ status: "current", version: 3, rendered_at: new Date(Date.now() - 20_000).toISOString() }),
+    );
+    const { unmount } = renderDialog();
+    expect(await screen.findByText("第 3 版，刚刚生成")).toBeInTheDocument();
+    unmount();
+
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(
+      finalCut({ status: "current", version: 3, rendered_at: new Date(Date.now() - 3 * 3_600_000).toISOString() }),
+    );
+    renderDialog();
+    expect(await screen.findByText(/第 3 版，.*前生成/)).toBeInTheDocument();
+  });
+
   it("过时的成片仍可下载，并以重新渲染为主动作", async () => {
     vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(
       finalCut({ status: "stale", version: 2, download_url: "/api/v1/files/demo/x.mp4?v=2" }),

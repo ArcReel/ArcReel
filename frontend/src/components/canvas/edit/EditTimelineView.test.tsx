@@ -102,6 +102,17 @@ describe("EditTimelineView", () => {
     });
   });
 
+  it("shows just now in the author line within a minute of the last edit", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", new Date(Date.now() - 10_000).toISOString())],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+
+    renderView();
+
+    expect(await screen.findByText("ArcReel Agent 刚刚修改")).toBeInTheDocument();
+  });
+
   it("opens the most recently edited timeline and loads the first clip with the next one preloaded", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({
       timelines: [

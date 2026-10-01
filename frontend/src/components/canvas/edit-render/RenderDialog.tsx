@@ -7,7 +7,7 @@ import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { errMsg } from "@/utils/async";
-import { formatRelativeTime } from "@/utils/date-format";
+import { formatRelativeTime, isJustNow } from "@/utils/date-format";
 import { triggerBrowserDownload } from "@/utils/download";
 import type {
   EditTimelineIssueRef,
@@ -414,6 +414,7 @@ function ArtifactStatusRow({
   }
   const status = artifact.status;
   const when = formatRelativeTime(artifact.rendered_at, language);
+  const renderedJustNow = isJustNow(artifact.rendered_at);
   return (
     <div
       data-testid="edit-render-artifact-status"
@@ -430,9 +431,11 @@ function ArtifactStatusRow({
         <div style={{ color: "var(--color-text)" }}>{t(`edit_render_status_${status}`)}</div>
         {artifact.version !== null && (
           <div style={{ color: "var(--color-text-4)" }}>
-            {when
-              ? t("edit_render_status_meta", { version: artifact.version, time: when })
-              : t("edit_render_status_version", { version: artifact.version })}
+            {renderedJustNow
+              ? t("edit_render_status_meta_just_now", { version: artifact.version })
+              : when
+                ? t("edit_render_status_meta", { version: artifact.version, time: when })
+                : t("edit_render_status_version", { version: artifact.version })}
           </div>
         )}
         {status === "stale" && artifact.version !== null && (
