@@ -28,7 +28,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.episode.episode_ledger import normalize_source_text
 from lib.episode.episode_paths import episode_script_filename, episode_source_relpath
-from lib.episode.episode_sources import discover_sources
+from lib.episode.episode_sources import SourceOrigin, discover_sources, episode_entry, episode_source_origin
 from lib.infra.content_digest import prefixed
 from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
@@ -846,11 +846,15 @@ def _source_text_problems(
 def _anchor_sources(project_dir: Path, project: Mapping[str, Any], episode: int | None) -> list[str]:
     """对应原文的比对源文。
 
-    本集集文件 ``source/episode_N.txt`` 可读且非空时只认它，与拆分工具生成对应原文时读的
-    是同一份；缺失或集号未知时回落到整本源文（命中任一份即可），项目也没有源文时返回空列表。
+    账本记录本集有原文、且集文件 ``source/episode_N.txt`` 可读且非空时只认它，与拆分工具生成对应原文时
+    读的是同一份；本集无原文、集文件缺失或集号未知时回落到整本源文（命中任一份即可），项目也没有源文时
+    返回空列表。无原文的集不读盘上与它同名的文件。
     """
+    entry = None if episode is None else episode_entry(project, episode)
     episode_source = (
-        None if episode is None else try_safe_join(project_dir, episode_source_relpath(episode), require_file=True)
+        None
+        if episode is None or entry is None or episode_source_origin(entry) is SourceOrigin.NONE
+        else try_safe_join(project_dir, episode_source_relpath(episode), require_file=True)
     )
     if episode_source is not None:
         try:

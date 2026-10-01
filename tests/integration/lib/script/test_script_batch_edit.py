@@ -1355,3 +1355,24 @@ def test_item_added_after_removing_the_last_one_starts_without_old_media_or_hist
     assert pm.load_script("demo", "episode_1.json")["scenes"][1]["generated_assets"] == {}
     assert not storyboard.exists()
     assert VersionManager(project_dir).has_versions("storyboards", "E1S02") is False
+
+
+def test_episode_without_source_ignores_an_unregistered_episode_file(tmp_path: Path) -> None:
+    pm, service = _reference_project(
+        tmp_path,
+        sources={"novel.txt": "夜里，风吹过旷野。天亮后，他进了城。", "episode_1.txt": "盘上残留的旧原文。"},
+    )
+    pm.update_project("demo", lambda project: project["episodes"][0].update({"source_origin": "none"}))
+
+    accepted = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"source_text": "天亮后，他进了城。"}}]),
+    )
+    rejected = service.execute(
+        "demo",
+        _command(pm, [{"op": "update", "id": "E1U1", "fields": {"source_text": "盘上残留的旧原文。"}}]),
+    )
+
+    assert accepted.success is True
+    assert rejected.success is False
+    assert rejected.problems[0].code == "source_text_not_verbatim"

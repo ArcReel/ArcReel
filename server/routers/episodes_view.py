@@ -36,6 +36,7 @@ from lib.project.project_manager import get_project_manager
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._episode_source_errors import episode_source_http_error
+from server.routers.episode_management import episode_has_active_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -166,8 +167,16 @@ async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> di
     """手工切分：切分、拆分、移动分界、与下一集合并、清除之后的切分，直接写入分集账本。
 
     波及有产物的集（或 ``dry_run``）时返回 ``status=confirmation_required`` 与服务端成文的确认清单 ``impact.text``，
-    不写入；创作者确认后带上 ``confirm_episodes`` 重新提交。
+    不写入；创作者确认后带上 ``confirm_episodes`` 重新提交。要移除或转为无原文的集有排队或执行中的任务时
+    返回 409，不写入。
     """
+
+    def _displaced_episodes() -> list[int]:
+        manager = get_project_manager()
+        if not manager.project_exists(name):
+            raise NotFoundError("project_not_found", name=name)
+        preview = _run_manual_split(manager.get_project_path(name), req.model_copy(update={"dry_run": True}))
+        return [*preview.impact.retired, *preview.impact.removed]
 
     def _sync() -> dict[str, Any]:
         manager = get_project_manager()
@@ -183,6 +192,10 @@ async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> di
         return {"status": "confirmation_required", "impact": {**impact, "text": text}}
 
     try:
+        if not req.dry_run:
+            for episode in await asyncio.to_thread(_displaced_episodes):
+                if await episode_has_active_tasks(name, episode):
+                    raise HTTPException(status_code=409, detail=_t("manual_split_tasks_active"))
         return await asyncio.to_thread(_sync)
     except ManualSplitError as exc:
         raise HTTPException(

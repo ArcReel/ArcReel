@@ -180,11 +180,14 @@ def write_legacy_episode_id_remnants_project(
     *,
     schema_version: int = 7,
     record_remnant: Literal["version_history", "grid"] | None = None,
+    asset_named_like_an_item: bool = False,
 ) -> Path:
     """集号仍是「账本最大号 + 1」时期的项目：账本只剩第 1 集，更大的集号只留在磁盘残留里。
 
     重置与重新规划曾把集号退回复用，被清出账本的集留下草稿目录（``drafts/episode_5/``）、
     源文留底（``source/_episode_6.txt.bak``）与媒体文件（``videos/scene_E8S01.mp4``）。
+    ``asset_named_like_an_item`` 再放一个名字形似条目 ID 的角色（``E12345678901234567A1``）：
+    资产图、版本快照与版本历史都带这个名字。
     """
 
     project_dir = write_legacy_storyboard_project(root, name, schema_version=schema_version)
@@ -199,6 +202,20 @@ def write_legacy_episode_id_remnants_project(
         _write_json(versions_file, versions)
     elif record_remnant == "grid":
         _write_json(project_dir / "grids" / "grid_old.json", {"episode": 41, "scene_ids": ["E41S01"]})
+    if asset_named_like_an_item:
+        asset = "E12345678901234567A1"
+        snapshot = f"versions/characters/{asset}_v1_20250101T000000.png"
+        (project_dir / "characters").mkdir(exist_ok=True)
+        (project_dir / "characters" / f"{asset}.png").write_bytes(b"asset-sheet")
+        (project_dir / "versions" / "characters").mkdir(parents=True, exist_ok=True)
+        (project_dir / snapshot).write_bytes(b"asset-sheet")
+        versions_file = project_dir / "versions" / "versions.json"
+        versions = json.loads(versions_file.read_text(encoding="utf-8")) if versions_file.exists() else {}
+        versions.setdefault("characters", {})[asset] = {
+            "current_version": 1,
+            "versions": [{"version": 1, "file": snapshot, "created_at": "2025-01-01T00:00:00"}],
+        }
+        _write_json(versions_file, versions)
     return project_dir
 
 

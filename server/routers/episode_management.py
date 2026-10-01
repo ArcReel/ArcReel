@@ -104,7 +104,7 @@ async def move_episode_endpoint(name: str, episode: int, req: MoveEpisodeRequest
     return {"success": True}
 
 
-async def _episode_has_active_tasks(project_name: str, episode: int) -> bool:
+async def episode_has_active_tasks(project_name: str, episode: int) -> bool:
     """这一集是否有排队或执行中的任务：任务的资源、剧本文件或载荷带这一集的集 ID。"""
     queue = get_generation_queue()
     for status in ("queued", "running"):
@@ -130,7 +130,7 @@ async def delete_episode_endpoint(name: str, episode: int, req: DeleteEpisodeReq
     创作者确认后带上 ``impact.revision`` 重新提交。清单在两次调用之间变了时再次返回确认，不删除。
     """
 
-    if req.revision is not None and await _episode_has_active_tasks(name, episode):
+    if req.revision is not None and await episode_has_active_tasks(name, episode):
         raise HTTPException(status_code=409, detail=_t("episode_manage_tasks_active"))
 
     def _delete(manager: ProjectManager) -> dict[str, Any]:

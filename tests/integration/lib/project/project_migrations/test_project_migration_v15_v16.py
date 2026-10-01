@@ -653,6 +653,16 @@ def test_high_water_covers_records_left_after_the_media_was_deleted(tmp_path: Pa
     assert allocate_episode_ids(project, 1) == [42]
 
 
+def test_high_water_ignores_asset_names_that_look_like_item_ids(tmp_path: Path) -> None:
+    project_dir = write_legacy_episode_id_remnants_project(tmp_path / "projects", asset_named_like_an_item=True)
+
+    migrate_project_dir(project_dir)
+
+    project = ProjectManager.for_project_dir(project_dir).load_project(project_dir.name)
+    assert project[EPISODE_ID_HIGH_WATER_KEY] == 8
+    assert allocate_episode_ids(project, 1) == [9]
+
+
 def test_script_plans_stale_only_by_the_next_episode_outline_stay_current(tmp_path: Path) -> None:
     """下集大纲改为「没有规划数据时给标题」：只因此变了依据的脚本规划登记随升级改写，仍是时新。"""
 

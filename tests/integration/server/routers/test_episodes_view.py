@@ -9,7 +9,7 @@ from lib.i18n.zh import errors as zh_errors
 from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import episodes_view
+from server.routers import episode_management, episodes_view
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
@@ -218,6 +218,47 @@ class TestManualSplit:
             "impact": {"restaled": [1], "retired": [], "removed": []},
         }
         assert [e["episode"] for e in pm.load_project("demo")["episodes"]] == [1, 2]
+
+    def test_change_is_refused_while_a_displaced_episode_has_active_tasks(self, tmp_path, monkeypatch):
+        novel = {"source_file": "source/novel.txt"}
+        client, pm, source_dir = _client(
+            monkeypatch,
+            tmp_path,
+            whole_source_files=[novel],
+            episodes=[
+                _entry(1, "whole_source", source_range={**novel, "start": 0, "end": 5}),
+                _entry(2, "whole_source", source_range={**novel, "start": 5, "end": 10}),
+            ],
+            episode_id_high_water=2,
+        )
+        (source_dir / "novel.txt").write_text("少年下山。城里起火。", encoding="utf-8")
+        before = (pm.get_project_path("demo") / "project.json").read_bytes()
+
+        class _Queue:
+            async def list_tasks(self, *, project_name, status, page, page_size):
+                del project_name, page, page_size
+                items = [{"resource_id": "script_plan", "script_file": None, "payload": {"episode": 2}}]
+                return {"items": items if status == "queued" else []}
+
+        monkeypatch.setattr(episode_management, "get_generation_queue", lambda: _Queue())
+
+        with client:
+            merge = client.post(
+                "/api/v1/projects/demo/episodes-view/manual-split", json={"action": "merge_next", "episode": 1}
+            )
+            clear = client.post(
+                "/api/v1/projects/demo/episodes-view/manual-split", json={"action": "clear_after", "episode": 1}
+            )
+            preview = client.post(
+                "/api/v1/projects/demo/episodes-view/manual-split",
+                json={"action": "merge_next", "episode": 1, "dry_run": True},
+            )
+
+        for resp in (merge, clear):
+            assert resp.status_code == 409
+            assert resp.json()["detail"] == zh_errors.MESSAGES["manual_split_tasks_active"]
+        assert (pm.get_project_path("demo") / "project.json").read_bytes() == before
+        assert preview.json()["impact"]["removed"] == [2]
 
     def test_refusal_maps_to_a_status_code(self, tmp_path, monkeypatch):
         client, _pm, source_dir = _client(
