@@ -62,3 +62,15 @@ async def test_append_empty_is_noop(session_factory):
     async with session_factory() as session:
         count = len((await session.execute(select(AgentSessionEntry))).scalars().all())
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_append_stores_non_string_type_and_uuid_as_absent(session_factory):
+    """本地 JSONL 导入不校验条目：非字符串的 type / uuid 不能让写入失败。"""
+    store = DbSessionStore(session_factory, user_id="u1")
+    await store.append(KEY, [{"type": ["user"], "uuid": {"v": 1}}])
+
+    async with session_factory() as session:
+        row = (await session.execute(select(AgentSessionEntry))).scalar_one()
+    assert row.entry_type == ""
+    assert row.uuid is None

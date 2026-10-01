@@ -316,3 +316,28 @@ async def test_an_entry_carrying_tool_results_is_not_a_valid_anchor(seeded):
 
     with pytest.raises(InvalidAnchorError):
         await _copy(seeded, anchor=mixed_uuid)
+
+
+async def test_legacy_entry_with_non_string_type_does_not_break_the_fork(session_factory, tmp_path):
+    """历史 payload 里 type 可能不是字符串，分叉时按非会话条目处理。"""
+    store = DbSessionStore(session_factory)
+    project_key = project_key_for_directory(str(tmp_path))
+    session_id = str(uuid4())
+    anchor = f"m-{uuid4().hex[:8]}"
+    await store.append(
+        {"project_key": project_key, "session_id": session_id},
+        [
+            {"type": {"legacy": True}, "sessionId": session_id},
+            _entry(anchor, None, "user", session_id, message={"role": "user", "content": "第一句"}),
+        ],
+    )
+
+    result = await copy_session_prefix(
+        store,
+        project_key=project_key,
+        session_id=session_id,
+        anchor_uuid=anchor,
+        new_session_id=str(uuid4()),
+    )
+
+    assert result.entries_copied == 0

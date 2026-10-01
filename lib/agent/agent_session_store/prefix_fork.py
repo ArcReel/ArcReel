@@ -10,6 +10,7 @@ uuid 不照面，因此 parentUuid 链、sidechain 独立图与交叉引用都�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -156,8 +157,10 @@ def _rebind(entry: SessionStoreEntry, *, new_session_id: str, origin: dict[str, 
     return rebound
 
 
-def _entry_type(entry: SessionStoreEntry) -> str:
-    return entry.get("type", "")
+# 历史 payload 的 type 不保证是字符串，读取时按 object 看待。
+def _entry_type(entry: Mapping[str, object]) -> str:
+    entry_type = entry.get("type")
+    return entry_type if isinstance(entry_type, str) else ""
 
 
 def _now_iso() -> str:

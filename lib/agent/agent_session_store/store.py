@@ -6,6 +6,7 @@ import asyncio
 import logging
 import random
 import time
+from collections.abc import Mapping
 
 from claude_agent_sdk import (
     SessionKey,
@@ -35,12 +36,15 @@ def _normalize_key(key: SessionKey) -> tuple[str, str, str]:
     return key["project_key"], key["session_id"], key.get("subpath", "") or ""
 
 
-def _entry_type(entry: SessionStoreEntry) -> str:
-    return entry.get("type", "")
+# 条目来自 SDK 或本地 JSONL 导入，字段类型不受校验，读取时按 object 看待。
+def _entry_type(entry: Mapping[str, object]) -> str:
+    t = entry.get("type")
+    return t if isinstance(t, str) else ""
 
 
-def _entry_uuid(entry: SessionStoreEntry) -> str | None:
-    return entry.get("uuid") or None
+def _entry_uuid(entry: Mapping[str, object]) -> str | None:
+    u = entry.get("uuid")
+    return u if isinstance(u, str) and u else None
 
 
 class DbSessionStore:

@@ -260,10 +260,21 @@ def register_without_reason(app):
 @app.get("/d")
 async def _d():  # pyright: ignore[reportUnusedFunction]
     return 4
+
+
+def register_with_empty_header(app):
+    #
+    @app.get("/e")
+    async def _e():  # pyright: ignore[reportUnusedFunction]
+        return 5
 """,
     )
 
-    assert _suppression_lines(repo) == [("server/handlers.py", 16), ("server/handlers.py", 21)]
+    assert _suppression_lines(repo) == [
+        ("server/handlers.py", 16),
+        ("server/handlers.py", 21),
+        ("server/handlers.py", 28),
+    ]
 
 
 def test_frontend_and_workflow_suppressions_without_reason_are_reported(repo: Path) -> None:
@@ -296,6 +307,31 @@ jobs: # zizmor: ignore[excessive-permissions]  # 理由
         ("frontend/src/demo.tsx", 3),
         ("frontend/src/demo.tsx", 5),
         ("frontend/src/demo.tsx", 7),
+    ]
+
+
+def test_directive_text_inside_string_literals_is_not_a_suppression(repo: Path) -> None:
+    _write(
+        repo,
+        "frontend/src/sample.ts",
+        """const a = "// eslint-disable-next-line no-console";
+const b = '/* eslint-disable no-console */';
+const c = `/** @public */`;
+foo("it's"); // eslint-disable-line no-console
+""",
+    )
+    _write(
+        repo,
+        ".github/workflows/sample.yml",
+        """sample: "# zizmor: ignore[dangerous-triggers]"
+other: 'it''s # zizmor: ignore[dangerous-triggers]'
+on: # zizmor: ignore[dangerous-triggers]
+""",
+    )
+
+    assert _suppression_lines(repo) == [
+        (".github/workflows/sample.yml", 3),
+        ("frontend/src/sample.ts", 4),
     ]
 
 

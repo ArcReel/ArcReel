@@ -356,7 +356,8 @@ def _registration_lines(source: str) -> set[int]:
         if not block:
             continue
         first = block[0].decorator_list[0].lineno
-        if first >= 2 and lines[first - 2].lstrip().startswith("#"):
+        header = lines[first - 2].strip() if first >= 2 else ""
+        if header.startswith("#") and header.lstrip("#").strip():
             allowed.update(d.lineno for d in block)
     return allowed
 
@@ -394,8 +395,34 @@ def _python_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
         out.append(Violation("SUPPRESSION-REASON", rel, token.start[0], guidance))
 
 
+def _inside_string(prefix: str, *, yaml: bool) -> bool:
+    """逐字符扫描同一行内指令前的文本，判断指令是否落在字符串字面量里；先遇到注释即视为在注释中。
+
+    只看单行：跨行的模板字符串与 YAML 块标量不在识别范围内。
+    """
+    quotes = "\"'" if yaml else "\"'`"
+    quote: str | None = None
+    i = 0
+    while i < len(prefix):
+        c = prefix[i]
+        if quote is not None:
+            if c == "\\" and not (yaml and quote == "'"):
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in quotes:
+            quote = c
+        else:
+            comment = c == "#" and (i == 0 or prefix[i - 1].isspace()) if yaml else prefix.startswith(("//", "/*"), i)
+            if comment:
+                return False
+        i += 1
+    return quote is not None
+
+
 def _text_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
-    if rel.suffix in YAML_SUFFIXES:
+    yaml = rel.suffix in YAML_SUFFIXES
+    if yaml:
         checks = [(_ZIZMOR_DIRECTIVE, r"\S", "`# zizmor: ignore[<规则>]` 后接理由，写明这里为什么是工具误报")]
     else:
         checks = [
@@ -409,7 +436,7 @@ def _text_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
     for n, line in enumerate(source.split("\n"), 1):
         for pattern, reason, guidance in checks:
             match = pattern.search(line)
-            if match is None:
+            if match is None or _inside_string(line[: match.start()], yaml=yaml):
                 continue
             rest = match["rest"].split("*/", 1)[0]
             if not re.search(reason, rest):
