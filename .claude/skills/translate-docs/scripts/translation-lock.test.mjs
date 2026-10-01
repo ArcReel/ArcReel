@@ -251,3 +251,20 @@ test("record refuses to hide frontmatter drift", () => {
   assert.match(result.stderr, /untranslated frontmatter differs from the source:\nwebsite\/i18n\/en\//);
   assert.equal(existsSync(join(root, "website/i18n/translation.lock.json")), false);
 });
+
+test("record refuses to hide drift in a quoted frontmatter key", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "website/docs/guide/start.md", '---\ntitle: 入门\n"update_docs": full\n---\n\n# 入门\n');
+  write(
+    root,
+    "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
+    "---\ntitle: Getting Started\n---\n\n# Getting Started\n",
+  );
+
+  const result = spawnSync(process.execPath, [scriptPath, "record", "--root", root], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /untranslated frontmatter differs from the source/);
+});

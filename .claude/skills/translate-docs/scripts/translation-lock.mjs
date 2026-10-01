@@ -82,16 +82,20 @@ function unregisteredTranslationOrphans(root, lock, currentTargets) {
 const TRANSLATED_FRONT_MATTER_KEYS = new Set(["title", "description", "sidebar_label"]);
 
 // Returns the untranslated frontmatter entries as "key: value" lines, with indented continuation
-// lines folded into their key, or [] when the document has no frontmatter.
+// lines folded into their key, or [] when the document has no frontmatter. Every unindented line
+// opens an entry, so a key this parser cannot name still takes part in the comparison.
 function untranslatedFrontMatter(path) {
   const lines = readFileSync(path, "utf8").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
   if (lines[0]?.trim() !== "---") return [];
   const entries = [];
   for (const line of lines.slice(1)) {
     if (line.trim() === "---") break;
-    const key = /^([A-Za-z][A-Za-z0-9_-]*):/.exec(line)?.[1];
-    if (key !== undefined) entries.push({ key, text: line });
-    else if (entries.length > 0) entries.at(-1).text += `\n${line}`;
+    if (/^\S/.test(line) || entries.length === 0) {
+      const key = /^(["']?)([^"':\s]+)\1\s*:/.exec(line)?.[2] ?? null;
+      entries.push({ key, text: line });
+    } else {
+      entries.at(-1).text += `\n${line}`;
+    }
   }
   return entries.filter(({ key }) => !TRANSLATED_FRONT_MATTER_KEYS.has(key)).map(({ text }) => text);
 }
