@@ -46,12 +46,11 @@ from lib.jianying_draft.archive import (
 )
 from lib.jianying_draft.basis import (
     WITH_NARRATION,
-    WITHOUT_NARRATION,
     DraftNarration,
     DraftUnitBasis,
     build_jianying_draft_basis,
+    default_draft_narration,
     draft_unit_ids,
-    effective_unit_variant,
     jianying_draft_artifact_path,
     jianying_draft_key,
 )
@@ -59,22 +58,16 @@ from lib.jianying_draft.errors import JianyingDraftError
 from lib.jianying_draft.placement import DraftPlacement, UnitCue, UnitMaterial, place_timeline
 from lib.jianying_draft.results import JianyingDraftCheck, JianyingDraftRender, JianyingDraftStatus
 from lib.project.project_manager import ProjectManager
-from lib.script.script_editor import resolve_items
 from lib.speech.narration_config import project_narration_delivery
 from lib.speech.narration_delivery import USE_TTS
-from lib.speech.speech_composition import admit_script_unit
 from server.services.presentation.presentation_read_model import (
     MaterializedPresentation,
     PresentationReadModelService,
     PresentationUnavailableError,
 )
+from server.services.presentation.timeline_units import load_episode_items, unit_rendition
 
 _WINDOWS_UNSAFE_NAME_CHARACTERS = str.maketrans(dict.fromkeys('<>:"/\\|?*', "_"))
-
-
-def default_draft_narration(project: Mapping[str, Any]) -> DraftNarration:
-    """省略旁白版本时的默认值：TTS 配音项目带旁白，后期配音项目不带旁白。"""
-    return WITH_NARRATION if project_narration_delivery(project) == USE_TTS else WITHOUT_NARRATION
 
 
 def _applicable_issues(issues: tuple[TimelineIssue, ...], narration: DraftNarration) -> tuple[TimelineIssue, ...]:
@@ -271,7 +264,9 @@ class TimelineJianyingDraftService:
         if target is None:
             raise EditTimelineError("revision_not_found", f"剪辑时间线「{timeline_id}」没有修订 {number}")
         project_dir = await asyncio.to_thread(self._projects.get_project_path, project_name)
-        kind, items = await asyncio.to_thread(self._episode_items, project_name, checked.project, episode)
+        kind, items = await asyncio.to_thread(
+            load_episode_items, self._projects, project_name, checked.project, episode
+        )
         resource_type = "reference_videos" if kind == "video_units" else "videos"
         materials, unit_bases = await self._present_units(
             project_name,
@@ -303,26 +298,6 @@ class TimelineJianyingDraftService:
             warnings=checked.check.warnings,
         )
 
-    def _episode_items(
-        self, project_name: str, project: Mapping[str, Any], episode: int
-    ) -> tuple[str, dict[str, dict[str, Any]]]:
-        script_file = next(
-            (
-                entry.get("script_file")
-                for entry in project.get("episodes") or []
-                if isinstance(entry, Mapping) and entry.get("episode") == episode
-            ),
-            None,
-        )
-        if not isinstance(script_file, str) or not script_file:
-            raise EditTimelineError("episode_not_found", f"集（id={episode}）不存在或尚无脚本", episode=episode)
-        script = self._projects.load_script_readonly(project_name, script_file)
-        raw_items, id_field, kind = resolve_items(script)
-        items = {
-            str(item[id_field]): item for item in raw_items if isinstance(item, dict) and item.get(id_field) is not None
-        }
-        return kind, items
-
     async def _present_units(
         self,
         project_name: str,
@@ -338,9 +313,8 @@ class TimelineJianyingDraftService:
         materials: dict[str, UnitMaterial] = {}
         unit_bases: list[DraftUnitBasis] = []
         for unit_id in draft_unit_ids(content, items):
-            audio_version = await asyncio.to_thread(versions.get_current_version, "audio", unit_id)
-            effective = effective_unit_variant(
-                narration, admit_script_unit(kind, items[unit_id]).mode, has_narration_audio=audio_version > 0
+            effective = await asyncio.to_thread(
+                unit_rendition, versions, kind=kind, item=items[unit_id], unit_id=unit_id, narration=narration
             )
             try:
                 presented = await self._presentations.materialize_unit(

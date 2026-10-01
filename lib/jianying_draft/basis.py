@@ -9,14 +9,15 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
 from lib.artifacts.rendered_artifact import timeline_renders_dir
 from lib.edit_timeline.model import EditTimelineContent, TimelineRevision
 from lib.infra.content_digest import canonical_json_bytes, prefixed
+from lib.speech.narration_config import project_narration_delivery
 from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.speech.speech_artifact_provenance import RenditionVariant
 from lib.speech.speech_composition import SpeechMode
@@ -29,6 +30,11 @@ type DraftNarration = Literal["without_narration", "with_narration"]
 
 WITHOUT_NARRATION: DraftNarration = "without_narration"
 WITH_NARRATION: DraftNarration = "with_narration"
+
+
+def default_draft_narration(project: Mapping[str, Any]) -> DraftNarration:
+    """省略旁白版本时的默认值：TTS 配音项目带旁白，后期配音项目不带旁白。"""
+    return WITH_NARRATION if project_narration_delivery(project) == USE_TTS else WITHOUT_NARRATION
 
 
 def jianying_draft_key(episode: int, timeline_id: str, narration: DraftNarration) -> ArtifactKey:
@@ -125,6 +131,7 @@ __all__ = [
     "DraftNarration",
     "DraftUnitBasis",
     "build_jianying_draft_basis",
+    "default_draft_narration",
     "draft_unit_ids",
     "effective_unit_variant",
     "jianying_draft_artifact_path",

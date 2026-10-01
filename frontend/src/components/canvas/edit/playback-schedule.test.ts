@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EditClip, EditTimelineReadout } from "@/types/edit-timeline";
 
-import { advancePlayhead, buildPlaybackPlan, locate, preloadTarget } from "./playback-schedule";
+import { advancePlayhead, buildPlaybackPlan, locate, preloadTarget, transitionOpacity } from "./playback-schedule";
 
 function clip(overrides: Partial<EditClip> & Pick<EditClip, "id" | "unit_id" | "start" | "duration">): EditClip {
   return {
@@ -225,5 +225,45 @@ describe("advancePlayhead", () => {
       ended: true,
       holding: false,
     });
+  });
+});
+
+describe("transitions", () => {
+  // c1 → c2 叠化 1s；c2 后面是已删除单元的 c3，转场落在 c2 → c4 的切点上；c4 是最后一个片段，它的转场没有效果
+  const withTransitions = readout(
+    [
+      clip({ id: "c1", unit_id: "E1U1", start: 0, duration: 3, transition_to_next: { type: "dissolve", duration: 1 } }),
+      clip({ id: "c2", unit_id: "E1U2", start: 3, duration: 3, transition_to_next: { type: "fade_black", duration: 0.5 } }),
+      clip({ id: "c3", unit_id: "E1U3", start: 6, duration: 0, status: "unit_deleted", video_version: null, source_duration: null }),
+      clip({ id: "c4", unit_id: "E1U4", start: 6, duration: 3, transition_to_next: { type: "dissolve", duration: 1 } }),
+    ],
+    9,
+  );
+
+  it("splits each transition across the two sides of its cut", () => {
+    const plan = buildPlaybackPlan(withTransitions);
+
+    expect(plan.segments.map((s) => [s.clipId, s.fadeIn, s.fadeOut])).toEqual([
+      ["c1", 0, 0.5],
+      ["c2", 0.5, 0.25],
+      ["c4", 0.25, 0],
+    ]);
+  });
+
+  it("fades out before the cut and back in after it", () => {
+    const [c1, c2] = buildPlaybackPlan(withTransitions).segments;
+
+    expect(transitionOpacity(c1, 2)).toBe(1);
+    expect(transitionOpacity(c1, 2.75)).toBeCloseTo(0.5);
+    expect(transitionOpacity(c2, 3)).toBe(0);
+    expect(transitionOpacity(c2, 3.25)).toBeCloseTo(0.5);
+    expect(transitionOpacity(c2, 4.5)).toBe(1);
+  });
+
+  it("keeps hard cuts fully opaque", () => {
+    const [segment] = buildPlaybackPlan(SAMPLE).segments;
+
+    expect(transitionOpacity(segment, segment.start)).toBe(1);
+    expect(transitionOpacity(segment, segment.end - 0.001)).toBe(1);
   });
 });

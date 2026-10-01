@@ -19,6 +19,9 @@ export interface PlaybackSegment {
   videoVersion: number | null;
   /** 没有可用视频的片段按编排时长占位，只走时钟，不装载视频。 */
   hasVideo: boolean;
+  /** 切点上的转场各占两侧一半：片段开头淡入、结尾淡出的秒数，硬切为 0。 */
+  fadeIn: number;
+  fadeOut: number;
 }
 
 export interface PlaybackPlan {
@@ -72,15 +75,34 @@ function segmentOf(clip: EditClip): PlaybackSegment {
     sourceVolume: clip.source_volume,
     videoVersion: clip.video_version,
     hasVideo,
+    fadeIn: 0,
+    fadeOut: 0,
   };
 }
 
-/** 已从脚本删除的视频单元的片段不参与播放；其余片段沿用服务端算好的起点与时长。 */
+/**
+ * 已从脚本删除的视频单元的片段不参与播放；其余片段沿用服务端算好的起点与时长。
+ * 转场作用在到下一个参与播放的片段之间的切点上，最后一个片段上的转场没有效果。
+ */
 export function buildPlaybackPlan(readout: EditTimelineReadout): PlaybackPlan {
-  const segments = readout.clips
-    .filter((clip) => clip.status !== "unit_deleted" && clip.duration > 0)
-    .map(segmentOf);
+  const clips = readout.clips.filter((clip) => clip.status !== "unit_deleted" && clip.duration > 0);
+  const segments = clips.map(segmentOf);
+  clips.forEach((clip, index) => {
+    const next = segments[index + 1];
+    if (!clip.transition_to_next || !next) return;
+    const half = round(clip.transition_to_next.duration / 2);
+    segments[index].fadeOut = half;
+    next.fadeIn = half;
+  });
   return { segments, duration: readout.duration };
+}
+
+/** 转场用透明度渐变近似：切点前淡出、切点后淡入，切点上全黑。 */
+export function transitionOpacity(segment: PlaybackSegment, t: number): number {
+  let opacity = 1;
+  if (segment.fadeIn > 0) opacity = Math.min(opacity, (t - segment.start) / segment.fadeIn);
+  if (segment.fadeOut > 0) opacity = Math.min(opacity, (segment.end - t) / segment.fadeOut);
+  return Math.min(Math.max(opacity, 0), 1);
 }
 
 function pictureLength(segment: PlaybackSegment): number {

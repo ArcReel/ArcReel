@@ -3,7 +3,13 @@ import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { EditTimelineIssue, EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
+import type {
+  EditPreviewNarrationAudio,
+  EditTimelineIssue,
+  EditTimelinePreviewMedia,
+  EditTimelineReadout,
+  EditTimelineSummary,
+} from "@/types/edit-timeline";
 import { errMsg } from "@/utils/async";
 import { formatRelativeTime } from "@/utils/date-format";
 import type { PreviewAspect } from "@/utils/preview-aspect";
@@ -13,6 +19,13 @@ import { EditTimelineMenu } from "./EditTimelineMenu";
 import { EditTimelinePlayer } from "./EditTimelinePlayer";
 import { EditTimelineTracks } from "./EditTimelineTracks";
 import { buildPlaybackPlan, type PlaybackPlan, type PlaybackSegment } from "./playback-schedule";
+import {
+  bgmPlacements,
+  narrationPlacements,
+  narrationSpans,
+  placeSubtitles,
+  type AudioPlacement,
+} from "./preview-tracks";
 import {
   isReferenceVideoScript,
   issueClipIds,
@@ -129,6 +142,21 @@ export function EditTimelineView({
     return () => controller.abort();
   }, [projectName, readoutKey, selectedId]);
 
+  // 旁白配音与字幕随读取结果一起刷新；读取失败时沿用上一次的结果，还没有结果时只是不出旁白、不显示字幕。
+  const [previewMedia, setPreviewMedia] = useState<{ timelineId: string; value: EditTimelinePreviewMedia } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!selectedId) return;
+    const controller = new AbortController();
+    API.getEditTimelinePreviewMedia(projectName, selectedId, { signal: controller.signal })
+      .then((value) => {
+        if (!controller.signal.aborted) setPreviewMedia({ timelineId: selectedId, value });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [projectName, readoutKey, selectedId]);
+
   if (list && "error" in list && !timelines) {
     return <LoadFailed message={list.error} onRetry={reload} />;
   }
@@ -195,6 +223,7 @@ export function EditTimelineView({
           key={selected.id}
           projectName={projectName}
           readout={current.value}
+          media={previewMedia?.timelineId === selected.id ? previewMedia.value : null}
           script={script}
           aspect={aspect}
         />
@@ -210,12 +239,14 @@ export function EditTimelineView({
 interface TimelinePreviewProps {
   projectName: string;
   readout: EditTimelineReadout;
+  media: EditTimelinePreviewMedia | null;
   script: unknown;
   aspect: PreviewAspect;
 }
 
-function TimelinePreview({ projectName, readout, script, aspect }: TimelinePreviewProps) {
+function TimelinePreview({ projectName, readout, media, script, aspect }: TimelinePreviewProps) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [showSubtitles, setShowSubtitles] = useState(true);
 
   // 内容相同的重新读取不换计划引用，播放不因项目的无关变更而重新定位。
   const planJson = useMemo(() => JSON.stringify(buildPlaybackPlan(readout)), [readout]);
@@ -229,7 +260,34 @@ function TimelinePreview({ projectName, readout, script, aspect }: TimelinePrevi
         : null,
     [projectName, referenceVideo],
   );
-  const playback = useTimelinePlayback(plan, sourceUrl);
+  // 音频摆放与旁白配音地址同样按内容去重，内容不变的刷新不打断正在播放的音频。
+  const audioJson = useMemo(
+    () => JSON.stringify([...narrationPlacements(readout, media), ...bgmPlacements(readout)]),
+    [readout, media],
+  );
+  const audio = useMemo(() => JSON.parse(audioJson) as AudioPlacement[], [audioJson]);
+  const narrationSourcesJson = useMemo(
+    () =>
+      JSON.stringify(
+        Object.fromEntries(
+          (media?.units ?? []).flatMap((unit) => (unit.narration_audio ? [[unit.unit_id, unit.narration_audio]] : [])),
+        ),
+      ),
+    [media],
+  );
+  const audioUrl = useMemo(() => {
+    const sources = JSON.parse(narrationSourcesJson) as Record<string, EditPreviewNarrationAudio>;
+    return (placement: AudioPlacement) => {
+      // 预览素材层不含 BGM 文件地址，BGM 片段只显示在轨上、不出声。
+      if (placement.kind !== "narration") return null;
+      const source = sources[placement.sourceId];
+      return source ? API.getFileUrl(projectName, source.path, source.version) : null;
+    };
+  }, [narrationSourcesJson, projectName]);
+  const playback = useTimelinePlayback(plan, sourceUrl, audio, audioUrl);
+  const narration = useMemo(() => narrationSpans(readout), [readout]);
+  const subtitles = useMemo(() => placeSubtitles(readout, plan, media), [readout, plan, media]);
+  const bgm = useMemo(() => audio.filter((placement) => placement.kind === "bgm"), [audio]);
 
   const trimIgnored = useMemo(() => issueClipIds(readout, "trim_ignored"), [readout]);
   const unused = useMemo(() => unusedUnitIds(readout), [readout]);
@@ -246,6 +304,9 @@ function TimelinePreview({ projectName, readout, script, aspect }: TimelinePrevi
         aspect={aspect}
         current={currentClip}
         trimIgnored={currentClip ? trimIgnored.has(currentClip.id) : false}
+        subtitles={subtitles}
+        showSubtitles={showSubtitles}
+        onToggleSubtitles={() => setShowSubtitles((shown) => !shown)}
       />
       <EditTimelineTracks
         projectName={projectName}
@@ -256,6 +317,9 @@ function TimelinePreview({ projectName, readout, script, aspect }: TimelinePrevi
         trimIgnored={trimIgnored}
         unusedUnits={unused}
         thumbnails={thumbnails}
+        narration={narration}
+        subtitles={subtitles}
+        bgm={bgm}
         onSelectClip={setSelectedClipId}
         onSeek={playback.seek}
       />

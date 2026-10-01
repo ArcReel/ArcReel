@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { EditClip, EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
+import type {
+  EditClip,
+  EditTimelinePreviewMedia,
+  EditTimelineReadout,
+  EditTimelineSummary,
+} from "@/types/edit-timeline";
 
 import { EditTimelineView } from "./EditTimelineView";
 
@@ -82,6 +87,12 @@ describe("EditTimelineView", () => {
     useProjectsStore.setState({ projectSnapshotRevisions: {} });
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    vi.spyOn(API, "getEditTimelinePreviewMedia").mockResolvedValue({
+      timeline_id: "tl-00000002",
+      revision: 3,
+      narration: "without_narration",
+      units: [],
+    });
   });
 
   it("opens the most recently edited timeline and loads the first clip with the next one preloaded", async () => {
@@ -97,8 +108,8 @@ describe("EditTimelineView", () => {
 
     expect(await screen.findByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/ArcReel Agent 修改于/)).toBeInTheDocument();
-    expect(read).toHaveBeenCalledWith("demo", "tl-00000002", expect.anything());
     await screen.findByTestId("edit-clip-c1");
+    expect(read).toHaveBeenCalledWith("demo", "tl-00000002", expect.anything());
     expect(screen.getByTestId("edit-player-video-0")).toHaveAttribute(
       "src",
       "/api/v1/files/demo/reference_videos/E1U1.mp4?v=1",
@@ -255,5 +266,69 @@ describe("EditTimelineView", () => {
     renderView();
 
     expect(await screen.findByText("还没有剪辑时间线")).toBeInTheDocument();
+  });
+
+  it("shows narration over the clips it runs across, subtitles that can be hidden, and BGM once there is any", async () => {
+    // c1 的旁白 4.5s，越过 c1 的出点延伸到 c3 上；c1 → c3 叠化
+    const narrated: EditTimelineReadout = {
+      ...INITIAL_CUT,
+      clips: [
+        { ...INITIAL_CUT.clips[0], carries_narration: true, narration: { start: 0, end: 4.5 }, transition_to_next: { type: "dissolve", duration: 1 } },
+        INITIAL_CUT.clips[1],
+        INITIAL_CUT.clips[2],
+      ],
+      bgm: [{ id: "b1", bgm_id: "bgm-0001", start: 0, source_in: 0, source_out: 30, volume: 0.25, fade_in: 1, fade_out: 1 }],
+    };
+    const media: EditTimelinePreviewMedia = {
+      timeline_id: "tl-00000002",
+      revision: 3,
+      narration: "with_narration",
+      units: [
+        {
+          unit_id: "E1U1",
+          narration_audio: { path: "audio/E1U1.mp3", version: 2 },
+          subtitles_follow_narration: true,
+          subtitles: [{ start: 0, duration: 4.5, text: "门后传来脚步声。" }],
+        },
+      ],
+    };
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(narrated);
+    vi.spyOn(API, "getEditTimelinePreviewMedia").mockResolvedValue(media);
+
+    renderView();
+
+    const span = await screen.findByTestId("edit-narration-c1");
+    expect(span).toHaveAttribute("title", "E1U1 的旁白，挂在 c1 上：0–4.5s");
+    // 4.5 / 7.8 ≈ 57.69%，比 c1 自身的 2.8s 宽
+    expect(span.style.width).toContain("57.69");
+    expect(await screen.findByTestId("edit-player-subtitle")).toHaveTextContent("门后传来脚步声。");
+    expect(screen.getByTestId("edit-bgm-b1")).toHaveAttribute(
+      "title",
+      "bgm-0001：0–7.8s，音量 0.25，淡入 1s，淡出 1s",
+    );
+    expect(screen.getByText("转场效果以成片为准")).toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: "字幕" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByTestId("edit-player-subtitle")).not.toBeInTheDocument();
+  });
+
+  it("hides the BGM track and the transition note when the timeline has neither", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+
+    renderView();
+
+    await screen.findByTestId("edit-clip-c1");
+    expect(screen.getByText("旁白")).toBeInTheDocument();
+    expect(screen.queryByText("BGM")).not.toBeInTheDocument();
+    expect(screen.queryByText("转场效果以成片为准")).not.toBeInTheDocument();
   });
 });

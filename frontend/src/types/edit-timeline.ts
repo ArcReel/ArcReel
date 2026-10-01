@@ -112,3 +112,32 @@ export interface EpisodeEditOverview {
   /** 成片已落后于剪辑时间线的那几条；从未出片的不在其中。 */
   stale_final_cuts: EditTimelineRef[];
 }
+
+/** 预览用的一条字幕：时间相对单元，跟随旁白时从旁白起点算起，否则按视频源素材时间。 */
+export interface EditPreviewCue {
+  start: number;
+  duration: number;
+  text: string;
+}
+
+/** 旁白配音 current 文件的项目内路径与版本号。 */
+export interface EditPreviewNarrationAudio {
+  path: string;
+  version: number;
+}
+
+export interface EditPreviewUnitMedia {
+  unit_id: string;
+  /** 只在该单元按带旁白版本呈现时给出。 */
+  narration_audio: EditPreviewNarrationAudio | null;
+  subtitles_follow_narration: boolean;
+  subtitles: EditPreviewCue[];
+}
+
+/** 剪辑视图预览的素材层，与 server/services/presentation/timeline_preview.py 同形。 */
+export interface EditTimelinePreviewMedia {
+  timeline_id: string;
+  revision: number;
+  narration: "with_narration" | "without_narration";
+  units: EditPreviewUnitMedia[];
+}
