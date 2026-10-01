@@ -172,6 +172,21 @@ def test_dependency_matching_only_the_catch_all_group_is_reported_at_its_declara
     assert "`zustand`" in violations[1].guidance
 
 
+def test_dependency_excluded_from_its_named_group_is_reported(repo: Path) -> None:
+    _write(
+        repo,
+        ".github/dependabot.yml",
+        _DEPENDABOT.replace(
+            '          - "pytest*"\n', '          - "pytest*"\n        exclude-patterns:\n          - "pytest-xdist"\n'
+        ),
+    )
+    _write(
+        repo, "pyproject.toml", _PYPROJECT.replace('    "demo-core",\n', '    "demo-core",\n    "pytest-xdist>=3",\n')
+    )
+
+    assert _rules(repo) == [("DEPENDABOT-GROUP", "pyproject.toml")]
+
+
 def test_development_group_does_not_cover_production_dependencies(repo: Path) -> None:
     _write(repo, "frontend/package.json", json.dumps({"dependencies": {"vitest": "^3"}}))
 

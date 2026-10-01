@@ -257,6 +257,8 @@ class PatchSite:
     module_under_test: str | None
     hits_module_under_test: bool
     motive: str
+    # 目标根部还原到了 import（字符串字面量目标恒为真）；为假时根部是局部对象，同名不代表同一对象
+    import_rooted: bool
 
 
 @dataclass
@@ -1171,6 +1173,9 @@ class FileScanner:
                 continue
             func, marks, local_aliases = enclosing.get(node.lineno, ("<module>", self.module_marks, {}))
             resolved = self.aliases.resolve(target, local_aliases)
+            head = target.partition(".")[0]
+            literal = bool(node.args) and const_str(node.args[0]) is not None
+            import_rooted = literal or head in local_aliases or head in self.aliases.alias_to_module
             private = is_private_target(resolved)
             module, _symbol = self.prod.split(resolved)
             if module is None:
@@ -1189,6 +1194,7 @@ class FileScanner:
                 module_under_test=self.mut,
                 hits_module_under_test=hits_mut,
                 motive=classify_motive(resolved),
+                import_rooted=import_rooted,
             )
             self.patches.append(site)
             if private:
@@ -1381,11 +1387,12 @@ PATCH_SPREAD_KINDS = {"patch", "patch.object"}
 def scan_patch_spread(patches: Sequence[PatchSite]) -> list[StructureFinding]:
     """同一 `patch` / `patch.object` 目标出现在 ≥3 个测试文件：缺一个共享替身或 seam。
 
-    每个文件只报该目标的第一处。`monkeypatch.setattr` 不在本规则内，归 review。
+    每个文件只报该目标的第一处。`monkeypatch.setattr` 不在本规则内，归 review；根部是局部
+    对象的 `patch.object` 目标只在文件内有意义，不跨文件聚合。
     """
     first_site: dict[str, dict[str, int]] = defaultdict(dict)
     for site in patches:
-        if site.kind not in PATCH_SPREAD_KINDS:
+        if site.kind not in PATCH_SPREAD_KINDS or not site.import_rooted:
             continue
         lines = first_site[site.target]
         lines[site.path] = min(lines.get(site.path, site.line), site.line)

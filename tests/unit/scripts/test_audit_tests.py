@@ -875,6 +875,30 @@ def test_same_patch_target_in_three_files_is_reported_once_per_file(tmp_path: Pa
     ]
 
 
+def test_patch_object_on_same_named_local_objects_is_not_aggregated_across_files(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    for name in ("test_a.py", "test_b.py", "test_c.py"):
+        (tests / name).write_text(
+            "from unittest.mock import patch\n\n\n"
+            "def test_a():\n"
+            "    client = object()\n"
+            '    with patch.object(client, "send"):\n'
+            "        value = 1\n"
+            "    assert value == 1\n",
+            encoding="utf-8",
+        )
+
+    assert _rules(_audit(tmp_path)) == []
+
+
+def test_patch_object_on_imported_module_counts_toward_patch_spread(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    for name in ("test_a.py", "test_b.py", "test_c.py"):
+        (tests / name).write_text("import sdk\n" + _patching_test('patch.object(sdk, "connect")'), encoding="utf-8")
+
+    assert [rule for rule, _path in _rules(_audit(tmp_path))] == ["PATCH-SPREAD"] * 3
+
+
 def test_monkeypatch_setattr_does_not_count_toward_patch_spread(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     for name in ("test_a.py", "test_b.py", "test_c.py"):

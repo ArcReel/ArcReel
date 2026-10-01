@@ -172,6 +172,10 @@ def _is_catch_all(group: dict[str, object]) -> bool:
     return group.get("patterns") == ["*"] and "dependency-type" not in group
 
 
+def _matches(name: str, patterns: object) -> bool:
+    return isinstance(patterns, list) and any(fnmatchcase(name.lower(), str(p).lower()) for p in patterns)
+
+
 def _named_group_for(name: str, development: bool, groups: dict[str, dict[str, object]]) -> str | None:
     for group_name, group in groups.items():
         if _is_catch_all(group):
@@ -181,8 +185,9 @@ def _named_group_for(name: str, development: bool, groups: dict[str, dict[str, o
             continue
         if dep_type == "production" and development:
             continue
-        patterns = group.get("patterns")
-        if isinstance(patterns, list) and any(fnmatchcase(name.lower(), str(p).lower()) for p in patterns):
+        if _matches(name, group.get("exclude-patterns")):
+            continue
+        if _matches(name, group.get("patterns")):
             return group_name
     return None
 
