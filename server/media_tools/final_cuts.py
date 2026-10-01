@@ -13,10 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.edit_timeline.errors import EditTimelineError
-from lib.final_cut.basis import DEFAULT_VARIANT
+from lib.final_cut.basis import BURNED_SUBTITLES, NO_SUBTITLES
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutRender, FinalCutService
 from lib.generation.generation_batch import GenerationBatchReadModel
+from lib.jianying_draft.basis import DraftNarration
 from server.agent_toolset.envelope import json_value
 from server.media_tools.context import tool_error, tool_problem
 from server.media_tools.render_submission import submit_render_task
@@ -40,6 +41,14 @@ class RenderFinalCutRequest(BaseModel):
         ge=1,
         description="渲染哪个修订；省略时取提交时的最新修订",
     )
+    narration: DraftNarration | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "旁白版本：without_narration 不混入旁白配音；with_narration 混入旁白配音，只对 TTS 配音项目开放。"
+            "省略时 TTS 配音项目取 with_narration，其余取 without_narration"
+        ),
+    )
+    burn_subtitles: bool = Field(default=True, description="是否把字幕烧进画面；false 得到不带字幕的干净画面")
 
 
 class FinalCutToolResult(BaseModel):
@@ -59,16 +68,21 @@ async def render_final_cut(
     caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[FinalCutToolValue]:
+    value = request.value
     try:
         check = await FinalCutService(services.projects).check(
-            scope.project_name, request.value.timeline, revision=request.value.revision, variant=DEFAULT_VARIANT
+            scope.project_name,
+            value.timeline,
+            revision=value.revision,
+            narration=value.narration,
+            subtitles=BURNED_SUBTITLES if value.burn_subtitles else NO_SUBTITLES,
         )
         submission = await submit_render_task(
             final_cut_task_request(
                 episode=check.episode,
                 timeline_id=check.timeline_id,
                 revision=check.revision,
-                variant=DEFAULT_VARIANT,
+                variant=check.variant,
             ),
             operation=_OPERATION,
             scope=scope,

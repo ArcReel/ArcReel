@@ -28,6 +28,8 @@ from tests.factories import install_current_video, make_test_clip
 
 CREATOR = RevisionAuthor(kind="creator", user_id="u1")
 VARIANT = FinalCutVariant()
+PLAIN: dict[str, Any] = {"narration": VARIANT.narration, "subtitles": VARIANT.subtitles}
+"""现场合成的素材没有呈现模型，这里只渲染不带旁白、不烧入字幕的版本。"""
 
 
 def _unit(unit_id: str, text: str) -> dict[str, Any]:
@@ -115,7 +117,7 @@ async def test_mechanical_timeline_renders_to_a_current_final_cut_with_aligned_s
     timeline_id = await _create_timeline(render_project)
     readout = await EditTimelineService(render_project).read("demo", timeline_id)
 
-    result = await FinalCutService(render_project).render("demo", timeline_id)
+    result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
     output = render_project.get_project_path("demo") / result.artifact_path
     probe = await probe_media(output)
@@ -143,7 +145,7 @@ async def test_trim_and_hold_shape_the_rendered_duration(render_project: Project
         },
     )
 
-    result = await FinalCutService(render_project).render("demo", timeline_id)
+    result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
     # 0.6（截取）+ 1.5 + 0.7 + 0.5（定格延长）
     assert result.acceptance.expected_duration == pytest.approx(3.3, abs=0.034)
@@ -166,7 +168,7 @@ async def test_rendering_an_older_revision_reads_stale(render_project: ProjectMa
             author=CREATOR,
         )
 
-    result = await FinalCutService(render_project).render("demo", timeline_id, revision=1)
+    result = await FinalCutService(render_project).render("demo", timeline_id, revision=1, **PLAIN)
 
     assert result.revision == 1
     assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.STALE
@@ -190,7 +192,7 @@ async def test_an_edit_while_rendering_makes_the_final_cut_stale_on_arrival(rend
             edited.set()
         return await asyncio.create_subprocess_exec(*args, **kwargs)
 
-    result = await FinalCutService(render_project, spawn=spawn_after_edit).render("demo", timeline_id)
+    result = await FinalCutService(render_project, spawn=spawn_after_edit).render("demo", timeline_id, **PLAIN)
 
     assert edited.is_set()
     assert result.revision == 1
@@ -214,7 +216,7 @@ async def test_rendering_reads_the_snapshotted_video_version_when_the_formal_fil
             replaced.set()
         return await asyncio.create_subprocess_exec(*args, **kwargs)
 
-    result = await FinalCutService(render_project, spawn=spawn_after_replacing).render("demo", timeline_id)
+    result = await FinalCutService(render_project, spawn=spawn_after_replacing).render("demo", timeline_id, **PLAIN)
 
     assert replaced.is_set()
     assert result.acceptance.video_duration == pytest.approx(readout.duration, abs=0.05)
@@ -241,7 +243,7 @@ async def test_provider_audio_recorded_as_not_generated_is_left_out_of_the_mix(
             mixed_inputs.extend(str(args[index + 1]) for index, arg in enumerate(args) if arg == "-i")
         return await asyncio.create_subprocess_exec(*args, **kwargs)
 
-    await FinalCutService(render_project, spawn=spawn_recording_mix).render("demo", timeline_id)
+    await FinalCutService(render_project, spawn=spawn_recording_mix).render("demo", timeline_id, **PLAIN)
 
     # 只有 E1U3 的原声进入混音；E1U1 的快照虽带音轨，版本记录为未生成原声。
     sources = [Path(path).name for path in mixed_inputs if not path.startswith("anullsrc")]
@@ -254,8 +256,8 @@ async def test_rendering_again_keeps_one_file_and_advances_the_version(render_pr
     timeline_id = await _create_timeline(render_project)
     service = FinalCutService(render_project)
 
-    first = await service.render("demo", timeline_id)
-    second = await service.render("demo", timeline_id)
+    first = await service.render("demo", timeline_id, **PLAIN)
+    second = await service.render("demo", timeline_id, **PLAIN)
 
     assert (first.version, second.version) == (1, 2)
     assert first.artifact_path == second.artifact_path
@@ -270,7 +272,7 @@ async def test_a_unit_without_usable_video_blocks_rendering(render_project: Proj
     timeline_id = await _create_timeline(render_project)
 
     with pytest.raises(FinalCutError) as caught:
-        await FinalCutService(render_project).render("demo", timeline_id)
+        await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
     assert caught.value.code == "final_cut_blocked"
     assert [issue["unit_id"] for issue in caught.value.params["issues"]] == ["E1U2"]
@@ -293,7 +295,7 @@ async def test_transitions_render_without_changing_the_timeline_duration(render_
         author=CREATOR,
     )
 
-    result = await FinalCutService(render_project).render("demo", timeline_id)
+    result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
     # 1.0 + 0.9（截取）+ 0.7：叠化借帧、闪黑淡出淡入都不改变总时长。
     assert edited.duration == pytest.approx(2.6)

@@ -1,6 +1,7 @@
 """剪辑时间线的读取投影：服务端算好的时长、绝对起点、旁白起止与结构类 issues。
 
 投影是纯函数：输入一个修订与一集的素材事实，输出以秒为单位（最多三位小数）的读取结果。
+字幕缺字按随包字幕字体的字符覆盖表判断，覆盖表只读一次。
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from lib.edit_timeline.model import (
 )
 from lib.edit_timeline.sources import EpisodeSources, UnitMedia
 from lib.speech.speech_composition import SpeechMode
+from lib.subtitle_style.font import missing_glyphs
 
 
 class IssueSeverity(StrEnum):
@@ -44,6 +46,7 @@ class IssueCode(StrEnum):
     NARRATION_MISSING = "narration_missing"
     NARRATION_OVERRUN = "narration_overrun"
     NARRATION_SOURCE_COLLISION = "narration_source_collision"
+    SUBTITLE_MISSING_GLYPHS = "subtitle_missing_glyphs"
 
 
 ISSUE_LEVELS: dict[IssueCode, tuple[IssueSeverity, IssueScope]] = {
@@ -55,6 +58,7 @@ ISSUE_LEVELS: dict[IssueCode, tuple[IssueSeverity, IssueScope]] = {
     IssueCode.NARRATION_MISSING: (IssueSeverity.BLOCKING, IssueScope.WITH_NARRATION),
     IssueCode.NARRATION_OVERRUN: (IssueSeverity.WARNING, IssueScope.WITH_NARRATION),
     IssueCode.NARRATION_SOURCE_COLLISION: (IssueSeverity.WARNING, IssueScope.ALL),
+    IssueCode.SUBTITLE_MISSING_GLYPHS: (IssueSeverity.WARNING, IssueScope.ALL),
 }
 """每种 issue 的固定级别与影响范围；读取结果与出片前的阻断检查共用这张表。"""
 
@@ -270,6 +274,14 @@ def _structural_issues(revision: TimelineRevision, sources: EpisodeSources) -> l
         media = sources.media.get(unit_id)
         if media is None or media.video_version is None:
             issues.append(timeline_issue(IssueCode.VIDEO_MISSING, clip_ids=tuple(clip_ids), unit_id=unit_id))
+        unit = sources.unit(unit_id)
+        missing = missing_glyphs(unit.subtitle_text) if unit is not None else ""
+        if missing:
+            issues.append(
+                timeline_issue(
+                    IssueCode.SUBTITLE_MISSING_GLYPHS, clip_ids=tuple(clip_ids), unit_id=unit_id, characters=missing
+                )
+            )
     issues.extend(
         timeline_issue(IssueCode.UNIT_UNUSED, unit_id=unit.unit_id)
         for unit in sources.script.units

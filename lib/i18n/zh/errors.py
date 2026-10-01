@@ -682,7 +682,8 @@ MESSAGES = {
     "edit_timeline_revision_unchanged": "修订 {revision} 的内容与最新修订相同，无需回滚",
     "edit_timeline_render_in_progress": "这条剪辑时间线还有成片或剪映草稿的渲染任务在排队或执行（{task_id}），任务结束后再删除",
     # Final cut
-    "final_cut_variant_unsupported": "成片暂只支持渲染不带旁白、不烧入字幕的版本",
+    "final_cut_narration_unavailable": "只有 TTS 配音项目可以渲染带旁白版本的成片",
+    "final_cut_presentation_unavailable": "视频单元 {unit_id} 的旁白配音或字幕无法用于成片，请检查旁白配音后重新渲染",
     "final_cut_blocked": "剪辑时间线有阻止渲染成片的问题，涉及视频单元：{units}。处理这些问题后再提交渲染",
     "final_cut_content_unsupported": "成片暂不支持 BGM，只能渲染不带 BGM 的剪辑时间线",
     "final_cut_empty": "剪辑时间线没有可渲染的剪辑片段",

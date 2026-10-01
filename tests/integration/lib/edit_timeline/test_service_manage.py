@@ -14,7 +14,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.edit_timeline import EditTimelineError, EditTimelineService, RevisionAuthor
 from lib.edit_timeline.operations import TimelineOperationAdapter
-from lib.final_cut.basis import DEFAULT_VARIANT, final_cut_artifact_path, final_cut_key
+from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_cut_key
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
 from lib.project.project_manager import ProjectManager
 
@@ -273,10 +273,10 @@ def _register_render_artifacts(pm: ProjectManager, timeline_id: str) -> list[str
     """给一条剪辑时间线登记成片与剪映草稿（文件加登记），返回正式路径。"""
     project_dir = pm.get_project_path("demo")
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir))
-    final_cut = final_cut_artifact_path(1, timeline_id, DEFAULT_VARIANT)
+    final_cut = final_cut_artifact_path(1, timeline_id, FinalCutVariant())
     draft = jianying_draft_artifact_path(1, timeline_id, "without_narration")
     for path, key in (
-        (final_cut, final_cut_key(1, timeline_id, DEFAULT_VARIANT)),
+        (final_cut, final_cut_key(1, timeline_id, FinalCutVariant())),
         (draft, jianying_draft_key(1, timeline_id, "without_narration")),
     ):
         (project_dir / path).parent.mkdir(parents=True, exist_ok=True)
@@ -295,8 +295,8 @@ async def test_delete_removes_the_timeline_with_its_render_claims_and_files(
     kept_paths = _register_render_artifacts(pm, kept)
     project_dir = pm.get_project_path("demo")
     keys = {
-        doomed: (final_cut_key(1, doomed, DEFAULT_VARIANT), jianying_draft_key(1, doomed, "without_narration")),
-        kept: (final_cut_key(1, kept, DEFAULT_VARIANT), jianying_draft_key(1, kept, "without_narration")),
+        doomed: (final_cut_key(1, doomed, FinalCutVariant()), jianying_draft_key(1, doomed, "without_narration")),
+        kept: (final_cut_key(1, kept, FinalCutVariant()), jianying_draft_key(1, kept, "without_narration")),
     }
     adapter = ProjectArtifactManifestAdapter(project_dir)
     assert all(adapter.get_entry(key) is not None for pair in keys.values() for key in pair)

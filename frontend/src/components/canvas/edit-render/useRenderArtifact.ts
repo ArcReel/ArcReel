@@ -3,7 +3,8 @@ import { API } from "@/api";
 import { submitRender } from "@/actions/render";
 import { errMsg } from "@/utils/async";
 import { isTerminalStatus } from "@/types";
-import type { FinalCutStatus, JianyingDraftStatus, RenderKind, TaskItem } from "@/types";
+import type { FinalCutStatus, JianyingDraftStatus, RenderKind, RenderOptions, SubtitleMode, TaskItem } from "@/types";
+import type { TimelineNarration } from "@/types/edit-timeline";
 
 /** 出片任务的轮询间隔：对话框打开期间按 task_id 拉取进度，比任务列表的兜底轮询更及时。 */
 export const RENDER_TASK_POLL_MS = 2000;
@@ -35,11 +36,12 @@ function fetchArtifact(
   projectName: string,
   timelineId: string,
   kind: RenderKind,
+  options: RenderOptions,
   signal: AbortSignal,
 ): Promise<RenderArtifactView> {
   return kind === "final_cut"
-    ? API.getFinalCutStatus(projectName, timelineId, { signal })
-    : API.getJianyingDraftStatus(projectName, timelineId, { signal });
+    ? API.getFinalCutStatus(projectName, timelineId, { ...options, signal })
+    : API.getJianyingDraftStatus(projectName, timelineId, { narration: options.narration, signal });
 }
 
 /** 查找与产物同一剪辑时间线、同一交付物与版本的在途出片任务；查询失败时按没有处理。 */
@@ -84,10 +86,11 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * 一个剪辑时间线某种交付物的出片状态：产物现状、提交与任务进度。
+ * 一个剪辑时间线某种交付物、某个版本的出片状态：产物现状、提交与任务进度。
+ * 版本由旁白版本与是否烧入字幕决定；剪映草稿不看 ``subtitles``。
  *
- * 取消域是「项目 × 剪辑时间线 × 交付物」：任一变化或卸载时作废在途的读取与轮询。
- * 调用方以这三者为 key 挂载使用方组件，切换时整体重新挂载，本地状态不跨交付物残留。
+ * 取消域是「项目 × 剪辑时间线 × 交付物 × 版本」：任一变化或卸载时作废在途的读取与轮询。
+ * 调用方以这些为 key 挂载使用方组件，切换时整体重新挂载，本地状态不跨版本残留。
  * 读到产物现状后，若同一产物已有在途任务（如对话框关闭前提交的，或由 Agent 提交的），接着跟踪它。
  * 任务成功后补拉一次产物现状，失败时展示任务的失败原因。
  */
@@ -95,6 +98,8 @@ export function useRenderArtifact(
   projectName: string,
   timelineId: string,
   kind: RenderKind,
+  narration: TimelineNarration,
+  subtitles: SubtitleMode,
 ): RenderArtifactState {
   const [artifact, setArtifact] = useState<RenderArtifactView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,7 +114,7 @@ export function useRenderArtifact(
       setLoading(true);
       setLoadError(null);
       try {
-        const next = await fetchArtifact(projectName, timelineId, kind, signal);
+        const next = await fetchArtifact(projectName, timelineId, kind, { narration, subtitles }, signal);
         if (signal.aborted) return null;
         setArtifact(next);
         return next;
@@ -121,7 +126,7 @@ export function useRenderArtifact(
         if (!signal.aborted) setLoading(false);
       }
     },
-    [projectName, timelineId, kind],
+    [projectName, timelineId, kind, narration, subtitles],
   );
 
   const poll = useCallback(
@@ -176,8 +181,11 @@ export function useRenderArtifact(
   const submit = useCallback(async () => {
     const signal = scopeRef.current?.signal;
     if (!signal || signal.aborted) return;
-    await follow(async () => (await submitRender(projectName, timelineId, kind)).task_id, signal);
-  }, [projectName, timelineId, kind, follow]);
+    await follow(
+      async () => (await submitRender(projectName, timelineId, kind, { narration, subtitles })).task_id,
+      signal,
+    );
+  }, [projectName, timelineId, kind, narration, subtitles, follow]);
 
   return { artifact, loading, loadError, task, submitting, submitError, submit };
 }

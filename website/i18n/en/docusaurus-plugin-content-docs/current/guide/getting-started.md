@@ -374,6 +374,11 @@ After the videos are generated, switch to the **Edit** view at the top of the ep
 
 Click **Render** at the top of the edit view and select **Final cut** in the "Render · <edit timeline name>" dialog. An up-to-date final cut can be downloaded directly. When there is no final cut yet, or it is behind the edit timeline, start a render; the dialog shows its progress, and you can download the result when it finishes.
 
+The dialog also selects the final cut version; each combination is a separate final cut:
+
+- **Narration version**: available only to TTS voiceover projects, defaulting to **With narration**. A narration longer than its clip is mixed in at its full length; it is not shortened, later narrations are not shifted, and the issue list reports the overlap. Whatever runs past the end of the final cut is cut off.
+- **Burn in subtitles**: checked by default. Subtitles are drawn into the video frames and cannot be turned off during playback; the font is the bundled Source Han Sans. When subtitles contain characters this font lacks, the issue list names those characters.
+
 Before rendering, check:
 
 - clip order;

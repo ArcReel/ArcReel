@@ -10,7 +10,7 @@ import json
 import re
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -1138,11 +1138,14 @@ class TargetStatePlanner:
 
         Final cuts are only registered by the render that produced them; activation
         never plans them, so a present file without its render-time claim reads missing.
+        Narrated or subtitled versions also record each referenced unit's material layer,
+        derived like the Jianying draft's from the current presentations.
         """
 
         from lib.edit_timeline.store import read_timeline_document
         from lib.final_cut.basis import (
             FinalCutVariant,
+            SubtitleMode,
             current_video,
             final_cut_artifact_path,
             final_cut_basis,
@@ -1160,7 +1163,7 @@ class TargetStatePlanner:
             return
         resource_type = video_resource_type_for(episode.kind)
         versions = VersionManager(self.project_dir)
-        variant = FinalCutVariant(narration=str(narration), subtitles=str(subtitles))
+        variant = FinalCutVariant(narration=cast(DraftNarration, narration), subtitles=cast(SubtitleMode, subtitles))
         inputs = resolve_final_cut_inputs(
             document=document,
             revision=document.latest,
@@ -1175,6 +1178,24 @@ class TargetStatePlanner:
         )
         if inputs.missing_video_units:
             return
+        if variant.consumes_unit_materials:
+            self._plan_persisted_presentations()
+            items = {str(item[episode.id_field]): item for item in episode.items}
+            history = self._load_versions()
+            inputs = replace(
+                inputs,
+                units=tuple(
+                    self._draft_unit_basis(
+                        episode=episode,
+                        item=items[unit_id],
+                        unit_id=unit_id,
+                        resource_type=resource_type,
+                        narration=variant.narration,
+                        versions=history,
+                    )
+                    for unit_id in draft_unit_ids(document.latest.content, items)
+                ),
+            )
         self._add_if_present(
             key, final_cut_artifact_path(episode_number, timeline_id, variant), final_cut_basis(inputs)
         )

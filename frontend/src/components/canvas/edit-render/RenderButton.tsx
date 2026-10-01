@@ -3,17 +3,17 @@ import { useTranslation } from "react-i18next";
 import { Clapperboard } from "lucide-react";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import type { EditTimelineIssueRef } from "@/types";
-import { formatNameList } from "@/utils/list-format";
-import { blockingIssues, blockingUnitIds } from "./edit-render-model";
 import { RenderDialog } from "./RenderDialog";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useBlockedReason } from "./useBlockedReason";
 
 interface RenderButtonProps {
   projectName: string;
   timelineId: string;
   timelineName: string;
-  /** 当前修订的 issues；有阻断级 issue 时按钮不可点。 */
+  /** 当前修订的 issues；有阻断全部交付物的 issue 时按钮不可点。 */
   issues: readonly EditTimelineIssueRef[];
+  /** 项目用 TTS 配音时可以选旁白版本。 */
+  narrationAvailable: boolean;
   /** 打开剪辑视图的「问题」列表。 */
   onShowIssues: () => void;
 }
@@ -21,24 +21,21 @@ interface RenderButtonProps {
 /**
  * 剪辑视图顶部的「出片」按钮，打开当前标签对应剪辑时间线的出片对话框。
  *
- * 当前修订有阻断级 issue 时按钮不可点：悬停显示原因，旁边给出跳到「问题」列表的链接。
+ * 当前修订有阻断全部交付物的 issue 时按钮不可点：悬停显示原因，旁边给出跳到「问题」列表的链接。
+ * 只阻断带旁白版本的 issue 由对话框按所选旁白版本处理。
  */
-export function RenderButton({ projectName, timelineId, timelineName, issues, onShowIssues }: RenderButtonProps) {
-  const { t, i18n } = useTranslation("dashboard");
+export function RenderButton({
+  projectName,
+  timelineId,
+  timelineName,
+  issues,
+  narrationAvailable,
+  onShowIssues,
+}: RenderButtonProps) {
+  const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);
   const reasonId = useId();
-  const blocking = blockingIssues(issues);
-  const units = blockingUnitIds(blocking);
-  let reason: string | null = null;
-  if (blocking.length > 0) {
-    reason =
-      units.length > 0
-        ? t("edit_render_blocked_reason_units", {
-            count: blocking.length,
-            units: formatNameList(units.map(itemIdWithinEpisode), i18n.language),
-          })
-        : t("edit_render_blocked_reason", { count: blocking.length });
-  }
+  const { count, reason } = useBlockedReason(issues);
 
   return (
     <div className="flex items-center gap-2">
@@ -51,7 +48,7 @@ export function RenderButton({ projectName, timelineId, timelineName, issues, on
             style={{ color: "var(--color-danger)" }}
             title={reason}
           >
-            {t("edit_render_blocked_view_issues", { count: blocking.length })}
+            {t("edit_render_blocked_view_issues", { count })}
           </button>
           <span id={reasonId} className="sr-only">
             {reason}
@@ -77,7 +74,8 @@ export function RenderButton({ projectName, timelineId, timelineName, issues, on
         projectName={projectName}
         timelineId={timelineId}
         timelineName={timelineName}
-        blockedReason={reason}
+        issues={issues}
+        narrationAvailable={narrationAvailable}
       />
     </div>
   );

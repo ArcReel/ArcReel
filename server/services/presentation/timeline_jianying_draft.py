@@ -19,7 +19,6 @@ from typing import Any
 from lib.artifacts.artifact_currency import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey, ArtifactStatus
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
-from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.edit_timeline import (
     EditTimelineError,
@@ -29,7 +28,7 @@ from lib.edit_timeline import (
     IssueSeverity,
     TimelineIssue,
 )
-from lib.edit_timeline.model import EditTimelineContent, microseconds_to_seconds
+from lib.edit_timeline.model import microseconds_to_seconds
 from lib.edit_timeline.readout import unrendered_effects
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ids import episode_file_label
@@ -48,25 +47,21 @@ from lib.jianying_draft.archive import (
 from lib.jianying_draft.basis import (
     WITH_NARRATION,
     DraftNarration,
-    DraftUnitBasis,
     build_jianying_draft_basis,
     default_draft_narration,
-    draft_unit_ids,
     jianying_draft_artifact_path,
     jianying_draft_key,
 )
 from lib.jianying_draft.errors import JianyingDraftError
-from lib.jianying_draft.placement import DraftPlacement, UnitCue, UnitMaterial, place_timeline
+from lib.jianying_draft.placement import DraftPlacement, UnitMaterialUnavailableError, place_timeline
 from lib.jianying_draft.results import JianyingDraftCheck, JianyingDraftRender, JianyingDraftStatus
 from lib.project.project_manager import ProjectManager
 from lib.speech.narration_config import project_narration_delivery
 from lib.speech.narration_delivery import USE_TTS
 from server.services.presentation.presentation_read_model import (
-    MaterializedPresentation,
     PresentationReadModelService,
-    PresentationUnavailableError,
 )
-from server.services.presentation.timeline_units import load_episode_items, unit_rendition
+from server.services.presentation.timeline_units import TimelineUnitMaterials, load_episode_items
 
 _WINDOWS_UNSAFE_NAME_CHARACTERS = str.maketrans(dict.fromkeys('<>:"/\\|?*', "_"))
 
@@ -159,35 +154,6 @@ class JianyingDraftJob:
             raise JianyingDraftError("jianying_draft_acceptance_failed", f"剪映草稿未通过验收：{exc}") from exc
 
 
-def _cues(presented: MaterializedPresentation) -> tuple[UnitCue, ...]:
-    return tuple(
-        UnitCue(start_us=cue.start_microseconds, duration_us=cue.duration_microseconds, text=cue.text)
-        for cue in presented.presentation.subtitles
-    )
-
-
-def _unit_material_and_basis(presented: MaterializedPresentation) -> tuple[UnitMaterial, DraftUnitBasis]:
-    presentation = presented.presentation
-    video = presentation.video
-    narration = presentation.narration_audio
-    material = UnitMaterial(
-        unit_id=presentation.unit_id,
-        video_path=video.media.artifact_path,
-        video_version=video.media.version,
-        video_duration_us=video.duration_microseconds,
-        source_gain=video.gain,
-        subtitles=_cues(presented),
-        narration_path=narration.media.artifact_path if narration is not None else None,
-        narration_duration_us=narration.duration_microseconds if narration is not None else None,
-    )
-    if presentation.presentation_basis is not None:
-        return material, DraftUnitBasis(
-            presentation.unit_id, presentation_digest=presentation.presentation_basis.digest
-        )
-    raw = presentation.video.media
-    return material, DraftUnitBasis(presentation.unit_id, manual_upload=(raw.version, raw.content_digest))
-
-
 @dataclass(frozen=True, slots=True)
 class _Checked:
     readout: EditTimelineReadout
@@ -204,7 +170,7 @@ class TimelineJianyingDraftService:
     ) -> None:
         self._projects = projects
         self._timelines = EditTimelineService(projects)
-        self._presentations = presentation_reader or PresentationReadModelService(projects)
+        self._unit_materials = TimelineUnitMaterials(projects, presentation_reader=presentation_reader)
 
     async def _checked(
         self, project_name: str, timeline_id: str, revision: int | None, narration: DraftNarration | None
@@ -268,19 +234,20 @@ class TimelineJianyingDraftService:
         if target is None:
             raise EditTimelineError("revision_not_found", f"剪辑时间线「{timeline_id}」没有修订 {number}")
         project_dir = await asyncio.to_thread(self._projects.get_project_path, project_name)
-        kind, items = await asyncio.to_thread(
+        kind, _items = await asyncio.to_thread(
             load_episode_items, self._projects, project_name, checked.project, episode
         )
         resource_type = "reference_videos" if kind == "video_units" else "videos"
-        materials, unit_bases = await self._present_units(
-            project_name,
-            project_dir=project_dir,
-            content=target.content,
-            kind=kind,
-            items=items,
-            resource_type=resource_type,
-            narration=narration,
-        )
+        try:
+            unit_materials = await self._unit_materials(
+                project_name, episode=episode, content=target.content, narration=narration
+            )
+        except UnitMaterialUnavailableError as exc:
+            raise JianyingDraftError(
+                "jianying_draft_presentation_unavailable",
+                f"视频单元 {exc.unit_id} 的素材无法用于剪映草稿：{exc}",
+                unit_id=exc.unit_id,
+            ) from exc
         aspect_ratio = resolve_video_aspect_ratio(checked.project, resource_type)
         return JianyingDraftJob(
             project_dir=project_dir,
@@ -292,51 +259,15 @@ class TimelineJianyingDraftService:
                 revision=target,
                 narration=narration,
                 aspect_ratio=aspect_ratio,
-                units=unit_bases,
+                units=unit_materials.bases,
             ),
             timeline_id=timeline_id,
             revision=number,
             narration=narration,
-            placement=place_timeline(target.content, materials),
+            placement=place_timeline(target.content, unit_materials.materials),
             canvas=canvas_size(aspect_ratio),
             warnings=checked.check.warnings,
         )
-
-    async def _present_units(
-        self,
-        project_name: str,
-        *,
-        project_dir: Path,
-        content: EditTimelineContent,
-        kind: str,
-        items: Mapping[str, dict[str, Any]],
-        resource_type: str,
-        narration: DraftNarration,
-    ) -> tuple[dict[str, UnitMaterial], list[DraftUnitBasis]]:
-        versions = VersionManager(project_dir)
-        materials: dict[str, UnitMaterial] = {}
-        unit_bases: list[DraftUnitBasis] = []
-        for unit_id in draft_unit_ids(content, items):
-            effective = await asyncio.to_thread(
-                unit_rendition, versions, kind=kind, item=items[unit_id], unit_id=unit_id, narration=narration
-            )
-            try:
-                presented = await self._presentations.materialize_unit(
-                    project_name=project_name,
-                    resource_type=resource_type,
-                    resource_id=unit_id,
-                    variant=effective,
-                )
-            except PresentationUnavailableError as exc:
-                raise JianyingDraftError(
-                    "jianying_draft_presentation_unavailable",
-                    f"视频单元 {unit_id} 的素材无法用于剪映草稿：{exc}",
-                    unit_id=unit_id,
-                ) from exc
-            material, unit_basis = _unit_material_and_basis(presented)
-            materials[unit_id] = material
-            unit_bases.append(unit_basis)
-        return materials, unit_bases
 
     async def render(
         self, project_name: str, timeline_id: str, *, narration: DraftNarration, revision: int | None = None

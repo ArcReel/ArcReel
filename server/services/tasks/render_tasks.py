@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.edit_timeline.errors import EditTimelineError
-from lib.final_cut.basis import SUPPORTED_VARIANTS, FinalCutVariant, final_cut_artifact_path, final_cut_key
+from lib.final_cut.basis import FINAL_CUT_VARIANTS, FinalCutVariant, final_cut_artifact_path, final_cut_key
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutRender, FinalCutService
 from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
@@ -79,7 +79,7 @@ def jianying_draft_resource_id(timeline_id: str, narration: DraftNarration) -> s
 def timeline_render_resource_ids(timeline_id: str) -> dict[str, list[str]]:
     """一条剪辑时间线可能占用的全部渲染任务身份，按任务类型分组。"""
     return {
-        RENDER_FINAL_CUT_TASK_TYPE: [final_cut_resource_id(timeline_id, variant) for variant in SUPPORTED_VARIANTS],
+        RENDER_FINAL_CUT_TASK_TYPE: [final_cut_resource_id(timeline_id, variant) for variant in FINAL_CUT_VARIANTS],
         RENDER_JIANYING_DRAFT_TASK_TYPE: [
             jianying_draft_resource_id(timeline_id, narration) for narration in (WITHOUT_NARRATION, WITH_NARRATION)
         ],
@@ -124,14 +124,17 @@ type RenderTaskExecutor = Callable[[dict[str, Any], ProjectManager], Awaitable[d
 
 
 async def execute_final_cut_task(task: dict[str, Any], projects: ProjectManager) -> dict[str, Any]:
+    # 旁白与字幕取自呈现模型读侧，执行时才导入。
+    from server.services.presentation.timeline_units import TimelineUnitMaterials
+
     payload: Mapping[str, Any] = task.get("payload") or {}
-    variant = FinalCutVariant(narration=str(payload["narration"]), subtitles=str(payload["subtitles"]))
     revision = payload.get("revision")
-    result = await FinalCutService(projects).render(
+    result = await FinalCutService(projects, unit_materials=TimelineUnitMaterials(projects)).render(
         str(task["project_name"]),
         str(payload["timeline_id"]),
         revision=revision if isinstance(revision, int) else None,
-        variant=variant,
+        narration=payload["narration"],
+        subtitles=payload["subtitles"],
     )
     return final_cut_task_result(result)
 

@@ -17,6 +17,7 @@ const ISSUE_DOT: Record<EditTimelineIssueCode, string> = {
   narration_missing: "bg-danger",
   narration_overrun: "bg-warn",
   narration_source_collision: "bg-warn",
+  subtitle_missing_glyphs: "bg-warn",
 };
 
 interface ClipInspectorProps {

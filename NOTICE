@@ -77,4 +77,20 @@ ArcReel 依赖 Python 包 imageio-ffmpeg（BSD-2-Clause），其平台 wheel 再
 按 GNU 通用公共许可证授权（Linux 与 Windows 构建另启用 --enable-version3，即 GPL 第 3 版
 或更新版本），GPL 第 3 版全文见 LICENSES/GPL-3.0-or-later.txt。对应源码的获取方式见上。
 
+==== Third-party: Source Han Sans / 第三方组件：思源黑体 ====
+
+ArcReel bundles lib/subtitle_style/fonts/SourceHanSansCN-Bold.otf, the
+Source Han Sans CN Bold subset OTF from Adobe's source-han-sans release 2.005R
+(https://github.com/adobe-fonts/source-han-sans), and uses it to draw subtitles
+burned into final cuts. The font file is redistributed unmodified.
+
+Source Han Sans is Copyright 2014-2025 Adobe (http://www.adobe.com/), with
+Reserved Font Name 'Source'. It is licensed under the SIL Open Font License,
+Version 1.1; the license text is in lib/subtitle_style/fonts/LICENSE.txt.
+
+ArcReel 随附 lib/subtitle_style/fonts/SourceHanSansCN-Bold.otf，即 Adobe 思源黑体
+2.005R 发布版中的 CN Bold 子集 OTF，用于绘制烧入成片的字幕。字体文件原样再分发，
+未作修改。思源黑体按 SIL 开源字体许可证 1.1 版授权，许可证全文见
+lib/subtitle_style/fonts/LICENSE.txt。
+
 ==== End of Notices ====

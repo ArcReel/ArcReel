@@ -12,6 +12,15 @@ export type RenderArtifactStatus = "current" | "stale" | "missing" | "blocked";
 /** 出片的两种交付物。 */
 export type RenderKind = "final_cut" | "jianying_draft";
 
+/** 成片是否把字幕烧入画面。 */
+export type SubtitleMode = "burned_subtitles" | "no_subtitles";
+
+/** 出片选项：旁白版本两种交付物都有，烧入字幕只有成片。 */
+export interface RenderOptions {
+  narration: TimelineNarration;
+  subtitles: SubtitleMode;
+}
+
 /** 剪映版本：6 表示 6 及以上，5 表示 5.x。 */
 export type JianyingVersion = "5" | "6";
 
@@ -29,7 +38,7 @@ interface RenderArtifactStatusBase {
 
 export interface FinalCutStatus extends RenderArtifactStatusBase {
   narration: TimelineNarration;
-  subtitles: string;
+  subtitles: SubtitleMode;
   /** 只在文件存在时给出；走匿名媒体路由，可直接下载。 */
   download_url: string | null;
 }

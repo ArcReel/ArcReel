@@ -70,7 +70,9 @@ async def test_only_final_cuts_behind_their_timeline_are_listed(
     _install(timeline_project, tmp_path, "E1U2")
     rendered = await _create(timeline_project, "完整版")
     never_rendered = await _create(timeline_project, "快节奏版")
-    await FinalCutService(timeline_project).render("demo", rendered)
+    await FinalCutService(timeline_project).render(
+        "demo", rendered, narration="without_narration", subtitles="no_subtitles"
+    )
 
     current = await episode_edit_overview(timeline_project, "demo", 1)
     assert current.stale_final_cuts == ()

@@ -40,7 +40,8 @@ from pyJianYingDraft import (
 
 from lib.edit_timeline.transitions import transition_preset
 from lib.infra.path_safety import PathTraversalError, safe_join
-from lib.jianying_draft.placement import DraftPlacement, PlacedClip
+from lib.jianying_draft.placement import DraftPlacement, PlacedClip, stack_tracks
+from lib.subtitle_style.baseline import subtitle_style_baseline
 
 type JianyingVersion = Literal["5", "6"]
 
@@ -54,6 +55,8 @@ INDEX_FORMAT = 1
 SUBTITLE_TRACK = "字幕"
 NARRATION_TRACK = "旁白"
 SUBTITLE_FONT = FontType.SourceHanSansCN_Bold
+EXTRA_SUBTITLE_TRACK_RAISE = 0.2
+"""每多一条字幕轨，整轨字幕比上一条再上移的距离，以剪映纵向位置计（半个画布高为 1）。"""
 
 _STORED_SUFFIXES = frozenset({".mp4", ".webm", ".mov", ".avi", ".mkv", ".png", ".jpg", ".jpeg"})
 
@@ -75,25 +78,27 @@ def canvas_size(aspect_ratio: str) -> tuple[int, int]:
     return 1080, round(1080 * height_ratio / width_ratio / 2) * 2
 
 
-def _subtitle_style(width: int, height: int) -> tuple[TextStyle, TextBorder, TextShadow, ClipSettings]:
-    """字幕样式沿用现有基线：白字、粗体、描边、阴影；竖屏字号 12、横屏字号 8。
-
-    剪辑视图预览按这里的字号、位置与行宽换算字幕外观（frontend/src/components/canvas/edit/preview-tracks.ts ``subtitleLayout``）。
-    """
-    portrait = height > width
+def _subtitle_style(width: int, height: int) -> tuple[TextStyle, TextBorder, TextShadow, float]:
+    """字幕样式按样式基线（:mod:`lib.subtitle_style.baseline`）：白字、粗体、描边、阴影；最后一项是纵向位置。"""
+    baseline = subtitle_style_baseline(width, height)
     return (
         TextStyle(
-            size=12.0 if portrait else 8.0,
+            size=baseline.size,
             color=(1.0, 1.0, 1.0),
             align=1,
             bold=True,
             auto_wrapping=True,
-            max_line_width=0.82 if portrait else 0.6,
+            max_line_width=baseline.max_line_width,
         ),
         TextBorder(color=(0.0, 0.0, 0.0), width=30.0),
         TextShadow(color=(0.0, 0.0, 0.0), alpha=0.7, diffuse=8.0, distance=3.0, angle=-45.0),
-        ClipSettings(transform_y=-0.75 if portrait else -0.8),
+        baseline.transform_y,
     )
+
+
+def _track_name(base: str, index: int) -> str:
+    """同类的第一条轨用基本名，之后依次编号：旁白、旁白 2、旁白 3……"""
+    return base if index == 0 else f"{base} {index + 1}"
 
 
 class _AssetStaging:
@@ -169,6 +174,8 @@ def write_jianying_draft(
 ) -> None:
     """把摆好的片段写成剪映草稿产物；``hold_frames`` 按剪辑片段 ID 给出定格用的出点帧静帧。
 
+    始终至少有一条字幕轨，带旁白版本至少有一条旁白轨；旁白或字幕互相重叠时按需增轨，每条轨内不重叠。
+    新增的字幕轨整轨上移，第 n 条比第一条高 ``(n - 1) × EXTRA_SUBTITLE_TRACK_RAISE``。
     草稿目录与素材暂存都放在 ``workspace`` 下，由调用方负责清理。
     """
     root = workspace
@@ -176,9 +183,13 @@ def write_jianying_draft(
     staging.directory.mkdir()
     (root / "drafts").mkdir()
     script = draft.DraftFolder(str(root / "drafts")).create_draft(DRAFT_DIR, width=width, height=height)
-    tracks = [TrackSpec(TrackType.video), TrackSpec(TrackType.text, SUBTITLE_TRACK)]
-    if with_narration_track:
-        tracks.append(TrackSpec(TrackType.audio, NARRATION_TRACK))
+    subtitle_tracks = stack_tracks(placement.subtitles) or ((),)
+    narration_tracks = (stack_tracks(placement.narrations) or ((),)) if with_narration_track else ()
+    tracks = [
+        TrackSpec(TrackType.video),
+        *(TrackSpec(TrackType.text, _track_name(SUBTITLE_TRACK, index)) for index in range(len(subtitle_tracks))),
+        *(TrackSpec(TrackType.audio, _track_name(NARRATION_TRACK, index)) for index in range(len(narration_tracks))),
+    ]
     script.append_tracks(tracks)
 
     for clip in placement.clips:
@@ -205,30 +216,33 @@ def write_jianying_draft(
         for segment in segments:
             script.add_segment(segment)
 
-    for narration in placement.narrations:
-        script.add_segment(
-            AudioSegment(
-                AudioMaterial(staging.project_file(narration.audio_path)),
-                trange(narration.start_us, narration.duration_us),
-                source_timerange=trange(0, narration.duration_us),
-            ),
-            NARRATION_TRACK,
-        )
+    for index, track in enumerate(narration_tracks):
+        for narration in track:
+            script.add_segment(
+                AudioSegment(
+                    AudioMaterial(staging.project_file(narration.audio_path)),
+                    trange(narration.start_us, narration.duration_us),
+                    source_timerange=trange(0, narration.duration_us),
+                ),
+                _track_name(NARRATION_TRACK, index),
+            )
 
-    style, border, shadow, position = _subtitle_style(width, height)
-    for subtitle in placement.subtitles:
-        script.add_segment(
-            TextSegment(
-                text=subtitle.text,
-                timerange=trange(subtitle.start_us, subtitle.duration_us),
-                font=SUBTITLE_FONT,
-                style=style,
-                border=border,
-                shadow=shadow,
-                clip_settings=position,
-            ),
-            SUBTITLE_TRACK,
-        )
+    style, border, shadow, transform_y = _subtitle_style(width, height)
+    for index, track in enumerate(subtitle_tracks):
+        position = ClipSettings(transform_y=transform_y + index * EXTRA_SUBTITLE_TRACK_RAISE)
+        for subtitle in track:
+            script.add_segment(
+                TextSegment(
+                    text=subtitle.text,
+                    timerange=trange(subtitle.start_us, subtitle.duration_us),
+                    font=SUBTITLE_FONT,
+                    style=style,
+                    border=border,
+                    shadow=shadow,
+                    clip_settings=position,
+                ),
+                _track_name(SUBTITLE_TRACK, index),
+            )
     script.save()
 
     draft_dir = root / "drafts" / DRAFT_DIR

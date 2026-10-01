@@ -747,7 +747,8 @@ MESSAGES = {
     "edit_timeline_revision_unchanged": "Phiên bản sửa {revision} có nội dung giống phiên bản mới nhất, nên không cần khôi phục",
     "edit_timeline_render_in_progress": "Dòng thời gian dựng này có tác vụ kết xuất bản dựng hoàn chỉnh hoặc bản nháp Jianying đang chờ hoặc đang chạy ({task_id}); hãy xóa sau khi tác vụ kết thúc",
     # Final cut
-    "final_cut_variant_unsupported": "Hiện chỉ có thể kết xuất video thành phẩm không có lời dẫn và không ghi phụ đề vào hình",
+    "final_cut_narration_unavailable": "Chỉ dự án lồng tiếng TTS mới kết xuất được video thành phẩm có lời dẫn",
+    "final_cut_presentation_unavailable": "Âm thanh lời dẫn hoặc phụ đề của đơn vị video {unit_id} không thể dùng trong video thành phẩm; hãy kiểm tra âm thanh lời dẫn rồi kết xuất lại",
     "final_cut_blocked": "Dòng thời gian dựng có vấn đề chặn việc kết xuất video thành phẩm, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi kết xuất lại",
     "final_cut_content_unsupported": "Video thành phẩm chưa hỗ trợ nhạc nền; chỉ kết xuất được dòng thời gian dựng không có nhạc nền",
     "final_cut_empty": "Dòng thời gian dựng không có đoạn nào để kết xuất",

@@ -24,7 +24,7 @@ from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.rendered_artifact import commit_rendered_artifact
 from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
-from lib.final_cut.basis import DEFAULT_VARIANT, final_cut_artifact_path, final_cut_key
+from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_cut_key
 from lib.i18n import _
 from lib.infra.validation_messages import default_translate
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
@@ -338,7 +338,9 @@ class TestProjectArchiveService:
         )
         timeline_id = created.timeline.id
         rendered = {
-            final_cut_key(1, timeline_id, DEFAULT_VARIANT): final_cut_artifact_path(1, timeline_id, DEFAULT_VARIANT),
+            final_cut_key(1, timeline_id, FinalCutVariant()): final_cut_artifact_path(
+                1, timeline_id, FinalCutVariant()
+            ),
             jianying_draft_key(1, timeline_id, "with_narration"): jianying_draft_artifact_path(
                 1, timeline_id, "with_narration"
             ),
