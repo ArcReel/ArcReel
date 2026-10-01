@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from arcreel_market_core.video_backend_contract import ProviderJobStatus
@@ -36,6 +37,7 @@ IMAGE_POLL_TIMEOUT_SECONDS = 1800
 #: 图片定义 ``capabilities`` 节的字段 → 端点的图片能力。
 _IMAGE_CAPABILITY_BY_FIELD: Mapping[str, ImageCapability] = {
     "text_to_image": ImageCapability.TEXT_TO_IMAGE,
+    "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
 }
 
 
@@ -113,7 +115,9 @@ class DeclarativeImageBackend:
 
     @property
     def max_reference_images(self) -> int:
-        return 0
+        """定义声明的参考图上限；未声明时为 ``0``。校验器保证声明了图生图就有正数上限。"""
+        value = (self._definition.get("capabilities") or {}).get("max_reference_images")
+        return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         context = self._engine.request_context(
@@ -123,7 +127,8 @@ class DeclarativeImageBackend:
                 "resolution": request.image_size,
                 "seed": request.seed,
             },
-            {},
+            # 编排层已按 max_reference_images 裁剪并提示；这里的截断只是兜底，超出的图没有落点。
+            {"reference_images": [Path(ref.path) for ref in request.reference_images[: self.max_reference_images]]},
             require_declared_inputs=True,
         )
         call = JobCall(

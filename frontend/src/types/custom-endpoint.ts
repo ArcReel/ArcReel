@@ -95,10 +95,14 @@ export interface EndpointResultSpec {
   };
 }
 
-/** 能力字段按媒体类型分集合：视频定义写 VideoCapabilities 同名字段，图片定义写 text_to_image。 */
+/**
+ * 能力字段按媒体类型分集合：视频定义写 VideoCapabilities 同名字段，
+ * 图片定义写 text_to_image、image_to_image 与 max_reference_images。
+ */
 export interface EndpointCapabilities {
   text_to_video?: boolean;
   text_to_image?: boolean;
+  image_to_image?: boolean;
   first_frame?: boolean;
   last_frame?: boolean;
   max_reference_images?: number;

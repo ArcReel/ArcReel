@@ -1,0 +1,68 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.2.0",
+  "media_type": "image",
+  "meta": {
+    "name": "Generic Image Submit + Poll",
+    "author": "ArcReel",
+    "version": "1.0.0",
+    "description": "OpenAI 风格路径、异步任务语义的图片协议骨架：提交拿 task_id，按 task_id 轮询状态，成功后取图片地址。参考图可选，同一份定义同时用于文生图与图生图。字段名与取值路径按供应商文档逐条替换。"
+  },
+  "auth": {
+    "headers": {
+      "Authorization": "Bearer {{ api_key }}"
+    }
+  },
+  "inputs": {
+    "reference_images": {
+      "source": "reference_images",
+      "encoding": "data_uri"
+    }
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/v1/images/generations",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "size": "{{ aspect_ratio }}",
+      "resolution": "{{ resolution }}",
+      "n": 1,
+      "image_urls": [
+        {
+          "$each": {
+            "in": "inputs.reference_images",
+            "as": "image",
+            "item": "{{ image }}"
+          }
+        }
+      ]
+    },
+    "extract": {
+      "task_id": ["$.data[0].task_id", "$.task_id"],
+      "error": ["$.error.message", "$.message"]
+    }
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/v1/tasks/{{ task_id }}",
+    "extract": {
+      "status": ["$.data.status"],
+      "image_url": ["$.data.result.images[0].url[0]"],
+      "error": ["$.data.error.message", "$.error.message"]
+    }
+  },
+  "status_map": {
+    "pending": "queued",
+    "submitted": "queued",
+    "processing": "running",
+    "completed": "succeeded",
+    "failed": "failed",
+    "cancelled": "failed"
+  },
+  "capabilities": {
+    "text_to_image": true,
+    "image_to_image": true,
+    "max_reference_images": 4
+  }
+}

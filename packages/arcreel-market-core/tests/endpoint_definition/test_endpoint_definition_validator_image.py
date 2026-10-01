@@ -132,3 +132,73 @@ def test_image_definition_may_default_its_image_variables():
     definition["enum_maps"] = {"resolution": {"1K": "1k", "2K": "2k"}}
 
     assert validate_definition(definition).valid
+
+
+def _with_reference_images(definition: dict[str, Any], *, required: bool = False) -> None:
+    definition["inputs"] = {"refs": {"source": "reference_images", "encoding": "data_uri", "required": required}}
+    definition["submit"]["body"]["image_urls"] = [
+        {"$each": {"in": "inputs.refs", "as": "image", "item": "{{ image }}"}}
+    ]
+
+
+def test_image_definition_may_declare_both_text_to_image_and_image_to_image():
+    definition = image_endpoint_definition(
+        capabilities={"text_to_image": True, "image_to_image": True, "max_reference_images": 4}
+    )
+    _with_reference_images(definition)
+
+    diagnostics = validate_definition(definition)
+
+    assert diagnostics.errors == ()
+    assert diagnostics.warnings == ()
+
+
+def test_image_to_image_only_definition_is_accepted():
+    definition = image_endpoint_definition(capabilities={"image_to_image": True, "max_reference_images": 1})
+    _with_reference_images(definition, required=True)
+
+    assert validate_definition(definition).valid
+
+
+def test_image_to_image_without_a_reference_image_input_is_rejected():
+    definition = image_endpoint_definition(
+        capabilities={"text_to_image": True, "image_to_image": True, "max_reference_images": 4}
+    )
+
+    assert ("capabilities.image_to_image", "capability_declared_without_input") in _codes(
+        validate_definition(definition)
+    )
+
+
+def test_reference_image_input_without_image_to_image_is_rejected():
+    definition = image_endpoint_definition()
+    _with_reference_images(definition)
+
+    assert ("capabilities.image_to_image", "capability_input_without_declaration") in _codes(
+        validate_definition(definition)
+    )
+
+
+@pytest.mark.parametrize(
+    ("capabilities", "path"),
+    [
+        ({"text_to_image": True, "image_to_image": True}, "capabilities.image_to_image"),
+        ({"text_to_image": True, "image_to_image": True, "max_reference_images": 0}, "capabilities.image_to_image"),
+        ({"text_to_image": True, "max_reference_images": 2}, "capabilities.max_reference_images"),
+    ],
+)
+def test_image_to_image_and_its_reference_limit_are_declared_together(capabilities: dict[str, object], path: str):
+    definition = image_endpoint_definition(capabilities=capabilities)
+    if capabilities.get("image_to_image"):
+        _with_reference_images(definition)
+
+    assert (path, "capability_incoherent") in _codes(validate_definition(definition))
+
+
+def test_text_to_image_with_a_required_reference_image_input_is_rejected():
+    definition = image_endpoint_definition(
+        capabilities={"text_to_image": True, "image_to_image": True, "max_reference_images": 4}
+    )
+    _with_reference_images(definition, required=True)
+
+    assert ("capabilities.text_to_image", "capability_incoherent") in _codes(validate_definition(definition))

@@ -6,7 +6,7 @@ import { EndpointForm } from "./EndpointForm";
 
 const IMAGE_DEFINITION: EndpointDefinition = {
   kind: "declarative",
-  schema_version: "1.1.0",
+  schema_version: "1.2.0",
   media_type: "image",
   meta: { name: "Async Image", author: "ArcReel", version: "1.0.0" },
   auth: { headers: { Authorization: "Bearer {{ api_key }}" } },
@@ -38,5 +38,19 @@ describe("EndpointForm", () => {
     expect(screen.queryByText("视频地址")).not.toBeInTheDocument();
     expect(screen.queryByText("文生视频")).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "文生图" })).toBeChecked();
+  });
+
+  it("declares image-to-image with its reference limit and adds a reference image input", () => {
+    const onChange = vi.fn();
+    render(<EndpointForm definition={IMAGE_DEFINITION} onChange={onChange} readOnly={false} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "图生图" }));
+    expect(onChange.mock.calls[0][0].capabilities).toEqual({ text_to_image: true, image_to_image: true });
+
+    fireEvent.change(screen.getByLabelText("参考图上限"), { target: { value: "4" } });
+    expect(onChange.mock.calls[1][0].capabilities).toEqual({ text_to_image: true, max_reference_images: 4 });
+
+    fireEvent.click(screen.getByRole("button", { name: "添加素材" }));
+    expect(onChange.mock.calls[2][0].inputs).toEqual({ "": { source: "reference_images", encoding: "data_uri" } });
   });
 });

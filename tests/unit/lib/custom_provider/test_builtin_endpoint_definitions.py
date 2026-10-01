@@ -63,9 +63,12 @@ def test_shipped_definition_passes_the_shared_validator(path: Path):
     assert diagnostics.valid, [issue.to_payload(default_translate) for issue in diagnostics.errors]
 
 
-def test_example_template_ships_exactly_one_file():
-    """示例模板首期只留「通用提交+轮询」一份：多一份就要回答「新建表单该预填哪一份」。"""
-    assert [p.name for p in sorted(EXAMPLE_TEMPLATES_DIR.glob("*.json"))] == ["generic-submit-poll.json"]
+def test_example_templates_ship_one_video_and_one_image_skeleton():
+    """示例模板每种媒体类型一份「通用提交+轮询」，新建表单的模板选择器逐份列出。"""
+    assert [p.name for p in sorted(EXAMPLE_TEMPLATES_DIR.glob("*.json"))] == [
+        "generic-image-submit-poll.json",
+        "generic-submit-poll.json",
+    ]
 
 
 def test_shipped_builtin_definitions_are_registered_as_declarative_endpoints():

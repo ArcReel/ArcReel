@@ -58,7 +58,7 @@ from .template_engine import enum_map_key
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
 
 #: 定义格式自身的版本；写入时不改写文件里的 ``schema_version``，校验器也不做定义迁移。
-CURRENT_SCHEMA_VERSION = "1.1.0"
+CURRENT_SCHEMA_VERSION = "1.2.0"
 
 #: 视频定义请求模板里随时可用的保留变量。``width`` / ``height`` 由比例与分辨率派生，不接受参数。
 BASE_VARIABLES = frozenset(
@@ -138,10 +138,10 @@ MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
         variables=frozenset({"base_url", "model", "prompt", "aspect_ratio", "resolution", "seed", "width", "height"}),
         enum_map_variables=frozenset({"aspect_ratio", "resolution"}),
         default_value_types={"aspect_ratio": str, "resolution": str, "seed": int},
-        input_sources=frozenset(),
-        capabilities=frozenset({"text_to_image"}),
+        input_sources=frozenset({"reference_images"}),
+        capabilities=frozenset({"text_to_image", "image_to_image", "max_reference_images"}),
         artifact_keys=("image_url",),
-        required_capabilities=("text_to_image",),
+        required_capabilities=("text_to_image", "image_to_image"),
     ),
 }
 
@@ -642,9 +642,60 @@ class _SemanticChecker:
             )
         if self._media_type == "video":
             self._check_video_capabilities(capabilities)
+        else:
+            self._check_image_capabilities(capabilities)
+
+    def _used_sources(self) -> set[object]:
+        return {decl.get("source") for name, decl in self._inputs.items() if name in self._referenced_inputs}
+
+    def _check_image_capabilities(self, capabilities: Mapping[str, Any]) -> None:
+        """图片能力显式声明，不从输入推导；声明与请求形状、参考图上限三者须互相一致。"""
+        image_to_image = capabilities.get("image_to_image") is True
+        path = "capabilities.image_to_image"
+        uses_reference_images = "reference_images" in self._used_sources()
+        if image_to_image and not uses_reference_images:
+            self._error(
+                path,
+                DefinitionErrorCode.CAPABILITY_DECLARED_WITHOUT_INPUT,
+                capability="image_to_image",
+                source="reference_images",
+            )
+        elif not image_to_image and uses_reference_images:
+            self._error(
+                path,
+                DefinitionErrorCode.CAPABILITY_INPUT_WITHOUT_DECLARATION,
+                capability="image_to_image",
+                source="reference_images",
+            )
+
+        # 参考图上限是 i2i 的一部分：编排层按它裁剪参考图，缺了它 i2i 请求带几张图就没有边界。
+        has_limit = _capability_is_on("max_reference_images", capabilities.get("max_reference_images"))
+        if image_to_image and not has_limit:
+            self._error(
+                path,
+                DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                capability="image_to_image",
+                requirement="max_reference_images > 0",
+            )
+        elif has_limit and not image_to_image:
+            self._error(
+                "capabilities.max_reference_images",
+                DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                capability="max_reference_images",
+                requirement="image_to_image = true",
+            )
+
+        # 文生图请求不带参考图：必需的参考图输入会让每一次文生图在提交前就判缺素材失败。
+        if capabilities.get("text_to_image") is True and requires_image_input(self._inputs):
+            self._error(
+                "capabilities.text_to_image",
+                DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                capability="text_to_image",
+                requirement="inputs.*.required = false",
+            )
 
     def _check_video_capabilities(self, capabilities: Mapping[str, Any]) -> None:
-        used_sources = {decl.get("source") for name, decl in self._inputs.items() if name in self._referenced_inputs}
+        used_sources = self._used_sources()
         for capability, source in CAPABILITY_SOURCE_PAIRS:
             declared = _capability_is_on(capability, capabilities.get(capability))
             path = join_path("capabilities", capability)
