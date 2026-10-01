@@ -310,6 +310,18 @@ jobs: # zizmor: ignore[excessive-permissions]  # 理由
     ]
 
 
+def test_every_directive_comment_on_a_line_is_checked(repo: Path) -> None:
+    _write(
+        repo,
+        "frontend/src/pair.ts",
+        """/* eslint-disable-next-line no-alert -- 理由 */ /* eslint-disable-next-line no-console */
+/* eslint-disable-next-line no-alert -- 理由 */ /* eslint-disable-next-line no-console -- 理由 */
+""",
+    )
+
+    assert _suppression_lines(repo) == [("frontend/src/pair.ts", 1)]
+
+
 def test_directive_text_inside_string_literals_is_not_a_suppression(repo: Path) -> None:
     _write(
         repo,
@@ -317,6 +329,7 @@ def test_directive_text_inside_string_literals_is_not_a_suppression(repo: Path) 
         """const a = "// eslint-disable-next-line no-console";
 const b = '/* eslint-disable no-console */';
 const c = `/** @public */`;
+/* 注释 */ const d = "// eslint-disable-next-line no-console";
 foo("it's"); // eslint-disable-line no-console
 """,
     )
@@ -331,7 +344,7 @@ on: # zizmor: ignore[dangerous-triggers]
 
     assert _suppression_lines(repo) == [
         (".github/workflows/sample.yml", 3),
-        ("frontend/src/sample.ts", 4),
+        ("frontend/src/sample.ts", 5),
     ]
 
 

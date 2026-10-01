@@ -318,9 +318,9 @@ YAML_SUFFIXES = frozenset({".yml", ".yaml"})
 
 _PY_DIRECTIVE = re.compile(r"#\s*(?:noqa\b(?::\s*[\w, ]+)?|(?P<tool>pyright|type|deptry):\s*ignore(?:\[[^\]]*\])?)")
 _REGISTRATION_IGNORE = re.compile(r"#\s*pyright:\s*ignore\[\s*reportUnusedFunction\s*\]")
-_ESLINT_DIRECTIVE = re.compile(r"(?://|/\*)\s*eslint-disable(?:-next-line|-line)?\b(?P<rest>.*)")
-_KNIP_PUBLIC = re.compile(r"(?:/\*\*|^\s*\*)[^@]*@public\b(?P<rest>.*)")
-_ZIZMOR_DIRECTIVE = re.compile(r"#\s*zizmor:\s*ignore(?:\[[^\]]*\])?(?P<rest>.*)")
+_ESLINT_DIRECTIVE = re.compile(r"(?://|/\*)\s*eslint-disable(?:-next-line|-line)?\b")
+_KNIP_PUBLIC = re.compile(r"(?:/\*\*|^\s*\*)(?:(?!\*/)[^@])*@public\b")
+_ZIZMOR_DIRECTIVE = re.compile(r"#\s*zizmor:\s*ignore(?:\[[^\]]*\])?")
 
 
 def _suppression_files(root: Path) -> Iterator[Path]:
@@ -395,10 +395,10 @@ def _python_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
         out.append(Violation("SUPPRESSION-REASON", rel, token.start[0], guidance))
 
 
-def _inside_string(prefix: str, *, yaml: bool) -> bool:
-    """逐字符扫描同一行内指令前的文本，判断指令是否落在字符串字面量里；先遇到注释即视为在注释中。
+def _in_code(prefix: str, *, yaml: bool) -> bool:
+    """逐字符扫描同一行内指令前的文本，判断指令起点是否位于代码中，而不是字符串字面量或注释正文里。
 
-    只看单行：跨行的模板字符串与 YAML 块标量不在识别范围内。
+    只看单行：跨行的模板字符串、块注释与 YAML 块标量不在识别范围内。
     """
     quotes = "\"'" if yaml else "\"'`"
     quote: str | None = None
@@ -412,12 +412,18 @@ def _inside_string(prefix: str, *, yaml: bool) -> bool:
                 quote = None
         elif c in quotes:
             quote = c
-        else:
-            comment = c == "#" and (i == 0 or prefix[i - 1].isspace()) if yaml else prefix.startswith(("//", "/*"), i)
-            if comment:
+        elif yaml:
+            if c == "#" and (i == 0 or prefix[i - 1].isspace()):
                 return False
+        elif prefix.startswith("//", i):
+            return False
+        elif prefix.startswith("/*", i):
+            close = prefix.find("*/", i + 2)
+            if close < 0:
+                return False
+            i = close + 1
         i += 1
-    return quote is not None
+    return quote is None
 
 
 def _text_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
@@ -435,12 +441,13 @@ def _text_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
         ]
     for n, line in enumerate(source.split("\n"), 1):
         for pattern, reason, guidance in checks:
-            match = pattern.search(line)
-            if match is None or _inside_string(line[: match.start()], yaml=yaml):
-                continue
-            rest = match["rest"].split("*/", 1)[0]
-            if not re.search(reason, rest):
-                out.append(Violation("SUPPRESSION-REASON", rel, n, guidance))
+            for match in pattern.finditer(line):
+                if not _in_code(line[: match.start()], yaml=yaml):
+                    continue
+                rest = line[match.end() :].split("*/", 1)[0]
+                if not re.search(reason, rest):
+                    out.append(Violation("SUPPRESSION-REASON", rel, n, guidance))
+                    break
 
 
 def check_suppression_reasons(root: Path, out: list[Violation]) -> None:
