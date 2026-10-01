@@ -193,8 +193,9 @@ class WorkflowContent(BaseModel):
     集级字段只在有目标集时有值。``episode_plan_stale`` 表示该集的集规划状态为 stale、
     脚本规划尚待重建：它只在现状里陈述，不进建议的下一步。
 
-    ``episode_complete`` 是目标集已完成（视频齐全且至少有一条剪辑时间线）；``project_complete``
-    只在不指定集的查询里出现：每集都完成、没有待重新规划的集，且整本源文没有剩余。
+    ``episode_complete`` 是目标集已完成（判定见 ``is_episode_complete``）；完成的集仍可能有集内建议的
+    下一步，例如待编写条目或缺资产图。``project_complete`` 只在不指定集的查询里出现：每集都完成、
+    没有待重新规划的集，且整本源文没有剩余。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -254,14 +255,18 @@ class WorkflowStatus(BaseModel):
 
 #: 剪辑时间线目录读不出、或有时间线文件无法解析时记下的 issue 码。
 INVALID_EDIT_TIMELINES_CODE = "invalid_edit_timelines"
-#: 一集完成（视频齐全且至少有一条剪辑时间线）时 ``next_action`` 的理由；此时下一步为 ``none``。
+#: 一集完成且集内没有别的建议动作时 ``next_action`` 的理由；此时下一步为 ``none``。
 EPISODE_COMPLETE_REASON = "episode has an edit timeline"
 #: 查询范围内每一集都完成、源文也已排布完时 ``next_action`` 的理由。
 ALL_EPISODES_COMPLETE_REASON = "every episode has an edit timeline"
 
 
-def episode_complete(status: WorkflowStatus) -> bool:
-    """集状态是否已走到末尾：视频齐全，且该集至少有一条剪辑时间线。"""
+def workflow_finished(status: WorkflowStatus) -> bool:
+    """建议的下一步已走到末尾：集查询里是一集完成且集内没有别的建议动作，项目查询里是全部完成。
+
+    这不是「一集完成」的判定：完成的集仍可能有待编写条目等集内建议，那一集的完成看
+    ``content.episode_complete``。
+    """
 
     return status.next_action.type is WorkflowActionType.NONE and status.next_action.reason in {
         EPISODE_COMPLETE_REASON,
@@ -299,6 +304,16 @@ class ArtifactCount(BaseModel):
     def of(cls, collection: Mapping[str, Any], *, total: int) -> ArtifactCount:
         stale = len(collection["stale_ids"])
         return cls(total=total, available=len(collection["current_ids"]) + stale, stale=stale)
+
+
+def is_episode_complete(videos: ArtifactCount, *, has_edit_timeline: bool) -> bool:
+    """一集完成：视频齐全（可用 = current ∪ stale），且至少有一条剪辑时间线。
+
+    这是「一集完成」唯一的判定，集进度、项目卡、制作状态的 ``episode_complete`` 与跨集选择都用它。
+    分镜图、待编写条目、待重新规划的单元与资产图都不参与，它们只作为集内建议的下一步。
+    """
+
+    return videos.total > 0 and videos.available >= videos.total and has_edit_timeline
 
 
 class EpisodeSummary(BaseModel):
@@ -439,19 +454,13 @@ def _episode_production_status(
     *,
     has_edit_timeline: bool,
 ) -> EpisodeProductionStatus:
-    """分镜图与视频一起算：两者都是一集要交的产物，缺任何一件该集都还没做完。
-    产物齐全后还要至少有一条剪辑时间线才算完成（与制作状态的 ``episode_complete`` 同一口径）。
-
-    参考生视频没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
-    """
+    """完成按 ``is_episode_complete`` 判定；分镜图或视频有任何一件可用即为制作中。"""
 
     if script_status != "generated":
         return "draft"
-    available = storyboards.available + videos.available
-    total = storyboards.total + videos.total
-    if total > 0 and available >= total and has_edit_timeline:
+    if is_episode_complete(videos, has_edit_timeline=has_edit_timeline):
         return "completed"
-    if available:
+    if storyboards.available + videos.available:
         return "in_production"
     return "scripted"
 
@@ -1243,7 +1252,7 @@ class WorkflowStateService:
             if status.content is not None and status.content.episode_plan_stale:
                 first_stale = first_stale or status
                 continue
-            if not episode_complete(status):
+            if status.content is None or not status.content.episode_complete:
                 return status
             any_complete = True
         assert first is not None
@@ -1704,6 +1713,11 @@ class WorkflowStateService:
         operations[WorkflowActionType.CREATE_EDIT_TIMELINE] = admit_edit_timeline(
             available_videos=len(videos.get("current_ids", [])) + len(videos.get("stale_ids", []))
         )
+        content.episode_complete = (
+            formal_present
+            and videos.get("state") != "blocked"
+            and is_episode_complete(ArtifactCount.of(videos, total=len(items)), has_edit_timeline=bool(timeline_ids))
+        )
 
         operations[WorkflowActionType.PREPARE_SCRIPT_PLAN] = admit_script_plan(mode, episode_source=episode_source)
         operations[WorkflowActionType.GENERATE_SCRIPT] = admit_ad_script(
@@ -1863,7 +1877,6 @@ class WorkflowStateService:
                 target,
                 _action(WorkflowActionType.CREATE_EDIT_TIMELINE, "episode has no edit timeline", args=episode_args),
             )
-        content.episode_complete = True
         return respond(target, _action(WorkflowActionType.NONE, EPISODE_COMPLETE_REASON))
 
     @staticmethod
@@ -1970,8 +1983,9 @@ __all__ = [
     "WorkflowStateService",
     "WorkflowStatus",
     "WorkflowTarget",
-    "episode_complete",
+    "is_episode_complete",
     "migration_blocker",
     "migration_next_action",
     "planning_docs",
+    "workflow_finished",
 ]

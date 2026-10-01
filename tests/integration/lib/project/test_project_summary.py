@@ -435,8 +435,8 @@ def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -
     assert all(episode.videos.available == 0 for episode in summary.episodes)
 
 
-def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path) -> None:
-    """分镜图也是一集要交的产物：删掉一张，大厅与工作台一起把该集退回制作中。"""
+def test_deleting_a_storyboard_keeps_the_episode_completed(tmp_path: Path) -> None:
+    """一集完成只看视频与剪辑时间线：删掉一张分镜图，该集仍完成，补分镜图作为集内建议的下一步。"""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -450,9 +450,12 @@ def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path
     summary = service.get_project_summary("demo")
     episode = summary.episodes[0]
     assert (episode.storyboards.total, episode.storyboards.available) == (1, 0)
-    assert episode.status == "in_production"
-    assert summary.episodes_summary.completed == 0
-    assert service.get_status("demo").next_action.type == "generate_storyboards"
+    assert episode.status == "completed"
+    assert summary.episodes_summary.completed == 1
+    status = service.get_status("demo", episode=1)
+    assert status.content is not None
+    assert status.content.episode_complete
+    assert status.next_action.type == "generate_storyboards"
 
 
 def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) -> None:
