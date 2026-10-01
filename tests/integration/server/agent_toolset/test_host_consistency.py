@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import shutil
 from dataclasses import replace
@@ -67,6 +68,7 @@ from server.agent_toolset.script_authoring import (
 )
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
+from server.agent_toolset.video_review import INSPECT_VIDEO_UNITS
 from server.agent_toolset.video_versions import SELECT_VIDEO_VERSION
 from server.agent_toolset.workflow_completion import COMPLETE_SCRIPT_PLAN_REBUILD
 from server.remote_mcp import build_remote_mcp_server
@@ -81,6 +83,7 @@ from server.tool_runtime import (
     ToolRequest,
     get_generation_batch,
 )
+from tests.factories import install_current_video, make_test_clip
 
 _ABSENT_REVISION = "sha256-v1:" + "0" * 64
 
@@ -136,6 +139,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "complete_script_plan_rebuild": {"episode_id": 1, "expected_stale_script_plan_revision": None},
     "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
     "select_video_version": {"unit_id": "E1S01", "version": 1},
+    "inspect_video_units": {"unit_ids": ["E1S01"]},
     "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
     "list_timelines": {"episode": 1},
     "read_timeline": {"timeline": "tl-0000abcd"},
@@ -537,6 +541,7 @@ _PROBLEM_ON_SAMPLE = frozenset(
         PATCH_EPISODE_SCRIPT.name,
         SPLIT_GRIDS.name,
         SELECT_VIDEO_VERSION.name,
+        INSPECT_VIDEO_UNITS.name,
         READ_TIMELINE.name,
         EDIT_TIMELINE.name,
         RENAME_TIMELINE.name,
@@ -573,6 +578,39 @@ async def test_embedded_content_carries_the_same_json_as_remote_structured_conte
     assert set(remote.structuredContent) == {"problem" if remote.isError else declaration.domain_key}
     assert _embedded_json(embedded) == remote.structuredContent
     assert _texts(embedded) == _texts(remote)
+
+
+async def test_contact_sheets_reach_both_hosts_as_the_same_image_blocks(
+    seeded_projects: ProjectManager, services: Services
+) -> None:
+    script = {
+        "episode": 1,
+        "title": "E1",
+        "content_mode": "narration",
+        "segments": [{"segment_id": "E1S01", "novel_text": "旁白"}],
+    }
+    seeded_projects.save_script("demo", script, "episode_1.json", validate=False)
+    project_path = seeded_projects.get_project_path("demo")
+    clip = project_path / ".staging" / "E1S01.mp4"
+    make_test_clip(clip, size="160x90", fps=25, seconds=1, tone=False)
+    install_current_video(project_path, "videos", "E1S01", clip)
+    arguments = {"unit_ids": ["E1S01"], "frames": 4}
+
+    embedded = await _call_embedded(INSPECT_VIDEO_UNITS, arguments, services)
+    remote = await _call_remote(INSPECT_VIDEO_UNITS, {"project": "demo", **arguments}, services)
+
+    assert embedded.isError is remote.isError is False
+    assert _embedded_json(embedded) == remote.structuredContent
+    assert _texts(embedded) == _texts(remote)
+    embedded_images = [block for block in embedded.content if isinstance(block, types.ImageContent)]
+    remote_images = [block for block in remote.content if isinstance(block, types.ImageContent)]
+    assert len(embedded_images) == 1
+    assert [(image.mimeType, image.data) for image in embedded_images] == [
+        (image.mimeType, image.data) for image in remote_images
+    ]
+    assert embedded_images[0].mimeType == "image/jpeg"
+    assert base64.b64decode(embedded_images[0].data).startswith(b"\xff\xd8")
+    assert isinstance(embedded.content[-1], types.ImageContent)
 
 
 async def test_a_summary_precedes_the_structured_json_in_both_hosts(services: Services) -> None:

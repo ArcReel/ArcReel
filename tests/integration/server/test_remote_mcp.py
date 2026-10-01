@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
 
 import httpx
@@ -9,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import ImageContent
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state, register_current_artifact_if_provable
 from lib.artifacts.artifact_manifest import ArtifactKey
@@ -31,7 +33,7 @@ from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services, TextGenerationResult
-from tests.factories import make_video_request_facts, register_project_sources
+from tests.factories import install_current_video, make_test_clip, make_video_request_facts, register_project_sources
 from tests.fakes import refuse_resume_execution
 from tests.integration.server.agent_tool_support import ToolHarness
 
@@ -440,6 +442,41 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         assert declared.isError
         assert declared.structuredContent is not None
         assert declared.structuredContent["problem"]["code"] == "invalid_project"
+
+
+async def test_remote_inspect_video_units_returns_contact_sheets_as_image_content(
+    remote_server, remote_projects: ProjectManager
+) -> None:
+    project_dir = remote_projects.get_project_path("demo")
+    (project_dir / "scripts" / "episode_1.json").write_text(
+        '{"episode":1,"content_mode":"drama","scenes":[{"scene_id":"E1S01"}]}', encoding="utf-8"
+    )
+    clip = project_dir / ".staging" / "E1S01.mp4"
+    make_test_clip(clip, size="160x90", fps=25, seconds=1, tone=False)
+    install_current_video(project_dir, "videos", "E1S01", clip)
+
+    app = _mounted(remote_server)
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        result = await session.call_tool("inspect_video_units", {"project": "demo", "unit_ids": ["E1S01"], "frames": 3})
+
+    assert not result.isError
+    assert result.structuredContent is not None
+    (unit,) = result.structuredContent["inspect_video_units"]["units"]
+    assert unit["status"] == "ok"
+    images = [block for block in result.content if isinstance(block, ImageContent)]
+    assert [image.mimeType for image in images] == ["image/jpeg"]
+    assert base64.b64decode(images[0].data).startswith(b"\xff\xd8")
 
 
 async def test_remote_grid_list_only_returns_preview_without_a_batch(
