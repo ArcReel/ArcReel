@@ -1058,6 +1058,7 @@ async def test_split_grids_splits_each_ready_grid_and_explains_the_rest(
     ready = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
     in_flight = _saved_grid(fake_ctx, scene_ids[4:8], status="generating")
     broken = _saved_grid(fake_ctx, scene_ids[8:], status="completed")
+    await _queue_grid_task(fake_ctx, in_flight)
 
     async def fake_split(project_name: str, grid: Any) -> GridSplitResult:
         if grid.id == broken.id:
@@ -1076,6 +1077,25 @@ async def test_split_grids_splits_each_ready_grid_and_explains_the_rest(
     assert results[broken.id]["status"] == "failed"
     assert results[in_flight.id]["status"] == "in_progress"
     assert results["grid_000000000000"]["status"] == "not_found"
+
+
+async def test_split_grids_allows_a_record_left_generating_without_an_active_task(
+    fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """取消或重启留下 generating 记录但没有队列任务时，Agent 切分按孤儿放行。"""
+    from server.services.grid.grid_split import GridSplitResult
+
+    scene_ids = _enable_grid(fake_ctx, groups=1)
+    orphan = _saved_grid(fake_ctx, scene_ids[:4], status="generating")
+
+    async def fake_split(project_name: str, grid: Any) -> GridSplitResult:
+        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
+
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
+    out = await run_declared_tool("split_grids", fake_ctx, {"grid_ids": [orphan.id]})
+
+    assert out.problem is None
+    assert out.value["results"][0]["status"] == "split"
 
 
 @pytest.mark.parametrize("content", ['{{"id": "{grid_id}"}}', '{{"id": "{grid_id}", '], ids=["缺字段", "JSON 截断"])

@@ -27,6 +27,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver
+from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import (
     GenerationAction,
@@ -75,6 +76,7 @@ from server.services.grid.grid_submission import (
     ensure_grid_submittable,
     grid_artifact_key,
     grid_artifact_path,
+    grid_is_in_flight,
     grid_submission_section,
     plan_grid_submission,
     queue_active_grid_tasks,
@@ -486,7 +488,16 @@ async def split_grids(
 
         gm = GridManager(services.projects.get_project_path(scope.project_name))
         # 逐张顺序切分：每张都在项目元数据锁内提交，并发不会更快
-        results = [await _split_one(scope.project_name, gm, grid_id) for grid_id in grid_ids]
+        results = [
+            await _split_one(
+                scope.project_name,
+                gm,
+                grid_id,
+                queue=services.queue,
+                user_id=_caller.user_id,
+            )
+            for grid_id in grid_ids
+        ]
         lines = [
             f"- {r['grid_id']}：已切分落格 {len(r['updated_scene_ids'])} 格"
             + (f"，剧本中已不存在而跳过 {'、'.join(r['missing_scene_ids'])}" if r["missing_scene_ids"] else "")
@@ -501,29 +512,45 @@ async def split_grids(
         return tool_error(_SPLIT_OPERATION, exc)
 
 
-async def _split_one(project_name: str, gm: GridManager, grid_id: str) -> dict[str, Any]:
-    try:
-        grid = gm.get(grid_id)
-    except Exception as exc:
-        # 非法 ID 视同不存在；JSON 损坏、缺字段等记录读不出来时只记这一张失败，同批其余宫格照常切分
-        if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError):
-            grid = None
-        else:
-            logger.exception("宫格记录读取失败: grid_id=%s", grid_id)
-            return {"grid_id": grid_id, "status": "failed", "detail": "宫格记录无法读取，分镜图未改动"}
-    if grid is None:
-        return {"grid_id": grid_id, "status": "not_found", "detail": "宫格不存在"}
-    if grid.status in GRID_IN_FLIGHT_STATUSES:
-        return {"grid_id": grid_id, "status": "in_progress", "detail": "联合图仍在生成，等它完成并经用户审阅后再切分"}
-    try:
-        with project_change_source("worker"):
-            split = await apply_grid_split(project_name, grid)
-    except GridImageNotReadyError:
-        return {"grid_id": grid_id, "status": "not_ready", "detail": "尚无可用的联合图，先生成或在面板上传"}
-    except Exception:
-        # 单张失败不吞掉同批已切分的结果：切分整张原子回滚，逐张报告
-        logger.exception("宫格切分落格失败: grid_id=%s", grid_id)
-        return {"grid_id": grid_id, "status": "failed", "detail": "切分落格失败，分镜图未改动；可在宫格面板重试切分"}
+async def _split_one(
+    project_name: str,
+    gm: GridManager,
+    grid_id: str,
+    *,
+    queue: GenerationQueue,
+    user_id: str,
+) -> dict[str, Any]:
+    async with grid_submission_section(project_name):
+        try:
+            grid = gm.get(grid_id)
+        except Exception as exc:
+            # 非法 ID 视同不存在；JSON 损坏、缺字段等记录读不出来时只记这一张失败，同批其余宫格照常切分
+            if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError):
+                grid = None
+            else:
+                logger.exception("宫格记录读取失败: grid_id=%s", grid_id)
+                return {"grid_id": grid_id, "status": "failed", "detail": "宫格记录无法读取，分镜图未改动"}
+        if grid is None:
+            return {"grid_id": grid_id, "status": "not_found", "detail": "宫格不存在"}
+        if await grid_is_in_flight(grid, queue=queue, project_name=project_name, user_id=user_id):
+            return {
+                "grid_id": grid_id,
+                "status": "in_progress",
+                "detail": "联合图仍在生成，等它完成并经用户审阅后再切分",
+            }
+        try:
+            with project_change_source("worker"):
+                split = await apply_grid_split(project_name, grid)
+        except GridImageNotReadyError:
+            return {"grid_id": grid_id, "status": "not_ready", "detail": "尚无可用的联合图，先生成或在面板上传"}
+        except Exception:
+            # 单张失败不吞掉同批已切分的结果：切分整张原子回滚，逐张报告
+            logger.exception("宫格切分落格失败: grid_id=%s", grid_id)
+            return {
+                "grid_id": grid_id,
+                "status": "failed",
+                "detail": "切分落格失败，分镜图未改动；可在宫格面板重试切分",
+            }
     return {
         "grid_id": grid_id,
         "status": "split",

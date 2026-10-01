@@ -20,7 +20,7 @@ import { enqueueGridRegenerate } from "@/actions/generation";
 import { errMsg } from "@/utils/async";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
-import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
+import { isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
@@ -44,17 +44,19 @@ export interface GridPreviewPanelProps {
 // ---------------------------------------------------------------------------
 
 type GridStatus = GridGeneration["status"];
+type GridDisplayStatus = GridStatus | "interrupted";
 
-function StatusBadge({ status, t }: { status: GridStatus; t: (key: string) => string }) {
-  const STATUS_KEY: Record<GridStatus, string> = {
+function StatusBadge({ status, t }: { status: GridDisplayStatus; t: (key: string) => string }) {
+  const STATUS_KEY: Record<GridDisplayStatus, string> = {
     pending: "grid_status_pending",
     generating: "grid_status_generating",
     completed: "grid_status_completed",
     failed: "grid_status_failed",
+    interrupted: "grid_status_interrupted",
   };
 
   const configs: Record<
-    GridStatus,
+    GridDisplayStatus,
     { icon: React.ReactNode; cls: string }
   > = {
     pending: {
@@ -72,6 +74,10 @@ function StatusBadge({ status, t }: { status: GridStatus; t: (key: string) => st
     failed: {
       icon: <AlertCircle className="h-3 w-3" />,
       cls: "bg-red-950/60 text-red-400 border-red-700/40",
+    },
+    interrupted: {
+      icon: <AlertCircle className="h-3 w-3" />,
+      cls: "bg-amber-950/60 text-amber-300 border-amber-700/40",
     },
   };
 
@@ -182,6 +188,7 @@ export function GridPreviewPanel({
   // parent 透传的 refreshKey 是同一事件流（gridsRevision → listGrids → setRefreshKey）
   // 的下游产物，加入 deps 会导致每次事件多发一次冗余 GET /grids/{id}。
   const gridsRevision = useAppStore((s) => s.gridsRevision);
+  const tasksConnected = useTasksStore((s) => s.connected);
 
   // safeIdx already clamps selectedIdx to valid range; no effect needed
 
@@ -225,6 +232,13 @@ export function GridPreviewPanel({
   // 不再依赖本地 grid.status 快照（刷新才更新，提交后到下次 fetch 之间会误判为空闲）。
   const activeGridIds = useActiveResourceIds("grid", projectName);
   const isInProgress = selectedGridId != null && activeGridIds.has(selectedGridId);
+  const isInterrupted =
+    tasksConnected &&
+    selectedGridId != null &&
+    grid != null &&
+    (grid.status === "pending" || grid.status === "generating") &&
+    !isInProgress;
+  const displayStatus: GridDisplayStatus = isInterrupted ? "interrupted" : grid?.status ?? "pending";
   // 面板动作（重生成/切分/上传/版本恢复）互斥：都写同一份联合图或分镜格，
   // 任一在途时兄弟控件同步禁用。
   const actionBusy = regenerating || splitting || uploading || restoring || isInProgress;
@@ -383,7 +397,14 @@ export function GridPreviewPanel({
                       </div>
                     )}
 
-                    <StatusBadge status={grid.status} t={t} />
+                    <StatusBadge status={displayStatus} t={t} />
+
+                    {isInterrupted && (
+                      <span className="inline-flex items-center gap-1 rounded border border-amber-700/40 bg-amber-950/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-amber-300">
+                        <AlertCircle className="h-3 w-3" />
+                        {t("grid_interrupted_hint")}
+                      </span>
+                    )}
 
                     {grid.status === "completed" && grid.grid_image_path && !grid.split_at && (
                       <span className="inline-flex items-center gap-1 rounded border border-violet-700/40 bg-violet-950/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-violet-300">
@@ -525,7 +546,7 @@ export function GridPreviewPanel({
                   ) : (
                     <div className="flex h-24 items-center justify-center rounded-md border border-gray-800/40 bg-gray-900/30">
                       <span className="text-[10px] text-gray-700">
-                        {grid.status === "generating" || grid.status === "pending"
+                        {displayStatus === "generating" || displayStatus === "pending"
                           ? t("generating_grid")
                           : t("grid_no_image")}
                       </span>

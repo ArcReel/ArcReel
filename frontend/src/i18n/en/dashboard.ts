@@ -1483,6 +1483,8 @@ export default {
   'grid_status_generating': 'Generating',
   'grid_status_completed': 'Completed',
   'grid_status_failed': 'Failed',
+  'grid_status_interrupted': 'Interrupted',
+  'grid_interrupted_hint': 'The last generation was interrupted. You can regenerate it.',
   'grid_unsplit_hint': 'Not split yet',
   'grid_preview_title': 'Multi-grid Storyboard Preview',
   'grid_not_generated': 'Not generated',
