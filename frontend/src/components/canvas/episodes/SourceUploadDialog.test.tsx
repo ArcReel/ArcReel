@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
@@ -193,6 +194,35 @@ describe("SourceUploadDialog", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "上传 1 个文件" })).toBeEnabled());
     expect(onClose).not.toHaveBeenCalled();
     expect(listedNames()).toEqual(["a.txt", "b.txt", "x.txt"]);
+  });
+
+  it("keeps Tab inside the insertion confirmation opened over the upload dialog", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "uploadFile").mockResolvedValue({
+      success: false,
+      status: "confirmation_required",
+      impact: {
+        shifted: [],
+        changed_with_products: [],
+        changed_without_products: [1],
+        retired: [],
+        removed: [],
+        kind_stale: [],
+        text: "清单",
+      },
+      revision: "r1",
+    });
+    renderDialog({ initialFiles: [txt("x.txt")] });
+
+    fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
+    await screen.findByText("清单");
+
+    const confirm = within(screen.getByRole("dialog", { name: "插入「x.txt」" }));
+    expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus();
+    await user.tab();
+    expect(confirm.getByRole("button", { name: "插入" })).toHaveFocus();
+    await user.tab();
+    expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus();
   });
 
   it("skips files in unsupported formats", () => {

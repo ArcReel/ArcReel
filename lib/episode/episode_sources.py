@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import unicodedata
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
@@ -470,16 +470,30 @@ def cut_episode_source_files(project: Mapping[str, Any]) -> list[str]:
     return files
 
 
-def sync_source_snapshots(project_dir: Path, project: Mapping[str, Any], texts: Mapping[str, str]) -> None:
+def sync_source_snapshots(
+    project_dir: Path,
+    project: Mapping[str, Any],
+    texts: Mapping[str, str],
+    *,
+    refreshed: Collection[str] | None = None,
+) -> None:
     """让快照与账本一致：登记过切出集的文件写入 ``texts`` 里的规范化全文，其余快照删除。
 
-    ``texts`` 里没有的文件保留已有快照不动。
+    ``texts`` 里没有的文件保留已有快照不动。给出 ``refreshed`` 时，只有其中的文件可以覆盖在服务之外被改动过的
+    文件的快照；其余改动过的文件保留快照，留待更新分集账本时作为旧文本对齐。``project`` 的源文指纹须仍是本次
+    写入之前的记录。
     """
     wanted = cut_episode_source_files(project)
     snapshot_dir = project_dir / SOURCE_SNAPSHOTS_DIR
     for rel in wanted:
         text = texts.get(rel)
         if text is None:
+            continue
+        if (
+            refreshed is not None
+            and rel not in refreshed
+            and changed_outside_service(project_dir, project, SourceDoc(rel_path=rel, text=text))
+        ):
             continue
         path = source_snapshot_path(project_dir, rel)
         if path.is_symlink():

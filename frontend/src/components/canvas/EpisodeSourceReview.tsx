@@ -95,7 +95,7 @@ function EpisodeHeader({
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-text-4)" }}>
           {sourceName ? <span className="truncate">{sourceName}</span> : null}
-          {r?.start != null && r?.end != null ? (
+          {!crossesFiles && r?.start != null && r?.end != null ? (
             <>
               <span aria-hidden>·</span>
               <span className="num shrink-0">

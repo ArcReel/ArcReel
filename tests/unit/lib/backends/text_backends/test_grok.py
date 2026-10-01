@@ -138,3 +138,14 @@ class TestGenerate:
         assert result.text == "partial"
         assert result.truncated is True
         assert any("被截断" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize("finish_reason", ["REASON_MAX_LEN", "REASON_MAX_CONTEXT"])
+    async def test_sdk_truncation_reasons_count_as_truncated(self, backend, finish_reason):
+        """xai_sdk 的 Response.finish_reason 返回 FinishReason 的枚举名，输出上限与上下文上限都算截断。"""
+        mock_chat = MagicMock()
+        mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="partial", finish_reason=finish_reason))
+        backend._test_client.chat.create.return_value = mock_chat
+
+        result = await backend.generate(TextGenerationRequest(prompt="hi"))
+
+        assert result.truncated is True

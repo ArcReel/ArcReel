@@ -184,7 +184,7 @@ export type AdoptSourceFileTarget =
 
 /**
  * 手工切分的动作：切分、拆分、移动分界、与下一集合并、清除之后的切分。偏移是 `source_file` 内的码位偏移；
- * 拆分与移动分界缺省 `source_file` 时取这一集起点所在的文件。
+ * 缺省 `source_file` 时，拆分取这一集起点所在的文件，移动分界取这一集终点所在的文件。
  */
 export type ManualSplitAction =
   | { action: "cut"; source_file: string; end: number; title?: string }

@@ -43,7 +43,9 @@ from lib.episode.episode_ledger import (
     episodes_with_products,
     normalize_source_text,
     parse_positive_episode_num,
+    parse_source_range,
     source_range_value,
+    well_formed_ledger_entries,
 )
 from lib.episode.episode_paths import episode_source_path
 from lib.episode.episode_source_commands import register_whole_source_file
@@ -56,6 +58,7 @@ from lib.episode.episode_sources import (
     cut_episode_placements,
     cut_episode_source_files,
     discover_sources,
+    is_cut_episode,
     read_source_snapshot,
     remove_whole_source_file,
     span_text,
@@ -159,10 +162,10 @@ def _filename_rel(project: Mapping[str, Any], filename: str) -> str:
 
 
 def _entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
-    raw = project.get("episodes")
-    if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
+    entries = well_formed_ledger_entries(project)
+    if entries is None:
         raise SourceFileChangeError("ledger_invalid", "分集账本的形状异常，不能改动整本源文的文件")
-    return list(raw)
+    return entries
 
 
 def _spans(project: Mapping[str, Any], docs: list[SourceDoc]) -> dict[int, SourceSpan]:
@@ -305,7 +308,9 @@ def _write_text(path: Path, text: str, undo: ExitStack) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
-def _sync_snapshots(project_dir: Path, project: Mapping[str, Any], docs: list[SourceDoc], undo: ExitStack) -> None:
+def _sync_snapshots(
+    project_dir: Path, project: Mapping[str, Any], docs: list[SourceDoc], touched: Iterable[str], undo: ExitStack
+) -> None:
     snapshot_dir = project_dir / SOURCE_SNAPSHOTS_DIR
     if snapshot_dir.is_dir() and not snapshot_dir.is_symlink():
         for path in snapshot_dir.iterdir():
@@ -313,7 +318,7 @@ def _sync_snapshots(project_dir: Path, project: Mapping[str, Any], docs: list[So
                 _remember(path, undo)
     for doc in docs:
         _remember(snapshot_dir / Path(doc.rel_path).name, undo)
-    sync_source_snapshots(project_dir, project, {doc.rel_path: doc.text for doc in docs})
+    sync_source_snapshots(project_dir, project, {doc.rel_path: doc.text for doc in docs}, refreshed=set(touched))
 
 
 def _record_fingerprints(project: dict[str, Any], docs: list[SourceDoc], touched: Iterable[str]) -> None:
@@ -373,7 +378,7 @@ def _apply(
         if path.is_file() and not path.is_symlink():
             _remember(path, undo)
             path.unlink()
-    _sync_snapshots(project_dir, project, docs, undo)
+    _sync_snapshots(project_dir, project, docs, change.touched, undo)
     _record_fingerprints(project, docs, change.touched)
 
 
@@ -493,7 +498,8 @@ def delete_whole_source_file(
 ) -> SourceFileChangeOutcome:
     """删除整本源文文件 ``source/<filename>``：等同于删掉它的全部文字，再移出整本源文清单、删掉文件与原件备份。
 
-    文件在服务之外被改动过时同样可以删除。
+    文件在服务之外被改动过时同样可以删除。文件在盘上已缺失或读不出时，原文范围起点或终点记在它里面的切出集
+    整段按删除处理（读不到它的长度，跨进别的文件的部分也不保留）。
     """
 
     def plan(project_dir: Path, project: dict[str, Any]) -> _Change:
@@ -504,6 +510,15 @@ def delete_whole_source_file(
             remaps = remap_for_delete(docs, spans, rel=rel)
         else:
             remaps = [RangeRemap(episode=e, before=s, after=s, text_changed=False) for e, s in spans.items()]
+            remaps.extend(
+                RangeRemap(episode=episode, before=span, after=None, text_changed=True)
+                for entry in _entries(project)
+                if (episode := parse_positive_episode_num(entry.get("episode"))) is not None
+                and episode not in spans
+                and is_cut_episode(entry)
+                and (span := parse_source_range(entry)) is not None
+                and rel in (span.source_file, span.end_file)
+            )
 
         def commit(p: dict[str, Any], undo: ExitStack) -> None:
             remove_whole_source_file(p, rel)

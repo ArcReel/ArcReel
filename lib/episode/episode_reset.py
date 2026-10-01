@@ -499,7 +499,8 @@ def reset_episode_planning(
                 commit_plan,
                 archive_targets=archive_targets,
             )
-            sync_source_snapshots(project_dir, committed_project, snapshot_texts)
+            # 重置不改源文：在服务之外改动过的文件保留快照，留待更新分集账本时对齐
+            sync_source_snapshots(project_dir, committed_project, snapshot_texts, refreshed=())
         committed.append(
             EpisodeResetResult(
                 removed_episodes=[num for num in commit_plan.episode_nums if num not in retired_nums],

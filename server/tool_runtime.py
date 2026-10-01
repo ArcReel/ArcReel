@@ -45,7 +45,6 @@ from lib.episode.episode_paths import (
 from lib.episode.episode_planner import (
     CandidatePlanResult,
     EpisodePlanner,
-    EpisodePlanningError,
     LedgerStats,
     NoCutPointError,
     PlanResult,
@@ -2808,15 +2807,14 @@ async def _execute_plan_episodes(
         return ToolOutcome(
             problem=ToolProblem(
                 "episode_planning_no_cut_point",
-                f"❌ 分集规划失败：{exc}",
+                str(exc),
                 action=GenerationAction.FIX_INPUT,
                 params={"source_file": exc.source_file, "offset": exc.offset},
             )
         )
-    except (EpisodePlanningError, FileNotFoundError) as exc:
-        return ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc)))
     except Exception as exc:
-        return ToolOutcome(problem=_unexpected("plan_episodes", exc))
+        # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
+        return ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
     finally:
         if chain is not None:
             _STOPPED_PLANNING_WINDOWS.discard(str(chain.task["task_id"]))
@@ -3093,15 +3091,14 @@ async def _draft_replan_window(
         return ToolOutcome(
             problem=ToolProblem(
                 "episode_planning_no_cut_point",
-                f"❌ 重新规划失败：{exc}",
+                str(exc),
                 action=GenerationAction.FIX_INPUT,
                 params={"source_file": exc.source_file, "offset": exc.offset},
             )
         )
-    except (EpisodePlanningError, FileNotFoundError) as exc:
-        return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 重新规划失败：{exc}"))
     except Exception as exc:
-        return ToolOutcome(problem=_unexpected("plan_episodes", exc))
+        # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
+        return ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
     finally:
         _STOPPED_PLANNING_WINDOWS.discard(str(chain.task["task_id"]))
     done = "，已覆盖到整本源文结尾" if result.source_exhausted else ""

@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
@@ -45,7 +46,7 @@ function file(withEpisode: boolean): EpisodesViewFile {
 }
 
 function openMenuItem(name: string) {
-  fireEvent.click(screen.getByRole("button", { name: "中卷.txt 的操作" }));
+  fireEvent.click(screen.getByRole("button", { name: "「中卷.txt」的操作" }));
   fireEvent.click(screen.getByRole("menuitem", { name }));
 }
 
@@ -122,7 +123,7 @@ describe("SourceFileActions", () => {
   it("disables moving past either end of the file list", () => {
     render(<SourceFileActions projectName="demo" file={file(false)} index={0} total={1} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "中卷.txt 的操作" }));
+    fireEvent.click(screen.getByRole("button", { name: "「中卷.txt」的操作" }));
 
     expect(screen.getByRole("menuitem", { name: "上移" })).toBeDisabled();
     expect(screen.getByRole("menuitem", { name: "下移" })).toBeDisabled();
@@ -134,7 +135,7 @@ describe("SourceFileActions", () => {
     render(<SourceFileActions projectName="demo" file={file(true)} index={0} total={1} />);
 
     openMenuItem("编辑原文");
-    const area = await screen.findByRole("textbox", { name: "中卷.txt 的原文" });
+    const area = await screen.findByRole("textbox", { name: "「中卷.txt」的原文" });
     fireEvent.change(area, { target: { value: "第二章。夜雨潇潇。" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
@@ -142,12 +143,36 @@ describe("SourceFileActions", () => {
     await waitFor(() => expect(screen.queryByRole("textbox")).not.toBeInTheDocument());
   });
 
+  it("keeps Tab inside the impact confirmation opened over the editor", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("第二章。夜雨。");
+    vi.spyOn(API, "editSourceFile").mockResolvedValue({
+      status: "confirmation_required",
+      impact: { ...NO_IMPACT, changed_with_products: [2], text: "原文有变化、已有产物：夜雨" },
+      revision: "r1",
+    });
+    render(<SourceFileActions projectName="demo" file={file(true)} index={0} total={1} />);
+
+    openMenuItem("编辑原文");
+    const area = await screen.findByRole("textbox", { name: "「中卷.txt」的原文" });
+    fireEvent.change(area, { target: { value: "第二章。夜雨潇潇。" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await screen.findByText("原文有变化、已有产物：夜雨");
+
+    const confirm = within(screen.getAllByRole("dialog").at(-1)!);
+    expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus();
+    await user.tab();
+    expect(confirm.getByRole("button", { name: "保存" })).toHaveFocus();
+    await user.tab();
+    expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus();
+  });
+
   it("keeps only deletion available while the file was changed outside ArcReel", () => {
     render(
       <SourceFileActions projectName="demo" file={{ ...file(true), changed_outside: true }} index={1} total={3} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "中卷.txt 的操作" }));
+    fireEvent.click(screen.getByRole("button", { name: "「中卷.txt」的操作" }));
 
     for (const name of ["上移", "下移", "编辑原文", "替换为新文件"]) {
       expect(screen.getByRole("menuitem", { name })).toBeDisabled();

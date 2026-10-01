@@ -61,6 +61,19 @@ describe("EpisodeSourceReview", () => {
     expect(API.getSourceContent).toHaveBeenCalledWith("demo", "episode_1.txt");
   });
 
+  it("shows only the start and end files for an episode that spans two source files", () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("跨文件的原文");
+    const spanning = makeEpisode({
+      source_range: { source_file: "source/part_1.txt", start: 900, end: 120, end_file: "source/part_2.txt" },
+    });
+
+    render(<EpisodeSourceReview projectName="demo" episode={1} episodes={[spanning]} />);
+
+    expect(screen.getByText("part_1.txt – part_2.txt")).toBeInTheDocument();
+    expect(screen.queryByText("900–120")).not.toBeInTheDocument();
+    expect(screen.queryByText(/约 .* 字/)).not.toBeInTheDocument();
+  });
+
   it("shows a not-found message when a cut episode's source slice fetch fails", async () => {
     vi.spyOn(API, "getSourceContent").mockRejectedValue(new Error("404"));
 

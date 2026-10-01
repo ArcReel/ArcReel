@@ -32,12 +32,15 @@ function isDanger(impact: SourceFileImpact | undefined): boolean {
  * `run(title, confirmLabel, call)` 先以 `call(null)` 提交：没有受影响的集时服务端直接执行。需要确认时，确认框只呈现
  * 服务端成文的受影响集清单；确认后带上清单的 `revision` 再提交，清单在此期间变了时换成新清单再确认一次。
  * 返回执行后的响应，创作者取消时返回 null。请求出错时关闭确认框并把错误抛给调用方。
+ *
+ * 每次提交期间 `busy` 为 true，等待创作者确认期间为 false。上一次 `run` 尚未结束时再调用直接返回 null，不发请求。
  */
 export function useSourceFileChange() {
   const { t } = useTranslation("dashboard");
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
   const [busy, setBusy] = useState(false);
   const answer = useRef<((confirmed: boolean) => void) | null>(null);
+  const running = useRef(false);
 
   const ask = useCallback(
     (next: PendingConfirmation) =>
@@ -54,9 +57,19 @@ export function useSourceFileChange() {
       confirmLabel: string,
       call: (revision: string | null) => Promise<R>,
     ): Promise<R | null> => {
-      let reply = await call(null);
-      let changed = false;
+      if (running.current) return null;
+      running.current = true;
+      const submit = async (revision: string | null) => {
+        setBusy(true);
+        try {
+          return await call(revision);
+        } finally {
+          setBusy(false);
+        }
+      };
       try {
+        let reply = await submit(null);
+        let changed = false;
         while (reply.status === "confirmation_required") {
           const confirmed = await ask({
             title,
@@ -66,16 +79,12 @@ export function useSourceFileChange() {
             changed,
           });
           if (!confirmed) return null;
-          setBusy(true);
-          try {
-            reply = await call(reply.revision ?? null);
-          } finally {
-            setBusy(false);
-          }
+          reply = await submit(reply.revision ?? null);
           changed = true;
         }
         return reply;
       } finally {
+        running.current = false;
         answer.current = null;
         setPending(null);
       }

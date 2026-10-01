@@ -131,7 +131,7 @@ _MERGE_REJECTION_KEYS: dict[str, str] = {
 
 
 def merge_report_payload(report: AssetMergeReport) -> dict[str, Any]:
-    """合并报告的响应体，Web 与 Agent 共用同一份字段。"""
+    """合并资产路由的响应体：预览与执行共用同一份字段。"""
     return {
         "dry_run": report.dry_run,
         "source": report.source,
@@ -198,7 +198,7 @@ def build_asset_router(
     router = APIRouter()
     register_asset_prompt_preview_routes(router, spec=spec, pm_getter=pm_getter)
 
-    # 以下四个处理器由 @router.* 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
+    # 以下处理器由 @router.* 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
     # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @router.post(f"/projects/{{project_name}}/{spec.subdir}")
     async def add_entry(  # pyright: ignore[reportUnusedFunction]

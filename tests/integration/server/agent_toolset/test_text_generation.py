@@ -27,6 +27,7 @@ from server.tool_runtime import (
     generate_script_plan,
 )
 from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
+from tests.fakes import FakeTextGenerator
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     nr_source,
@@ -1431,18 +1432,7 @@ async def test_generate_episode_script_truncation_offers_the_way_out(fake_ctx: T
         json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
     )
 
-    class _TruncatingScriptGenerator:
-        project_json: ClassVar[dict[str, Any]] = {}
-        content_mode = "narration"
-
-        @classmethod
-        async def create(cls, _path, **_kwargs):
-            return cls()
-
-        async def generate(self, **_kwargs) -> Path:
-            raise _truncated()
-
-    monkeypatch.setattr(mod, "ScriptGenerator", _TruncatingScriptGenerator)
+    monkeypatch.setattr(mod.TextGenerator, "create", FakeTextGenerator(_truncated()).create)
     _prepare_script_admission(project_path)
 
     problem = problem_of(await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1}))

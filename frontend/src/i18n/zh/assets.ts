@@ -59,7 +59,7 @@ export default {
   "merge_derivative_created": "新建衍生「{{name}}」，资产图待生成。",
   "merge_derivative_existing": "保留方已有名为「{{name}}」的衍生，并入这个衍生，被并方的描述不保留。",
   "merge_derivatives_moved": "迁到保留方名下的衍生：{{names}}",
-  "merge_derivatives_folded": "保留方已有同名衍生、并入已有衍生的：{{names}}",
+  "merge_derivatives_folded": "并入保留方已有同名衍生的：{{names}}",
   "merge_discarded": "「{{name}}」的描述、资产图及版本历史、声音设置、原图和参考音频都不保留。合并后无法撤销。",
   "merge_confirm": "并入",
   "merging": "正在合并…",

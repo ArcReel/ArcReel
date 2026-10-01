@@ -9,8 +9,12 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
   );
 }
 
+// 按激活顺序排列的已激活 trap；只有栈顶（最后激活的）处理 Tab，叠在上层的对话框关闭后由下层接管。
+const activeTraps: object[] = [];
+
 /**
  * 将键盘焦点困在 ref 容器内（Tab / Shift+Tab 循环）。
+ * 多个 trap 同时激活时（对话框上再弹确认框），只有最后激活的那个处理 Tab。
  * 启用时把焦点移到容器内首个可聚焦元素；卸载时把焦点还给之前持有焦点的元素。
  * 例外：若 effect 触发时焦点已经在容器内（子组件在更深的 useEffect 里抢先调了
  * `someRef.current?.focus()`），保留它，避免反复夺焦。
@@ -39,7 +43,7 @@ export function useFocusTrap(
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
+      if (e.key !== "Tab" || activeTraps.at(-1) !== handleKeyDown) return;
       const items = getFocusable(container);
       if (items.length === 0) {
         e.preventDefault();
@@ -63,9 +67,11 @@ export function useFocusTrap(
 
     // ref 的 current 在 cleanup 跑时可能已被父组件覆盖；effect 内拷出来用。
     const explicitReturn = returnTargetRef?.current ?? null;
+    activeTraps.push(handleKeyDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      activeTraps.splice(activeTraps.indexOf(handleKeyDown), 1);
       // 若调用方提供 returnTargetRef 但 ref 内尚未写入（首次开），fallback 到
       // 进入 effect 时观察到的 activeElement——这至少比 body 强。
       const target =

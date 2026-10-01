@@ -35,7 +35,7 @@ export default {
   "merge_target_placeholder": "Chọn tài nguyên giữ lại",
   "merge_no_target": "Không có tài nguyên cùng loại nào khác để gộp vào.",
   "merge_mode_label": "Cách gộp",
-  "merge_mode_asset": "Cùng ngoại hình",
+  "merge_mode_asset": "Bản gốc",
   "merge_mode_asset_hint": "\"{{name}}\" và các bí danh của nó trở thành bí danh của tài nguyên giữ lại.",
   "merge_mode_derivative": "Phái sinh",
   "merge_mode_derivative_hint": "\"{{name}}\" trở thành một phái sinh của tài nguyên giữ lại, giữ nguyên mô tả; ảnh tài nguyên phái sinh cần được tạo. Lời thoại vẫn thuộc về nhân vật giữ lại.",
