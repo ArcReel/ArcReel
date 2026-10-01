@@ -500,7 +500,7 @@ async def test_generate_episode_script_rewrite_over_existing_prompts_returns_the
 
 @pytest.mark.parametrize(
     ("content_mode", "redo_hint"),
-    [("narration", "重跑脚本规划"), ("ad", "移除正式脚本")],
+    [("narration", "重跑脚本规划"), ("ad", "regenerate=true")],
 )
 async def test_generate_episode_script_without_pending_entries_says_how_to_rewrite(
     fake_ctx: ToolHarness, monkeypatch, content_mode: str, redo_hint: str

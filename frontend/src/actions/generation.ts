@@ -24,6 +24,7 @@ import type {
   DraftDocType,
   PlanningGap,
   PlanScriptRequest,
+  GenerateAdScriptRequest,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
   ReferenceGenerationRequestOptions,
@@ -493,6 +494,26 @@ export async function enqueueScriptPlan(
   const taskIds = memberTaskIds(res.batch);
   const deduped = res.batch.members.some((member) => member.deduped === true);
   notifyEnqueued(deduped, i18n.t("dashboard:script_plan_queued"), "info");
+  return { taskIds, deduped };
+}
+
+/**
+ * 提交广告/短片「AI 生成脚本」，占用与提示词编写同一个槽（服务端同一任务类型、`episode-{N}`）。
+ * 整份重做需要确认覆盖时服务端 409，错误原样抛出，由调用方读 `diagnostic.script_overwrite` 弹确认框后带令牌重试。
+ */
+export async function enqueueAdScript(
+  projectName: string,
+  episode: number,
+  request: GenerateAdScriptRequest,
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_episode_script", promptAuthoringResourceId(episode), "text_episode_script")],
+    () => API.generateAdScript(projectName, episode, request),
+    (response) => memberTaskIds(response.batch),
+  );
+  const taskIds = memberTaskIds(res.batch);
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(deduped, i18n.t("dashboard:ad_script_queued"), "info");
   return { taskIds, deduped };
 }
 

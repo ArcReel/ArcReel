@@ -47,7 +47,7 @@ from lib.infra.content_digest import prefixed_sha256_file
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_str
 from lib.infra.text_utils import strip_json_code_fences
-from lib.project.asset_types import BUCKET_KEY, asset_name_comparison_key
+from lib.project.asset_types import ASSET_SPECS, BUCKET_KEY, asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, is_reference_video_project
 from lib.prompts.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompts.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
@@ -91,7 +91,12 @@ from lib.script.reference_video.script_preview import (
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
-from lib.script.script_generator import PromptAuthoringTargetError, ScriptGenerator
+from lib.script.script_generator import (
+    AdScriptOverwriteRequired,
+    AdScriptRejected,
+    PromptAuthoringTargetError,
+    ScriptGenerator,
+)
 from lib.script.script_models import (
     NarrationScriptPlanDraft,
     build_drama_normalized_script_model,
@@ -103,6 +108,8 @@ from lib.speech.speech_rate import project_speech_rate_override
 from lib.workflow.operation_admission import (
     AdmissionReason,
     OperationAdmission,
+    ad_inputs_present,
+    admit_ad_script,
     admit_author_prompts,
     admit_script_plan,
     episode_source_present,
@@ -133,8 +140,10 @@ class TextGenerationRequest:
     entry_ids: tuple[str, ...] = ()
     #: 提示词编写显式重写范围内条目的全部视觉层；为 False 时只补缺失的视觉层字段。
     rewrite: bool = False
-    #: 用户认可覆盖的正式脚本指纹，取自 ``prompt_overwrite.revision``。
+    #: 用户认可覆盖的正式脚本指纹，取自 ``prompt_overwrite.revision``；整份重做时取自 ``script_overwrite.revision``。
     overwrite_revision: str | None = None
+    #: 仅广告/短片：整份重做，替换已有的正式脚本。
+    regenerate: bool = False
 
     def __post_init__(self) -> None:
         if not is_int(self.episode, minimum=1):
@@ -162,6 +171,8 @@ class TextGenerationResult:
     #: locale-neutral 的 ``{"key", "params"}`` 提示条目（如画面描述里没绑定参考图的 ``@[名称]``），
     #: 与任务 ``result.warnings`` 同一形态，读侧按语言渲染。
     warnings: list[dict[str, Any]] = dataclass_field(default_factory=list)
+    #: 广告/短片整份生成本次登记的新资产与衍生（``{"type", "name"}``），随任务结果交给 Web 列出。
+    new_assets: list[dict[str, str]] = dataclass_field(default_factory=list)
 
 
 class TextGenerationError(Exception):
@@ -185,6 +196,14 @@ def _prompt_overwrite_error(episode_label: str, exc: PromptOverwriteRequired) ->
         "正式脚本在此期间又有变化时会按新清单再次拒绝。",
         overwrite,
     )
+
+
+class AdScriptRejectedError(TextGenerationError):
+    """广告/短片整份生成的产出违约：任务失败，正式脚本、资产与草稿都不变；携带逐条违约。"""
+
+    def __init__(self, message: str, problems: Sequence[str]) -> None:
+        super().__init__(message)
+        self.problems = tuple(problems)
 
 
 class ScriptOverwriteRequiredError(TextGenerationError):
@@ -499,6 +518,39 @@ def _prompt_authoring_draft_action(project_path: Path, episode: int) -> str:
     return translate("operation_draft_action", path=path, action=action)
 
 
+def _ad_overwrite_error(
+    episode_label: str, overwrite: script_review.FormalScriptOverwrite
+) -> ScriptOverwriteRequiredError:
+    rendered = script_review.overwrite_with_text(overwrite.to_dict(), translate)
+    assert rendered is not None
+    return ScriptOverwriteRequiredError(
+        f"⚠️ {episode_label} 的整份重做会替换已有的正式脚本，需要用户确认覆盖，本次未调用文本模型、未写入。\n"
+        f"{rendered['text']}\n"
+        "须先把上面的丢失清单原文转述给用户，得到明确同意后，再以 regenerate=true、"
+        "overwrite_revision=params.script_overwrite.revision 重新调用；正式脚本在此期间又有变化时会按新清单再次拒绝。",
+        rendered,
+    )
+
+
+def _regenerate_preflight(
+    project_path: Path, episode: int, *, content_mode: str | None, formal_present: bool, overwrite_revision: str | None
+) -> None:
+    """整份重做的准入与覆盖确认：只适用于广告/短片，已有正式脚本时须认可它的丢失清单。"""
+    if content_mode != "ad":
+        raise TextGenerationError(
+            "❌ regenerate 只适用于广告/短片；其他创作类型要整集重做，请重跑脚本规划并重新完成内容确认"
+        )
+    projects = ProjectManager.for_project_dir(project_path)
+    project = projects.load_project(project_path.name)
+    admission = admit_ad_script(
+        content_mode, formal_script=formal_present, ad_inputs=ad_inputs_present(project), regenerate=True
+    )
+    require_admitted("generate_script", admission, episode=episode)
+    overwrite = script_review.formal_script_overwrite(project_path, project, episode)
+    if overwrite is not None and overwrite_revision != overwrite.fingerprint:
+        raise _ad_overwrite_error(describe_episode_for_agent(project, episode), overwrite)
+
+
 def prompt_authoring_preflight(
     project_path: Path,
     episode: int,
@@ -506,6 +558,7 @@ def prompt_authoring_preflight(
     entry_ids: Sequence[str] = (),
     rewrite: bool = False,
     overwrite_revision: str | None = None,
+    regenerate: bool = False,
 ) -> None:
     """复用制作状态的正式脚本、待编写条目与草稿事实，再调用同一份准入谓词。"""
     projects = ProjectManager.for_project_dir(project_path)
@@ -520,6 +573,15 @@ def prompt_authoring_preflight(
         and content is not None
         and content.formal_script == "present"
     )
+    if regenerate:
+        _regenerate_preflight(
+            project_path,
+            episode,
+            content_mode=content_mode,
+            formal_present=formal_present,
+            overwrite_revision=overwrite_revision,
+        )
+        return
     if content_mode == "ad" and not formal_present:
         operation = status.operations.get("generate_script")
         if operation is None:
@@ -581,6 +643,7 @@ async def generate_episode_script(
         entry_ids=request.entry_ids,
         rewrite=request.rewrite,
         overwrite_revision=request.overwrite_revision,
+        regenerate=request.regenerate,
     )
 
     try:
@@ -609,6 +672,7 @@ async def generate_episode_script(
         )
         rewritten: list[str] = []
         skipped: list[str] = []
+        registered: list[dict[str, str]] = []
         result_path = await generator.generate(
             episode=episode,
             instructions=instructions,
@@ -617,7 +681,18 @@ async def generate_episode_script(
             overwrite_revision=request.overwrite_revision,
             rewritten_entry_ids=rewritten,
             skipped_entry_ids=skipped,
+            regenerate=request.regenerate,
+            registered_assets=registered,
         )
+    except AdScriptRejected as exc:
+        raise AdScriptRejectedError(
+            f"❌ {_describe(projects, project_name, episode)} 的 AI 生成脚本不合规，本次未写入正式脚本、未登记资产：\n"
+            + "\n".join(f"   - {problem}" for problem in exc.problems)
+            + "\n   可以带上针对这些问题的附加指令重新生成。",
+            exc.problems,
+        ) from exc
+    except AdScriptOverwriteRequired as exc:
+        raise _ad_overwrite_error(_describe(projects, project_name, episode), exc.overwrite) from exc
     except PromptOverwriteRequired as exc:
         raise _prompt_overwrite_error(_describe(projects, project_name, episode), exc) from exc
     except PromptAuthoringTargetError as exc:
@@ -631,8 +706,10 @@ async def generate_episode_script(
     skipped_note = (
         f"\n   视觉层已齐、补缺未改动的条目: {'、'.join(skipped)}（要覆盖请传 rewrite=true）" if skipped else ""
     )
-    if not rewritten and formal_existed:
-        redo = "要整份重做请先移除正式脚本" if generator.content_mode == "ad" else "要整集重做请重跑脚本规划并重新确认"
+    if not rewritten and formal_existed and not request.regenerate:
+        redo = (
+            "要整份重做请传 regenerate=true" if generator.content_mode == "ad" else "要整集重做请重跑脚本规划并重新确认"
+        )
         return TextGenerationResult(
             f"✅ {describe_episode_for_agent(generator.project_json, episode)} 没有待编写的条目，"
             f"未调用文本模型，正式脚本未改动: {result_path}{skipped_note}\n"
@@ -640,9 +717,14 @@ async def generate_episode_script(
         )
     rewritten_note = "、".join(rewritten) if rewritten else "整份生成"
     summary = f"✅ 剧本生成完成: {result_path}\n   本次编写条目: {rewritten_note}{skipped_note}"
+    if registered:
+        labels = {asset_type: spec.label_zh for asset_type, spec in ASSET_SPECS.items()}
+        summary += "\n   本次登记的新资产（待生成）: " + "、".join(
+            f"{labels.get(asset['type'], asset['type'])}「{asset['name']}」" for asset in registered
+        )
     warnings = await asyncio.to_thread(_rewritten_mention_warnings, projects, project_name, result_path, rewritten)
     summary += _unbound_mentions_note(warnings)
-    return TextGenerationResult(summary, warnings)
+    return TextGenerationResult(summary, warnings, new_assets=registered)
 
 
 def _rewritten_mention_warnings(

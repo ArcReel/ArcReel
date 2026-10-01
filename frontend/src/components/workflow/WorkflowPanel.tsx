@@ -5,6 +5,7 @@ import { useLocation } from "wouter";
 import { API } from "@/api";
 import {
   draftRepairResourceId,
+  enqueueAdScript,
   enqueueDraftRepair,
   enqueuePromptAuthoring,
   enqueueScriptPlan,
@@ -19,6 +20,7 @@ import { DiscardDraftDialog, draftFallbackText, draftFixRequestText, prefillAssi
 import { diagnosticCode } from "@/hooks/useDraftEditor";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useAdScriptStore } from "@/stores/ad-script-store";
 import { useAppStore } from "@/stores/app-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -235,6 +237,9 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         case "open_script_plan":
           useScriptPlanStore.getState().open({ projectName, episode: episodeId, replaces: "formal_script" });
           return;
+        case "open_ad_script":
+          useAdScriptStore.getState().open({ projectName, episode: episodeId, regenerate: intent.regenerate });
+          return;
         case "open_script_plan_over_draft":
           useScriptPlanStore.getState().open({ projectName, episode: episodeId, replaces: "draft" });
           return;
@@ -298,6 +303,17 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
               break;
             }
             await enqueueScriptPlan(projectName, episodeId, { instructions: instruction.trim() || null });
+            break;
+          case "generate_ad_script":
+            if (isResourceBusy("text_episode_script", projectName, promptAuthoringResourceId(episodeId))) {
+              pushToast(t("dashboard:ad_script_busy"), "error");
+              break;
+            }
+            await enqueueAdScript(projectName, episodeId, {
+              instructions: instruction.trim() || null,
+              regenerate: false,
+              overwrite_revision: null,
+            });
             break;
           case "create_edit_timeline": {
             const created = await createScriptEditTimeline(projectName, episodeId, t);

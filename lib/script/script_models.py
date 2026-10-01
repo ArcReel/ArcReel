@@ -1021,6 +1021,9 @@ class AdReferenceFlatScript(BaseModel):
 
     title: str = Field(description="短片标题")
     units: list[AdReferenceFlatUnit] = Field(min_length=1, description="按播放顺序排列的视频单元")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本片引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
@@ -1123,6 +1126,18 @@ def _ad_episode_model(duration_type: object, description: str) -> type[BaseModel
         "AdEpisodeScript",
         __base__=AdEpisodeScript,
         shots=(list[shot], Field(description="分镜列表")),
+    )
+
+
+def with_new_assets_field(model: type[BaseModel]) -> type[BaseModel]:
+    """给整份生成的 ``response_schema`` 加上本次新增资产；落盘的剧本模型不带这个字段。"""
+    return create_model(
+        model.__name__,
+        __base__=model,
+        new_assets=(
+            list[PlanNewAsset],
+            Field(default_factory=list, description="本片引用的、尚未登记的角色 / 场景 / 道具及其处理决定"),
+        ),
     )
 
 

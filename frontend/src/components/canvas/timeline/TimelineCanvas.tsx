@@ -8,6 +8,7 @@ import { StoryboardBatchDialog } from "./StoryboardBatchDialog";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { EmptyScriptState } from "./EmptyScriptState";
 import type { InsertShotHandler } from "./ShotStructureActions";
+import { AdScriptButton, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
 import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
@@ -321,6 +322,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
         {activeTab === "timeline" && hasScript && (
           <div className="mr-1 inline-flex items-center gap-1.5">
+            {editorContentMode === "ad" && !demoReadOnly && (
+              <AdScriptButton projectName={projectName} episode={episode} regenerate className="sv-navbtn" />
+            )}
             <PromptAuthoringButton
               projectName={projectName}
               episode={episode}
@@ -370,6 +374,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           kind={batchKind}
           onClose={() => setBatchKind(null)}
         />
+      )}
+
+      {editorContentMode === "ad" && hasScript && (
+        <AdScriptProgress projectName={projectName} episode={episode} noScript={false} className="mx-4 mt-3" />
       )}
 
       {/* 主体 */}

@@ -58,6 +58,7 @@ from lib.generation.video_request_facts import (
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.content_digest import sha256_file
 from lib.infra.text_utils import strip_json_code_fences
+from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.prompts.prompt_builders_ad import (
     build_ad_prompt,
@@ -86,7 +87,10 @@ from lib.script.draft_quarantine import (
 from lib.script.draft_violation import locate_violations, locate_violations_by_id, schema_violations
 from lib.script.plan_new_assets import (
     NEW_ASSETS_FIELD,
+    NewAssetResolution,
+    NewAssetsError,
     UnregisteredReferencesError,
+    planning_project,
     resolve_new_assets,
     unregistered_references,
 )
@@ -131,9 +135,11 @@ from lib.script.script_models import (
     ReferenceVideoScript,
     build_episode_script_model,
     script_duration_total,
+    with_new_assets_field,
 )
 from lib.script.script_plan_entries import ScriptPlanKind, entry_id_field, plan_variant
 from lib.script.script_review import (
+    FormalScriptOverwrite,
     ScriptPlanWriteConflict,
     content_fingerprint,
     content_fingerprint_of_data,
@@ -144,7 +150,8 @@ from lib.script.script_review import (
     script_plan_path,
 )
 from lib.script.script_skeleton import resolve_declared_kind, resolve_kind_items, rewrite_episode_prefix
-from lib.speech.speech_composition import require_script_unit_admitted, video_unit_replan_problems
+from lib.script.script_structure_validator import validate_script_structure
+from lib.speech.speech_composition import require_script_unit_admitted
 from lib.speech.speech_rate import project_speech_rate_override
 
 logger = logging.getLogger(__name__)
@@ -193,6 +200,25 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
 
 class PromptAuthoringTargetError(ValueError):
     """提示词编写的对象无效：该集尚无正式脚本，或 ``entry_ids`` 点名的条目不在正式脚本里。"""
+
+
+class AdScriptRejected(ValueError):
+    """广告/短片整份生成的产出违约：不写正式脚本、不登记资产、不落待修复草稿。
+
+    ``problems`` 逐条说明违约，供任务失败原因展示；用户可以补充附加指令后重新生成。
+    """
+
+    def __init__(self, problems: Sequence[str]) -> None:
+        self.problems = tuple(problems)
+        super().__init__("；".join(self.problems))
+
+
+class AdScriptOverwriteRequired(ValueError):
+    """整份重做会替换已有的正式脚本，而调用方未认可覆盖；携带丢失清单。"""
+
+    def __init__(self, overwrite: FormalScriptOverwrite) -> None:
+        self.overwrite = overwrite
+        super().__init__("整份重做会替换已有的正式脚本，需要用户确认覆盖")
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,9 +418,11 @@ class ScriptGenerator:
         rewritten_entry_ids: list[str] | None = None,
         skipped_entry_ids: list[str] | None = None,
         before_quarantine_commit: Callable[[], None] | None = None,
+        regenerate: bool = False,
+        registered_assets: list[dict[str, str]] | None = None,
     ) -> Path:
         """
-        为正式剧本补写视觉层（提示词编写）；ad 项目尚无正式剧本时整份生成。
+        为正式剧本补写视觉层（提示词编写）；ad 项目尚无正式剧本、或显式整份重做时整份生成。
 
         输入是正式剧本自身的内容字段，不读脚本规划。本次编写的条目只覆盖视觉层（参考生视频
         单元改写正文）并清除待编写标记，内容字段与用户字段原样保留；其余条目逐字节不变。
@@ -414,6 +442,10 @@ class ScriptGenerator:
             rewritten_entry_ids: 可选收集器；非 None 时就地填入本次编写的条目 id（剧本顺序），
                 供调用方在回执里列出。ad 整份生成时保持为空。
             skipped_entry_ids: 可选收集器；非 None 时就地填入范围内因视觉层已齐而未编写的条目 id。
+            regenerate: 仅 ad：整份重做，替换已有的正式剧本。已有正式剧本时，``overwrite_revision`` 须等于
+                其丢失清单的 ``revision``，否则抛 ``AdScriptOverwriteRequired``、不调用模型。
+            registered_assets: 可选收集器；ad 整份生成时就地填入本次登记的新资产与衍生
+                （``{"type", "name"}``，衍生名写作 ``本体/衍生``）。
 
         Returns:
             正式剧本 JSON 文件路径
@@ -442,6 +474,23 @@ class ScriptGenerator:
         # 基线先于读入正式剧本：编写用的快照与 expected_fingerprint 出自同一时刻之前，两者之间
         # 落下的并发保存在写入时按冲突拒绝，而不是被本次写回覆盖。
         formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
+        if regenerate:
+            if self.content_mode != "ad":
+                raise PromptAuthoringTargetError("整份重做只适用于广告/短片；其他创作类型请重跑脚本规划并重新确认")
+            if entry_ids or rewrite:
+                raise PromptAuthoringTargetError("整份重做不能与 entry_ids / rewrite 同时使用")
+            overwrite = await asyncio.to_thread(formal_script_overwrite, self.project_path, self.project_json, episode)
+            if overwrite is not None and overwrite_revision != overwrite.fingerprint:
+                raise AdScriptOverwriteRequired(overwrite)
+            prompt, schema = await self._compose_ad(episode, gen_mode, instructions)
+            return await self._generate_and_save(
+                prompt,
+                schema,
+                episode,
+                output_filename,
+                previous=overwrite,
+                registered_assets=registered_assets,
+            )
         targets = await asyncio.to_thread(
             functools.partial(self._load_prompt_authoring_targets, episode, filename, entry_ids, rewrite=rewrite)
         )
@@ -454,12 +503,12 @@ class ScriptGenerator:
                 raise PromptAuthoringTargetError(f"集（id={episode}）尚无正式脚本，entry_ids 无从对应")
             # ad 两种生成模式都一键生成、不走 script_plan；参考生视频直接产出自包含 video_units。
             prompt, schema = await self._compose_ad(episode, gen_mode, instructions)
-            self._freeze_ad_artifact_basis(episode)
             return await self._generate_and_save(
                 prompt,
                 schema,
                 episode,
                 output_filename,
+                registered_assets=registered_assets,
             )
 
         _require_overwrite_acknowledged(targets, formal_baseline, overwrite_revision)
@@ -811,11 +860,23 @@ class ScriptGenerator:
         schema: type,
         episode: int,
         output_filename: str | None,
+        *,
+        previous: FormalScriptOverwrite | None = None,
+        registered_assets: list[dict[str, str]] | None = None,
     ) -> Path:
-        """ad 整份生成的尾段：调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存。"""
+        """ad 整份生成的尾段：调用 TextBackend → 解析校验 → 落实新增资产 → 补元数据 → 经写盘统一入口保存。
+
+        产出违约（解析不出、结构不合、引用落不到资产上、新增资产的处理决定解析不出、条目为空）一律抛
+        ``AdScriptRejected``：不写正式脚本、不登记资产、不落草稿。``needs_replan`` 单元照常写入。
+        ``previous`` 是用户认可覆盖的旧正式剧本：以它的指纹为写入基线，同 id 条目名下的旧产物随写入撤登记。
+        """
         assert self.generator is not None  # generate() 入口已检查
         filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
-        formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
+        formal_baseline = (
+            previous.fingerprint
+            if previous is not None
+            else await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
+        )
         logger.info("正在生成第 %d 集剧本...", episode)
         result = await self._generate_text(
             TextGenerationRequest(
@@ -825,33 +886,87 @@ class ScriptGenerator:
             )
         )
         response_text = result.text
-        script_data = (
-            self._parse_ad_reference_response(response_text, episode)
-            if self.generation_mode == "reference_video"
-            else self._parse_response(response_text, episode)
-        )
-        script_data = self._add_metadata(script_data, episode)
+        if self.generation_mode == "reference_video":
+            script_data, new_assets = self._parse_ad_reference_response(response_text, episode)
+        else:
+            script_data, new_assets = self._parse_ad_storyboard_response(response_text, episode)
         # 空的正式脚本对手写合法，但 AI 整份生成必须产出条目：「非空」只在这里验收。
-        items, _id_field, _kind = resolve_kind_items(script_data)
-        if isinstance(items, list) and not items:
-            raise ValueError(f"第 {episode} 集的 AI 生成脚本没有任何条目")
+        items, id_field, _kind = resolve_kind_items(script_data)
+        if not isinstance(items, list) or not items:
+            raise AdScriptRejected([f"第 {episode} 集的 AI 生成脚本没有任何条目"])
+        registered_project = self._settle_ad_new_assets(script_data, new_assets, id_field)
+        # 发声归属不合规的单元由 needs_replan 承接、照常写入：标记按改写引用后的条目判定。
+        script_data = self._add_metadata(script_data, episode)
+        structure = validate_script_structure(script_data)
+        if not structure.valid:
+            raise AdScriptRejected(structure.errors)
+        # 依据含资产表：按登记本次新增资产后的项目冻结，写入后的正式剧本即为当前。
+        self._freeze_ad_artifact_basis(episode, registered_project)
+        previous_ids = {entry.entry_id for entry in previous.entries} if previous is not None else set()
+        settled, _id_field, _kind = resolve_kind_items(script_data)
+        replaced_ids = tuple(
+            str(item[id_field]) for item in cast(list[dict[str, Any]], settled) if str(item[id_field]) in previous_ids
+        )
 
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
+        # 本次新增资产与正式剧本在同一写事务里登记进项目。
         pm = ProjectManager.for_project_dir(self.project_path)
         output_path = await run_sync_transaction(
-            pm.save_script,
-            self.project_path.name,
-            script_data,
-            filename,
-            validate=True,
-            artifact_basis=self._artifact_basis,
-            expected_fingerprint=formal_baseline,
+            functools.partial(
+                pm.save_script,
+                self.project_path.name,
+                script_data,
+                filename,
+                validate=True,
+                artifact_basis=self._artifact_basis,
+                expected_fingerprint=formal_baseline,
+                replaced_resource_ids=replaced_ids,
+                project_update=new_assets.apply_to_project,
+            )
         )
+        if registered_assets is not None:
+            registered_assets[:] = new_assets.registered()
         self._quality_probe(script_data, episode)
         logger.info("剧本已保存至 %s", output_path)
         return output_path
+
+    def _settle_ad_new_assets(
+        self, script_data: dict[str, Any], new_assets: NewAssetResolution, id_field: str
+    ) -> dict[str, Any]:
+        """按处理决定改写剧本条目里的引用，返回登记本次新增资产后的项目视图。
+
+        改写后的引用须已登记或是本次登记的新增资产 / 衍生；商品不在新增范围内，``products_in_shot``
+        只认已登记商品。有落不到资产上的引用即抛 ``AdScriptRejected``。
+        """
+        items, _id_field, kind = resolve_kind_items(script_data)
+        if not all(isinstance(item, dict) for item in items):
+            raise AdScriptRejected([f"{kind} 里有不是对象的条目"])
+        entries = new_assets.rewrite_entries(items)
+        script_data[kind] = entries
+        registered_project = copy.deepcopy(self.project_json)
+        new_assets.apply_to_project(registered_project)
+        problems = [
+            f"{reference.item_id} 引用了未登记、也不在本次新增资产里的名字：{'、'.join(reference.names)}"
+            for reference in unregistered_references(registered_project, entries, id_field=id_field)
+        ]
+        products = registered_project.get("products")
+        known_products = (
+            {asset_name_comparison_key(str(name)) for name in products} if isinstance(products, Mapping) else set()
+        )
+        for entry in entries:
+            named = entry.get("products_in_shot")
+            unknown = [
+                name
+                for name in (named if isinstance(named, list) else ())
+                if isinstance(name, str) and asset_name_comparison_key(name) not in known_products
+            ]
+            if unknown:
+                problems.append(f"{entry.get(id_field)} 引用了未登记的商品：{'、'.join(unknown)}")
+        if problems:
+            raise AdScriptRejected(problems)
+        return registered_project
 
     async def _compose_ad(self, episode: int, gen_mode: str | None, instructions: str | None) -> tuple[str, type]:
         """ad 分支的 (prompt, response_schema) 构造，generate/build_prompt 共用。
@@ -864,7 +979,7 @@ class ScriptGenerator:
             schema: type = AdReferenceFlatScript
         else:
             supported = self._storyboard_planning_durations(await self._fetch_video_request_facts())
-            schema = build_episode_script_model("ad", supported)
+            schema = with_new_assets_field(build_episode_script_model("ad", supported))
         return self._build_ad_prompt(episode, gen_mode, supported, instructions), schema
 
     def _build_ad_prompt(
@@ -876,9 +991,14 @@ class ScriptGenerator:
         直接输出统一引用语法 video unit，八段式只作为内容规划而不持久化。
         """
         direct_inputs = project_ad_episode_script_inputs(episode, project=self.project_json)
+        # 资产的描述与别名只帮模型认人、列出新增资产，不进产物依据：改描述不让已生成的脚本过期。
         common = {
             **self._ad_prompt_common(episode, instructions),
             "target_duration": direct_inputs["target_duration"],
+            "asset_registry": {
+                key: bucket if isinstance(bucket := self.project_json.get(key), dict) else {}
+                for key in ("characters", "scenes", "props")
+            },
         }
         if gen_mode == "reference_video":
             return build_ad_reference_prompt(**common)
@@ -1075,9 +1195,9 @@ class ScriptGenerator:
             )
         return await self.generator.generate(request, project_name=self.project_path.name)
 
-    def _freeze_ad_artifact_basis(self, episode: int) -> None:
-        """Freeze the ad-specific canonical basis before the provider call."""
-        basis = build_ad_episode_script_basis(episode, project=self.project_json)
+    def _freeze_ad_artifact_basis(self, episode: int, project: Mapping[str, Any]) -> None:
+        """Freeze the ad-specific canonical basis from the project the generated script is written against."""
+        basis = build_ad_episode_script_basis(episode, project=project)
         self._artifact_basis = ArtifactBasisDescriptor.from_basis(basis)
 
     def _load_script_plan(self, episode: int) -> str:
@@ -1956,55 +2076,78 @@ class ScriptGenerator:
         kind = resolve_declared_kind(self.content_mode, self.generation_mode)
         schema = _KIND_PARSE_SCHEMA[kind]
         try:
-            return schema.model_validate(data).model_dump()
+            parsed = schema.model_validate(data).model_dump()
         except ValidationError as e:
             logger.warning("数据验证警告: %s", e)
             # 返回原始数据，允许部分不符合 schema
             return data
+        # 剧本模型不收本集新增资产；它随产出带回，由调用方取走后解析。
+        if isinstance(data, dict) and NEW_ASSETS_FIELD in data:
+            parsed[NEW_ASSETS_FIELD] = data[NEW_ASSETS_FIELD]
+        return parsed
 
-    def _parse_ad_reference_response(self, response_text: str, episode: int) -> dict:
-        """把广告/短片的参考生视频的扁平 LLM 输出机械提升为自包含 ``video_units``。"""
+    def _resolve_ad_new_assets(self, raw_items: object) -> NewAssetResolution:
+        """按项目现状解析整份生成带出的新增资产；处理决定解析不出即违约。"""
+        try:
+            return resolve_new_assets(self.project_json, raw_items)
+        except NewAssetsError as exc:
+            raise AdScriptRejected([problem.message for problem in exc.problems]) from exc
+
+    def _parse_ad_storyboard_response(self, response_text: str, episode: int) -> tuple[dict, NewAssetResolution]:
+        """解析广告/短片分镜整份生成的输出：剧本与本次新增资产的处理决定。"""
+        try:
+            data = self._parse_response(response_text, episode)
+        except ValueError as exc:
+            raise AdScriptRejected([str(exc)]) from exc
+        raw_new_assets = data.pop(NEW_ASSETS_FIELD, None)
+        return data, self._resolve_ad_new_assets(raw_new_assets)
+
+    def _parse_ad_reference_response(self, response_text: str, episode: int) -> tuple[dict, NewAssetResolution]:
+        """把广告/短片的参考生视频的扁平 LLM 输出机械提升为自包含 ``video_units``，并解析本次新增资产。
+
+        正文里的 ``@[名称]`` 须已登记或在本次新增项中：校验对着叠加了新增项的项目视图判。发声归属问题
+        由 ``needs_replan`` 承接，其余违约一并收齐后拒绝。
+        """
         text = strip_json_code_fences(response_text)
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"广告参考剧本 JSON 解析失败: {exc}") from exc
+            raise AdScriptRejected([f"广告参考剧本 JSON 解析失败: {exc}"]) from exc
         try:
             flat = AdReferenceFlatScript.model_validate(data)
         except ValidationError as exc:
-            raise ValueError(f"广告参考剧本结构校验失败: {exc}") from exc
+            raise AdScriptRejected([f"广告参考剧本结构校验失败: {exc}"]) from exc
+        raw_new_assets = [item.model_dump() for item in flat.new_assets]
+        planning = planning_project(self.project_json, raw_new_assets)
+        problems: list[str] = []
+        for ordinal, source in enumerate(flat.units, start=1):
+            try:
+                validate_unit_text(f"unit E{episode}U{ordinal}", source.text, planning, max_refs=None)
+            except DraftViolation as exc:
+                problems.extend(str(item) for item in violation_items(exc) if item.code not in _AD_UNIT_REPLAN_CODES)
+        new_assets = self._resolve_ad_new_assets(raw_new_assets)
+        if problems:
+            raise AdScriptRejected(problems)
 
         units: list[dict] = []
         for ordinal, source in enumerate(flat.units, start=1):
-            unit_id = f"E{episode}U{ordinal}"
-            try:
-                validate_unit_text(
-                    f"unit {unit_id}",
-                    source.text,
-                    self.project_json,
-                    max_refs=None,
-                )
-            except DraftViolations as exc:
-                if not exc.items or any(item.code not in _AD_UNIT_REPLAN_CODES for item in exc.items):
-                    raise
             unit: dict = {
-                "unit_id": unit_id,
+                "unit_id": f"E{episode}U{ordinal}",
                 "text": source.text,
                 "duration_seconds": source.duration_seconds,
                 "note": None,
                 "generated_assets": {},
             }
-            if video_unit_replan_problems(unit):
-                unit["needs_replan"] = True
             units.append(unit)
 
-        return ReferenceVideoScript.model_validate(
+        script = ReferenceVideoScript.model_validate(
             {
                 "title": flat.title or episode_title(self.project_json, episode),
                 "content_mode": "ad",
                 "video_units": units,
             }
         ).model_dump()
+        return script, new_assets
 
     def _add_metadata(
         self,

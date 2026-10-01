@@ -26,6 +26,7 @@ import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { AdScriptButton, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
 import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
@@ -1000,6 +1001,15 @@ export function ReferenceVideoCanvas({
         <span className="flex-1" />
         {tab === "units" && (
           <>
+            {/* 没有预处理的参考画布只用于广告/短片：有正式脚本时可整份重新生成。 */}
+            {hasScript && !showPreprocess && (
+              <AdScriptButton
+                projectName={projectName}
+                episode={episode}
+                regenerate
+                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
+              />
+            )}
             {hasScript && (
               <PromptAuthoringButton
                 projectName={projectName}
@@ -1040,6 +1050,10 @@ export function ReferenceVideoCanvas({
             onSettled={refreshPromptDraft}
           />
         </div>
+      )}
+
+      {tab === "units" && hasScript && !showPreprocess && (
+        <AdScriptProgress projectName={projectName} episode={episode} noScript={false} className="mx-5 my-2" />
       )}
 
       {error && tab === "units" && (

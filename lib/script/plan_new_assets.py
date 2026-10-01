@@ -7,7 +7,8 @@
   本集新增项之间同类同名的合为一项。
 - ``merge``：归到 ``target``（已登记的同类资产，或本集另一项新增资产的最终归属），称呼记为别名。
   ``target`` 写另一项新增资产时，取它的称呼或登记名均可；衍生的本体同理。
-- ``derivative``：登记为 ``target`` 角色的衍生，画面引用改为 ``本体/衍生``，台词说话人改为本体。
+- ``derivative``：登记为 ``target`` 角色的衍生，画面引用改为 ``本体/衍生``，台词说话人（剧情演绎的
+  ``utterances`` 与广告分镜视频提示词的 ``dialogue``）改为本体。
 - ``skip``：不登记。引用数组里移除；剧情演绎台词的说话人保留原名；参考生视频正文里画面位的
   ``@[名]`` 退为纯文本，说话人位保持原样。
 
@@ -128,13 +129,18 @@ class NewAssetResolution:
                 values = entry.get(list_field)
                 if isinstance(values, list):
                     entry[list_field] = self._rewrite_names(asset_type, values)
-        utterances = entry.get("utterances")
-        if isinstance(utterances, list):
-            for utterance in utterances:
-                if isinstance(utterance, dict) and isinstance(utterance.get("speaker"), str):
-                    outcome = self.outcomes.get(("character", asset_name_comparison_key(utterance["speaker"])))
+        video_prompt = entry.get("video_prompt")
+        for speeches in (
+            entry.get("utterances"),
+            video_prompt.get("dialogue") if isinstance(video_prompt, dict) else None,
+        ):
+            if not isinstance(speeches, list):
+                continue
+            for speech in speeches:
+                if isinstance(speech, dict) and isinstance(speech.get("speaker"), str):
+                    outcome = self.outcomes.get(("character", asset_name_comparison_key(speech["speaker"])))
                     if outcome is not None and outcome.speaker is not None:
-                        utterance["speaker"] = outcome.speaker
+                        speech["speaker"] = outcome.speaker
         text = entry.get("text")
         if isinstance(text, str):
             entry["text"] = remap_mentions(text, lambda name, speaker: _remap_mention(by_name.get(name), speaker))
@@ -156,6 +162,19 @@ class NewAssetResolution:
                 seen.add(key)
             result.append(value)
         return result
+
+    def registered(self) -> list[dict[str, str]]:
+        """本次新登记的资产与衍生（``{"type", "name"}``，衍生名写作 ``本体/衍生``），按类型、登记顺序。"""
+        assets = [
+            {"type": asset_type, "name": name}
+            for asset_type, registrations in self.registrations.items()
+            for name in registrations
+        ]
+        assets.extend(
+            {"type": "character", "name": derivative_reference(base, derivative)}
+            for base, derivative, _description in self.derivatives
+        )
+        return assets
 
     def apply_to_project(self, project: dict[str, Any]) -> None:
         """把新增资产、衍生与别名写进项目载荷；已登记资产的描述不动。"""

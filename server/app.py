@@ -53,6 +53,7 @@ from server.dependencies import require_project_migration_ok, require_valid_proj
 from server.error_handlers import register_error_handlers
 from server.remote_mcp import remote_mcp_host
 from server.routers import (
+    ad_script,
     agent_config,
     agent_memory,
     api_keys,
@@ -670,6 +671,12 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["脚本规划"],
+)
+app.include_router(
+    ad_script.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["广告/短片脚本"],
 )
 app.include_router(
     shot_uploads.router,

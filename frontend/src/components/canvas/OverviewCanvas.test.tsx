@@ -483,4 +483,45 @@ describe("OverviewCanvas ad mode", () => {
     expect(screen.queryByTestId("ad-init-canvas")).not.toBeInTheDocument();
     expect(screen.getByTestId("welcome-canvas")).toBeInTheDocument();
   });
+
+  it("keeps the creative brief on the overview and saves brief with a custom target duration", async () => {
+    const update = vi
+      .spyOn(API, "updateProject")
+      .mockResolvedValue({ success: true, project: {} as ProjectData });
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    render(
+      <OverviewCanvas
+        projectName="ad-demo"
+        projectData={makeProjectData({
+          content_mode: "ad",
+          target_duration: 60,
+          brief: "",
+          products: { 冰饮: { description: "柠檬气泡水" } } as unknown as ProjectData["products"],
+          episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }],
+        })}
+      />,
+    );
+    const card = screen.getByRole("region", { name: "创作灵感" });
+    expect(within(card).getByText("还没有填写创作灵感")).toBeInTheDocument();
+    expect(within(card).getByText("目标总时长：60 秒")).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole("button", { name: "编辑" }));
+    fireEvent.change(within(card).getByRole("textbox", { name: "创作灵感" }), { target: { value: "夏日解渴" } });
+    fireEvent.click(within(card).getByRole("radio", { name: "自定义" }));
+    const save = within(card).getByRole("button", { name: "保存" });
+    expect(save).toBeDisabled();
+    fireEvent.change(within(card).getByRole("spinbutton", { name: "自定义目标总时长（秒）" }), {
+      target: { value: "45" },
+    });
+    fireEvent.click(save);
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("ad-demo", { brief: "夏日解渴", target_duration: 45 }),
+    );
+  });
+
+  it("does not show the creative brief for narration projects", () => {
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+    expect(screen.queryByRole("region", { name: "创作灵感" })).not.toBeInTheDocument();
+  });
 });

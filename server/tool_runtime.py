@@ -16,7 +16,7 @@ import tempfile
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -209,6 +209,7 @@ from server.services.tasks.video_caps import (
 from server.text_generation import (
     MAX_INSTRUCTIONS_LEN,
     SCOPE_REMOVED_MESSAGE,
+    AdScriptRejectedError,
     OperationNotAdmittedError,
     PromptOverwriteRequiredError,
     ScriptOverwriteRequiredError,
@@ -621,6 +622,10 @@ def _not_admitted_problem(exc: OperationNotAdmittedError) -> ToolProblem:
     )
 
 
+def _script_overwrite_problem(exc: ScriptOverwriteRequiredError) -> ToolProblem:
+    return ToolProblem("script_overwrite_required", str(exc), params={"script_overwrite": exc.overwrite})
+
+
 async def _run_text_generation(
     operation: str,
     call: Awaitable[TextGenerationResult],
@@ -628,8 +633,15 @@ async def _run_text_generation(
     try:
         return ToolOutcome(value=await call)
     except ScriptOverwriteRequiredError as exc:
+        return ToolOutcome(problem=_script_overwrite_problem(exc))
+    except AdScriptRejectedError as exc:
         return ToolOutcome(
-            problem=ToolProblem("script_overwrite_required", str(exc), params={"script_overwrite": exc.overwrite})
+            problem=ToolProblem(
+                "ad_script_rejected",
+                str(exc),
+                action=GenerationAction.FIX_INPUT,
+                params={"details": "；".join(exc.problems)},
+            )
         )
     except PromptOverwriteRequiredError as exc:
         return ToolOutcome(problem=_prompt_overwrite_problem(exc))
@@ -816,9 +828,19 @@ class GenerateEpisodeScriptRequest(BaseModel):
         default=False,
         description="显式重写范围内条目的全部视觉层；省略时补缺，已有的图片 / 视频提示词保留、只补缺失的那一份",
     )
+    regenerate: bool = Field(
+        default=False,
+        description=(
+            "仅广告/短片：整份重新生成脚本，替换已有的正式脚本，结果直接成为正式脚本；"
+            "不与 entry_ids / rewrite 同用。已有正式脚本时先返回 script_overwrite 丢失清单"
+        ),
+    )
     overwrite_revision: str | SkipJsonSchema[None] = Field(
         default=None,
-        description="用户听完丢失清单并同意覆盖后，才传入的令牌，取自 prompt_overwrite.revision；不覆盖已有内容时不必给",
+        description=(
+            "用户听完丢失清单并同意覆盖后，才传入的令牌：提示词重写取 prompt_overwrite.revision，"
+            "整份重做取 script_overwrite.revision；不覆盖已有内容时不必给"
+        ),
     )
     dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
 
@@ -829,6 +851,12 @@ class GenerateEpisodeScriptRequest(BaseModel):
             raise ValueError(SCOPE_REMOVED_MESSAGE)
         return data
 
+    @model_validator(mode="after")
+    def _regenerate_is_whole_script(self) -> Self:
+        if self.regenerate and (self.entry_ids or self.rewrite):
+            raise ValueError("regenerate 整份重做全部条目，不与 entry_ids / rewrite 同用")
+        return self
+
     def text_request(self) -> TextGenerationRequest:
         return TextGenerationRequest(
             episode=self.episode_id,
@@ -837,6 +865,7 @@ class GenerateEpisodeScriptRequest(BaseModel):
             rewrite=self.rewrite,
             overwrite_revision=self.overwrite_revision,
             dry_run=self.dry_run,
+            regenerate=self.regenerate,
         )
 
 
@@ -876,8 +905,11 @@ async def generate_episode_script(
                 entry_ids=text_request.entry_ids,
                 rewrite=text_request.rewrite,
                 overwrite_revision=text_request.overwrite_revision,
+                regenerate=text_request.regenerate,
             )
         )
+    except ScriptOverwriteRequiredError as exc:
+        return ToolOutcome(problem=_script_overwrite_problem(exc))
     except PromptOverwriteRequiredError as exc:
         return ToolOutcome(problem=_prompt_overwrite_problem(exc))
     except OperationNotAdmittedError as exc:
@@ -2894,10 +2926,12 @@ async def stop_episode_planning(
 
 
 def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
-    """任务结果里的文本回执：``warnings`` 只在非空时写入，读侧按 ``result.warnings`` 渲染。"""
+    """任务结果里的文本回执：``warnings`` 与 ``new_assets`` 只在非空时写入，读侧按 ``result.warnings`` 渲染。"""
     payload: dict[str, Any] = {"message": value.message}
     if value.warnings:
         payload["warnings"] = list(value.warnings)
+    if value.new_assets:
+        payload["new_assets"] = list(value.new_assets)
     return payload
 
 
@@ -2948,6 +2982,7 @@ async def execute_queued_text_task(
             entry_ids=tuple(payload.get("entry_ids") or ()),
             rewrite=bool(payload.get("rewrite")),
             overwrite_revision=payload.get("overwrite_revision"),
+            regenerate=bool(payload.get("regenerate")),
         )
         handlers = {
             _TEXT_EPISODE_SCRIPT: ("generate_episode_script", generate_episode_script_handler),

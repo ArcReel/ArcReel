@@ -51,6 +51,8 @@ export type StepIntent =
   | { type: "plan_script_to_agent" }
   | { type: "start_blank_script" }
   | { type: "open_script_plan" }
+  | { type: "generate_ad_script" }
+  | { type: "open_ad_script"; regenerate: boolean }
   | { type: "open_script_plan_over_draft" }
   | { type: "asset_batch"; episodeId: number }
   | { type: "storyboard_batch"; episodeId: number; kind: StoryboardBatchKind }
@@ -389,13 +391,27 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     scriptStatus = t("workflow:status_none");
     scriptTone = "todo";
   }
+  // 广告/短片的整份重做：服务端先报输入缺失，`formal_script_exists` 只拦首次生成，不拦重做。
+  const generateOp = status.operations.generate_script;
+  const scriptActs: StepAct[] =
+    facts.isAd && formal === "present" && operationApplies(generateOp)
+      ? [
+          {
+            key: "regenerate-script",
+            label: t("dashboard:ad_script_regenerate"),
+            kind: "ai",
+            intent: { type: "open_ad_script", regenerate: true },
+            disabledReason: generateOp?.reason === "formal_script_exists" ? null : refusalReason(t, generateOp),
+          },
+        ]
+      : [];
   rows.push({
     key: "script",
     title: t("workflow:row_script"),
     tone: scriptTone,
     status: scriptStatus,
     notes: [],
-    acts: [],
+    acts: scriptActs,
     steps: stepsFor(facts, facts.isAd ? ["final_script", "script_structure"] : ["script_structure"]),
   });
 
@@ -677,6 +693,17 @@ function agentAct(t: TFunction, text: string, label?: string, disabledReason?: s
   };
 }
 
+/** 广告/短片「AI 生成脚本」：带上下一步的附加指令直接提交，结果写成正式脚本。 */
+function adScriptAct(t: TFunction, disabledReason?: string | null): StepAct {
+  return {
+    key: "ai-generate-script",
+    label: t("dashboard:ad_script_generate"),
+    kind: "ai",
+    intent: { type: "generate_ad_script" },
+    disabledReason,
+  };
+}
+
 function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): NextStepView | null {
   const { t } = ctx;
   const { plan, content } = facts;
@@ -793,7 +820,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         ...base,
         detail: t("workflow:next_detail_generate_script"),
         instruction: { initial: "", persist: null },
-        primary: [agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef }))],
+        primary: [agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef })), adScriptAct(t)],
         alternatives,
       };
     case "collect_project_input": {
@@ -802,7 +829,10 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         ...base,
         title: t("workflow:next_title_generate_script"),
         detail: t("workflow:next_detail_generate_script"),
-        primary: [agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef }), undefined, reason)],
+        primary: [
+          agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef }), undefined, reason),
+          adScriptAct(t, reason),
+        ],
         alternatives,
         hint: {
           key: "fill-brief",
