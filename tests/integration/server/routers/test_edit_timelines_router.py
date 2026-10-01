@@ -34,6 +34,9 @@ class _FailingService:
     async def read(self, *_args: Any, **_kwargs: Any) -> Any:
         raise self.error
 
+    async def media(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise self.error
+
 
 class _NoAdmissionFacts:
     """制作状态读不出准入（如项目不存在）：新建交给命令自己报领域错误。"""
@@ -49,6 +52,7 @@ def _client(service: Any, workflow: Any = None) -> TestClient:
     app.include_router(edit_timelines.router, prefix="/api/v1")
     app.dependency_overrides[edit_timelines.get_edit_timeline_service] = lambda: service
     app.dependency_overrides[edit_timelines.get_workflow_state_service] = lambda: workflow or _NoAdmissionFacts()
+    app.dependency_overrides[edit_timelines.get_timeline_preview_service] = lambda: service
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -72,9 +76,10 @@ def test_domain_errors_map_to_status_codes(error: EditTimelineError, status: int
         client.get("/api/v1/projects/demo/edit-timelines"),
         client.post("/api/v1/projects/demo/episodes/1/edit-timelines", json={"from": "script", "name": "完整版"}),
         client.get("/api/v1/projects/demo/edit-timelines/tl-0000abcd"),
+        client.get("/api/v1/projects/demo/edit-timelines/tl-0000abcd/preview-media"),
     ]
 
-    assert [response.status_code for response in responses] == [status] * 3
+    assert [response.status_code for response in responses] == [status] * 4
     assert all(response.json()["detail"] for response in responses)
 
 

@@ -1,4 +1,5 @@
-"""剪辑时间线的 HTTP 入口：列表、读取、新建、复制、改名、修订历史、回滚、删除、一集的剪辑概况，以及成片与剪映草稿的提交、现状与下载。
+"""剪辑时间线的 HTTP 入口：列表、读取、预览素材层、新建、复制、改名、修订历史、回滚、删除、一集的剪辑概况，
+以及成片与剪映草稿的提交、现状与下载。
 
 行为全部在 lib 层剪辑时间线命令、成片服务与剪映草稿服务里；渲染作为 ``render`` 车道任务入队。
 """
@@ -44,6 +45,7 @@ from server.auth import CurrentUser, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.media_tools.final_cuts import final_cut_download_url
+from server.services.presentation.timeline_preview import TimelinePreviewMedia, TimelinePreviewService
 from server.services.tasks.render_tasks import (
     final_cut_task_request,
     jianying_draft_task_request,
@@ -64,6 +66,13 @@ def get_edit_timeline_service() -> EditTimelineService:
 
 
 EditTimelineServiceDep = Annotated[EditTimelineService, Depends(get_edit_timeline_service)]
+
+
+def get_timeline_preview_service() -> TimelinePreviewService:
+    return TimelinePreviewService(get_project_manager())
+
+
+TimelinePreviewServiceDep = Annotated[TimelinePreviewService, Depends(get_timeline_preview_service)]
 
 
 def get_final_cut_service() -> FinalCutService:
@@ -347,6 +356,18 @@ async def delete_edit_timeline(
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
     return Response(status_code=204)
+
+
+@router.get("/projects/{project_name}/edit-timelines/{timeline_id}/preview-media")
+async def read_edit_timeline_preview_media(
+    project_name: str,
+    timeline_id: str,
+    service: TimelinePreviewServiceDep,
+) -> TimelinePreviewMedia:
+    try:
+        return await service.media(project_name, timeline_id)
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
 
 
 @router.post("/projects/{project_name}/edit-timelines/{timeline_id}/final-cut", status_code=202)

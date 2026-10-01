@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import type { EditClip, EditTimelineReadout } from "@/types/edit-timeline";
 
+import type { AudioPlacement, NarrationSpan, PlacedSubtitle } from "./preview-tracks";
 import { formatSeconds, rulerStep, unitHue } from "./timeline-view";
 
 const LABEL_WIDTH = 56;
@@ -24,11 +25,14 @@ interface EditTimelineTracksProps {
   trimIgnored: ReadonlySet<string>;
   unusedUnits: readonly string[];
   thumbnails: ReadonlyMap<string, string>;
+  narration: readonly NarrationSpan[];
+  subtitles: readonly PlacedSubtitle[];
+  bgm: readonly AudioPlacement[];
   onSelectClip: (clipId: string) => void;
   onSeek: (t: number) => void;
 }
 
-/** 横向时间线：标尺、视频轨与未使用的视频单元。每条轨道是一个 TrackRow。 */
+/** 横向时间线：标尺，视频、旁白、字幕与 BGM 四条轨道，以及未使用的视频单元。每条轨道是一个 TrackRow；BGM 轨有 BGM 片段才显示。 */
 export function EditTimelineTracks({
   projectName,
   readout,
@@ -38,6 +42,9 @@ export function EditTimelineTracks({
   trimIgnored,
   unusedUnits,
   thumbnails,
+  narration,
+  subtitles,
+  bgm,
   onSelectClip,
   onSeek,
 }: EditTimelineTracksProps) {
@@ -77,6 +84,17 @@ export function EditTimelineTracks({
                 onSelectClip={onSelectClip}
               />
             </TrackRow>
+            <TrackRow label={translate("edit_view_track_narration")} height="h-[40px]">
+              <NarrationBlocks spans={narration} duration={duration} />
+            </TrackRow>
+            <TrackRow label={translate("edit_view_track_subtitles")} height="h-[30px]">
+              <SubtitleBlocks subtitles={subtitles} duration={duration} />
+            </TrackRow>
+            {bgm.length > 0 && (
+              <TrackRow label={translate("edit_view_track_bgm")} height="h-[30px]">
+                <BgmBlocks items={bgm} duration={duration} />
+              </TrackRow>
+            )}
             <div
               aria-hidden
               data-testid="edit-playhead"
@@ -130,9 +148,9 @@ function Ruler({ duration, percent }: { duration: number; percent: (seconds: num
   );
 }
 
-function TrackRow({ label, children }: { label: string; children: ReactNode }) {
+function TrackRow({ label, height = "h-[58px]", children }: { label: string; height?: string; children: ReactNode }) {
   return (
-    <div className="relative h-[58px] border-b border-hairline-soft last:border-b-0">
+    <div className={`relative ${height} border-b border-hairline-soft last:border-b-0`}>
       <span
         className="absolute top-1/2 -translate-y-1/2 text-[11px] text-text-3"
         style={{ left: -LABEL_WIDTH, width: LABEL_WIDTH - 8 }}
@@ -264,3 +282,112 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect 
     </button>
   );
 }
+
+/** 旁白按实际起止画在轨上，可以越过承载片段；重叠的旁白分两行。没有旁白配音的按承载片段占位，画成虚线。 */
+const NarrationBlocks = memo(function NarrationBlocks({
+  spans,
+  duration,
+}: {
+  spans: readonly NarrationSpan[];
+  duration: number;
+}) {
+  const { t } = useTranslation("dashboard");
+  const lanes = Math.max(1, ...spans.map((span) => span.lane + 1));
+  return (
+    <>
+      {spans.map((span) => {
+        const title = span.missingAudio
+          ? t("edit_view_narration_missing", { unit: span.unitId, clip: span.clipId })
+          : t("edit_view_narration_title", {
+              unit: span.unitId,
+              clip: span.clipId,
+              start: formatSeconds(span.start),
+              end: formatSeconds(span.end),
+            });
+        return (
+          <span
+            key={span.clipId}
+            title={title}
+            data-testid={`edit-narration-${span.clipId}`}
+            data-missing-audio={span.missingAudio || undefined}
+            className={`absolute flex items-center overflow-hidden whitespace-nowrap rounded-[4px] px-1 text-[10px] leading-none text-white ${
+              span.missingAudio ? "border border-dashed border-hairline-strong text-text-3" : "border border-black/30"
+            }`}
+            style={{
+              left: percentOf(span.start, duration),
+              width: `calc(${percentOf(span.end - span.start, duration)} - 2px)`,
+              top: `calc(${(span.lane / lanes) * 100}% + 4px)`,
+              height: `calc(${100 / lanes}% - 8px)`,
+              background: span.missingAudio ? "transparent" : `oklch(0.5 0.08 ${unitHue(span.unitId)} / 0.75)`,
+            }}
+          >
+            {span.unitId}
+          </span>
+        );
+      })}
+    </>
+  );
+});
+
+const SubtitleBlocks = memo(function SubtitleBlocks({
+  subtitles,
+  duration,
+}: {
+  subtitles: readonly PlacedSubtitle[];
+  duration: number;
+}) {
+  return (
+    <>
+      {subtitles.map((item) => (
+        <span
+          key={`${item.start}-${item.text}`}
+          title={item.text}
+          className="absolute inset-y-1 flex items-center overflow-hidden whitespace-nowrap rounded-[3px] border border-hairline bg-surface-2 px-1 text-[10px] leading-none text-text-2"
+          style={{
+            left: percentOf(item.start, duration),
+            width: `calc(${percentOf(item.end - item.start, duration)} - 1px)`,
+          }}
+        >
+          {item.text}
+        </span>
+      ))}
+    </>
+  );
+});
+
+/** BGM 片段的淡入淡出画成两端的渐变。 */
+const BgmBlocks = memo(function BgmBlocks({ items, duration }: { items: readonly AudioPlacement[]; duration: number }) {
+  const { t } = useTranslation("dashboard");
+  const tone = (alpha: number) => `oklch(0.45 0.09 300 / ${alpha})`;
+  return (
+    <>
+      {items.map((item) => {
+        const length = item.end - item.start;
+        const fadeIn = (Math.min(item.fadeIn, length) / length) * 100;
+        const fadeOut = 100 - (Math.min(item.fadeOut, length) / length) * 100;
+        return (
+          <span
+            key={item.id}
+            title={t("edit_view_bgm_title", {
+              bgm: item.sourceId,
+              start: formatSeconds(item.start),
+              end: formatSeconds(item.end),
+              volume: formatSeconds(item.volume),
+              fadeIn: formatSeconds(item.fadeIn),
+              fadeOut: formatSeconds(item.fadeOut),
+            })}
+            data-testid={`edit-${item.id}`}
+            className="absolute inset-y-1 flex items-center overflow-hidden whitespace-nowrap rounded-[3px] px-1 text-[10px] leading-none text-white"
+            style={{
+              left: percentOf(item.start, duration),
+              width: `calc(${percentOf(length, duration)} - 1px)`,
+              background: `linear-gradient(90deg, ${tone(0.25)}, ${tone(0.85)} ${fadeIn}%, ${tone(0.85)} ${fadeOut}%, ${tone(0.25)})`,
+            }}
+          >
+            {item.sourceId}
+          </span>
+        );
+      })}
+    </>
+  );
+});

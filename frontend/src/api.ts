@@ -119,7 +119,12 @@ import type {
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
-import type { EditTimelineReadout, EditTimelineSummary, EpisodeEditOverview } from "@/types/edit-timeline";
+import type {
+  EditTimelinePreviewMedia,
+  EditTimelineReadout,
+  EditTimelineSummary,
+  EpisodeEditOverview,
+} from "@/types/edit-timeline";
 import type {
   AdoptSourceFileTarget,
   CreateEpisodeBody,
@@ -741,6 +746,18 @@ class API {
     await this.request(
       `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}`,
       { method: "DELETE" },
+    );
+  }
+
+  /** 剪辑时间线最新修订的预览素材层：各视频单元的旁白配音与字幕条目。 */
+  static async getEditTimelinePreviewMedia(
+    projectName: string,
+    timelineId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EditTimelinePreviewMedia> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/edit-timelines/${encodeURIComponent(timelineId)}/preview-media`,
+      { signal: options.signal },
     );
   }
 
