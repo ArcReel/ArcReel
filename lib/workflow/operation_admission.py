@@ -15,13 +15,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from enum import StrEnum
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from lib.episode.episode_ledger import SourceDoc, is_derived_episode_name
+from lib.episode.episode_ledger import SourceDoc
 from lib.episode.episode_paths import episode_source_path
+from lib.episode.episode_sources import SourceOrigin, episode_source_origin
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 from lib.script.script_skeleton import SKELETONS
 
@@ -75,15 +76,20 @@ def _refused(reason: AdmissionReason) -> OperationAdmission:
 
 
 def whole_source_present(docs: Iterable[SourceDoc]) -> bool:
-    """有可供分集规划的整本源文：``source/`` 里有非空白、且不是集原文文件名的源文。
+    """有可供分集规划的整本源文：项目登记的整本源文文件里有非空白的原文。
 
-    只有 ``episode_N.txt`` 的目录是各集自带的原文，不是整本源文。
+    ``docs`` 取自 :func:`lib.episode.episode_sources.discover_sources`；未登记的文件不算。
     """
-    return any(not is_derived_episode_name(PurePosixPath(doc.rel_path).name) and doc.text.strip() for doc in docs)
+    return any(doc.text.strip() for doc in docs)
 
 
-def episode_source_present(project_path: Path, episode: int) -> bool:
-    """本集有非空白的集原文（``source/episode_N.txt``）。"""
+def episode_source_present(project_path: Path, episode: int, entry: Mapping[str, Any] | None) -> bool:
+    """本集有非空白的集原文：账本记为切出集或自带原文，且集文件 ``source/episode_N.txt`` 非空白。
+
+    不在账本里（``entry`` 为 None）或账本记为无原文的集，即使 ``source/`` 里恰好有同名文件也不算。
+    """
+    if entry is None or episode_source_origin(entry) is SourceOrigin.NONE:
+        return False
     path = episode_source_path(project_path, episode)
     if path.is_symlink() or not path.is_file():
         return False

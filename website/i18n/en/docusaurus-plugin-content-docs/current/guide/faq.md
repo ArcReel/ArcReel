@@ -215,7 +215,7 @@ Usually a prerequisite review or asset is incomplete:
 4. In Reference-to-video mode, verify that referenced assets in Narration/Commentary and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
 5. Expand the task panel and check for tasks that are still queued, running, or failed.
 
-Do not judge completion solely from the phase number in the header. Assets in the sidebar, episode status, and task errors provide more specific information about what is missing.
+The status bar in the header shows only how many episodes are completed and the project's next step; open the episode count to see the next step for each episode. For what exactly is missing, check the assets in the sidebar, "Production status" on the episode page, and task errors.
 
 ### What should I do when a task is queued, running, failed, canceled, or interrupted by a service restart? {#task-states}
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Literal
@@ -19,6 +20,8 @@ from lib.artifacts.media_artifact_currency import build_current_video_artifact_b
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.episode.episode_ids import EPISODE_ID_HIGH_WATER_KEY, allocate_episode_ids
+from lib.episode.episode_reset import EpisodeResetError, reset_episode_planning
+from lib.episode.episode_sources import discover_sources, planning_start, source_snapshot_path
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_migration_report import load_migration_report
@@ -31,11 +34,13 @@ from lib.speech.speech_presentation import presentation_artifact_paths
 from lib.workflow.workflow_state import WorkflowStateService
 from server.services.presentation.presentation_read_model import PresentationReadModelService
 from tests.legacy_project_shapes import (
+    LEGACY_CHAPTER_TEN,
     add_legacy_manual_uploads,
     advance_project_schema,
     legacy_transition_presentation_basis,
     write_legacy_ad_reference_video_project,
     write_legacy_episode_id_remnants_project,
+    write_legacy_episode_sources_project,
     write_legacy_presentation_project,
     write_legacy_reference_video_project,
     write_legacy_script_plan_project,
@@ -364,6 +369,8 @@ def test_project_without_registered_narration_audio_becomes_post_production(tmp_
     project = _read_json(project_dir / "project.json")
     assert project == {
         **legacy,
+        "episodes": [{**entry, "source_origin": "none"} for entry in legacy["episodes"]],
+        "whole_source_files": [{"source_file": "source/1-7-0227.txt"}],
         "narration_delivery": "post_production",
         EPISODE_ID_HIGH_WATER_KEY: 1,
         "schema_version": 16,
@@ -649,3 +656,111 @@ def test_script_plans_stale_only_by_the_next_episode_outline_stay_current(tmp_pa
     assert _status(project_dir, key, plan_path) is ArtifactStatus.CURRENT
     status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
     assert status.artifacts["script_plan"]["state"] == "current"
+
+
+def _migrated_episode_sources(tmp_path: Path, **shape: bool) -> tuple[Path, dict[str, Any]]:
+    project_dir = write_legacy_episode_sources_project(tmp_path / "projects", **shape)
+    migrate_project_dir(project_dir)
+    return project_dir, _read_json(project_dir / "project.json")
+
+
+def test_whole_source_files_keep_the_old_file_name_order_and_the_planning_start(tmp_path: Path) -> None:
+    project_dir, project = _migrated_episode_sources(tmp_path, pre_split=False)
+
+    assert project["whole_source_files"] == [
+        {"source_file": "source/第10章.txt"},
+        {"source_file": "source/第2章.txt"},
+    ]
+    assert "planning_cursor" not in project
+    docs = discover_sources(project_dir, project)
+    assert planning_start(project, docs) == ("source/第10章.txt", LEGACY_CHAPTER_TEN.index("第十章结尾"))
+    assert source_snapshot_path(project_dir, "source/第10章.txt").read_text(encoding="utf-8") == LEGACY_CHAPTER_TEN
+    assert not source_snapshot_path(project_dir, "source/第2章.txt").exists()
+
+
+def test_episode_file_without_a_ledger_entry_becomes_an_own_source_episode(tmp_path: Path) -> None:
+    project_dir, project = _migrated_episode_sources(tmp_path, pre_split=False)
+
+    assert [(entry["episode"], entry["source_origin"]) for entry in project["episodes"]] == [
+        (1, "whole_source"),
+        (2, "whole_source"),
+        (7, "own"),
+    ]
+    assert (project_dir / "source" / "episode_7.txt").read_text(encoding="utf-8") == "另放进来的一集。"
+    assert allocate_episode_ids(project, 1) == [8]
+
+    pm = ProjectManager(project_dir.parent.parent)
+    status = WorkflowStateService(pm).get_status(project_dir.name, 7)
+    assert status.content is not None
+    assert status.content.episode_source == "present"
+    assert status.content.source_remaining is True
+    assert status.operations["prepare_script_plan"].state == "admitted"
+
+
+def test_pre_split_episode_files_become_own_source_episodes(tmp_path: Path) -> None:
+    project_dir, project = _migrated_episode_sources(tmp_path, pre_split=True)
+
+    assert project["whole_source_files"] == []
+    assert [(entry["episode"], entry["source_origin"]) for entry in project["episodes"]] == [
+        (1, "own"),
+        (2, "own"),
+    ]
+    pm = ProjectManager(project_dir.parent.parent)
+    summary = WorkflowStateService(pm).get_project_summary(project_dir.name)
+    assert [episode.episode for episode in summary.episodes] == [1, 2]
+    status = WorkflowStateService(pm).get_status(project_dir.name, 1)
+    assert status.operations["plan_episodes"].reason == "whole_source_missing"
+    assert status.operations["prepare_script_plan"].state == "admitted"
+    assert status.next_action.type == "prepare_script_plan"
+
+
+def test_unregistered_file_added_after_migration_changes_no_episode_source(tmp_path: Path) -> None:
+    project_dir, before = _migrated_episode_sources(tmp_path, pre_split=False)
+    pm = ProjectManager(project_dir.parent.parent)
+    status_before = WorkflowStateService(pm).get_status(project_dir.name, 7)
+
+    (project_dir / "source" / "第0章.txt").write_text("迁移后直接放进来的文件。", encoding="utf-8")
+    (project_dir / "source" / "episode_3.txt").write_text("没有登记的集文件。", encoding="utf-8")
+
+    after = pm.load_project(project_dir.name)
+    assert after["episodes"] == before["episodes"]
+    assert after["whole_source_files"] == before["whole_source_files"]
+    status_after = WorkflowStateService(pm).get_status(project_dir.name, 7)
+    assert status_after.source_revision == status_before.source_revision
+    assert status_after.content == status_before.content
+
+
+def test_legacy_split_episodes_stay_cut_episodes_and_only_a_full_reset_releases_them(tmp_path: Path) -> None:
+    project_dir, project = _migrated_episode_sources(tmp_path, legacy_split=True)
+
+    assert [(entry["episode"], entry["source_origin"]) for entry in project["episodes"]] == [
+        (1, "whole_source"),
+        (2, "whole_source"),
+        (3, "none"),
+        (7, "own"),
+    ]
+    assert not (project_dir / "source" / "snapshots").exists()
+    pm = ProjectManager(project_dir.parent.parent)
+    status = WorkflowStateService(pm).get_status(project_dir.name, 1)
+    assert status.content is not None
+    assert status.content.episode_source == "present"
+    assert status.operations["prepare_script_plan"].state == "admitted"
+
+    with pytest.raises(EpisodeResetError, match="source_range"):
+        reset_episode_planning(project_dir, episode_id=2)
+    assert _read_json(project_dir / "project.json")["episodes"] == project["episodes"]
+
+    reset_episode_planning(project_dir)
+    after = _read_json(project_dir / "project.json")
+    assert [(entry["episode"], entry["source_origin"]) for entry in after["episodes"]] == [(3, "none"), (7, "own")]
+    assert (project_dir / "source" / "_episode_1.txt.bak").is_file()
+    assert (project_dir / "source" / "episode_7.txt").read_text(encoding="utf-8") == "另放进来的一集。"
+
+
+def test_source_edited_outside_the_service_gets_no_snapshot(tmp_path: Path) -> None:
+    project_dir, project = _migrated_episode_sources(tmp_path, edited_outside=True)
+
+    assert not source_snapshot_path(project_dir, "source/第10章.txt").exists()
+    assert project["source_fingerprints"] == {
+        "source/第10章.txt": hashlib.sha256(LEGACY_CHAPTER_TEN.encode("utf-8")).hexdigest()
+    }

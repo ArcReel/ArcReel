@@ -221,7 +221,7 @@ class FakePM:
             "source_kind": "novel",
             "source_language": "中文",
             "overview": {},
-            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json", "source_origin": "own"}],
             "characters": {"张三": {"description": "主角"}, "李四": {"description": ""}},
             "scenes": {"村口": {"description": "黄昏的村口"}},
             "props": {},

@@ -25,6 +25,7 @@ from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_a
 from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.episode.episode_ids import describe_episode_for_agent, episode_position
+from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
     NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -34,6 +35,7 @@ from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
+    episode_source_relpath,
 )
 from lib.episode.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
 from lib.episode.episode_reset import (
@@ -43,6 +45,11 @@ from lib.episode.episode_reset import (
 from lib.episode.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
+from lib.episode.episode_source_commands import (
+    add_own_source_episode,
+    register_whole_source_file,
+)
+from lib.episode.episode_sources import first_cut_episode_id
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
@@ -147,12 +154,19 @@ from lib.speech.narration_config import (
 )
 from lib.speech.speech_composition import SpeechProblemCode
 from lib.workflow.operation_admission import admit_plan_episodes, whole_source_present
-from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
+from lib.workflow.workflow_plan import (
+    TEXT_DRAFT_REPAIR_TASK_TYPE,
+    WorkflowPlan,
+    WorkflowPlanRequest,
+    draft_repair_resource_id,
+)
 from lib.workflow.workflow_state import WorkflowRequestError, planning_docs
+from server.draft_repair import DraftRepair
 from server.draft_workflow import (
     EPISODE_ID_DESCRIPTION,
     DiscardDraftRequest,
     DraftContext,
+    DraftDocType,
     DraftLocator,
     DraftWorkflow,
     DraftWorkflowError,
@@ -422,8 +436,12 @@ class PatchInsertOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["insert"]
-    after_id: str = Field(min_length=1, description="新条目插在这个 id 之后")
-    item: dict[str, Any] = Field(description="新条目的完整内容；id 由系统按锚点重新分配")
+    after_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="新条目插在这个 id 之后；省略或为 null 时插到最前（空脚本的第一条即如此）",
+    )
+    item: dict[str, Any] = Field(description="新条目的完整内容；id 由系统分配，取本集现有最大序号的下一个号")
 
 
 class PatchRemoveOperation(BaseModel):
@@ -670,6 +688,8 @@ async def _submit_text_task(
         result = task.get("result") or {}
         if task_type == _TEXT_EPISODE_PLAN:
             return ToolOutcome(value=PlanEpisodesResult.model_validate(result))
+        if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
+            return ToolOutcome(value=DraftRepairResult.model_validate(result))
         return ToolOutcome(value=TextGenerationResult(**result))
     except BaseException as exc:
         await cleanup_fresh_generation_batch(
@@ -833,9 +853,9 @@ async def generate_script_plan(
         await asyncio.to_thread(
             script_plan_preflight,
             services.projects.get_project_path(scope.project_name),
+            project,
             text_request.episode,
             text_request.source,
-            content_mode,
         )
         if is_reference_video_project(project):
             handler, task_type = generate_reference_script_plan, _TEXT_REFERENCE_SCRIPT_PLAN
@@ -1393,6 +1413,99 @@ async def discard_draft(
     )
 
 
+class RepairDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
+    doc_type: DraftDocType = Field(description="待修复草稿对应的文档，取值同 open_draft")
+    base_revision: str = Field(description="读取草稿时拿到的 revision；修复写回前按它校验草稿未被改动")
+    instructions: _TextInstructions | SkipJsonSchema[None] = None
+
+
+class DraftRepairResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    message: str
+    episode_id: int
+    doc_type: str
+    adopted: bool = Field(description="违约已清零、草稿已采用为正式内容")
+    violation_count: int = Field(description="未采用时草稿里剩余的违约数；采用时为 0")
+
+
+async def repair_draft(
+    request: ToolRequest[RepairDraftRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[Any]:
+    """AI 修复待修复草稿：预检通过后以排队文本任务提交，修完照常重判，违约清零即采用。"""
+    value = request.value
+    try:
+        await _draft_repair(scope, services).check(value.episode_id, value.doc_type, value.base_revision)
+    except DraftWorkflowError as exc:
+        return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
+    except Exception as exc:
+        return ToolOutcome(problem=_unexpected("repair_draft", exc))
+    return await _submit_text_task(
+        task_type=TEXT_DRAFT_REPAIR_TASK_TYPE,
+        operation="repair_draft",
+        unit_id=draft_repair_resource_id(value.episode_id, value.doc_type),
+        payload=value.model_dump(mode="json"),
+        scope=scope,
+        caller=caller,
+        services=services,
+    )
+
+
+#: 草稿命令错误码 → 任务失败的文案 key，与草稿 REST 的错误映射一致；其余错误归为保存未完成。
+_DRAFT_REPAIR_FAILURE_KEYS: dict[str, str] = {
+    "draft_not_found": "draft_not_found",
+    "revision_conflict": "draft_revision_conflict",
+    "formal_revision_conflict": "draft_formal_revision_conflict",
+    "draft_agent_owned": "draft_agent_owned",
+    "script_plan_confirmed": "script_review_script_plan_confirmed",
+    "draft_repair_failed": "draft_repair_failed",
+}
+
+
+def _draft_repair(scope: ProjectScope, services: Services) -> DraftRepair:
+    return DraftRepair(_draft_workflow(scope, services).ctx)
+
+
+async def _execute_draft_repair(
+    request: RepairDraftRequest, scope: ProjectScope, services: Services
+) -> ToolOutcome[DraftRepairResult]:
+    outcome = await _run_draft(
+        _draft_repair(scope, services).repair(
+            request.episode_id, request.doc_type, request.base_revision, request.instructions
+        )
+    )
+    if outcome.problem is not None:
+        # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。
+        key = _DRAFT_REPAIR_FAILURE_KEYS.get(outcome.problem.code, "draft_save_failed")
+        params = {"episode": request.episode_id} if key == "draft_not_found" else None
+        return ToolOutcome(problem=ToolProblem(key, outcome.problem.detail, params=params))
+    saved = outcome.value or {}
+    adopted = bool(saved.get("adopted"))
+    draft = saved.get("draft")
+    violations = draft.get("violations") if isinstance(draft, dict) else None
+    count = 0 if adopted else len(violations) if isinstance(violations, list) else 0
+    message = (
+        f"✅ AI 修复后违约已清零，集（id={request.episode_id}）{request.doc_type} 草稿已采用为正式内容"
+        if adopted
+        else f"AI 修复已写回集（id={request.episode_id}）{request.doc_type} 草稿，仍有 {count} 条违约待处理"
+    )
+    return ToolOutcome(
+        value=DraftRepairResult(
+            message=message,
+            episode_id=request.episode_id,
+            doc_type=request.doc_type,
+            adopted=adopted,
+            violation_count=count,
+        )
+    )
+
+
 class CreateProjectToolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1450,7 +1563,14 @@ class UploadSourceRequest(BaseModel):
     content: str = Field(description="源文件的文本内容")
     on_conflict: OnConflict = Field(
         default="fail",
-        description="source/ 下已有同名文件时的处理：fail 拒绝、replace 覆盖、rename 自动改名后写入",
+        description="source/ 下已有同名文件时的处理：fail 拒绝、replace 覆盖、rename 自动改名后写入；role=episode 时不适用",
+    )
+    role: Literal["whole_source", "episode"] = Field(
+        default="whole_source",
+        description=(
+            "whole_source：登记为整本源文的文件，接在文件清单末尾，供分集规划切分；"
+            "episode：登记为一集自带原文的集，接在播出顺序末尾，分配新集 ID，逐集直接做脚本规划"
+        ),
     )
 
 
@@ -1550,6 +1670,9 @@ async def upload_source(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
+    if problem := await migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+
     def _upload() -> dict[str, Any]:
         value = request.value
         if Path(value.filename).name != value.filename or "\\" in value.filename or value.filename.startswith("."):
@@ -1565,13 +1688,33 @@ async def upload_source(
                 source_path = Path(source.name)
                 source.write(value.content.encode("utf-8"))
                 source.flush()
-            with services.projects.locked_source_mutation(scope.project_name) as source_dir:
+            if value.role == "episode":
+                extracted = SourceLoader.extract(source_path, original_filename=value.filename)
+                project_dir = services.projects.get_project_path(scope.project_name)
+                with services.projects.locked_source_registration(scope.project_name) as (_dir, project, undo):
+                    episode = add_own_source_episode(project_dir, project, extracted.text, undo=undo)
+                    described = describe_episode_for_agent(project, episode)
+                return {
+                    "episode_id": episode,
+                    "episode": described,
+                    "path": episode_source_relpath(episode),
+                    "original_filename": value.filename,
+                    "used_encoding": extracted.used_encoding,
+                    "chapter_count": extracted.chapter_count,
+                }
+            if is_derived_episode_name(f"{Path(value.filename).stem}.txt"):
+                raise ValueError(
+                    f"文件名 {value.filename} 与集文件 episode_N.txt 同名，整本源文的文件须改名后上传；"
+                    "逐集原文用 role=episode 上传"
+                )
+            with services.projects.locked_source_registration(scope.project_name) as (source_dir, project, _undo):
                 result = SourceLoader.load(
                     source_path,
                     source_dir,
                     original_filename=value.filename,
                     on_conflict=value.on_conflict,
                 )
+                register_whole_source_file(project, f"source/{result.normalized_path.name}")
         finally:
             if source_path is not None:
                 source_path.unlink(missing_ok=True)
@@ -1750,7 +1893,11 @@ def _project_patch_operations(
                 unit_id=insert_after_id,
             )
             items, id_field, _kind = resolve_items(preview)
-            anchor = next(i for i, item in enumerate(items) if str(item.get(id_field)) == insert_after_id)
+            anchor = (
+                -1
+                if insert_after_id is None
+                else next(i for i, item in enumerate(items) if str(item.get(id_field)) == insert_after_id)
+            )
             append(
                 {"op": "insert_after", "after_id": insert_after_id, "item": copy.deepcopy(items[anchor + 1])},
                 index,
@@ -1962,7 +2109,7 @@ class ResetEpisodePlanningRequest(BaseModel):
     episode_id: PositiveEpisode | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "从哪一集起重置（集 ID）；省略或给播出顺序中的第一集为全量重置，其他集为部分重置（保留播出顺序中它之前的集）"
+            "从哪个切出集起重置（集 ID）；省略或给播出顺序中第一个切出集为全量重置，其他切出集为部分重置（保留播出顺序中它之前的集）"
         ),
     )
     confirm_consumed: bool = Field(
@@ -2259,7 +2406,9 @@ def _plan_episodes_preflight(projects: ProjectManager, project_name: str) -> Non
     source = compute_source_revision(projects.get_project_path(project_name), project, SourceScope(kind="all"))
     require_admitted(
         "plan_episodes",
-        admit_plan_episodes(project.get("content_mode"), whole_source=whole_source_present(planning_docs(source))),
+        admit_plan_episodes(
+            project.get("content_mode"), whole_source=whole_source_present(planning_docs(project, source))
+        ),
     )
 
 
@@ -2310,7 +2459,9 @@ async def execute_queued_text_task(
         scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
         services = Services.defaults(ProjectManager(scope.data_root))
     task_type = task["task_type"]
-    if task_type == _TEXT_EPISODE_PLAN:
+    if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
+        outcome = await _execute_draft_repair(RepairDraftRequest.model_validate(payload), scope, services)
+    elif task_type == _TEXT_EPISODE_PLAN:
         outcome = await _execute_plan_episodes(
             ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
             scope,
@@ -2377,13 +2528,13 @@ async def reset_episode_planning(
     def _episodes(ids: list[int]) -> str:
         return "、".join(describe_episode_for_agent(project_before, episode_id) for episode_id in ids)
 
-    partial = value.episode_id is not None and episode_position(project_before, value.episode_id) not in (None, 1)
+    partial = value.episode_id is not None and value.episode_id != first_cut_episode_id(project_before)
     start = describe_episode_for_agent(project_before, value.episode_id) if value.episode_id is not None else ""
     if isinstance(result, ResetConfirmationRequired):
         aftermath = (
             f"这些集的账本条目被清除后需要重新规划，播出顺序中 {start} 之前的集保留不动"
             if partial
-            else "账本清空后这些集需要重新规划"
+            else "切出集全部移出账本后需要重新规划"
         )
         lines = [
             f"⚠️ 本次重置会波及已消费集（已有 script_plan/剧本/媒体产物）：{_episodes(result.consumed_episodes)}。"
@@ -2404,11 +2555,11 @@ async def reset_episode_planning(
 
     if partial:
         lines = [
-            f"✅ 已部分重置分集规划：从 {start} 起清空 {len(result.removed_episodes)} 集，"
-            "planning_cursor 已退到保留段最后一个切出集的原文范围末尾。"
+            f"✅ 已部分重置分集规划：从 {start} 起清空 {len(result.removed_episodes)} 个切出集，"
+            "接续规划从保留段最后一个切出集的结尾读起。"
         ]
     else:
-        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
+        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 个切出集，下次规划从整本源文开头读起。"]
     if result.deleted_files:
         lines.append(f"已删除可重造的派生集文件 {len(result.deleted_files)} 个。")
     if result.archived_files:
@@ -2419,7 +2570,8 @@ async def reset_episode_planning(
     lines.append(
         "请调用 plan_episodes 继续规划；新规划的集分配新的集 ID，不复用被清除的集 ID。"
         if partial
-        else "账本已空，请调用 plan_episodes 从头重新规划；新规划的集分配新的集 ID，不复用被清除的集 ID。"
+        else "切出集已全部移出账本（自带原文与无原文的集保留不动），请调用 plan_episodes 从头重新规划；"
+        "新规划的集分配新的集 ID，不复用被清除的集 ID。"
     )
     return ToolOutcome(
         value=ResetEpisodePlanningResult(

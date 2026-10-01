@@ -171,6 +171,30 @@ def select_formal_video(
     return _commit
 
 
+class FakeTextGenerator:
+    """文本模型替身：按顺序回放预置的回复文本，并记下每次收到的请求。
+
+    以 ``monkeypatch.setattr(TextGenerator, "create", fake.create)`` 接入；回复为异常实例时在
+    ``generate`` 抛出，模拟供应商调用失败。
+    """
+
+    def __init__(self, *responses: str | BaseException):
+        self._responses = list(responses)
+        self.requests: list[Any] = []
+
+    async def create(self, _task_type: object, _project_name: str | None = None, **_kwargs: Any) -> FakeTextGenerator:
+        return self
+
+    async def generate(self, request: Any, project_name: str | None = None) -> Any:
+        from lib.backends.text_backends.base import TextGenerationResult
+
+        self.requests.append(request)
+        response = self._responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return TextGenerationResult(text=response, provider="fake", model="fake-text")
+
+
 class FakeSDKClient:
     """Fake Claude Agent SDK client for SessionActor / SessionManager tests.
 

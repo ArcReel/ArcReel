@@ -96,6 +96,9 @@ import type {
   SaveEpisodeDraftResult,
   AuthorPromptsRequest,
   AuthorPromptsResponse,
+  PlanScriptRequest,
+  PlanScriptResponse,
+  DraftRepairResponse,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
   ReferenceScriptPlanDraft,
@@ -110,7 +113,8 @@ import type {
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
-import type { WorkflowPlan, WorkflowPlanRequest } from "@/types/workflow";
+import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
+import type { AdoptSourceFileTarget, EpisodesView } from "@/types/episodes-view";
 import type {
   AssetRegenerationImpact,
   AssetSheetBatchPreview,
@@ -119,6 +123,11 @@ import type {
   AssetSheetStatusRow,
   AssetSheetType,
 } from "@/types/asset-sheet";
+import type {
+  StoryboardBatchKind,
+  StoryboardBatchPreview,
+  StoryboardBatchSubmitted,
+} from "@/types/storyboard-batch";
 import type {
   AgentCredential,
   CreateAgentCredentialRequest,
@@ -838,6 +847,30 @@ class API {
     });
   }
 
+  /** 规划一集的分镜图或分镜视频批量但不建任务：名单、跳过项与能算出时的预估费用。 */
+  static async previewStoryboardBatch(
+    projectName: string,
+    episode: number,
+    kind: StoryboardBatchKind,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<StoryboardBatchPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/${kind}/batch/preview`,
+      { method: "POST", signal: options.signal }
+    );
+  }
+
+  /** 提交一集的分镜图或分镜视频批量；分镜视频整批准入未通过时不建任务，返回结论。 */
+  static async submitStoryboardBatch(
+    projectName: string,
+    episode: number,
+    kind: StoryboardBatchKind
+  ): Promise<StoryboardBatchSubmitted> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/${kind}/batch`, {
+      method: "POST",
+    });
+  }
+
   /** 重生这张资产图会让多少件现行产物转为过期。 */
   static async getAssetRegenerationImpact(
     projectName: string,
@@ -1089,6 +1122,23 @@ class API {
     );
   }
 
+  /**
+   * 集页填写或改写本集原文。无原文的集保存后转为自带原文的集；切自整本源文的集返回 409。
+   */
+  static async updateEpisodeSource(
+    projectName: string,
+    episode: number,
+    text: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/source`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ text }),
+      }
+    );
+  }
+
   // ==================== script_plan → prompt_authoring 内容确认 ====================
 
   /** 读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
@@ -1154,6 +1204,33 @@ class API {
   }
 
   /**
+   * AI 规划脚本，与 Agent 的 generate_script_plan 同一服务命令；提交即返生成批次。
+   * 新的脚本规划整份替换本集现有的规划与草稿，替换前的确认由调用方负责。附加指令随请求按集保存。
+   */
+  static async planScript(
+    projectName: string,
+    episode: number,
+    body: PlanScriptRequest
+  ): Promise<PlanScriptResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-plan`,
+      { method: "POST", body: JSON.stringify(body) }
+    );
+  }
+
+  /** 只保存本集 AI 规划脚本的附加指令（「交给 Agent」路径），不提交生成。 */
+  static async saveScriptPlanInstructions(
+    projectName: string,
+    episode: number,
+    instructions: string
+  ): Promise<{ success: boolean }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-plan/instructions`,
+      { method: "PUT", body: JSON.stringify({ instructions }) }
+    );
+  }
+
+  /**
    * 用户显式确认 script_plan 内容：整份转为正式脚本，放行 prompt_authoring 视觉生成。
    * 该集已有正式脚本时须带 `overwriteRevision`（覆盖清单的 `revision`）；缺失或与当前正式脚本不符时 409，
    * `diagnostic.script_overwrite` 带当前将被移除的分镜与服务端生成的丢失清单文本（`text`）。
@@ -1212,6 +1289,26 @@ class API {
       {
         method: "PUT",
         body: JSON.stringify({ content, base_revision: baseRevision }),
+      }
+    );
+  }
+
+  /**
+   * AI 修复，与 Agent 同一服务命令；以排队文本任务提交，立即返回生成批次。只改违约所在的条目，
+   * 修完照常重判，违约清零即采用，否则写回草稿。附加指令不保存。
+   */
+  static async repairEpisodeDraft(
+    projectName: string,
+    episode: number,
+    docType: DraftDocType,
+    baseRevision: string,
+    instructions: string | null
+  ): Promise<DraftRepairResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}/repair`,
+      {
+        method: "POST",
+        body: JSON.stringify({ base_revision: baseRevision, instructions }),
       }
     );
   }
@@ -1288,25 +1385,30 @@ class API {
   }
 
   /**
-   * 在分镜 `itemId` 之后新增一条待编写分镜（剧情演绎 / 旁白 / 广告通用）。服务端按当前剧本
-   * revision 执行，并发改写时返回 409。旁白分镜的正文即配音内容，`novelText` 必填。
+   * 新增一条待编写分镜（剧情演绎 / 旁白 / 广告通用）：`afterId` 给定时插在该分镜之后，缺省时追加到
+   * 末尾（空脚本里即第一条）。服务端按当前剧本 revision 执行，并发改写时返回 409；新分镜不继承同号
+   * 旧分镜的产物与版本历史。旁白分镜的正文即配音内容，`novelText` 必填。
    */
-  static async insertScriptItemAfter(
+  static async insertScriptItem(
     projectName: string,
-    itemId: string,
     scriptFile: string,
-    novelText?: string
+    options: { afterId?: string; novelText?: string } = {}
   ): Promise<SuccessResponse & { item: NarrationSegment | DramaScene | AdShot | null }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/script-items/${encodeURIComponent(itemId)}/insert-after`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          script_file: scriptFile,
-          ...(novelText !== undefined ? { novel_text: novelText } : {}),
-        }),
-      }
-    );
+    return this.request(`/projects/${encodeURIComponent(projectName)}/script-items`, {
+      method: "POST",
+      body: JSON.stringify({
+        script_file: scriptFile,
+        ...(options.afterId !== undefined ? { after_id: options.afterId } : {}),
+        ...(options.novelText !== undefined ? { novel_text: options.novelText } : {}),
+      }),
+    });
+  }
+
+  /** 从空白开始：本集没有正式脚本时建出空的正式脚本，未确认的脚本规划随之弃置。 */
+  static async startBlankScript(projectName: string, episode: number): Promise<SuccessResponse & { script_file: string }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/blank-script`, {
+      method: "POST",
+    });
   }
 
   /** 移除分镜 `itemId`，其产物随分镜一并移除；服务端按当前剧本 revision 执行。 */
@@ -1328,12 +1430,21 @@ class API {
     uploadType: string,
     file: File,
     name: string | null = null,
-    options: { onConflict?: "fail" | "replace" | "rename" } = {}
+    options: {
+      onConflict?: "fail" | "replace" | "rename";
+      /** 仅 source：whole_source 登记为整本源文的文件，episode 在播出顺序末尾登记一集自带原文的集。 */
+      role?: "whole_source" | "episode";
+      /** 仅 source 的 whole_source：登记后文件在整本源文清单里的下标，缺省接在末尾。 */
+      insertAt?: number;
+      signal?: AbortSignal;
+    } = {}
   ): Promise<{
     success: boolean;
     path: string;
-    url: string;
+    url?: string;
     filename?: string;
+    /** role=episode：新登记的集 ID。 */
+    episode?: number;
     normalized?: boolean;
     original_kept?: boolean;
     original_filename?: string;
@@ -1348,12 +1459,19 @@ class API {
     if (uploadType === "source" && options.onConflict) {
       qsParts.push(`on_conflict=${encodeURIComponent(options.onConflict)}`);
     }
+    if (uploadType === "source" && options.role) {
+      qsParts.push(`role=${encodeURIComponent(options.role)}`);
+    }
+    if (uploadType === "source" && options.insertAt !== undefined) {
+      qsParts.push(`insert_at=${options.insertAt}`);
+    }
     const qs = qsParts.join("&");
     const url = `/projects/${encodeURIComponent(projectName)}/upload/${uploadType}${qs ? "?" + qs : ""}`;
 
     const response = await fetch(`${API_BASE}${url}`, withAuth(url, {
       method: "POST",
       body: formData,
+      signal: options.signal,
     }));
 
     if (response.status === 409) {
@@ -1474,24 +1592,6 @@ class API {
     return API.postFileUpload<ShotUploadResult>(url, file);
   }
 
-  static async listFiles(
-    projectName: string
-  ): Promise<{
-    files: {
-      source?: { name: string; size: number; url: string; raw_filename?: string | null }[];
-      characters?: { name: string; size: number; url: string }[];
-      scenes?: { name: string; size: number; url: string }[];
-      props?: { name: string; size: number; url: string }[];
-      storyboards?: { name: string; size: number; url: string }[];
-      videos?: { name: string; size: number; url: string }[];
-      output?: { name: string; size: number; url: string }[];
-    };
-  }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/files`
-    );
-  }
-
   /**
    * 取本次请求的权威工作流计划。无副作用：不入队、不写项目，
    * `confirmed_request_durations` 只作用于这一次求解。
@@ -1505,6 +1605,36 @@ class API {
       method: "POST",
       body: JSON.stringify(request),
       signal: options.signal,
+    });
+  }
+
+  /** 项目层的制作状态：不指定集时，下一步取账本顺序中第一个未完成的集或项目层动作。 */
+  static async getWorkflowStatus(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<WorkflowStatus> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 账本顺序中每一集建议的下一步。 */
+  static async getEpisodeNextSteps(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{ episodes: EpisodeNextStep[] }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status/episodes`, {
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 重跑项目数据升级链，与 Agent 的 retry_project_migration 同一服务命令。
+   * 仍失败时 422，`diagnostic.reason` 是失败原文，`diagnostic.details` 是结构化明细。
+   */
+  static async retryProjectMigration(projectName: string): Promise<{ success: boolean }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/migration/retry`, {
+      method: "POST",
     });
   }
 
@@ -1544,25 +1674,26 @@ class API {
     return response.text();
   }
 
-  /**
-   * 保存 source 文件（新建或更新）
-   */
-  static async saveSourceFile(
+  /** 「分集」视图：整本源文按集分段、每集体量与首尾句、source/ 里没有登记的文件。 */
+  static async getEpisodesView(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<EpisodesView> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes-view`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 处置 source/ 里没有登记的文件：加入整本源文，或用作一集的原文（原文件随即删除）。 */
+  static async adoptSourceFile(
     projectName: string,
     filename: string,
-    content: string
-  ): Promise<SuccessResponse> {
-    const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
-    const response = await fetch(
-      `${API_BASE}${url}`,
-      withAuth(url, {
-        method: "PUT",
-        headers: { "Content-Type": "text/plain" },
-        body: content,
-      })
+    target: AdoptSourceFileTarget
+  ): Promise<{ success: boolean; target: string; episode?: number }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/adopt`,
+      { method: "POST", body: JSON.stringify(target) }
     );
-    await throwIfNotOk(response, "保存文件失败");
-    return response.json() as Promise<SuccessResponse>;
   }
 
   /**
@@ -3142,6 +3273,8 @@ class API {
       prompt: string;
       duration_seconds?: number;
       note?: string | null;
+      /** 插在这个单元之后；缺省时追加到末尾。 */
+      after_unit_id?: string;
     },
   ): Promise<{ unit: ReferenceVideoUnit; unit_capability: ReferenceUnitCapability }> {
     return this.request(

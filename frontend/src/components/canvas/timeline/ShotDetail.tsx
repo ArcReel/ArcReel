@@ -35,7 +35,7 @@ import { NotesDrawer } from "./NotesDrawer";
 import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
-import { ShotStructureActions } from "./ShotStructureActions";
+import { ShotStructureActions, type InsertShotHandler } from "./ShotStructureActions";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
@@ -89,7 +89,7 @@ interface ShotDetailProps {
   /** 分镜重排请求在途，移动按钮禁用 */
   movePending?: boolean;
   /** 在当前分镜之后新增分镜（旁白带正文），resolve 为是否成功；缺省时不渲染入口。 */
-  onInsertShot?: (afterId: string, novelText?: string) => Promise<boolean>;
+  onInsertShot?: InsertShotHandler;
   /** 移除当前分镜，resolve 为是否成功；缺省时不渲染入口。 */
   onRemoveShot?: (itemId: string) => Promise<boolean>;
   /** 分镜新增 / 移除请求在途，切镜与增删入口禁用 */

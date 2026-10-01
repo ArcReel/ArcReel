@@ -103,7 +103,7 @@ def test_summary_counts_legacy_videos_and_reports_the_script_generated(tmp_path:
     assert episode.script_status == "generated"
     assert episode.item_count == 2
     assert (episode.videos.total, episode.videos.available, episode.videos.stale) == (2, 2, 0)
-    assert summary.phase != "preparation"
+    assert summary.episodes_summary.scripted == 1
 
 
 def test_status_passes_the_script_plan_gate_for_a_registered_planless_script(tmp_path: Path) -> None:

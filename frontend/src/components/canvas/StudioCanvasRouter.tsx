@@ -4,7 +4,6 @@ import { Route, Switch, Redirect } from "wouter";
 import {
   WORKSPACE_ROUTE_LOREBOOK,
   WORKSPACE_ROUTE_CLUES,
-  WORKSPACE_ROUTE_SOURCE,
   WORKSPACE_ROUTE_CHARACTERS,
   WORKSPACE_ROUTE_SCENES,
   WORKSPACE_ROUTE_PROPS,
@@ -21,8 +20,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
-import { SourceFileViewer } from "./SourceFileViewer";
-import { SourceFilesPage } from "./SourceFilesPage";
+import { EpisodesView } from "./episodes/EpisodesView";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
@@ -34,6 +32,7 @@ import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
 import { API } from "@/api";
 import { PromptAuthoringHost } from "@/components/canvas/shared/PromptAuthoringDialog";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
+import { ScriptPlanHost } from "@/components/canvas/shared/ScriptPlanDialog";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -224,8 +223,9 @@ export function StudioCanvasRouter() {
     }
   }, [refreshProject]);
 
+  // afterId 为 null 时追加到末尾（空脚本里即第一条）。
   const handleInsertShot = useCallback(async (
-    afterId: string,
+    afterId: string | null,
     novelText: string | undefined,
     scriptFile?: string,
   ): Promise<boolean> => {
@@ -233,7 +233,7 @@ export function StudioCanvasRouter() {
     const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
     if (!resolvedFile) return false;
     try {
-      await API.insertScriptItemAfter(currentProjectName, afterId, resolvedFile, novelText);
+      await API.insertScriptItem(currentProjectName, resolvedFile, { afterId: afterId ?? undefined, novelText });
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("shot_insert_failed", { message: errMsg(err) }), "error");
       return false;
@@ -619,9 +619,13 @@ export function StudioCanvasRouter() {
         <Redirect to={`/${WORKSPACE_ROUTE_SCENES}`} />
       </Route>
 
-      <Route path={`/${WORKSPACE_ROUTE_SOURCE}`}>
-        {/* 演示项目没有源文件、后端也不存在该项目；侧栏已隐藏该入口，这里再兜底直接输入 URL 的情形 */}
-        {demoMode ? <Redirect to="/" /> : <SourceFilesPage projectName={currentProjectName} />}
+      <Route path={`/${WORKSPACE_ROUTE_EPISODES}`}>
+        {/* 演示项目后端不存在，广告/短片恒单集、不经分集；侧栏已隐藏入口，这里兜底直接输入 URL 的情形 */}
+        {demoMode || currentProjectData?.content_mode === "ad" ? (
+          <Redirect to="/" />
+        ) : (
+          <EpisodesView key={currentProjectName} projectName={currentProjectName} />
+        )}
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_CHARACTERS}`}>
@@ -685,19 +689,6 @@ export function StudioCanvasRouter() {
         />
       </Route>
 
-      <Route path={`/${WORKSPACE_ROUTE_SOURCE}/:filename`}>
-        {(params) =>
-          demoMode ? (
-            <Redirect to="/" />
-          ) : (
-            <SourceFileViewer
-              projectName={currentProjectName}
-              filename={decodeURIComponent(params.filename)}
-            />
-          )
-        }
-      </Route>
-
       <Route path={EPISODE_ROUTE_PATH}>
         {(params) => {
           const epNum = parseInt(params.episodeId, 10);
@@ -746,6 +737,13 @@ export function StudioCanvasRouter() {
                       ? () => usePromptAuthoringStore.getState().open({ projectName: currentProjectName, episode: epNum, scope: "pending" })
                       : undefined
                   }
+                />
+              )}
+              {!demoMode && currentProjectName && (
+                <ScriptPlanHost
+                  projectName={currentProjectName}
+                  episode={epNum}
+                  savedInstructions={episode?.script_plan_instructions}
                 />
               )}
               {!demoMode && currentProjectName && (
@@ -808,6 +806,9 @@ export function StudioCanvasRouter() {
                     onGenerateGrid={handleGenerateGrid}
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}
+                    onInsertFirstShot={
+                      demoMode ? undefined : (novelText, file) => handleInsertShot(null, novelText, file)
+                    }
                   />
                 ) : (
                   <TimelineCanvas

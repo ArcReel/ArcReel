@@ -11,7 +11,7 @@ import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,15 +23,12 @@ from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
-    compute_source_fingerprints,
-    episodes_without_source_range,
-    is_derived_episode_name,
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
-    register_orphan_episode_entries,
 )
 from lib.episode.episode_paths import episode_source_relpath
+from lib.episode.episode_sources import legacy_cut_episode_ids, unplanned_text_remains, whole_source_files
 from lib.infra.content_digest import prefixed_canonical_json_digest
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_table, split_derivative_artifact_id
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key
@@ -216,6 +213,10 @@ class WorkflowContent(BaseModel):
     referenced_assets_without_sheet: list[str] = Field(default_factory=list)
     #: 本集引用、但没有登记的名字；生成入口会据此拒绝。
     unregistered_references: list[str] = Field(default_factory=list)
+    #: 本集引用、资产图过期的资产（含衍生）。只陈述，不进建议的下一步。
+    referenced_asset_sheets_stale: list[str] = Field(default_factory=list)
+    #: 本集引用、缺描述因而不能生成资产图的资产（含衍生）。只陈述，不进建议的下一步。
+    referenced_assets_without_description: list[str] = Field(default_factory=list)
 
 
 class WorkflowStatus(BaseModel):
@@ -262,9 +263,6 @@ def episode_complete(status: WorkflowStatus) -> bool:
         ALL_EPISODES_COMPLETE_REASON,
     }
 
-
-#: 项目在广度视图（项目列表、卡片、全局头）上的粗粒度阶段，由各集进度归并。
-ProjectPhase = Literal["preparation", "script", "production", "completed"]
 
 #: 每集脚本的产物态派生值：正式脚本可用即 generated，只有 script_plan 即 segmented。
 EpisodeScriptStatus = Literal["none", "segmented", "generated"]
@@ -322,14 +320,14 @@ class EpisodesSummary(BaseModel):
 
 
 class ProjectSummary(BaseModel):
-    """项目在广度视图上的投影：阶段、资产可用计数、分集汇总。
+    """项目在广度视图上的投影：资产可用计数、分集汇总与各集进度。
 
     与 ``WorkflowStatus`` 同源不同粒度——后者回答「这个项目下一步做什么」，本模型回答
-    「几十个项目各自在哪一步、手上有多少可用产物」。因此它只读项目元数据、各集脚本与
-    产物清单：源文正文与源文修订号（sha256）不参与，否则列出 N 个项目就要读 N 份小说。
+    「几十个项目各自完成了几集、手上有多少可用产物」；项目的进度就是各集的进度。因此它只读
+    项目元数据、各集脚本与产物清单：源文正文与源文修订号（sha256）不参与，否则列出 N 个项目就要读 N 份小说。
 
-    代价是「源文是否已全部排布成集」不进入本投影，它只能由源文得出。因此本投影可能把
-    「产物齐备但源文尚未排布完」的项目显示为「完成」，而制作状态的下一步仍是继续分集规划。
+    代价是「源文是否已全部排布成集」不进入本投影，它只能由源文得出。因此本投影可能报告
+    「已有的集全部完成」，而制作状态的下一步仍是继续分集规划。
     产物口径本身两处一致：可用与 stale 都取自同一份产物清单。
 
     产物判定有两种口径（``ProjectSummaryCurrency``）：``verified`` 逐件与规范状态比对，能
@@ -341,15 +339,24 @@ class ProjectSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1] = 1
-    phase: ProjectPhase
-    phase_progress: float
+    schema_version: Literal[2] = 2
     needs_repair: bool
     repair_reason: str | None
     #: 按 ``ASSET_SPECS`` 的资产类型键给出资产图计数，新增资产类型自动进入投影。
     assets: dict[str, ArtifactCount]
     episodes_summary: EpisodesSummary
     episodes: list[EpisodeSummary]
+
+
+class EpisodeNextStep(BaseModel):
+    """账本中一集建议的下一步，供项目层的逐集清单使用；与按集查询制作状态的 ``next_action`` 相同。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    episode: int
+    #: 该集的集规划已失效（原文已重新规划），下一步为 ``none``，等待重建。
+    plan_stale: bool
+    next_action: WorkflowNextAction
 
 
 @dataclass(frozen=True)
@@ -387,8 +394,8 @@ def _action(
     )
 
 
-def planning_docs(source: SourceRevisionResult | None) -> tuple[SourceDoc, ...]:
-    """把修订号计算那一次读取的原文转成账本坐标系里的源文档。
+def planning_docs(project: Mapping[str, Any], source: SourceRevisionResult | None) -> tuple[SourceDoc, ...]:
+    """把修订号计算那一次读取的原文转成整本源文：按项目登记的文件清单顺序，账本坐标系里的规范化全文。
 
     源文在一次状态查询里只读一遍：``compute_source_revision`` 已经把每份源文读进内存，
     分集排布所需的归一化全文由那一次读取派生，不再回磁盘重读。
@@ -396,10 +403,13 @@ def planning_docs(source: SourceRevisionResult | None) -> tuple[SourceDoc, ...]:
 
     if source is None or source.blockers:
         return ()
-    return tuple(
-        SourceDoc(rel_path=f"source/{document.name}", text=normalize_source_text(document.text))
-        for document in source.documents
-    )
+    by_rel = {unicodedata.normalize("NFC", f"source/{document.name}"): document for document in source.documents}
+    docs: list[SourceDoc] = []
+    for rel in whole_source_files(project):
+        document = by_rel.get(unicodedata.normalize("NFC", rel))
+        if document is not None:
+            docs.append(SourceDoc(rel_path=rel, text=normalize_source_text(document.text)))
+    return tuple(docs)
 
 
 def _planning_fingerprints_diverged(project: Mapping[str, Any], sources: tuple[SourceDoc, ...]) -> bool:
@@ -407,31 +417,6 @@ def _planning_fingerprints_diverged(project: Mapping[str, Any], sources: tuple[S
     if not isinstance(recorded, Mapping) or not recorded:
         return False
     return bool(mismatched_source_fingerprints(recorded, list(sources)))
-
-
-def _new_source_precedes_cursor(project: Mapping[str, Any], sources: tuple[SourceDoc, ...]) -> bool:
-    recorded = project.get(SOURCE_FINGERPRINTS_KEY)
-    cursor = project.get("planning_cursor")
-    if not isinstance(recorded, Mapping) or not isinstance(cursor, Mapping):
-        return False
-    cursor_file = cursor.get("source_file")
-    if not isinstance(cursor_file, str):
-        return False
-    canonical_cursor = unicodedata.normalize("NFC", cursor_file)
-    canonical_recorded = {
-        unicodedata.normalize("NFC", recorded_path) for recorded_path in recorded if isinstance(recorded_path, str)
-    }
-    cursor_indexes = [
-        index
-        for index, source in enumerate(sources)
-        if unicodedata.normalize("NFC", source.rel_path) == canonical_cursor
-    ]
-    if len(cursor_indexes) != 1:
-        return False
-    return any(
-        unicodedata.normalize("NFC", source.rel_path) not in canonical_recorded
-        for source in sources[: cursor_indexes[0] + 1]
-    )
 
 
 def _empty_collection() -> dict[str, list[str]]:
@@ -447,7 +432,7 @@ def _episode_production_status(
     storyboards: ArtifactCount,
     videos: ArtifactCount,
 ) -> EpisodeProductionStatus:
-    """分镜图与视频一起算：两者都是制作阶段的产物，缺任何一件该集都还没做完。
+    """分镜图与视频一起算：两者都是一集要交的产物，缺任何一件该集都还没做完。
 
     参考生视频没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
     """
@@ -461,12 +446,6 @@ def _episode_production_status(
     if available:
         return "in_production"
     return "scripted"
-
-
-def _sheet_bearing_counts(assets: Mapping[str, ArtifactCount]) -> list[ArtifactCount]:
-    """商品没有资产图产物：与制作状态「本集引用的资产缺资产图」同口径地把它排除。"""
-
-    return [count for asset_type, count in assets.items() if asset_type != "product"]
 
 
 def _asset_bucket_total(project: Mapping[str, Any], bucket_key: str) -> int:
@@ -692,38 +671,16 @@ class WorkflowStateService:
         return parsed
 
     @staticmethod
-    def _planning_complete(
-        project: dict[str, Any],
-        source: SourceRevisionResult | None,
-        planning_sources: tuple[SourceDoc, ...],
-    ) -> bool:
-        """判定源文是否已全部排布完。
+    def _planning_complete(project: dict[str, Any], planning_sources: tuple[SourceDoc, ...]) -> bool:
+        """判定整本源文是否已全部排布完：由账本推导的规划起点之后没有非空白的原文。
 
-        源文只来自 ``planning_sources``——本次请求已经读过一遍的那份，不再回磁盘取。
-        手动预拆分（源文全是 ``episode_N.txt``）没有待排布的原文，也从不产生源文指纹与
-        规划游标，直接视为排布完，做完的集才不会被打回分集规划。
+        源文只来自 ``planning_sources``——本次请求已经读过一遍的那份，不再回磁盘取。源文在规划之后
+        被改动时不算排布完，由规划动作转为重置。
         """
 
-        if source is None or not source.files:
+        if not planning_sources or _planning_fingerprints_diverged(project, planning_sources):
             return False
-        if all(is_derived_episode_name(PurePosixPath(rel).name) for rel in source.files):
-            return True
-        recorded_fingerprints = project.get(SOURCE_FINGERPRINTS_KEY)
-        if not isinstance(recorded_fingerprints, Mapping) or not recorded_fingerprints:
-            return False
-        current_fingerprints = compute_source_fingerprints(list(planning_sources))
-        if dict(recorded_fingerprints) != current_fingerprints:
-            return False
-        cursor = project.get("planning_cursor")
-        if not isinstance(cursor, Mapping):
-            return False
-        rel = cursor.get("source_file")
-        offset = cursor.get("offset")
-        canonical_rel = unicodedata.normalize("NFC", rel) if isinstance(rel, str) else None
-        if canonical_rel != source.files[-1] or not isinstance(offset, int) or isinstance(offset, bool):
-            return False
-        matching_docs = [doc for doc in planning_sources if unicodedata.normalize("NFC", doc.rel_path) == canonical_rel]
-        return len(matching_docs) == 1 and offset >= len(matching_docs[0].text)
+        return not unplanned_text_remains(project, list(planning_sources))
 
     def _load_script_artifacts(
         self,
@@ -913,16 +870,41 @@ class WorkflowStateService:
         failure = load_migration_verdict(project_path)
         if failure is not None:
             return self._migration_blocked_status(project, failure)
-        # 用户自行拆好 source/episode_N.txt 上传、账本为空时，先在内存里补建条目再读账本，路线才有
-        # 目标集可选；否则空账本会把这些集指去分集规划，而那条路对手动预拆分只会以「条目缺位置
-        # 记录、请全量重置」告终。补建与分集规划器、内容确认共用同一登记函数（条目无 source_range，
-        # 规划入口照旧拒绝），但这里不写 project.json：状态计算不改变结论性数据（见模块 docstring），
-        # 登记落盘留给真正开始消费这些集的入口。
-        project = register_orphan_episode_entries(project_path, project)
         shared = self._shared_facts(project_path, project)
         status = self._get_status(project_name, project, project_path, episode, shared)
         status.migration_report = load_migration_report(project_path)
         return status
+
+    def get_episode_next_steps(self, project_name: str) -> list[EpisodeNextStep]:
+        """按账本顺序给出每一集的下一步。
+
+        项目整体不可用（迁移失败、项目数据读不出、存在 blockers）时没有集层的下一步，返回空列表；
+        此时项目层的制作状态会说明原因。
+        """
+
+        project_path = self.pm.get_project_path(project_name)
+        try:
+            project: Any = self.pm.load_project(project_name)
+        except FileNotFoundError:
+            raise
+        except (OSError, ValueError):
+            return []
+        if not isinstance(project, dict) or load_migration_verdict(project_path) is not None:
+            return []
+        shared = self._shared_facts(project_path, project)
+        if shared.blockers:
+            return []
+        steps: list[EpisodeNextStep] = []
+        for pair in shared.episodes:
+            status = self._episode_status(project_name, project, project_path, shared, pair)
+            steps.append(
+                EpisodeNextStep(
+                    episode=pair[0],
+                    plan_stale=status.content is not None and status.content.episode_plan_stale,
+                    next_action=status.next_action,
+                )
+            )
+        return steps
 
     def get_project_summary(
         self,
@@ -946,8 +928,6 @@ class WorkflowStateService:
         failure = load_migration_verdict(project_path)
         if failure is not None:
             return self._migration_blocked_summary(project, self._episodes(project, []), failure)
-        # 与 get_status 同一口径：手动预拆分的集在内存里补进账本后再数集数，不落盘。
-        project = register_orphan_episode_entries(project_path, project)
         episodes = self._episodes(project, [])
         try:
             resolver: ArtifactComparer | None = (
@@ -972,10 +952,7 @@ class WorkflowStateService:
             )
             for number, entry in episodes
         ]
-        phase = self._project_phase(assets, episode_summaries)
         return ProjectSummary(
-            phase=phase,
-            phase_progress=self._phase_progress(phase, assets, episode_summaries),
             needs_repair=False,
             repair_reason=None,
             assets=assets,
@@ -1114,52 +1091,6 @@ class WorkflowStateService:
         )
         return "segmented" if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value} else "none"
 
-    @staticmethod
-    def _project_phase(
-        assets: Mapping[str, ArtifactCount],
-        episodes: list[EpisodeSummary],
-    ) -> ProjectPhase:
-        """把各集进度归并到项目粒度：取最不推进的一集所在阶段。
-
-        没有集 → preparation；有集的脚本未生成 → script；资产图与每集产物齐备 → completed；
-        其余 → production。
-        """
-
-        if not episodes:
-            return "preparation"
-        if any(episode.script_status != "generated" for episode in episodes):
-            return "script"
-        sheets_complete = all(count.available >= count.total for count in _sheet_bearing_counts(assets))
-        if sheets_complete and all(episode.status == "completed" for episode in episodes):
-            return "completed"
-        return "production"
-
-    @staticmethod
-    def _phase_progress(
-        phase: ProjectPhase,
-        assets: Mapping[str, ArtifactCount],
-        episodes: list[EpisodeSummary],
-    ) -> float:
-        """脚本阶段按已生成脚本的集数算；制作阶段按可用产物占应有产物的比例算。
-
-        制作阶段的分母收全该阶段要交的三类产物——资产图、分镜图、视频——否则缺一类
-        产物的项目会停在 100%。
-        """
-
-        if phase == "preparation":
-            return 0.0
-        if phase == "completed":
-            return 1.0
-        if phase == "script":
-            if not episodes:
-                return 0.0
-            return sum(1 for episode in episodes if episode.script_status == "generated") / len(episodes)
-        counts = [*_sheet_bearing_counts(assets)]
-        counts.extend(episode.storyboards for episode in episodes)
-        counts.extend(episode.videos for episode in episodes)
-        total = sum(count.total for count in counts)
-        return sum(min(count.available, count.total) for count in counts) / total if total else 0.0
-
     @classmethod
     def _migration_blocked_summary(
         cls,
@@ -1187,8 +1118,6 @@ class WorkflowStateService:
             for number, _entry in episodes
         ]
         return ProjectSummary(
-            phase="preparation",
-            phase_progress=0.0,
             needs_repair=True,
             repair_reason=failure.reason,
             assets={
@@ -1272,8 +1201,8 @@ class WorkflowStateService:
                 )
             )
         source, inventory = self._source_inventory(project_path, project, str(mode), issues)
-        planning_sources = planning_docs(source) if mode != "ad" else ()
-        planning_complete = self._planning_complete(project, source, planning_sources)
+        planning_sources = planning_docs(project, source) if mode != "ad" else ()
+        planning_complete = self._planning_complete(project, planning_sources)
         sheets = self._asset_sheets(project_path, project, issues, currency)
         episodes = self._episodes(project, issues)
         return _SharedWorkflowFacts(
@@ -1372,8 +1301,8 @@ class WorkflowStateService:
     def _planning_action(
         self, project: dict[str, Any], shared: _SharedWorkflowFacts, reason: str
     ) -> WorkflowNextAction:
-        """继续分集规划的动作：规划器会拒绝接续时（缺位置记录、源文已改动）改为从头重置。"""
-        if episodes_without_source_range(project):
+        """继续分集规划的动作：规划器会拒绝接续时（切出集缺位置记录、源文已改动）改为从头重置。"""
+        if legacy_cut_episode_ids(project):
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "episode ledger lacks source range records",
@@ -1382,11 +1311,6 @@ class WorkflowStateService:
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "source files changed after episode planning",
-            )
-        if _new_source_precedes_cursor(project, shared.planning_sources):
-            return _action(
-                WorkflowActionType.RESET_EPISODE_PLANNING,
-                "new source text precedes the current planning cursor",
             )
         return _action(WorkflowActionType.PLAN_EPISODES, reason)
 
@@ -1585,6 +1509,68 @@ class WorkflowStateService:
             unregistered.extend(missing)
         return admit_references(catalog, references=references, unregistered=unregistered)
 
+    def _referenced_sheet_facts(
+        self,
+        project: dict[str, Any],
+        items: list[dict[str, Any]],
+        kind: str | None,
+        shared: _SharedWorkflowFacts,
+        issues: list[WorkflowBlocker],
+    ) -> tuple[list[str], list[str], list[str]]:
+        """本集引用的资产图现状：(待生成且可生成, 过期, 缺描述)。
+
+        待生成与资产图批量的集范围同一判定：缺描述的不算；衍生的本体没有可用资产图、也不在同批时不算。
+        """
+        missing: list[str] = []
+        stale: list[str] = []
+        without_description: list[str] = []
+        accepted_sheets: set[tuple[str, str]] = set()
+        for asset in sorted(
+            episode_referenced_assets(project, ({kind: items} if kind else None)),
+            key=lambda asset: (asset.owner is not None, asset.asset_type, asset.name),
+        ):
+            spec = ASSET_SPECS[asset.asset_type]
+            owner = project[spec.bucket_key][asset.owner or asset.name]
+            entry = (
+                derivative_table(owner)[split_derivative_artifact_id(asset.name)[1]]
+                if asset.owner is not None
+                else owner
+            )
+            description = entry.get("description")
+            if not isinstance(description, str) or not description.strip():
+                without_description.append(asset.name)
+                continue
+            path = entry.get(spec.sheet_field)
+            sheet_state = (
+                self._artifact_state(
+                    shared.currency,
+                    (
+                        derivative_artifact_key(
+                            *map(asset_name_comparison_key, split_derivative_artifact_id(asset.name))
+                        )
+                        if asset.owner is not None
+                        else ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.name))
+                    ),
+                    path,
+                    issues,
+                )
+                if shared.currency is not None and isinstance(path, str) and path
+                else ArtifactStatus.MISSING.value
+            )
+            if sheet_state == ArtifactStatus.STALE.value:
+                stale.append(asset.name)
+            if sheet_state != ArtifactStatus.MISSING.value:
+                continue
+            if asset.owner is not None:
+                owner_sheets = shared.sheets[asset.asset_type]
+                if (asset.asset_type, asset.owner) not in accepted_sheets and asset.owner not in (
+                    owner_sheets["current_ids"] + owner_sheets["stale_ids"]
+                ):
+                    continue
+            missing.append(asset.name)
+            accepted_sheets.add((asset.asset_type, asset.name))
+        return missing, stale, without_description
+
     def _episode_status(
         self,
         project_name: str,
@@ -1631,7 +1617,7 @@ class WorkflowStateService:
         if target is None:
             return respond(None, _action(WorkflowActionType.NONE, "episode script binding is invalid"))
 
-        episode_source = not is_ad and episode_source_present(project_path, number)
+        episode_source = not is_ad and episode_source_present(project_path, number, entry)
         content.episode_source = "not_applicable" if is_ad else ("present" if episode_source else "absent")
         content.drafts = self._episode_drafts(project_path, project, number)
         stale, stale_revision = (
@@ -1683,6 +1669,7 @@ class WorkflowStateService:
         pending_ids: list[str] = []
         replan_ids: list[str] = []
         without_sheet: list[str] = []
+        missing_sheets: list[str] = []
         if formal_present:
             content.script_item_count = len(items)
             pending_ids = pending_authoring_entry_ids(items, kind)
@@ -1696,6 +1683,9 @@ class WorkflowStateService:
             without_sheet = [name for _asset_type, name in admission.without_sheet]
             content.referenced_assets_without_sheet = without_sheet
             content.unregistered_references = list(admission.unregistered)
+            missing_sheets, content.referenced_asset_sheets_stale, content.referenced_assets_without_description = (
+                self._referenced_sheet_facts(project, items, kind, shared, issues)
+            )
             artifacts["storyboards"] = (
                 self._media_collection(
                     project_path,
@@ -1862,49 +1852,6 @@ class WorkflowStateService:
                     ids=replan_ids,
                 ),
             )
-        missing_sheets: list[str] = []
-        accepted_sheets: set[tuple[str, str]] = set()
-        for asset in sorted(
-            episode_referenced_assets(project, ({kind: items} if kind else None)),
-            key=lambda asset: (asset.owner is not None, asset.asset_type, asset.name),
-        ):
-            spec = ASSET_SPECS[asset.asset_type]
-            owner = project[spec.bucket_key][asset.owner or asset.name]
-            entry = (
-                derivative_table(owner)[split_derivative_artifact_id(asset.name)[1]]
-                if asset.owner is not None
-                else owner
-            )
-            description = entry.get("description")
-            if not isinstance(description, str) or not description.strip():
-                continue
-            path = entry.get(spec.sheet_field)
-            sheet_state = (
-                self._artifact_state(
-                    shared.currency,
-                    (
-                        derivative_artifact_key(
-                            *map(asset_name_comparison_key, split_derivative_artifact_id(asset.name))
-                        )
-                        if asset.owner is not None
-                        else ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.name))
-                    ),
-                    path,
-                    issues,
-                )
-                if shared.currency is not None and isinstance(path, str) and path
-                else ArtifactStatus.MISSING.value
-            )
-            if sheet_state != ArtifactStatus.MISSING.value:
-                continue
-            if asset.owner is not None:
-                owner_sheets = shared.sheets[asset.asset_type]
-                if (asset.asset_type, asset.owner) not in accepted_sheets and asset.owner not in (
-                    owner_sheets["current_ids"] + owner_sheets["stale_ids"]
-                ):
-                    continue
-            missing_sheets.append(asset.name)
-            accepted_sheets.add((asset.asset_type, asset.name))
         if missing_sheets:
             return respond(
                 target,
@@ -2040,9 +1987,9 @@ __all__ = [
     "EPISODE_COMPLETE_REASON",
     "INVALID_EDIT_TIMELINES_CODE",
     "ArtifactCount",
+    "EpisodeNextStep",
     "EpisodeSummary",
     "EpisodesSummary",
-    "ProjectPhase",
     "ProjectSummary",
     "WorkflowActionType",
     "WorkflowBlocker",

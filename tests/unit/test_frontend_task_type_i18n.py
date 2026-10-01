@@ -46,6 +46,7 @@ TEXT_TASK_TYPES = frozenset(
         "text_drama_script_plan",
         "text_narration_script_plan",
         "text_reference_script_plan",
+        "text_draft_repair",
     }
 )
 

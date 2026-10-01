@@ -26,7 +26,9 @@ class TestProjectsRouter:
             assert project["content_mode"] == "ad"
             assert project["target_duration"] == 60
             assert project["brief"] == ""
-            assert project["episodes"] == [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}]
+            assert project["episodes"] == [
+                {"episode": 1, "title": "", "script_file": "scripts/episode_1.json", "source_origin": "none"}
+            ]
             assert "default_duration" not in project
 
             # 数据层不硬枚举：任意正整数秒合法

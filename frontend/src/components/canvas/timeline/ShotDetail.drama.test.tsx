@@ -178,9 +178,9 @@ describe("ShotDetail 剧情演绎", () => {
       const onInsertShot = vi.fn().mockResolvedValue(true);
       renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot, onRemoveShot: vi.fn() });
 
-      fireEvent.click(screen.getByRole("button", { name: "新增分镜" }));
+      fireEvent.click(screen.getByRole("button", { name: "在此后插入" }));
 
-      await waitFor(() => expect(onInsertShot).toHaveBeenCalledWith("E1S01"));
+      await waitFor(() => expect(onInsertShot).toHaveBeenCalledWith("E1S01", undefined));
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
@@ -203,12 +203,12 @@ describe("ShotDetail 剧情演绎", () => {
     it("有未保存草稿时增删入口禁用；未传回调时不渲染入口", () => {
       const { unmount } = renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot: vi.fn(), onRemoveShot: vi.fn() });
       fireEvent.change(screen.getByDisplayValue("三年后。"), { target: { value: "五年后。" } });
-      expect(screen.getByRole("button", { name: "新增分镜" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "在此后插入" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "移除分镜" })).toBeDisabled();
       unmount();
 
       renderDetail({ onUpdatePrompt: vi.fn() });
-      expect(screen.queryByRole("button", { name: "新增分镜" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "在此后插入" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "移除分镜" })).not.toBeInTheDocument();
     });
   });

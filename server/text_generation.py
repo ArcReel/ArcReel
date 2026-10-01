@@ -32,6 +32,7 @@ from lib.episode.episode_paths import (
     episode_drafts_dir,
     episode_source_relpath,
 )
+from lib.episode.episode_sources import episode_entry
 from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsError,
@@ -386,7 +387,7 @@ def _parse_normalized_content(response_text: str, model: type[BaseModel]) -> dic
     return _parse_script_plan_json(response_text, model, label="script_plan 规范化内容", top_shape="{title, scenes}")
 
 
-def _load_novel_source(project_path: Path, source: str | None, *, episode: int) -> str:
+def load_novel_source(project_path: Path, source: str | None, *, episode: int) -> str:
     """读取 script_plan 工具的源文：指定 source 文件，或缺省时本集派生源文；异常情况抛 ValueError。
 
     normalize / split 两类 script_plan 工具共用：路径越界、文件缺失、内容为空均 fail-fast，
@@ -438,7 +439,7 @@ def _load_script_plan_source_with_basis(
 ) -> tuple[str, dict[str, object], ArtifactBasis]:
     """Freeze the exact source text and project semantics consumed by a script_plan request."""
 
-    novel_text = _load_novel_source(project_path, source, episode=episode)
+    novel_text = load_novel_source(project_path, source, episode=episode)
     prompt_inputs, basis = build_script_plan_request(
         novel_text,
         episode=episode,
@@ -544,12 +545,12 @@ def prompt_authoring_preflight(
             ) from exc
 
 
-def script_plan_preflight(project_path: Path, episode: int, source: str | None, content_mode: object) -> None:
-    """AI 规划脚本的准入：本集有集原文。显式指定源文件时以该文件为输入，由生成时校验。"""
-    has_source = source is not None or episode_source_present(project_path, episode)
+def script_plan_preflight(project_path: Path, project: Mapping[str, Any], episode: int, source: str | None) -> None:
+    """AI 规划脚本的准入：本集有集原文（按账本记录的来源判定）。显式指定源文件时以该文件为输入，由生成时校验。"""
+    has_source = source is not None or episode_source_present(project_path, episode, episode_entry(project, episode))
     require_admitted(
         "prepare_script_plan",
-        admit_script_plan(content_mode, episode_source=has_source),
+        admit_script_plan(project.get("content_mode", "narration"), episode_source=has_source),
         episode=episode,
         detail=translate("operation_episode_source_location", path=episode_source_relpath(episode)),
     )

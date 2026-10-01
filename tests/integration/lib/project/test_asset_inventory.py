@@ -13,6 +13,7 @@ from lib.project.asset_inventory import (
 )
 from lib.project.project_manager import ProjectManager
 from lib.project.source_revision import SourceScope, compute_source_revision
+from tests.factories import register_project_sources
 
 
 def _make_project(tmp_path: Path) -> tuple[ProjectManager, Path]:
@@ -20,7 +21,7 @@ def _make_project(tmp_path: Path) -> tuple[ProjectManager, Path]:
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "", "narration")
     project_path = pm.get_project_path("demo")
-    (project_path / "source" / "novel.txt").write_text("最初的原文", encoding="utf-8")
+    register_project_sources(pm, "demo", whole_source={"novel.txt": "最初的原文"})
     return pm, project_path
 
 

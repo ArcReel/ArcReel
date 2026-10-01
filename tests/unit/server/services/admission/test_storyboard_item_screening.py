@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from lib.generation.generation_result import GenerationProblemCode
-from server.media_tools.videos import screen_storyboard_items
+from server.services.admission.video_batch_admission import screen_storyboard_items
 
 
 def _segment(segment_id: object, **fields: Any) -> dict[str, Any]:

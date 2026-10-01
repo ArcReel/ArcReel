@@ -16,10 +16,8 @@ import {
 } from "lucide-react";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
-import { useAppStore } from "@/stores/app-store";
-import { API } from "@/api";
+import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
-import { isDemoProject } from "@/onboarding/demo-project";
 import { normalizeRoute } from "@/utils/generation-mode";
 import { EpisodeCard } from "./EpisodeCard";
 
@@ -37,7 +35,7 @@ interface NavItem {
 
 /**
  * 工作台侧栏 v3：
- * - 工作区导航（5 个胶囊按钮：项目概览 / 源文件 / 角色集 / 场景库 / 道具库）
+ * - 工作区导航（胶囊按钮：项目概览 / 分集 / 角色集 / 场景库 / 道具库，广告/短片另有商品库、没有分集）
  * - 分集列表（搜索 + 卡片列表，每张卡片含缩略+状态+进度+费用）
  * - 折叠态（64px）：仅图标 + Ex 字符
  */
@@ -57,32 +55,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   // 广告/短片项目恒单集：隐藏「集」语义（标题/计数/搜索/添加），直达唯一视频
   const isAd = currentProjectData?.content_mode === "ad";
 
-  const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
-  const [sourceCount, setSourceCount] = useState<number>(0);
-
-  // 演示项目没有服务端侧数据，源文件计数跳过（导航与分集列表照常渲染）
+  // 演示项目没有服务端侧数据，「分集」入口隐藏（导航其余项与分集列表照常渲染）
   const demoMode = useDemoWorkbench();
 
   useEffect(() => {
     if (currentProjectName) debouncedFetchCost(currentProjectName);
   }, [currentProjectName, debouncedFetchCost]);
-
-  useEffect(() => {
-    // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
-    // 兜住这一帧仍读到旧演示项目名的窗口，避免对不存在的演示项目发一次必然失败的请求。
-    if (!currentProjectName || demoMode || isDemoProject(currentProjectName)) return;
-    let cancelled = false;
-    API.listFiles(currentProjectName)
-      .then((res) => {
-        if (!cancelled) setSourceCount(res.files?.source?.length ?? 0);
-      })
-      .catch(() => {
-        // 失败时保留上一份成功值，避免把网络/权限错误伪装成 0
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentProjectName, sourceFilesVersion, demoMode]);
 
   // Derive active episode from `/episodes/:id`
   const activeEp = useMemo(() => {
@@ -92,16 +70,16 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
 
   const navItems: NavItem[] = [
     { key: "overview", path: "/", label: t("dashboard:workspace_nav_overview"), icon: LayoutDashboard },
-    // 演示项目没有可切片的源文件，且后端不存在该项目，隐藏入口而非渲染必然报错的空页
-    ...(demoMode
+    // 演示项目后端不存在，广告/短片恒单集、不经分集：隐藏入口而非渲染必然报错或无意义的页面
+    ...(demoMode || isAd
       ? []
       : [
           {
-            key: "source",
-            path: "/source",
-            label: t("dashboard:workspace_nav_source"),
+            key: "episodes",
+            path: `/${WORKSPACE_ROUTE_EPISODES}`,
+            label: t("dashboard:workspace_nav_episodes"),
             icon: BookOpen,
-            meta: sourceCount,
+            meta: episodes.length,
           },
         ]),
     {
@@ -140,7 +118,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   ];
 
   const isNavActive = (item: NavItem): boolean => {
-    if (item.path === "/") return location === "/";
+    // 集页 /episodes/:id 由下方分集列表高亮，「分集」只在分集视图本身高亮
+    if (item.path === "/" || item.key === "episodes") return location === item.path;
     return location === item.path || location.startsWith(item.path + "/");
   };
 

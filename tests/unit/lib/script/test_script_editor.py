@@ -208,10 +208,14 @@ class TestPatchField:
 
 
 class TestInsertSegment:
-    def test_insert_after_assigns_unique_suffixed_id_at_right_position(self):
+    def test_insert_after_takes_the_next_main_number_at_right_position(self):
         script = insert_segment(_narration(), "E1S01", _segment("IGNORED"))
         ids = [s["segment_id"] for s in script["segments"]]
-        assert ids == ["E1S01", "E1S01_1", "E1S02"]
+        assert ids == ["E1S01", "E1S03", "E1S02"]
+
+    def test_insert_without_anchor_goes_first(self):
+        script = insert_segment(_narration([]), None, _segment("X"))
+        assert [s["segment_id"] for s in script["segments"]] == ["E1S01"]
 
     def test_insert_clears_generated_assets(self):
         script = insert_segment(_narration(), "E1S01", _segment("X"))
@@ -223,19 +227,10 @@ class TestInsertSegment:
         script = insert_segment(_narration(), "E1S01", new_item)
         assert script["segments"][1].get("end_frame_image") is None
 
-    def test_insert_id_avoids_collision(self):
-        seg = _segment("E1S01_1")
-        script = insert_segment(_narration([_segment("E1S01"), seg]), "E1S01", _segment("X"))
+    def test_insert_number_counts_suffixed_ids(self):
+        script = insert_segment(_narration([_segment("E1S01"), _segment("E1S04_1")]), "E1S01", _segment("X"))
         ids = [s["segment_id"] for s in script["segments"]]
-        assert ids == ["E1S01", "E1S01_2", "E1S01_1"]
-
-    def test_insert_anchor_already_suffixed_flattens_subindex(self):
-        # 锚点本身已含子序号（E1S01_1）→ 新 id 取 stem `E1S01` + 下一个空闲子序号，
-        # 不产生 `E1S01_1_1` 这种多层后缀（违反 data_validator.ID_PATTERN）。
-        script = insert_segment(_narration([_segment("E1S01"), _segment("E1S01_1")]), "E1S01_1", _segment("X"))
-        ids = [s["segment_id"] for s in script["segments"]]
-        # 跳过已占用的 E1S01_1，得到 E1S01_2，仍是合法单层后缀
-        assert ids == ["E1S01", "E1S01_1", "E1S01_2"]
+        assert ids == ["E1S01", "E1S05", "E1S04_1"]
 
     def test_insert_unknown_anchor_raises(self):
         with pytest.raises(ScriptEditError):
@@ -244,7 +239,7 @@ class TestInsertSegment:
     def test_insert_reference_unit(self):
         script = insert_segment(_reference(), "E1U1", _unit("X"))
         ids = [u["unit_id"] for u in script["video_units"]]
-        assert ids == ["E1U1", "E1U1_1", "E1U2"]
+        assert ids == ["E1U1", "E1U3", "E1U2"]
 
 
 class TestRemoveSegment:

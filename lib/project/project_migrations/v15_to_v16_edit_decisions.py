@@ -45,12 +45,24 @@
   它是脚本规划依据的输入：与视频时效同法，改前改后各规划一次，只改写改前时新且目标已变的脚本规划
   登记。脚本规划没有版本记录，只改清单。
 
+**集原文与整本源文文件由项目显式登记（ADR 0031、0097）**
+
+- 账本条目补记集原文来源：有原文范围的是切出集；没有原文范围、有 ``source/episode_N.txt`` 的，
+  ``source/`` 里另有原文时按旧拆分流程的切出集记，只有集文件时记为自带原文；两者都没有的记为无原文。
+- 只有 ``source/episode_N.txt``、没有账本条目的集登记为自带原文的集，集 ID 取文件名里的 N，按 N 升序
+  接在播出顺序末尾。
+- 整本源文的文件按原来的候选规则（直接位于 ``source/`` 下、非点 / 下划线前缀的 .txt / .md，集文件不算）与
+  文件名顺序补记清单；规划起点改由账本推导，删除 ``planning_cursor``。
+- 登记过切出集的文件补记规范化文本快照；文件内容与已记录的源文指纹不一致时不补记，指纹不一致仍由
+  规划入口拦下。快照先于 ``project.json`` 写入，重跑时按原样覆盖。
+
 除上传产物的补登外，本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -82,6 +94,25 @@ from lib.artifacts.visual_artifact_provenance import (
     visual_file_digest,
 )
 from lib.episode.episode_ids import episode_ids_on_disk, raise_episode_id_high_water
+from lib.episode.episode_ledger import (
+    SOURCE_FINGERPRINTS_KEY,
+    SOURCE_TEXT_SUFFIXES,
+    discover_episode_files,
+    has_downstream_products,
+    is_derived_episode_name,
+    normalize_source_text,
+    parse_positive_episode_num,
+    parse_source_range,
+)
+from lib.episode.episode_paths import episode_script_relpath
+from lib.episode.episode_sources import (
+    SOURCE_ORIGIN_FIELD,
+    SOURCE_ORIGINS,
+    WHOLE_SOURCE_FILES_KEY,
+    SourceOrigin,
+    cut_episode_source_files,
+    sync_source_snapshots,
+)
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migration_report import ArtifactBackfillOutcome
@@ -299,6 +330,92 @@ def _rebase_script_plan_entries(
         expected={key: stored[key] for key in replacements}, replacements=replacements
     ):
         raise RuntimeError("artifact manifest changed while rebasing script plan entries")
+
+
+# ---------------------------------------------------------------------------
+# 子步：集原文与整本源文文件显式登记
+# ---------------------------------------------------------------------------
+
+
+def _legacy_whole_source_paths(project_dir: Path) -> list[Path]:
+    """旧口径下的整本源文：直接位于 ``source/`` 下、非点 / 下划线前缀的普通 .txt / .md 文件，集文件不算，按文件名排序。"""
+    source_dir = project_dir / "source"
+    if source_dir.is_symlink() or source_dir.is_junction() or not source_dir.is_dir():
+        return []
+    return [
+        path
+        for path in sorted(source_dir.iterdir())
+        if not path.is_symlink()
+        and path.is_file()
+        and not path.name.startswith((".", "_"))
+        and path.suffix.lower() in SOURCE_TEXT_SUFFIXES
+        and not is_derived_episode_name(path.name)
+    ]
+
+
+def _legacy_origin(entry: Mapping[str, Any], episode_files: Mapping[int, Path], has_whole_source: bool) -> str:
+    if parse_source_range(entry) is not None:
+        return SourceOrigin.WHOLE_SOURCE.value
+    episode = parse_positive_episode_num(entry.get("episode"))
+    if episode is None or episode not in episode_files:
+        return SourceOrigin.NONE.value
+    return SourceOrigin.WHOLE_SOURCE.value if has_whole_source else SourceOrigin.OWN.value
+
+
+def _with_explicit_episode_sources(
+    project_dir: Path, project: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """补记集原文来源、整本源文清单，删除规划游标；返回迁移后的项目与待写快照的规范化全文。"""
+    migrated = dict(project)
+    whole_source = _legacy_whole_source_paths(project_dir)
+    episode_files = discover_episode_files(project_dir)
+
+    raw_episodes = project.get("episodes")
+    if isinstance(raw_episodes, list):
+        episodes: list[Any] = []
+        known: set[int] = set()
+        for raw in raw_episodes:
+            if not isinstance(raw, Mapping):
+                episodes.append(raw)
+                continue
+            entry = dict(raw)
+            if entry.get(SOURCE_ORIGIN_FIELD) not in SOURCE_ORIGINS:
+                entry[SOURCE_ORIGIN_FIELD] = _legacy_origin(entry, episode_files, bool(whole_source))
+            episode = parse_positive_episode_num(entry.get("episode"))
+            if episode is not None:
+                known.add(episode)
+            episodes.append(entry)
+        for episode in sorted(set(episode_files) - known):
+            orphan: dict[str, Any] = {
+                "episode": episode,
+                "title": "",
+                "script_file": episode_script_relpath(episode),
+                SOURCE_ORIGIN_FIELD: SourceOrigin.OWN.value,
+            }
+            orphan["ledger_status"] = "consumed" if has_downstream_products(project_dir, episode, orphan) else "planned"
+            episodes.append(orphan)
+        migrated["episodes"] = episodes
+
+    if not isinstance(migrated.get(WHOLE_SOURCE_FILES_KEY), list):
+        migrated[WHOLE_SOURCE_FILES_KEY] = [{"source_file": f"source/{path.name}"} for path in whole_source]
+    migrated.pop("planning_cursor", None)
+
+    recorded = project.get(SOURCE_FINGERPRINTS_KEY)
+    recorded_fingerprints = recorded if isinstance(recorded, Mapping) else {}
+    snapshot_texts: dict[str, str] = {}
+    for rel in cut_episode_source_files(migrated):
+        path = project_dir / rel
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            text = normalize_source_text(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        fingerprint = recorded_fingerprints.get(rel)
+        if isinstance(fingerprint, str) and fingerprint != hashlib.sha256(text.encode("utf-8")).hexdigest():
+            continue
+        snapshot_texts[rel] = text
+    return migrated, snapshot_texts
 
 
 # ---------------------------------------------------------------------------
@@ -521,10 +638,11 @@ def migrate_v15_to_v16(
     with project_metadata_lock(project_dir):
         before = _plan_before_rewrite(project_dir, project)
         _move_transitions_out_of_scripts(project_dir, project)
+        with_sources, snapshot_texts = _with_explicit_episode_sources(
+            project_dir, _narration_delivery_fields(project_dir, project)
+        )
         migrated_project = {
-            **_with_episode_id_high_water(
-                project_dir, _narration_delivery_fields(project_dir, project), recorded_episode_ids
-            ),
+            **_with_episode_id_high_water(project_dir, with_sources, recorded_episode_ids),
             "schema_version": TARGET_SCHEMA_VERSION,
         }
         after = _plan_after_rewrite(project_dir, migrated_project)
@@ -532,6 +650,7 @@ def migrate_v15_to_v16(
         _rebase_script_plan_entries(project_dir, before, after)
         _register_uploaded_media(project_dir, migrated_project)
         target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated_project).encode()).plan()
+        sync_source_snapshots(project_dir, migrated_project, snapshot_texts)
         atomic_write_json(project_file, migrated_project)
         return ArtifactBackfillOutcome.from_entries(
             ProjectArtifactManifestAdapter(project_dir).snapshot_entries(),

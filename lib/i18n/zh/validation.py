@@ -46,6 +46,9 @@ MESSAGES = {
     "val_novel_must_be_object": "novel 字段必须是对象",
     # ---- 剧集条目与账本 ----
     "val_ledger_status_type": "{prefix}: ledger_status 必须是字符串，当前取值: {value}",
+    "val_source_origin_invalid": "{prefix}: source_origin 值无效: '{value}'，必须是 {allowed}",
+    "val_source_range_requires_whole_source": "{prefix}: 只有切自整本源文（source_origin 为 whole_source）的集可以带 source_range",
+    "val_whole_source_file_invalid": "whole_source_files[{index}] 必须是带 source_file 的对象，文件直接位于 source/ 下，扩展名为 .txt 或 .md",
     "val_episode_missing_num_at": "{prefix}: 缺少必填字段 episode (整数)",
     "val_episode_missing_title_at": "{prefix}: 缺少必填字段 title (字符串，可为空)",
     "val_episode_missing_num": "缺少必填字段: episode (整数)",

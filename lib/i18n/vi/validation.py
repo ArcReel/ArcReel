@@ -44,6 +44,9 @@ MESSAGES = {
     "val_novel_must_be_object": "Trường novel phải là đối tượng",
     # ---- mục tập phim và sổ cái ----
     "val_ledger_status_type": "{prefix}: ledger_status phải là chuỗi, giá trị hiện tại: {value}",
+    "val_source_origin_invalid": "{prefix}: source_origin không hợp lệ: '{value}', phải thuộc {allowed}",
+    "val_source_range_requires_whole_source": "{prefix}: chỉ tập được cắt từ toàn bộ văn bản nguồn (source_origin là whole_source) mới được có source_range",
+    "val_whole_source_file_invalid": "whole_source_files[{index}] phải là đối tượng có source_file trỏ tới tệp .txt hoặc .md nằm trực tiếp trong source/",
     "val_episode_missing_num_at": "{prefix}: thiếu trường bắt buộc episode (số nguyên)",
     "val_episode_missing_title_at": "{prefix}: thiếu trường bắt buộc title (chuỗi, có thể rỗng)",
     "val_episode_missing_num": "Thiếu trường bắt buộc: episode (số nguyên)",

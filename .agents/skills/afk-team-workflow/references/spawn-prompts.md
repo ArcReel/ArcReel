@@ -12,11 +12,11 @@
 
 改动面大时可附加：`开工先委派独立探索 agent 勘察。`
 
-## Local reviewer
+## Stage reviewer
 
 ```text
-你是 afk-team-workflow 批次中 issue #<N> 的 local-reviewer，未参与该 issue 实现。读 <skill 目录绝对路径>/references/local-reviewer.md 并按契约工作。
-输入：worktree=<path>；issue-branch=issue/<N>；stage-branch=<branch>；start-sha=<implementer handoff 中的起始 SHA>；handoff=<repo-root>/.afk/<batch-id>/handoff-<N>.md。
+你负责 afk-team-workflow 批次 stage <K> 的集成审查，未参与本 stage 任何 issue 的实现。读 <skill 目录绝对路径>/references/stage-reviewer.md 并按契约工作。
+输入：stage-branch=<branch>；worktree=<path>；spec=#<Spec；显式 issue 批次省略>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md。
 补充：<必要背景信息；无则省略>
 ```
 

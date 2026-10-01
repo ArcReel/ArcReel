@@ -222,8 +222,11 @@ MESSAGES = {
         "discard the draft or hand it to the agent to merge"
     ),
     "draft_agent_owned": "The agent is editing this content; hand it to the agent to finish, or discard the edit",
+    "blank_script_formal_exists": "This episode already has a formal script, so it cannot start from blank. Edit it on the timeline instead",
     "draft_doc_type_not_applicable": "This kind of draft does not apply to the current project",
     "draft_save_failed": "The draft was saved, but validation could not finish; please retry later",
+    "draft_repair_failed": "AI repair did not finish and the draft is unchanged. Try again, edit it yourself, or hand it to the Agent",
+    "draft_repair_task_active": "AI is already repairing this draft. Try again after it finishes",
     "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no script plan result to confirm)",
     "script_review_no_script_plan": "No script plan result to confirm yet; please finish the script plan first",
     "script_review_quarantined": ("This episode has a draft to resolve; fix or discard the draft before confirming"),
@@ -258,7 +261,10 @@ MESSAGES = {
     "prompt_overwrite_field_text": "unit text",
     "prompt_overwrite_required": "AI rewrite replaces existing prompts. Review the entries to be overwritten, acknowledge the overwrite and retry",
     "prompt_authoring_task_active": "A prompt-writing task for this episode is already running. Wait for it to finish before submitting again",
+    "project_migration_retry_failed": "The data upgrade still did not finish; the project files need repair first",
     "prompt_authoring_refused": "Prompt writing could not be submitted: {reason}",
+    "script_plan_task_active": "A script-planning task for this episode is already running. Wait for it to finish before submitting again",
+    "script_plan_refused": "Script planning could not be submitted: {reason}",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_foreign_formal_script": (
         "The script file bound to episode (id={episode}) is gone and the canonical path scripts/{filename} holds another "
@@ -270,6 +276,7 @@ MESSAGES = {
     ),
     # Source loader
     "source_unsupported_format": "Unsupported source format: {ext} (supported: .txt / .md / .docx / .epub / .pdf)",
+    "source_name_reserved": "File names like episode_N.txt are reserved for episode source files; rename the file before uploading it as part of the whole source",
     "source_decode_failed": "Failed to decode source file '{filename}' (tried: {tried})",
     "source_corrupt_file": "Source file '{filename}' is not parseable: {reason}",
     "source_too_large": "Source file '{filename}' is too large ({size_mb} MB > {limit_mb} MB)",
@@ -520,7 +527,17 @@ MESSAGES = {
     ),
     # Episode meta
     "episode_not_found": "Episode (id={episode}) not found or has no script file yet",
+    "storyboard_batch_script_invalid": "The formal script of episode {episode} cannot be used for batch storyboard generation: its structure does not match the project generation mode, or it is not bound to this episode",
     "episode_title_empty": "Episode title cannot be empty",
+    "episode_source_empty": "Episode source text cannot be empty",
+    "episode_source_derived": "This episode is cut from the whole source; its source text comes from episode planning and cannot be edited here",
+    "episode_source_symlink": "The source file of this episode is a symbolic link and cannot be written",
+    "episode_source_episode_not_found": "Episode (id={episode}) is not in the episode list",
+    "episode_source_present": "This episode already has source text; only episodes without source text can take one",
+    "source_file_not_found": "{filename} was not found in source/; it may have been deleted",
+    "source_file_registered": "{filename} is already registered; refresh to see how it is used",
+    "source_file_unreadable": "{filename} is not UTF-8 text and cannot be read",
+    "source_name_not_whole_source": "File names starting with an underscore or shaped like episode_N.txt cannot join the whole source; use {filename} as an episode's source text or delete it",
     "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",
     # Image Capability

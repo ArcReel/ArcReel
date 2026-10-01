@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clock,
   Loader2,
+  Plus,
   Save,
   Scissors,
   Sparkles,
@@ -23,6 +24,7 @@ import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceScriptPlanPreviewPanel } from "@/components/canvas/reference/ReferenceScriptPlanPreviewPanel";
@@ -45,6 +47,7 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { errMsg } from "@/utils/async";
 import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 import {
@@ -330,9 +333,13 @@ export function ReferenceVideoCanvas({
     return map;
   }, [units, drafts, projectName, episode]);
 
-  const handleAdd = useCallback(async () => {
+  // afterUnitId 缺省时追加到末尾；新单元不继承同号旧单元的产物与版本历史。
+  const handleAdd = useCallback(async (afterUnitId?: string) => {
     try {
-      await addUnit(projectName, episode, { prompt: "" });
+      await addUnit(projectName, episode, {
+        prompt: "",
+        ...(afterUnitId !== undefined ? { after_unit_id: afterUnitId } : {}),
+      });
     } catch (e) {
       toastError(e);
     }
@@ -795,6 +802,11 @@ export function ReferenceVideoCanvas({
     if (hasScript || !showPreprocess) setTab("units");
   }, [hasScript, showPreprocess]);
 
+  useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
+    if (showPreprocess) setTab("preproc");
+  });
+  useEpisodeSurfaceRequest(projectName, episode, "prompt_authoring_draft", () => setTab("units"));
+
   // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
   const scrollTarget = useAppStore((s) => s.scrollTarget);
@@ -1156,6 +1168,15 @@ export function ReferenceVideoCanvas({
                     </button>
                     <button
                       type="button"
+                      onClick={() => void handleAdd(selected.unit_id)}
+                      aria-label={t("reference_unit_insert_after")}
+                      title={t("reference_unit_insert_after")}
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setRemoveUnitId(selected.unit_id)}
                       disabled={isUnitRemovalBlocked(selected.unit_id)}
                       aria-label={t("reference_unit_remove")}
@@ -1390,6 +1411,21 @@ export function ReferenceVideoCanvas({
                     )}
                   </div>
                 </>
+              ) : !hasScript && !showPreprocess ? (
+                // 广告/短片没有脚本规划：没有正式脚本时直接从空白开始。
+                <NoScriptBlankState projectName={projectName} episode={episode} className="flex-1 text-xs" />
+              ) : hasScript && units.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 text-xs text-[var(--color-text-4)]">
+                  <p className="m-0">{t("reference_canvas_empty")}</p>
+                  <button
+                    type="button"
+                    onClick={onAdd}
+                    className="arc-btn-primary focus-ring inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[12.5px] font-semibold"
+                  >
+                    <Plus className="h-3 w-3" aria-hidden="true" />
+                    {t("reference_unit_add_first")}
+                  </button>
+                </div>
               ) : (
                 <div className="flex flex-1 items-center justify-center text-xs text-[var(--color-text-4)]">
                   {t("reference_canvas_empty")}

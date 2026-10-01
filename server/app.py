@@ -66,6 +66,7 @@ from server.routers import (
     edit_timelines,
     end_frames,
     episode_drafts,
+    episodes_view,
     files,
     generate,
     grids,
@@ -76,6 +77,7 @@ from server.routers import (
     presentations,
     products,
     project_events,
+    project_migration,
     projects,
     prompt_authoring,
     prompt_templates,
@@ -83,8 +85,10 @@ from server.routers import (
     providers,
     reference_videos,
     scenes,
+    script_plan,
     script_review,
     shot_uploads,
+    storyboard_batches,
     system,
     system_config,
     tasks,
@@ -613,8 +617,15 @@ app.include_router(
     edit_timelines.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["剪辑时间线"]
 )
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
+app.include_router(episodes_view.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["分集视图"])
 app.include_router(
     generate.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["生成"],
+)
+app.include_router(
+    storyboard_batches.router,
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["生成"],
@@ -644,6 +655,12 @@ app.include_router(
     tags=["提示词编写"],
 )
 app.include_router(
+    script_plan.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["脚本规划"],
+)
+app.include_router(
     shot_uploads.router,
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
@@ -654,6 +671,9 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["分镜尾帧"],
+)
+app.include_router(
+    project_migration.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["项目数据升级"]
 )
 app.include_router(versions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用统计"])

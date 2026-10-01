@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import type { NarrationSegment, AdShot } from "@/types";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -12,6 +12,7 @@ import {
   type ScriptItem,
 } from "@/utils/script-shape";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { InsertShotButton, type InsertShotHandler } from "./ShotStructureActions";
 
 type Segment = ScriptItem;
 type ListContentMode = EditorContentMode;
@@ -26,6 +27,10 @@ interface ShotListProps {
   onToggleCollapse: () => void;
   /** 接收滚动容器 ref，外部可挂载 useScrollTarget */
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  /** 追加一条分镜到末尾；缺省时列表头部不显示新增按钮。 */
+  onAppend?: InsertShotHandler;
+  /** 增删或保存在途时禁用新增。 */
+  appendDisabled?: boolean;
 }
 
 function getImagePromptScene(seg: Segment): string {
@@ -70,6 +75,8 @@ export function ShotList({
   collapsed,
   onToggleCollapse,
   scrollContainerRef,
+  onAppend,
+  appendDisabled = false,
 }: ShotListProps) {
   const { t } = useTranslation("dashboard");
   const [search, setSearch] = useState("");
@@ -192,16 +199,16 @@ export function ShotList({
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </button>
-        <button
-          type="button"
-          disabled
-          aria-disabled="true"
-          title={t("add_episode_unavailable")}
-          className="sv-navbtn inline-flex items-center gap-1 px-2 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Plus className="h-3 w-3" />
-          <span>{t("add_episode")}</span>
-        </button>
+        {onAppend && (
+          <InsertShotButton
+            afterId={null}
+            contentMode={contentMode}
+            onInsert={onAppend}
+            label={t("shot_append")}
+            disabled={appendDisabled}
+            variant="compact"
+          />
+        )}
       </div>
 
       <div className="shrink-0 px-3 pb-2.5">

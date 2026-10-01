@@ -6,17 +6,18 @@
 """
 
 import asyncio
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
-from lib.infra.api_errors import ConflictError, NotFoundError, UnprocessableError
-from lib.project.project_manager import ProjectManager, find_episode, get_project_manager
+from lib.infra.api_errors import ConflictError, UnprocessableError
+from lib.project.project_manager import get_project_manager
 from lib.script.prompt_authoring_scope import prompt_overwrite_with_text
 from server.agent_toolset.envelope import json_value
 from server.auth import CurrentUser
 from server.i18n import Translator
+from server.services.project.episode_instructions import EpisodeInstructionKind, save_episode_instructions
 from server.text_generation import MAX_INSTRUCTIONS_LEN
 from server.tool_runtime import (
     CallerContext,
@@ -29,9 +30,6 @@ from server.tool_runtime import (
 )
 
 router = APIRouter()
-
-#: 集条目上保存提示词编写附加指令的字段。
-PROMPT_AUTHORING_INSTRUCTIONS_FIELD = "prompt_authoring_instructions"
 
 _Instructions = Annotated[str, Field(max_length=MAX_INSTRUCTIONS_LEN)]
 
@@ -50,24 +48,6 @@ class AuthorPromptsRequest(PromptAuthoringInstructions):
     overwrite_revision: str | None = Field(
         default=None, description="认可覆盖的正式脚本版本，取自 prompt_overwrite.revision"
     )
-
-
-def _save_instructions(pm: ProjectManager, project_name: str, episode: int, instructions: str | None) -> None:
-    text = (instructions or "").strip()
-
-    def mutate(project: dict[str, Any]) -> None:
-        entry = find_episode(project, episode)
-        if entry is None:
-            raise NotFoundError("episode_not_found", episode=episode)
-        if text:
-            entry[PROMPT_AUTHORING_INSTRUCTIONS_FIELD] = text
-        else:
-            entry.pop(PROMPT_AUTHORING_INSTRUCTIONS_FIELD, None)
-
-    try:
-        pm.update_project(project_name, mutate)
-    except FileNotFoundError as exc:
-        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 def _raise_problem(problem: ToolProblem, episode: int, _t: Translator) -> None:
@@ -90,7 +70,14 @@ def _raise_problem(problem: ToolProblem, episode: int, _t: Translator) -> None:
 @router.put("/projects/{project_name}/episodes/{episode}/prompt-authoring/instructions")
 async def save_prompt_authoring_instructions(project_name: str, episode: int, req: PromptAuthoringInstructions):
     """只保存本集的附加指令（「交给 Agent」路径用），不提交生成。"""
-    await asyncio.to_thread(_save_instructions, get_project_manager(), project_name, episode, req.instructions)
+    await asyncio.to_thread(
+        save_episode_instructions,
+        get_project_manager(),
+        project_name,
+        episode,
+        EpisodeInstructionKind.PROMPT_AUTHORING,
+        req.instructions,
+    )
     return {"success": True}
 
 
@@ -108,7 +95,14 @@ async def author_prompts(
     ``prompt_overwrite`` 列出将被覆盖的条目与字段、渲染好的 ``text`` 和认可令牌 ``revision``，不提交任务。
     """
     pm = get_project_manager()
-    await asyncio.to_thread(_save_instructions, pm, project_name, episode, req.instructions)
+    await asyncio.to_thread(
+        save_episode_instructions,
+        pm,
+        project_name,
+        episode,
+        EpisodeInstructionKind.PROMPT_AUTHORING,
+        req.instructions,
+    )
     outcome = await generate_episode_script(
         ToolRequest(
             GenerateEpisodeScriptRequest(

@@ -101,7 +101,11 @@ def test_real_v2_to_v3_stamps_version_via_runner(tmp_projects: Path):
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     # 盖章语义细节由 test_project_migration_v2_v3 专测，此处只验证迁移器经 MIGRATORS
     # 注册生效与 runner 外围行为
-    assert data["episodes"] == [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}]
+    # 无原文范围、有集文件且 source/ 另有整本源文的旧条目，v15→v16 判为切自整本源文
+    assert data["episodes"] == [
+        {"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json", "source_origin": "whole_source"}
+    ]
+    assert data["whole_source_files"] == [{"source_file": "source/novel.txt"}]
     assert "planning_cursor" not in data
     assert (source / "_remaining.txt").exists()  # 迁移不动 source/ 下任何文件
     assert list(p.glob("project.json.bak.v2-*"))  # runner 自动版本化备份

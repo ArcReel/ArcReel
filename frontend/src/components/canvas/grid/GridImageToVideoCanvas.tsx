@@ -5,9 +5,13 @@ import { EpisodeHeader } from "../timeline/EpisodeHeader";
 import { ScriptReviewGate } from "../timeline/ScriptReviewGate";
 import { PromptAuthoringButton } from "../shared/PromptAuthoringButton";
 import { ShotSplitView } from "../timeline/ShotSplitView";
+import { EmptyScriptState } from "../timeline/EmptyScriptState";
+import { StoryboardBatchDialog } from "../timeline/StoryboardBatchDialog";
 import { GridPreviewView } from "./GridPreviewView";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useActiveResourceIds, useHasActiveTaskForScriptFile } from "@/stores/tasks-store";
 import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -55,6 +59,8 @@ interface GridImageToVideoCanvasProps {
   ) => Promise<void> | void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
+  /** 空脚本里新增第一个分镜（旁白带正文）；resolve 为是否成功 */
+  onInsertFirstShot?: (novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
   onSaveTitle?: (next: string) => Promise<void>;
   canEditTitle?: boolean;
 }
@@ -81,6 +87,7 @@ export function GridImageToVideoCanvas({
   onGenerateGrid,
   onRestoreStoryboard,
   onRestoreVideo,
+  onInsertFirstShot,
   onSaveTitle,
   canEditTitle,
 }: GridImageToVideoCanvasProps) {
@@ -96,12 +103,18 @@ export function GridImageToVideoCanvas({
   const showTabs = Boolean(hasDraft);
   const defaultTab: GridTab = hasScript ? "units" : "preprocessing";
   const [activeTab, setActiveTab] = useState<GridTab>(defaultTab);
+  const [videoBatchOpen, setVideoBatchOpen] = useState(false);
+  const demoReadOnly = useDemoWorkbench();
 
   useEffect(() => {
     // 剧本加载完成后切到 units 标签页，由 hasScript 状态变化驱动
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (hasScript) setActiveTab("units");
   }, [hasScript]);
+
+  useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
+    if (showTabs) setActiveTab("preprocessing");
+  });
 
   const episodeCost = useCostStore((s) =>
     episodeScript ? s.getEpisodeCost(episodeScript.episode) : undefined,
@@ -293,7 +306,8 @@ export function GridImageToVideoCanvas({
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled
+              disabled={demoReadOnly}
+              onClick={() => setVideoBatchOpen(true)}
               title={t("batch_generate_videos")}
               aria-label={t("batch_generate_videos")}
             >
@@ -315,6 +329,15 @@ export function GridImageToVideoCanvas({
           </div>
         )}
       </div>
+
+      {videoBatchOpen && (
+        <StoryboardBatchDialog
+          projectName={projectName}
+          episode={episode}
+          kind="videos"
+          onClose={() => setVideoBatchOpen(false)}
+        />
+      )}
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === "preprocessing" && hasDraft && editorContentMode ? (
@@ -360,6 +383,13 @@ export function GridImageToVideoCanvas({
             lastFrame={lastFrame}
             capabilitiesLoading={capabilitiesLoading}
             durationWarningReason={durationWarningReason}
+          />
+        ) : episodeScript && editorContentMode ? (
+          <EmptyScriptState
+            contentMode={editorContentMode}
+            onInsert={
+              onInsertFirstShot ? (_afterId, novelText) => onInsertFirstShot(novelText, scriptFile) : undefined
+            }
           />
         ) : null}
       </div>

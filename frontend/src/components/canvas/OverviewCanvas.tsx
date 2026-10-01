@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, RefreshCw, Sparkles, Users, Landmark, Package } from "lucide-react";
 import type { ProjectData } from "@/types";
-import { API, ConflictError } from "@/api";
+import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -13,7 +13,6 @@ import { itemCountKey, normalizeRoute } from "@/utils/generation-mode";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { AdInitCanvas } from "./AdInitCanvas";
-import { ConflictModal, type ConflictResolution } from "./ConflictModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
@@ -50,8 +49,6 @@ export function OverviewCanvas({
   readOnly = false,
 }: OverviewCanvasProps) {
   const { t } = useTranslation(["dashboard", "common"]);
-  const tRef = useRef(t);
-  tRef.current = t;
   // 广告/短片项目恒单集：界面隐藏「集」语义，区块按单视频呈现
   const isAd = projectData?.content_mode === "ad";
   // 内容规模的口径按生成模式定，与创作类型无关：分镜图生视频报分镜数、参考生视频报视频单元数。
@@ -73,11 +70,16 @@ export function OverviewCanvas({
 
   const [regenerating, setRegenerating] = useState(false);
   const [confirmingRegenerate, setConfirmingRegenerate] = useState(false);
-  const [conflictPrompt, setConflictPrompt] = useState<{
-    existing: string;
-    suggestedName: string;
-    resolve: (d: ConflictResolution) => void;
-  } | null>(null);
+
+  // 欢迎页的上传对话框打开期间欢迎页保持挂载：逐集原文登记出第一集后项目就不再是空项目，
+  // 此时卸载欢迎页会连带卸载对话框、中止剩下的上传。按项目名记录，切项目后不沿用。
+  const [welcomeUpload, setWelcomeUpload] = useState<{ projectName: string; files: File[] } | null>(null);
+  const welcomeUploadFiles = welcomeUpload?.projectName === projectName ? welcomeUpload.files : null;
+  const welcomeUploadOpen = welcomeUploadFiles !== null;
+  const setWelcomeUploadFiles = useCallback(
+    (files: File[] | null) => setWelcomeUpload(files === null ? null : { projectName, files }),
+    [projectName],
+  );
 
   // 在「欢迎页 → 概览页」首次切换时触发一次 Agent 引导动画。
   // 仅当本次会话内 showWelcome 由 true 变为 false 才递增 trigger，
@@ -97,98 +99,22 @@ export function OverviewCanvas({
     // effect 抢同一次提交。
     if (readOnly) {
       wasWelcomeRef.current = null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 切入只读态时清零交接提示的 trigger，是有意的状态重置
       setHandoffTrigger(0);
       return;
     }
     if (!projectData) return;
-    const isWelcome = !projectData.overview && (projectData.episodes?.length ?? 0) === 0;
+    const isWelcome = welcomeUploadOpen || (!projectData.overview && (projectData.episodes?.length ?? 0) === 0);
     if (wasWelcomeRef.current === true && !isWelcome) {
       setHandoffTrigger((k) => k + 1);
     }
     wasWelcomeRef.current = isWelcome;
-  }, [projectData, readOnly]);
+  }, [projectData, readOnly, welcomeUploadOpen]);
 
   // 在途合并 + 失败留旧收敛于 projects-store；此处仅表达刷新意图，忽略返回值。
   const refreshProject = useCallback(
     async () => {
       await useProjectsStore.getState().refreshProject(projectName);
-    },
-    [projectName],
-  );
-
-  const readOnlyRef = useRef(readOnly);
-  readOnlyRef.current = readOnly;
-
-  // 组件整体卸载（如经由历史记录跳转到 characters 等非概览深链）后 readOnlyRef 不再更新，
-  // 仅凭它无法识别"实例已被销毁"——上传收尾与冲突弹窗都需额外核对这个标记，避免对已卸载
-  // 组件 setState、或把过期上传结果补投到当前所在的其他路由页面；卸载时主动 resolve 悬挂
-  // 中的冲突弹窗 Promise，防止 handleUpload 永久等待一个不会再渲染的弹窗。
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-      setConflictPrompt((prev) => {
-        prev?.resolve("cancel");
-        return null;
-      });
-    };
-  }, []);
-
-  const handleUpload = useCallback(
-    async (file: File) => {
-      const tryUpload = async (
-        onConflict?: "fail" | "replace" | "rename"
-      ): Promise<void> => {
-        const res = await API.uploadFile(projectName, "source", file, null, {
-          onConflict,
-        });
-        // 上传期间可能已切到只读态，或组件已整体卸载——过期项目的成功反馈不该展示在
-        // 只读页面或当前所在的其他路由页面上。
-        if (!mountedRef.current || readOnlyRef.current) return;
-        const filename = res.filename ?? file.name;
-        const enc = res.used_encoding ?? null;
-        const chapters = res.chapter_count ?? 0;
-        const hasEncoding = enc !== null;
-        let key: string;
-        if (hasEncoding && chapters > 0) {
-          key = "source_normalized_toast_with_chapters";
-        } else if (hasEncoding) {
-          key = "source_normalized_toast";
-        } else if (chapters > 0) {
-          key = "source_normalized_toast_native_with_chapters";
-        } else {
-          key = "source_normalized_toast_native";
-        }
-        useAppStore
-          .getState()
-          .pushToast(
-            tRef.current(key, { filename, encoding: enc, chapters }),
-            "success",
-          );
-      };
-
-      try {
-        await tryUpload();
-      } catch (err) {
-        if (err instanceof ConflictError) {
-          // 上传耗时期间可能已切到只读态（如导航到演示项目复用同一实例），或组件已
-          // 整体卸载——冲突弹窗不该在只读页面上、或对已卸载实例凭一个过期项目的旧
-          // 上传结果重新弹出。
-          if (!mountedRef.current || readOnlyRef.current) return;
-          const decision = await new Promise<ConflictResolution>((resolve) => {
-            setConflictPrompt({
-              existing: err.existing,
-              suggestedName: err.suggestedName,
-              resolve,
-            });
-          });
-          setConflictPrompt(null);
-          if (decision === "cancel") return;
-          await tryUpload(decision);
-        } else {
-          throw err;
-        }
-      }
     },
     [projectName],
   );
@@ -203,16 +129,16 @@ export function OverviewCanvas({
     try {
       await API.generateOverview(projectName);
       await refreshProject();
-      useAppStore.getState().pushToast(tRef.current("project_overview_regenerated"), "success");
+      useAppStore.getState().pushToast(t("project_overview_regenerated"), "success");
     } catch (err) {
       useAppStore
         .getState()
-        .pushNotification(tRef.current("regenerate_failed", { message: errMsg(err) }), "error");
+        .pushNotification(t("regenerate_failed", { message: errMsg(err) }), "error");
     } finally {
       setRegenerating(false);
       setConfirmingRegenerate(false);
     }
-  }, [projectName, refreshProject]);
+  }, [projectName, refreshProject, t]);
 
   const [editingOverview, setEditingOverview] = useState(false);
   const [savingOverview, setSavingOverview] = useState(false);
@@ -228,17 +154,10 @@ export function OverviewCanvas({
   const worldFieldId = useId();
 
   // 编辑态期间切到只读项目（如切入演示项目）时立即退出编辑态，避免表单和保存操作残留可用。
-  // 冲突弹窗同理：真实项目上传撞名后，用户在弹窗未处理时切到演示项目——同一路由复用同一个
-  // OverviewCanvas 实例，弹窗若不清空会继续挂在演示页上，「保留两者/替换」仍可点击（点击后
-  // 走的是切换前 handleUpload 闭包里的旧 projectName，写入会被全局只读闸门拒绝，但弹窗本身
-  // 不该出现在只读页面）。用 cancel 主动结束等待中的 Promise，不留悬空 resolve。
   useEffect(() => {
     if (!readOnly) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切入只读态时退出编辑态，是有意的 UI 状态重置
     setEditingOverview(false);
-    setConflictPrompt((prev) => {
-      prev?.resolve("cancel");
-      return null;
-    });
   }, [readOnly]);
 
   const enterOverviewEdit = useCallback(() => {
@@ -264,15 +183,15 @@ export function OverviewCanvas({
       });
       await refreshProject();
       setEditingOverview(false);
-      useAppStore.getState().pushToast(tRef.current("overview_updated"), "success");
+      useAppStore.getState().pushToast(t("overview_updated"), "success");
     } catch (err) {
       useAppStore
         .getState()
-        .pushToast(tRef.current("update_overview_failed", { message: errMsg(err) }), "error");
+        .pushToast(t("update_overview_failed", { message: errMsg(err) }), "error");
     } finally {
       setSavingOverview(false);
     }
-  }, [projectName, draft, refreshProject]);
+  }, [projectName, draft, refreshProject, t]);
 
   if (!projectData) {
     // 项目数据加载期间保留同结构的空容器（不渲染居中 loading 文字），
@@ -283,7 +202,7 @@ export function OverviewCanvas({
 
   const status = projectData.status;
   const overview = projectData.overview;
-  const showWelcome = !overview && (projectData.episodes?.length ?? 0) === 0;
+  const showWelcome = welcomeUploadOpen || (!overview && (projectData.episodes?.length ?? 0) === 0);
   // ad 项目恒单集（episodes 非空），不会落入 showWelcome；建项后素材全空时进入初始化页：
   // 上传商品图 + 商品描述 + brief + 可选 sheet 生成。任一素材就绪即切回概览。
   const showAdInit =
@@ -332,9 +251,12 @@ export function OverviewCanvas({
           <AdInitCanvas projectName={projectName} onDone={refreshProject} />
         ) : showWelcome ? (
           <WelcomeCanvas
+            key={projectName}
             projectName={projectName}
             projectTitle={projectData.title}
-            onUpload={handleUpload}
+            wholeSourceFiles={(projectData.whole_source_files ?? []).map((item) => item.source_file)}
+            uploadFiles={welcomeUploadFiles}
+            onUploadFilesChange={setWelcomeUploadFiles}
             onAnalyze={handleAnalyze}
           />
         ) : (
@@ -859,13 +781,6 @@ export function OverviewCanvas({
         onConfirm={() => handleRegenerate()}
         onCancel={() => setConfirmingRegenerate(false)}
       />
-      {conflictPrompt && (
-        <ConflictModal
-          existing={conflictPrompt.existing}
-          suggestedName={conflictPrompt.suggestedName}
-          onResolve={conflictPrompt.resolve}
-        />
-      )}
       {!readOnly && <AgentHandoffHint triggerKey={handoffTrigger} storageScope={projectName} />}
     </div>
   );

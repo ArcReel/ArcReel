@@ -47,8 +47,6 @@ export function isDemoProject(name: string | null | undefined): boolean {
 }
 
 const DEMO_STATUS: ProjectStatus = {
-  phase: "production",
-  phase_progress: 0.62,
   needs_repair: false,
   repair_reason: null,
   assets: {

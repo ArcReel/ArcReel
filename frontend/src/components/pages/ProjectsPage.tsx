@@ -32,25 +32,25 @@ import { ICON_BTN_FILLED_CLS } from "@/components/ui/darkroom-tokens";
 import {
   ProjectCard,
   Poster,
-  PhasePill,
+  ProgressPill,
   NeedsRepairPill,
+  NeedsUpdateLine,
   RepairReasonLine,
-  StaleAssetsLine,
   asProjectStatus,
   assetCount,
   gradientProgressStyles,
+  projectProgress,
   repairReasonOf,
-  staleAssetTotal,
-  usePhaseLabels,
+  staleArtifactTotal,
+  useProgressLabel,
 } from "./ProjectCard";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { OnboardingDemoCard } from "@/onboarding/OnboardingDemoCard";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { BRAND } from "@/branding";
 import {
-  PHASE_ORDER,
-  type Phase,
   type ImportConflictPolicy,
+  type ProjectStatus,
   type ImportFailureDiagnostics,
   type ProjectSummary,
 } from "@/types";
@@ -59,7 +59,20 @@ import {
 // 设计：导演的暗房（Claude Design 交付包 ArcReel Projects B Darkroom.html）
 // 数据：仅消费 ProjectSummary 真实字段；hue 由 project.name 哈希派生
 
-type PhaseFilter = Phase | "all";
+/**
+ * 大厅的筛选维度：按集进度分「进行中 / 已完成」，另有与之正交的「需要处理」
+ * （需要修复或有产物需要更新）。项目没有流水线阶段。
+ */
+type LobbyFilter = "all" | "in_progress" | "completed" | "attention";
+const LOBBY_FILTERS = ["in_progress", "completed", "attention"] as const satisfies readonly LobbyFilter[];
+
+function matchesFilter(status: ProjectStatus | null, filter: LobbyFilter): boolean {
+  if (filter === "all") return true;
+  if (!status) return false;
+  if (filter === "attention") return status.needs_repair || staleArtifactTotal(status) > 0;
+  const completed = projectProgress(status) === "completed";
+  return filter === "completed" ? completed : !completed;
+}
 type GreetingKey =
   | "lobby_hero_greeting_morning"
   | "lobby_hero_greeting_afternoon"
@@ -74,14 +87,18 @@ const ACCENT_BUTTON_STYLE: CSSProperties = {
     "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-accent)",
 };
 
+/**
+ * 「接着上一次」卡的候选分：已有集进入制作的项目优先，其次是只有脚本的项目；
+ * 没有集或已有的集全部完成的项目不作候选。
+ */
 function projectActivityScore(p: ProjectSummary): number {
   const status = asProjectStatus(p.status);
   if (!status) return -1;
-  if (status.phase === "production" && status.phase_progress < 1) {
-    return 100 + status.phase_progress * 10;
-  }
-  if (status.phase === "completed") return -10;
-  return PHASE_ORDER.indexOf(status.phase) * 10 + status.phase_progress;
+  const { total, scripted, in_production, completed } = status.episodes_summary;
+  if (total === 0) return 0;
+  if (completed >= total) return -10;
+  if (in_production + completed > 0) return 100 + (completed / total) * 10;
+  return 10 + scripted / total;
 }
 
 function pickFeaturedProject(projects: ProjectSummary[]): ProjectSummary | null {
@@ -116,24 +133,23 @@ function getGreetingKey(d = new Date()): GreetingKey {
 interface NowEditingCardProps {
   project: ProjectSummary;
   styleLabel: string;
-  phaseLabels: Record<Phase, string>;
   t: TFunction;
 }
 
-function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardProps) {
+function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
   const status = asProjectStatus(project.status);
-  const phase: Phase | null = status?.phase ?? null;
-  const phaseLabel = phase ? phaseLabels[phase] : "";
-  const progressPct = status ? Math.round(status.phase_progress * 100) : 0;
+  const progress = projectProgress(status);
+  const progressText = useProgressLabel()(status);
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
+  const progressPct = episodes.total ? Math.round((episodes.completed / episodes.total) * 100) : 0;
   const characters = assetCount(status, "character");
   const scenes = assetCount(status, "scene");
   const propsStat = assetCount(status, "prop");
   const repairReason = repairReasonOf(status);
 
   const { trackStyle, barStyle } = gradientProgressStyles(
-    phase === "completed" ? "good" : "accent",
+    progress === "completed" ? "good" : "accent",
   );
 
   return (
@@ -193,7 +209,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
         <RepairReasonLine reason={repairReason} />
 
         <div className="relative mb-3 flex items-center gap-3.5">
-          <PhasePill phase={phase} label={phaseLabel} />
+          <ProgressPill progress={progress} label={progressText} />
           {status?.needs_repair ? <NeedsRepairPill /> : null}
           <div className="flex flex-1 items-center gap-2.5">
             <ProgressBar
@@ -210,7 +226,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
           </div>
         </div>
 
-        <StaleAssetsLine count={staleAssetTotal(status)} />
+        <NeedsUpdateLine count={staleArtifactTotal(status)} />
 
         <div
           className="relative grid overflow-hidden rounded-[8px]"
@@ -222,12 +238,12 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
         >
           {[
             {
-              k: t("dashboard:lobby_now_editing_phase_label"),
-              v: phaseLabel || "—",
-              sub: t("dashboard:lobby_now_editing_episodes_value", {
+              k: t("dashboard:lobby_now_editing_episodes_label"),
+              v: t("dashboard:lobby_now_editing_episodes_value", {
                 completed: episodes.completed,
                 total: episodes.total,
               }),
+              sub: progressText,
             },
             {
               k: t("dashboard:characters"),
@@ -263,7 +279,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
             className="inline-flex items-center gap-2 rounded-[7px] px-4 py-2.5 text-[12px] font-semibold no-underline transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             style={ACCENT_BUTTON_STYLE}
           >
-            {phase === "completed"
+            {progress === "completed"
               ? t("dashboard:lobby_open_workspace_completed")
               : t("dashboard:lobby_open_workspace")}
             <span aria-hidden>→</span>
@@ -532,10 +548,9 @@ const KICKER_DATE_OPTS: Intl.DateTimeFormatOptions = {
 interface HeroStripProps {
   totals: {
     total: number;
-    preparation: number;
-    script: number;
-    production: number;
+    inProgress: number;
     completed: number;
+    attention: number;
     episodesCompleted: number;
     episodesInProduction: number;
   };
@@ -551,8 +566,8 @@ function HeroStrip({ totals, t }: HeroStripProps) {
   );
 
   let subtitle: string;
-  if (totals.production > 0) {
-    subtitle = t("dashboard:lobby_hero_subtitle_active", { count: totals.production });
+  if (totals.inProgress > 0) {
+    subtitle = t("dashboard:lobby_hero_subtitle_active", { count: totals.inProgress });
   } else if (totals.total > 0) {
     subtitle = t("dashboard:lobby_hero_subtitle_quiet");
   } else {
@@ -574,28 +589,22 @@ function HeroStrip({ totals, t }: HeroStripProps) {
       tone: { color: "var(--color-text)" },
     },
     {
-      key: "prep",
-      label: t("dashboard:phase_preparation"),
-      value: totals.preparation,
-      tone: { color: "var(--color-text-3)" },
-    },
-    {
-      key: "script",
-      label: t("dashboard:phase_script"),
-      value: totals.script,
-      tone: { color: "oklch(0.86 0.06 75)" },
-    },
-    {
-      key: "prod",
-      label: t("dashboard:phase_production"),
-      value: totals.production,
+      key: "in_progress",
+      label: t("dashboard:lobby_filter_in_progress"),
+      value: totals.inProgress,
       tone: { color: "var(--color-accent-2)" },
     },
     {
-      key: "done",
-      label: t("dashboard:phase_completed"),
+      key: "completed",
+      label: t("dashboard:lobby_filter_completed"),
       value: totals.completed,
       tone: { color: "var(--color-good)" },
+    },
+    {
+      key: "attention",
+      label: t("dashboard:lobby_filter_attention"),
+      value: totals.attention,
+      tone: { color: "var(--color-warm)" },
     },
   ];
 
@@ -672,21 +681,19 @@ function HeroStrip({ totals, t }: HeroStripProps) {
 // -- FilterPills --------------------------------------------------------------
 
 interface FilterPillsProps {
-  active: PhaseFilter;
-  onChange: (next: PhaseFilter) => void;
-  counts: Record<Phase, number> & { all: number };
-  phaseLabels: Record<Phase, string>;
+  active: LobbyFilter;
+  onChange: (next: LobbyFilter) => void;
+  counts: Record<LobbyFilter, number>;
   t: TFunction;
 }
 
-function FilterPills({ active, onChange, counts, phaseLabels, t }: FilterPillsProps) {
-  const pills: Array<{ key: PhaseFilter; label: string; n: number }> = [
+function FilterPills({ active, onChange, counts, t }: FilterPillsProps) {
+  const pills: Array<{ key: LobbyFilter; label: string; n: number }> = [
     { key: "all", label: t("dashboard:lobby_filter_all"), n: counts.all },
-    // 顺序即流程：胶囊按阶段推进排，不按使用频率排
-    ...PHASE_ORDER.map((phase) => ({
-      key: phase,
-      label: phaseLabels[phase],
-      n: counts[phase],
+    ...LOBBY_FILTERS.map((filter) => ({
+      key: filter,
+      label: t(`dashboard:lobby_filter_${filter}`),
+      n: counts[filter],
     })),
   ];
 
@@ -765,13 +772,13 @@ export function ProjectsPage() {
   const [showExternalAgent, setShowExternalAgent] = useState(false);
   const [deletingProject, setDeletingProject] = useState<ProjectSummary | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>("all");
+  const [lobbyFilter, setLobbyFilter] = useState<LobbyFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
 
-  const phaseLabels = usePhaseLabels();
+  const progressLabel = useProgressLabel();
 
   const fetchProjects = useCallback(async () => {
     setProjectsLoading(true);
@@ -899,51 +906,36 @@ export function ProjectsPage() {
     }
   };
 
-  const phaseCounts = useMemo(() => {
-    const out: Record<Phase, number> & { all: number } = {
-      all: 0,
-      preparation: 0,
-      script: 0,
-      production: 0,
-      completed: 0,
-    };
+  const filterCounts = useMemo(() => {
+    const out: Record<LobbyFilter, number> = { all: 0, in_progress: 0, completed: 0, attention: 0 };
     for (const p of projects) {
-      out.all += 1;
       const status = asProjectStatus(p.status);
-      if (status) out[status.phase] += 1;
+      for (const filter of ["all", ...LOBBY_FILTERS] as const) {
+        if (matchesFilter(status, filter)) out[filter] += 1;
+      }
     }
     return out;
   }, [projects]);
 
   const totals = useMemo(() => {
-    // Hero 计数与筛选胶囊读同一套阶段词汇：Hero 报的每一个数都能在下面的胶囊上点开。
-    // 四个阶段格覆盖全部阶段，因此只有状态无法解析的项目会落在 total 里而不进任何一格。
-    let preparation = 0;
-    let script = 0;
-    let production = 0;
-    let completed = 0;
+    // Hero 计数与筛选胶囊读同一套词汇：Hero 报的每一个数都能在下面的胶囊上点开。
     let episodesCompleted = 0;
     let episodesInProduction = 0;
     for (const p of projects) {
       const s = asProjectStatus(p.status);
       if (!s) continue;
-      if (s.phase === "production") production += 1;
-      else if (s.phase === "completed") completed += 1;
-      else if (s.phase === "script") script += 1;
-      else preparation += 1;
       episodesCompleted += s.episodes_summary.completed;
       episodesInProduction += s.episodes_summary.in_production;
     }
     return {
       total: projects.length,
-      preparation,
-      script,
-      production,
-      completed,
+      inProgress: filterCounts.in_progress,
+      completed: filterCounts.completed,
+      attention: filterCounts.attention,
       episodesCompleted,
       episodesInProduction,
     };
-  }, [projects]);
+  }, [projects, filterCounts]);
 
   const styleLabels = useMemo(() => {
     const map: Record<string, string> = {};
@@ -955,18 +947,15 @@ export function ProjectsPage() {
     const q = searchQuery.trim().toLowerCase();
     return projects.filter((p) => {
       const s = asProjectStatus(p.status);
-      if (phaseFilter !== "all") {
-        if (!s || s.phase !== phaseFilter) return false;
-      }
+      if (!matchesFilter(s, lobbyFilter)) return false;
       if (!q) return true;
-      const phaseLabel = s ? phaseLabels[s.phase] : "";
-      return `${p.title || ""} ${p.name} ${phaseLabel}`.toLowerCase().includes(q);
+      return `${p.title || ""} ${p.name} ${progressLabel(s)}`.toLowerCase().includes(q);
     });
-  }, [projects, phaseFilter, searchQuery, phaseLabels]);
+  }, [projects, lobbyFilter, searchQuery, progressLabel]);
 
   const featuredCandidate = useMemo(() => pickFeaturedProject(projects), [projects]);
   const featured =
-    phaseFilter === "all" && !searchQuery.trim() ? featuredCandidate : null;
+    lobbyFilter === "all" && !searchQuery.trim() ? featuredCandidate : null;
 
   const restProjects = useMemo(
     () =>
@@ -1016,10 +1005,9 @@ export function ProjectsPage() {
 
       {projects.length > 0 ? (
         <FilterPills
-          active={phaseFilter}
-          onChange={setPhaseFilter}
-          counts={phaseCounts}
-          phaseLabels={phaseLabels}
+          active={lobbyFilter}
+          onChange={setLobbyFilter}
+          counts={filterCounts}
           t={t}
         />
       ) : null}
@@ -1052,7 +1040,6 @@ export function ProjectsPage() {
                 <NowEditingCard
                   project={featured}
                   styleLabel={styleLabels[featured.name] ?? ""}
-                  phaseLabels={phaseLabels}
                   t={t}
                 />
               </section>
@@ -1065,7 +1052,7 @@ export function ProjectsPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setPhaseFilter("all");
+                    setLobbyFilter("all");
                     setSearchQuery("");
                   }}
                   className="mt-4 rounded-md border border-hairline px-3 py-1.5 text-[12px] text-text-2 hover:border-accent/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"

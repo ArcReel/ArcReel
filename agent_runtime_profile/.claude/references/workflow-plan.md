@@ -107,7 +107,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
 | `resolve_draft` | 目标集上有草稿（`args.draft_kind`）：`args.needs_repair` 为真时是写入失败留下的待修复草稿，向用户说明并按其对应操作重跑；为假时是 Agent 的可编辑草稿，按对应 skill 接着完成 |
 | `prepare_script_plan` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
-| `start_blank_script` | 引导用户在 Web 端手写这一集的正式脚本 |
+| `start_blank_script` | 引导用户在 Web 集页点「从空白开始」，在时间线上逐条手写这一集的正式脚本 |
 | `provide_episode_source` | 引导用户为这一集补上集原文（`source/episode_{集 ID}.txt`），之后即可 AI 规划脚本 |
 | `confirm_script_plan` | `mcp__arcreel__confirm_script_review` |
 | `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |

@@ -28,6 +28,8 @@ import {
   prefillAssistant,
 } from "@/components/shared/DraftStatus";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
+import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
+import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
@@ -416,7 +418,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
   }
 
   const docType = contentMode === "drama" ? "drama_script_plan" : "narration_script_plan";
-  const draftBusy = draftEditor.saving || draftEditor.discarding;
+  const draftBusy = draftEditor.saving || draftEditor.discarding || draftEditor.repairing;
   const discardDialog = quarantine && (
     <DiscardDraftDialog
       open={discardOpen}
@@ -429,6 +431,12 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
       onCancel={() => setDiscardOpen(false)}
     />
   );
+
+  // 本集还没有正式脚本、规划也未确认时，可以不用这份规划、从空白开始手写；规划与待修复草稿随之弃置，先确认。
+  const blankStartAction =
+    state?.script_overwrite == null && status !== "confirmed" ? (
+      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan className={GHOST_BTN_CLS} />
+    ) : null;
 
   // 待修复草稿在场：面板呈现草稿本身，正式内容此刻不可确认（确认端点按同一判据拒绝）。
   if (quarantine != null && quarantine.editable_by === "user") {
@@ -462,12 +470,20 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           editable={content != null}
           dirty={draftEditor.dirty}
           saving={draftEditor.saving}
+          repairing={draftEditor.repairing}
+          onRepair={draftEditor.repair}
           busy={draftBusy}
           outdated={draftEditor.outdated}
           onSave={voidPromise(draftEditor.save)}
           onReloadLatest={draftEditor.reloadLatest}
           onHandToAgent={() => prefillAssistant(draftFixRequestText(t, episodeRef, docType, quarantine.violations))}
           onDiscard={() => setDiscardOpen(true)}
+          regenerateAction={
+            <>
+              {blankStartAction}
+              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+            </>
+          }
         />
         {discardDialog}
         <DraftEpisodeViolations
@@ -532,6 +548,18 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           scriptMissing={scriptMissing}
           overwrite={overwrite != null}
           onOpenTimeline={confirmed ? onOpenTimeline : undefined}
+          regenerateAction={
+            <>
+              {blankStartAction}
+              <ScriptPlanButton
+                projectName={projectName}
+                episode={episode}
+                replaces={confirmed ? "confirmed_plan" : "pending_plan"}
+                className={GHOST_BTN_CLS}
+                disabledReason={dirty && !confirmed ? t("dashboard:script_plan_dirty_hint") : null}
+              />
+            </>
+          }
           saveAction={
             dirty && !confirmed ? (
               <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
@@ -633,6 +661,7 @@ function ReviewStatusBar({
   scriptMissing,
   overwrite,
   onOpenTimeline,
+  regenerateAction,
   saveAction,
   confirmAction,
 }: {
@@ -640,6 +669,7 @@ function ReviewStatusBar({
   scriptMissing: boolean;
   overwrite: boolean;
   onOpenTimeline?: () => void;
+  regenerateAction: React.ReactNode;
   saveAction: React.ReactNode;
   confirmAction: React.ReactNode;
 }) {
@@ -674,6 +704,7 @@ function ReviewStatusBar({
             {t("review_open_timeline")}
           </button>
         )}
+        {regenerateAction}
         {saveAction}
         {confirmAction}
       </div>

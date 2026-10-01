@@ -13,7 +13,7 @@ import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
 import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
 import { ExportScopeDialog } from "./ExportScopeDialog";
 import { ProjectMenu } from "./ProjectMenu";
-import { PhaseStepper } from "./PhaseStepper";
+import { ProjectStatusBar } from "./ProjectStatusBar";
 
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
@@ -38,7 +38,7 @@ interface GlobalHeaderProps {
 /**
  * 工作台顶栏（48px，玻璃面板）。三段式 grid：
  * - 左：返回按钮 + ProjectMenu（项目切换菜单）
- * - 中：PhaseStepper（5 阶段胶囊）
+ * - 中：ProjectStatusBar（集进度与项目层的下一步；数据升级失败时是迁移重试）
  * - 右：通知 / 使用记录 / 导出 / 资产库 / 设置
  */
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
@@ -57,8 +57,9 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
-  const currentPhase = currentProjectData?.status?.phase;
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
+  // 数据升级失败时中段是唯一的重试入口，窄屏也要显示。
+  const needsRepair = currentProjectData?.status?.needs_repair === true;
 
   // 演示项目在后端没有用量记录，入口整个不渲染。demoMode 在演示→真实切换时先于 store
   // 变为 false，currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
@@ -209,9 +210,9 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           <ProjectMenu />
         </div>
 
-        {/* ---- Center: phase stepper ---- */}
-        <div className="hidden justify-self-center md:flex">
-          <PhaseStepper currentPhase={currentPhase} />
+        {/* ---- Center: project status bar ---- */}
+        <div className={`${needsRepair ? "flex" : "hidden md:flex"} justify-self-center`}>
+          {currentProjectName ? <ProjectStatusBar key={currentProjectName} projectName={currentProjectName} /> : null}
         </div>
 
         {/* ---- Right: actions ---- */}

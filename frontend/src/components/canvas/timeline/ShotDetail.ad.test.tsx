@@ -249,8 +249,8 @@ describe("ShotDetail 广告/短片", () => {
     const onRemoveShot = vi.fn().mockResolvedValue(true);
     const { unmount } = renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot, onRemoveShot });
 
-    fireEvent.click(screen.getByRole("button", { name: "新增分镜" }));
-    await waitFor(() => expect(onInsertShot).toHaveBeenCalledWith("E1S01"));
+    fireEvent.click(screen.getByRole("button", { name: "在此后插入" }));
+    await waitFor(() => expect(onInsertShot).toHaveBeenCalledWith("E1S01", undefined));
 
     fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));

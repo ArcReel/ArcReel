@@ -193,7 +193,7 @@ async def test_open_draft_rejects_missing_source_without_side_effect(
     fake_ctx: ToolHarness,
 ) -> None:
     """`source` 指向不存在的文件时不落盘草稿：草稿一旦创建就把这个坏路径记进 meta.source，
-    晋升时 `_load_novel_source` 会反复报错，而草稿在场又挡住重新取回改正 source，Agent
+    晋升时 `load_novel_source` 会反复报错，而草稿在场又挡住重新取回改正 source，Agent
     会卡在一个自己改不动的死角。校验失败时不产生持久副作用，Agent 改对参数重试即可。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
