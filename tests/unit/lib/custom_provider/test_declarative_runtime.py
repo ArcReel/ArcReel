@@ -6,11 +6,12 @@ import httpx
 import pytest
 
 from arcreel_market_core.endpoint_definition import build_context
-from arcreel_market_core.video_backend_contract import ProviderJobStatus, ProviderResponseStage, ResumeExpiredError
+from arcreel_market_core.job_contract import ProviderJobStatus, ProviderResponseStage, ResumeExpiredError
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.custom_provider.declarative_runtime import (
     DeclarativeRuntime,
     DeclarativeRuntimeError,
+    extract_runtime_state,
     extract_text,
 )
 from tests.fakes import bounded_poll_clock
@@ -59,6 +60,14 @@ def _context() -> dict[str, object]:
 
 
 class TestDeclarativeRuntimeContract:
+    def test_missing_status_extract_has_explicit_key_error_cause(self):
+        with pytest.raises(DeclarativeRuntimeError) as caught:
+            extract_runtime_state({"state": "done"}, {})
+
+        assert caught.value.code == "declarative_response_extract_failed"
+        assert isinstance(caught.value.__cause__, KeyError)
+        assert caught.value.__cause__.args == ("status",)
+
     async def test_submit_poll_result_and_download_do_not_require_media_semantics(self, tmp_path: Path):
         recorded: list[tuple[ProviderResponseStage, object]] = []
 

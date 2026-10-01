@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from arcreel_market_core.endpoint_definition import JsonPathEvaluationError, extract_value, normalize_extract_spec
-from arcreel_market_core.video_backend_contract import ProviderJobStatus
+from arcreel_market_core.job_contract import ProviderJobStatus
 from lib.custom_provider.declarative_backend import (
     DeclarativeRuntimeError,
     ProviderState,

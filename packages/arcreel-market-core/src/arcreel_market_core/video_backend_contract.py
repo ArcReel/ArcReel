@@ -13,23 +13,24 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from arcreel_market_core.job_contract import (
+    TERMINAL_PROVIDER_STATUSES as TERMINAL_PROVIDER_STATUSES,
+)
+from arcreel_market_core.job_contract import (
+    ProviderJobStatus as ProviderJobStatus,
+)
+from arcreel_market_core.job_contract import (
+    ProviderResponseStage,
+)
+from arcreel_market_core.job_contract import (
+    ResumeExpiredError as ResumeExpiredError,
+)
+from arcreel_market_core.job_contract import (
+    normalize_provider_status as normalize_provider_status,
+)
+
 #: ``VideoGenerationRequest.poll_timeout_seconds`` 的缺省值，也是应用侧用户可配轮询超时的缺省值。
 DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS = 3600
-
-ProviderResponseStage = Literal["submit", "poll", "result"]
-
-
-class ResumeExpiredError(RuntimeError):
-    """Provider 端 job 已过期或未找到——重启自愈无法接续，须走 mark_failed。
-
-    Worker finally 据 ``isinstance(exc, ResumeExpiredError)`` 给 error_message
-    加 ``[resume_expired]`` 前缀（agent-facing，i18n 豁免），运维分析可见。
-    """
-
-    def __init__(self, *, job_id: str, provider: str, message: str = "") -> None:
-        self.job_id = job_id
-        self.provider = provider
-        super().__init__(message or f"resume job {job_id} expired or not found on provider {provider}")
 
 
 class ResumeEndpointChangedError(RuntimeError):
@@ -60,64 +61,6 @@ IMAGE_MIME_TYPES: dict[str, str] = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
-
-
-class ProviderJobStatus(StrEnum):
-    """供应商异步任务状态的 canonical 分档。
-
-    ``EXPIRED`` 独立于 ``FAILED``：OpenAI / NewAPI 两条链路据其按 generate / resume 上下文
-    分流抛 ``RuntimeError`` / ``ResumeExpiredError``，后者驱动 worker 的 ``[resume_expired]``
-    前缀与「不再尝试重启自愈」判定。折进 failed 会静默吃掉这条分流。没有过期语义的端点
-    （如流派 C ``/v2/video/generations``）在本分档之上自行折叠。
-    """
-
-    QUEUED = "queued"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    EXPIRED = "expired"
-
-
-TERMINAL_PROVIDER_STATUSES: frozenset[ProviderJobStatus] = frozenset(
-    {ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED}
-)
-
-# 跨厂商状态同义词表（lowercase + strip 后查表）。OpenAI 兼容代理网关转发非原生型号时会把
-# 底层厂商的状态串原样透传，各后端若只认自家文档里的字面量，已就绪的任务会被当成"仍在跑"
-# 一路轮询到 max_wait —— 用户侧报超时失败，供应商侧成品已生成且已计费。
-_PROVIDER_STATUS_SYNONYMS: dict[str, ProviderJobStatus] = {
-    "completed": ProviderJobStatus.SUCCEEDED,
-    "succeeded": ProviderJobStatus.SUCCEEDED,
-    "succeed": ProviderJobStatus.SUCCEEDED,
-    "success": ProviderJobStatus.SUCCEEDED,
-    "failed": ProviderJobStatus.FAILED,
-    "fail": ProviderJobStatus.FAILED,
-    "error": ProviderJobStatus.FAILED,
-    "canceled": ProviderJobStatus.FAILED,
-    "cancelled": ProviderJobStatus.FAILED,
-    "expired": ProviderJobStatus.EXPIRED,
-    "generating": ProviderJobStatus.RUNNING,
-    "in_progress": ProviderJobStatus.RUNNING,
-    "running": ProviderJobStatus.RUNNING,
-    "processing": ProviderJobStatus.RUNNING,
-    "queued": ProviderJobStatus.QUEUED,
-    "queueing": ProviderJobStatus.QUEUED,
-    "preparing": ProviderJobStatus.QUEUED,
-    "submitted": ProviderJobStatus.QUEUED,
-    "pending": ProviderJobStatus.QUEUED,
-    "created": ProviderJobStatus.QUEUED,
-}
-
-
-def normalize_provider_status(raw: object) -> ProviderJobStatus:
-    """任意供应商状态值 → canonical 分档（大小写与首尾空白无关）。
-
-    未登记的状态串一律当 ``RUNNING`` 继续轮询：把未知串判成终态，会让返回非标进行中状态
-    （如 ``NOT_START``）的网关触发"下载未就绪任务"。非字符串（缺字段 / None）同理。
-    """
-    if not isinstance(raw, str):
-        return ProviderJobStatus.RUNNING
-    return _PROVIDER_STATUS_SYNONYMS.get(raw.strip().lower(), ProviderJobStatus.RUNNING)
 
 
 class VideoCapabilityError(RuntimeError):

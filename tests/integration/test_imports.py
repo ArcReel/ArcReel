@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import subprocess
 import sys
@@ -25,6 +26,7 @@ MODULES = [
     # lib 顶层单文件模块
     "lib.backends.ark_shared",
     "lib.backends.backend_runtime",
+    "arcreel_market_core.job_contract",
     "arcreel_market_core.video_backend_contract",
     "lib.project.asset_fingerprints",
     "lib.billing.cost_calculator",
@@ -61,6 +63,7 @@ MODULES = [
     "lib.config",
     "lib.custom_provider",
     "lib.custom_provider.comfyui",
+    "lib.custom_provider.declarative_runtime",
     "lib.db",
     "lib.db.models",
     "lib.db.repositories",
@@ -85,6 +88,7 @@ MODULES = [
 FIRST_IMPORT_MODULES = [
     "lib.backends.backend_runtime",
     "lib.backends.image_backends.base",
+    "arcreel_market_core.job_contract",
     "arcreel_market_core.video_backend_contract",
     "lib.config.resolver",
     "lib.custom_provider.backends",
@@ -94,6 +98,7 @@ FIRST_IMPORT_MODULES = [
     "lib.custom_provider.comfyui.import_shapes",
     "lib.custom_provider.comfyui.inference",
     "lib.custom_provider.comfyui.request_builder",
+    "lib.custom_provider.declarative_runtime",
     "arcreel_market_core.comfyui.validator",
     "lib.custom_provider.discovery",
     "arcreel_market_core.endpoint_definition",
@@ -167,3 +172,18 @@ assert forbidden.isdisjoint(sys.modules), forbidden & sys.modules.keys()
         timeout=120,
     )
     assert result.returncode == 0, f"视频契约首位导入加载了运行依赖：\n{result.stderr}"
+
+
+def test_declarative_runtime_has_no_direct_video_contract_import() -> None:
+    """媒体无关运行时不得直接依赖视频契约；通用 job 契约必须独立可导入。"""
+    path = _REPO_ROOT / "lib" / "custom_provider" / "declarative_runtime.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imported_modules = {
+        node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+    imported_modules.update(
+        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    )
+
+    assert "arcreel_market_core.video_backend_contract" not in imported_modules
+    assert "arcreel_market_core.job_contract" in imported_modules

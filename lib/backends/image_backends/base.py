@@ -10,7 +10,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
-from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, ProviderResponseStage
+from arcreel_market_core.job_contract import ProviderResponseStage
+from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
 from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import stream_to_file
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri

@@ -42,8 +42,8 @@ from arcreel_market_core.definition_diagnostics import (
     join_path,
 )
 from arcreel_market_core.definition_schema_errors import most_specific, translate_schema_error
+from arcreel_market_core.job_contract import ProviderJobStatus
 from arcreel_market_core.video_backend_contract import (
-    ProviderJobStatus,
     ReferenceAudioMode,
     audio_capability_pair_is_coherent,
 )
