@@ -157,9 +157,10 @@ def _add_bgm(timeline_project: ProjectManager, timeline_id: str) -> None:
         store.write(document.model_copy(update={"next_bgm_number": 2, "revisions": (*document.revisions, revision)}))
 
 
-@pytest.mark.parametrize("content", ["bgm", "empty"])
-async def test_unsupported_or_empty_timelines_answer_422(
+@pytest.mark.parametrize(("content", "status"), [("missing_bgm", 409), ("empty", 422)])
+async def test_timelines_with_missing_bgm_or_no_clips_are_refused(
     content: str,
+    status: int,
     tmp_path: Path,
     timeline_project: ProjectManager,
     final_cut_client: AsyncClient,
@@ -169,7 +170,7 @@ async def test_unsupported_or_empty_timelines_answer_422(
     for unit_id in ("E1U1", "E1U2"):
         _install(timeline_project, tmp_path, unit_id)
     timeline_id = await _timeline(timeline_project)
-    if content == "bgm":
+    if content == "missing_bgm":
         _add_bgm(timeline_project, timeline_id)
     else:
         await EditTimelineService(timeline_project).edit(
@@ -183,7 +184,7 @@ async def test_unsupported_or_empty_timelines_answer_422(
 
     response = await final_cut_client.post(f"/api/v1/projects/demo/edit-timelines/{timeline_id}/final-cut")
 
-    assert response.status_code == 422
+    assert response.status_code == status
     assert response.json()["detail"]
 
 

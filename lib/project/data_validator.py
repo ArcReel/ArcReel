@@ -189,6 +189,7 @@ class DataValidator:
         "output",
         "versions",
         "grids",
+        "bgm",
         "renders",
     }
 

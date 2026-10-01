@@ -358,28 +358,35 @@ function TimelinePreview({
   );
   // 音频摆放与旁白配音地址同样按内容去重，内容不变的刷新不打断正在播放的音频。
   const audioJson = useMemo(
-    () => JSON.stringify([...narrationPlacements(readout, media), ...bgmPlacements(readout)]),
+    () => JSON.stringify([...narrationPlacements(readout, media), ...bgmPlacements(readout, media)]),
     [readout, media],
   );
   const audio = useMemo(() => JSON.parse(audioJson) as AudioPlacement[], [audioJson]);
-  const narrationSourcesJson = useMemo(
+  const audioSourcesJson = useMemo(
     () =>
-      JSON.stringify(
-        Object.fromEntries(
+      JSON.stringify({
+        narration: Object.fromEntries(
           (media?.units ?? []).flatMap((unit) => (unit.narration_audio ? [[unit.unit_id, unit.narration_audio]] : [])),
         ),
-      ),
+        bgm: Object.fromEntries((media?.bgm ?? []).map((item) => [item.bgm_id, item.path])),
+      }),
     [media],
   );
   const audioUrl = useMemo(() => {
-    const sources = JSON.parse(narrationSourcesJson) as Record<string, EditPreviewNarrationAudio>;
+    const sources = JSON.parse(audioSourcesJson) as {
+      narration: Record<string, EditPreviewNarrationAudio>;
+      bgm: Record<string, string>;
+    };
     return (placement: AudioPlacement) => {
-      // 预览素材层不含 BGM 文件地址，BGM 片段只显示在轨上、不出声。
-      if (placement.kind !== "narration") return null;
-      const source = sources[placement.sourceId];
+      // BGM 按字节登记、文件不再改写，地址不带版本号。
+      if (placement.kind === "bgm") {
+        const path = sources.bgm[placement.sourceId];
+        return path ? API.getFileUrl(projectName, path) : null;
+      }
+      const source = sources.narration[placement.sourceId];
       return source ? API.getFileUrl(projectName, source.path, source.version) : null;
     };
-  }, [narrationSourcesJson, projectName]);
+  }, [audioSourcesJson, projectName]);
   const playback = useTimelinePlayback(plan, sourceUrl, audio, audioUrl);
   const narration = useMemo(() => narrationSpans(readout), [readout]);
   const subtitles = useMemo(() => placeSubtitles(readout, plan, media), [readout, plan, media]);

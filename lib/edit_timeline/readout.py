@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from lib.edit_timeline.bgm import place_bgm
 from lib.edit_timeline.model import (
     VOICEOVER_SOURCE_VOLUME,
     EditClip,
@@ -47,6 +48,7 @@ class IssueCode(StrEnum):
     NARRATION_OVERRUN = "narration_overrun"
     NARRATION_SOURCE_COLLISION = "narration_source_collision"
     SUBTITLE_MISSING_GLYPHS = "subtitle_missing_glyphs"
+    BGM_MISSING = "bgm_missing"
 
 
 ISSUE_LEVELS: dict[IssueCode, tuple[IssueSeverity, IssueScope]] = {
@@ -59,6 +61,7 @@ ISSUE_LEVELS: dict[IssueCode, tuple[IssueSeverity, IssueScope]] = {
     IssueCode.NARRATION_OVERRUN: (IssueSeverity.WARNING, IssueScope.WITH_NARRATION),
     IssueCode.NARRATION_SOURCE_COLLISION: (IssueSeverity.WARNING, IssueScope.ALL),
     IssueCode.SUBTITLE_MISSING_GLYPHS: (IssueSeverity.WARNING, IssueScope.ALL),
+    IssueCode.BGM_MISSING: (IssueSeverity.BLOCKING, IssueScope.ALL),
 }
 """每种 issue 的固定级别与影响范围；读取结果与出片前的阻断检查共用这张表。"""
 
@@ -133,9 +136,15 @@ class ClipView(_View):
 
 
 class BgmView(_View):
+    """BGM 片段的读取形态。``end`` 是截到时间线末尾后的实际结束时间，片段完全落在末尾之后时等于 ``start``；
+    ``fade_in`` / ``fade_out`` 是摆放后实际生效的淡入淡出（截断处固定淡出、超出片段时长时缩短），片段完全落在
+    末尾之后时是所设的值；``name`` 是所引用 BGM 的名称，BGM 不在项目里时为 None。"""
+
     id: str
     bgm_id: str
+    name: str | None
     start: float
+    end: float
     source_in: float
     source_out: float
     volume: float
@@ -379,6 +388,15 @@ def _narration_issues(placed: list[_Placed], sources: EpisodeSources, total_us: 
     return issues
 
 
+def _bgm_issues(revision: TimelineRevision, sources: EpisodeSources) -> list[TimelineIssue]:
+    """BGM 片段引用的 BGM 不在项目里或文件已不在时阻断出片。"""
+    return [
+        timeline_issue(IssueCode.BGM_MISSING, clip_ids=(item.id,), bgm_id=item.bgm_id)
+        for item in sorted(revision.content.bgm, key=lambda item: item.start_us)
+        if item.bgm_id not in sources.bgm
+    ]
+
+
 def project_readout(
     document: EditTimelineDocument, revision: TimelineRevision, sources: EpisodeSources
 ) -> EditTimelineReadout:
@@ -390,18 +408,22 @@ def project_readout(
         clips.append(view)
         placed.append(_Placed(clip, cursor_us, duration_us))
         cursor_us += duration_us
+    placements = {placed.clip_id: placed for placed in place_bgm(revision.content.bgm, cursor_us)}
     bgm = tuple(
         BgmView(
             id=item.id,
             bgm_id=item.bgm_id,
+            name=media.name if (media := sources.bgm.get(item.bgm_id)) is not None else None,
             start=microseconds_to_seconds(item.start_us),
+            end=microseconds_to_seconds(placed.end_us if placed is not None else item.start_us),
             source_in=microseconds_to_seconds(item.in_us),
             source_out=microseconds_to_seconds(item.out_us),
             volume=item.volume,
-            fade_in=microseconds_to_seconds(item.fade_in_us),
-            fade_out=microseconds_to_seconds(item.fade_out_us),
+            fade_in=microseconds_to_seconds(placed.fade_in_us if placed is not None else item.fade_in_us),
+            fade_out=microseconds_to_seconds(placed.fade_out_us if placed is not None else item.fade_out_us),
         )
-        for item in revision.content.bgm
+        for item in sorted(revision.content.bgm, key=lambda item: item.start_us)
+        for placed in (placements.get(item.id),)
     )
     return EditTimelineReadout(
         timeline=TimelineIdentity(id=document.id, name=document.name, episode=document.episode),
@@ -410,13 +432,12 @@ def project_readout(
         duration=microseconds_to_seconds(cursor_us),
         clips=tuple(clips),
         bgm=bgm,
-        issues=(*_structural_issues(revision, sources), *_narration_issues(placed, sources, cursor_us)),
+        issues=(
+            *_structural_issues(revision, sources),
+            *_narration_issues(placed, sources, cursor_us),
+            *_bgm_issues(revision, sources),
+        ),
     )
-
-
-def unrendered_effects(readout: EditTimelineReadout) -> list[str]:
-    """成片与剪映草稿都还不能渲染的内容：BGM 轨上的 BGM 片段 ID。"""
-    return [item.id for item in readout.bgm]
 
 
 __all__ = [
@@ -439,5 +460,4 @@ __all__ = [
     "project_readout",
     "timeline_issue",
     "trim_applies",
-    "unrendered_effects",
 ]

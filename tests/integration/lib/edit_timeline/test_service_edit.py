@@ -20,13 +20,6 @@ def _ops(*operations: dict[str, Any]) -> list[Any]:
     return [TimelineOperationAdapter.validate_python(operation) for operation in operations]
 
 
-@pytest.fixture
-def three_clips(install_video: InstallMedia) -> None:
-    install_video("E1U1", 1.0)
-    install_video("E1U2", 1.5)
-    install_video("E1U3", 0.5)
-
-
 async def _create(service: EditTimelineService) -> str:
     created = await service.create_from_script("demo", episode=1, name="初剪", author=CREATOR)
     return created.timeline.id

@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
+from lib.bgm.service import BgmError, BgmLibraryService
 from lib.config.resolver import VisionCapabilityError
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
@@ -100,7 +102,7 @@ public_router = APIRouter()
 # 公开端点可读的媒体范围，是 ADR 0071「静态媒体」在实现上的唯一定义处。
 # 目录：项目内由生成/上传流程写入、前端以媒体元素直接引用的子目录，含其嵌套子目录
 # （characters/refs、characters/refs_audio、characters/derivatives、products/refs、
-# reference_videos/thumbnails、renders/episode_N/<剪辑时间线> 等）；versions/ 下只放行这些目录各自的快照桶。
+# reference_videos/thumbnails、renders/episode_N/<剪辑时间线> 等，bgm 是项目级 BGM）；versions/ 下只放行这些目录各自的快照桶。
 PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
     {
         "storyboards",
@@ -114,6 +116,7 @@ PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
         "products",
         "grids",
         "audio",
+        "bgm",
         "renders",
     }
 )
@@ -122,7 +125,7 @@ PUBLIC_VERSIONS_DIR = "versions"
 PUBLIC_ROOT_MEDIA_STEM = "style_reference"
 # 扩展名：仅图片 / 视频 / 音频，不区分大小写；同目录下的 .json 等元数据文件不在其列。
 # 目录名与根文件名区分大小写。
-PUBLIC_MEDIA_EXTENSIONS: frozenset[str] = frozenset({*_IMAGE_EXTS, ".mp4", ".wav", ".mp3"})
+PUBLIC_MEDIA_EXTENSIONS: frozenset[str] = frozenset({*_IMAGE_EXTS, ".mp4", ".wav", ".mp3", ".m4a"})
 # 公开端点的所有文件响应都禁止浏览器按内容嗅探 MIME
 _PUBLIC_FILE_HEADERS: dict[str, str] = {"X-Content-Type-Options": "nosniff"}
 
@@ -254,6 +257,15 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         content_check="normalize_image",
         metadata_setter=ProjectManager.update_product_sheet,
     ),
+    # 项目级 BGM：由 BgmLibraryService 全权接管（实测响度、原子落盘并按字节登记），表项只提供类型校验与扩展名白名单。
+    "bgm": UploadSpec(
+        allowed_exts=BGM_EXTENSIONS,
+        subdir=(BGM_DIR,),
+        naming="delegated",
+        content_check="delegated",
+        unsupported_ext_key="unsupported_audio_type",
+        max_bytes=BGM_MAX_BYTES,
+    ),
     "product_ref": UploadSpec(
         allowed_exts=_IMAGE_EXTS,
         subdir=(ASSET_SPECS["product"].subdir, "refs"),
@@ -348,7 +360,7 @@ async def upload_file(
 
     Args:
         project_name: 项目名称
-        upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref)
+        upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref/bgm)
         file: 上传的文件
         name: 可选，用于角色/场景/道具/商品名称（自动更新元数据）；product_ref 必填；
             分镜/视频上传走 shot_uploads 路由
@@ -409,6 +421,9 @@ async def upload_file(
                 status_code=400,
                 detail=_t("upload_too_large", max_mb=spec.max_bytes // (1024 * 1024)),
             )
+
+        if upload_type == "bgm":
+            return await _handle_bgm_upload(project_name, original_filename, content, _t)
 
         if spec.content_check == "audio":
             try:
@@ -525,6 +540,53 @@ async def upload_file(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+_BGM_ERROR_STATUS: dict[str, tuple[int, str]] = {
+    "bgm_unsupported_type": (400, "unsupported_audio_type"),
+    "bgm_too_large": (400, "upload_too_large"),
+    "bgm_invalid_audio": (400, "invalid_audio_file"),
+    "bgm_silent": (400, "bgm_silent"),
+    "bgm_ffmpeg_unavailable": (503, "bgm_ffmpeg_unavailable"),
+}
+
+
+def _bgm_http_error(exc: BgmError, _t: Translator) -> HTTPException:
+    if exc.code == "project_not_found":
+        return HTTPException(status_code=404, detail=_t("project_not_found", name=exc.params.get("project", "")))
+    status, key = _BGM_ERROR_STATUS[exc.code]
+    return HTTPException(status_code=status, detail=_t(key, **exc.params))
+
+
+async def _handle_bgm_upload(project_name: str, filename: str, content: bytes, _t: Translator) -> dict[str, object]:
+    """登记一首项目级 BGM，返回它在 BGM 列表里的形态。"""
+    await asyncio.to_thread(assert_project_migration_ok, project_name)
+    try:
+        track = await BgmLibraryService(get_project_manager()).upload(project_name, filename=filename, content=content)
+    except BgmError as exc:
+        raise _bgm_http_error(exc, _t) from exc
+    return {"success": True, "bgm": _bgm_view(project_name, track)}
+
+
+def _bgm_view(project_name: str, track: BgmTrack) -> dict[str, object]:
+    return {
+        "id": track.id,
+        "name": track.name,
+        "duration": track.duration,
+        "gain": round(track.gain, 6),
+        "path": track.file,
+        "url": f"/api/v1/files/{project_name}/{track.file}",
+    }
+
+
+@router.get("/projects/{project_name}/bgm")
+async def list_bgm(project_name: str, _t: Translator):
+    """项目里已上传的 BGM，按上传先后排列；``gain`` 是把响度统一到 −16 LUFS 的线性增益。"""
+    try:
+        tracks = await BgmLibraryService(get_project_manager()).list(project_name)
+    except BgmError as exc:
+        raise _bgm_http_error(exc, _t) from exc
+    return {"bgm": [_bgm_view(project_name, track) for track in tracks]}
 
 
 @router.delete("/projects/{project_name}/characters/{name}/reference-audio")

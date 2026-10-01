@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -18,8 +17,6 @@ from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
 from lib.project.project_manager import ProjectManager
 
-type InstallMedia = Callable[[str, float], None]
-
 pytestmark = pytest.mark.usefixtures("three_clips")
 
 AGENT = RevisionAuthor(kind="arcreel_agent")
@@ -28,13 +25,6 @@ CREATOR = RevisionAuthor(kind="creator", user_id="u1")
 
 def _ops(*operations: dict[str, Any]) -> list[Any]:
     return [TimelineOperationAdapter.validate_python(operation) for operation in operations]
-
-
-@pytest.fixture
-def three_clips(install_video: InstallMedia) -> None:
-    install_video("E1U1", 1.0)
-    install_video("E1U2", 1.5)
-    install_video("E1U3", 0.5)
 
 
 async def _create(service: EditTimelineService, name: str = "初剪") -> str:

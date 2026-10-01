@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,17 +16,27 @@ import pytest
 from lib.artifacts.artifact_currency import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactStatus
 from lib.artifacts.version_manager import VersionManager
+from lib.bgm.service import BgmLibraryService
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.edit_timeline.model import BgmClip, EditTimelineContent, TimelineRevision
-from lib.edit_timeline.operations import SetReason, SetTransition, SetTrim, SetVolume, TransitionSpec, TrimSpec
+from lib.edit_timeline.operations import (
+    InsertBgm,
+    SetReason,
+    SetTransition,
+    SetTrim,
+    SetVolume,
+    TransitionSpec,
+    TrimSpec,
+)
 from lib.edit_timeline.store import EditTimelineStore
 from lib.final_cut.basis import FinalCutVariant, final_cut_key
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService
+from lib.infra.ffmpeg import ffmpeg_executable
 from lib.infra.media_probe import probe_media
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import resource_relative_path
-from tests.factories import install_current_video, make_test_clip
+from tests.factories import install_current_video, make_test_clip, wav_bytes
 
 CREATOR = RevisionAuthor(kind="creator", user_id="u1")
 VARIANT = FinalCutVariant()
@@ -305,16 +317,66 @@ async def test_transitions_render_without_changing_the_timeline_duration(render_
     assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.CURRENT
 
 
+def _max_volume_db(path: Path, *, start: float, seconds: float) -> float:
+    """成片在 ``start`` 起 ``seconds`` 秒内音频的峰值电平（dB）。"""
+    completed = subprocess.run(
+        [
+            ffmpeg_executable(),
+            *("-hide_banner", "-nostdin", "-ss", str(start), "-t", str(seconds), "-i", str(path)),
+            *("-vn", "-af", "volumedetect", "-f", "null", "-"),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    match = re.search(r"max_volume: (-?[0-9.]+|-inf) dB", completed.stderr)
+    assert match is not None, completed.stderr
+    return float(match.group(1))
+
+
 @pytest.mark.usefixtures("media")
-async def test_bgm_is_refused_until_it_can_be_rendered(render_project: ProjectManager) -> None:
+async def test_bgm_is_mixed_in_and_cut_at_the_timeline_end_without_changing_the_duration(
+    render_project: ProjectManager,
+) -> None:
+    track = await BgmLibraryService(render_project).upload(
+        "demo", filename="theme.wav", content=wav_bytes(3.0, tone_hz=330)
+    )
+    timeline_id = await _create_timeline(render_project)
+    editor = EditTimelineService(render_project)
+    # E1U2 那段（1.0–2.5 秒）没有原声；BGM 从 1.0 秒起放 3 秒，越过 3.2 秒的时间线末尾。
+    await editor.edit(
+        "demo",
+        timeline_id,
+        base_revision=1,
+        summary="加 BGM",
+        operations=[InsertBgm(op="insert_bgm", bgm_id=track.id, start=1.0, volume=1.0)],
+        author=CREATOR,
+    )
+    readout = await editor.read("demo", timeline_id)
+
+    result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
+
+    output = render_project.get_project_path("demo") / result.artifact_path
+    probe = await probe_media(output)
+    video, audio = probe.first_stream("video"), probe.first_stream("audio")
+    assert video is not None
+    assert audio is not None
+    assert video.duration_seconds is not None
+    assert audio.duration_seconds is not None
+    assert video.duration_seconds == pytest.approx(readout.duration, abs=0.05)
+    assert audio.duration_seconds == pytest.approx(video.duration_seconds, abs=0.05)
+    assert _max_volume_db(output, start=1.6, seconds=0.6) > -30
+    assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.CURRENT
+
+
+@pytest.mark.usefixtures("media")
+async def test_a_bgm_missing_from_the_project_blocks_the_final_cut(render_project: ProjectManager) -> None:
     timeline_id = await _create_timeline(render_project)
     store = EditTimelineStore(render_project, "demo")
-    document = store.find(timeline_id)
-    with store.locked_episode(document.episode):
-        store.write(document.model_copy(update={"next_bgm_number": 2}))
     latest = store.find(timeline_id).latest
     content = latest.content.model_copy(
-        update={"bgm": (BgmClip(id="b1", bgm_id="theme", start_us=0, in_us=0, out_us=1_000_000),)}
+        update={"bgm": (BgmClip(id="b1", bgm_id="bgm-0000abcd", start_us=0, in_us=0, out_us=1_000_000),)}
     )
     revision = TimelineRevision(
         number=latest.number + 1,
@@ -326,10 +388,9 @@ async def test_bgm_is_refused_until_it_can_be_rendered(render_project: ProjectMa
     )
     document = store.find(timeline_id)
     with store.locked_episode(document.episode):
-        store.write(document.model_copy(update={"revisions": (*document.revisions, revision)}))
+        store.write(document.model_copy(update={"next_bgm_number": 2, "revisions": (*document.revisions, revision)}))
 
     with pytest.raises(FinalCutError) as caught:
         await FinalCutService(render_project).check("demo", timeline_id)
 
-    assert caught.value.code == "final_cut_content_unsupported"
-    assert caught.value.params["bgm_ids"] == ["b1"]
+    assert caught.value.code == "final_cut_blocked"

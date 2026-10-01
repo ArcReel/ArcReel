@@ -99,6 +99,7 @@ describe("EditTimelineView", () => {
       revision: 3,
       narration: "without_narration",
       units: [],
+      bgm: [],
     });
   });
 
@@ -365,7 +366,9 @@ describe("EditTimelineView", () => {
         INITIAL_CUT.clips[1],
         INITIAL_CUT.clips[2],
       ],
-      bgm: [{ id: "b1", bgm_id: "bgm-0001", start: 0, source_in: 0, source_out: 30, volume: 0.25, fade_in: 1, fade_out: 1 }],
+      bgm: [
+        { id: "b1", bgm_id: "bgm-0001", name: "雨夜", start: 0, end: 7.8, source_in: 0, source_out: 30, volume: 0.25, fade_in: 1, fade_out: 1 },
+      ],
     };
     const media: EditTimelinePreviewMedia = {
       timeline_id: "tl-00000002",
@@ -379,6 +382,7 @@ describe("EditTimelineView", () => {
           subtitles: [{ start: 0, duration: 4.5, text: "门后传来脚步声。" }],
         },
       ],
+      bgm: [{ bgm_id: "bgm-0001", path: "bgm/bgm-0001.mp3", gain: 1 }],
     };
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({
       timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
@@ -395,9 +399,17 @@ describe("EditTimelineView", () => {
     expect(await screen.findByTestId("edit-player-subtitle")).toHaveTextContent("门后传来脚步声。");
     expect(screen.getByTestId("edit-bgm-b1")).toHaveAttribute(
       "title",
-      "bgm-0001：0–7.8s，音量 0.25，淡入 1s，淡出 1s",
+      "雨夜：0–7.8s，音量 0.25，淡入 1s，淡出 1s",
     );
     expect(screen.getByText("转场效果以成片为准")).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "播放" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "播放" }));
+    const sources = vi
+      .mocked(HTMLMediaElement.prototype.play)
+      .mock.contexts.filter((media): media is HTMLAudioElement => media instanceof HTMLAudioElement)
+      .map((media) => media.getAttribute("src"));
+    expect(sources).toEqual(expect.arrayContaining([expect.stringContaining("bgm/bgm-0001.mp3")]));
 
     const toggle = screen.getByRole("button", { name: "字幕" });
     expect(toggle).toHaveAttribute("aria-pressed", "true");
@@ -406,7 +418,7 @@ describe("EditTimelineView", () => {
     expect(screen.queryByTestId("edit-player-subtitle")).not.toBeInTheDocument();
   });
 
-  it("hides the BGM track and the transition note when the timeline has neither", async () => {
+  it("keeps an empty BGM track with its upload entry and hides the transition note when the timeline has neither", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({
       timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
     });
@@ -416,8 +428,57 @@ describe("EditTimelineView", () => {
 
     await screen.findByTestId("edit-clip-c1");
     expect(screen.getByText("旁白")).toBeInTheDocument();
-    expect(screen.queryByText("BGM")).not.toBeInTheDocument();
+    expect(screen.getByText("暂无 BGM 片段。上传 BGM 后，可以让 Agent 摆进时间线")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上传 BGM" })).toBeEnabled();
     expect(screen.queryByText("转场效果以成片为准")).not.toBeInTheDocument();
+  });
+
+  it("uploads BGM from the BGM track without moving the playhead and reports the result", async () => {
+    useAppStore.setState({ toast: null });
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+    const upload = vi.spyOn(API, "uploadBgm").mockResolvedValue({
+      success: true,
+      bgm: { id: "bgm-0001", name: "雨夜", duration: 30, gain: 1, path: "bgm/bgm-0001.mp3", url: "/api/v1/files/demo/bgm/bgm-0001.mp3" },
+    });
+
+    renderView();
+
+    await screen.findByTestId("edit-clip-c1");
+    const tracks = screen.getByRole("group", { name: "时间线轨道，点击跳到对应时间" });
+    vi.spyOn(tracks, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 780, 100));
+    const button = screen.getByRole("button", { name: "上传 BGM" });
+    fireEvent.pointerDown(button, { button: 0, clientX: 390 });
+    expect(parseFloat(screen.getByTestId("edit-playhead").style.left)).toBe(0);
+
+    const file = new File(["mp3"], "雨夜.mp3", { type: "audio/mpeg" });
+    fireEvent.change(screen.getByTestId("edit-bgm-upload-input"), { target: { files: [file] } });
+
+    await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("success"));
+    expect(upload).toHaveBeenCalledWith("demo", file);
+    expect(useAppStore.getState().toast?.text).toContain("雨夜");
+  });
+
+  it("reports a refused BGM upload with the server's reason", async () => {
+    useAppStore.setState({ toast: null });
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+    vi.spyOn(API, "uploadBgm").mockRejectedValue(new Error("这首 BGM 几乎没有声音"));
+
+    renderView();
+
+    await screen.findByTestId("edit-clip-c1");
+    fireEvent.change(screen.getByTestId("edit-bgm-upload-input"), {
+      target: { files: [new File(["wav"], "silence.wav", { type: "audio/wav" })] },
+    });
+
+    await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+    expect(useAppStore.getState().toast?.text).toBe("BGM 上传失败：这首 BGM 几乎没有声音");
+    expect(screen.getByRole("button", { name: "上传 BGM" })).toBeEnabled();
   });
 
   it("unlocks every narration on play but only loads the ones about to be heard", async () => {
@@ -446,6 +507,7 @@ describe("EditTimelineView", () => {
       revision: 3,
       narration: "with_narration",
       units: [narrationOf("E1U1"), narrationOf("E1U3")],
+      bgm: [],
     });
 
     renderView();

@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from lib.bgm.service import BgmLibraryService
 from lib.edit_timeline import EditTimelineService
+from lib.edit_timeline.operations import InsertBgm
 from server.services.presentation.timeline_preview import TimelinePreviewMedia, TimelinePreviewService
+from tests.factories import wav_bytes
 from tests.integration.server.services.presentation.timeline_render_support import (
     CREATOR,
     edited_timeline,
@@ -69,3 +72,27 @@ async def test_unit_without_video_is_listed_without_subtitles(tmp_path: Path) ->
 
     assert [unit.unit_id for unit in media.units] == ["E1S01", "E1S02", "E1S03"]
     assert _rows(media)[2] == ("E1S03", None, False, [])
+
+
+async def test_bgm_on_the_track_is_previewed_with_its_loudness_gain(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    library = BgmLibraryService(pm)
+    used = await library.upload("demo", filename="主题曲.wav", content=wav_bytes(1.0, tone_hz=330))
+    await library.upload("demo", filename="备用.wav", content=wav_bytes(1.0, tone_hz=440))
+    timeline_id = await edited_timeline(pm)
+    revision = (await EditTimelineService(pm).read("demo", timeline_id)).revision
+    await EditTimelineService(pm).edit(
+        "demo",
+        timeline_id,
+        base_revision=revision,
+        summary="加 BGM",
+        operations=[InsertBgm(op="insert_bgm", bgm_id=used.id, start=0)],
+        author=CREATOR,
+    )
+
+    media = await TimelinePreviewService(pm).media("demo", timeline_id)
+
+    assert [item.model_dump() for item in media.bgm] == [{"bgm_id": used.id, "path": used.file, "gain": used.gain}]
+
+    (project_path / used.file).unlink()
+    assert (await TimelinePreviewService(pm).media("demo", timeline_id)).bgm == ()

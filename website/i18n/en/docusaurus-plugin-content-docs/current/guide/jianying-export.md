@@ -98,12 +98,13 @@ The Jianying draft is generated from a revision of the edit timeline and follows
 - **Video track**: clips appear in the edit timeline's order, keeping trims, source volume, and holds; each clip uses the video version currently selected for its video unit
 - **Subtitle track**: subtitles are generated from narration and dialogue, and their style, position, and timing remain adjustable in Jianying
 - **Narration track**: appears only in the version with narration. TTS narration projects export the version with narration by default and can switch to the version without narration; other projects export only the version without narration
+- **BGM track**: appears when the edit timeline has BGM clips. Each BGM clip keeps its start, trimmed section, and fades; its volume is the loudness-matching gain multiplied by the clip volume, and remains adjustable in Jianying
 
 Narration starts at its carrier clip and plays for the actual length of its audio. A narration longer than its clip keeps its full length; it is not shortened, and later narrations are not shifted. Only the part that runs past the end of the edit timeline is cut off. When narrations or subtitles overlap in time, the draft adds tracks such as "旁白 2" (narration 2) and "字幕 2" (subtitles 2) as needed so every overlapping part is kept; each extra subtitle track is raised by a fixed distance to stay clear of the subtitles on the first track.
 
 A manually uploaded video has no generation provenance, so it is exported unchanged and is explicitly marked as having unavailable provenance. ArcReel does not generate TTS or subtitles for it. The uploaded video is finished content itself: editing prompts does not make it stale.
 
-Edit timelines with BGM cannot be exported as Jianying drafts yet; the export reports the reason.
+Any part of the BGM past the end of the edit timeline is cut off with a 1-second fade-out at the cut. When a BGM clip refers to BGM that is no longer in the project, the issue list reports it, and the draft cannot be exported until it is fixed.
 
 ### Canvas Size {#canvas-size}
 

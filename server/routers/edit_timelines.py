@@ -131,7 +131,6 @@ def edit_timeline_api_error(exc: EditTimelineError) -> ApiError:
 _FINAL_CUT_STATUS: dict[str, int] = {
     "final_cut_narration_unavailable": 422,
     "final_cut_blocked": 409,
-    "final_cut_content_unsupported": 422,
     "final_cut_empty": 422,
     "final_cut_ffmpeg_unavailable": 503,
     "final_cut_render_failed": 500,
@@ -448,7 +447,6 @@ class JianyingDraftSubmission(BaseModel):
 _JIANYING_DRAFT_STATUS: dict[str, int] = {
     "jianying_draft_narration_unavailable": 422,
     "jianying_draft_blocked": 409,
-    "jianying_draft_content_unsupported": 422,
     "jianying_draft_empty": 422,
     "jianying_draft_not_exported": 404,
     "jianying_draft_invalid": 409,

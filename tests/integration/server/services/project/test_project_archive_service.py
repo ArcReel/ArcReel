@@ -23,6 +23,8 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.rendered_artifact import commit_rendered_artifact
 from lib.artifacts.version_manager import VersionManager
+from lib.bgm.library import bgm_key
+from lib.bgm.service import BgmLibraryService
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_cut_key
 from lib.i18n import _
@@ -41,6 +43,7 @@ from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
 )
+from tests.factories import wav_bytes
 
 
 def _activate_artifact_manifest(project_dir: Path) -> None:
@@ -328,6 +331,25 @@ class TestProjectArchiveService:
 
         imported = await timelines.read("demo", created.timeline.id)
         assert imported == created
+
+    @pytest.mark.parametrize("scope", ["full", "current"])
+    async def test_uploaded_bgm_round_trips_through_archive_with_a_current_claim(self, tmp_path, scope):
+        """BGM 是按字节登记的项目级产物：文件、登记与产物清单条目都随归档往返，导入后仍是 current。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        track = await BgmLibraryService(pm).upload("demo", filename="主题曲.wav", content=wav_bytes(1.0, tone_hz=330))
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope=scope)
+        with zipfile.ZipFile(archive_path) as archive:
+            assert f"demo/{track.file}" in set(archive.namelist())
+        shutil.rmtree(pm.get_project_path("demo"))
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        assert await BgmLibraryService(pm).list("demo") == (track,)
+        project_dir = pm.get_project_path("demo")
+        resolver = ArtifactCurrencyResolver(project_dir)
+        assert resolver.compare(bgm_key(track.id), artifact_path=track.file).status is ArtifactStatus.CURRENT
 
     async def test_rendered_artifacts_stay_out_of_the_archive_and_read_missing_after_import(self, tmp_path):
         """成片与剪映草稿可随时重新渲染：文件与清单条目都不进归档，导出不报未知条目，导入后这些身份读 missing。"""

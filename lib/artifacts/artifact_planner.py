@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
 from lib.artifacts.artifact_manifest import (
+    PROJECT_LEVEL_ARTIFACT_KINDS,
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
@@ -52,6 +53,9 @@ from lib.artifacts.visual_artifact_provenance import (
     project_basis_style_description,
     visual_file_digest,
 )
+from lib.bgm.library import BgmSource, bgm_basis, bgm_key, read_bgm_library, resolve_bgm_sources
+from lib.edit_timeline.bgm import bgm_ids
+from lib.edit_timeline.model import BgmClip
 from lib.episode.episode_paths import episode_source_relpath
 from lib.episode.episode_sources import SOURCE_ORIGIN_FIELD, SourceOrigin, episode_entry, episode_source_origin
 from lib.jianying_draft.basis import (
@@ -279,6 +283,7 @@ class TargetStatePlanner:
             self._plan_storyboards()
             self._plan_typed_media()
             self._plan_persisted_presentations()
+            self._plan_bgm()
         except ProjectMigrationError:
             # Already carries the episode / file it was rejected at.
             raise
@@ -347,6 +352,8 @@ class TargetStatePlanner:
         elif kind == "episode-jianying-draft":
             self.load_episodes()
             self._plan_jianying_draft(key)
+        elif kind == "project-bgm":
+            self._plan_bgm()
 
     def load_episode_bindings(self) -> None:
         if self._bindings_loaded:
@@ -1175,6 +1182,7 @@ class TargetStatePlanner:
             video_of=lambda unit_id: current_video(
                 self.project_dir, versions, resource_type, unit_id, self._formal_content_digest
             ),
+            bgm_sources=self._bgm_sources(document.latest.content.bgm),
         )
         if inputs.missing_video_units:
             return
@@ -1199,6 +1207,26 @@ class TargetStatePlanner:
         self._add_if_present(
             key, final_cut_artifact_path(episode_number, timeline_id, variant), final_cut_basis(inputs)
         )
+
+    def _plan_bgm(self) -> None:
+        """上传的 BGM 按字节登记：依据只有正式文件当前字节的内容指纹，文件在场即可证明。"""
+
+        if "bgm" in self._planned:
+            return
+        for track in read_bgm_library(self.project).values():
+            key = bgm_key(track.id)
+            observation = self.adapter.inspect_artifact_content(track.file)
+            if observation.blocker is not None:
+                self._skip(key, track.file, observation.blocker.detail)
+                continue
+            if not observation.present or observation.content_digest is None:
+                self._skip(key, track.file, "uploaded BGM file is not present")
+                continue
+            self._add_if_present(key, track.file, bgm_basis(observation.content_digest))
+        self._planned.add("bgm")
+
+    def _bgm_sources(self, bgm: Sequence[BgmClip]) -> dict[str, BgmSource]:
+        return resolve_bgm_sources(self.project_dir, self.project, bgm_ids(bgm), self._formal_content_digest)
 
     def _formal_content_digest(self, artifact_path: str) -> str:
         observation = self.adapter.inspect_artifact_content(artifact_path)
@@ -1245,6 +1273,7 @@ class TargetStatePlanner:
             narration=narration,
             aspect_ratio=resolve_video_aspect_ratio(self.project, resource_type),
             units=units,
+            bgm_sources=self._bgm_sources(document.latest.content.bgm),
         )
         self._add_if_present(key, jianying_draft_artifact_path(episode_number, timeline_id, narration), basis)
 
@@ -1699,7 +1728,7 @@ def plan_artifact_target_state(
 def episode_scope_for_key(key: ArtifactKey) -> int | None:
     """Return the one episode whose control files may affect ``key``."""
 
-    if key.kind is ArtifactKind.ASSET_SHEET:
+    if key.kind in PROJECT_LEVEL_ARTIFACT_KINDS:
         return None
     episode = key.components[0]
     if type(episode) is not int:

@@ -143,6 +143,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
     "list_timelines": {"episode": 1},
     "read_timeline": {"timeline": "tl-0000abcd"},
+    "list_bgm": {},
     "edit_timeline": {
         "timeline": "tl-0000abcd",
         "base_revision": 1,

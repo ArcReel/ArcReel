@@ -4,6 +4,8 @@
 依据按任务开始时的指定修订（缺省为最新修订；HTTP 与 Agent 工具提交时已解析成具体修订）取快照，渲染期间剪辑时间线被改动、或显式渲染旧修订时，
 成片一出来就如实判为 stale。
 
+BGM 按片段起点混入整集音频，音量是登记时缓存的响度增益乘以片段音量，超出成片末尾的部分截断并在截断处淡出。
+
 带旁白或烧入字幕的版本另取各视频单元的素材层（:class:`~lib.jianying_draft.placement.UnitMaterialSource`，由服务端注入），
 与剪映草稿用同一份摆放：旁白从承载片段的起点整段混入，越界如实渲染；字幕跟随旁白或按源素材时间烧入。
 """
@@ -20,9 +22,11 @@ from lib.artifacts.artifact_currency import active_artifact_currency_resolver, r
 from lib.artifacts.artifact_manifest import ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
 from lib.artifacts.version_manager import VersionManager
+from lib.bgm.library import resolve_bgm_sources
+from lib.edit_timeline.bgm import bgm_ids, place_bgm
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import EditTimelineDocument, TimelineRevision
-from lib.edit_timeline.readout import IssueScope, IssueSeverity, TimelineIssue, project_readout, unrendered_effects
+from lib.edit_timeline.readout import IssueScope, IssueSeverity, TimelineIssue, project_readout
 from lib.edit_timeline.sources import EpisodeScriptUnits, load_episode_script_units, load_episode_sources
 from lib.edit_timeline.store import EditTimelineStore
 from lib.final_cut.basis import (
@@ -41,6 +45,7 @@ from lib.final_cut.basis import (
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.ffmpeg_render import (
     DEFAULT_RENDER_DEADLINES,
+    BgmInput,
     FinalCutAcceptance,
     NarrationInput,
     RenderDeadlines,
@@ -185,13 +190,9 @@ class FinalCutService:
         if blocking:
             raise FinalCutError(
                 "final_cut_blocked",
-                "剪辑时间线有阻断出片的问题：" + "、".join(f"{issue.code}({issue.unit_id})" for issue in blocking),
+                "剪辑时间线有阻断出片的问题："
+                + "、".join(f"{issue.code}({issue.unit_id or '、'.join(issue.clip_ids)})" for issue in blocking),
                 issues=[issue.model_dump(mode="json") for issue in blocking],
-            )
-        bgm_ids = unrendered_effects(readout)
-        if bgm_ids:
-            raise FinalCutError(
-                "final_cut_content_unsupported", "成片目前只能渲染不带 BGM 的剪辑时间线", bgm_ids=bgm_ids
             )
         if not any(clip.status != "unit_deleted" for clip in readout.clips):
             raise FinalCutError("final_cut_empty", "剪辑时间线没有可渲染的剪辑片段", timeline_id=document.id)
@@ -231,11 +232,22 @@ class FinalCutService:
         adapter = ProjectArtifactManifestAdapter(project_dir)
         versions = VersionManager(project_dir)
         resource_type = video_resource_type_for(checked.script.kind)
+        project = self._projects.load_project(project_name)
+        referenced_bgm = bgm_ids(checked.revision.content.bgm)
+        bgm_sources = resolve_bgm_sources(
+            project_dir, project, referenced_bgm, lambda path: read_artifact_content_digest(adapter, path)
+        )
+        if missing_bgm := [bgm_id for bgm_id in referenced_bgm if bgm_id not in bgm_sources]:
+            raise FinalCutError(
+                "final_cut_blocked",
+                "BGM 不在项目里或文件已不在：" + "、".join(missing_bgm),
+                issues=[{"code": "bgm_missing", "bgm_id": bgm_id} for bgm_id in missing_bgm],
+            )
         inputs = resolve_final_cut_inputs(
             document=checked.document,
             revision=checked.revision,
             variant=checked.check.variant,
-            profile=output_profile_for_project(self._projects.load_project(project_name), checked.script.kind),
+            profile=output_profile_for_project(project, checked.script.kind),
             script_unit_ids={unit.unit_id for unit in checked.script.units},
             video_of=lambda unit_id: current_video(
                 project_dir,
@@ -244,6 +256,7 @@ class FinalCutService:
                 unit_id,
                 lambda path: read_artifact_content_digest(adapter, path),
             ),
+            bgm_sources=bgm_sources,
         )
         if inputs.missing_video_units:
             raise FinalCutError(
@@ -321,6 +334,33 @@ class FinalCutService:
             narrations.append(NarrationInput(path=path, start_us=narration.start_us))
         return tuple(narrations)
 
+    @staticmethod
+    def _bgm(project_dir: Path, inputs: FinalCutInputs, total_us: int) -> tuple[BgmInput, ...]:
+        """按成片实际时长摆放 BGM；音量是 BGM 的响度增益乘以片段音量。"""
+        items: list[BgmInput] = []
+        for placed in place_bgm(inputs.bgm, total_us):
+            source = inputs.bgm_sources[placed.bgm_id]
+            try:
+                path = safe_join(project_dir, source.path, require_file=True)
+            except (PathTraversalError, FileNotFoundError) as exc:
+                raise FinalCutError(
+                    "final_cut_render_failed",
+                    f"BGM 片段 {placed.clip_id} 的 BGM 文件已不在：{source.path}",
+                    clip_id=placed.clip_id,
+                ) from exc
+            items.append(
+                BgmInput(
+                    path=path,
+                    start_us=placed.start_us,
+                    source_in_us=placed.source_in_us,
+                    duration_us=placed.duration_us,
+                    volume=placed.volume * source.gain,
+                    fade_in_us=placed.fade_in_us,
+                    fade_out_us=placed.fade_out_us,
+                )
+            )
+        return tuple(items)
+
     async def render(
         self,
         project_name: str,
@@ -354,6 +394,7 @@ class FinalCutService:
                     BurnedSubtitle(start_us=item.start_us, end_us=item.end_us, text=item.text)
                     for item in placement.subtitles
                 )
+        bgm = self._bgm(project_dir, inputs, plan.total_frames * 1_000_000 // plan.profile.fps)
         ffmpeg = ffmpeg_executable()
 
         async def render_step(output: Path, workspace: Path) -> None:
@@ -363,6 +404,7 @@ class FinalCutService:
                 output,
                 workspace,
                 narrations=narrations,
+                bgm=bgm,
                 subtitles=burned,
                 deadlines=self._deadlines,
                 spawn=self._spawn,
