@@ -38,7 +38,7 @@ import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { ShotStructureActions, type InsertShotHandler } from "./ShotStructureActions";
 import { SegmentBreakToggle } from "./SegmentBreakToggle";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/ui/FloatingPopover";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, isScriptFileBusy } from "@/stores/tasks-store";

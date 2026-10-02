@@ -8,7 +8,7 @@ import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/genera
 import { ApiRequestError } from "@/api/errors";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import { prefillAssistant } from "@/components/shared/DraftStatus";
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/ui/FloatingPopover";
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { StepActButton } from "@/components/workflow/StepActButton";
 import type { StepAct } from "@/components/workflow/step-list";

@@ -20,7 +20,7 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { ModelCombobox } from "@/components/ui/ModelCombobox";
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/ui/FloatingPopover";
 import { useCredentialForm } from "@/hooks/useCredentialForm";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
