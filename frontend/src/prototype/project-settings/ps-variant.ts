@@ -1,19 +1,20 @@
 // PROTOTYPE — 项目设置页布局（#2971）。不合并，只在 prototype/2971-project-settings 分支上。
-// 三个变体由地址栏 ?variant=A|B|C 切换，A、B 用的分页 ?tab= 也记在地址栏。
+// 变体由地址栏 ?variant=A|B|C|D 切换（D 是评审后的推荐组合），A、B 用的分页 ?tab= 也记在地址栏。
 
 import { useLocation, useSearch } from "wouter";
 
-export type PsVariant = "A" | "B" | "C";
-export const PS_VARIANTS: PsVariant[] = ["A", "B", "C"];
+export type PsVariant = "A" | "B" | "C" | "D";
+export const PS_VARIANTS: PsVariant[] = ["A", "B", "C", "D"];
 export const PS_VARIANT_NAMES: Record<PsVariant, string> = {
   A: "独立外壳 · 侧栏分页",
   B: "独立外壳 · 锚点长页 + 生效摘要",
   C: "嵌进工作区 · 画布内分页",
+  D: "推荐：A + 通道来源徽章",
 };
 
 export function readPsVariant(search: string): PsVariant {
   const raw = new URLSearchParams(search).get("variant");
-  return raw === "B" || raw === "C" ? raw : "A";
+  return raw === "B" || raw === "C" || raw === "D" ? raw : "A";
 }
 
 export function usePsParams() {

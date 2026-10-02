@@ -842,6 +842,21 @@ export function ProjectSettingsPage() {
       onVideoGenerateAudioChange={setAudioOverride}
       usesReferenceImages={usesRef}
       enable={contentMode === "ad" ? { duration: false } : undefined}
+      // PROTOTYPE #2971 变体 D：从 B 借来源表达，落到各通道标题行
+      channelSources={variant === "D" ? {
+        video: {
+          overridden: !!(videoBackend || videoProviderI2V || videoProviderR2V) || audioOverride !== null,
+          onReset: () => { setVideoBackend(""); setVideoProviderI2V(""); setVideoProviderR2V(""); setAudioOverride(null); },
+        },
+        image: {
+          overridden: !!(imageBackendDefault || imageBackendT2I || imageBackendI2I),
+          onReset: () => { setImageBackendDefault(""); setImageBackendT2I(""); setImageBackendI2I(""); },
+        },
+        text: {
+          overridden: !!(textDefault || textSimple || textComplex),
+          onReset: () => { setTextDefault(""); setTextSimple(""); setTextComplex(""); },
+        },
+      } : undefined}
     />
   ) : (
     <div className="flex items-center gap-2 py-6 text-[13px] text-text-3">
@@ -1046,5 +1061,6 @@ export function ProjectSettingsPage() {
   };
   if (variant === "B") return <LayoutB {...layoutProps} />;
   if (variant === "C") return <LayoutC {...layoutProps} />;
+  // D 与 A 同一布局，区别只在模型区的通道来源徽章
   return <LayoutA {...layoutProps} />;
 }

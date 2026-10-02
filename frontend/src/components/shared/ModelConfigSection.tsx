@@ -110,6 +110,8 @@ export interface ModelConfigSectionProps {
    * 生效值——矛盾提示要按生效值给，否则项目留空而全局为「关闭」时界面无从察觉。省略即按开启处理。
    */
   globalVideoGenerateAudio?: boolean;
+  /** PROTOTYPE #2971：各通道是否被项目覆盖 */
+  channelSources?: { video: ChannelSource; image: ChannelSource; text: ChannelSource };
   onVideoGenerateAudioChange?: (next: boolean | null) => void;
   /**
    * 当前项目是否走参考生视频（资产图直出）。部分模型在参考图路径下把时长收窄到单一取值，
@@ -124,20 +126,45 @@ export interface ModelConfigSectionProps {
   };
 }
 
+/** PROTOTYPE #2971：通道级来源徽章。只有项目设置传入，全局设置不显示。 */
+export interface ChannelSource {
+  overridden: boolean;
+  onReset: () => void;
+}
+
 interface ChannelCardProps {
   kicker: string;
   title: string;
+  source?: ChannelSource;
   children: React.ReactNode;
 }
 
-function ChannelCard({ kicker, title, children }: ChannelCardProps) {
+function ChannelCard({ kicker, title, source, children }: ChannelCardProps) {
   return (
     <div className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
-      <div className="mb-3">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
-          {kicker}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
+            {kicker}
+          </div>
+          <div className="mt-1 text-[13.5px] font-medium text-text">{title}</div>
         </div>
-        <div className="mt-1 text-[13.5px] font-medium text-text">{title}</div>
+        {source && (
+          source.overridden ? (
+            <div className="flex shrink-0 items-center gap-1">
+              <span className="rounded px-1.5 py-0.5 text-[12px] bg-primary/15 text-primary">本项目</span>
+              <button
+                type="button"
+                onClick={source.onReset}
+                className="rounded-md px-1.5 py-0.5 text-[12px] text-text-3 transition-colors hover:bg-accent hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                恢复全局
+              </button>
+            </div>
+          ) : (
+            <span className="shrink-0 px-1.5 py-0.5 text-[12px] text-text-3">跟随全局</span>
+          )
+        )}
       </div>
       {children}
     </div>
@@ -157,6 +184,7 @@ export function ModelConfigSection({
   globalDefaults,
   videoGenerateAudio,
   globalVideoGenerateAudio = true,
+  channelSources,
   onVideoGenerateAudioChange,
   usesReferenceImages,
   enable,
@@ -395,7 +423,7 @@ export function ModelConfigSection({
       <p className="text-[12.5px] leading-[1.55] text-text-3">{t("default_hint")}</p>
 
       {showVideo && (
-        <ChannelCard kicker="Video Channel" title={t("model_video")}>
+        <ChannelCard kicker="Video Channel" title={t("model_video")} source={channelSources?.video}>
           <LayeredModelFields
             defaultLabel={t("model_video_default")}
             defaultValue={value.videoBackend}
@@ -542,7 +570,7 @@ export function ModelConfigSection({
       )}
 
       {showImage && (
-        <ChannelCard kicker="Image Channel" title={t("model_image")}>
+        <ChannelCard kicker="Image Channel" title={t("model_image")} source={channelSources?.image}>
           <LayeredModelFields
             defaultLabel={t("model_image_default")}
             defaultValue={value.imageBackendDefault}
@@ -568,7 +596,7 @@ export function ModelConfigSection({
       )}
 
       {showText && (
-        <ChannelCard kicker="Text Channel" title={t("model_text")}>
+        <ChannelCard kicker="Text Channel" title={t("model_text")} source={channelSources?.text}>
           <TextTierFields
             value={{
               default: value.textBackendDefault,
