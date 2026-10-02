@@ -12,6 +12,7 @@ import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
 import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
 import { LoginPage } from "@/components/pages/LoginPage";
 import { NotFoundPage } from "@/components/pages/NotFoundPage";
+import { VisualSpecimenPage } from "@/prototype/visual/VisualSpecimenPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { OnboardingTour } from "@/onboarding/OnboardingTour";
 import {
@@ -250,6 +251,13 @@ export function AppRoutes() {
         <Route path={`${ROUTE_APP_PROJECTS}/:projectName`} nest>
           <AuthGuard>
             <StudioWorkspace />
+          </AuthGuard>
+        </Route>
+
+        {/* PROTOTYPE(#2963)：视觉方向样本页 */}
+        <Route path="/prototype/visual">
+          <AuthGuard>
+            <VisualSpecimenPage />
           </AuthGuard>
         </Route>
 

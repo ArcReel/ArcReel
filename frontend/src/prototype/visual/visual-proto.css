@@ -1,0 +1,159 @@
+/* PROTOTYPE — 视觉方向原型（#2963），不合并。
+ * 用 <html data-v-*> 覆盖真实页面；大量 !important 是因为旧代码把样式写在 inline style 里。
+ * 正式实现不会这样做：它只说明「如果这样定，界面会长什么样」。 */
+
+/* ---------------------------------------------------------------- 弹层材质 */
+
+/* 玻璃：给 shadcn 弹层也套上现状的玻璃材质，样本页里新旧原语可直接对比 */
+html[data-v-surface="glass"] :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="popover-content"], [data-slot="select-content"], [data-slot="combobox-content"]) {
+  background: linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96));
+  backdrop-filter: blur(14px);
+  box-shadow: 0 24px 60px -12px oklch(0 0 0 / 0.6), inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+
+/* 不透明：一个 overlay surface、一条描边、一个阴影 token，没有 blur 与顶部渐变线 */
+html[data-v-surface="solid"] {
+  --popover: oklch(0.205 0.011 265);
+  --v-panel-bg: oklch(0.205 0.011 265);
+  --v-panel-blur: none;
+  --v-shadow-overlay: 0 16px 40px -12px oklch(0 0 0 / 0.6), 0 0 0 1px var(--color-hairline);
+}
+html[data-v-surface="solid"] .arc-glass-panel {
+  background: var(--popover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--color-hairline) !important;
+  box-shadow: var(--v-shadow-overlay) !important;
+}
+html[data-v-surface="solid"] .arc-glass-hairline {
+  display: none;
+}
+/* 散落在 inline style 与 backdrop-blur-* 类上的玻璃面板：去掉 blur（遮罩层保留，它们是 fixed inset-0） */
+html[data-v-surface="solid"] :is([style*="backdrop-filter"], [class*="backdrop-blur"]):not(.fixed, [class*="inset-0"]) {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ---------------------------------------------------------------- 光晕与网格 */
+
+html[data-v-deco="ambient"],
+html[data-v-deco="none"] {
+  --v-deco-visibility: hidden;
+}
+html[data-v-deco="none"] body {
+  background: var(--color-bg) !important;
+}
+
+/* ---------------------------------------------------------------- 等宽小标题 */
+
+/* 真实页面里「删除」无法用 CSS 安全区分装饰与标签，按「本地化常规字」显示；删除的效果见样本页 */
+html:is([data-v-eyebrow="sans"], [data-v-eyebrow="none"]) .font-mono.uppercase {
+  font-family: var(--font-sans) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+/* ---------------------------------------------------------------- 品牌紫 */
+
+html[data-v-brand="flat"] {
+  --v-cta-bg: var(--primary);
+  --v-cta-shadow: none;
+  --v-cta-fg: var(--primary-foreground);
+}
+html[data-v-brand="restrained"] {
+  --v-cta-bg: var(--color-text);
+  --v-cta-shadow: none;
+  --v-cta-fg: oklch(0.17 0.01 265);
+}
+html:is([data-v-brand="flat"], [data-v-brand="restrained"]) .arc-btn-primary[data-tone="accent"] {
+  background: var(--v-cta-bg) !important;
+  color: var(--v-cta-fg) !important;
+  box-shadow: none !important;
+}
+html:is([data-v-brand="flat"], [data-v-brand="restrained"]) :is(.arc-btn-primary, [class*="hover:-translate-y-px"]):hover {
+  transform: none !important;
+  filter: brightness(1.08);
+}
+/* 35 处 inline style 各自手写的紫色渐变主按钮 */
+html:is([data-v-brand="flat"], [data-v-brand="restrained"]) [style*="linear-gradient"][style*="var(--color-primary-2)"]:is(button, a, [role="button"]) {
+  background: var(--v-cta-bg) !important;
+  color: var(--v-cta-fg) !important;
+  box-shadow: none !important;
+}
+html[data-v-brand="restrained"] [data-slot="button"].bg-primary {
+  background: var(--color-text);
+  color: oklch(0.17 0.01 265);
+}
+/* 选中态的紫色光晕去掉，只留描边与浅底 */
+html:is([data-v-brand="flat"], [data-v-brand="restrained"]) [class*="shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px"] {
+  box-shadow: none !important;
+}
+
+/* ---------------------------------------------------------------- 危险色 */
+
+html[data-v-danger="amber"] {
+  --v-danger-fg: var(--color-warm);
+}
+/* 现状里只有危险「操作」是琥珀色，失败等状态仍是红色：只在按钮与菜单项上换色 */
+html[data-v-danger="amber"] :is([data-slot="button"], [data-slot="alert-dialog-action"], [data-slot="dropdown-menu-item"]) {
+  --destructive: var(--color-warm);
+}
+html[data-v-danger="red"] {
+  --v-danger-fg: var(--color-danger);
+}
+html[data-v-danger="red"] [data-v-danger-cta] {
+  background: var(--color-danger) !important;
+  color: oklch(0.98 0 0) !important;
+  box-shadow: none !important;
+}
+html[data-v-danger="red"] [data-v-danger-icon] {
+  background: var(--color-danger-soft) !important;
+  color: var(--color-danger-2) !important;
+  border-color: var(--color-danger-ring) !important;
+}
+
+/* ---------------------------------------------------------------- 圆角刻度 */
+
+html[data-v-radius="nova10"] {
+  --radius: 0.625rem;
+}
+html[data-v-radius="nova8"] {
+  --radius: 0.5rem;
+}
+html:is([data-v-radius="nova10"], [data-v-radius="nova8"]) {
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ---------------------------------------------------------------- 运行中 */
+
+html:is([data-v-running="static"], [data-v-running="bar"]) :is(.motion-safe\:animate-pulse, .animate-ping, .animate-pulse:not([data-slot="skeleton"])) {
+  animation: none !important;
+}
+html:is([data-v-running="static"], [data-v-running="bar"]) .animate-ping {
+  display: none;
+}
+
+@keyframes v-indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+.v-indeterminate {
+  animation: v-indeterminate 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 减少动态效果时不确定进度条退化为静态的半透明条 */
+  .v-indeterminate {
+    animation: none;
+    transform: none;
+    width: 100% !important;
+    opacity: 0.45;
+  }
+}

@@ -17,6 +17,10 @@ import "./css/app.css";
 import "./css/studio.css";
 // driver 默认皮肤之后加载，覆盖生效
 import "./css/onboarding.css";
+// PROTOTYPE(#2963)：视觉方向原型，最后加载以覆盖上面的样式
+import "./prototype/visual/visual-proto.css";
+import { initVisualProto } from "./prototype/visual/store";
+import { VisualProtoBar } from "./prototype/visual/VisualProtoBar";
 
 // 启动时按 BRAND 设置文档标题与 meta description（index.html 中的
 // <title> 与 <meta name="description"> 仅作为加载阶段的占位）。
@@ -67,9 +71,11 @@ if (root) {
   // chunk 都是本地 lazy import，弱网下也只是几十 ms 延迟（cold start）。
   // i18n 加载失败时不能阻塞应用启动（仍 render，让 t() 退回 key 字符串），
   // 但失败必须可观测——所以显式记 error 而不是用 finally 把成功/失败合流静默。
+  initVisualProto();
   const render = () => createRoot(root).render(
       <TooltipProvider>
         <AppRoutes />
+        {import.meta.env.DEV && <VisualProtoBar />}
       </TooltipProvider>,
     );
   i18nReady.then(render, (err) => {

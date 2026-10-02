@@ -62,6 +62,7 @@ export function ConfirmDialog({
           {isDanger && (
             <span
               aria-hidden
+              data-v-danger-icon
               className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
               style={{
                 background:
@@ -105,6 +106,7 @@ export function ConfirmDialog({
           <PrimaryButton
             size="sm"
             tone={isDanger ? "warm" : "accent"}
+            data-v-danger-cta={isDanger ? "" : undefined}
             onClick={() => void onConfirm()}
             disabled={loading || confirmDisabled}
             leadingIcon={

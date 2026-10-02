@@ -1,10 +1,11 @@
 import type { CSSProperties } from "react";
 
+// PROTOTYPE(#2963)：主按钮、下拉面板、光晕与网格改读 --v-* 变量，由视觉方向原型切换
 export const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
+  color: "var(--v-cta-fg, oklch(0.14 0 0))",
+  background: "var(--v-cta-bg, linear-gradient(180deg, var(--color-primary-2), var(--color-primary)))",
   boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-primary-glow)",
+    "var(--v-cta-shadow, inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-primary-glow))",
 };
 
 export const CARD_STYLE: CSSProperties = {
@@ -24,9 +25,9 @@ export const GHOST_BTN_LG_CLS = `${GHOST_BTN_BASE_CLS} gap-2 px-3.5 py-2 text-[1
 
 export const DROPDOWN_PANEL_STYLE: CSSProperties = {
   background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
+    "var(--v-panel-bg, linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92)))",
+  backdropFilter: "var(--v-panel-blur, blur(12px))",
+  WebkitBackdropFilter: "var(--v-panel-blur, blur(12px))",
 };
 
 const ACCENT_BTN_BASE_CLS =
@@ -78,6 +79,7 @@ export function posterGridStyle(opts?: PosterGridOptions): CSSProperties {
     backgroundSize: `${size}px ${size}px`,
     maskImage: mask,
     WebkitMaskImage: mask,
+    visibility: "var(--v-deco-visibility, visible)" as CSSProperties["visibility"],
   };
   if (opts?.opacity !== undefined) style.opacity = opts.opacity;
   return style;
@@ -93,5 +95,6 @@ export function ambientGlowStyle(opts?: AmbientGlowOptions): CSSProperties {
   const alpha = opts?.intensity ?? 0.16;
   return {
     background: `radial-gradient(circle at ${at}, oklch(0.76 0.09 295 / ${alpha}), transparent 60%)`,
+    visibility: "var(--v-deco-visibility, visible)" as CSSProperties["visibility"],
   };
 }
