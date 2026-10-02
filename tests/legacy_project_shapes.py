@@ -175,13 +175,13 @@ def write_legacy_storyboard_project(
 
 
 def write_legacy_retired_flash_lite_project(root: Path, *, provider_id: str) -> Path:
-    """schema 15 项目仍把 Flash-Lite preview ID 写在默认与简单档文本 backend 字段。"""
+    """schema 16 项目仍把 Flash-Lite preview ID 写在默认与简单档文本 backend 字段。"""
 
     project_dir = write_legacy_storyboard_project(
         root,
         name=f"legacy-retired-flash-lite-{provider_id}",
     )
-    advance_project_schema(project_dir, to_version=15)
+    advance_project_schema(project_dir, to_version=16)
     project_path = project_dir / "project.json"
     project = json.loads(project_path.read_text(encoding="utf-8"))
     retired = f"{provider_id}/gemini-3.1-flash-lite-preview"
