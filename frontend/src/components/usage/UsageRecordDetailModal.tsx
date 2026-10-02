@@ -224,7 +224,7 @@ export function UsageRecordDetailModal({
     >
       <header className="flex items-start gap-3 px-6 pb-3 pt-5">
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
             Record · #{recordId}
           </div>
           <h2 id={titleId} className="mt-1 truncate text-[15px] font-medium text-text">

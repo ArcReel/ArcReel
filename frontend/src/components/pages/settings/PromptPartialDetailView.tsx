@@ -91,7 +91,7 @@ function PartialBody({
   return (
     <>
       <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
           {t("prompt_templates_partial")}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2.5">
@@ -126,7 +126,7 @@ function PartialBody({
                 <button
                   type="button"
                   onClick={() => onOpenTemplate(id)}
-                  className="group flex w-full items-center gap-3 rounded-[6px] px-1 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="group flex w-full items-center gap-3 rounded-[6px] px-1 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] text-text group-hover:underline">

@@ -45,16 +45,16 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
         className="sv-navbtn relative inline-flex items-center gap-1.5 px-2"
         style={{
           color: open
-            ? "var(--color-accent-2)"
+            ? "var(--color-primary-2)"
             : value
               ? "var(--color-text-2)"
               : "var(--color-text-3)",
           background: open
-            ? "var(--color-accent-dim)"
+            ? "var(--color-primary-dim)"
             : value
               ? "oklch(0.24 0.012 265 / 0.7)"
               : "oklch(0.22 0.011 265 / 0.5)",
-          borderColor: open ? "var(--color-accent-soft)" : "var(--color-hairline)",
+          borderColor: open ? "var(--color-primary-soft)" : "var(--color-hairline)",
         }}
       >
         <StickyNote className="h-3.5 w-3.5" />
@@ -63,8 +63,8 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
             aria-hidden="true"
             className="absolute right-0.5 top-0.5 h-[5px] w-[5px] rounded-full"
             style={{
-              background: "var(--color-accent)",
-              boxShadow: "0 0 4px var(--color-accent-glow)",
+              background: "var(--color-primary)",
+              boxShadow: "0 0 4px var(--color-primary-glow)",
             }}
           />
         )}

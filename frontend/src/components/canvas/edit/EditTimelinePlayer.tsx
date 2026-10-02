@@ -139,7 +139,7 @@ export function EditTimelinePlayer({
           onClick={onToggleSubtitles}
           aria-pressed={showSubtitles}
           className={`focus-ring ml-auto inline-flex items-center gap-1.5 rounded-[7px] px-2 py-1 text-[12px] transition-colors ${
-            showSubtitles ? "bg-accent-dim text-text" : "text-text-3 hover:text-text"
+            showSubtitles ? "bg-primary-dim text-text" : "text-text-3 hover:text-text"
           }`}
         >
           <Captions aria-hidden className="h-3.5 w-3.5" />

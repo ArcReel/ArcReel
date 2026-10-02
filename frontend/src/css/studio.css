@@ -14,12 +14,12 @@
 
 /* 强调色 */
 .accent-gradient {
-  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
+  background: linear-gradient(180deg, var(--color-primary-2), var(--color-primary));
   color: oklch(0.14 0 0);
 }
 
 .accent-gradient-text {
-  color: var(--color-accent-2);
+  color: var(--color-primary-2);
 }
 
 /* 片段卡片 */
@@ -158,8 +158,8 @@
   outline: none;
 }
 .prompt-ta:focus {
-  border-color: var(--color-accent-soft);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
+  border-color: var(--color-primary-soft);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-primary-dim);
 }
 .prompt-ta:disabled {
   opacity: 0.6;
@@ -177,7 +177,7 @@
   cursor: pointer;
 }
 .theme-slider:focus-visible {
-  box-shadow: 0 0 0 3px var(--color-accent-dim);
+  box-shadow: 0 0 0 3px var(--color-primary-dim);
 }
 .theme-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -185,9 +185,9 @@
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
-  border: 1px solid var(--color-accent-soft);
-  box-shadow: 0 2px 6px -2px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.35);
+  background: linear-gradient(180deg, var(--color-primary-2), var(--color-primary));
+  border: 1px solid var(--color-primary-soft);
+  box-shadow: 0 2px 6px -2px var(--color-primary-glow), inset 0 1px 0 oklch(1 0 0 / 0.35);
   cursor: pointer;
   margin-top: -5px;
 }
@@ -195,9 +195,9 @@
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
-  border: 1px solid var(--color-accent-soft);
-  box-shadow: 0 2px 6px -2px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.35);
+  background: linear-gradient(180deg, var(--color-primary-2), var(--color-primary));
+  border: 1px solid var(--color-primary-soft);
+  box-shadow: 0 2px 6px -2px var(--color-primary-glow), inset 0 1px 0 oklch(1 0 0 / 0.35);
   cursor: pointer;
 }
 .theme-slider::-moz-range-track {
@@ -227,15 +227,15 @@
   color: var(--color-text-4);
 }
 .dlg-input:focus {
-  border-color: var(--color-accent-soft);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
+  border-color: var(--color-primary-soft);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-primary-dim);
 }
 .dlg-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 .dlg-input--speaker {
-  color: var(--color-accent-2);
+  color: var(--color-primary-2);
   font-weight: 500;
 }
 

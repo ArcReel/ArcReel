@@ -59,8 +59,8 @@ export function EpisodeHeader({
           <span
             className="num rounded px-2 py-0.5 text-[10.5px] font-semibold uppercase"
             style={{
-              color: "var(--color-accent-2)",
-              background: "var(--color-accent-dim)",
+              color: "var(--color-primary-2)",
+              background: "var(--color-primary-dim)",
               letterSpacing: "0.8px",
               fontFamily: "var(--font-mono)",
             }}
@@ -88,7 +88,7 @@ export function EpisodeHeader({
               >
                 <span
                   className="h-[5px] w-[5px] animate-shot-pulse rounded-full"
-                  style={{ background: "var(--color-accent)" }}
+                  style={{ background: "var(--color-primary)" }}
                 />
                 {t("episode_header_progress_inline", { percent: progress })}
               </span>
@@ -156,7 +156,7 @@ function CostStat({
       </div>
       <div
         className="num mt-0.5 text-[14px] font-semibold"
-        style={{ color: accent ? "var(--color-accent-2)" : "var(--color-text)" }}
+        style={{ color: accent ? "var(--color-primary-2)" : "var(--color-text)" }}
       >
         {value}
       </div>

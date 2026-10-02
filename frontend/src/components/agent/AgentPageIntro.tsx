@@ -12,7 +12,7 @@ export function AgentPageIntro({ onOpenExternalGuide }: AgentPageIntroProps) {
   const { t } = useTranslation("dashboard");
   return (
     <section aria-labelledby="agent-access-title">
-      <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+      <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
         Agent Access
       </div>
       <h2 id="agent-access-title" className="font-editorial mt-1 text-2xl text-text">
@@ -39,7 +39,7 @@ export function AgentPageIntro({ onOpenExternalGuide }: AgentPageIntroProps) {
         </div>
 
         <div className="flex gap-3.5 p-4">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[8px] border border-accent/25 bg-accent-dim text-accent-2">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[8px] border border-primary/25 bg-primary-dim text-primary-2">
             <Bot className="h-4 w-4" aria-hidden />
           </div>
           <div className="min-w-0">

@@ -73,7 +73,7 @@ export function WizardStep2Models({
     <div className="space-y-5">
       {loading && (
         <div className="flex items-center justify-center gap-2 py-12 text-text-3">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
           <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("common:loading")}</span>
         </div>
       )}
@@ -122,7 +122,7 @@ export function WizardStep2Models({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {t("common:cancel")}
         </button>

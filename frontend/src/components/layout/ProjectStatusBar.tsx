@@ -134,7 +134,7 @@ function Ring({ done, total }: { done: number; total: number }) {
         cy="7.5"
         r={r}
         fill="none"
-        stroke="var(--color-accent)"
+        stroke="var(--color-primary)"
         strokeWidth="2.2"
         strokeLinecap="round"
         strokeDasharray={`${c * f} ${c}`}
@@ -147,7 +147,7 @@ function Ring({ done, total }: { done: number; total: number }) {
 function episodeDotColor(episode: EpisodeMeta): string {
   if (episode.status === "completed") return "var(--color-good)";
   if (episodeNeedsUpdate(episode)) return "var(--color-warm)";
-  if (episode.status === "in_production") return "var(--color-accent-2)";
+  if (episode.status === "in_production") return "var(--color-primary-2)";
   return "var(--color-text-4)";
 }
 
@@ -307,7 +307,7 @@ function EpisodeList({
             onClick={() => onNavigate(`/episodes/${episode.episode}`)}
             aria-current={current === episode.episode ? "page" : undefined}
             className="focus-ring flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] hover:bg-[oklch(1_0_0_/_0.05)]"
-            style={current === episode.episode ? { background: "var(--color-accent-dim)" } : undefined}
+            style={current === episode.episode ? { background: "var(--color-primary-dim)" } : undefined}
           >
             <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: episodeDotColor(episode) }} />
             <span className="w-12 shrink-0 tabular-nums" style={{ color: "var(--color-text-3)" }}>

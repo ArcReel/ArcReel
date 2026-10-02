@@ -80,7 +80,7 @@ function DetailBody({
   return (
     <>
       <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
           {categoryLabel(t, template.category)} · {template.id}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2.5">
@@ -126,7 +126,7 @@ function DetailBody({
           <dl className="space-y-2">
             {slots.map(([name, description]) => (
               <div key={name} className="grid gap-x-4 gap-y-0.5 sm:grid-cols-[minmax(0,14rem)_1fr]">
-                <dt className="font-mono text-[12px] text-accent-2">{name}</dt>
+                <dt className="font-mono text-[12px] text-primary-2">{name}</dt>
                 <dd className="text-[12.5px] leading-[1.55] text-text-2">{description}</dd>
               </div>
             ))}
@@ -152,13 +152,13 @@ function DetailBody({
           className="group rounded-[10px] border border-hairline"
           style={CARD_STYLE}
         >
-          <summary className="flex cursor-pointer list-none items-start gap-2.5 rounded-[10px] p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none items-start gap-2.5 rounded-[10px] p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
             <ChevronRight
               aria-hidden
               className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-4 motion-safe:transition-transform group-open:rotate-90"
             />
             <span className="min-w-0 flex-1">
-              <span className="block font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+              <span className="block font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
                 Output Schema
               </span>
               <span className="mt-1 block text-[14.5px] font-medium text-text">

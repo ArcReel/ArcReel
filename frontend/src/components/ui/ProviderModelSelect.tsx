@@ -359,7 +359,7 @@ export function ProviderModelSelect({
           setOpen(!open);
         }}
         onKeyDown={handleTriggerKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text transition-colors hover:border-hairline-strong hover:bg-bg-grad-a/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex w-full items-center justify-between gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text transition-colors hover:border-hairline-strong hover:bg-bg-grad-a/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         <span className={`truncate ${showFallback ? "text-text-3" : ""}`}>{displayText}</span>
         <ChevronDown
@@ -396,7 +396,7 @@ export function ProviderModelSelect({
                 aria-activedescendant={activeDescendantId}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-[6px] border border-hairline bg-bg-grad-a/65 py-1.5 pl-8 pr-2 text-[12.5px] text-text placeholder:text-text-4 focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full rounded-[6px] border border-hairline bg-bg-grad-a/65 py-1.5 pl-8 pr-2 text-[12.5px] text-text placeholder:text-text-4 focus:border-primary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               />
             </div>
           )}
@@ -420,7 +420,7 @@ export function ProviderModelSelect({
                 onClick={() => selectOption("")}
                 onMouseEnter={() => setActiveIndex(0)}
                 className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] transition-colors ${
-                  activeIndex === 0 ? "bg-accent-dim text-text" : "text-text-2 hover:bg-bg-grad-a/45"
+                  activeIndex === 0 ? "bg-primary-dim text-text" : "text-text-2 hover:bg-bg-grad-a/45"
                 }`}
               >
                 <span>{defaultLabel ?? t("follow_global_default")}</span>
@@ -463,12 +463,12 @@ export function ProviderModelSelect({
                       onMouseEnter={() => setActiveIndex(currentFlatIdx)}
                       className={`flex w-full items-start gap-1.5 px-3 py-2 pl-6 text-left text-[12.5px] transition-colors ${
                         isActive
-                          ? "bg-accent-dim text-text"
+                          ? "bg-primary-dim text-text"
                           : "text-text-2 hover:bg-bg-grad-a/45"
                       }`}
                     >
                       {isSelected ? (
-                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-2" />
+                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary-2" />
                       ) : (
                         <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       )}

@@ -150,7 +150,7 @@ const CredentialRow = memo(function CredentialRow({
           ? {
               ...CARD_STYLE,
               boxShadow:
-                "inset 2px 0 0 var(--color-accent), 0 0 18px -10px var(--color-accent-glow)",
+                "inset 2px 0 0 var(--color-primary), 0 0 18px -10px var(--color-primary-glow)",
             }
           : undefined
       }
@@ -161,16 +161,16 @@ const CredentialRow = memo(function CredentialRow({
           onClick={cred.is_active ? undefined : voidPromise(handleActivate)}
           disabled={cred.is_active}
           aria-label={cred.is_active ? t("currently_active") : t("activate_credential", { name: cred.name })}
-          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
             cred.is_active
               ? ""
-              : "border border-hairline-strong hover:border-accent-2 cursor-pointer"
+              : "border border-hairline-strong hover:border-primary-2 cursor-pointer"
           }`}
           style={
             cred.is_active
               ? {
-                  background: "var(--color-accent)",
-                  boxShadow: "0 0 8px var(--color-accent-glow)",
+                  background: "var(--color-primary)",
+                  boxShadow: "0 0 8px var(--color-primary-glow)",
                 }
               : undefined
           }
@@ -183,9 +183,9 @@ const CredentialRow = memo(function CredentialRow({
               <span
                 className="rounded-full px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em]"
                 style={{
-                  background: "var(--color-accent-dim)",
-                  color: "var(--color-accent-2)",
-                  border: "1px solid var(--color-accent-soft)",
+                  background: "var(--color-primary-dim)",
+                  color: "var(--color-primary-2)",
+                  border: "1px solid var(--color-primary-soft)",
                 }}
               >
                 {t("active_label")}
@@ -255,7 +255,7 @@ const CredentialRow = memo(function CredentialRow({
                 type="button"
                 onClick={voidPromise(handleDelete)}
                 disabled={deleting}
-                className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 style={{
                   background: "var(--color-warm-tint)",
                   color: "var(--color-warm-bright)",
@@ -271,7 +271,7 @@ const CredentialRow = memo(function CredentialRow({
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 {t("common:cancel")}
               </button>
@@ -631,7 +631,7 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
   if (loading) {
     return (
       <div className="flex items-center gap-2 py-4 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -642,14 +642,14 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
   return (
     <div>
       <div className="mb-2.5 flex items-center justify-between">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           {t("credential_mgmt")}
         </div>
         {!showAdd && (
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:bg-accent-dim hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary-2 transition-colors hover:bg-primary-dim hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Plus className="h-3 w-3" /> {t("add_credential")}
           </button>
@@ -662,7 +662,7 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className="mt-2 inline-flex items-center gap-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="mt-2 inline-flex items-center gap-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary-2 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Plus className="h-3 w-3" /> {t("add_first_credential")}
           </button>

@@ -69,7 +69,7 @@ export function ChatMessage({ message, streaming }: ChatMessageProps) {
 
   const labelStyle: React.CSSProperties = {
     ...BUBBLE_LABEL_STYLE,
-    color: isUser ? "var(--color-accent-2)" : "var(--color-text-4)",
+    color: isUser ? "var(--color-primary-2)" : "var(--color-text-4)",
   };
 
   return (

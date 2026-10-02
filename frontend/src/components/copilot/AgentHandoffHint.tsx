@@ -120,7 +120,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
           className="pointer-events-none absolute inset-x-0 top-0 h-px"
           style={{
             background:
-              "linear-gradient(90deg, transparent 6%, var(--color-accent-2) 50%, transparent 94%)",
+              "linear-gradient(90deg, transparent 6%, var(--color-primary-2) 50%, transparent 94%)",
             opacity: 0.7,
             borderTopLeftRadius: 14,
             borderTopRightRadius: 14,
@@ -151,8 +151,8 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
             height: 1.5,
             borderRadius: 999,
             background:
-              "linear-gradient(90deg, var(--color-accent-2) 0%, oklch(0.76 0.09 295 / 0.4) 100%)",
-            boxShadow: "0 0 8px var(--color-accent-glow)",
+              "linear-gradient(90deg, var(--color-primary-2) 0%, oklch(0.76 0.09 295 / 0.4) 100%)",
+            boxShadow: "0 0 8px var(--color-primary-glow)",
           }}
         />
         <span
@@ -165,8 +165,8 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
             height: 0,
             borderTop: "6px solid transparent",
             borderBottom: "6px solid transparent",
-            borderLeft: "8px solid var(--color-accent-2)",
-            filter: "drop-shadow(0 0 6px var(--color-accent-glow))",
+            borderLeft: "8px solid var(--color-primary-2)",
+            filter: "drop-shadow(0 0 6px var(--color-primary-glow))",
           }}
         />
 
@@ -181,7 +181,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
                   "linear-gradient(135deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
                 color: "oklch(0.14 0 0)",
                 boxShadow:
-                  "0 6px 18px -6px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
+                  "0 6px 18px -6px var(--color-primary-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
               }}
             >
               <Sparkles className="h-[18px] w-[18px]" strokeWidth={2.2} />

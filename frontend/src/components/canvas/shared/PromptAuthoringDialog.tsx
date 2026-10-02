@@ -229,12 +229,12 @@ export function PromptAuthoringDialog({
               {scopes.map((option) => (
                 <label
                   key={option.value}
-                  className={`inline-flex focus-within:ring-1 focus-within:ring-[var(--color-accent)] cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] ${
+                  className={`inline-flex focus-within:ring-1 focus-within:ring-[var(--color-primary)] cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] ${
                     option.disabled ? "cursor-not-allowed opacity-45" : ""
                   }`}
                   style={{
-                    border: `1px solid ${scope === option.value ? "var(--color-accent-soft)" : "var(--color-hairline)"}`,
-                    background: scope === option.value ? "var(--color-accent-dim)" : "transparent",
+                    border: `1px solid ${scope === option.value ? "var(--color-primary-soft)" : "var(--color-hairline)"}`,
+                    background: scope === option.value ? "var(--color-primary-dim)" : "transparent",
                     color: scope === option.value ? "var(--color-text)" : "var(--color-text-2)",
                   }}
                 >

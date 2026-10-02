@@ -125,7 +125,7 @@ export function EpisodesRail({
         <h2 className="display-serif text-[16px] font-semibold tracking-tight text-text">
           {t("dashboard:workspace_nav_episodes")}
         </h2>
-        <span className="num rounded-md border border-accent-soft bg-accent-dim px-1.5 py-px text-[10.5px] text-text-3">
+        <span className="num rounded-md border border-primary-soft bg-primary-dim px-1.5 py-px text-[10.5px] text-text-3">
           {t("dashboard:episodes_view_episode_count", { count: episodes.length })}
         </span>
         <span className="flex-1" />
@@ -164,7 +164,7 @@ export function EpisodesRail({
             value={percent}
             label={t("dashboard:episodes_view_progress_label")}
             className="h-1 overflow-hidden rounded-full bg-[oklch(0.26_0.012_265)]"
-            barClassName="h-full rounded-full bg-accent"
+            barClassName="h-full rounded-full bg-primary"
           />
         </section>
       ) : null}
@@ -278,7 +278,7 @@ function RailRowView({
     return (
       <div
         className="space-y-1.5 rounded-md px-2.5 py-1.5 text-[11.5px] text-text-4"
-        style={{ border: "1px dashed var(--color-accent-soft)" }}
+        style={{ border: "1px dashed var(--color-primary-soft)" }}
       >
         <p>{t("episodes_view_gap_row", { volume: formatVolume(t, row.units, view.unit) })}</p>
         <PlanGapButton sourceFile={row.sourceFile} end={row.end} blocked={cutActions.replanBlocked} />
@@ -336,8 +336,8 @@ function EpisodeCard({
       className="rounded-md transition-colors"
       style={{
         borderLeft: `3px solid ${color}`,
-        background: selected ? "var(--color-accent-dim)" : "oklch(0.2 0.011 265 / 0.55)",
-        boxShadow: fresh ? "inset 0 0 0 1px var(--color-accent-soft)" : undefined,
+        background: selected ? "var(--color-primary-dim)" : "oklch(0.2 0.011 265 / 0.55)",
+        boxShadow: fresh ? "inset 0 0 0 1px var(--color-primary-soft)" : undefined,
       }}
     >
       <button
@@ -358,7 +358,7 @@ function EpisodeCard({
           ) : null}
           {episode.ledger_status === "stale" ? <ReplannedBadge /> : null}
           {fresh ? (
-            <span className="rounded border border-accent-soft bg-accent-dim px-1 py-px text-[10.5px] text-accent-2">
+            <span className="rounded border border-primary-soft bg-primary-dim px-1 py-px text-[10.5px] text-primary-2">
               {t("dashboard:episode_planning_fresh")}
             </span>
           ) : null}

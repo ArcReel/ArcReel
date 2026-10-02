@@ -179,14 +179,14 @@ export function CharacterDerivativesButton({
         aria-label={t("assets:derivatives_with_count", { n: count })}
         aria-expanded={expanded}
         className={`${ICON_BTN_CLS} relative`}
-        style={{ color: count > 0 ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+        style={{ color: count > 0 ? "var(--color-primary-2)" : "var(--color-text-3)" }}
       >
         <Layers className="h-3.5 w-3.5" />
         {count > 0 && (
           <span
             aria-hidden
             className="absolute -right-0.5 -top-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full px-[3px] text-[9px] font-semibold leading-none"
-            style={{ background: "var(--color-accent-dim)", color: "var(--color-accent-2)" }}
+            style={{ background: "var(--color-primary-dim)", color: "var(--color-primary-2)" }}
           >
             {count}
           </span>
@@ -238,7 +238,7 @@ export function CharacterDerivativesButton({
                       disabled={pending}
                       aria-label={t("assets:derivative_rename_confirm")}
                       onClick={() => void handleRename(name)}
-                      style={{ color: "var(--color-accent-2)" }}
+                      style={{ color: "var(--color-primary-2)" }}
                     >
                       <Check className="h-3.5 w-3.5" />
                     </button>
@@ -331,7 +331,7 @@ export function CharacterDerivativesButton({
                     className="focus-ring mt-1 rounded-md px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
                     disabled={pending}
                     onClick={() => void handleSaveDescription(name)}
-                    style={{ background: "var(--color-accent-dim)", color: "var(--color-accent-2)" }}
+                    style={{ background: "var(--color-primary-dim)", color: "var(--color-primary-2)" }}
                   >
                     {t("assets:save")}
                   </button>
@@ -383,7 +383,7 @@ export function CharacterDerivativesButton({
             className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
             disabled={pending || newName.trim().length === 0}
             onClick={() => void handleAdd()}
-            style={{ background: "var(--color-accent-dim)", color: "var(--color-accent-2)" }}
+            style={{ background: "var(--color-primary-dim)", color: "var(--color-primary-2)" }}
           >
             {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
             {t("assets:derivative_add")}

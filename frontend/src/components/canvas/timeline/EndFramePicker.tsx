@@ -138,10 +138,10 @@ export function EndFramePicker({
           className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
-            boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+              "linear-gradient(135deg, var(--color-primary-dim), oklch(0.76 0.09 295 / 0.05))",
+            border: "1px solid var(--color-primary-soft)",
+            color: "var(--color-primary-2)",
+            boxShadow: "0 8px 18px -8px var(--color-primary-glow)",
           }}
         >
           <ImagePlus className="h-4 w-4" />
@@ -268,10 +268,10 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
       className="focus-ring relative overflow-hidden rounded-lg text-left transition-transform hover:-translate-y-px"
       style={{
         border: selected
-          ? "1px solid var(--color-accent-soft)"
+          ? "1px solid var(--color-primary-soft)"
           : "1px solid var(--color-hairline)",
         boxShadow: selected
-          ? "0 6px 18px -6px var(--color-accent-glow)"
+          ? "0 6px 18px -6px var(--color-primary-glow)"
           : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
       }}
     >
@@ -295,9 +295,9 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
           className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
           style={{
             color: "oklch(0.14 0 0)",
-            background: "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            background: "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-accent-soft)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-primary-soft)",
           }}
         >
           <Check className="h-3 w-3" strokeWidth={3} />

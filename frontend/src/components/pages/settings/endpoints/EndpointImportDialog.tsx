@@ -181,7 +181,7 @@ export function EndpointImportDialog({
 
         {pending && (
           <p className="mt-3 flex items-center gap-2 text-[12px] text-text-3">
-            <Loader2 className="h-3 w-3 motion-safe:animate-spin text-accent-2" aria-hidden />
+            <Loader2 className="h-3 w-3 motion-safe:animate-spin text-primary-2" aria-hidden />
             {t("common:loading")}
           </p>
         )}
@@ -223,9 +223,9 @@ export function EndpointImportDialog({
                 disabled={busy}
                 aria-pressed={mediaType === media}
                 onClick={() => onMediaTypeChange(media)}
-                className={`rounded-[7px] border px-3 py-1 font-mono text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 ${
+                className={`rounded-[7px] border px-3 py-1 font-mono text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 ${
                   mediaType === media
-                    ? "border-accent/45 bg-accent-dim text-accent-2"
+                    ? "border-primary/45 bg-primary-dim text-primary-2"
                     : "border-hairline-soft text-text-3 hover:text-text"
                 }`}
               >

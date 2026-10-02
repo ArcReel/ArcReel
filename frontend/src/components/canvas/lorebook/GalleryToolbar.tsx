@@ -35,8 +35,8 @@ export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary, childre
         className="h-3 w-[3px] rounded-full"
         style={{
           background:
-            "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-          boxShadow: "0 0 8px var(--color-accent-glow)",
+            "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
+          boxShadow: "0 0 8px var(--color-primary-glow)",
         }}
       />
       <h2
@@ -49,8 +49,8 @@ export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary, childre
         className="num inline-flex items-center justify-center rounded-md px-1.5 py-[2px] text-[10.5px]"
         style={{
           color: "var(--color-text-3)",
-          background: "var(--color-accent-dim)",
-          border: "1px solid var(--color-accent-soft)",
+          background: "var(--color-primary-dim)",
+          border: "1px solid var(--color-primary-soft)",
           minWidth: 22,
         }}
       >
@@ -89,9 +89,9 @@ export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary, childre
         style={{
           color: "oklch(0.14 0 0)",
           background:
-            "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
           boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+            "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = "translateY(-1px)";

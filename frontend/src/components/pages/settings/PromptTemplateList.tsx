@@ -126,7 +126,7 @@ export function PromptTemplateList({ onSelect }: { onSelect: (id: string) => voi
   return (
     <section className="space-y-6">
       <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
           Prompt Templates
         </div>
         <h2 className="font-editorial mt-1 text-[24px] leading-tight text-text">
@@ -215,7 +215,7 @@ function AxisFilterBar({
                     onClick={() => onChange(axis, value)}
                     className={
                       "focus-ring rounded-full px-2.5 py-0.5 text-[12px] transition-colors " +
-                      (active ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text")
+                      (active ? "bg-primary-dim text-primary-2" : "text-text-3 hover:text-text")
                     }
                   >
                     {label}
@@ -257,7 +257,7 @@ function CategoryGroup({
               aria-expanded={expanded}
               aria-controls={listId}
               onClick={() => setExpanded((open) => !open)}
-              className="group inline-flex items-center gap-1.5 rounded-[5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="group inline-flex items-center gap-1.5 rounded-[5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <ChevronRight
                 aria-hidden
@@ -286,7 +286,7 @@ function CategoryGroup({
                   type="button"
                   onClick={() => onSelect(template.id)}
                   title={template.id}
-                  className="group flex w-full items-center gap-2 px-3.5 py-2 text-left transition-colors hover:bg-bg-grad-a/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                  className="group flex w-full items-center gap-2 px-3.5 py-2 text-left transition-colors hover:bg-bg-grad-a/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12.5px] text-text-2 group-hover:text-text">
@@ -315,7 +315,7 @@ function CategoryGroup({
               <button
                 type="button"
                 onClick={() => onSelect(template.id)}
-                className="group flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-bg-grad-a/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                className="group flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-bg-grad-a/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] font-medium text-text">{template.title}</span>
@@ -325,7 +325,7 @@ function CategoryGroup({
                   <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] leading-none">
                     <span
                       title={template.stage}
-                      className="rounded-full bg-accent-dim px-2 py-1 text-accent-2"
+                      className="rounded-full bg-primary-dim px-2 py-1 text-primary-2"
                     >
                       {stageLabel(t, template.stage)}
                     </span>

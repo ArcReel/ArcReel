@@ -72,7 +72,7 @@ export function MarketEntryRating({
             onMouseEnter={() => setHovered(value)}
             onMouseLeave={() => setHovered(null)}
             onClick={() => void submit(value)}
-            className="rounded-[4px] p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-[4px] p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Star
               className={`h-4 w-4 transition-colors ${value <= lit ? "fill-amber-300 text-amber-300" : "text-text-4"}`}

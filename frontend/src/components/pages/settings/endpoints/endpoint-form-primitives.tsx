@@ -88,9 +88,9 @@ export function VariableChips({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => insertion?.insert(v.token)}
-            className="inline-flex items-baseline gap-1.5 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 transition-colors hover:border-accent/40 hover:bg-accent-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-baseline gap-1.5 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 transition-colors hover:border-primary/40 hover:bg-primary-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            <span className="font-mono text-[11px] text-accent-2">{v.token}</span>
+            <span className="font-mono text-[11px] text-primary-2">{v.token}</span>
             <span className="text-[11px] text-text-3">{v.desc}</span>
           </button>
         ))}
@@ -123,7 +123,7 @@ export function FormSection({
       <span aria-hidden className="absolute bottom-0 left-[7px] top-6 w-px bg-hairline-soft" />
       <span
         aria-hidden
-        className="absolute left-0 top-0.5 grid h-4 w-4 place-items-center rounded-full border border-accent/40 bg-accent-dim font-mono text-[8.5px] font-bold text-accent-2"
+        className="absolute left-0 top-0.5 grid h-4 w-4 place-items-center rounded-full border border-primary/40 bg-primary-dim font-mono text-[8.5px] font-bold text-primary-2"
       >
         {step}
       </span>
@@ -204,7 +204,7 @@ export function CheckboxField({
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+        className="h-3.5 w-3.5 accent-[var(--color-primary)]"
       />
       {label}
     </label>
@@ -218,7 +218,7 @@ export function RowDeleteButton({ label, onClick }: { label: string; onClick: ()
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="grid h-8 w-8 place-items-center rounded-[6px] text-text-3 transition-colors hover:bg-bg-grad-a/55 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="grid h-8 w-8 place-items-center rounded-[6px] text-text-3 transition-colors hover:bg-bg-grad-a/55 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
       <Trash2 className="h-3.5 w-3.5" aria-hidden />
     </button>
@@ -311,7 +311,7 @@ export function PathsEditor({
         <button
           type="button"
           onClick={() => onChange([...paths, ""])}
-          className="mt-1.5 rounded-[6px] border border-dashed border-hairline px-2 py-1 text-[11.5px] text-text-3 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="mt-1.5 rounded-[6px] border border-dashed border-hairline px-2 py-1 text-[11.5px] text-text-3 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {t("ce_path_add")}
         </button>

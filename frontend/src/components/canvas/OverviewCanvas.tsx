@@ -227,8 +227,8 @@ export function OverviewCanvas({
             className="mb-1 h-6 w-[3px] rounded-full"
             style={{
               background:
-                "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-              boxShadow: "0 0 12px var(--color-accent-glow)",
+                "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
+              boxShadow: "0 0 12px var(--color-primary-glow)",
             }}
           />
           <div>
@@ -292,11 +292,11 @@ export function OverviewCanvas({
                 className="pointer-events-none absolute inset-x-0 top-0 h-px"
                 style={{
                   background:
-                    "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+                    "linear-gradient(90deg, transparent, var(--color-primary-soft), transparent)",
                 }}
               />
               <div className="mb-3 flex items-center gap-2.5">
-                <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--color-accent-2)" }} />
+                <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--color-primary-2)" }} />
                 <span
                   className="text-[10.5px] font-bold uppercase"
                   style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
@@ -399,9 +399,9 @@ export function OverviewCanvas({
                       style={{
                         color: "oklch(0.14 0 0)",
                         background:
-                          "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                          "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
                         boxShadow:
-                          "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                          "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
                       }}
                     >
                       {savingOverview ? t("common:saving") : t("common:save")}
@@ -434,9 +434,9 @@ export function OverviewCanvas({
                       <span
                         className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5"
                         style={{
-                          background: "var(--color-accent-dim)",
-                          border: "1px solid var(--color-accent-soft)",
-                          color: "var(--color-accent-2)",
+                          background: "var(--color-primary-dim)",
+                          border: "1px solid var(--color-primary-soft)",
+                          color: "var(--color-primary-2)",
                         }}
                       >
                         <span style={{ color: "var(--color-text-4)" }}>{t("genre_prefix")}</span>
@@ -477,7 +477,7 @@ export function OverviewCanvas({
                 <button
                   type="button"
                   onClick={enterOverviewEdit}
-                  className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-4 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
+                  className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-4 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-primary-soft)] hover:text-[var(--color-text-2)]"
                   style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
                 >
                   <Pencil className="h-4 w-4" />
@@ -514,9 +514,9 @@ export function OverviewCanvas({
                           aria-hidden
                           className="grid h-6 w-6 place-items-center rounded-md"
                           style={{
-                            background: "var(--color-accent-dim)",
-                            border: "1px solid var(--color-accent-soft)",
-                            color: "var(--color-accent-2)",
+                            background: "var(--color-primary-dim)",
+                            border: "1px solid var(--color-primary-soft)",
+                            color: "var(--color-primary-2)",
                           }}
                         >
                           <Icon className="h-3 w-3" />
@@ -553,8 +553,8 @@ export function OverviewCanvas({
                           style={{
                             width: `${pct}%`,
                             background:
-                              "linear-gradient(90deg, var(--color-accent), var(--color-accent-2))",
-                            boxShadow: "0 0 8px var(--color-accent-glow)",
+                              "linear-gradient(90deg, var(--color-primary), var(--color-primary-2))",
+                            boxShadow: "0 0 8px var(--color-primary-glow)",
                           }}
                         />
                       </div>
@@ -677,7 +677,7 @@ export function OverviewCanvas({
                   className="h-3 w-[3px] rounded-full"
                   style={{
                     background:
-                      "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                      "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
                   }}
                 />
                 <h3
@@ -720,9 +720,9 @@ export function OverviewCanvas({
                           <span
                             className="rounded px-1.5 py-0.5 text-[10.5px] font-bold"
                             style={{
-                              color: "var(--color-accent-2)",
-                              background: "var(--color-accent-dim)",
-                              border: "1px solid var(--color-accent-soft)",
+                              color: "var(--color-primary-2)",
+                              background: "var(--color-primary-dim)",
+                              border: "1px solid var(--color-primary-soft)",
                             }}
                           >
                             {index + 1}

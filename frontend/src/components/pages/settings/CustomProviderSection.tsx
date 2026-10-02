@@ -39,7 +39,7 @@ export function CustomProviderSection({ providers, selectedId, onSelect, onAdd }
           onClick={() => onSelect(p.id)}
           className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors ${
             selectedId === p.id
-              ? "border-l-2 border-accent bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05)]"
+              ? "border-l-2 border-primary bg-primary-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05)]"
               : "border-l-2 border-transparent text-text-3 hover:bg-bg-grad-a/40 hover:text-text"
           }`}
         >

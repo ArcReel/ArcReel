@@ -178,7 +178,7 @@ export function ShotList({
                   color: i === selectedIndex ? "oklch(0.14 0 0)" : "var(--color-text-3)",
                   background:
                     i === selectedIndex
-                      ? "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))"
+                      ? "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))"
                       : "oklch(0.22 0.011 265 / 0.5)",
                   border: "1px solid var(--color-hairline-soft)",
                 }}
@@ -313,7 +313,7 @@ export function ShotList({
                     className={`pointer-events-none absolute left-1 right-1 z-10 h-0.5 rounded ${
                       dropEdge === "top" ? "-top-px" : "-bottom-px"
                     }`}
-                    style={{ background: "var(--color-accent)" }}
+                    style={{ background: "var(--color-primary)" }}
                   />
                 )}
                 <button
@@ -330,10 +330,10 @@ export function ShotList({
                       ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))"
                       : undefined,
                     border: active
-                      ? "1px solid var(--color-accent-soft)"
+                      ? "1px solid var(--color-primary-soft)"
                       : "1px solid transparent",
                     boxShadow: active
-                      ? "0 0 0 1px var(--color-accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.4)"
+                      ? "0 0 0 1px var(--color-primary-soft), 0 4px 12px -6px oklch(0 0 0 / 0.4)"
                       : "none",
                   }}
                 >
@@ -342,8 +342,8 @@ export function ShotList({
                       aria-hidden="true"
                       className="absolute -left-px top-2 bottom-2 w-0.5 rounded"
                       style={{
-                        background: "var(--color-accent)",
-                        boxShadow: "0 0 8px var(--color-accent-glow)",
+                        background: "var(--color-primary)",
+                        boxShadow: "0 0 8px var(--color-primary-glow)",
                       }}
                     />
                   )}
@@ -403,9 +403,9 @@ export function ShotList({
                         <span
                           className="rounded px-1 py-px text-[9px] font-semibold uppercase"
                           style={{
-                            color: "var(--color-accent-2)",
+                            color: "var(--color-primary-2)",
                             background: "oklch(0.26 0.018 290 / 0.45)",
-                            border: "1px solid var(--color-accent-soft)",
+                            border: "1px solid var(--color-primary-soft)",
                             letterSpacing: "0.4px",
                           }}
                         >

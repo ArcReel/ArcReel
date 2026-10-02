@@ -189,9 +189,9 @@ export function ImageEditButton({
               style={{
                 color: "oklch(0.14 0 0)",
                 background:
-                  "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                  "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
               }}
             >
               <Wand2 className="h-3.5 w-3.5" aria-hidden="true" />

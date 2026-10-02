@@ -68,7 +68,7 @@ export function UsageRecordsCard({
   return (
     <section className="rounded-[10px] border border-hairline" style={CARD_STYLE}>
       <header className="flex flex-wrap items-center gap-2 px-4 py-3">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           {t("usage_records_list")}
         </h4>
         <div
@@ -87,7 +87,7 @@ export function UsageRecordsCard({
                 className={
                   "focus-ring rounded-full px-2 py-0.5 text-[11px] transition-colors " +
                   (active
-                    ? "bg-accent-dim text-accent-2"
+                    ? "bg-primary-dim text-primary-2"
                     : "text-text-3 hover:text-text")
                 }
               >
@@ -149,7 +149,7 @@ export function UsageRecordsCard({
                 <tr className="border-t border-hairline-soft bg-[oklch(1_0_0_/_0.02)]">
                   <td colSpan={columns} className="px-2 py-1.5">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-accent-2">
+                      <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-primary-2">
                         {t("usage_status_pending")} · {inProgress.length}
                       </span>
                       {onCancelAll && (

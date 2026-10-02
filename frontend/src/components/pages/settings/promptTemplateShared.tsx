@@ -13,7 +13,7 @@ export function LoadingCard({ label }: { label: string }) {
       className="flex items-center gap-2 rounded-[10px] border border-hairline px-5 py-6 text-text-3"
       style={CARD_STYLE}
     >
-      <Loader2 aria-hidden className="h-3.5 w-3.5 text-accent-2 motion-safe:animate-spin" />
+      <Loader2 aria-hidden className="h-3.5 w-3.5 text-primary-2 motion-safe:animate-spin" />
       <span className="text-[12.5px]">{label}</span>
     </div>
   );

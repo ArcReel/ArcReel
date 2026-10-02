@@ -92,9 +92,9 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
                 onClick={() => setActiveTab(x.k)}
                 className="rounded-md px-3 py-1.5 text-[11.5px] font-medium transition-colors focus-ring"
                 style={{
-                  color: active ? "var(--color-accent-2)" : "var(--color-text-3)",
-                  background: active ? "var(--color-accent-dim)" : "transparent",
-                  border: "1px solid " + (active ? "var(--color-accent-soft)" : "transparent"),
+                  color: active ? "var(--color-primary-2)" : "var(--color-text-3)",
+                  background: active ? "var(--color-primary-dim)" : "transparent",
+                  border: "1px solid " + (active ? "var(--color-primary-soft)" : "transparent"),
                 }}
               >
                 {x.label}
@@ -127,9 +127,9 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
           onClick={() => setActiveTab(leftOpen ? "mid" : "left")}
           className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] font-medium focus-ring"
           style={{
-            color: leftOpen ? "var(--color-accent-2)" : "var(--color-text-3)",
-            background: leftOpen ? "var(--color-accent-dim)" : "oklch(0.22 0.011 265 / 0.5)",
-            border: "1px solid " + (leftOpen ? "var(--color-accent-soft)" : "var(--color-hairline-soft)"),
+            color: leftOpen ? "var(--color-primary-2)" : "var(--color-text-3)",
+            background: leftOpen ? "var(--color-primary-dim)" : "oklch(0.22 0.011 265 / 0.5)",
+            border: "1px solid " + (leftOpen ? "var(--color-primary-soft)" : "var(--color-hairline-soft)"),
           }}
         >
           <span aria-hidden="true">{leftOpen ? "×" : "☰"}</span>

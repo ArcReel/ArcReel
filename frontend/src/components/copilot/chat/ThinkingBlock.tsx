@@ -73,7 +73,7 @@ export function ThinkingBlock({ thinking, streaming }: ThinkingBlockProps) {
         <div
           id={detailsId}
           className="ml-1.5 mt-1 pl-2.5"
-          style={{ borderLeft: "2px solid var(--color-accent-soft)" }}
+          style={{ borderLeft: "2px solid var(--color-primary-soft)" }}
         >
           <p className="whitespace-pre-wrap text-[11.5px] italic leading-[1.55]" style={{ color: "var(--color-text-3)" }}>
             {thinking}

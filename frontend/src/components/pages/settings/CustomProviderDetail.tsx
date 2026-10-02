@@ -123,7 +123,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
   if (loading || !provider) {
     return (
       <div className="flex items-center gap-2 px-1 py-12 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -190,7 +190,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
 
           {/* Info card */}
           <div className="rounded-[10px] border border-hairline p-5" style={CARD_STYLE}>
-            <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+            <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
               Connection
             </div>
             <div className="space-y-2 text-[12.5px]">
@@ -220,7 +220,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
           {/* Models */}
           {provider.models.length > 0 && (
             <div>
-              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
                 {t("model_list")}
               </div>
               <div className="space-y-1.5">
@@ -245,9 +245,9 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
                       <span
                         className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em]"
                         style={{
-                          background: "var(--color-accent-dim)",
-                          color: "var(--color-accent-2)",
-                          border: "1px solid var(--color-accent-soft)",
+                          background: "var(--color-primary-dim)",
+                          color: "var(--color-primary-2)",
+                          border: "1px solid var(--color-primary-soft)",
                         }}
                       >
                         {t("default_label")}
@@ -345,7 +345,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12.5px] text-text-3 transition-colors hover:border-warm-ring hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12.5px] text-text-3 transition-colors hover:border-warm-ring hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Trash2 className="h-3.5 w-3.5" />
               {t("common:delete")}
@@ -356,7 +356,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
                 type="button"
                 onClick={() => void handleDelete()}
                 disabled={deleting}
-                className="inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12.5px] font-semibold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12.5px] font-semibold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 style={{
                   background: "var(--color-warm-tint)",
                   color: "var(--color-warm-bright)",

@@ -420,10 +420,10 @@ function DurationPill({
                     checked
                       ? {
                           background:
-                            "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                            "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
                           color: "oklch(0.14 0 0)",
                           boxShadow:
-                            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 2px 6px -2px var(--color-accent-glow)",
+                            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 2px 6px -2px var(--color-primary-glow)",
                         }
                       : {
                           background: "oklch(0.22 0.011 265 / 0.5)",
@@ -996,7 +996,7 @@ export function ShotDetail({
               background:
                 "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35))",
               border: "1px solid var(--color-hairline-soft)",
-              borderLeft: "3px solid var(--color-accent-soft)",
+              borderLeft: "3px solid var(--color-primary-soft)",
             }}
           >
             <p
@@ -1244,11 +1244,11 @@ export function ShotDetail({
           className="num rounded-md px-2.5 py-1 text-[12px] font-bold"
           style={{
             background:
-              "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+              "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
             color: "oklch(0.14 0 0)",
             letterSpacing: "0.3px",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 2px 6px -2px var(--color-accent-glow)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 2px 6px -2px var(--color-primary-glow)",
           }}
         >
           {itemIdWithinEpisode(segmentId)}
@@ -1361,23 +1361,23 @@ export function ShotDetail({
           className="flex items-center gap-2 px-5 py-2"
           style={{
             background:
-              "linear-gradient(180deg, var(--color-accent-dim), oklch(0.20 0.012 270 / 0.35))",
-            borderBottom: "1px solid var(--color-accent-soft)",
+              "linear-gradient(180deg, var(--color-primary-dim), oklch(0.20 0.012 270 / 0.35))",
+            borderBottom: "1px solid var(--color-primary-soft)",
           }}
         >
           <span
             aria-hidden="true"
             className="h-1.5 w-1.5 rounded-full"
             style={{
-              background: "var(--color-accent)",
-              boxShadow: "0 0 6px var(--color-accent-glow)",
+              background: "var(--color-primary)",
+              boxShadow: "0 0 6px var(--color-primary-glow)",
             }}
           />
           <span
             className="num text-[10.5px] uppercase"
             style={{
               letterSpacing: "1.0px",
-              color: "var(--color-accent-2)",
+              color: "var(--color-primary-2)",
             }}
           >
             {t("shot_detail_unsaved")}
@@ -1404,9 +1404,9 @@ export function ShotDetail({
             style={{
               color: "oklch(0.14 0 0)",
               background:
-                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
               boxShadow:
-                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
             }}
           >
             {saving ? (

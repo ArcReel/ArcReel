@@ -84,7 +84,7 @@ function UtteranceRow({
           aria-hidden="true"
           className={`mt-2 h-2.5 w-2.5 rounded-full ${
             isDialogue
-              ? "bg-accent shadow-[0_0_8px_-1px_var(--color-accent-glow)]"
+              ? "bg-primary shadow-[0_0_8px_-1px_var(--color-primary-glow)]"
               : "border border-text-4 bg-transparent"
           }`}
         />

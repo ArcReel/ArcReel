@@ -130,7 +130,7 @@ export function ProviderSection() {
         <button
           type="button"
           onClick={reload}
-          className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {t("common:retry")}
         </button>
@@ -141,7 +141,7 @@ export function ProviderSection() {
   if (loading) {
     return (
       <div className="flex items-center gap-2 px-6 py-8 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("loading_providers")}
         </span>
@@ -171,9 +171,9 @@ export function ProviderSection() {
               aria-current={isActive ? "page" : undefined}
               aria-pressed={isActive}
               className={
-                "group relative mb-0.5 flex w-full items-center gap-2.5 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                "group relative mb-0.5 flex w-full items-center gap-2.5 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary " +
                 (isActive
-                  ? "border-accent/35 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-accent-glow)]"
+                  ? "border-primary/35 bg-primary-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-primary-glow)]"
                   : "border-transparent text-text-3 hover:border-hairline-soft hover:bg-bg-grad-a/55 hover:text-text")
               }
             >
@@ -183,7 +183,7 @@ export function ProviderSection() {
                 className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-[2px] transition-opacity"
                 style={{
                   background:
-                    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                    "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
                   opacity: isActive ? 1 : 0,
                 }}
               />

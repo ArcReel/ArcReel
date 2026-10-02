@@ -14,9 +14,9 @@ export function DemoReadOnlyBanner() {
   return (
     <div
       role="status"
-      className="flex shrink-0 items-baseline gap-2.5 border-b border-hairline bg-accent-dim px-4 py-2 text-[12.5px]"
+      className="flex shrink-0 items-baseline gap-2.5 border-b border-hairline bg-primary-dim px-4 py-2 text-[12.5px]"
       style={{
-        boxShadow: "inset 3px 0 0 var(--color-accent)",
+        boxShadow: "inset 3px 0 0 var(--color-primary)",
       }}
     >
       <span className="font-semibold tracking-wide text-text">

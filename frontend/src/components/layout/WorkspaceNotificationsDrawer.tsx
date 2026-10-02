@@ -41,9 +41,9 @@ const TONE_TOKENS: Record<
     ring: "oklch(0.45 0.18 25 / 0.40)",
   },
   info: {
-    color: "var(--color-accent-2)",
-    soft: "var(--color-accent-dim)",
-    ring: "var(--color-accent-soft)",
+    color: "var(--color-primary-2)",
+    soft: "var(--color-primary-dim)",
+    ring: "var(--color-primary-soft)",
   },
 };
 
@@ -85,10 +85,10 @@ export function WorkspaceNotificationsDrawer({
           className="grid h-7 w-7 place-items-center rounded-lg"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
-            boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+              "linear-gradient(135deg, var(--color-primary-dim), oklch(0.76 0.09 295 / 0.05))",
+            border: "1px solid var(--color-primary-soft)",
+            color: "var(--color-primary-2)",
+            boxShadow: "0 8px 18px -8px var(--color-primary-glow)",
           }}
         >
           <BellRing className="h-3.5 w-3.5" />
@@ -111,7 +111,7 @@ export function WorkspaceNotificationsDrawer({
             {unreadCount > 0 && (
               <>
                 <span style={{ color: "var(--color-hairline-strong)" }}>·</span>
-                <span style={{ color: "var(--color-accent-2)" }}>
+                <span style={{ color: "var(--color-primary-2)" }}>
                   {t("unread_count", { count: unreadCount })}
                 </span>
               </>
@@ -130,7 +130,7 @@ export function WorkspaceNotificationsDrawer({
             style={{
               border: "1px dashed var(--color-hairline)",
               background:
-                "radial-gradient(400px 200px at 50% -10%, var(--color-accent-dim), transparent 60%), oklch(0.18 0.010 265 / 0.30)",
+                "radial-gradient(400px 200px at 50% -10%, var(--color-primary-dim), transparent 60%), oklch(0.18 0.010 265 / 0.30)",
             }}
           >
             <span
@@ -138,9 +138,9 @@ export function WorkspaceNotificationsDrawer({
               className="grid h-10 w-10 place-items-center rounded-xl"
               style={{
                 background:
-                  "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.04))",
-                border: "1px solid var(--color-accent-soft)",
-                color: "var(--color-accent-2)",
+                  "linear-gradient(135deg, var(--color-primary-dim), oklch(0.76 0.09 295 / 0.04))",
+                border: "1px solid var(--color-primary-soft)",
+                color: "var(--color-primary-2)",
               }}
             >
               <BellRing className="h-4 w-4" />
@@ -173,13 +173,13 @@ export function WorkspaceNotificationsDrawer({
                   className="group rounded-xl px-3.5 py-3 text-[12px] transition-colors"
                   style={{
                     border: actionable
-                      ? "1px solid var(--color-accent-soft)"
+                      ? "1px solid var(--color-primary-soft)"
                       : `1px solid ${tone.ring}`,
                     background: actionable
-                      ? "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
+                      ? "linear-gradient(135deg, var(--color-primary-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
                       : tone.soft,
                     boxShadow: actionable
-                      ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-accent-glow)"
+                      ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-primary-glow)"
                       : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
                   }}
                 >
@@ -201,7 +201,7 @@ export function WorkspaceNotificationsDrawer({
                           style={{
                             color: item.read
                               ? "var(--color-text-4)"
-                              : "var(--color-accent-2)",
+                              : "var(--color-primary-2)",
                             letterSpacing: "1.0px",
                           }}
                         >
@@ -224,9 +224,9 @@ export function WorkspaceNotificationsDrawer({
                             style={{
                               color: "oklch(0.14 0 0)",
                               background:
-                                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                                "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
                               boxShadow:
-                                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 4px 14px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 4px 14px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
                             }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.transform = "translateY(-1px)";

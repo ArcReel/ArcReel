@@ -110,7 +110,7 @@ export function RecordRow({
       <button
         type="button"
         onClick={() => onOpenDetail(record.recordId as number)}
-        className="focus-ring rounded px-1 text-[11px] text-text-3 transition-colors hover:text-accent-2"
+        className="focus-ring rounded px-1 text-[11px] text-text-3 transition-colors hover:text-primary-2"
       >
         {t("usage_row_detail")}
       </button>

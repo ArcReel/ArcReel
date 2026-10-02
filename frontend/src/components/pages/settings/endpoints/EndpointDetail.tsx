@@ -106,7 +106,7 @@ function KindBadge({ selection }: { selection: EndpointSelection }) {
   return (
     <span
       className={`shrink-0 rounded-[5px] border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] ${
-        custom ? "border-accent/35 bg-accent-dim text-accent-2" : "border-hairline-soft bg-bg-grad-a/55 text-text-3"
+        custom ? "border-primary/35 bg-primary-dim text-primary-2" : "border-hairline-soft bg-bg-grad-a/55 text-text-3"
       }`}
     >
       {label}
@@ -535,7 +535,7 @@ export function EndpointDetail({
 
       {!definitionless && !draft && !loadError && (
         <div className="flex items-center gap-2 py-8 text-text-3">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
           <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
             {t("common:loading")}
           </span>
@@ -585,8 +585,8 @@ export function EndpointDetail({
                   else leaveJsonMode();
                 }}
                 aria-pressed={editorMode === mode}
-                className={`rounded-[6px] px-3 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  editorMode === mode ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text"
+                className={`rounded-[6px] px-3 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                  editorMode === mode ? "bg-primary-dim text-primary-2" : "text-text-3 hover:text-text"
                 }`}
               >
                 {mode === "form" ? t("ce_view_form") : t("ce_view_json")}
@@ -619,7 +619,7 @@ export function EndpointDetail({
                   setDraft(parsed);
                   setJsonIssue(null);
                 }}
-                className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.65] read-only:border-accent/25 read-only:bg-bg-grad-b/65 read-only:text-text-2`}
+                className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.65] read-only:border-primary/25 read-only:bg-bg-grad-b/65 read-only:text-text-2`}
               />
               {jsonIssue !== null && (
                 <span role="alert" className="mt-1.5 block text-[12px] text-warm-bright">

@@ -30,7 +30,7 @@ import {
 
 const STATUS_CLS: Record<ComfyuiRowStatus, string> = {
   auto: "border-good/40 bg-good/10 text-good",
-  manual: "border-accent/40 bg-accent-dim text-accent-2",
+  manual: "border-primary/40 bg-primary-dim text-primary-2",
   ambiguous: "border-warn/50 bg-warn/10 text-warn",
   not_found: "border-hairline-strong bg-bg-grad-a/60 text-text-3",
   unsupported: "border-hairline-soft bg-transparent text-text-4 line-through decoration-text-4/60",
@@ -54,7 +54,7 @@ function ScoreBar({ score, best }: { score: number; best: number }) {
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5">
       <span aria-hidden className="h-1 w-14 overflow-hidden rounded-full bg-bg-grad-a">
-        <span className="block h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+        <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
       </span>
       <span className="font-mono text-[10px] tabular-nums text-text-4">{score}</span>
     </span>
@@ -86,8 +86,8 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
         return (
           <label
             key={`${candidate.target.node}.${candidate.target.input ?? ""}`}
-            className={`flex cursor-pointer items-start gap-2.5 rounded-[7px] border px-2.5 py-1.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
-              selected ? "border-accent/45 bg-accent-dim" : "border-hairline-soft hover:border-hairline"
+            className={`flex cursor-pointer items-start gap-2.5 rounded-[7px] border px-2.5 py-1.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary ${
+              selected ? "border-primary/45 bg-primary-dim" : "border-hairline-soft hover:border-hairline"
             }`}
           >
             <input
@@ -100,7 +100,7 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
             <span
               aria-hidden
               className={`mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border font-mono text-[8px] text-bg ${
-                selected ? "border-accent-2 bg-accent-2" : "border-hairline-strong"
+                selected ? "border-primary-2 bg-primary-2" : "border-hairline-strong"
               }`}
             >
               {order > 0 ? order : ""}
@@ -114,7 +114,7 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
                 {candidate.signals.map((signal) => signal.message).join(" · ")}
               </span>
               {candidate.origin !== "inferred" && (
-                <span className="mt-0.5 inline-block font-mono text-[10px] uppercase tracking-[0.08em] text-accent-2">
+                <span className="mt-0.5 inline-block font-mono text-[10px] uppercase tracking-[0.08em] text-primary-2">
                   {t(candidate.origin === "kept" ? "ce_cf_origin_kept" : "ce_cf_origin_rematched")}
                 </span>
               )}
@@ -251,8 +251,8 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
             type="button"
             aria-pressed={policy === option}
             onClick={() => onPatch({ policy: option })}
-            className={`rounded-full border px-2 py-0.5 font-mono text-[10.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-              policy === option ? "border-accent/45 bg-accent-dim text-accent-2" : "border-hairline-soft text-text-3"
+            className={`rounded-full border px-2 py-0.5 font-mono text-[10.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              policy === option ? "border-primary/45 bg-primary-dim text-primary-2" : "border-hairline-soft text-text-3"
             }`}
           >
             {t(option === "random" ? "ce_cf_seed_random" : "ce_cf_seed_keep")}
@@ -355,7 +355,7 @@ export function ComfyuiBindingTable({
             <div key={key} className="py-2.5">
               <div className="grid grid-cols-[minmax(150px,190px)_96px_minmax(0,1fr)_auto] items-center gap-3">
                 <span className="inline-flex items-baseline gap-1.5 text-[12.5px]">
-                  <span className="font-mono text-[11.5px] text-accent-2" translate="no">
+                  <span className="font-mono text-[11.5px] text-primary-2" translate="no">
                     {key}
                   </span>
                   <span className="text-text-2">{t(`ce_cf_key_${key}`)}</span>
@@ -381,7 +381,7 @@ export function ComfyuiBindingTable({
                         <TargetLabel target={targets[0]} />
                       )}
                       {origin !== null && (
-                        <span className="shrink-0 rounded-[4px] border border-accent/35 px-1 py-px font-mono text-[9.5px] uppercase tracking-[0.08em] text-accent-2">
+                        <span className="shrink-0 rounded-[4px] border border-primary/35 px-1 py-px font-mono text-[9.5px] uppercase tracking-[0.08em] text-primary-2">
                           {t(origin === "kept" ? "ce_cf_origin_kept" : "ce_cf_origin_rematched")}
                         </span>
                       )}
@@ -404,7 +404,7 @@ export function ComfyuiBindingTable({
                   aria-expanded={open}
                   aria-controls={panelId}
                   onClick={() => setToggled((current) => ({ ...current, [key]: !open }))}
-                  className="text-[11.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="text-[11.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {open
                     ? t("ce_cf_collapse")

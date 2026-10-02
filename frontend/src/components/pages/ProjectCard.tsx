@@ -227,7 +227,7 @@ function episodeDotColor(
   const scriptedEnd = inProductionEnd + summary.scripted;
   if (i < summary.completed) return { bg: "var(--color-good)" };
   if (i < inProductionEnd) {
-    return { bg: "var(--color-accent)", glow: "0 0 6px var(--color-accent-glow)" };
+    return { bg: "var(--color-primary)", glow: "0 0 6px var(--color-primary-glow)" };
   }
   if (i < scriptedEnd) return { bg: "oklch(0.55 0.010 265)" };
   return { bg: "oklch(0.22 0.011 265)" };
@@ -270,8 +270,8 @@ export function gradientProgressStyles(variant: "accent" | "good"): {
   return {
     trackStyle,
     barStyle: {
-      background: "linear-gradient(90deg, var(--color-accent), var(--color-accent-2))",
-      boxShadow: "0 0 6px var(--color-accent-glow)",
+      background: "linear-gradient(90deg, var(--color-primary), var(--color-primary-2))",
+      boxShadow: "0 0 6px var(--color-primary-glow)",
     },
   };
 }
@@ -412,7 +412,7 @@ export function ProjectCard(props: ProjectCardProps) {
   );
 
   return (
-    <article className="group relative overflow-hidden rounded-[12px] border border-hairline bg-bg-grad-a/85 transition-[transform,border-color,box-shadow] duration-150 motion-safe:hover:-translate-y-0.5 hover:border-accent/45 hover:shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.6),0_0_0_1px_var(--color-accent-soft)] focus-within:border-accent/60 focus-within:shadow-[0_0_0_2px_var(--color-accent-soft)]">
+    <article className="group relative overflow-hidden rounded-[12px] border border-hairline bg-bg-grad-a/85 transition-[transform,border-color,box-shadow] duration-150 motion-safe:hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.6),0_0_0_1px_var(--color-primary-soft)] focus-within:border-primary/60 focus-within:shadow-[0_0_0_2px_var(--color-primary-soft)]">
       <Link
         href={`/app/projects/${project.name}`}
         className="block w-full text-left text-text no-underline outline-none"
@@ -434,7 +434,7 @@ export function ProjectCard(props: ProjectCardProps) {
               setMenuOpen((v) => !v);
             }}
             className={
-              "grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/70 text-text-3 backdrop-blur transition-[opacity,color,background] hover:bg-bg hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+              "grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/70 text-text-3 backdrop-blur transition-[opacity,color,background] hover:bg-bg hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary " +
               (menuOpen
                 ? "opacity-100"
                 : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100")

@@ -56,7 +56,7 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
                 ) : null}
                 {derivativeCount > 0 ? (
                   <span
-                    className="inline-flex items-center gap-1 rounded-full bg-bg-grad-b/70 px-1.5 py-0.5 text-accent-2"
+                    className="inline-flex items-center gap-1 rounded-full bg-bg-grad-b/70 px-1.5 py-0.5 text-primary-2"
                     title={t("derivatives_with_count", { n: derivativeCount })}
                   >
                     <Layers aria-hidden className="h-3 w-3" />
@@ -72,7 +72,7 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
               type="button"
               onClick={() => onEdit(asset)}
               aria-label={t("edit")}
-              className="rounded-[5px] p-1 text-text-4 transition-colors hover:text-text focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="rounded-[5px] p-1 text-text-4 transition-colors hover:text-text focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Edit2 className="h-3.5 w-3.5" />
             </button>

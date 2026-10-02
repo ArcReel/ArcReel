@@ -90,7 +90,7 @@ function SectionCard({ kicker, title, description, children, footer }: SectionCa
       }}
     >
       <header className="px-5 pt-4 pb-3 border-b border-hairline-soft">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           {kicker}
         </div>
         {title ? (
@@ -715,7 +715,7 @@ export function ProjectSettingsPage() {
         <div className="mx-auto flex max-w-3xl items-center gap-4 px-6 py-4">
           <button
             onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1.5 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={t("back_to_project")}
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -723,7 +723,7 @@ export function ProjectSettingsPage() {
           </button>
           <span aria-hidden className="h-5 w-px bg-hairline-soft" />
           <div className="min-w-0 flex-1">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
               Project Booth — {projectName.toUpperCase()}
             </div>
             <h1
@@ -820,7 +820,7 @@ export function ProjectSettingsPage() {
                     <button
                       type="button"
                       onClick={handleClearStyle}
-                      className="rounded-[7px] px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      className="rounded-[7px] px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     >
                       {t("style_clear")}
                     </button>
@@ -940,7 +940,7 @@ export function ProjectSettingsPage() {
                               width: ar === "16:9" ? 12 : 7.5,
                               height: ar === "16:9" ? 7.5 : 12,
                               background:
-                                aspectRatio === ar ? "var(--color-accent-soft)" : "transparent",
+                                aspectRatio === ar ? "var(--color-primary-soft)" : "transparent",
                             }}
                           />
                           {ar === "9:16" ? t("portrait_9_16") : t("landscape_16_9")}
@@ -1056,7 +1056,7 @@ export function ProjectSettingsPage() {
 
           {!options && (
             <div className="flex items-center gap-2 py-6 text-text-3">
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
               <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
                 {t("loading_config")}
               </span>

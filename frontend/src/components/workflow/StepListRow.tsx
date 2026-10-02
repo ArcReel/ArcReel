@@ -11,10 +11,10 @@ import { problemViews } from "./problem-views";
 import type { NextStepView, StepAct, StepNote, StepRowTone, StepRowView } from "./step-list";
 
 const TONE_COLOR: Record<StepRowTone, string> = {
-  done: "var(--color-accent-2)",
+  done: "var(--color-primary-2)",
   todo: "var(--color-text-4)",
   partial: "var(--color-text-2)",
-  running: "var(--color-accent-2)",
+  running: "var(--color-primary-2)",
   warn: "var(--color-warm)",
   danger: "var(--color-danger-2)",
 };
@@ -67,7 +67,7 @@ function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: 
   return (
     <div className="space-y-1.5 pt-1" data-testid="workflow-next-step">
       <p className="text-[12px] leading-relaxed">
-        <span className="font-medium" style={{ color: "var(--color-accent-2)" }}>
+        <span className="font-medium" style={{ color: "var(--color-primary-2)" }}>
           {t("next_step", { step: next.title })}
         </span>
         {next.detail && <span style={{ color: "var(--color-text-3)" }}> {next.detail}</span>}
@@ -170,7 +170,7 @@ function StepDetails({ step, onViewUnit, onRegenerate, onConfirmDurations, busy 
               disabled={busy}
               onClick={confirm}
               className={INLINE_ACTION_CLS}
-              style={{ color: "var(--color-accent-2)" }}
+              style={{ color: "var(--color-primary-2)" }}
             >
               {t("admission_confirm_cta")}
             </button>
@@ -189,7 +189,7 @@ export function StepListRow({ row, next, instruction, onInstructionChange, onRun
       className="flex gap-2.5 rounded-md py-1 pl-1.5 pr-2"
       data-testid={`workflow-row-${row.key}`}
       aria-current={owns ? "step" : undefined}
-      style={owns ? { background: "var(--color-accent-dim)", boxShadow: "inset 2px 0 0 var(--color-accent-2)" } : undefined}
+      style={owns ? { background: "var(--color-primary-dim)", boxShadow: "inset 2px 0 0 var(--color-primary-2)" } : undefined}
     >
       <span className="mt-[6px] flex">
         <ToneDot tone={row.tone} />

@@ -192,7 +192,7 @@ export function EditableAssetName({
         disabled={submitting}
         aria-label={t("assets:rename_asset")}
         className="display-serif focus-ring min-w-0 flex-1 rounded border-b bg-transparent text-[16px] font-semibold tracking-tight outline-none"
-        style={{ color: "var(--color-text)", borderColor: "var(--color-accent-soft)" }}
+        style={{ color: "var(--color-text)", borderColor: "var(--color-primary-soft)" }}
       />
       <button
         type="button"
@@ -201,7 +201,7 @@ export function EditableAssetName({
         title={t("common:save")}
         aria-label={t("common:save")}
         className={ICON_BTN_CLS}
-        style={{ color: "var(--color-accent-2)" }}
+        style={{ color: "var(--color-primary-2)" }}
       >
         {previewLoading ? (
           <Loader2 className="h-4 w-4 motion-safe:animate-spin" />

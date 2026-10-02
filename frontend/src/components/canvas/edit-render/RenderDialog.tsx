@@ -373,11 +373,11 @@ function KindOption({
       onClick={onSelect}
       className="focus-ring flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       style={{
-        border: `1px solid ${selected ? "var(--color-accent-soft)" : "var(--color-hairline)"}`,
-        background: selected ? "var(--color-accent-dim)" : "oklch(0.20 0.011 265 / 0.4)",
+        border: `1px solid ${selected ? "var(--color-primary-soft)" : "var(--color-hairline)"}`,
+        background: selected ? "var(--color-primary-dim)" : "oklch(0.20 0.011 265 / 0.4)",
       }}
     >
-      <span className="mt-0.5 shrink-0" style={{ color: selected ? "var(--color-accent-2)" : "var(--color-text-3)" }}>
+      <span className="mt-0.5 shrink-0" style={{ color: selected ? "var(--color-primary-2)" : "var(--color-text-3)" }}>
         {icon}
       </span>
       <span className="min-w-0">

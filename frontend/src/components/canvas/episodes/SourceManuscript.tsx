@@ -313,7 +313,7 @@ function BoundaryButton({
   activeLabel: string;
   onClick: () => void;
 }) {
-  const line = active ? "var(--color-accent)" : "var(--color-hairline-strong)";
+  const line = active ? "var(--color-primary)" : "var(--color-hairline-strong)";
   return (
     <div data-no-caret className="-mt-3 mb-3 flex items-center gap-2">
       <span aria-hidden className="h-px flex-1" style={{ background: line }} />
@@ -321,11 +321,11 @@ function BoundaryButton({
         type="button"
         onClick={onClick}
         aria-pressed={active}
-        className="focus-ring inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] transition-colors hover:border-accent hover:text-text"
+        className="focus-ring inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] transition-colors hover:border-primary hover:text-text"
         style={{
           borderColor: line,
-          color: active ? "var(--color-accent-2)" : "var(--color-text-3)",
-          background: active ? "var(--color-accent-dim)" : "oklch(0.2 0.01 265)",
+          color: active ? "var(--color-primary-2)" : "var(--color-text-3)",
+          background: active ? "var(--color-primary-dim)" : "oklch(0.2 0.01 265)",
         }}
       >
         <MoveHorizontal className="h-3 w-3" aria-hidden />
@@ -443,7 +443,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
           className="focus-ring mb-2 block w-full rounded-md px-3 py-1 text-left text-[12px] text-text-3 transition-colors"
           style={{
             borderLeft: `3px solid ${color}`,
-            background: selected ? "var(--color-accent-dim)" : "oklch(0.21 0.01 265 / 0.4)",
+            background: selected ? "var(--color-primary-dim)" : "oklch(0.21 0.01 265 / 0.4)",
           }}
         >
           <span style={{ color }}>{t("dashboard:episodes_view_episode_continued", { name })}</span>
@@ -468,7 +468,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
         className="focus-ring mb-2 block w-full scroll-mt-4 rounded-md px-3 py-2 text-left transition-colors"
         style={{
           borderLeft: `3px solid ${color}`,
-          background: selected ? "var(--color-accent-dim)" : "oklch(0.21 0.01 265 / 0.6)",
+          background: selected ? "var(--color-primary-dim)" : "oklch(0.21 0.01 265 / 0.6)",
         }}
       >
         <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
@@ -553,7 +553,7 @@ function UnsplitBlock({
         <div
           data-no-caret
           className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-3 py-2 text-[12px] text-text-3"
-          style={{ border: "1px dashed var(--color-accent-soft)" }}
+          style={{ border: "1px dashed var(--color-primary-soft)" }}
         >
           <span className="font-medium text-text-2">{t("episodes_view_gap_title")}</span>
           <span className="num text-[11px] text-text-4">{formatVolume(t, segment.units, unit)}</span>
@@ -563,13 +563,13 @@ function UnsplitBlock({
           </span>
         </div>
       ) : divider ? (
-        <div role="separator" data-no-caret className="mb-4 mt-2 flex items-center gap-3 text-[12px] text-accent-2">
-          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(90deg, transparent, var(--color-accent))" }} />
+        <div role="separator" data-no-caret className="mb-4 mt-2 flex items-center gap-3 text-[12px] text-primary-2">
+          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(90deg, transparent, var(--color-primary))" }} />
           <span className="flex flex-col items-center gap-0.5 text-center">
             <span>{t("episodes_view_unsplit_divider")}</span>
             <span className="text-[11px] text-text-4">{t("manual_split_divider_hint")}</span>
           </span>
-          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(270deg, transparent, var(--color-accent))" }} />
+          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(270deg, transparent, var(--color-primary))" }} />
         </div>
       ) : null}
       <div

@@ -52,7 +52,7 @@ function SectionCard({ kicker, title, description, children }: CardProps) {
       style={CARD_STYLE}
     >
       <div className="mb-4">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           {kicker}
         </div>
         {title && (
@@ -156,7 +156,7 @@ export function MediaModelSection() {
   if (!settings || !options) {
     return (
       <div className="flex items-center gap-2 px-1 py-12 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -287,7 +287,7 @@ export function MediaModelSection() {
     <div className="space-y-7">
       {/* Heading */}
       <div>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
           Default Routing
         </div>
         <h3
@@ -348,7 +348,7 @@ export function MediaModelSection() {
             onChange={(e) =>
               setDraft((prev) => ({ ...prev, video_generate_audio: e.target.checked }))
             }
-            className="mt-0.5 h-3.5 w-3.5 rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)] disabled:cursor-not-allowed enabled:cursor-pointer"
+            className="mt-0.5 h-3.5 w-3.5 rounded border-hairline bg-bg-grad-a accent-[var(--color-primary)] disabled:cursor-not-allowed enabled:cursor-pointer"
           />
           <label
             htmlFor="media-generate-audio"
@@ -414,7 +414,7 @@ export function MediaModelSection() {
               }
               setPollTimeoutInput(null);
             }}
-            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           />
           <p className="mt-1 text-[11px] text-text-4">{t("video_poll_timeout_hint")}</p>
         </div>
@@ -501,7 +501,7 @@ export function MediaModelSection() {
               type="text"
               value={currentNarrationVoice}
               onChange={(e) => setDraft((prev) => ({ ...prev, narration_voice: e.target.value }))}
-              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             />
             <p className="mt-1 text-[11px] text-text-4">{t("narration_voice_hint")}</p>
           </div>
@@ -529,7 +529,7 @@ export function MediaModelSection() {
                   return { ...prev, narration_speed: next };
                 });
               }}
-              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             />
             <p className="mt-1 text-[11px] text-text-4">{t("narration_speed_hint")}</p>
           </div>
@@ -552,7 +552,7 @@ export function MediaModelSection() {
           onChange={(event) =>
             setDraft((prev) => ({ ...prev, market_github_proxy_prefix: event.target.value }))
           }
-          className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 font-mono text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 font-mono text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         />
       </SectionCard>
 
@@ -574,7 +574,7 @@ export function MediaModelSection() {
           <button
             type="button"
             onClick={() => setDraft({})}
-            className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             {t("common:reset")}
           </button>

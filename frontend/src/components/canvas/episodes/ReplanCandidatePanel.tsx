@@ -137,7 +137,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
     <section
       aria-labelledby="replan-candidate-title"
       className="space-y-2.5 rounded-md py-2 pl-3 pr-2"
-      style={{ borderLeft: "3px solid var(--color-accent-2)", background: "var(--color-accent-dim)" }}
+      style={{ borderLeft: "3px solid var(--color-primary-2)", background: "var(--color-primary-dim)" }}
     >
       {children}
     </section>
@@ -147,7 +147,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
     return shell(
       <>
         <h3 id="replan-candidate-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
-          <Loader2 aria-hidden className="h-3.5 w-3.5 text-accent-2 motion-safe:animate-spin" />
+          <Loader2 aria-hidden className="h-3.5 w-3.5 text-primary-2 motion-safe:animate-spin" />
           {t("dashboard:replan_generating", { count: replan.new_count })}
         </h3>
         <p className="m-0 text-[11.5px] leading-[1.6] text-text-3">{t("dashboard:replan_generating_hint")}</p>

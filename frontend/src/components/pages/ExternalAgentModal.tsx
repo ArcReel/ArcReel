@@ -77,7 +77,7 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
         style={DROPDOWN_PANEL_STYLE}
       >
         <div className="flex items-center gap-2.5">
-          <Bot className="h-5 w-5 text-accent-2" aria-hidden />
+          <Bot className="h-5 w-5 text-primary-2" aria-hidden />
           <div>
             <h2 id="external-agent-modal-title" className="text-[14px] font-semibold text-text">
               {t("dashboard:external_agent_guide")}
@@ -110,9 +110,9 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
           </p>
         )}
 
-        <section className="rounded-xl border border-accent/25 bg-accent-dim/50 p-4">
+        <section className="rounded-xl border border-primary/25 bg-primary-dim/50 p-4">
           <div className="flex items-start gap-3">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-accent/25 bg-bg-grad-a/60 text-accent-2">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-primary/25 bg-bg-grad-a/60 text-primary-2">
               <KeyRound className="h-4 w-4" aria-hidden />
             </div>
             <div className="min-w-0 flex-1">
@@ -158,9 +158,9 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
                   selectTab(activeTab === "agent" ? "manual" : "agent");
                 }
               }}
-              className={`rounded-[7px] px-3 py-2 text-[12px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+              className={`rounded-[7px] px-3 py-2 text-[12px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 activeTab === tab
-                  ? "bg-accent-dim text-accent-2 shadow-[inset_0_0_0_1px_oklch(0.76_0.09_295_/_0.28)]"
+                  ? "bg-primary-dim text-primary-2 shadow-[inset_0_0_0_1px_oklch(0.76_0.09_295_/_0.28)]"
                   : "text-text-4 hover:text-text-2"
               }`}
             >
@@ -185,7 +185,7 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
             <div className="mt-3 rounded-lg border border-hairline bg-bg p-3">
               <code
                 translate="no"
-                className="block whitespace-pre-wrap break-all text-[11.5px] leading-relaxed text-accent-2"
+                className="block whitespace-pre-wrap break-all text-[11.5px] leading-relaxed text-primary-2"
               >
                 {agentPrompt}
               </code>
@@ -220,7 +220,7 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
                 {t("dashboard:external_agent_install_command_desc")}
               </p>
               <div className="mt-2 flex items-center gap-2 rounded-lg border border-hairline bg-bg p-2.5">
-                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-accent-2">
+                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-primary-2">
                   {INSTALL_COMMAND}
                 </code>
                 <button
@@ -247,7 +247,7 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
                 {t("dashboard:external_agent_setup_command_desc")}
               </p>
               <div className="mt-2 flex items-center gap-2 rounded-lg border border-hairline bg-bg p-2.5">
-                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-accent-2">
+                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-primary-2">
                   {SETUP_SKILL}
                 </code>
                 <button
@@ -274,7 +274,7 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
                 {t("dashboard:external_agent_mcp_endpoint_desc")}
               </p>
               <div className="mt-2 flex items-center gap-2 rounded-lg border border-hairline bg-bg p-2.5">
-                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-accent-2">
+                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-primary-2">
                   {MCP_ENDPOINT}
                 </code>
                 <button

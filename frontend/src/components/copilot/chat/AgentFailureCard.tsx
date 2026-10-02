@@ -72,7 +72,7 @@ export function AgentFailureCard({ failure, onRetry }: Readonly<AgentFailureCard
       </div>
 
       <details className="group border-t border-hairline-soft px-3.5 py-2 text-[11px] text-text-3">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
           <ChevronRight aria-hidden className="h-3 w-3 transition-transform group-open:rotate-90" />
           {t("agent_failure_details_label")}
         </summary>

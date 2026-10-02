@@ -63,10 +63,10 @@ function EpisodeHeader({
       <div
         className="num grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[13px] font-bold"
         style={{
-          background: "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.45 0.12 285) 100%)",
+          background: "linear-gradient(135deg, var(--color-primary) 0%, oklch(0.45 0.12 285) 100%)",
           color: "oklch(0.14 0 0)",
           boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 4px 12px -4px var(--color-accent-glow)",
+            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 4px 12px -4px var(--color-primary-glow)",
         }}
       >
         {position ?? "—"}
@@ -130,9 +130,9 @@ function ScriptPlanProgress({ projectName, episode }: { projectName: string; epi
     <div
       role="status"
       className="mt-4 flex items-center gap-2.5 rounded-xl px-4 py-3 text-[12.5px]"
-      style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)", color: "var(--color-text-2)" }}
+      style={{ background: "var(--color-primary-dim)", border: "1px solid var(--color-primary-soft)", color: "var(--color-text-2)" }}
     >
-      <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--color-accent-2)" }} aria-hidden />
+      <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--color-primary-2)" }} aria-hidden />
       <span>
         {latestTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}
         {" "}
@@ -203,7 +203,7 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
                   className="rounded-lg px-3.5 py-3"
                   style={{ background: "oklch(0.24 0.012 265 / 0.55)", border: "1px solid var(--color-hairline-soft)" }}
                 >
-                  <span className="num text-[15px] font-bold" style={{ color: "var(--color-accent-2)" }}>
+                  <span className="num text-[15px] font-bold" style={{ color: "var(--color-primary-2)" }}>
                     {i + 1}
                   </span>
                   <p className="mt-1 text-[12px] leading-[1.6]" style={{ color: "var(--color-text-2)" }}>
@@ -217,11 +217,11 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
           {hook ? (
             <div
               className="flex items-start gap-2.5 rounded-lg px-3.5 py-3"
-              style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)" }}
+              style={{ background: "var(--color-primary-dim)", border: "1px solid var(--color-primary-soft)" }}
             >
-              <Anchor className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent-2)" }} aria-hidden />
+              <Anchor className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-primary-2)" }} aria-hidden />
               <p className="text-[12.5px] leading-[1.7]" style={{ color: "var(--color-text-2)" }}>
-                <span className="mr-2 font-semibold" style={{ color: "var(--color-accent-2)" }}>
+                <span className="mr-2 font-semibold" style={{ color: "var(--color-primary-2)" }}>
                   {t("episode_workspace_guide_hook")}
                 </span>
                 {hook}

@@ -229,7 +229,7 @@ export function EndpointSelect({
           "group inline-flex items-center gap-2 rounded-[8px] border px-2.5 py-1.5 text-left text-sm transition-colors",
           "border-hairline bg-bg-grad-a/55 text-text",
           "hover:border-hairline-strong",
-          "focus-visible:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+          "focus-visible:border-primary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
           "disabled:cursor-not-allowed disabled:opacity-50",
         ].join(" ")}
       >
@@ -301,7 +301,7 @@ export function EndpointSelect({
                             "relative w-full rounded-lg py-2 pl-3.5 pr-3 text-left transition-colors",
                             "before:absolute before:left-0 before:top-2.5 before:bottom-2.5 before:w-[2px] before:rounded-full before:transition-colors",
                             isSelected
-                              ? "bg-accent-dim before:bg-accent"
+                              ? "bg-primary-dim before:bg-primary"
                               : "before:bg-transparent",
                             isActive && !isSelected ? "bg-bg-grad-a/50" : "",
                           ].join(" ")}
@@ -344,7 +344,7 @@ export function EndpointSelect({
             if (onManageNavigate) onManageNavigate(proceed);
             else proceed();
           }}
-          className="flex shrink-0 items-center gap-1.5 border-t border-hairline-soft px-3.5 py-2 text-left text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a/50 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex shrink-0 items-center gap-1.5 border-t border-hairline-soft px-3.5 py-2 text-left text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a/50 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Settings2 aria-hidden="true" className="h-3 w-3" />
           {t("ce_manage_entry")}

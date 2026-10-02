@@ -106,10 +106,10 @@ export function AssetFormModal({
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+                "linear-gradient(135deg, var(--color-primary-dim), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid var(--color-primary-soft)",
+              color: "var(--color-primary-2)",
+              boxShadow: "0 8px 18px -8px var(--color-primary-glow)",
             }}
           >
             <TypeIcon className="h-4 w-4" />
@@ -163,7 +163,7 @@ export function AssetFormModal({
                 border: "1px dashed var(--color-hairline)",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--color-accent-soft)";
+                e.currentTarget.style.borderColor = "var(--color-primary-soft)";
                 e.currentTarget.style.borderStyle = "dashed";
               }}
               onMouseLeave={(e) => {
@@ -198,9 +198,9 @@ export function AssetFormModal({
                     className="grid h-10 w-10 place-items-center rounded-full"
                     style={{
                       background:
-                        "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-                      border: "1px solid var(--color-accent-soft)",
-                      color: "var(--color-accent-2)",
+                        "linear-gradient(135deg, var(--color-primary-dim), oklch(0.76 0.09 295 / 0.05))",
+                      border: "1px solid var(--color-primary-soft)",
+                      color: "var(--color-primary-2)",
                     }}
                   >
                     <ImagePlus className="h-4 w-4" />
@@ -235,7 +235,7 @@ export function AssetFormModal({
               label={
                 <>
                   {t("field.name")}{" "}
-                  <span style={{ color: "var(--color-accent-2)" }}>*</span>
+                  <span style={{ color: "var(--color-primary-2)" }}>*</span>
                 </>
               }
             >

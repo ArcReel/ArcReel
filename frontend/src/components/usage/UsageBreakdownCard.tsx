@@ -75,7 +75,7 @@ export function UsageBreakdownCard({
       style={CARD_STYLE}
     >
       <div className="mb-2.5 flex items-center justify-between gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           {t("usage_breakdown_title")}
         </h4>
         <div
@@ -93,7 +93,7 @@ export function UsageBreakdownCard({
                 onClick={() => setDim(option.value)}
                 className={
                   "focus-ring rounded-full px-2 py-0.5 text-[11px] transition-colors " +
-                  (active ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text")
+                  (active ? "bg-primary-dim text-primary-2" : "text-text-3 hover:text-text")
                 }
               >
                 {t(option.labelKey)}
@@ -147,7 +147,7 @@ function BreakdownRow({
     <>
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-1 left-0 rounded-r-[2px] bg-accent/10"
+        className="pointer-events-none absolute inset-y-1 left-0 rounded-r-[2px] bg-primary/10"
         style={{ width: `${share * 100}%` }}
       />
       <span className="relative min-w-0 truncate text-left text-[12.5px]">

@@ -17,7 +17,7 @@ export function OfficialServiceNotice({
   return (
     <section
       aria-labelledby={titleId}
-      className="mb-5 rounded-[10px] border border-accent/30 bg-accent-dim px-4 py-3 text-[12.5px] leading-[1.6] text-text-2"
+      className="mb-5 rounded-[10px] border border-primary/30 bg-primary-dim px-4 py-3 text-[12.5px] leading-[1.6] text-text-2"
     >
       <h3 id={titleId} className="font-medium text-text">
         {t("official_notice_title")}

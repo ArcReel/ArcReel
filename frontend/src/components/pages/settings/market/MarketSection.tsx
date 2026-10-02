@@ -387,7 +387,7 @@ export function MarketSection() {
                 aria-pressed={type.available}
                 className={`rounded-full border px-3 py-1 text-[12px] ${
                   type.available
-                    ? "border-accent/45 bg-accent-dim text-text"
+                    ? "border-primary/45 bg-primary-dim text-text"
                     : "cursor-not-allowed border-hairline-soft text-text-4"
                 }`}
               >
@@ -419,7 +419,7 @@ export function MarketSection() {
                   onClick={() => setMediaFilter(filter.id)}
                   className={`rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
                     on
-                      ? "border-accent/45 bg-accent-dim text-text"
+                      ? "border-primary/45 bg-primary-dim text-text"
                       : "border-hairline-soft text-text-3 hover:text-text"
                   }`}
                 >
@@ -447,7 +447,7 @@ export function MarketSection() {
                   onClick={() => toggleSourceFilter(source.id)}
                   className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
                     on
-                      ? "border-accent/45 bg-accent-dim text-text"
+                      ? "border-primary/45 bg-primary-dim text-text"
                       : "border-hairline-soft text-text-3 hover:text-text"
                   }`}
                 >

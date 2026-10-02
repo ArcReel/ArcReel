@@ -58,8 +58,8 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
       <div className="min-w-0 flex-1">
         <div className="mb-2 flex flex-wrap items-center gap-2.5">
           <span
-            className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--color-accent-2)]"
-            style={{ background: "var(--color-accent-dim)", padding: "2px 8px", borderRadius: 4 }}
+            className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--color-primary-2)]"
+            style={{ background: "var(--color-primary-dim)", padding: "2px 8px", borderRadius: 4 }}
             translate="no"
           >
             {epLabel}
@@ -71,7 +71,7 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
           <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-text-3)]">
             <span
               aria-hidden="true"
-              className="h-[5px] w-[5px] rounded-full bg-[var(--color-accent)] motion-safe:animate-pulse"
+              className="h-[5px] w-[5px] rounded-full bg-[var(--color-primary)] motion-safe:animate-pulse"
             />
             <span className="tabular-nums">
               {stats.ready}/{stats.total} · {stats.percent}%
@@ -123,7 +123,7 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
             </div>
             <div
               className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${
-                s.accent ? "text-[var(--color-accent-2)]" : "text-[var(--color-text)]"
+                s.accent ? "text-[var(--color-primary-2)]" : "text-[var(--color-text)]"
               }`}
             >
               {s.value}

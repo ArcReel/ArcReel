@@ -169,7 +169,7 @@ export function PendingQuestionWizard({
     <form
       className="relative px-3 py-3"
       style={{
-        borderTop: "1px solid var(--color-accent-soft)",
+        borderTop: "1px solid var(--color-primary-soft)",
         background:
           "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.10), transparent 60%), oklch(0.18 0.010 265 / 0.6)",
         backdropFilter: "blur(10px)",
@@ -183,7 +183,7 @@ export function PendingQuestionWizard({
         className="pointer-events-none absolute left-0 right-0 top-0 h-px"
         style={{
           background:
-            "linear-gradient(90deg, transparent, var(--color-accent), transparent)",
+            "linear-gradient(90deg, transparent, var(--color-primary), transparent)",
           opacity: 0.6,
         }}
       />
@@ -194,12 +194,12 @@ export function PendingQuestionWizard({
           <div className="flex items-center gap-1.5">
             <Sparkles
               className="h-3 w-3"
-              style={{ color: "var(--color-accent)" }}
+              style={{ color: "var(--color-primary)" }}
             />
             <span
               className="text-[10px] font-semibold uppercase"
               style={{
-                color: "var(--color-accent-2)",
+                color: "var(--color-primary-2)",
                 letterSpacing: "0.18em",
               }}
             >
@@ -231,12 +231,12 @@ export function PendingQuestionWizard({
                   className="h-[3px] flex-1 rounded-full transition-all disabled:cursor-not-allowed"
                   style={{
                     background: isActiveStep
-                      ? "var(--color-accent)"
+                      ? "var(--color-primary)"
                       : isVisitedStep
-                        ? "var(--color-accent-soft)"
+                        ? "var(--color-primary-soft)"
                         : "oklch(0.30 0.012 265 / 0.4)",
                     boxShadow: isActiveStep
-                      ? "0 0 8px var(--color-accent-glow)"
+                      ? "0 0 8px var(--color-primary-glow)"
                       : "none",
                   }}
                 />
@@ -254,7 +254,7 @@ export function PendingQuestionWizard({
             <div
               className="relative pl-3 pr-1"
               style={{
-                borderLeft: "2px solid var(--color-accent)",
+                borderLeft: "2px solid var(--color-primary)",
               }}
             >
               <div className="mb-1 flex items-center gap-2">
@@ -262,7 +262,7 @@ export function PendingQuestionWizard({
                   <span
                     className="text-[10.5px] font-semibold uppercase"
                     style={{
-                      color: "var(--color-accent-2)",
+                      color: "var(--color-primary-2)",
                       letterSpacing: "0.12em",
                     }}
                   >
@@ -312,7 +312,7 @@ export function PendingQuestionWizard({
                       borderBottom: isLast
                         ? "none"
                         : "1px solid var(--color-hairline-soft)",
-                      background: checked ? "var(--color-accent-dim)" : "transparent",
+                      background: checked ? "var(--color-primary-dim)" : "transparent",
                     }}
                     onMouseEnter={(e) => {
                       if (!checked && !answeringQuestion)
@@ -329,8 +329,8 @@ export function PendingQuestionWizard({
                         aria-hidden
                         className="absolute inset-y-0 left-0 w-[2px]"
                         style={{
-                          background: "var(--color-accent)",
-                          boxShadow: "0 0 8px var(--color-accent-glow)",
+                          background: "var(--color-primary)",
+                          boxShadow: "0 0 8px var(--color-primary-glow)",
                         }}
                       />
                     )}
@@ -341,9 +341,9 @@ export function PendingQuestionWizard({
                         className="mt-[3px] grid h-[14px] w-[14px] shrink-0 place-items-center"
                         style={{
                           borderRadius: currentQuestion.multiSelect ? "3px" : "9999px",
-                          border: `1.5px solid ${checked ? "var(--color-accent)" : "var(--color-hairline-strong)"}`,
+                          border: `1.5px solid ${checked ? "var(--color-primary)" : "var(--color-hairline-strong)"}`,
                           background: checked
-                            ? "var(--color-accent)"
+                            ? "var(--color-primary)"
                             : "transparent",
                           transition: "all 0.15s ease",
                         }}
@@ -410,13 +410,13 @@ export function PendingQuestionWizard({
             <div
               className="mb-1 flex items-center gap-1.5 text-[10px] uppercase"
               style={{
-                color: "var(--color-accent-2)",
+                color: "var(--color-primary-2)",
                 letterSpacing: "0.14em",
               }}
             >
               <span
                 className="inline-block h-[2px] w-3 rounded-full"
-                style={{ background: "var(--color-accent)" }}
+                style={{ background: "var(--color-primary)" }}
               />
               {t("pending_question_wizard_other_label")}
             </div>
@@ -438,7 +438,7 @@ export function PendingQuestionWizard({
               rows={2}
               className="w-full resize-none rounded-md px-3 py-2 text-[12.5px] leading-[1.55] outline-none transition-colors focus-ring"
               style={{
-                border: "1px solid var(--color-accent-soft)",
+                border: "1px solid var(--color-primary-soft)",
                 background: "oklch(0.16 0.010 265 / 0.7)",
                 color: "var(--color-text)",
                 maxHeight: `${OTHER_TEXTAREA_MAX_PX}px`,
@@ -493,9 +493,9 @@ export function PendingQuestionWizard({
                 style={{
                   color: "oklch(0.14 0 0)",
                   background:
-                    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                    "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
                   boxShadow:
-                    "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                    "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
                   letterSpacing: "0.04em",
                 }}
               >
@@ -512,9 +512,9 @@ export function PendingQuestionWizard({
                 style={{
                   color: "oklch(0.14 0 0)",
                   background:
-                    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                    "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
                   boxShadow:
-                    "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                    "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
                   letterSpacing: "0.04em",
                 }}
               >

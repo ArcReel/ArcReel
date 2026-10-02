@@ -194,7 +194,7 @@ export function EndFrameRow({
             alt=""
             aria-hidden
             className="h-4 w-2.5 rounded-[3px] object-cover"
-            style={{ border: "1px solid var(--color-accent-soft)" }}
+            style={{ border: "1px solid var(--color-primary-soft)" }}
           />
         )}
         <span
@@ -202,7 +202,7 @@ export function EndFrameRow({
           // 摘要随能力查询异步变化（检查中 → 已设置 / 未设置），朗读器需要跟上
           aria-live="polite"
           style={{
-            color: endFramePath ? "var(--color-accent-2)" : "var(--color-text-4)",
+            color: endFramePath ? "var(--color-primary-2)" : "var(--color-text-4)",
           }}
         >
           {summary}
@@ -239,7 +239,7 @@ export function EndFrameRow({
             className="w-16 shrink-0 overflow-hidden rounded-[6px]"
             style={{
               border: previewUrl
-                ? "1px solid var(--color-accent-soft)"
+                ? "1px solid var(--color-primary-soft)"
                 : "1px dashed var(--color-hairline-strong)",
               background: previewUrl ? undefined : "oklch(0.20 0.011 265 / 0.5)",
             }}

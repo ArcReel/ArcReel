@@ -61,7 +61,7 @@ const FAILURE_ACTION_TEXT: Record<string, string | undefined> = {
 
 const STAGE_DOT_CLS: Record<TrialRunStageState, string> = {
   done: "bg-good",
-  pending: "bg-accent-2 motion-safe:animate-pulse",
+  pending: "bg-primary-2 motion-safe:animate-pulse",
   skipped: "bg-hairline-strong",
 };
 
@@ -530,7 +530,7 @@ function TrialRunReport({
         {run.api_call_id !== null && (
           <a
             href={`/app/settings?section=usage&record=${run.api_call_id}`}
-            className="text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-text"
+            className="text-primary-2 underline decoration-primary/40 underline-offset-2 hover:text-text"
           >
             {t("ce_trial_record", { id: run.api_call_id })}
           </a>

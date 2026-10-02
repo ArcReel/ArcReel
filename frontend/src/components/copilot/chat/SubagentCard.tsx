@@ -66,7 +66,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
         ? "var(--color-good)"
         : status === "stopped"
           ? "var(--color-text-4)"
-          : "var(--color-accent)";
+          : "var(--color-primary)";
 
   const header = (
     <>
@@ -74,7 +74,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
         {status === "running" ? (
           <span
             className="inline-block h-3 w-3 rounded-full border-t-transparent motion-safe:animate-spin"
-            style={{ border: "1px solid var(--color-accent)", borderTopColor: "transparent" }}
+            style={{ border: "1px solid var(--color-primary)", borderTopColor: "transparent" }}
           />
         ) : (
           <span className="text-xs font-medium" style={{ color: statusColor }}>
@@ -137,7 +137,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
       {isExpanded && (
         <div id={detailsId} className="px-2.5 pb-2" style={{ borderTop: "1px solid var(--color-hairline-soft)" }}>
           {subTurns.length > 0 ? (
-            <div className="mt-2 ml-1 pl-2.5" style={{ borderLeft: "2px solid var(--color-accent-soft)" }}>
+            <div className="mt-2 ml-1 pl-2.5" style={{ borderLeft: "2px solid var(--color-primary-soft)" }}>
               {subTurns.map((turn, turnIndex) => (
                 <SubTimelineTurn key={turn.uuid || `sub-turn-${turnIndex}`} turn={turn} />
               ))}

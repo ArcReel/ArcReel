@@ -33,7 +33,7 @@ function ProgressPulse() {
       className="mt-1 h-0.5 w-full overflow-hidden rounded-full"
       style={{ background: "oklch(0.16 0.010 265 / 0.7)" }}
     >
-      <div className="animate-progress-pulse h-full w-1/3 rounded-full bg-accent" />
+      <div className="animate-progress-pulse h-full w-1/3 rounded-full bg-primary" />
     </div>
   );
 }
@@ -81,7 +81,7 @@ export function UsageActiveRow({
             <span
               aria-hidden="true"
               className={
-                "ml-auto h-[5px] w-[5px] shrink-0 rounded-full bg-accent-2" +
+                "ml-auto h-[5px] w-[5px] shrink-0 rounded-full bg-primary-2" +
                 (running ? " animate-breathe" : "")
               }
             />

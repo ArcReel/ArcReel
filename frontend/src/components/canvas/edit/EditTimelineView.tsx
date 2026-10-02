@@ -266,7 +266,7 @@ export function EditTimelineView({
                 onClick={() => choose(item.id)}
                 onKeyDown={onTabKeyDown}
                 className={`focus-ring rounded-[7px] px-3 py-1.5 text-[12.5px] transition-colors ${
-                  item.id === selected.id ? "bg-accent-dim text-text" : "text-text-3 hover:text-text"
+                  item.id === selected.id ? "bg-primary-dim text-text" : "text-text-3 hover:text-text"
                 }`}
               >
                 {item.name}

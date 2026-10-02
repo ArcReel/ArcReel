@@ -336,7 +336,7 @@ export function SourceUploadDialog({
         <div
           className="mx-6 mt-2 min-h-[140px] flex-1 overflow-y-auto rounded-[10px] border transition-colors"
           style={{
-            borderColor: fileDragOver ? "var(--color-accent)" : "var(--color-hairline)",
+            borderColor: fileDragOver ? "var(--color-primary)" : "var(--color-hairline)",
             borderStyle: fileDragOver ? "dashed" : "solid",
             background: "oklch(0.17 0.010 265 / 0.55)",
           }}
@@ -377,7 +377,7 @@ export function SourceUploadDialog({
                     ) : (
                       <Lock className="h-3.5 w-3.5 shrink-0 text-text-4" aria-hidden />
                     )}
-                    <FileText className={`h-3.5 w-3.5 shrink-0 ${isNew ? "text-accent-2" : "text-text-4"}`} aria-hidden />
+                    <FileText className={`h-3.5 w-3.5 shrink-0 ${isNew ? "text-primary-2" : "text-text-4"}`} aria-hidden />
                     <div className="min-w-0 flex-1">
                       <div className={`truncate ${isNew ? "text-text" : "text-text-3"}`} title={name}>
                         {name}
@@ -412,7 +412,7 @@ export function SourceUploadDialog({
                       />
                     ) : null}
                     {isNew && mode === "episode" ? (
-                      <span className="shrink-0 text-[11.5px] text-accent-2">
+                      <span className="shrink-0 text-[11.5px] text-primary-2">
                         {t("dashboard:source_upload_becomes", { position: episodeCount + index + 1 })}
                       </span>
                     ) : null}

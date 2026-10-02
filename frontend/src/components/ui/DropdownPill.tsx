@@ -90,8 +90,8 @@ export function DropdownPill<T extends string>({
               }}
               className="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors disabled:cursor-default"
               style={{
-                background: isActive ? "var(--color-accent-dim)" : "transparent",
-                color: isActive ? "var(--color-accent-2)" : "var(--color-text-2)",
+                background: isActive ? "var(--color-primary-dim)" : "transparent",
+                color: isActive ? "var(--color-primary-2)" : "var(--color-text-2)",
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {

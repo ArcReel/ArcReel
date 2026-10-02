@@ -52,7 +52,7 @@ export function AssetSheetBatchControls({
             className="focus-ring px-2 py-1 text-[11px] transition-colors"
             style={{
               color: filter === value ? "var(--color-text)" : "var(--color-text-3)",
-              background: filter === value ? "var(--color-accent-dim)" : "transparent",
+              background: filter === value ? "var(--color-primary-dim)" : "transparent",
             }}
           >
             {t(`sheet_filter_${value}`)}
@@ -66,8 +66,8 @@ export function AssetSheetBatchControls({
           className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] transition-colors"
           style={{
             color: "var(--color-text-2)",
-            border: "1px solid var(--color-accent-soft)",
-            background: "var(--color-accent-dim)",
+            border: "1px solid var(--color-primary-soft)",
+            background: "var(--color-primary-dim)",
           }}
         >
           <Sparkles className="h-3.5 w-3.5" />

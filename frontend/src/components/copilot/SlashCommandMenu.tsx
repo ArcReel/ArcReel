@@ -139,12 +139,12 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
               onMouseEnter={() => setActiveIndex(i)}
               className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] transition-colors"
               style={{
-                background: isActive ? "var(--color-accent-dim)" : "transparent",
+                background: isActive ? "var(--color-primary-dim)" : "transparent",
               }}
             >
               <Icon
                 className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                style={{ color: isActive ? "var(--color-accent-2)" : "var(--color-accent)" }}
+                style={{ color: isActive ? "var(--color-primary-2)" : "var(--color-primary)" }}
               />
               <div className="min-w-0">
                 <span

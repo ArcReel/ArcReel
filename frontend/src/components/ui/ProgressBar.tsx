@@ -45,7 +45,7 @@ export function ProgressBar({
       style={style}
     >
       <div
-        className={cx("h-full rounded-full bg-accent transition-[width]", barClassName)}
+        className={cx("h-full rounded-full bg-primary transition-[width]", barClassName)}
         style={{ ...barStyle, width: `${pct}%` }}
       />
     </div>

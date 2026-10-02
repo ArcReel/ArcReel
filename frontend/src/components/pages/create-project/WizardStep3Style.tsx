@@ -36,7 +36,7 @@ export function WizardStep3Style({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {t("common:cancel")}
         </button>

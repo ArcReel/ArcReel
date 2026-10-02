@@ -47,7 +47,7 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
           className="inline-block h-3 w-3 animate-spin rounded-full border-t-transparent"
           style={{
             borderTop: "1px solid transparent",
-            border: "1px solid var(--color-accent)",
+            border: "1px solid var(--color-primary)",
             borderTopColor: "transparent",
           }}
         />

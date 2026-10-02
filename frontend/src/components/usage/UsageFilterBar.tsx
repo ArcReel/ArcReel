@@ -102,7 +102,7 @@ export function UsageFilterBar({
               className={
                 "focus-ring rounded-[7px] border px-2.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors " +
                 (active
-                  ? "border-accent/45 bg-accent-dim text-accent-2"
+                  ? "border-primary/45 bg-primary-dim text-primary-2"
                   : "border-hairline-soft bg-bg-grad-a/45 text-text-3 hover:border-hairline hover:text-text")
               }
             >

@@ -74,9 +74,9 @@ const GROUP_LABEL_KEY: Record<Group, string> = {
 
 /** 行左侧细边按处理方式着色：一眼分出会新建资产、归并、衍生与不登记的项。 */
 const DECISION_EDGE: Record<NewAssetDecision, string> = {
-  register: "var(--color-accent)",
+  register: "var(--color-primary)",
   merge: "var(--color-text-4)",
-  derivative: "var(--color-accent-2)",
+  derivative: "var(--color-primary-2)",
   skip: "var(--color-hairline)",
 };
 

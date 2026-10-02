@@ -94,7 +94,7 @@ export function NoScriptBlankState({ projectName, episode, className = "" }: { p
       </div>
       {refusedReason && (
         <p className="m-0 text-[12px]">
-          {refusedReason} <AdScriptInputsLink className="text-[var(--color-accent-2)]" />
+          {refusedReason} <AdScriptInputsLink className="text-[var(--color-primary-2)]" />
         </p>
       )}
       <AdScriptProgress projectName={projectName} episode={episode} noScript className="w-full max-w-md" />

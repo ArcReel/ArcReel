@@ -195,14 +195,14 @@ export function LayeredModelFields({
           open={open}
           onToggle={(e) => setOpen(e.currentTarget.open)}
         >
-          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-[7px] font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-[7px] font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
             <ChevronRight
               aria-hidden
               className="h-3.5 w-3.5 shrink-0 motion-safe:transition-transform group-open:rotate-90"
             />
             <span>{t("model_bucket_section")}</span>
             {configuredCount > 0 && (
-              <span className="shrink-0 rounded-full border border-accent/45 bg-accent-dim px-2 py-0.5 text-[9.5px] tracking-[0.1em] text-accent-2">
+              <span className="shrink-0 rounded-full border border-primary/45 bg-primary-dim px-2 py-0.5 text-[9.5px] tracking-[0.1em] text-primary-2">
                 {t("model_bucket_configured_count", { n: configuredCount })}
               </span>
             )}

@@ -40,17 +40,17 @@ function PlayFrame({ active }: { active: boolean }) {
   return (
     <span
       className={`grid h-12 w-[38px] place-items-center rounded-[4px] border border-dashed transition-colors ${
-        active ? "border-accent/50" : "border-hairline"
+        active ? "border-primary/50" : "border-hairline"
       }`}
     >
-      <Play className={`h-4 w-4 ${active ? "fill-accent-2 text-accent-2" : "fill-text-4 text-text-4"}`} />
+      <Play className={`h-4 w-4 ${active ? "fill-primary-2 text-primary-2" : "fill-text-4 text-text-4"}`} />
     </span>
   );
 }
 
 /** 输入契约图示：单张分镜帧（胶片框）→ 视频。 */
 function StoryboardDiagram({ active }: { active: boolean }) {
-  const frameCls = active ? "border-accent/50 bg-accent-dim" : "border-hairline bg-bg/60";
+  const frameCls = active ? "border-primary/50 bg-primary-dim" : "border-hairline bg-bg/60";
   return (
     <span aria-hidden className="flex items-center gap-2.5">
       <span className={`relative block h-12 w-[38px] rounded-[4px] border ${frameCls} transition-colors`}>
@@ -68,7 +68,7 @@ function StoryboardDiagram({ active }: { active: boolean }) {
           </span>
         ))}
         <ImageIcon
-          className={`absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 ${active ? "text-accent-2" : "text-text-4"}`}
+          className={`absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 ${active ? "text-primary-2" : "text-text-4"}`}
         />
       </span>
       <ArrowRight className="h-3.5 w-3.5 shrink-0 text-text-4" />
@@ -79,12 +79,12 @@ function StoryboardDiagram({ active }: { active: boolean }) {
 
 /** 输入契约图示：角色/场景/道具参考图扇形堆叠 → 视频。 */
 function ReferenceDiagram({ active }: { active: boolean }) {
-  const iconCls = `h-4 w-4 ${active ? "text-accent-2" : "text-text-4"}`;
+  const iconCls = `h-4 w-4 ${active ? "text-primary-2" : "text-text-4"}`;
   const chip = (icon: ReactNode, i: number) => (
     <span
       key={i}
       className={`grid h-9 w-9 place-items-center rounded-[6px] border transition-colors ${
-        active ? "border-accent/50 bg-accent-dim" : "border-hairline bg-bg/60"
+        active ? "border-primary/50 bg-primary-dim" : "border-hairline bg-bg/60"
       }`}
       style={{ transform: `rotate(${(i - 1) * 5}deg) translateY(${i === 1 ? -2 : 2}px)` }}
     >
@@ -122,11 +122,11 @@ export function GenerationRouteCards({ value, onChange, children }: GenerationRo
   const { t } = useTranslation("dashboard");
   const sb = value === "storyboard";
   const halfCls = (selected: boolean) =>
-    `relative flex cursor-pointer flex-col items-center gap-2.5 px-4 py-5 text-center transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
-      selected ? "bg-accent-dim" : "hover:bg-bg-grad-a/60"
+    `relative flex cursor-pointer flex-col items-center gap-2.5 px-4 py-5 text-center transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary ${
+      selected ? "bg-primary-dim" : "hover:bg-bg-grad-a/60"
     }`;
   const tagCls = (selected: boolean) =>
-    `font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] ${selected ? "text-accent-2" : "text-text-4"}`;
+    `font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] ${selected ? "text-primary-2" : "text-text-4"}`;
 
   return (
     <div className="space-y-2.5">
@@ -151,11 +151,11 @@ export function GenerationRouteCards({ value, onChange, children }: GenerationRo
           <div
             aria-hidden
             // 滑动只走 translate：动画 left 会逐帧触发重排
-            className="pointer-events-none absolute inset-y-0 left-0 w-1/2 border-2 border-accent/45 transition-[translate] duration-300 motion-reduce:transition-none"
+            className="pointer-events-none absolute inset-y-0 left-0 w-1/2 border-2 border-primary/45 transition-[translate] duration-300 motion-reduce:transition-none"
             style={{
               translate: sb ? "0" : "100%",
               borderRadius: sb ? "12px 0 0 12px" : "0 12px 12px 0",
-              boxShadow: "inset 0 0 30px -18px var(--color-accent-glow)",
+              boxShadow: "inset 0 0 30px -18px var(--color-primary-glow)",
             }}
           />
         ) : null}

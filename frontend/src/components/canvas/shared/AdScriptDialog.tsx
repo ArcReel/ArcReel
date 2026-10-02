@@ -246,9 +246,9 @@ export function AdScriptProgress({ projectName, episode, noScript, className = "
       <div
         role="status"
         className={`flex items-center gap-2.5 rounded-xl px-4 py-3 text-[12.5px] ${className}`.trim()}
-        style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)", color: "var(--color-text-2)" }}
+        style={{ background: "var(--color-primary-dim)", border: "1px solid var(--color-primary-soft)", color: "var(--color-text-2)" }}
       >
-        <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--color-accent-2)" }} aria-hidden />
+        <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--color-primary-2)" }} aria-hidden />
         <span>
           {latestTask.status === "running" ? t("ad_script_progress_running") : t("ad_script_progress_queued")}{" "}
           <span style={{ color: "var(--color-text-4)" }}>{t("ad_script_progress_hint")}</span>
@@ -275,9 +275,9 @@ export function AdScriptProgress({ projectName, episode, noScript, className = "
     <div
       role="status"
       className={`flex items-start gap-2.5 rounded-xl px-4 py-3 text-[12.5px] ${className}`.trim()}
-      style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)", color: "var(--color-text-2)" }}
+      style={{ background: "var(--color-primary-dim)", border: "1px solid var(--color-primary-soft)", color: "var(--color-text-2)" }}
     >
-      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-accent-2)" }} aria-hidden />
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-primary-2)" }} aria-hidden />
       <span>
         {t("ad_script_new_assets", {
           count: registered.length,

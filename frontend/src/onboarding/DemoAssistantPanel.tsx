@@ -57,7 +57,7 @@ export function DemoAssistantPanel() {
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+              "linear-gradient(135deg, var(--color-primary), oklch(0.60 0.10 280))",
             color: "oklch(0.12 0 0)",
           }}
         >
@@ -102,7 +102,7 @@ export function DemoAssistantPanel() {
             style={{
               color: "oklch(0.14 0 0)",
               background:
-                "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
             }}
             title={t("onboarding:demo_action_unavailable")}
             aria-label={t("dashboard:send_message")}

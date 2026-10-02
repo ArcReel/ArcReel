@@ -181,7 +181,7 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
       {frame === "section" ? (
         <div className="mb-3.5 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
               Agent Memory
             </div>
             <h3 className="mt-1 text-[14.5px] font-medium text-text">{title}</h3>
@@ -217,7 +217,7 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
           <aside className="flex min-h-0 flex-col border-r border-hairline-soft">
             {loading && overview === null ? (
               <div className="flex flex-1 items-center justify-center gap-2 px-4 py-10 text-text-3">
-                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
                 <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("common:loading")}</span>
               </div>
             ) : names.length === 0 ? (
@@ -293,7 +293,7 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
                 <button
                   type="button"
                   onClick={startCreating}
-                  className="flex w-full items-center gap-1.5 rounded-[6px] px-2 py-1.5 text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="flex w-full items-center gap-1.5 rounded-[6px] px-2 py-1.5 text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <Plus className="h-3.5 w-3.5" aria-hidden />
                   {t("agent_memory_new_file")}
@@ -370,12 +370,12 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
 }
 
 function rowClass(selected: boolean): string {
-  return `flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-    selected ? "bg-accent-dim" : "hover:bg-bg-grad-a"
+  return `flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+    selected ? "bg-primary-dim" : "hover:bg-bg-grad-a"
   }`;
 }
 
-const SELECTED_ROW_STYLE = { boxShadow: "inset 2px 0 0 var(--color-accent)" };
+const SELECTED_ROW_STYLE = { boxShadow: "inset 2px 0 0 var(--color-primary)" };
 
 function IndexRow({
   lineCount,
@@ -399,7 +399,7 @@ function IndexRow({
         style={selected ? SELECTED_ROW_STYLE : undefined}
       >
         <span className="flex w-full items-center gap-1.5">
-          <FileText className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-accent-2" : "text-text-4"}`} aria-hidden />
+          <FileText className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-primary-2" : "text-text-4"}`} aria-hidden />
           <span className={`min-w-0 flex-1 truncate font-mono text-[11.5px] ${selected ? "text-text" : "text-text-2"}`}>
             {INDEX_FILENAME}
           </span>
@@ -425,7 +425,7 @@ function TopicRow({ file, selected, onSelect }: { file: AgentMemoryFile; selecte
         style={selected ? SELECTED_ROW_STYLE : undefined}
       >
         <span className="flex w-full items-center gap-1.5">
-          <FileText className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-accent-2" : "text-text-4"}`} aria-hidden />
+          <FileText className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-primary-2" : "text-text-4"}`} aria-hidden />
           <span className={`min-w-0 flex-1 truncate font-mono text-[11.5px] ${selected ? "text-text" : "text-text-2"}`}>
             {file.name}
           </span>
@@ -562,7 +562,7 @@ function MemoryEditor({ scope, filename, lineCount, overLimit, onSaved, onDelete
         </div>
       ) : content === null ? (
         <div className="flex flex-1 items-center justify-center gap-2 px-4 py-10 text-text-3">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
           <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("common:loading")}</span>
         </div>
       ) : (

@@ -15,11 +15,11 @@ interface GenerateButtonProps {
 }
 
 const ACTIVE_BG =
-  "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))";
+  "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))";
 const LOADING_BG =
   "linear-gradient(135deg, oklch(0.66 0.08 295), oklch(0.58 0.07 295))";
 const ACTIVE_SHADOW =
-  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)";
+  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)";
 
 export function GenerateButton({
   onClick,

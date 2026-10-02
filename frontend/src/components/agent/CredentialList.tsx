@@ -51,7 +51,7 @@ export function CredentialList({
             <div
               className={`relative flex items-center gap-3 rounded-[10px] border px-3 py-3 ${
                 c.is_active
-                  ? "border-accent/40 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-r before:bg-accent"
+                  ? "border-primary/40 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-r before:bg-primary"
                   : "border-hairline"
               } ${showResult ? "rounded-b-none border-b-0" : ""}`}
               style={CARD_STYLE}
@@ -63,7 +63,7 @@ export function CredentialList({
                     {c.display_name}
                   </span>
                   {c.is_active && (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-accent">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-primary">
                       <CheckCircle className="h-2.5 w-2.5" aria-hidden />
                       {t("is_active")}
                     </span>

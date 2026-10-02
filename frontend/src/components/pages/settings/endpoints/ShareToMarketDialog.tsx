@@ -290,7 +290,7 @@ export function ShareToMarketDialog({
             </p>
           ) : diagnostics === null ? (
             <div className="flex items-center gap-2 text-[12.5px] text-text-3">
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
               {t("market_share_checking")}
             </div>
           ) : diagnostics.length === 0 ? (

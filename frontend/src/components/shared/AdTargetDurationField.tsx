@@ -11,8 +11,8 @@ const FIELD_STYLE: CSSProperties = {
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 const CHIP_BASE =
-  "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ";
-const CHIP_ACTIVE = "border-accent/45 bg-accent-dim text-accent-2";
+  "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary ";
+const CHIP_ACTIVE = "border-primary/45 bg-primary-dim text-primary-2";
 const CHIP_IDLE = "border-hairline-soft bg-bg-grad-a/55 text-text-3 hover:border-hairline hover:text-text";
 
 function parseSeconds(text: string): number | null {

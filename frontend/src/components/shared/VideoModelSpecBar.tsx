@@ -25,9 +25,9 @@ const TIER_ICON: Record<VoiceConsistencyTier, typeof Mic> = {
 
 const TIER_COLOR: Record<VoiceConsistencyTier, { fg: string; bg: string; border: string }> = {
   native: {
-    fg: "var(--color-accent-2)",
-    bg: "var(--color-accent-dim)",
-    border: "var(--color-accent-soft)",
+    fg: "var(--color-primary-2)",
+    bg: "var(--color-primary-dim)",
+    border: "var(--color-primary-soft)",
   },
   soft: {
     fg: "var(--color-warn)",

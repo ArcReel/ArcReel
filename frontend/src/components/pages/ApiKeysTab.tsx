@@ -47,7 +47,7 @@ function isExpired(expiresAt: string | null): boolean {
 
 function CornerBrackets() {
   const cornerCls =
-    "pointer-events-none absolute h-3 w-3 border-accent-2";
+    "pointer-events-none absolute h-3 w-3 border-primary-2";
   return (
     <>
       <span aria-hidden className={`${cornerCls} left-2 top-2 border-l border-t`} />
@@ -128,7 +128,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
         <CornerBrackets />
         <div className="mb-5 flex items-center justify-between">
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
               {created ? "Key Issued" : "New Token"}
             </div>
             <h3
@@ -206,7 +206,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-[8px] px-3.5 py-2 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="rounded-[8px] px-3.5 py-2 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 {t("common:cancel")}
               </button>
@@ -246,7 +246,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
                 type="text"
                 value={created.key}
                 aria-label={t("api_key_label")}
-                className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/65 px-3 py-3 pr-12 font-mono text-[12.5px] tracking-[0.04em] text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/65 px-3 py-3 pr-12 font-mono text-[12.5px] tracking-[0.04em] text-primary-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               />
               <CopyButton
                 text={created.key}
@@ -260,7 +260,7 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-5 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 {t("common:done")}
               </button>
@@ -329,7 +329,7 @@ export function ApiKeysTab() {
       {/* Heading */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
             Issued Tokens
           </div>
           <h3
@@ -342,7 +342,7 @@ export function ApiKeysTab() {
               color: "var(--color-text)",
             }}
           >
-            <KeyRound className="h-4 w-4 text-accent-2" aria-hidden />
+            <KeyRound className="h-4 w-4 text-primary-2" aria-hidden />
             {t("api_key_mgmt")}
           </h3>
           <p className="mt-1.5 text-[12.5px] leading-[1.6] text-text-3">
@@ -393,7 +393,7 @@ export function ApiKeysTab() {
                 <td colSpan={6} className="px-4 py-12 text-center">
                   <div className="flex items-center justify-center gap-2 text-text-3">
                     <Loader2
-                      className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2"
+                      className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2"
                       aria-hidden
                     />
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.14em]">
@@ -413,7 +413,7 @@ export function ApiKeysTab() {
                       <p className="text-[12.5px] text-text-3">{t("no_api_keys")}</p>
                       <button
                         onClick={() => setShowCreate(true)}
-                        className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent"
+                        className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary-2 transition-colors hover:text-primary"
                       >
                         {t("create_one_now")}
                       </button>
@@ -466,7 +466,7 @@ export function ApiKeysTab() {
                         type="button"
                         onClick={() => void handleDelete(key)}
                         disabled={deletingId === key.id}
-                        className="rounded-[6px] p-2 text-text-3 transition-colors hover:bg-warm-tint hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="rounded-[6px] p-2 text-text-3 transition-colors hover:bg-warm-tint hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         title={t("common:delete")}
                       >
                         {deletingId === key.id ? (

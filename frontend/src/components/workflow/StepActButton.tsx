@@ -44,7 +44,7 @@ export function StepActButton({ act, onRun, size = "md", asLink = false, busy = 
           {...common}
           className={`focus-ring inline-flex items-center gap-1 rounded-md font-medium ${pad} ${dim || "hover:opacity-90"}`}
           style={{
-            background: "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            background: "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
             color: "oklch(0.15 0 0)",
           }}
         >
@@ -63,7 +63,7 @@ export function StepActButton({ act, onRun, size = "md", asLink = false, busy = 
           className={`focus-ring rounded-md font-medium ${pad} ${dim || "hover:opacity-80"}`}
           style={
             kind === "ai"
-              ? { border: "1px solid var(--color-accent-soft)", color: "var(--color-accent-2)" }
+              ? { border: "1px solid var(--color-primary-soft)", color: "var(--color-primary-2)" }
               : { border: "1px solid var(--color-hairline)", color: "var(--color-text-2)" }
           }
         >

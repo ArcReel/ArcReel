@@ -327,7 +327,7 @@ function SourceRow({
     >
       <button
         type="button"
-        className="shrink-0 cursor-grab rounded-[5px] text-text-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="shrink-0 cursor-grab rounded-[5px] text-text-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         aria-label={t("market_source_reorder", { name: source.display_name })}
         onKeyDown={onGripKeyDown}
       >
@@ -337,7 +337,7 @@ function SourceRow({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <input
-            className={`min-w-0 max-w-[260px] truncate rounded-[5px] border border-transparent bg-transparent px-1 py-0.5 text-[13px] hover:border-hairline focus:border-accent/55 focus-visible:outline-none ${
+            className={`min-w-0 max-w-[260px] truncate rounded-[5px] border border-transparent bg-transparent px-1 py-0.5 text-[13px] hover:border-hairline focus:border-primary/55 focus-visible:outline-none ${
               source.is_enabled ? "text-text" : "text-text-4"
             }`}
             value={draft ?? source.display_name}
@@ -348,7 +348,7 @@ function SourceRow({
             onKeyDown={onNameKeyDown}
           />
           {official && (
-            <span className="inline-flex shrink-0 items-center rounded-[5px] border border-accent/35 bg-accent-dim px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-accent-2">
+            <span className="inline-flex shrink-0 items-center rounded-[5px] border border-primary/35 bg-primary-dim px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-primary-2">
               {t("market_source_official")}
             </span>
           )}

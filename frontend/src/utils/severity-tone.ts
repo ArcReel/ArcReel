@@ -19,10 +19,10 @@ export const SEVERITY_TONES: Record<DiagnosticSeverity, ToneTokens> = {
     glow: "var(--color-danger-glow)",
   },
   auto_fixed: {
-    color: "var(--color-accent-2)",
-    soft: "var(--color-accent-dim)",
-    ring: "var(--color-accent-soft)",
-    glow: "var(--color-accent-glow)",
+    color: "var(--color-primary-2)",
+    soft: "var(--color-primary-dim)",
+    ring: "var(--color-primary-soft)",
+    glow: "var(--color-primary-glow)",
   },
   warnings: {
     color: "var(--color-warm)",

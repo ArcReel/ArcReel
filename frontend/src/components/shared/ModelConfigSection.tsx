@@ -134,7 +134,7 @@ function ChannelCard({ kicker, title, children }: ChannelCardProps) {
   return (
     <div className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
       <div className="mb-3">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           {kicker}
         </div>
         <div className="mt-1 text-[13.5px] font-medium text-text">{title}</div>
@@ -616,16 +616,16 @@ export function ModelConfigSection({
 // ---------------------------------------------------------------------------
 
 const DURATION_PILL_BASE =
-  "rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  "rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
 
 const durationActiveCls =
-  "border-accent/45 bg-accent-dim text-accent-2";
+  "border-primary/45 bg-primary-dim text-primary-2";
 
 const durationInactiveCls =
   "border-hairline-soft bg-bg-grad-a/55 text-text-3 hover:border-hairline hover:text-text";
 
 const durationActiveStyle: CSSProperties = {
-  boxShadow: "0 0 18px -8px var(--color-accent-glow)",
+  boxShadow: "0 0 18px -8px var(--color-primary-glow)",
 };
 
 function DurationButtonGroup({
@@ -747,7 +747,7 @@ function DurationSlider({
         value={sliderValue}
         disabled={disabled}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
-        className="min-w-[120px] flex-1 accent-[var(--color-accent)]"
+        className="min-w-[120px] flex-1 accent-[var(--color-primary)]"
       />
       <span className="min-w-[2.5rem] text-right font-mono text-[11px] tabular-nums text-text-2">
         {valueText}

@@ -102,7 +102,7 @@ export function EditableEpisodeTitle({
           disabled={saving}
           aria-label={t("edit_episode_title")}
           className={`focus-ring min-w-0 flex-1 rounded border-b bg-transparent outline-none ${headingClassName ?? ""}`}
-          style={{ ...headingStyle, borderColor: "var(--color-accent-soft)" }}
+          style={{ ...headingStyle, borderColor: "var(--color-primary-soft)" }}
         />
         <button
           type="button"
@@ -111,7 +111,7 @@ export function EditableEpisodeTitle({
           title={t("common:save")}
           aria-label={t("common:save")}
           className="focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.06)] disabled:opacity-40"
-          style={{ color: "var(--color-accent-2)" }}
+          style={{ color: "var(--color-primary-2)" }}
         >
           <Check className="h-4 w-4" />
         </button>

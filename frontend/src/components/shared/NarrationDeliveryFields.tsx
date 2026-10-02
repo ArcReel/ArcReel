@@ -48,7 +48,7 @@ function useTtsSpeedSupport(backend: string): boolean | null {
 
 const FIELD_LABEL_CLS = "mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
 const INPUT_CLS =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50";
 
 interface Props {
   value: NarrationDeliveryValue;

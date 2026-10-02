@@ -235,7 +235,7 @@ export function MarketInstallDialog({
                     href={header.homepage}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-accent-2 hover:underline"
+                    className="inline-flex items-center gap-1 text-primary-2 hover:underline"
                   >
                     {t("market_homepage")}
                     <ExternalLink className="h-3 w-3" aria-hidden />

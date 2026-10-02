@@ -109,10 +109,10 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
       <section
         aria-labelledby="episode-planning-title"
         className="space-y-2 rounded-md py-2 pl-3 pr-2"
-        style={{ borderLeft: "3px solid var(--color-accent-2)", background: "var(--color-accent-dim)" }}
+        style={{ borderLeft: "3px solid var(--color-primary-2)", background: "var(--color-primary-dim)" }}
       >
         <h3 id="episode-planning-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
-          <Loader2 aria-hidden className="h-3.5 w-3.5 text-accent-2 motion-safe:animate-spin" />
+          <Loader2 aria-hidden className="h-3.5 w-3.5 text-primary-2 motion-safe:animate-spin" />
           {t("dashboard:episode_planning_running", { percent })}
         </h3>
         <p className="m-0 text-[11.5px] leading-[1.6] text-text-3">

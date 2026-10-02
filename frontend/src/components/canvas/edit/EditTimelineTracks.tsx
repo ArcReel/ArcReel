@@ -295,7 +295,7 @@ const VideoClips = memo(function VideoClips({
               key={`transition-${clip.id}`}
               aria-hidden
               title={`${t(`edit_transition_${clip.transition_to_next.type}`, { defaultValue: clip.transition_to_next.type })} ${formatSeconds(clip.transition_to_next.duration)}s`}
-              className="pointer-events-none absolute top-1/2 z-10 h-5 -translate-y-1/2 rounded-[3px] bg-accent/35 ring-1 ring-accent"
+              className="pointer-events-none absolute top-1/2 z-10 h-5 -translate-y-1/2 rounded-[3px] bg-primary/35 ring-1 ring-primary"
               style={{
                 left: `calc(${percent(clip.start + clip.duration)} - ${percent(clip.transition_to_next.duration / 2)})`,
                 width: percent(clip.transition_to_next.duration),
@@ -320,7 +320,7 @@ interface ClipBlockProps {
 function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect }: ClipBlockProps) {
   const { t } = useTranslation("dashboard");
   const missingVideo = clip.status === "video_missing";
-  const outline = selected ? "ring-2 ring-text" : active ? "ring-1 ring-accent" : "";
+  const outline = selected ? "ring-2 ring-text" : active ? "ring-1 ring-primary" : "";
   const border = trimIgnored
     ? "border border-dashed border-warn"
     : missingVideo

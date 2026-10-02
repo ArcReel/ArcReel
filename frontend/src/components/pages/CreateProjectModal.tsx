@@ -41,7 +41,7 @@ const STEP_BADGE_GRADIENT =
 const STEP_BADGE_ACTIVE_STYLE: CSSProperties = {
   background: STEP_BADGE_GRADIENT,
   boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 18px -6px var(--color-accent-glow)",
+    "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 18px -6px var(--color-primary-glow)",
 };
 
 const STEP_BADGE_DONE_STYLE: CSSProperties = {
@@ -56,7 +56,7 @@ const STEP_BADGE_INACTIVE_STYLE: CSSProperties = {
 const STEP_CONNECTOR_DONE_STYLE: CSSProperties = {
   height: 1,
   background:
-    "linear-gradient(90deg, var(--color-accent), oklch(0.55 0.06 295 / 0.4))",
+    "linear-gradient(90deg, var(--color-primary), oklch(0.55 0.06 295 / 0.4))",
 };
 
 const STEP_CONNECTOR_INACTIVE_STYLE: CSSProperties = {
@@ -88,9 +88,9 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
                   className={
                     "grid h-7 w-7 shrink-0 place-items-center rounded-[8px] font-mono text-[11px] font-bold tabular-nums transition-colors " +
                     (done
-                      ? "border border-accent/45 text-text"
+                      ? "border border-primary/45 text-text"
                       : active
-                        ? "border border-accent/55 text-text"
+                        ? "border border-primary/55 text-text"
                         : "border border-hairline-soft text-text-4")
                   }
                   style={
@@ -107,7 +107,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
                   <div
                     className={
                       "font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] " +
-                      (active ? "text-accent-2" : done ? "text-text-3" : "text-text-4")
+                      (active ? "text-primary-2" : done ? "text-text-3" : "text-text-4")
                     }
                   >
                     Step {s.num.toString().padStart(2, "0")}
@@ -421,23 +421,23 @@ export function CreateProjectModal() {
           {/* 角落装饰 — 取景框的轮廓 */}
           <div
             aria-hidden
-            className="pointer-events-none absolute left-3 top-3 h-3 w-3 border-l border-t border-accent/40"
+            className="pointer-events-none absolute left-3 top-3 h-3 w-3 border-l border-t border-primary/40"
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute right-3 top-3 h-3 w-3 border-r border-t border-accent/40"
+            className="pointer-events-none absolute right-3 top-3 h-3 w-3 border-r border-t border-primary/40"
           />
 
           <button
             type="button"
             onClick={handleClose}
             aria-label={t("common:close")}
-            className="absolute right-5 top-5 grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/55 text-text-3 transition-colors hover:border-hairline hover:bg-bg hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="absolute right-5 top-5 grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/55 text-text-3 transition-colors hover:border-hairline hover:bg-bg hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <X className="h-4 w-4" />
           </button>
 
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
             {stepKicker}
           </div>
           <h2

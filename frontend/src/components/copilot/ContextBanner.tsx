@@ -17,17 +17,17 @@ export function ContextBanner() {
       className="flex items-center gap-2 px-3 py-1.5 text-[11.5px]"
       style={{
         borderBottom: "1px solid var(--color-hairline-soft)",
-        background: "var(--color-accent-dim)",
+        background: "var(--color-primary-dim)",
       }}
     >
       <Icon
         className="h-3.5 w-3.5"
-        style={{ color: "var(--color-accent)" }}
+        style={{ color: "var(--color-primary)" }}
       />
       <span style={{ color: "var(--color-text-3)" }}>{t(labelKey)}:</span>
       <span
         className="font-medium"
-        style={{ color: "var(--color-accent-2)" }}
+        style={{ color: "var(--color-primary-2)" }}
       >
         {focusedContext.id}
       </span>

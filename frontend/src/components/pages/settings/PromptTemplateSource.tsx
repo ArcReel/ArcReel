@@ -104,7 +104,7 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
           <span
             key={index}
             title={description}
-            className="rounded-[4px] bg-accent-dim px-1 text-accent-2"
+            className="rounded-[4px] bg-primary-dim px-1 text-primary-2"
           >
             {slot}
           </span>
@@ -146,7 +146,7 @@ function PartialReference({
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className="rounded-[4px] bg-warm-tint px-1 text-left text-warm-bright hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="rounded-[4px] bg-warm-tint px-1 text-left text-warm-bright hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         {marker}
       </button>
@@ -157,7 +157,7 @@ function PartialReference({
               type="button"
               title={t("prompt_templates_open_partial")}
               onClick={() => onOpenPartial(partialName)}
-              className="rounded-[3px] underline decoration-warm-ring underline-offset-2 hover:decoration-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="rounded-[3px] underline decoration-warm-ring underline-offset-2 hover:decoration-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               {partialName}
             </button>
@@ -173,7 +173,7 @@ function PartialReference({
                 <select
                   value={value}
                   onChange={(event) => setValue(event.target.value)}
-                  className="rounded border border-hairline bg-bg px-1 py-0.5 text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="rounded border border-hairline bg-bg px-1 py-0.5 text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {template.applies_to[axis].map((option) => (
                     <option key={option} value={option}>{option}</option>

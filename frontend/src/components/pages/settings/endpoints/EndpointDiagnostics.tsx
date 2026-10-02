@@ -61,7 +61,7 @@ export function EndpointDiagnostics({
             key={`${level}-${issue.path}-${issue.code}`}
             type="button"
             onClick={() => onLocate(section)}
-            className="flex w-full items-start gap-2.5 border-b border-hairline-soft px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-bg-grad-a/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex w-full items-start gap-2.5 border-b border-hairline-soft px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-bg-grad-a/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             {level === "error" ? (
               <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warm-bright" aria-hidden />

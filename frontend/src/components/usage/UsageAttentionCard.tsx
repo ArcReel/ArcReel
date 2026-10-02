@@ -32,7 +32,7 @@ export function UsageAttentionCard({ summary, onChange }: UsageAttentionCardProp
       style={CARD_STYLE}
     >
       <div className="mb-2.5 flex items-center justify-between gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           {t("usage_attention_title")}
         </h4>
         <span className="num text-[11px] text-text-4">{summary.attention.length}</span>
@@ -112,7 +112,7 @@ function AttentionItem({
         <span className="block text-[12.5px] text-text">{title}</span>
         <span className="mt-0.5 block text-[11.5px] text-text-3">{detail}</span>
       </span>
-      <span className="shrink-0 pt-0.5 text-[11px] text-text-4 transition-colors group-hover:text-accent-2">
+      <span className="shrink-0 pt-0.5 text-[11px] text-text-4 transition-colors group-hover:text-primary-2">
         {t(isRate ? "usage_attention_failure_rate_action" : "usage_attention_consecutive_action")}
       </span>
     </button>

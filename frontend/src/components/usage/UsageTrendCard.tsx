@@ -49,7 +49,7 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
   return (
     <section className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           {t("usage_trend_title")}
         </h4>
         {weekly && (
@@ -72,7 +72,7 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
                 onClick={() => setMetric(option.value)}
                 className={
                   "focus-ring rounded-full px-2 py-0.5 text-[11px] transition-colors " +
-                  (active ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text")
+                  (active ? "bg-primary-dim text-primary-2" : "text-text-3 hover:text-text")
                 }
               >
                 {t(option.labelKey)}

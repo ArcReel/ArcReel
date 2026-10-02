@@ -37,7 +37,7 @@ import { exportEndpointDefinition } from "./export-endpoint-definition";
 /** 自动包装原始 workflow 时写进 `meta.name` 的占位值，与服务端 `import_shapes.py` 同一个。 */
 export const COMFYUI_PLACEHOLDER_NAME = "ComfyUI workflow";
 
-const KICKER_CLS = "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2";
+const KICKER_CLS = "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2";
 const MEDIA_TYPES: readonly ComfyuiMediaType[] = ["video", "image"];
 /** `auth` 节里的两张表，按渲染次序。 */
 const AUTH_SECTIONS = ["headers", "query"] as const;
@@ -296,9 +296,9 @@ export function ComfyuiEndpointDetail({
                   meta: { ...current.meta, name: event.target.value },
                 }))
               }
-              className="min-w-0 flex-1 border-b border-transparent bg-transparent font-editorial text-[20px] text-text outline-none placeholder:text-text-4 hover:border-hairline focus:border-accent/50"
+              className="min-w-0 flex-1 border-b border-transparent bg-transparent font-editorial text-[20px] text-text outline-none placeholder:text-text-4 hover:border-hairline focus:border-primary/50"
             />
-            <span className="shrink-0 rounded-[5px] border border-accent/35 bg-accent-dim px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-accent-2">
+            <span className="shrink-0 rounded-[5px] border border-primary/35 bg-primary-dim px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-primary-2">
               comfyui
             </span>
             <span className="shrink-0 rounded-[5px] border border-hairline-soft bg-bg-grad-a/55 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-text-3">
@@ -342,7 +342,7 @@ export function ComfyuiEndpointDetail({
         {inference === null ? (
           inferError === null && (
             <div className="flex items-center gap-2 py-4 text-text-3">
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
               <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("ce_cf_inferring")}</span>
             </div>
           )
@@ -396,9 +396,9 @@ export function ComfyuiEndpointDetail({
                   type="button"
                   aria-pressed={definition.media_type === media}
                   onClick={() => changeMediaType(media)}
-                  className={`rounded-[7px] border px-3 py-1 font-mono text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  className={`rounded-[7px] border px-3 py-1 font-mono text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                     definition.media_type === media
-                      ? "border-accent/45 bg-accent-dim text-accent-2"
+                      ? "border-primary/45 bg-primary-dim text-primary-2"
                       : "border-hairline-soft text-text-3 hover:text-text"
                   }`}
                 >

@@ -976,7 +976,7 @@ export function ReferenceVideoCanvas({
             {tab === "preproc" && (
               <span
                 aria-hidden="true"
-                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-primary)]"
               />
             )}
           </button>}
@@ -993,7 +993,7 @@ export function ReferenceVideoCanvas({
             {tab === "units" && (
               <span
                 aria-hidden="true"
-                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-primary)]"
               />
             )}
           </button>
@@ -1126,7 +1126,7 @@ export function ReferenceVideoCanvas({
                   <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-hairline-soft)] px-4 py-2.5">
                     <span
                       translate="no"
-                      className="rounded px-2.5 py-1 font-mono text-xs font-bold tracking-wider text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_2px_6px_-2px_var(--color-accent-glow)]"
+                      className="rounded px-2.5 py-1 font-mono text-xs font-bold tracking-wider text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-primary-2),var(--color-primary))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_2px_6px_-2px_var(--color-primary-glow)]"
                     >
                       {itemIdWithinEpisode(selected.unit_id)}
                     </span>
@@ -1301,7 +1301,7 @@ export function ReferenceVideoCanvas({
                         {stackTab === "editor" && (
                           <span
                             aria-hidden="true"
-                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-primary)]"
                           />
                         )}
                       </button>
@@ -1329,7 +1329,7 @@ export function ReferenceVideoCanvas({
                         {stackTab === "preview" && (
                           <span
                             aria-hidden="true"
-                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-primary)]"
                           />
                         )}
                       </button>
@@ -1365,7 +1365,7 @@ export function ReferenceVideoCanvas({
                               onClick={() => setEditorView(view)}
                               className={`focus-ring rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
                                 editorView === view
-                                  ? "border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)] text-[var(--color-text)]"
+                                  ? "border-[var(--color-primary)]/50 bg-[var(--color-primary-soft)] text-[var(--color-text)]"
                                   : "border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-3)] hover:text-[var(--color-text-2)]"
                               }`}
                             >
@@ -1443,7 +1443,7 @@ export function ReferenceVideoCanvas({
                             disabled={!isDirty || saving}
                             className={`focus-ring inline-flex min-w-[80px] items-center justify-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold ${
                               isDirty
-                                ? "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_12px_-4px_var(--color-accent-glow)]"
+                                ? "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-primary-2),var(--color-primary))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_12px_-4px_var(--color-primary-glow)]"
                                 : "border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-4)]"
                             } disabled:cursor-not-allowed`}
                           >

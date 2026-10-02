@@ -137,7 +137,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
     <div
       className={
         readOnly
-          ? "[&_input:read-only]:border-accent/25 [&_input:read-only]:bg-bg-grad-b/65 [&_input:read-only]:text-text-2 [&_select:disabled]:border-accent/20 [&_select:disabled]:bg-bg-grad-b/55 [&_select:disabled]:text-text-2 [&_textarea:read-only]:border-accent/25 [&_textarea:read-only]:bg-bg-grad-b/65 [&_textarea:read-only]:text-text-2"
+          ? "[&_input:read-only]:border-primary/25 [&_input:read-only]:bg-bg-grad-b/65 [&_input:read-only]:text-text-2 [&_select:disabled]:border-primary/20 [&_select:disabled]:bg-bg-grad-b/55 [&_select:disabled]:text-text-2 [&_textarea:read-only]:border-primary/25 [&_textarea:read-only]:bg-bg-grad-b/65 [&_textarea:read-only]:text-text-2"
           : undefined
       }
     >

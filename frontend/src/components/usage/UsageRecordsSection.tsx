@@ -206,7 +206,7 @@ export function UsageRecordsSection() {
   return (
     <section className="space-y-4">
       <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
           Usage Records
         </div>
         <h3 className="mt-1 text-[14.5px] font-medium text-text">

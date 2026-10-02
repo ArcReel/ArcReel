@@ -337,9 +337,9 @@ export function VoiceSampleButton({
                     aria-label={isPreviewPlaying ? t("pause_audio_sample") : t("play_audio_sample")}
                     className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors"
                     style={{
-                      background: "var(--color-accent-dim)",
-                      border: "1px solid var(--color-accent-soft)",
-                      color: "var(--color-accent-2)",
+                      background: "var(--color-primary-dim)",
+                      border: "1px solid var(--color-primary-soft)",
+                      color: "var(--color-primary-2)",
                     }}
                   >
                     {isPreviewPlaying ? (
@@ -394,9 +394,9 @@ export function VoiceSampleButton({
               className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 color: "oklch(0.14 0 0)",
-                background: "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                background: "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
               }}
             >
               <Mic className="h-3.5 w-3.5" aria-hidden="true" />

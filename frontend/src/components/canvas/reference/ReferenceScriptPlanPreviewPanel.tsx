@@ -339,7 +339,7 @@ function UnitCard({
             type="button"
             onClick={onToggleEdit}
             aria-label={editing ? t("reference_script_plan_edit_done") : t("reference_script_plan_edit_text")}
-            className={`rounded-[6px] p-1 transition-colors ${editing ? "bg-accent/20 text-accent" : "text-text-4 hover:text-text"}`}
+            className={`rounded-[6px] p-1 transition-colors ${editing ? "bg-primary/20 text-primary" : "text-text-4 hover:text-text"}`}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>

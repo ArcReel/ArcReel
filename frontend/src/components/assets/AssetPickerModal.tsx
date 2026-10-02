@@ -113,10 +113,10 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+                "linear-gradient(135deg, var(--color-primary-dim), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid var(--color-primary-soft)",
+              color: "var(--color-primary-2)",
+              boxShadow: "0 8px 18px -8px var(--color-primary-glow)",
             }}
           >
             <Library className="h-4 w-4" />
@@ -190,16 +190,16 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                   border: dup
                     ? "1px solid var(--color-hairline-soft)"
                     : sel
-                      ? "1px solid var(--color-accent-soft)"
+                      ? "1px solid var(--color-primary-soft)"
                       : "1px solid var(--color-hairline)",
                   background: dup
                     ? "oklch(0.20 0.011 265 / 0.3)"
                     : sel
-                      ? "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
+                      ? "linear-gradient(135deg, var(--color-primary-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
                       : "oklch(0.20 0.011 265 / 0.5)",
                   opacity: dup ? 0.4 : 1,
                   boxShadow: sel
-                    ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-accent-glow)"
+                    ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-primary-glow)"
                     : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
                 }}
                 onMouseEnter={(e) => {
@@ -237,9 +237,9 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                     style={{
                       color: "oklch(0.14 0 0)",
                       background:
-                        "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                        "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
                       boxShadow:
-                        "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-accent-soft)",
+                        "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-primary-soft)",
                     }}
                   >
                     <Check className="h-3 w-3" strokeWidth={3} />

@@ -6,7 +6,7 @@ const BADGE_CLS =
   "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[5px] border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em]";
 
 const STATUS_CLS: Record<MarketSubmissionStatus, string> = {
-  open: "border-accent/35 bg-accent-dim text-accent-2",
+  open: "border-primary/35 bg-primary-dim text-primary-2",
   merged: "border-good/35 bg-good/10 text-good",
   closed: "border-hairline-soft bg-bg-grad-a/55 text-text-3",
 };

@@ -61,10 +61,10 @@ export function ProjectMenu() {
         <div
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[11.5px] font-bold display-serif"
           style={{
-            background: "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.55 0.12 260) 100%)",
+            background: "linear-gradient(135deg, var(--color-primary) 0%, oklch(0.55 0.12 260) 100%)",
             color: "oklch(0.12 0 0)",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.25), inset 0 -1px 0 oklch(0 0 0 / 0.15), 0 0 0 1px oklch(1 0 0 / 0.08), 0 2px 10px -2px var(--color-accent-glow)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.25), inset 0 -1px 0 oklch(0 0 0 / 0.15), 0 0 0 1px oklch(1 0 0 / 0.08), 0 2px 10px -2px var(--color-primary-glow)",
           }}
         >
           {initial}
@@ -118,13 +118,13 @@ export function ProjectMenu() {
           <div
             className="flex items-center gap-2.5 rounded-md p-2"
             style={{
-              background: "var(--color-accent-dim)",
-              border: "1px solid var(--color-accent)",
+              background: "var(--color-primary-dim)",
+              border: "1px solid var(--color-primary)",
             }}
           >
             <div
               className="display-serif grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md text-sm font-bold"
-              style={{ background: "var(--color-accent)", color: "oklch(0.12 0 0)" }}
+              style={{ background: "var(--color-primary)", color: "oklch(0.12 0 0)" }}
             >
               {initial}
             </div>
@@ -132,14 +132,14 @@ export function ProjectMenu() {
               <div className="flex items-center gap-1.5">
                 <span
                   className="text-[13px] font-semibold"
-                  style={{ color: "var(--color-accent-2)" }}
+                  style={{ color: "var(--color-primary-2)" }}
                 >
                   {projectTitle}
                 </span>
                 <span
                   className="num rounded-[3px] px-1 py-px text-[9.5px] font-bold"
                   style={{
-                    background: "var(--color-accent)",
+                    background: "var(--color-primary)",
                     color: "oklch(0.12 0 0)",
                     letterSpacing: "0.4px",
                   }}

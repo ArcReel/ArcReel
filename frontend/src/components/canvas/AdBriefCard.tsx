@@ -65,7 +65,7 @@ export function AdBriefCard({ projectName, brief, targetDuration, readOnly = fal
   return (
     <section className="relative overflow-hidden rounded-2xl p-5" style={CARD_STYLE} aria-labelledby={briefFieldId + "-title"}>
       <div className="mb-3 flex items-center gap-2.5">
-        <Lightbulb className="h-3.5 w-3.5" style={{ color: "var(--color-accent-2)" }} aria-hidden="true" />
+        <Lightbulb className="h-3.5 w-3.5" style={{ color: "var(--color-primary-2)" }} aria-hidden="true" />
         <h2
           id={briefFieldId + "-title"}
           className="text-[10.5px] font-bold uppercase"

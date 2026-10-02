@@ -174,7 +174,7 @@ export function ReferencesSection({
           </span>
           <span
             className="num inline-flex shrink-0 items-center gap-1 text-[11px]"
-            style={{ color: "var(--color-accent-2)" }}
+            style={{ color: "var(--color-primary-2)" }}
           >
             <Plus className="h-3 w-3" aria-hidden="true" />
             <span>{t("references_add_cta")}</span>
@@ -217,7 +217,7 @@ export function ReferencesSection({
           }}
           onMouseEnter={(e) => {
             if (disabled) return;
-            e.currentTarget.style.color = "var(--color-accent-2)";
+            e.currentTarget.style.color = "var(--color-primary-2)";
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.color = "var(--color-text-3)";

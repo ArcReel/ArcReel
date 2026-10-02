@@ -112,13 +112,13 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         className="pointer-events-none absolute inset-x-0 top-0 h-px"
         style={{
           background:
-            "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+            "linear-gradient(90deg, transparent, var(--color-primary-soft), transparent)",
         }}
       />
 
       <header className="mb-5">
         <div className="flex items-center gap-2.5">
-          <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent-2)" }} />
+          <Sparkles className="h-4 w-4" style={{ color: "var(--color-primary-2)" }} />
           <h2
             className="display-serif text-[18px] font-semibold tracking-tight"
             style={{ color: "var(--color-text)" }}
@@ -173,7 +173,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={submitting}
-              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-2 text-[12.5px] transition-colors hover:border-[var(--color-accent-soft)]"
+              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-2 text-[12.5px] transition-colors hover:border-[var(--color-primary-soft)]"
               style={{ color: "var(--color-text-3)" }}
             >
               <ImagePlus className="h-3.5 w-3.5" />
@@ -250,7 +250,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
             checked={generateSheet}
             onChange={(e) => setGenerateSheet(e.target.checked)}
             disabled={submitting}
-            className="focus-ring mt-0.5 h-3.5 w-3.5 accent-[var(--color-accent)]"
+            className="focus-ring mt-0.5 h-3.5 w-3.5 accent-[var(--color-primary)]"
           />
           <div>
             <label
@@ -290,9 +290,9 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         style={{
           color: "oklch(0.14 0 0)",
           background:
-            "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
           boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+            "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-primary-glow), 0 0 0 1px var(--color-primary-soft)",
         }}
       >
         {submitting ? t("dashboard:ad_init_submitting") : t("dashboard:ad_init_submit")}

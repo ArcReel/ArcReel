@@ -27,7 +27,7 @@ export function SkillChip({ name, args, status }: SkillChipProps) {
     <div className="my-1 flex min-w-0 items-center gap-1.5">
       <span
         className="num inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium"
-        style={{ background: "var(--color-accent-dim)", color: "var(--color-accent-2)" }}
+        style={{ background: "var(--color-primary-dim)", color: "var(--color-primary-2)" }}
       >
         /{displayName}
       </span>

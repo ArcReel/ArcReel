@@ -175,7 +175,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               className="relative mb-px flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors focus-ring hover:bg-[oklch(0.26_0.012_265/0.5)]"
               style={{
                 background: active
-                  ? "linear-gradient(90deg, var(--color-accent-soft), var(--color-accent-dim) 70%, transparent)"
+                  ? "linear-gradient(90deg, var(--color-primary-soft), var(--color-primary-dim) 70%, transparent)"
                   : "transparent",
                 color: active ? "var(--color-text)" : "var(--color-text-2)",
               }}
@@ -184,14 +184,14 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                 <span
                   className="absolute -left-px top-[7px] bottom-[7px] w-0.5 rounded"
                   style={{
-                    background: "var(--color-accent)",
-                    boxShadow: "0 0 8px var(--color-accent-glow)",
+                    background: "var(--color-primary)",
+                    boxShadow: "0 0 8px var(--color-primary-glow)",
                   }}
                 />
               )}
               <span
                 className="grid w-4 shrink-0 place-items-center"
-                style={{ color: active ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+                style={{ color: active ? "var(--color-primary-2)" : "var(--color-text-3)" }}
               >
                 <Icon className="h-4 w-4" />
               </span>
@@ -357,10 +357,10 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               aria-label={epLabel}
               className="num mb-[3px] flex h-9 w-full items-center justify-center rounded-md text-[11px] font-bold focus-ring"
               style={{
-                background: ep.episode === activeEp ? "var(--color-accent-dim)" : "transparent",
+                background: ep.episode === activeEp ? "var(--color-primary-dim)" : "transparent",
                 color:
                   ep.episode === activeEp
-                    ? "var(--color-accent-2)"
+                    ? "var(--color-primary-2)"
                     : "var(--color-text-3)",
               }}
             >

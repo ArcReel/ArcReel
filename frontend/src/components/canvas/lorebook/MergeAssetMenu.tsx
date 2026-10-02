@@ -247,7 +247,7 @@ export function MergeAssetMenu({ projectName, assetType, name, description, busy
                     setAsDerivative(derivative);
                     loadPreview(target, derivative);
                   }}
-                  className="mt-0.5 accent-[var(--color-accent-2)]"
+                  className="mt-0.5 accent-[var(--color-primary-2)]"
                 />
                 <label htmlFor={optionId} className="cursor-pointer">
                   <span style={{ color: "var(--color-text)" }}>

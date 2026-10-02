@@ -84,7 +84,7 @@ export function AboutSection() {
         style={CARD_STYLE}
       >
         <div className="flex items-center gap-2">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
           <span className="font-mono text-[10.5px] uppercase tracking-[0.14em]">
             {t("about_loading")}
           </span>
@@ -117,7 +117,7 @@ export function AboutSection() {
 
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
               {t("about_current_version")}
             </div>
             <div className="flex items-end gap-3">
@@ -137,10 +137,10 @@ export function AboutSection() {
                 <span
                   className="rounded-full px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em]"
                   style={{
-                    background: "var(--color-accent-dim)",
-                    color: "var(--color-accent-2)",
-                    border: "1px solid var(--color-accent-soft)",
-                    boxShadow: "0 0 14px -6px var(--color-accent-glow)",
+                    background: "var(--color-primary-dim)",
+                    color: "var(--color-primary-2)",
+                    border: "1px solid var(--color-primary-soft)",
+                    boxShadow: "0 0 14px -6px var(--color-primary-glow)",
                   }}
                 >
                   {t("about_update_available")}
@@ -203,7 +203,7 @@ export function AboutSection() {
             href={data.latest.html_url}
             target="_blank"
             rel="noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent"
+            className="mt-4 inline-flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary-2 transition-colors hover:text-primary"
           >
             {t("about_open_release")}
             <ExternalLink className="h-3 w-3" aria-hidden />
@@ -217,8 +217,8 @@ export function AboutSection() {
         style={CARD_STYLE}
       >
         <div className="mb-3 flex items-center gap-2">
-          <Info className="h-3.5 w-3.5 text-accent-2" aria-hidden />
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+          <Info className="h-3.5 w-3.5 text-primary-2" aria-hidden />
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
             {t("about_release_notes")}
           </span>
         </div>
@@ -236,7 +236,7 @@ export function AboutSection() {
         className="rounded-[12px] border border-hairline p-6"
         style={CARD_STYLE}
       >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
           {tOnboarding("replay_title")}
         </div>
         <p className="text-[12.5px] text-text-3">{tOnboarding("replay_desc")}</p>
@@ -257,7 +257,7 @@ export function AboutSection() {
         className="rounded-[12px] border border-hairline p-6"
         style={CARD_STYLE}
       >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
           {t("diagnostics_section_title")}
         </div>
         <p className="text-[12.5px] text-text-3">{t("diagnostics_section_desc")}</p>
@@ -281,7 +281,7 @@ export function AboutSection() {
         className="rounded-[12px] border border-hairline p-6"
         style={CARD_STYLE}
       >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
           {t("about_legal_title")}
         </div>
         <div className="space-y-1 text-[12.5px] text-text-3">
@@ -292,7 +292,7 @@ export function AboutSection() {
               href="https://github.com/ArcReel/ArcReel"
               target="_blank"
               rel="noreferrer"
-              className="break-all text-accent-2 transition-colors hover:text-accent"
+              className="break-all text-primary-2 transition-colors hover:text-primary"
             >
               https://github.com/ArcReel/ArcReel
             </a>

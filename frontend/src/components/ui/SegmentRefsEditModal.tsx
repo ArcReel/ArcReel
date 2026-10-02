@@ -250,10 +250,10 @@ export function SegmentRefsEditModal({
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+                "linear-gradient(135deg, var(--color-primary-dim), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid var(--color-primary-soft)",
+              color: "var(--color-primary-2)",
+              boxShadow: "0 8px 18px -8px var(--color-primary-glow)",
             }}
           >
             <Link2 className="h-4 w-4" />
@@ -488,12 +488,12 @@ function Section({
               type="button"
               onClick={() => onManageClick(kind)}
               className="focus-ring inline-flex items-center gap-1 rounded transition-colors"
-              style={{ color: "var(--color-accent-2)" }}
+              style={{ color: "var(--color-primary-2)" }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = "var(--color-text)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--color-accent-2)";
+                e.currentTarget.style.color = "var(--color-primary-2)";
               }}
             >
               <span>{manageText}</span>
@@ -550,10 +550,10 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
     : selected
       ? {
           background:
-            "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)",
-          border: "1px solid var(--color-accent-soft)",
+            "linear-gradient(135deg, var(--color-primary-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)",
+          border: "1px solid var(--color-primary-soft)",
           boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 4px 14px -6px var(--color-accent-glow)",
+            "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 4px 14px -6px var(--color-primary-glow)",
         }
       : {
           background: "oklch(0.20 0.011 265 / 0.4)",
@@ -577,7 +577,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
       onMouseEnter={(e) => {
         if (row.isStale || row.isSkipped) return;
         if (selected) {
-          e.currentTarget.style.borderColor = "var(--color-accent)";
+          e.currentTarget.style.borderColor = "var(--color-primary)";
         } else {
           e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
           e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.7)";
@@ -590,7 +590,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
           return;
         }
         if (selected) {
-          e.currentTarget.style.borderColor = "var(--color-accent-soft)";
+          e.currentTarget.style.borderColor = "var(--color-primary-soft)";
         } else {
           e.currentTarget.style.borderColor = "var(--color-hairline)";
           e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.4)";
@@ -669,8 +669,8 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
             ? {
                 color: "oklch(0.14 0 0)",
                 background:
-                  "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
-                border: "1px solid var(--color-accent-soft)",
+                  "linear-gradient(135deg, var(--color-primary-2), var(--color-primary))",
+                border: "1px solid var(--color-primary-soft)",
                 boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.35)",
               }
             : {

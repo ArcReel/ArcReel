@@ -109,7 +109,7 @@ export function ModelCombobox({
               <ComboboxOption
                 key={option}
                 value={option}
-                className="cursor-pointer select-none px-3 py-2 text-[12.5px] text-text-2 data-[focus]:bg-accent-dim data-[focus]:text-text"
+                className="cursor-pointer select-none px-3 py-2 text-[12.5px] text-text-2 data-[focus]:bg-primary-dim data-[focus]:text-text"
               >
                 {option}
               </ComboboxOption>

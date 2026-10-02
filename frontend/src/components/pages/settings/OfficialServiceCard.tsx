@@ -52,7 +52,7 @@ export function OfficialServiceCard() {
 
   return (
     <div className="rounded-[12px] border border-hairline p-6" style={CARD_STYLE}>
-      <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+      <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
         {t("official_service_title")}
       </div>
       <p id={descId} className="max-w-[72ch] text-[12.5px] text-text-3">

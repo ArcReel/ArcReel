@@ -120,7 +120,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
             <button
               type="button"
               onClick={() => setShowSecret((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               aria-label={showSecret ? t("common:hide") : t("common:show")}
             >
               {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -142,7 +142,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
               <button
                 type="button"
                 onClick={handleClear}
-                className="inline-flex items-center gap-1 rounded-[8px] px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex items-center gap-1 rounded-[8px] px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 style={{
                   background: "var(--color-warm-tint)",
                   color: "var(--color-warm-bright)",
@@ -385,7 +385,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
         <button
           type="button"
           onClick={() => setReloadKey((k) => k + 1)}
-          className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {t("common:retry")}
         </button>
@@ -396,7 +396,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   if (!detail) {
     return (
       <div className="flex items-center gap-2 px-1 py-12 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -459,7 +459,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
           <button
             type="button"
             onClick={() => setShowAdvanced((v) => !v)}
-            className="inline-flex items-center gap-1 rounded font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1 rounded font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <ChevronRight
               className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-90" : ""}`}

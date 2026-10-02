@@ -8,7 +8,7 @@ const BADGE_CLS =
 
 const TONE_CLS = {
   good: "border-good/35 bg-good/10 text-good",
-  accent: "border-accent/35 bg-accent-dim text-accent-2",
+  accent: "border-primary/35 bg-primary-dim text-primary-2",
   warn: "border-warn/40 bg-warn/10 text-warn",
   muted: "border-hairline-soft bg-bg-grad-a/55 text-text-3",
 } as const;

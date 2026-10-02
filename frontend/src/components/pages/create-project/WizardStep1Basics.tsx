@@ -85,7 +85,7 @@ export function WizardStep1Basics({
             aria-required="true"
             aria-invalid={titleError ? "true" : undefined}
             aria-describedby={titleError ? titleErrorId : undefined}
-            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2.5 text-[14px] text-text placeholder:text-text-4 transition-colors focus:border-accent/55 focus:bg-bg-grad-a/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2.5 text-[14px] text-text placeholder:text-text-4 transition-colors focus:border-primary/55 focus:bg-bg-grad-a/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           />
         </div>
         {titleError ? (
@@ -167,12 +167,12 @@ export function WizardStep1Basics({
                 <label
                   key={tier}
                   className={
-                    "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent " +
+                    "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary " +
                     (active
-                      ? "border-accent/45 bg-accent-dim text-accent-2"
+                      ? "border-primary/45 bg-primary-dim text-primary-2"
                       : "border-hairline-soft bg-bg-grad-a/55 text-text-3 hover:border-hairline hover:text-text")
                   }
-                  style={active ? { boxShadow: "0 0 18px -8px var(--color-accent-glow)" } : undefined}
+                  style={active ? { boxShadow: "0 0 18px -8px var(--color-primary-glow)" } : undefined}
                 >
                   <input
                     type="radio"
@@ -224,7 +224,7 @@ export function WizardStep1Basics({
                 className="block h-3 w-[7.5px] rounded-[1.5px] border border-hairline"
                 style={{
                   background:
-                    value.aspectRatio === "9:16" ? "var(--color-accent-soft)" : "transparent",
+                    value.aspectRatio === "9:16" ? "var(--color-primary-soft)" : "transparent",
                 }}
               />
               {t("dashboard:portrait_9_16")}
@@ -245,7 +245,7 @@ export function WizardStep1Basics({
                 className="block h-[7.5px] w-3 rounded-[1.5px] border border-hairline"
                 style={{
                   background:
-                    value.aspectRatio === "16:9" ? "var(--color-accent-soft)" : "transparent",
+                    value.aspectRatio === "16:9" ? "var(--color-primary-soft)" : "transparent",
                 }}
               />
               {t("dashboard:landscape_16_9")}
@@ -281,7 +281,7 @@ export function WizardStep1Basics({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {t("common:cancel")}
         </button>

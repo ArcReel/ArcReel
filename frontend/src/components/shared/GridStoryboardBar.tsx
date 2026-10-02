@@ -31,7 +31,7 @@ export function GridStoryboardBar({ checked, onToggle, animated }: GridStoryboar
     >
       <LayoutGrid
         aria-hidden
-        className={`mt-[2px] h-3.5 w-3.5 shrink-0 ${checked ? "text-accent-2" : "text-text-4"}`}
+        className={`mt-[2px] h-3.5 w-3.5 shrink-0 ${checked ? "text-primary-2" : "text-text-4"}`}
       />
       <div className="min-w-0 flex-1">
         <div id={labelId} className="text-[11.5px] font-medium text-text-2">

@@ -23,7 +23,7 @@ export interface StylePickerProps {
 
 const SELECTED_RING_STYLE: CSSProperties = {
   boxShadow:
-    "inset 0 0 0 1.5px var(--color-accent), 0 0 0 4px var(--color-bg-grad-a), 0 0 24px -8px var(--color-accent-glow)",
+    "inset 0 0 0 1.5px var(--color-primary), 0 0 0 4px var(--color-bg-grad-a), 0 0 24px -8px var(--color-primary-glow)",
 };
 
 const HOVER_RING_STYLE: CSSProperties = {
@@ -55,7 +55,7 @@ function TemplateCard({
       aria-label={label}
       aria-pressed={isSelected}
       onClick={onClick}
-      className="group relative aspect-[3/4] overflow-hidden rounded-[8px] transition-transform duration-150 motion-safe:hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      className="group relative aspect-[3/4] overflow-hidden rounded-[8px] transition-transform duration-150 motion-safe:hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       style={isSelected ? SELECTED_RING_STYLE : HOVER_RING_STYLE}
     >
       <img
@@ -102,9 +102,9 @@ function TemplateCard({
           className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
           style={{
             background:
-              "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+              "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
             color: "oklch(0.14 0 0)",
-            boxShadow: "0 0 14px -4px var(--color-accent-glow)",
+            boxShadow: "0 0 14px -4px var(--color-primary-glow)",
           }}
         >
           <Check size={11} strokeWidth={3} aria-hidden />
@@ -117,8 +117,8 @@ function TemplateCard({
           className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-[0.12em]"
           style={{
             background: "oklch(0 0 0 / 0.55)",
-            color: "var(--color-accent-2)",
-            border: "1px solid var(--color-accent-soft)",
+            color: "var(--color-primary-2)",
+            border: "1px solid var(--color-primary-soft)",
             backdropFilter: "blur(6px)",
             WebkitBackdropFilter: "blur(6px)",
           }}
@@ -182,9 +182,9 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
 
   const tabCls = (active: boolean) =>
     [
-      "rounded-[6px] px-3 py-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+      "rounded-[6px] px-3 py-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
       active
-        ? "bg-accent-dim text-accent-2"
+        ? "bg-primary-dim text-primary-2"
         : "text-text-3 hover:text-text",
     ].join(" ");
 
@@ -237,7 +237,7 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
                 type="button"
                 onClick={handleClearUpload}
                 aria-label={t("common:remove")}
-                className="absolute right-1.5 top-1.5 rounded-full p-1 text-text-2 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="absolute right-1.5 top-1.5 rounded-full p-1 text-text-2 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 style={{
                   background: "oklch(0 0 0 / 0.55)",
                   backdropFilter: "blur(6px)",
@@ -251,7 +251,7 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 px-3 py-7 text-[12.5px] text-text-3 transition-colors hover:border-accent/45 hover:bg-accent-dim hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="flex w-full items-center justify-center gap-2 rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 px-3 py-7 text-[12.5px] text-text-3 transition-colors hover:border-primary/45 hover:bg-primary-dim hover:text-primary-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Upload className="h-3.5 w-3.5" />
               <span>{t("templates:upload_reference")}</span>

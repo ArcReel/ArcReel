@@ -76,7 +76,7 @@ export function EntryIcon({ entry }: { entry: MarketEntry }) {
 export function SourceChip({ name, kind }: { name: string; kind: MarketSourceKind | null }) {
   return (
     <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-hairline-soft bg-bg-grad-a/50 px-2 py-[1px] font-mono text-[10px] text-text-3">
-      {kind === "official" && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-2" aria-hidden />}
+      {kind === "official" && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary-2" aria-hidden />}
       <span className="truncate">{name}</span>
     </span>
   );
@@ -126,7 +126,7 @@ export function MarketEntryCard({
           type="button"
           aria-label={entry.name}
           onClick={onOpen}
-          className="absolute inset-0 z-10 rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="absolute inset-0 z-10 rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         />
       )}
       <div

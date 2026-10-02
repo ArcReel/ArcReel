@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { MarketSourceInfo, MarketSourceStatus } from "@/types";
 
 export const KICKER_ACCENT_CLS =
-  "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2";
+  "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2";
 
 export const KICKER_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
 

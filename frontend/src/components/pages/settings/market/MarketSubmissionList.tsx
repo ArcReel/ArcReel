@@ -24,7 +24,7 @@ export function MarketSubmissionList({
             <button
               type="button"
               onClick={() => onOpenEndpoint(submission.endpoint_key)}
-              className="min-w-0 truncate text-left text-[12.5px] text-text hover:text-accent-2"
+              className="min-w-0 truncate text-left text-[12.5px] text-text hover:text-primary-2"
             >
               {submission.endpoint_display_name}
             </button>

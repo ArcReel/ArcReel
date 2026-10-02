@@ -22,10 +22,10 @@ const NEUTRAL_TONE: ToneTokens = {
 };
 
 const CURRENT_TONE: ToneTokens = {
-  color: "var(--color-accent-2)",
-  soft: "var(--color-accent-dim)",
-  ring: "var(--color-accent-soft)",
-  glow: "var(--color-accent-glow)",
+  color: "var(--color-primary-2)",
+  soft: "var(--color-primary-dim)",
+  ring: "var(--color-primary-soft)",
+  glow: "var(--color-primary-glow)",
 };
 
 /** 产物时效的色调。missing 刻意是中性色：缺失不是故障，只是还没做。 */

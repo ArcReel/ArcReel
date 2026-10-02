@@ -47,21 +47,21 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
               title={`${shortId} · ${t(conf.i18nKey)}`}
               className={`focus-ring relative flex w-full flex-col items-center gap-1 rounded-md py-2 ${
                 sel
-                  ? "border border-[var(--color-accent-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_290_/_0.5),oklch(0.22_0.015_280_/_0.35))]"
+                  ? "border border-[var(--color-primary-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_290_/_0.5),oklch(0.22_0.015_280_/_0.35))]"
                   : "border border-transparent hover:bg-[oklch(0.22_0.011_265_/_0.4)]"
               }`}
             >
               {sel && (
                 <span
                   aria-hidden="true"
-                  className="absolute -left-px top-1.5 bottom-1.5 w-0.5 rounded bg-[var(--color-accent)] shadow-[0_0_8px_var(--color-accent-glow)]"
+                  className="absolute -left-px top-1.5 bottom-1.5 w-0.5 rounded bg-[var(--color-primary)] shadow-[0_0_8px_var(--color-primary-glow)]"
                 />
               )}
               <span
                 translate="no"
                 className={`rounded px-1.5 py-0.5 font-mono text-[10.5px] font-bold ${
                   sel
-                    ? "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))]"
+                    ? "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-primary-2),var(--color-primary))]"
                     : "bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
                 }`}
               >

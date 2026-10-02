@@ -184,7 +184,7 @@ export function UnitPreviewPanel({
         {inFlight && !ready && (
           <div className="absolute inset-0 grid place-items-center">
             <div className="text-center">
-              <div className="mx-auto mb-2.5 h-9 w-9 animate-spin rounded-full border-2 border-[var(--color-accent-soft)] border-t-[var(--color-accent)]" />
+              <div className="mx-auto mb-2.5 h-9 w-9 animate-spin rounded-full border-2 border-[var(--color-primary-soft)] border-t-[var(--color-primary)]" />
               <div className="text-[11.5px] text-[var(--color-text-2)]">
                 {t("reference_preview_in_flight")}
               </div>
@@ -234,7 +234,7 @@ export function UnitPreviewPanel({
           className={`focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors ${
             inFlight || busy || restoring || generationBlocked
               ? "cursor-not-allowed border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
-              : "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_var(--color-accent-glow)]"
+              : "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-primary-2),var(--color-primary))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_var(--color-primary-glow)]"
           }`}
         >
           {inFlight ? (

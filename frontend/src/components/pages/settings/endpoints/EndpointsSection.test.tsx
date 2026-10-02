@@ -423,7 +423,7 @@ describe("EndpointsSection", () => {
     expect(screen.queryByRole("button", { name: "保存更改" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "JSON" }));
     expect(screen.getByRole("textbox", { name: "JSON" })).toHaveClass(
-      "read-only:border-accent/25",
+      "read-only:border-primary/25",
       "read-only:bg-bg-grad-b/65",
       "read-only:text-text-2",
     );

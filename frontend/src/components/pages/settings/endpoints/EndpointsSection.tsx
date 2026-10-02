@@ -523,7 +523,7 @@ export function EndpointsSection() {
   if (loading) {
     return (
       <div className="flex items-center gap-2 px-6 py-8 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -570,7 +570,7 @@ export function EndpointsSection() {
         {(selectedKey === "new" || selectedKey === COMFYUI_DRAFT_KEY) && (
           <div className="mb-4">
             <div className={`${KICKER_CLS} mb-1.5 px-3`}>{t("ce_group_draft")}</div>
-            <span className="mb-0.5 flex w-full items-center gap-2 rounded-[8px] border border-accent/35 bg-accent-dim px-3 py-2 text-[12.5px] text-text">
+            <span className="mb-0.5 flex w-full items-center gap-2 rounded-[8px] border border-primary/35 bg-primary-dim px-3 py-2 text-[12.5px] text-text">
               {selectedKey === "new" ? t("ce_new_endpoint") : (comfyuiDraft?.definition.meta.name ?? t("ce_cf_draft_entry"))}
             </span>
           </div>
@@ -590,9 +590,9 @@ export function EndpointsSection() {
                     aria-current={isActive ? "page" : undefined}
                     aria-pressed={isActive}
                     className={
-                      "group relative mb-0.5 flex w-full items-center gap-2 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                      "group relative mb-0.5 flex w-full items-center gap-2 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary " +
                       (isActive
-                        ? "border-accent/35 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-accent-glow)]"
+                        ? "border-primary/35 bg-primary-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-primary-glow)]"
                         : "border-transparent text-text-3 hover:border-hairline-soft hover:bg-bg-grad-a/55 hover:text-text")
                     }
                   >
@@ -601,7 +601,7 @@ export function EndpointsSection() {
                       className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r-[2px]"
                       style={{
                         background:
-                          "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                          "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
                         opacity: isActive ? 1 : 0,
                       }}
                     />

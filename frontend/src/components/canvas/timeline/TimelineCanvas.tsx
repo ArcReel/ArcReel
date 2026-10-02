@@ -290,7 +290,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
               <span
                 aria-hidden="true"
                 className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
-                style={{ background: "var(--color-accent)" }}
+                style={{ background: "var(--color-primary)" }}
               />
             )}
           </button>
@@ -314,7 +314,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             <span
               aria-hidden="true"
               className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
-              style={{ background: "var(--color-accent)" }}
+              style={{ background: "var(--color-primary)" }}
             />
           )}
         </button>

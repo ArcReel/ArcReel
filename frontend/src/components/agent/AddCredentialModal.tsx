@@ -348,7 +348,7 @@ export function AddCredentialModal({
                   type="button"
                   onClick={() => setImportPickerOpen((v) => !v)}
                   data-testid="import-from-provider"
-                  className="inline-flex items-center gap-1.5 rounded-[6px] border border-hairline px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-2 transition hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-[6px] border border-hairline px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-2 transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Download className="h-3 w-3" aria-hidden />
                   {t("import_from_provider")}
@@ -469,7 +469,7 @@ export function AddCredentialModal({
                   type="button"
                   onClick={handleManualKeyEntry}
                   data-testid="api-key-manual-entry"
-                  className="text-[11px] text-accent hover:underline"
+                  className="text-[11px] text-primary hover:underline"
                 >
                   {t("api_key_manual_entry")}
                 </button>
@@ -478,7 +478,7 @@ export function AddCredentialModal({
                   href={selected.api_key_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
                 >
                   {t("get_api_key")}
                   <ExternalLink className="h-3 w-3" aria-hidden />
@@ -523,7 +523,7 @@ export function AddCredentialModal({
                 type="button"
                 onClick={() => void handleDiscover()}
                 disabled={discovering || importSource !== null}
-                className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-primary-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {discovering ? (
                   <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
@@ -558,13 +558,13 @@ export function AddCredentialModal({
           >
             <summary className="flex cursor-pointer list-none items-center justify-between">
               <span className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-2">
-                <SlidersHorizontal className="h-3.5 w-3.5 text-accent-2" aria-hidden />
+                <SlidersHorizontal className="h-3.5 w-3.5 text-primary-2" aria-hidden />
                 {t("advanced_model_routing")}
               </span>
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-hairline-soft bg-bg-grad-a/55 text-text-3">
                 <ChevronDown
                   className={`h-3 w-3 transition-transform duration-200 ${
-                    advancedOpen ? "rotate-180 text-accent-2" : ""
+                    advancedOpen ? "rotate-180 text-primary-2" : ""
                   }`}
                   aria-hidden
                 />
@@ -701,8 +701,8 @@ function PresetChip({
       title={title}
       className={`group inline-flex items-center justify-start gap-1.5 truncate rounded-[8px] border px-2.5 py-1.5 text-left text-[12px] transition disabled:cursor-not-allowed disabled:opacity-60 ${
         selected
-          ? "border-accent bg-accent/10 text-accent"
-          : "border-hairline bg-bg-grad-a/35 text-text-2 hover:border-accent/40"
+          ? "border-primary bg-primary/10 text-primary"
+          : "border-hairline bg-bg-grad-a/35 text-text-2 hover:border-primary/40"
       }`}
     >
       {recommended && (

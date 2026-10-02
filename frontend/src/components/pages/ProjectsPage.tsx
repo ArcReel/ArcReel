@@ -80,9 +80,9 @@ type GreetingKey =
 const ACCENT_BUTTON_STYLE: CSSProperties = {
   color: "oklch(0.14 0 0)",
   background:
-    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+    "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
   boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-accent)",
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-primary)",
 };
 
 /**
@@ -171,7 +171,7 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
           now
         </span>
         <div className="relative flex items-center gap-2.5">
-          <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-accent-2">
+          <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-primary-2">
             <span
               aria-hidden
               className="motion-safe:animate-pulse"
@@ -179,8 +179,8 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
                 width: 5,
                 height: 5,
                 borderRadius: 3,
-                background: "var(--color-accent)",
-                boxShadow: "0 0 8px var(--color-accent-glow)",
+                background: "var(--color-primary)",
+                boxShadow: "0 0 8px var(--color-primary-glow)",
               }}
             />
             {t("dashboard:lobby_continue_editing_chip")}
@@ -218,7 +218,7 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
               barClassName="rounded-none"
               barStyle={barStyle}
             />
-            <span className="font-mono text-[11px] font-semibold tabular-nums text-accent-2">
+            <span className="font-mono text-[11px] font-semibold tabular-nums text-primary-2">
               {progressPct}%
             </span>
           </div>
@@ -272,7 +272,7 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
         <div className="relative mt-4 flex justify-end">
           <Link
             href={`/app/projects/${project.name}`}
-            className="inline-flex items-center gap-2 rounded-[7px] px-4 py-2.5 text-[12px] font-semibold no-underline transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-2 rounded-[7px] px-4 py-2.5 text-[12px] font-semibold no-underline transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             style={ACCENT_BUTTON_STYLE}
           >
             {t("dashboard:lobby_open_workspace")}
@@ -299,7 +299,7 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
     <button
       type="button"
       onClick={onClick}
-      className="group relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[12px] border border-dashed border-hairline-strong bg-bg-grad-a/55 text-left transition-colors hover:border-accent/55 hover:bg-bg-grad-a/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="group relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[12px] border border-dashed border-hairline-strong bg-bg-grad-a/55 text-left transition-colors hover:border-primary/55 hover:bg-bg-grad-a/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       aria-label={ariaLabel ?? title}
     >
       <div className="p-2.5">
@@ -320,8 +320,8 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
                   "linear-gradient(180deg, oklch(0.30 0.04 290), oklch(0.22 0.02 280))",
                 border: "1px solid oklch(0.76 0.09 295 / 0.4)",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-accent)",
-                color: "var(--color-accent-2)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-primary)",
+                color: "var(--color-primary-2)",
               }}
             >
               {icon}
@@ -439,7 +439,7 @@ function TopBar({
           </span>
         </div>
 
-        <label className="ml-2 flex w-[min(420px,100%)] items-center gap-2 rounded-lg border border-hairline-soft bg-bg/55 px-3 py-1.5 transition-colors focus-within:border-accent/60">
+        <label className="ml-2 flex w-[min(420px,100%)] items-center gap-2 rounded-lg border border-hairline-soft bg-bg/55 px-3 py-1.5 transition-colors focus-within:border-primary/60">
             <Search className="h-3.5 w-3.5 text-text-3" />
             <input
               ref={searchInputRef}
@@ -468,7 +468,7 @@ function TopBar({
           <button
             type="button"
             onClick={onAssets}
-            className="inline-flex items-center gap-1.5 rounded-[7px] border border-accent/25 bg-accent-dim px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-accent/50 hover:bg-accent-soft hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1.5 rounded-[7px] border border-primary/25 bg-primary-dim px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-primary/50 hover:bg-primary-soft hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             title={t("assets:library_title")}
           >
             <Library className="h-3.5 w-3.5" />
@@ -479,7 +479,7 @@ function TopBar({
             type="button"
             onClick={onImport}
             disabled={importing}
-            className="inline-flex items-center gap-1.5 rounded-[7px] border border-hairline bg-bg-grad-a/50 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-[7px] border border-hairline bg-bg-grad-a/50 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
           >
             {importing ? (
               <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
@@ -492,7 +492,7 @@ function TopBar({
             type="button"
             onClick={onCreate}
             data-onboarding={ONBOARDING_ANCHORS.lobbyCreateProject}
-            className="inline-flex items-center gap-1.5 rounded-[7px] px-3.5 py-1.5 text-[12px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1.5 rounded-[7px] px-3.5 py-1.5 text-[12px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             style={ACCENT_BUTTON_STYLE}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -502,7 +502,7 @@ function TopBar({
           <button
             type="button"
             onClick={onOpenExternalAgent}
-            className="rounded-md px-2 py-1.5 text-sm text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded-md px-2 py-1.5 text-sm text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             title={t("dashboard:external_agent_guide")}
             aria-label={t("dashboard:external_agent_guide")}
           >
@@ -586,7 +586,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
       key: "in_progress",
       label: t("dashboard:lobby_filter_in_progress"),
       value: totals.inProgress,
-      tone: { color: "var(--color-accent-2)" },
+      tone: { color: "var(--color-primary-2)" },
     },
     {
       key: "completed",
@@ -622,7 +622,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
                 { text: t(`dashboard:${greetingKey}`), after: <br /> },
                 {
                   text: subtitle,
-                  style: { fontStyle: "italic", color: "var(--color-accent-2)" },
+                  style: { fontStyle: "italic", color: "var(--color-primary-2)" },
                 },
               ] satisfies TypewriterSegment[]
             }
@@ -633,7 +633,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
         </p>
       </div>
       <div className="flex flex-col items-end justify-between gap-2.5">
-        <div className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-2">
+        <div className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-2">
           {t("dashboard:lobby_hero_eyebrow")} — {dateLine}
         </div>
         <div
@@ -713,9 +713,9 @@ function FilterPills({ active, onChange, counts, t }: FilterPillsProps) {
               onClick={() => onChange(c.key)}
               aria-pressed={isActive}
               className={
-                "inline-flex items-center rounded-full px-3 py-1 text-[11.5px] font-medium backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                "inline-flex items-center rounded-full px-3 py-1 text-[11.5px] font-medium backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary " +
                 (isActive
-                  ? "border border-accent/40 bg-accent/45 text-text"
+                  ? "border border-primary/40 bg-primary/45 text-text"
                   : "border border-hairline-soft bg-[oklch(0.22_0.012_265_/_0.7)] text-text-3 hover:border-hairline hover:bg-[oklch(0.24_0.012_265_/_0.78)] hover:text-text-2")
               }
             >
@@ -723,7 +723,7 @@ function FilterPills({ active, onChange, counts, t }: FilterPillsProps) {
               <span
                 className={
                   "ml-1.5 font-mono tabular-nums " +
-                  (isActive ? "text-accent-2" : "text-text-4")
+                  (isActive ? "text-primary-2" : "text-text-4")
                 }
               >
                 {c.n}
@@ -1012,7 +1012,7 @@ export function ProjectsPage() {
         {tourActive ? <OnboardingDemoCard /> : null}
         {projectsLoading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 motion-safe:animate-spin text-accent" />
+            <Loader2 className="h-6 w-6 motion-safe:animate-spin text-primary" />
             <span className="ml-2 text-text-3">{t("dashboard:loading_projects")}</span>
           </div>
         ) : projects.length === 0 ? (
@@ -1049,7 +1049,7 @@ export function ProjectsPage() {
                     setLobbyFilter("all");
                     setSearchQuery("");
                   }}
-                  className="mt-4 rounded-md border border-hairline px-3 py-1.5 text-[12px] text-text-2 hover:border-accent/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="mt-4 rounded-md border border-hairline px-3 py-1.5 text-[12px] text-text-2 hover:border-primary/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {t("dashboard:lobby_clear_filters")}
                 </button>
@@ -1248,7 +1248,7 @@ function ConflictDialog({
             onClick={() => onConfirm("rename")}
             disabled={importing}
             aria-label={t("dashboard:auto_rename_import")}
-            className="flex w-full items-center justify-between rounded-xl border border-accent/25 bg-accent-dim px-4 py-3 text-left text-sm text-text transition-colors hover:border-accent/40 hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-between rounded-xl border border-primary/25 bg-primary-dim px-4 py-3 text-left text-sm text-text transition-colors hover:border-primary/40 hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span>
               <span className="block font-medium">{t("dashboard:auto_rename_import")}</span>

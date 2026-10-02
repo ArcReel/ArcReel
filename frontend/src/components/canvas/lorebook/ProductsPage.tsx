@@ -157,7 +157,7 @@ function ProductFormModal({
     <GlassModal open onClose={onClose} labelledBy={titleId}>
       <div className="p-5">
         <div className="mb-4 flex items-center gap-2.5">
-          <ShoppingBag className="h-4 w-4" style={{ color: "var(--color-accent-2)" }} />
+          <ShoppingBag className="h-4 w-4" style={{ color: "var(--color-primary-2)" }} />
           <h2
             id={titleId}
             className="display-serif flex-1 text-[16px] font-semibold tracking-tight"

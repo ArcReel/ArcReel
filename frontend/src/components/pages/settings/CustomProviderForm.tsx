@@ -58,7 +58,7 @@ import { formatNameList } from "@/utils/list-format";
 // ---------------------------------------------------------------------------
 
 const COMPACT_INPUT_CLS =
-  "min-w-0 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[12.5px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  "min-w-0 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[12.5px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-primary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -754,7 +754,7 @@ export function CustomProviderForm({
       <div className="p-6 pb-24">
       <div className="max-w-2xl">
       <div className="mb-6">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
           {isEdit ? "EDIT PROVIDER" : "NEW PROVIDER"}
         </div>
         <h3
@@ -827,7 +827,7 @@ export function CustomProviderForm({
               <button
                 type="button"
                 onClick={() => setShowApiKey((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 aria-label={showApiKey ? t("common:hide") : t("common:show")}
               >
                 {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -842,7 +842,7 @@ export function CustomProviderForm({
                 setNoApiKey(e.target.checked);
                 if (e.target.checked) setApiKey("");
               }}
-              className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+              className="h-3.5 w-3.5 accent-[var(--color-primary)]"
             />
             {t("cp_no_api_key")}
           </label>
@@ -866,7 +866,7 @@ export function CustomProviderForm({
             value={discoveryFormat}
             onChange={(e) => setDiscoveryFormat(e.target.value as DiscoveryFormat)}
             disabled={isEdit}
-            className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[11.5px] text-text-2 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[11.5px] text-text-2 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
           >
             {DISCOVERY_FORMAT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
@@ -907,7 +907,7 @@ export function CustomProviderForm({
         {models.length > 0 && (
           <div>
             <div className="mb-2 flex items-center gap-3">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
                 {t("model_list")}
               </span>
               {models.length > 1 && (
@@ -919,7 +919,7 @@ export function CustomProviderForm({
                       prev.map((m) => (targetKeys.has(m.key) ? { ...m, is_enabled: !allFilteredEnabled } : m)),
                     );
                   }}
-                  className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-primary-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {allFilteredEnabled ? t("deselect_all") : t("select_all")}
                 </button>
@@ -956,7 +956,7 @@ export function CustomProviderForm({
                           type="checkbox"
                           checked={m.is_enabled}
                           onChange={(e) => updateModel(m.key, { is_enabled: e.target.checked })}
-                          className="h-3.5 w-3.5 cursor-pointer rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)]"
+                          className="h-3.5 w-3.5 cursor-pointer rounded border-hairline bg-bg-grad-a accent-[var(--color-primary)]"
                           aria-label={t("enable_model")}
                         />
                       </label>
@@ -1011,14 +1011,14 @@ export function CustomProviderForm({
                             ),
                           )
                         }
-                        className="rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         style={
                           m.is_default
                             ? {
-                                background: "var(--color-accent-dim)",
-                                color: "var(--color-accent-2)",
-                                border: "1px solid var(--color-accent-soft)",
-                                boxShadow: "0 0 12px -6px var(--color-accent-glow)",
+                                background: "var(--color-primary-dim)",
+                                color: "var(--color-primary-2)",
+                                border: "1px solid var(--color-primary-soft)",
+                                boxShadow: "0 0 12px -6px var(--color-primary-glow)",
                               }
                             : {
                                 background: "var(--color-bg-grad-a)",
@@ -1034,7 +1034,7 @@ export function CustomProviderForm({
                       <button
                         type="button"
                         onClick={() => removeModel(m.key)}
-                        className="rounded p-1 text-text-4 transition-colors hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="rounded p-1 text-text-4 transition-colors hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         aria-label={t("delete_model")}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1057,7 +1057,7 @@ export function CustomProviderForm({
                         value={m.currency}
                         onChange={(e) => updateModel(m.key, { currency: e.target.value })}
                         aria-label={t("currency_label")}
-                        className="rounded-[5px] border border-hairline bg-bg-grad-a/55 px-1 py-0.5 text-[11px] text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="rounded-[5px] border border-hairline bg-bg-grad-a/55 px-1 py-0.5 text-[11px] text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       >
                         <option value="USD">$</option>
                         <option value="CNY">&yen;</option>
@@ -1170,7 +1170,7 @@ export function CustomProviderForm({
               type="button"
               onClick={addManualModel}
               disabled={noComfyuiEndpointYet}
-              className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-primary-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" />
               {t("add_model_manually")}
@@ -1189,7 +1189,7 @@ export function CustomProviderForm({
                 <button
                   type="button"
                   onClick={addManualModel}
-                  className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary-2 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {t("add_model_manually")}
                 </button>
@@ -1200,7 +1200,7 @@ export function CustomProviderForm({
 
         {/* Concurrency limits */}
         <div>
-          <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+          <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary-2">
             {t("cp_concurrency_label")}
           </div>
           <p className="mb-3 text-[11px] text-text-4">
@@ -1308,7 +1308,7 @@ export function CustomProviderForm({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-[8px] px-3 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded-[8px] px-3 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             {t("common:cancel")}
           </button>

@@ -21,7 +21,7 @@ interface EpisodeCardProps {
 
 const STATUS_COLOR: Record<string, string> = {
   completed: "oklch(0.74 0.08 155)",
-  in_production: "var(--color-accent)",
+  in_production: "var(--color-primary)",
   scripted: "oklch(0.60 0.02 250)",
   draft: "oklch(0.46 0.01 250)",
   missing: "oklch(0.46 0.01 250)",
@@ -94,9 +94,9 @@ export function EpisodeCard({
         background: active
           ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.55), oklch(0.22 0.015 280 / 0.4))"
           : "transparent",
-        border: active ? "1px solid var(--color-accent-soft)" : "1px solid transparent",
+        border: active ? "1px solid var(--color-primary-soft)" : "1px solid transparent",
         boxShadow: active
-          ? "0 0 0 1px var(--color-accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.04)"
+          ? "0 0 0 1px var(--color-primary-soft), 0 4px 12px -6px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.04)"
           : "none",
       }}
       onMouseEnter={(e) => {
@@ -110,11 +110,11 @@ export function EpisodeCard({
         className="num grid h-[34px] w-[34px] shrink-0 place-items-center rounded-md text-[11px] font-bold leading-none"
         style={{
           background: active
-            ? "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.45 0.12 285) 100%)"
+            ? "linear-gradient(135deg, var(--color-primary) 0%, oklch(0.45 0.12 285) 100%)"
             : "linear-gradient(180deg, oklch(0.28 0.013 265), oklch(0.24 0.012 265))",
           color: active ? "oklch(0.14 0 0)" : "var(--color-text-3)",
           boxShadow: active
-            ? "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 2px 6px -2px var(--color-accent-glow)"
+            ? "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 2px 6px -2px var(--color-primary-glow)"
             : "inset 0 1px 0 oklch(1 0 0 / 0.04), inset 0 0 0 1px var(--color-hairline-soft)",
         }}
       >
@@ -189,8 +189,8 @@ export function EpisodeCard({
               className="h-full"
               style={{
                 width: `${progress}%`,
-                background: "linear-gradient(90deg, var(--color-accent), var(--color-accent-2))",
-                boxShadow: "0 0 6px var(--color-accent-glow)",
+                background: "linear-gradient(90deg, var(--color-primary), var(--color-primary-2))",
+                boxShadow: "0 0 6px var(--color-primary-glow)",
               }}
             />
           </div>
@@ -200,7 +200,7 @@ export function EpisodeCard({
       {costText && (
         <span
           className="num self-start pt-0.5 text-[10.5px]"
-          style={{ color: active ? "var(--color-accent-2)" : "var(--color-text-4)" }}
+          style={{ color: active ? "var(--color-primary-2)" : "var(--color-text-4)" }}
         >
           {costText}
         </span>

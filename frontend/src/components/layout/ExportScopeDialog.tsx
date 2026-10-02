@@ -41,10 +41,10 @@ export function ExportScopeDialog({
             className="grid h-7 w-7 place-items-center rounded-lg"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+                "linear-gradient(135deg, var(--color-primary-dim), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid var(--color-primary-soft)",
+              color: "var(--color-primary-2)",
+              boxShadow: "0 8px 18px -8px var(--color-primary-glow)",
             }}
           >
             <PackageCheck className="h-3.5 w-3.5" />
@@ -78,9 +78,9 @@ export function ExportScopeDialog({
                   className="num rounded-[3px] px-1.5 py-px text-[9.5px] uppercase"
                   style={{
                     letterSpacing: "0.6px",
-                    color: "var(--color-accent-2)",
-                    background: "var(--color-accent-dim)",
-                    border: "1px solid var(--color-accent-soft)",
+                    color: "var(--color-primary-2)",
+                    background: "var(--color-primary-dim)",
+                    border: "1px solid var(--color-primary-soft)",
                   }}
                 >
                   {t("dashboard:recommended")}
@@ -114,7 +114,7 @@ export function ExportScopeDialog({
                   type="button"
                   onClick={() => onOpenEditView(editViewEpisode.episode)}
                   className="focus-ring rounded underline underline-offset-2"
-                  style={{ color: "var(--color-accent-2)" }}
+                  style={{ color: "var(--color-primary-2)" }}
                 >
                   {t("dashboard:export_open_edit_view", { name: editViewEpisode.name })}
                 </button>
@@ -134,10 +134,10 @@ const SCOPE_PALETTE: Record<
   { color: string; ring: string; hoverBg: string; hoverBorder: string }
 > = {
   accent: {
-    color: "var(--color-accent-2)",
-    ring: "var(--color-accent-soft)",
-    hoverBg: "var(--color-accent-dim)",
-    hoverBorder: "var(--color-accent-soft)",
+    color: "var(--color-primary-2)",
+    ring: "var(--color-primary-soft)",
+    hoverBg: "var(--color-primary-dim)",
+    hoverBorder: "var(--color-primary-soft)",
   },
   neutral: {
     color: "var(--color-text-3)",

@@ -105,7 +105,7 @@ export function SidebarEpisodeList({
             {edge !== null ? (
               <span
                 aria-hidden
-                className={`pointer-events-none absolute inset-x-1 h-0.5 rounded bg-accent ${edge === "top" ? "-top-px" : "bottom-0.5"}`}
+                className={`pointer-events-none absolute inset-x-1 h-0.5 rounded bg-primary ${edge === "top" ? "-top-px" : "bottom-0.5"}`}
               />
             ) : null}
             <EpisodeCard

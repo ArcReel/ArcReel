@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -20,12 +22,11 @@
     --color-text-3: oklch(0.640 0.010 265);
     --color-text-4: oklch(0.490 0.010 265);
 
-    /* Accent — 紫色 */
-    --color-accent: oklch(0.76 0.09 295);
-    --color-accent-2: oklch(0.88 0.05 295);
-    --color-accent-soft: oklch(0.76 0.09 295 / 0.22);
-    --color-accent-dim: oklch(0.76 0.09 295 / 0.12);
-    --color-accent-glow: oklch(0.76 0.09 295 / 0.35);
+    /* Primary — 紫色（基色在下方 :root 的 --primary，此处只放变体） */
+    --color-primary-2: oklch(0.88 0.05 295);
+    --color-primary-soft: oklch(0.76 0.09 295 / 0.22);
+    --color-primary-dim: oklch(0.76 0.09 295 / 0.12);
+    --color-primary-glow: oklch(0.76 0.09 295 / 0.35);
 
     /* 状态色 */
     --color-good: oklch(0.78 0.10 155);
@@ -76,8 +77,8 @@
     --color-studio-bg: var(--color-bg);
     --color-studio-panel: var(--color-bg-grad-a);
     --color-studio-border: var(--color-hairline);
-    --color-accent-start: var(--color-accent);
-    --color-accent-end: var(--color-accent-2);
+    --color-primary-start: var(--color-primary);
+    --color-primary-end: var(--color-primary-2);
 }
 
 /* 全局 body 背景 — radial+linear 复合梯度 */
@@ -135,7 +136,7 @@ body {
 
 /* 统一焦点指示（a11y） */
 @utility focus-ring {
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)];
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)];
 }
 
 /* 打字机 caret 闪烁 — 紫色 accent-2 + accent-glow */
@@ -176,7 +177,7 @@ body {
     inset-inline: 0;
     top: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--color-accent-soft), transparent);
+    background: linear-gradient(90deg, transparent, var(--color-primary-soft), transparent);
 }
 .arc-glass-hairline[data-tone="warm"] {
     background: linear-gradient(90deg, transparent, var(--color-warm-fade), transparent);
@@ -212,11 +213,11 @@ body {
 /* 主按钮 CTA — accent 默认，warm/danger 用 data-tone */
 .arc-btn-primary {
     color: oklch(0.14 0 0);
-    background: linear-gradient(135deg, var(--color-accent-2), var(--color-accent));
+    background: linear-gradient(135deg, var(--color-primary-2), var(--color-primary));
     box-shadow:
         inset 0 1px 0 oklch(1 0 0 / 0.35),
-        0 6px 18px -6px var(--color-accent-glow),
-        0 0 0 1px var(--color-accent-soft);
+        0 6px 18px -6px var(--color-primary-glow),
+        0 0 0 1px var(--color-primary-soft);
     transition: transform 150ms, opacity 150ms;
 }
 .arc-btn-primary[data-tone="warm"] {
@@ -240,4 +241,91 @@ body {
     opacity: 0.4;
     cursor: not-allowed;
     transform: none;
+}
+
+/* === shadcn/ui 语义 token ===
+ * 应用只有暗色主题（<html class="dark">），:root 直接放暗色值。
+ * 与旧 token 重名的 primary / accent 基色只在这里定义，其余引用上方 @theme 的旧 token，保证旧页面视觉不变。
+ * 圆角沿用 Tailwind 默认刻度，不采用预设的 --radius 派生刻度（否则旧页面的 rounded-* 全部变化）。 */
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+    --radius: 0.625rem;
+
+    --background: var(--color-bg);
+    --foreground: var(--color-text);
+    --card: var(--color-bg-grad-a);
+    --card-foreground: var(--color-text);
+    --popover: var(--color-bg-grad-a);
+    --popover-foreground: var(--color-text);
+    --primary: oklch(0.76 0.09 295);
+    --primary-foreground: oklch(0.14 0 0);
+    --secondary: var(--color-surface-2);
+    --secondary-foreground: var(--color-text);
+    --muted: var(--color-surface-2);
+    --muted-foreground: var(--color-text-3);
+    --accent: oklch(0.26 0.012 265 / 0.5);
+    --accent-foreground: var(--color-text);
+    --destructive: var(--color-danger);
+    --border: var(--color-hairline);
+    --input: var(--color-hairline-strong);
+    --ring: oklch(0.76 0.09 295);
+
+    --chart-1: oklch(0.76 0.09 295);
+    --chart-2: var(--color-good);
+    --chart-3: var(--color-warn);
+    --chart-4: var(--color-danger);
+    --chart-5: var(--color-text-3);
+
+    --sidebar: var(--color-bg-grad-b);
+    --sidebar-foreground: var(--color-text);
+    --sidebar-primary: oklch(0.76 0.09 295);
+    --sidebar-primary-foreground: oklch(0.14 0 0);
+    --sidebar-accent: oklch(0.26 0.012 265 / 0.5);
+    --sidebar-accent-foreground: var(--color-text);
+    --sidebar-border: var(--color-hairline);
+    --sidebar-ring: oklch(0.76 0.09 295);
+}
+
+#app-root {
+    isolation: isolate;
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
 }

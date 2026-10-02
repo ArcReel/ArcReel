@@ -98,11 +98,11 @@ export function CapabilityOverrideRow({
         title={title}
         onClick={() => select(target)}
         onKeyDown={onKeyDown}
-        className="px-2 py-1 text-[10.5px] font-semibold transition-colors first:rounded-l-[6px] last:rounded-r-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45"
+        className="px-2 py-1 text-[10.5px] font-semibold transition-colors first:rounded-l-[6px] last:rounded-r-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-45"
         style={{
-          color: active ? "var(--color-accent-2)" : "var(--color-text-4)",
-          background: active ? "var(--color-accent-dim)" : "var(--color-bg-grad-a)",
-          border: `1px solid ${active ? "var(--color-accent-soft)" : "var(--color-hairline)"}`,
+          color: active ? "var(--color-primary-2)" : "var(--color-text-4)",
+          background: active ? "var(--color-primary-dim)" : "var(--color-bg-grad-a)",
+          border: `1px solid ${active ? "var(--color-primary-soft)" : "var(--color-hairline)"}`,
           marginLeft: -1,
         }}
       >

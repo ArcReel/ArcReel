@@ -203,7 +203,7 @@ function MessageEditor({
     <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
       <div
         className={BUBBLE_LABEL_CLASS}
-        style={{ ...BUBBLE_LABEL_STYLE, color: "var(--color-accent-2)" }}
+        style={{ ...BUBBLE_LABEL_STYLE, color: "var(--color-primary-2)" }}
       >
         {t("message_edit_title")}
       </div>
@@ -322,7 +322,7 @@ function MessageEditor({
           onClick={submit}
           title={t("message_edit_resend_hint")}
           className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ background: "var(--color-accent)", color: "oklch(0.12 0 0)" }}
+          style={{ background: "var(--color-primary)", color: "oklch(0.12 0 0)" }}
         >
           {submitting ? t("message_edit_resending") : t("message_edit_resend")}
         </button>

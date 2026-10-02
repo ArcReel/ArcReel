@@ -70,9 +70,9 @@ export function EditTimelineEmptyState({
           aria-hidden="true"
           className="grid h-11 w-11 place-items-center rounded-xl"
           style={{
-            background: "var(--color-accent-dim)",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
+            background: "var(--color-primary-dim)",
+            border: "1px solid var(--color-primary-soft)",
+            color: "var(--color-primary-2)",
           }}
         >
           <Scissors className="h-5 w-5" />

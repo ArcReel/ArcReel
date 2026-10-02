@@ -249,7 +249,7 @@ export function AssetLibraryPage() {
             const active = activeTab === type;
             const count = byType[type].length;
             const cls = active
-              ? "border-accent/45 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-accent-glow)]"
+              ? "border-primary/45 bg-primary-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-primary-glow)]"
               : "border-hairline-soft bg-bg-grad-a/40 text-text-2 hover:border-hairline hover:text-text";
             return (
               <button
@@ -266,13 +266,13 @@ export function AssetLibraryPage() {
                 tabIndex={active ? 0 : -1}
                 onClick={() => setActiveTab(type)}
                 onKeyDown={(e) => handleTabKeyDown(e, type)}
-                className={`inline-flex items-center gap-2 rounded-[8px] border px-3.5 py-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${cls}`}
+                className={`inline-flex items-center gap-2 rounded-[8px] border px-3.5 py-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${cls}`}
               >
-                <Icon className={`h-4 w-4 ${active ? "text-accent-2" : "text-text-4"}`} />
+                <Icon className={`h-4 w-4 ${active ? "text-primary-2" : "text-text-4"}`} />
                 <span className="font-medium">{t(`type.${type}`)}</span>
                 <span
                   className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ${
-                    active ? "bg-accent-soft text-accent-2" : "bg-bg-grad-b/70 text-text-4"
+                    active ? "bg-primary-soft text-primary-2" : "bg-bg-grad-b/70 text-text-4"
                   }`}
                 >
                   {count}
@@ -289,11 +289,11 @@ export function AssetLibraryPage() {
           id="asset-panel"
           aria-labelledby={`asset-tab-${activeTab}`}
           tabIndex={0}
-          className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
         {assets.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-hairline bg-bg-grad-a/30 py-24 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-dim text-accent-2">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-dim text-primary-2">
               <ActiveIcon className="h-5 w-5" />
             </div>
             <p className="font-editorial text-[20px] leading-tight text-text">{t(EMPTY_KEY[activeTab])}</p>

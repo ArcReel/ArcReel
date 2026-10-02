@@ -223,7 +223,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
     <button
       type="button"
       onClick={viewAllRecords}
-      className="focus-ring w-full border-t border-hairline-soft px-4 py-2.5 text-[11.5px] text-text-3 transition-colors hover:bg-[oklch(1_0_0_/_0.03)] hover:text-accent-2"
+      className="focus-ring w-full border-t border-hairline-soft px-4 py-2.5 text-[11.5px] text-text-3 transition-colors hover:bg-[oklch(1_0_0_/_0.03)] hover:text-primary-2"
     >
       {t("usage_view_all_records")}
     </button>
@@ -241,7 +241,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
         <header className="flex items-center gap-2 border-b border-hairline-soft px-4 py-3">
           <span
             aria-hidden="true"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-accent-soft bg-accent-dim text-accent-2"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-primary-soft bg-primary-dim text-primary-2"
           >
             <Activity className="h-3.5 w-3.5" />
           </span>
@@ -273,7 +273,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
             <button
               type="button"
               onClick={voidPromise(() => refresh())}
-              className="focus-ring shrink-0 rounded px-1 text-accent-2 transition-colors hover:text-accent"
+              className="focus-ring shrink-0 rounded px-1 text-primary-2 transition-colors hover:text-primary"
             >
               {t("usage_refresh")}
             </button>
@@ -407,7 +407,7 @@ function RetryDownloadButton({
       type="button"
       disabled={retrying}
       onClick={voidPromise(() => onRetry(taskId))}
-      className="focus-ring inline-flex items-center gap-1 rounded px-1 text-[10.5px] text-accent-2 disabled:opacity-60"
+      className="focus-ring inline-flex items-center gap-1 rounded px-1 text-[10.5px] text-primary-2 disabled:opacity-60"
     >
       {retrying && <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />}
       {retrying ? t("retrying_download") : t("retry_download")}

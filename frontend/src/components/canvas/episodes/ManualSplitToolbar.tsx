@@ -21,7 +21,7 @@ interface ManualSplitToolbarProps {
 
 /** 插入光标的颜色：拆分取这一集的集色，切分与移动分界取强调色。 */
 export function caretColor(action: PointAction): string {
-  return action.kind === "split" ? episodeColor(action.episode) : "var(--color-accent)";
+  return action.kind === "split" ? episodeColor(action.episode) : "var(--color-primary)";
 }
 
 /**
@@ -64,7 +64,7 @@ export function ManualSplitToolbar({
         <input
           aria-label={t("dashboard:manual_split_title_label")}
           placeholder={t("dashboard:manual_split_title_placeholder")}
-          className="w-32 border-b border-hairline-strong bg-transparent px-1 text-text outline-none placeholder:text-text-4 focus:border-accent"
+          className="w-32 border-b border-hairline-strong bg-transparent px-1 text-text outline-none placeholder:text-text-4 focus:border-primary"
           value={title}
           onChange={(event) => onTitleChange(event.target.value)}
         />

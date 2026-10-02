@@ -63,9 +63,9 @@ export function UsageHeaderEntry({ projectName }: { projectName: string }) {
         title={label}
         className="focus-ring relative inline-flex h-[30px] items-center gap-1.5 rounded-md px-2 text-[11.5px] transition-colors"
         style={{
-          background: open ? "var(--color-accent-dim)" : "oklch(0.22 0.011 265 / 0.5)",
+          background: open ? "var(--color-primary-dim)" : "oklch(0.22 0.011 265 / 0.5)",
           border: `1px solid ${
-            activeCount > 0 ? "var(--color-accent-soft)" : "var(--color-hairline-soft)"
+            activeCount > 0 ? "var(--color-primary-soft)" : "var(--color-hairline-soft)"
           }`,
           color: "var(--color-text-2)",
         }}
@@ -73,7 +73,7 @@ export function UsageHeaderEntry({ projectName }: { projectName: string }) {
         <Activity
           aria-hidden="true"
           className={"h-3.5 w-3.5" + (activeCount > 0 ? " animate-breathe" : "")}
-          style={{ color: activeCount > 0 ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+          style={{ color: activeCount > 0 ? "var(--color-primary-2)" : "var(--color-text-3)" }}
         />
         <span className="num font-medium">{primaryText}</span>
         {others.map(([currency, amount]) => (
@@ -84,7 +84,7 @@ export function UsageHeaderEntry({ projectName }: { projectName: string }) {
         {activeCount > 0 && (
           <span
             className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
-            style={{ background: "var(--color-accent)", color: "oklch(0.14 0 0)" }}
+            style={{ background: "var(--color-primary)", color: "oklch(0.14 0 0)" }}
           >
             {activeCount > 9 ? "9+" : activeCount}
           </span>

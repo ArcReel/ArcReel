@@ -10,8 +10,8 @@ const CONFIG: Record<ShotStatus, { color: string; bg: string; labelKey: string }
     labelKey: "shot_status_ready",
   },
   storyboard: {
-    color: "var(--color-accent-2)",
-    bg: "var(--color-accent-dim)",
+    color: "var(--color-primary-2)",
+    bg: "var(--color-primary-dim)",
     labelKey: "shot_status_storyboard",
   },
   pending: {

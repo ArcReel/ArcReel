@@ -93,8 +93,8 @@ function SessionSelector({
                   style={
                     isActive
                       ? {
-                          background: "var(--color-accent-dim)",
-                          color: "var(--color-accent-2)",
+                          background: "var(--color-primary-dim)",
+                          color: "var(--color-primary-2)",
                         }
                       : { color: "var(--color-text-2)" }
                   }
@@ -412,7 +412,7 @@ export function AgentCopilot() {
             className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+                "linear-gradient(135deg, var(--color-primary), oklch(0.60 0.10 280))",
               color: "oklch(0.12 0 0)",
             }}
           >
@@ -421,12 +421,12 @@ export function AgentCopilot() {
           {isRunning || sending ? (
             <span
               className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px]"
-              style={{ color: "var(--color-accent-2)" }}
+              style={{ color: "var(--color-primary-2)" }}
               title={t("arcreel_agent")}
             >
               <span
                 className="h-1.5 w-1.5 animate-pulse rounded-full"
-                style={{ background: "var(--color-accent)" }}
+                style={{ background: "var(--color-primary)" }}
               />
               {t("thinking")}
             </span>
@@ -470,14 +470,14 @@ export function AgentCopilot() {
               className="mb-3 grid h-12 w-12 place-items-center rounded-2xl"
               style={{
                 background:
-                  "linear-gradient(135deg, var(--color-accent-dim), oklch(0.22 0.011 265 / 0.6))",
-                border: "1px solid var(--color-accent-soft)",
-                boxShadow: "0 0 24px -8px var(--color-accent-glow)",
+                  "linear-gradient(135deg, var(--color-primary-dim), oklch(0.22 0.011 265 / 0.6))",
+                border: "1px solid var(--color-primary-soft)",
+                boxShadow: "0 0 24px -8px var(--color-primary-glow)",
               }}
             >
               <Bot
                 className="h-5 w-5"
-                style={{ color: "var(--color-accent-2)" }}
+                style={{ color: "var(--color-primary-2)" }}
               />
             </div>
             <p
@@ -601,14 +601,14 @@ export function AgentCopilot() {
         <div
           className="relative flex items-end gap-2 rounded-lg px-3 py-2 transition-colors"
           style={{
-            border: `1px solid ${isDragOver ? "var(--color-accent)" : "var(--color-hairline)"}`,
+            border: `1px solid ${isDragOver ? "var(--color-primary)" : "var(--color-hairline)"}`,
             background: isDragOver
-              ? "var(--color-accent-dim)"
+              ? "var(--color-primary-dim)"
               : "oklch(0.20 0.012 265 / 0.7)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
             boxShadow: isDragOver
-              ? "0 0 0 3px var(--color-accent-soft), inset 0 1px 0 oklch(1 0 0 / 0.04)"
+              ? "0 0 0 3px var(--color-primary-soft), inset 0 1px 0 oklch(1 0 0 / 0.04)"
               : "inset 0 1px 0 oklch(1 0 0 / 0.04)",
           }}
           onDragOver={handleDragOver}
@@ -701,9 +701,9 @@ export function AgentCopilot() {
               style={{
                 color: "oklch(0.14 0 0)",
                 background:
-                  "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                  "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-accent-glow)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-primary-glow)",
               }}
               title={t("send_message")}
               aria-label={t("send_message")}

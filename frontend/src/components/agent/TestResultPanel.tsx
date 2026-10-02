@@ -8,7 +8,7 @@ type Overall = TestConnectionResponse["overall"];
 const OVERALL_VIEW: Record<Overall, { Icon: LucideIcon; tone: string; headlineKey: string }> = {
   ok: {
     Icon: CheckCircle,
-    tone: "border-accent/40 bg-accent/5 text-accent",
+    tone: "border-primary/40 bg-primary/5 text-primary",
     headlineKey: "test_ok",
   },
   fail: {

@@ -35,7 +35,7 @@ export function AgentLanguageRuleSection() {
           {t("agent_language_rule_load_failed", { message: error })}
         </p>
       ) : source === null ? (
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary-2" aria-hidden />
       ) : (
         <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.6] text-text-2">
           {source}

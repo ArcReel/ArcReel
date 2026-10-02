@@ -190,10 +190,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               className="relative grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
               style={{
                 color: notificationDrawerOpen
-                  ? "var(--color-accent-2)"
+                  ? "var(--color-primary-2)"
                   : "var(--color-text-3)",
                 background: notificationDrawerOpen
-                  ? "var(--color-accent-dim)"
+                  ? "var(--color-primary-dim)"
                   : "transparent",
               }}
               onMouseEnter={(e) => {
