@@ -95,8 +95,8 @@ class GrokTextBackend:
             ),
         )
 
-        # 结构化输出也走 sample()：chat.parse() 在 SDK 内部直接 model_validate_json，截断的 JSON 会先抛
-        # pydantic ValidationError，下面的截断判定就执行不到；改为先判截断、再自行校验。
+        # 结构化输出也走 sample()，先判截断、再自行校验：chat.parse() 在 SDK 内部直接 model_validate_json，
+        # 截断的 JSON 会先抛 pydantic ValidationError，截断判定就执行不到。
         response = await chat.sample()
         text = response.content if hasattr(response, "content") else str(response)
 

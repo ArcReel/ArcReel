@@ -10,8 +10,7 @@ from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.db.repositories.task_repo import TaskRepository
 from lib.generation.generation_worker import GenerationWorker
 from lib.generation.task_failure import encode_failure
-from lib.project.project_manager import ProjectManager
-from server.routers import projects
+from lib.project.project_manager import ProjectManager, get_project_manager
 from server.services.tasks import generation_tasks
 from tests.fakes import refuse_resume_execution
 from tests.http_capture import capture_http
@@ -41,15 +40,12 @@ def _tree(root: Path) -> dict[str, bytes | None]:
 
 
 @pytest.mark.parametrize("recreate", [True, False], ids=["recreated", "deleted-only"])
-async def test_task_running_when_project_deleted_leaves_no_trace(tmp_path, monkeypatch, db_factory, recreate):
-    manager = ProjectManager(tmp_path)
+async def test_task_running_when_project_deleted_leaves_no_trace(monkeypatch, db_factory, recreate):
+    manager = get_project_manager()
     _create_demo(manager)
     project_dir = manager.get_project_path("demo")
     generator = build_generator(project_dir, DashScopeImageBackend(api_key="sk", model="qwen-image-2.0"))
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: manager)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
-    monkeypatch.setattr("lib.generation.video_resume.get_project_manager", lambda: manager)
-    monkeypatch.setattr(projects, "async_session_factory", db_factory)
 
     async with db_factory() as session:
         repo = TaskRepository(session)
@@ -58,7 +54,7 @@ async def test_task_running_when_project_deleted_leaves_no_trace(tmp_path, monke
     assert task is not None
 
     new_project: dict[str, bytes | None] = {}
-    with build_projects_client(monkeypatch, manager) as client:
+    with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
 
         def _delete_and_recreate() -> None:
             assert client.delete("/api/v1/projects/demo").status_code == 200

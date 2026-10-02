@@ -613,7 +613,7 @@ def _prompt_overwrite_problem(exc: PromptOverwriteRequiredError) -> ToolProblem:
     return ToolProblem("prompt_overwrite_required", str(exc), params={"prompt_overwrite": exc.overwrite})
 
 
-def _truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
+def truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
     """文本模型输出被截断：各文本任务同一个问题码，出路是登记最大输出长度（自定义模型）或换一个文本模型。"""
     return ToolProblem(
         "text_output_truncated",
@@ -659,7 +659,7 @@ async def _run_text_generation(
     except OperationNotAdmittedError as exc:
         return ToolOutcome(problem=_not_admitted_problem(exc))
     except TextOutputTruncatedError as exc:
-        return ToolOutcome(problem=_truncation_problem(exc))
+        return ToolOutcome(problem=truncation_problem(exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -1453,7 +1453,7 @@ async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, A
     except DraftWorkflowError as exc:
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
     except TextOutputTruncatedError as exc:
-        return ToolOutcome(problem=_truncation_problem(exc))
+        return ToolOutcome(problem=truncation_problem(exc))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", str(exc)))
 
@@ -2802,7 +2802,7 @@ async def _execute_plan_episodes(
                 instructions=request.value.instructions, on_more_to_plan=chain.queue_next_window, gap=gap
             )
     except TextOutputTruncatedError as exc:
-        return ToolOutcome(problem=_truncation_problem(exc))
+        return ToolOutcome(problem=truncation_problem(exc))
     except NoCutPointError as exc:
         return ToolOutcome(
             problem=ToolProblem(
@@ -3086,7 +3086,7 @@ async def _draft_replan_window(
             candidate_id, planning_instructions, on_more_to_plan=chain.queue_next_window
         )
     except TextOutputTruncatedError as exc:
-        return ToolOutcome(problem=_truncation_problem(exc))
+        return ToolOutcome(problem=truncation_problem(exc))
     except NoCutPointError as exc:
         return ToolOutcome(
             problem=ToolProblem(

@@ -5,7 +5,6 @@ import asyncio
 import pytest
 
 from lib.config.service import ConfigService
-from server.routers import projects
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     build_projects_client,
@@ -353,9 +352,8 @@ class TestProjectCreationNarrationDelivery:
                 await session.commit()
 
         asyncio.run(_seed())
-        monkeypatch.setattr(projects, "async_session_factory", db_factory)
         fake_pm = _FakePM(tmp_path)
-        with build_projects_client(monkeypatch, fake_pm) as client:
+        with build_projects_client(monkeypatch, fake_pm, session_factory=db_factory) as client:
             resp = self._create(client, narration_delivery="use_tts", narration_voice="Cherry")
             assert resp.status_code == 200
         data = fake_pm.project_data["n-1"]
