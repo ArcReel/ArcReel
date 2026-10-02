@@ -22,8 +22,8 @@ const activeTraps: object[] = [];
  * `someRef.current?.focus()`），保留它，避免反复夺焦；子组件在 useEffect 里调的 focus 晚于本 hook，直接覆盖初始聚焦。
  *
  * 关闭回焦：调用方可传 `returnTargetRef`，cleanup 时优先恢复 ref 内保存的目标。
- * useEffect 在 React 里是 bottom-up：子组件的 nameRef.focus() 先于本 hook 跑，
- * 所以直接读 `document.activeElement` 会拿到已被子组件改写的输入框节点，关闭
+ * layout effect 在 React 里是 bottom-up：子组件的 `autoFocus` 与更深层 layout effect 里的
+ * focus 先于本 hook 跑，所以直接读 `document.activeElement` 可能拿到已被子组件改写的输入框节点，关闭
  * 后 focus 一个即将卸载的元素 → 焦点丢到 body。`returnTargetRef` 应在更上层
  * 的 render 阶段（open=false→true 的边沿）由 ModalShell 等容器写入真正的
  * trigger 节点。
