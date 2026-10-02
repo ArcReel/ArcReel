@@ -39,7 +39,11 @@ def _build_app_with_ok_routes() -> FastAPI:
 
 
 @pytest.mark.asyncio
-async def test_quiet_endpoint_fast_200_is_debug(caplog: pytest.LogCaptureFixture) -> None:
+async def test_quiet_endpoint_fast_200_is_debug(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 阈值放到无穷大，使“快响应”判定不依赖真实耗时（慢 runner 上首个请求要构建中间件栈）。
+    monkeypatch.setattr("server.app.QUIET_SLOW_THRESHOLD_MS", float("inf"))
     caplog.set_level(logging.DEBUG, logger="server.app")
     app = _build_app_with_ok_routes()
 
@@ -53,6 +57,24 @@ async def test_quiet_endpoint_fast_200_is_debug(caplog: pytest.LogCaptureFixture
     records = _access_log_records(caplog.records)
     assert len(records) == 2
     assert all(r.levelno == logging.DEBUG for r in records)
+
+
+@pytest.mark.asyncio
+async def test_quiet_endpoint_slow_200_is_info(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """阈值为 0 时任何耗时都算慢，静默路径的 2xx 也要走 INFO。"""
+    monkeypatch.setattr("server.app.QUIET_SLOW_THRESHOLD_MS", 0.0)
+    caplog.set_level(logging.DEBUG, logger="server.app")
+    app = _build_app_with_ok_routes()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/v1/tasks")
+
+    assert resp.status_code == 200
+    records = _access_log_records(caplog.records)
+    assert len(records) == 1
+    assert records[0].levelno == logging.INFO
 
 
 @pytest.mark.asyncio
