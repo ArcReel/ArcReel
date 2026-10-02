@@ -83,18 +83,14 @@ def register_asset_prompt_preview_routes(
 
     base = f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}"
 
-    # 以下处理器由 @router.* 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
-    # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @router.post(f"{base}/prompt-preview")
-    async def preview_asset(  # pyright: ignore[reportUnusedFunction]
-        project_name: str, entry_name: str, req: AssetPromptPreviewRequest, _t: Translator
-    ):
+    async def preview_asset(project_name: str, entry_name: str, req: AssetPromptPreviewRequest, _t: Translator):
         return await preview(project_name, entry_name, req, _t)
 
     if spec.supports_derivatives:
 
         @router.post(f"{base}/derivatives/{{derivative_name}}/prompt-preview")
-        async def preview_derivative(  # pyright: ignore[reportUnusedFunction]
+        async def preview_derivative(
             project_name: str,
             entry_name: str,
             derivative_name: str,

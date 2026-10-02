@@ -68,6 +68,8 @@ def build_remote_mcp_server(
             issuer_url=public_url,
             resource_server_url=public_url,
             required_scopes=["arcreel"],
+            # ArcApiKeyVerifier 返回的 AccessToken 不带 resource，资源绑定校验不适用，显式关闭
+            validate_token_resource=False,
         ),
         stateless_http=True,
         streamable_http_path="/",

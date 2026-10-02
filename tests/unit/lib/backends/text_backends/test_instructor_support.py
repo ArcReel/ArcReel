@@ -90,27 +90,6 @@ def _no_tool_call_error() -> ResponseParsingError:
     )
 
 
-def _empty_tool_calls_error() -> ResponseParsingError:
-    """上游以 tool_calls=[] 表示没回 tool call：同样解析失败，但 Instructor 的 reask 能正常构造。"""
-    return ResponseParsingError(
-        "No tool calls or function call found in response",
-        mode="TOOLS",
-        raw_response=_completion("", tool_calls=[]),
-    )
-
-
-def _reask_crashed_on_no_tool_call_error() -> InstructorRetryException:
-    """上游没回 tool call 且 Instructor 的 reask 在空 tool_calls 上崩成 TypeError 的真实形态。
-
-    终止原因（__cause__）是 TypeError，原本的解析异常只留在 failed_attempts 末条
-    （由 TestInstructorExceptionShape 对真实 Instructor 钉住）。
-    """
-    return _retry_exhausted(
-        TypeError("'NoneType' object is not iterable"),
-        earlier_attempts=[_no_tool_call_error()],
-    )
-
-
 def _md_json_parse_error() -> ResponseParsingError:
     """MD_JSON 档解析失败：该档响应本来就没有 tool call，响应结构与 TOOLS 档缺 tool call 无法区分。"""
     return ResponseParsingError(
@@ -581,7 +560,7 @@ class TestInstructorExceptionShape:
     def test_parse_failure_types_match_instructors_retryable_set(self):
         """判据靠「终止原因是否属解析 / 校验类」区分模型问题与 API 问题，集合须与 Instructor 一致。
 
-        `_RETRYABLE_PARSE_ERRORS` 是私有符号、不属公开契约，而 pyproject 允许 instructor>=1.14.5，
+        `_RETRYABLE_PARSE_ERRORS` 是私有符号、不属公开契约，而 pyproject 允许 instructor>=1.16.0，
         升级后它可能改名或搬家。此处导入失败即是该情况：到 instructor 的重试循环里重新找出这批
         「会被记进 failed_attempts 并触发 reask」的异常类型，同步更新 `_PARSE_FAILURE_TYPES`。
         """
@@ -641,11 +620,11 @@ class TestInstructorExceptionShape:
 
         assert exc_info.value.failed_attempts != []
 
-    def test_absent_tool_call_terminates_in_reask_type_error(self):
-        """TOOLS 档下上游不回 tool call：reask 在 tool_calls=None 上崩掉，TypeError 顶替终止原因。
+    def test_absent_tool_call_is_retried_then_terminates_in_parse_error(self):
+        """TOOLS 档下上游不回 tool call：Instructor 当作可重试的解析失败，reask 带纠正提示重发。
 
-        钉住判据依赖的三点形态：终止原因是 TypeError、失败尝试末条是 tool_calls=None 的解析异常、
-        崩溃发生在第二次请求之前（只发出一次请求）。
+        钉住判据依赖的形态：档内重试耗尽才终止、终止原因直接是 tool_calls=None 的解析异常，
+        且每次重发都追加了纠正消息（而非原样重发同一份请求）。
         """
         from openai import OpenAI
         from openai.types.chat import ChatCompletionMessage
@@ -667,12 +646,13 @@ class TestInstructorExceptionShape:
                 max_retries=2,
             )
 
-        exc = exc_info.value
-        assert isinstance(exc.__cause__, TypeError)
-        last = exc.failed_attempts[-1].exception
-        assert isinstance(last, ResponseParsingError)
-        assert last.raw_response.choices[0].message.tool_calls is None
-        assert client.chat.completions.create.call_count == 1
+        cause = exc_info.value.__cause__
+        assert isinstance(cause, ResponseParsingError)
+        assert cause.raw_response.choices[0].message.tool_calls is None
+        calls = client.chat.completions.create.call_args_list
+        assert len(calls) == 3
+        # Instructor 原地追加消息列表，各次调用记录的是同一个对象，只能看最终形态
+        assert [m["role"] for m in calls[-1].kwargs["messages"][:3]] == ["user", "assistant", "user"]
 
 
 class TestStructuredModeChainSync:
@@ -729,27 +709,15 @@ class TestStructuredModeChainSync:
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
         assert result.text == sample.model_dump_json()
 
-    def test_reask_crash_on_no_tool_call_falls_back_to_md_json(self):
-        """上游不回 tool call 且 Instructor 的 reask 崩成 TypeError → 仍判 wire 层不兼容、降档到 MD_JSON。"""
-        sample = SampleModel(name="Dave", age=41)
-        with patch(
-            "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
-            side_effect=[_reask_crashed_on_no_tool_call_error(), (sample.model_dump_json(), 10, 5)],
-        ) as mock_gen:
-            result = self._call()
-
-        assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
-        assert result.text == sample.model_dump_json()
-
-    def test_type_error_after_empty_tool_calls_propagates(self):
-        """tool_calls=[] 时 reask 能再发请求，之后撞上的 TypeError 是客户端错误：原样冒泡，不当成 reask 崩溃。"""
+    def test_client_type_error_after_tools_parse_failure_propagates(self):
+        """TOOLS 档缺 tool call 一次后撞上客户端 TypeError：终止原因是客户端错误，原样冒泡而非降档。"""
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
                 side_effect=[
                     _retry_exhausted(
                         TypeError("unexpected keyword argument"),
-                        earlier_attempts=[_empty_tool_calls_error()],
+                        earlier_attempts=[_no_tool_call_error()],
                     )
                 ],
             ) as mock_gen,
@@ -778,17 +746,14 @@ class TestStructuredModeChainSync:
 
         assert self._modes(mock_gen) == [Mode.TOOLS, Mode.MD_JSON]
 
-    def test_reask_crash_after_function_call_with_missing_args_is_terminal(self):
-        """legacy function_call 回了调用但 arguments 缺失、随后 reask 崩溃：上游确实回了调用，判终局不降档。"""
+    def test_function_call_with_missing_args_is_terminal(self):
+        """legacy function_call 回了调用但 arguments 缺失：上游确实回了调用，判终局不降档。"""
         sample = SampleModel(name="Eve", age=29)
         with (
             patch(
                 "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
                 side_effect=[
-                    _retry_exhausted(
-                        TypeError("'NoneType' object is not iterable"),
-                        earlier_attempts=[_function_call_args_missing_error()],
-                    ),
+                    _retry_exhausted(_function_call_args_missing_error()),
                     (sample.model_dump_json(), 10, 5),
                 ],
             ) as mock_gen,
@@ -1085,14 +1050,16 @@ class TestStructuredModeChainThroughInstructor:
         )
 
     def test_sync_content_only_response_lands_on_md_json(self):
-        """TOOLS 档在 reask 崩掉后降档，MD_JSON 档从同样的正文解析出结果；两档各发一次请求，计费合并。"""
+        """TOOLS 档 reask 重试耗尽后降档，MD_JSON 档从同样的正文解析出结果；各次请求的计费合并。"""
         from openai import OpenAI
 
         client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1")
         client.chat.completions.create = MagicMock(
             side_effect=[
                 self._content_only_completion(prompt_tokens=11, completion_tokens=7),
+                self._content_only_completion(prompt_tokens=12, completion_tokens=6),
                 self._content_only_completion(prompt_tokens=13, completion_tokens=5),
+                self._content_only_completion(prompt_tokens=14, completion_tokens=4),
             ]
         )
 
@@ -1105,9 +1072,9 @@ class TestStructuredModeChainThroughInstructor:
         )
 
         assert result.text == SampleModel(name="Bob", age=1).model_dump_json()
-        assert client.chat.completions.create.call_count == 2
-        assert result.input_tokens == 24
-        assert result.output_tokens == 12
+        assert client.chat.completions.create.call_count == 4
+        assert result.input_tokens == 50
+        assert result.output_tokens == 22
 
     async def test_async_content_only_response_lands_on_md_json(self):
         """异步入口同口径：这是 OpenAI 兼容后端走结构化降级链的生产路径。"""
@@ -1117,7 +1084,9 @@ class TestStructuredModeChainThroughInstructor:
         client.chat.completions.create = AsyncMock(
             side_effect=[
                 self._content_only_completion(prompt_tokens=11, completion_tokens=7),
+                self._content_only_completion(prompt_tokens=12, completion_tokens=6),
                 self._content_only_completion(prompt_tokens=13, completion_tokens=5),
+                self._content_only_completion(prompt_tokens=14, completion_tokens=4),
             ]
         )
 
@@ -1130,9 +1099,9 @@ class TestStructuredModeChainThroughInstructor:
         )
 
         assert result.text == SampleModel(name="Bob", age=1).model_dump_json()
-        assert client.chat.completions.create.await_count == 2
-        assert result.input_tokens == 24
-        assert result.output_tokens == 12
+        assert client.chat.completions.create.await_count == 4
+        assert result.input_tokens == 50
+        assert result.output_tokens == 22
 
 
 class TestInstructorFallbackAsync:

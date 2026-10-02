@@ -107,7 +107,7 @@ def _raw_output_from_exception(exc: BaseException) -> str:
     return "<无响应>"
 
 
-def _api_call_failure(exc: InstructorRetryException, mode: Mode) -> BaseException | None:
+def _api_call_failure(exc: InstructorRetryException) -> BaseException | None:
     """取终止这一档的原始异常；若终止在模型输出的解析 / 校验上则返回 None。
 
     Instructor 把终止原因挂在 ``__cause__`` 上（``raise ... from last_exception``），判据必须
@@ -116,41 +116,25 @@ def _api_call_failure(exc: InstructorRetryException, mode: Mode) -> BaseExceptio
     不能拿 ``failed_attempts`` 是否为空当代理：解析 / 校验类失败会逐次累积进 ``failed_attempts``
     且不清空，因此「先解析失败一次、再撞上代理 503」这条路径下 ``failed_attempts`` 非空而终止
     原因是 503。按前者判会把瞬态错误当成模型输出不合规，吞掉调用方的重试。终止原因是否落在
-    模型输出上由 :func:`_model_output_failure` 按响应结构判定。
+    模型输出上由 :func:`_model_output_failure` 按终止原因的类型判定。
     """
-    if exc.__cause__ is None or _model_output_failure(exc, mode) is not None:
+    if exc.__cause__ is None or _model_output_failure(exc) is not None:
         return None
     return exc.__cause__
 
 
-def _model_output_failure(exc: InstructorRetryException, mode: Mode) -> BaseException | None:
+def _model_output_failure(exc: InstructorRetryException) -> BaseException | None:
     """这一档若折在模型输出的解析 / 校验上，返回那条解析 / 校验异常；折在 API 调用上返回 None。
 
-    Instructor 有两种落点。常态是终止原因（``__cause__``）本身就是解析 / 校验异常。另一种是
-    TOOLS 档下响应的 ``tool_calls`` 为 ``None``：Instructor 先把解析异常记进 ``failed_attempts``，
-    再构造 reask 消息时对 ``message.tool_calls`` 逐项遍历、撞上 ``None`` 抛 ``TypeError``，该
-    ``TypeError`` 顶替了终止原因，真正的失败只留在 ``failed_attempts`` 末条。
+    Instructor 把终止原因挂在 ``__cause__`` 上；解析 / 校验类失败时它就是最后一次尝试的解析
+    异常。TOOLS 档响应里没有 tool call 也属此类：Instructor 把它当作可重试的解析失败，reask 时
+    附上纠正提示重发，档内重试耗尽才以 ``ResponseParsingError`` 终止。
 
-    后者是 TOOLS 档 reask 处理器的行为，只在该档识别，并只认末条尝试的响应里 ``tool_calls``
-    恰为 ``None``：这种响应让 reask 必然在发出下一次请求前崩掉，终止运行的 ``TypeError`` 只可能
-    来自那里。``tool_calls=[]`` 同样解析失败，但 reask 能正常构造并再发一次请求；MD_JSON 档的
-    reask 不碰 ``tool_calls``，其响应本来就没有 tool call。这两种情形下之后再撞上的
-    ``TypeError`` 属客户端错误，须原样冒泡。
-
-    这里只回答「折在模型输出上」，不回答「值得换档」：末条响应带 legacy ``function_call`` 而
-    arguments 缺失时同样走到 reask 崩溃，但上游确实回了调用，换不换档仍由
-    :func:`_tool_call_absent` 按同一套响应结构判据决定。
+    这里只回答「折在模型输出上」，不回答「值得换档」：换不换档由 :func:`_tool_call_absent`
+    按响应结构判定。
     """
     cause = exc.__cause__
-    if isinstance(cause, _PARSE_FAILURE_TYPES):
-        return cause
-    if mode is not Mode.TOOLS or not isinstance(cause, TypeError) or not exc.failed_attempts:
-        return None
-    last = exc.failed_attempts[-1].exception
-    message = _first_choice_message(last)
-    if message is None or not hasattr(message, "tool_calls") or message.tool_calls is not None:
-        return None
-    return last
+    return cause if isinstance(cause, _PARSE_FAILURE_TYPES) else None
 
 
 def _first_choice_message(exc: BaseException | None) -> Any | None:
@@ -179,11 +163,11 @@ def _tool_call_absent(exc: BaseException | None) -> bool:
     return getattr(message, "function_call", None) is None
 
 
-def _failure_reason(exc: BaseException, mode: Mode) -> str:
+def _failure_reason(exc: BaseException) -> str:
     """把某一档的失败压成一句可读原因，供 StructuredOutputExhaustedError 携带。"""
     if not isinstance(exc, InstructorRetryException):
         return f"降级链失败（{type(exc).__name__}: {exc}）"
-    api_failure = _api_call_failure(exc, mode)
+    api_failure = _api_call_failure(exc)
     if api_failure is not None:
         return f"降级链各档传递 schema 的方式均被上游拒收（{api_failure}）"
     last = exc.failed_attempts[-1].exception if exc.failed_attempts else None
@@ -204,10 +188,10 @@ def _billed_usage(exc: BaseException) -> tuple[int | None, int | None]:
     return prompt, completion
 
 
-def _propagated_cause(exc: Exception, mode: Mode) -> Exception:
+def _propagated_cause(exc: Exception) -> Exception:
     """冒泡时该抛的异常：API 调用失败抛原异常本身，其余抛原样。"""
     if isinstance(exc, InstructorRetryException):
-        api_failure = _api_call_failure(exc, mode)
+        api_failure = _api_call_failure(exc)
         if isinstance(api_failure, Exception):
             return api_failure
     return exc
@@ -226,13 +210,13 @@ class _ModeFailure(Enum):
     """与结构化输出能力无关，交调用方判定。"""
 
 
-def _classify_mode_failure(exc: BaseException, mode: Mode) -> _ModeFailure:
+def _classify_mode_failure(exc: BaseException) -> _ModeFailure:
     """判定某一档的失败该降档、判终局，还是原样冒泡。
 
     只有 wire 层不兼容才降档，两种形态：上游拒收 tools 参数（API 调用异常，须由错误文本指名
     tools / functions 才算数），或收下了却不回 tool call（见 :func:`_tool_call_absent`）。后者
-    的解析异常在 Instructor 里有两种落点（见 :func:`_model_output_failure`），先取回那条异常
-    再按响应结构判是否值得换档。
+    要等 Instructor 在本档内 reask 重试耗尽才降档：纠正提示可能让偶尔漏调工具的模型在约束更强的
+    本档内成功，代价是上游确实不产 tool call 时多花档内重试的请求。
 
     API 调用异常一律走关键字判据，400 也不例外：无 ``STRUCTURED_OUTPUT`` 能力位的 Ark 模型
     不经原生档直接进本链，此处的 400 同样可能是模型名无效、上下文超限或策略拒绝。把这些无差别
@@ -247,9 +231,9 @@ def _classify_mode_failure(exc: BaseException, mode: Mode) -> _ModeFailure:
     """
     if not isinstance(exc, InstructorRetryException):
         return _ModeFailure.PROPAGATE
-    api_failure = _api_call_failure(exc, mode)
+    api_failure = _api_call_failure(exc)
     if api_failure is None:
-        if _tool_call_absent(_model_output_failure(exc, mode)):
+        if _tool_call_absent(_model_output_failure(exc)):
             return _ModeFailure.DOWNGRADE
         return _ModeFailure.TERMINAL
     if any(kw in str(api_failure).lower() for kw in _TOOLS_UNSUPPORTED_KEYWORDS):
@@ -394,11 +378,11 @@ def _handle_mode_failure(
 
     正常返回即「调用方应继续下一档」，返回值是这一档已计费、需并入最终结果的 token。
     """
-    failure = _classify_mode_failure(exc, mode)
+    failure = _classify_mode_failure(exc)
     if failure is _ModeFailure.PROPAGATE:
         # 冒泡时剥掉 Instructor 的包装：调用方的 @with_retry_async 先按异常类型判瞬态
         # （ConnectionError / TimeoutError），包着一层就只剩消息文本匹配，漏判连接类错误。
-        raise _propagated_cause(exc, mode)
+        raise _propagated_cause(exc)
     if failure is _ModeFailure.DOWNGRADE and next_mode is not None:
         logger.warning(
             "Instructor %s 档 wire 层不兼容（%s），降档到 %s 档；模型原始输出：%s",
@@ -414,7 +398,7 @@ def _handle_mode_failure(
         mode.value,
         _raw_output_from_exception(exc),
     )
-    raise StructuredOutputExhaustedError(provider=provider, model=model, reason=_failure_reason(exc, mode)) from exc
+    raise StructuredOutputExhaustedError(provider=provider, model=model, reason=_failure_reason(exc)) from exc
 
 
 def instructor_fallback_sync(

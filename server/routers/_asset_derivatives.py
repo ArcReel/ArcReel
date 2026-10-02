@@ -156,10 +156,8 @@ def register_derivative_routes(
             logger.exception("请求处理失败")
             raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
-    # 以下四个处理器由 @router.* 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
-    # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @router.post(base)
-    async def add_derivative(  # pyright: ignore[reportUnusedFunction]
+    async def add_derivative(
         project_name: str,
         entry_name: str,
         req: _DerivativeCreateRequest,
@@ -184,7 +182,7 @@ def register_derivative_routes(
         return {"success": True, asset_type: result}
 
     @router.patch(f"{base}/{{derivative_name}}")
-    async def update_derivative(  # pyright: ignore[reportUnusedFunction]
+    async def update_derivative(
         project_name: str,
         entry_name: str,
         derivative_name: str,
@@ -212,7 +210,7 @@ def register_derivative_routes(
         return {"success": True, asset_type: result}
 
     @router.post(f"{base}/{{derivative_name}}/rename")
-    async def rename_derivative(  # pyright: ignore[reportUnusedFunction]
+    async def rename_derivative(
         project_name: str,
         entry_name: str,
         derivative_name: str,
@@ -234,7 +232,7 @@ def register_derivative_routes(
         return {"success": True, asset_type: result}
 
     @router.delete(f"{base}/{{derivative_name}}")
-    async def delete_derivative(  # pyright: ignore[reportUnusedFunction]
+    async def delete_derivative(
         project_name: str,
         entry_name: str,
         derivative_name: str,

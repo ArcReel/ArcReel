@@ -16,8 +16,8 @@ ArcReel assumes that contributors develop with a coding Agent. `AGENTS.md` at th
 ## Local Development Environment {#local-development}
 
 ```bash
-# Prerequisites: Python 3.12+, Node.js 20+, uv, pnpm (ffmpeg ships with the Python dependency imageio-ffmpeg)
-# The documentation site website/ also needs Node 24 (pinned in website/.node-version)
+# Prerequisites: Python 3.12+, Node.js 24.12.0+, uv, pnpm (ffmpeg ships with the Python dependency imageio-ffmpeg)
+# The documentation site website/ pins its Node version in website/.node-version
 # Operating system: Linux / macOS / Windows WSL2; native Windows can run project creation and basic workflows,
 # but the Agent sandbox on Windows degrades to a command-prefix allowlist (see docs/adr/0025); WSL2/Docker is recommended for production
 

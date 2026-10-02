@@ -140,6 +140,12 @@ updates:
       - "javascript"
     commit-message:
       prefix: "chore(deps)"
+    # jsdom 上限是 30.0.x：vitest 4 的 jsdom 环境把 jsdom Blob 转成 Node Blob 时读取内部字段
+    # `_buffer`，jsdom 30.1 已将其改名，URL.createObjectURL / FormData 传 File 的测试随之报错。
+    # 解锁条件：frontend 升级到 vitest >= 5.0.3（该版本起改读新字段）。
+    ignore:
+      - dependency-name: "jsdom"
+        versions: [">=30.1"]
     groups:
       react:
         patterns:

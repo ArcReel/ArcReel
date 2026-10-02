@@ -125,13 +125,14 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
 
   const consume = async (body: ReadableStream<Uint8Array>, signal: AbortSignal) => {
     const parser = createParser({
+      // 按 EventSource 规范：不带 data 的块里的 id 同样更新续传位置；空 id 清空续传位置，重连不再带头。
+      onId(id) {
+        lastEventId = id === "" ? null : id;
+      },
       onEvent(message) {
         // 收到事件才算这条连接真的可用，退避从此归零。只按 2xx 响应头归零的话，
         // 「接受连接后立刻断流」的坏代理会让每次重连都停留在首个退避档，客户端按秒重连不止。
         attempt = 0;
-        if (message.id !== undefined) {
-          lastEventId = message.id;
-        }
         options.onMessage({ event: message.event ?? "message", data: message.data, id: message.id });
       },
       onRetry(retry) {

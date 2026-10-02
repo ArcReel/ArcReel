@@ -6,7 +6,7 @@ description = "AI video generation workspace"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "claude-agent-sdk>=0.1.76",
+    "claude-agent-sdk>=0.2.153",
     "fastapi>=0.138.2",
     # fastapi 未 re-export 的 ASGI 类型与 MutableHeaders / FormData / UploadFile 直接取自 starlette。
     "starlette>=1.6.0",
@@ -29,7 +29,7 @@ dependencies = [
     "openai>=2.30.0",
     "xai-sdk>=1.8.2",
     "pyjianyingdraft>=0.3.0",
-    "instructor>=1.14.5",
+    "instructor>=1.16.0",
     "charset-normalizer>=3.4.6",
     "docx2txt>=0.9",
     "mammoth>=1.12.0",

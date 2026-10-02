@@ -20,38 +20,36 @@ def _make_client() -> TestClient:
     app = FastAPI()
     register_error_handlers(app)
 
-    # 以下路由桩由 @app.get 就地注册，函数体内无其它引用；basedpyright 把函数作用域内的符号
-    # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @app.get("/api-error-404")
-    async def _api_error_404():  # pyright: ignore[reportUnusedFunction]
+    async def _api_error_404():
         raise NotFoundError("segment_not_found", id="E1S01")
 
     @app.get("/api-error-400")
-    async def _api_error_400():  # pyright: ignore[reportUnusedFunction]
+    async def _api_error_400():
         raise BadRequestError("audio_provider_not_configured")
 
     @app.get("/api-error-422-with-diagnostic")
-    async def _api_error_422_with_diagnostic():  # pyright: ignore[reportUnusedFunction]
+    async def _api_error_422_with_diagnostic():
         raise UnprocessableError("script_validation_failed").with_diagnostic("scenes[0].shots must be a list")
 
     @app.get("/api-error-custom-status")
-    async def _api_error_custom():  # pyright: ignore[reportUnusedFunction]
+    async def _api_error_custom():
         raise ApiError("internal_server_error", status_code=503)
 
     @app.get("/task-spec-error")
-    async def _task_spec_error():  # pyright: ignore[reportUnusedFunction]
+    async def _task_spec_error():
         raise TaskSpecValidationError("prompt_text_empty")
 
     @app.get("/active-video-request-conflict")
-    async def _active_video_request_conflict():  # pyright: ignore[reportUnusedFunction]
+    async def _active_video_request_conflict():
         raise ActiveTaskRequestConflict(resource_id="E1S01", existing_task_id="task-existing")
 
     @app.get("/script-edit-error")
-    async def _script_edit_error():  # pyright: ignore[reportUnusedFunction]
+    async def _script_edit_error():
         raise ScriptEditError("segments 必须是列表，当前为 NoneType")
 
     @app.get("/script-edit-error-keyed")
-    async def _script_edit_error_keyed():  # pyright: ignore[reportUnusedFunction]
+    async def _script_edit_error_keyed():
         raise ScriptEditError(
             "segments 必须是列表，当前为 NoneType",
             key="script_edit_items_not_list",
@@ -60,11 +58,11 @@ def _make_client() -> TestClient:
         )
 
     @app.get("/file-not-found")
-    async def _file_not_found():  # pyright: ignore[reportUnusedFunction]
+    async def _file_not_found():
         raise FileNotFoundError(f"剧本文件不存在: {_SERVER_PATH}")
 
     @app.get("/unexpected")
-    async def _unexpected():  # pyright: ignore[reportUnusedFunction]
+    async def _unexpected():
         raise RuntimeError(f"boom at {_SERVER_PATH}")
 
     return TestClient(app, raise_server_exceptions=False)
@@ -185,9 +183,8 @@ def _make_cors_client(allow_origins, allow_credentials) -> TestClient:
     app = FastAPI()
     register_error_handlers(app, cors_allow_origins=allow_origins, cors_allow_credentials=allow_credentials)
 
-    # 路由桩由 @app.get 就地注册，函数体内无其它引用；reportUnusedFunction 是工具误报。
     @app.get("/unexpected")
-    async def _unexpected():  # pyright: ignore[reportUnusedFunction]
+    async def _unexpected():
         raise RuntimeError("boom")
 
     return TestClient(app, raise_server_exceptions=False)
@@ -229,9 +226,8 @@ class TestUnexpectedErrorCorsHeaders:
         app = FastAPI()
         register_error_handlers(app)
 
-        # 路由桩由 @app.get 就地注册，函数体内无其它引用；reportUnusedFunction 是工具误报。
         @app.get("/unexpected")
-        async def _unexpected():  # pyright: ignore[reportUnusedFunction]
+        async def _unexpected():
             raise RuntimeError("boom")
 
         client = TestClient(app, raise_server_exceptions=False)

@@ -9,8 +9,8 @@ ArcReel 假定贡献者用 coding Agent 开发。仓库根的 `AGENTS.md`（`CLA
 ## 本地开发环境
 
 ```bash
-# 前置要求：Python 3.12+, Node.js 20+, uv, pnpm（ffmpeg 随 Python 依赖 imageio-ffmpeg 安装）
-# 文档站 website/ 另需 Node 24（版本固定于 website/.node-version）
+# 前置要求：Python 3.12+, Node.js 24.12.0+, uv, pnpm（ffmpeg 随 Python 依赖 imageio-ffmpeg 安装）
+# 文档站 website/ 的 Node 版本固定于 website/.node-version
 # 操作系统：Linux / macOS / Windows WSL2；Windows 原生可运行项目创建与基础流程，
 # Agent 沙箱在 Windows 上降级为命令前缀白名单（见 docs/adr/0025），生产部署推荐 WSL2/Docker
 

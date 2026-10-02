@@ -392,10 +392,8 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
     else:
         engine = create_async_engine(f"sqlite+aiosqlite:///{file_path}", poolclass=pool.NullPool)
 
-        # 由 SQLAlchemy 的 event.listens_for 注册，模块内无其它引用；basedpyright 把函数作用域内的
-        # 符号一律判为私有，本处的 reportUnusedFunction 是工具误报。
         @event.listens_for(engine.sync_engine, "connect")
-        def _set_sqlite_pragma(dbapi_conn, _record):  # pyright: ignore[reportUnusedFunction]
+        def _set_sqlite_pragma(dbapi_conn, _record):
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA busy_timeout=30000")

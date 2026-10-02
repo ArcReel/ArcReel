@@ -358,6 +358,9 @@ class OptionsAssembler:
                 type="preset",
                 preset="claude_code",
                 append=await self._build_append_prompt(project_name, locale=locale),
+                # 会话首轮记录系统提示，之后每轮（含 resume）原样沿用：记忆等动态段的变化
+                # 不再打断 prompt cache。代价是 append 在会话内固定，resume 不会按新 locale 重建。
+                snapshot=True,
             ),
             include_partial_messages=True,
             max_buffer_size=CLI_STDOUT_MAX_BUFFER_BYTES,

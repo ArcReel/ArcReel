@@ -1,7 +1,7 @@
 """ArcReel Agent（内嵌 Claude Agent SDK）adapter。
 
-项目由会话决定，schema 不含 ``project``；无 scope 声明不接会话项目。SDK 只把 ``content`` 与 ``isError`` 交给模型，
-因此结构化结果以 JSON 文本块写进 content，排在摘要之后；图片块（如有）排在最后，SDK 原样转给模型。
+项目由会话决定，schema 不含 ``project``；无 scope 声明不接会话项目。结构化结果以 JSON 文本块写进 content、
+排在摘要之后，不依赖 ``structuredContent`` 是否会被转给模型；图片块（如有）排在最后。
 
 内嵌 server 关闭 MCP 层的 inputSchema 预校验：已声明工具的参数一律由请求模型校验，
 坏参数与远程宿主一样得到 ``invalid_request`` problem，而不是 MCP 的纯文本校验错误。
@@ -62,14 +62,12 @@ def embedded_server(
     ]
     server = Server(name, version=version)
 
-    # 以下两个处理器由 @server.* 就地注册，函数内无其它引用；basedpyright 把函数作用域内的符号
-    # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
     @server.list_tools()
-    async def list_tools() -> list[types.Tool]:  # pyright: ignore[reportUnusedFunction]
+    async def list_tools() -> list[types.Tool]:
         return listed
 
     @server.call_tool(validate_input=False)
-    async def call_tool(tool_name: str, arguments: dict[str, Any]) -> types.CallToolResult:  # pyright: ignore[reportUnusedFunction]
+    async def call_tool(tool_name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         declaration = declared.get(tool_name)
         if declaration is None:
             raise ValueError(f"Tool '{tool_name}' not found")

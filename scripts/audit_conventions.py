@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import io
 import json
 import os
@@ -317,7 +316,6 @@ JS_SUFFIXES = frozenset({".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", "
 YAML_SUFFIXES = frozenset({".yml", ".yaml"})
 
 _PY_DIRECTIVE = re.compile(r"#\s*(?:noqa\b(?::\s*[\w, ]+)?|(?P<tool>pyright|type|deptry):\s*ignore(?:\[[^\]]*\])?)")
-_REGISTRATION_IGNORE = re.compile(r"#\s*pyright:\s*ignore\[\s*reportUnusedFunction\s*\]")
 _ESLINT_DIRECTIVE = re.compile(r"(?://|/\*)\s*eslint-disable(?:-next-line|-line)?\b")
 _KNIP_PUBLIC = re.compile(r"(?:/\*\*|^\s*\*)(?:(?!\*/)[^@])*@public\b")
 _ZIZMOR_DIRECTIVE = re.compile(r"#\s*zizmor:\s*ignore(?:\[[^\]]*\])?")
@@ -332,42 +330,11 @@ def _suppression_files(root: Path) -> Iterator[Path]:
                 yield path
 
 
-def _registration_lines(source: str) -> set[int]:
-    """同一函数作用域内带装饰器的嵌套 def 构成一个注册块；首个 def 的装饰器上一行是注释时，块内每个 def 行放行。"""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return set()
-    lines = source.split("\n")
-    allowed: set[int] = set()
-
-    def registered_defs(scope: ast.AST) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDef]:
-        for child in ast.iter_child_nodes(scope):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if child.decorator_list:
-                    yield child
-            elif not isinstance(child, (ast.ClassDef, ast.Lambda)):
-                yield from registered_defs(child)
-
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        block = sorted(registered_defs(node), key=lambda d: d.lineno)
-        if not block:
-            continue
-        first = block[0].decorator_list[0].lineno
-        header = lines[first - 2].strip() if first >= 2 else ""
-        if header.startswith("#") and header.lstrip("#").strip():
-            allowed.update(d.lineno for d in block)
-    return allowed
-
-
 def _python_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
     except (tokenize.TokenError, SyntaxError):
         return
-    registration: set[int] | None = None
     for token in tokens:
         if token.type != tokenize.COMMENT:
             continue
@@ -383,15 +350,7 @@ def _python_suppressions(rel: Path, source: str, out: list[Violation]) -> None:
         else:
             if re.match(r"\s*#\s*\S", rest):
                 continue
-            if _REGISTRATION_IGNORE.fullmatch(token.string.strip()):
-                if registration is None:
-                    registration = _registration_lines(source)
-                if token.start[0] in registration:
-                    continue
-            guidance = (
-                f"`# {last['tool']}: ignore[<规则>]` 后接 `  # 理由`，写明这里为什么是工具误报；"
-                "装饰器就地注册的处理器把理由写在注册块开头的一条注释里"
-            )
+            guidance = f"`# {last['tool']}: ignore[<规则>]` 后接 `  # 理由`，写明这里为什么是工具误报"
         out.append(Violation("SUPPRESSION-REASON", rel, token.start[0], guidance))
 
 

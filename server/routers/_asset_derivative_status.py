@@ -36,10 +36,8 @@ def register_derivative_status_routes(
 
     base = f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}/{DERIVATIVES_FIELD}"
 
-    # 处理器由 @router.get 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
-    # 一律判为私有，reportUnusedFunction 在此是工具误报。
     @router.get(base)
-    async def list_derivatives(  # pyright: ignore[reportUnusedFunction]
+    async def list_derivatives(
         project_name: str,
         entry_name: str,
         _t: Translator,

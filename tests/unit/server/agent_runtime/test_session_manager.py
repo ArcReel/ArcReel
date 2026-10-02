@@ -70,7 +70,7 @@ def _dummy_actor() -> SessionActor:
 async def _cold_revival_clients(session_manager, monkeypatch):
     """Patch the SDK symbols so a non-resident session revives against a fake
     client, and yield the list capturing every constructed client. Each client's
-    ``options.kwargs["system_prompt"]["append"]`` carries the rebuilt prompt, so
+    ``options.kwargs["system_prompt"]["append"]`` carries the rendered prompt, so
     tests can assert which locale the language regulation was rendered with."""
 
     async def _fake_env():
@@ -174,8 +174,9 @@ class TestSessionManager:
 
     @pytest.mark.asyncio
     async def test_get_or_connect_threads_locale_into_system_prompt(self, session_manager, meta_store, monkeypatch):
-        """Cold-recovery revival rebuilds the language regulation from the
-        caller's locale instead of falling back to the default zh."""
+        """Revival renders the language regulation from the caller's locale instead
+        of the default zh, and pins the system prompt as a session snapshot: a
+        resumed session keeps its first-turn prompt, a fresh one records this."""
 
         (session_manager.layout.projects_dir / "demo").mkdir(parents=True)
         meta = await meta_store.create("demo", "sdk-locale-vi")
@@ -184,16 +185,17 @@ class TestSessionManager:
             await session_manager.get_or_connect(meta.id, locale="vi")
             await asyncio.sleep(0)
             assert created_clients
-            append = created_clients[0].options.kwargs["system_prompt"]["append"]
-            assert "Tiếng Việt" in append
-            assert "中文" not in append
+            system_prompt = created_clients[0].options.kwargs["system_prompt"]
+            assert "Tiếng Việt" in system_prompt["append"]
+            assert "中文" not in system_prompt["append"]
+            assert system_prompt["snapshot"] is True
             await session_manager.close_session(meta.id)
 
     @pytest.mark.asyncio
     async def test_stream_messages_threads_locale_into_cold_revival(self, session_manager, meta_store, monkeypatch):
         """The SSE stream path is a second cold-revival entry: subscribing to a
-        non-resident session must rebuild the language regulation from the
-        caller's locale, matching the send-message path."""
+        non-resident session renders the language regulation from the caller's
+        locale, matching the send-message path."""
         (session_manager.layout.projects_dir / "demo").mkdir(parents=True)
         meta = await meta_store.create("demo", "sdk-locale-stream-en")
 

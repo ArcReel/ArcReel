@@ -234,49 +234,6 @@ s = "# noqa: F401"
     assert _suppression_lines(repo) == [("lib/demo.py", n) for n in (1, 3, 5, 7, 10)]
 
 
-def test_registration_block_reason_covers_handlers_in_the_same_function_scope(repo: Path) -> None:
-    _write(
-        repo,
-        "server/handlers.py",
-        """def register(app, flag):
-    # 以下处理器由装饰器就地注册，reportUnusedFunction 是工具误报。
-    @app.get("/a")
-    async def _a():  # pyright: ignore[reportUnusedFunction]
-        return 1
-
-    if flag:
-
-        @app.get("/b")
-        async def _b():  # pyright: ignore[reportUnusedFunction]
-            return 2
-
-
-def register_without_reason(app):
-    @app.get("/c")
-    async def _c():  # pyright: ignore[reportUnusedFunction]
-        return 3
-
-
-@app.get("/d")
-async def _d():  # pyright: ignore[reportUnusedFunction]
-    return 4
-
-
-def register_with_empty_header(app):
-    #
-    @app.get("/e")
-    async def _e():  # pyright: ignore[reportUnusedFunction]
-        return 5
-""",
-    )
-
-    assert _suppression_lines(repo) == [
-        ("server/handlers.py", 16),
-        ("server/handlers.py", 21),
-        ("server/handlers.py", 28),
-    ]
-
-
 def test_frontend_and_workflow_suppressions_without_reason_are_reported(repo: Path) -> None:
     _write(
         repo,
