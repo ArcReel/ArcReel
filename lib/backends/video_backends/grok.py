@@ -11,6 +11,7 @@ from arcreel_market_core.video_backend_contract import (
     IMAGE_MIME_TYPES,
     VideoAudioMode,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -22,6 +23,13 @@ from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
+
+_MODEL_1_5 = "grok-imagine-video-1.5"
+
+# 全系参考生视频（带参考图，或带尾帧）的分辨率上限：「Reference-to-video is capped at 720p」，且首帧与
+# last_frame 组合即参考生视频（https://docs.x.ai/developers/model-capabilities/video/generation）。
+# SDK 的分辨率枚举里高于该上限的只有 1080p。
+_REFERENCE_ROUTE_MAX_RESOLUTION = "720p"
 
 
 class GrokVideoBackend:
@@ -50,14 +58,23 @@ class GrokVideoBackend:
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
-        当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
-        保持 backend 为单一真相源。参考图上限取自第三方来源，官方文档未明确列出，
-        不硬编当既成事实。
+        instance property 委托至此，保持 backend 为单一真相源。能力取自 xAI 视频文档
+        （https://docs.x.ai/developers/model-capabilities/video/generation 与
+        https://docs.x.ai/developers/model-capabilities/video/reference-to-video.md）：
+
+        - 全系支持参考生视频，该路径分辨率上限 720p，由 ``generate`` 请求期校验。参考图上限 7
+          取自第三方来源，官方文档未明确列出，1.5 与 1.5-lite 沿用同一值。
+        - ``grok-imagine-video-1.5``：另支持 ``last_frame`` 钉住尾帧。参考音频只收预置
+          ``voice_id``，自备音频仅向受信合作方开放，表达不了项目的参考音频文件，不声明。
+        - ``grok-imagine-video-1.5-lite``：首尾帧官方只写在 1.5 上，不声明尾帧。
+        - ``grok-imagine-video``：官方写明拒收 ``last_frame``。
 
         音轨可开关：请求把音轨意图下发为 SDK 的 ``generate_audio``（缺省有声，``False`` 出无声
         视频），``generate`` 结算按同一下发值记录。
         """
-        return VideoCapabilities(max_reference_images=7, audio_track=VideoAudioMode.CONTROLLABLE)
+        return VideoCapabilities(
+            last_frame=model == _MODEL_1_5, max_reference_images=7, audio_track=VideoAudioMode.CONTROLLABLE
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
@@ -69,6 +86,7 @@ class GrokVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频；黑盒生成不重试，只有已取得 URL 后的下载可以独立重试。"""
+        self._check_reference_route_resolution(request)
         # The SDK combines submit and provider-side waiting in one opaque call. Once it starts, an exception
         # cannot prove the provider rejected the request before accepting a paid job, so close MediaGenerator's
         # reference-payload compression retry window before entering it.
@@ -108,6 +126,19 @@ class GrokVideoBackend:
             generate_audio=request.generate_audio,
         )
 
+    def _check_reference_route_resolution(self, request: VideoGenerationRequest) -> None:
+        """参考生视频路径超出 720p 上限时在付费调用前拒绝，不交给供应商报错或静默降档。"""
+        resolution = (request.resolution or "").strip().lower()
+        if resolution != "1080p":
+            return
+        if request.reference_images or request.end_image:
+            raise VideoCapabilityError(
+                "video_reference_resolution_unsupported",
+                model=self._model,
+                resolution=resolution,
+                max_resolution=_REFERENCE_ROUTE_MAX_RESOLUTION,
+            )
+
     async def _create_video(self, request: VideoGenerationRequest):
         """通过不可判定收单边界的 SDK 调用生成视频。"""
         generate_kwargs = {
@@ -126,6 +157,16 @@ class GrokVideoBackend:
         if request.start_image and Path(request.start_image).exists():  # noqa: ASYNC240 -- 首帧存在性检查，本地元数据；读图转 data URI 已 to_thread 卸载
             image_path = Path(request.start_image)
             generate_kwargs["image_url"] = await asyncio.to_thread(image_to_data_uri, image_path, IMAGE_MIME_TYPES)
+
+        if request.end_image:
+            # 能否带尾帧由 gate_video_request 按 video_capabilities.last_frame 前置判定，到这里只剩 1.5。
+            end_path = Path(request.end_image)
+            if not end_path.is_file():  # noqa: ASYNC240 -- 尾帧存在性检查，本地元数据；读图转 data URI 已 to_thread 卸载
+                # 尾帧缺失不静默跳过：跳过后照常出片计费，成片却落不到分镜要求的结尾画面。
+                raise VideoCapabilityError(
+                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
+                )
+            generate_kwargs["last_frame_url"] = await asyncio.to_thread(image_to_data_uri, end_path, IMAGE_MIME_TYPES)
 
         if request.reference_images:
             ref_paths = list(request.reference_images)

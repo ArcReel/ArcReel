@@ -11,7 +11,12 @@ import httpx
 import pytest
 import respx
 
-from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+from arcreel_market_core.video_backend_contract import (
+    ReferenceAudioMode,
+    VideoAudioMode,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+)
 from lib.backends.providers import PROVIDER_GROK
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http
@@ -261,3 +266,177 @@ class TestGrokVideoBackend:
                 result = await backend.generate(request)
 
             assert result.duration_seconds == expected
+
+
+def _png(path: Path) -> Path:
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    return path
+
+
+@contextmanager
+def _grok_sdk(duration: int = 5) -> Generator[AsyncMock]:
+    """替换 SDK client，产出 ``video.generate`` mock 以便断言下发参数。"""
+    mock_response = MagicMock()
+    mock_response.url = "https://vidgen.x.ai/test/video.mp4"
+    mock_response.duration = duration
+    mock_client = MagicMock()
+    mock_client.video.generate = AsyncMock(return_value=mock_response)
+    with (
+        patch("lib.backends.video_backends.grok.create_grok_client", return_value=mock_client),
+        _video_download(mock_response.url, b"fake-video-data"),
+    ):
+        yield mock_client.video.generate
+
+
+class TestGrokVideo15Models:
+    """grok-imagine-video-1.5 / 1.5-lite 的能力声明与请求下发。"""
+
+    def test_1_5_declares_last_frame_and_reference_images(self):
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        caps = GrokVideoBackend.video_capabilities_for_model("grok-imagine-video-1.5")
+        assert caps.text_to_video is True
+        assert caps.first_frame is True
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 7
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert caps.audio_track is VideoAudioMode.CONTROLLABLE
+
+    def test_1_5_lite_declares_reference_images_without_last_frame(self):
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        caps = GrokVideoBackend.video_capabilities_for_model("grok-imagine-video-1.5-lite")
+        assert caps.text_to_video is True
+        assert caps.first_frame is True
+        assert caps.last_frame is False
+        assert caps.max_reference_images == 7
+        assert caps.audio_track is VideoAudioMode.CONTROLLABLE
+
+    def test_classic_model_keeps_rejecting_last_frame(self):
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        caps = GrokVideoBackend.video_capabilities_for_model("grok-imagine-video")
+        assert caps.last_frame is False
+        assert caps.max_reference_images == 7
+
+    @pytest.mark.parametrize("model", ["grok-imagine-video-1.5", "grok-imagine-video-1.5-lite"])
+    async def test_1080p_reaches_sdk(self, video_output_path: Path, tmp_path: Path, model: str):
+        """文生与图生按请求分辨率原样下发 1080p，模型名与音轨开关一并透传。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model=model)
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="A cat walking",
+                    output_path=video_output_path,
+                    start_image=_png(tmp_path / "start.png"),
+                    duration_seconds=5,
+                    resolution="1080p",
+                    generate_audio=False,
+                )
+            )
+
+        kwargs = generate.call_args[1]
+        assert kwargs["model"] == model
+        assert kwargs["resolution"] == "1080p"
+        assert kwargs["generate_audio"] is False
+        assert kwargs["image_url"].startswith("data:image/png;base64,")
+        assert result.model == model
+
+    async def test_1_5_sends_end_image_as_last_frame(self, video_output_path: Path, tmp_path: Path):
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-1.5")
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="Dolly to the window",
+                    output_path=video_output_path,
+                    start_image=_png(tmp_path / "start.png"),
+                    end_image=_png(tmp_path / "end.png"),
+                    duration_seconds=8,
+                    resolution="720p",
+                )
+            )
+
+        kwargs = generate.call_args[1]
+        assert kwargs["image_url"].startswith("data:image/png;base64,")
+        assert kwargs["last_frame_url"].startswith("data:image/png;base64,")
+        assert kwargs["resolution"] == "720p"
+
+    async def test_missing_end_image_fails_before_provider_call(self, video_output_path: Path, tmp_path: Path):
+        """尾帧读不到不静默跳过：否则照常计费，成片却落不到分镜要求的结尾画面。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-1.5")
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="Dolly to the window",
+                        output_path=video_output_path,
+                        end_image=tmp_path / "missing.png",
+                        duration_seconds=8,
+                    )
+                )
+
+        assert exc.value.code == "video_end_image_unreadable"
+        generate.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("model", "route"),
+        [
+            ("grok-imagine-video-1.5", "reference_images"),
+            ("grok-imagine-video-1.5", "end_image"),
+            ("grok-imagine-video-1.5-lite", "reference_images"),
+        ],
+    )
+    async def test_reference_route_rejects_1080p_before_provider_call(
+        self, video_output_path: Path, tmp_path: Path, model: str, route: str
+    ):
+        """参考生视频（参考图，或首帧加尾帧）官方上限 720p：1080p 在付费调用前拒绝，也不收回付费窗口。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        by_reference = route == "reference_images"
+        resubmit_unsafe = MagicMock()
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model=model)
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="The model from <IMAGE_0> walks in",
+                        output_path=video_output_path,
+                        duration_seconds=8,
+                        resolution="1080p",
+                        reference_images=[_png(tmp_path / "ref.png")] if by_reference else None,
+                        start_image=None if by_reference else _png(tmp_path / "start.png"),
+                        end_image=None if by_reference else _png(tmp_path / "end.png"),
+                        on_provider_resubmit_unsafe=resubmit_unsafe,
+                    )
+                )
+
+        assert exc.value.code == "video_reference_resolution_unsupported"
+        assert exc.value.params["max_resolution"] == "720p"
+        generate.assert_not_awaited()
+        resubmit_unsafe.assert_not_called()
+
+    @pytest.mark.parametrize("model", ["grok-imagine-video-1.5", "grok-imagine-video-1.5-lite"])
+    async def test_reference_route_at_720p_reaches_sdk(self, video_output_path: Path, tmp_path: Path, model: str):
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model=model)
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="The model from <IMAGE_0> walks in",
+                    output_path=video_output_path,
+                    reference_images=[_png(tmp_path / "ref.png")],
+                    duration_seconds=8,
+                    resolution="720p",
+                )
+            )
+
+        kwargs = generate.call_args[1]
+        assert kwargs["resolution"] == "720p"
+        assert len(kwargs["reference_image_urls"]) == 1
