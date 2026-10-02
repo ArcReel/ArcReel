@@ -11,6 +11,7 @@ from pathlib import Path
 import portalocker
 
 from lib.infra.json_io import atomic_write_bytes
+from lib.project.task_project_claim import ensure_task_project_claim
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,8 +63,13 @@ def _restore_snapshots(snapshots: tuple[_FileSnapshot, ...]) -> None:
 
 @contextmanager
 def project_metadata_lock(project_dir: Path) -> Generator[None]:
-    """Serialize project metadata and formal-artifact transactions across processes."""
+    """Serialize project metadata and formal-artifact transactions across processes.
 
+    Inside a task whose project was deleted while it ran, raises
+    ``ProjectDeletedDuringTaskError`` before touching the directory.
+    """
+
+    ensure_task_project_claim(Path(project_dir).name)
     lock_path = Path(project_dir) / ".project.json.lock"
     lock_path.touch(exist_ok=True)
     with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):

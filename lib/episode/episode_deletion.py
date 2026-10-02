@@ -32,7 +32,11 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.version_manager import VersionManager
-from lib.episode.episode_ids import episode_ids_in_names, episode_position, episode_title, item_id_episode
+from lib.episode.episode_ids import (
+    episode_display_name,
+    episode_ids_in_names,
+    item_id_episode,
+)
 from lib.episode.episode_ledger import discover_episode_file_aliases, parse_positive_episode_num
 from lib.episode.episode_management import EpisodeManagementError
 from lib.episode.episode_paths import episode_drafts_dir, episode_source_path
@@ -179,7 +183,8 @@ def _grid_records(project_dir: Path, episode: int) -> list[str]:
     return found
 
 
-def _impact(project_dir: Path, project: Mapping[str, Any], episode: int) -> EpisodeDeletionImpact:
+def episode_deletion_impact(project_dir: Path, project: Mapping[str, Any], episode: int) -> EpisodeDeletionImpact:
+    """删除这一集会丢失的内容。"""
     entry = _ledger_entry(project, episode)
     origin = episode_source_origin(entry)
     source_units = 0
@@ -240,7 +245,7 @@ def delete_episode(
     project = pm.load_project(project_name)
     if project.get("content_mode") == "ad":
         raise EpisodeManagementError("ad_episode_locked", "广告/短片项目只有一集，不能新建或删除集")
-    impact = _impact(project_dir, project, episode)
+    impact = episode_deletion_impact(project_dir, project, episode)
     if revision != impact.revision:
         return EpisodeDeletionConfirmationRequired(impact=impact)
 
@@ -256,7 +261,7 @@ def delete_episode(
     committed: dict[str, Any] = {}
 
     def _mutate(p: dict[str, Any]) -> None:
-        locked_impact = _impact(project_dir, p, episode)
+        locked_impact = episode_deletion_impact(project_dir, p, episode)
         if locked_impact.revision != revision:
             raise _StaleConfirmation(locked_impact)
         entries = p.get("episodes")
@@ -378,6 +383,22 @@ _LOSS_COUNTS: tuple[tuple[str, str], ...] = (
 )
 
 
+def render_episode_loss_items(
+    impact: Mapping[str, Any], project: Mapping[str, Any], translate: Callable[..., str]
+) -> list[str]:
+    """丢失清单的逐项文本：自带原文、正式脚本、脚本规划与各类产物的计数；计数为 0 的项不出现。"""
+    items: list[str] = []
+    if impact["origin"] == SourceOrigin.OWN.value:
+        unit = "words" if reading_unit_noun(_language(project)) == "词" else "chars"
+        items.append(translate(f"episode_delete_loss_source_{unit}", count=impact["source_units"]))
+    if impact["has_script"]:
+        items.append(translate("episode_delete_loss_script"))
+    if impact["has_script_plan"]:
+        items.append(translate("episode_delete_loss_script_plan"))
+    items.extend(translate(key, count=count) for field, key in _LOSS_COUNTS if (count := int(impact[field] or 0)))
+    return items
+
+
 def render_episode_deletion_text(
     impact: Mapping[str, Any] | EpisodeDeletionImpact, project: Mapping[str, Any], translate: Callable[..., str]
 ) -> str:
@@ -385,11 +406,7 @@ def render_episode_deletion_text(
     data = impact.to_dict() if isinstance(impact, EpisodeDeletionImpact) else dict(impact)
 
     def name(episode: int) -> str:
-        title = episode_title(project, episode)
-        if title:
-            return title
-        position = episode_position(project, episode)
-        return translate("episode_position_name", position=position) if position else translate("episode_unlisted_name")
+        return episode_display_name(project, episode, translate)
 
     episode = int(data["episode"])
     lines: list[str] = []
@@ -398,18 +415,8 @@ def render_episode_deletion_text(
             return translate("episode_delete_empty", name=name(episode))
         lines.append(translate("episode_delete_no_products", name=name(episode)))
     else:
-        separator = translate("episode_delete_separator")
-        items: list[str] = []
-        if data["origin"] == SourceOrigin.OWN.value:
-            unit = "words" if reading_unit_noun(_language(project)) == "词" else "chars"
-            items.append(translate(f"episode_delete_loss_source_{unit}", count=data["source_units"]))
-        if data["has_script"]:
-            items.append(translate("episode_delete_loss_script"))
-        if data["has_script_plan"]:
-            items.append(translate("episode_delete_loss_script_plan"))
-        items.extend(translate(key, count=count) for field, key in _LOSS_COUNTS if (count := int(data[field] or 0)))
         lines.append(translate("episode_delete_loss", name=name(episode)))
-        lines.append(separator.join(items))
+        lines.append(translate("episode_delete_separator").join(render_episode_loss_items(data, project, translate)))
         if any(int(data[field] or 0) for field, _ in _LOSS_COUNTS[:5]):
             lines.append(translate("episode_delete_history"))
     if data["origin"] == SourceOrigin.WHOLE_SOURCE.value and data["placed"]:
@@ -428,5 +435,7 @@ __all__ = [
     "EpisodeDeletionImpact",
     "EpisodeDeletionResult",
     "delete_episode",
+    "episode_deletion_impact",
     "render_episode_deletion_text",
+    "render_episode_loss_items",
 ]

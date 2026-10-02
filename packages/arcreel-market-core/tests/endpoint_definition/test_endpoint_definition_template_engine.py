@@ -259,3 +259,15 @@ def test_array_each_honours_sibling_when_guard(assets, expected):
     )
 
     assert request.body == expected
+
+
+@pytest.mark.parametrize(
+    ("media_type", "resolution", "size"),
+    [("image", "2K", (1440, 1440)), ("video", "720p", (720, 720))],
+)
+def test_width_and_height_follow_the_resolution_tiers_of_the_media_type(
+    media_type: str, resolution: str, size: tuple[int, int]
+):
+    context = build_context({"aspect_ratio": "1:1", "resolution": resolution}, {}, media_type=media_type)
+
+    assert (context["width"], context["height"]) == size

@@ -14,11 +14,11 @@ EXPORT_JIANYING_DRAFT = ToolDeclaration(
     name="export_jianying_draft",
     description=(
         "把一条剪辑时间线导出成剪映草稿：在本机生成，不付费，登记为产物，创作者在 Web 端填写本机剪映草稿目录后下载。"
-        "只在创作者要求导出剪映草稿时调用。草稿里有一条视频轨、一条字幕轨，带旁白版本另有一条旁白轨；"
-        "截取、原声音量与定格延长都按剪辑时间线写入。"
+        "只在创作者要求导出剪映草稿时调用。草稿有一条视频轨和字幕轨，带旁白版本另有旁白轨；旁白或字幕互相重叠时"
+        "多开一条轨，每条轨内不重叠，新增的字幕轨整体上移。截取、原声音量、定格延长与转场都按剪辑时间线写入；"
+        "有 BGM 时另有一条 BGM 轨，音量（上传时统一的响度乘以片段 volume）与淡入淡出写进片段。"
         "提交前检查所选修订与旁白版本，下列情况直接拒绝、不入队：有适用于该版本的 blocking 级 issue（如 video_missing）"
-        "返回 jianying_draft_blocked，params.issues 列出这些 issue；含转场或 BGM 返回 jianying_draft_content_unsupported，"
-        "params 列出 clip_ids 与 bgm_ids；没有可导出的剪辑片段返回 jianying_draft_empty；非 TTS 配音项目请求 with_narration 返回 "
+        "返回 jianying_draft_blocked，params.issues 列出这些 issue；没有可导出的剪辑片段返回 jianying_draft_empty；非 TTS 配音项目请求 with_narration 返回 "
         "jianying_draft_narration_unavailable。"
         "省略 revision 时导出提交时的最新修订：导出期间剪辑时间线又被改动，或显式导出旧修订，草稿一出来就是 stale，仍可下载。"
         "每条剪辑时间线的每个旁白版本只保留最新一份草稿，再次导出会覆盖它并把 version 加一。"

@@ -27,6 +27,7 @@ from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.prompts.prompt_templates.builtin import builtin_templates
+from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -376,6 +377,92 @@ class TestFilesRouter:
             "source/卷三.txt",
         ]
 
+    def test_registered_whole_source_writes_go_through_the_remap(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        source_dir = pm.get_project_path("demo") / "source"
+        (source_dir / "a.txt").write_text("甲乙丙丁", encoding="utf-8")
+        (source_dir / "b.txt").write_text("戊己庚辛", encoding="utf-8")
+        (source_dir / "episode_1.txt").write_text("丙丁戊己", encoding="utf-8")
+        crossing = {
+            "episode": 1,
+            "title": "",
+            "script_file": "scripts/episode_1.json",
+            "source_origin": "whole_source",
+            "source_range": {"source_file": "source/a.txt", "start": 2, "end_file": "source/b.txt", "end": 2},
+            "ledger_status": "planned",
+        }
+        pm.update_project(
+            "demo",
+            lambda project: project.update(
+                whole_source_files=[{"source_file": "source/a.txt"}, {"source_file": "source/b.txt"}],
+                episodes=[crossing],
+                episode_id_high_water=1,
+            ),
+        )
+
+        with client:
+            inserted = client.post(
+                "/api/v1/projects/demo/upload/source?insert_at=1", files={"file": ("插.txt", "插叙", "text/plain")}
+            )
+            written_before_confirm = (source_dir / "插.txt").exists()
+            confirmed = client.post(
+                f"/api/v1/projects/demo/upload/source?insert_at=1&revision={inserted.json()['revision']}",
+                files={"file": ("插.txt", "插叙", "text/plain")},
+            )
+            put = client.put(
+                "/api/v1/projects/demo/source/b.txt", content="戊己庚辛壬", headers={"content-type": "text/plain"}
+            )
+            deleted = client.delete("/api/v1/projects/demo/source/a.txt")
+
+        assert (inserted.json()["status"], inserted.json()["success"]) == ("confirmation_required", False)
+        assert inserted.json()["impact"]["changed_without_products"] == [1]
+        assert written_before_confirm is False
+        assert (confirmed.json()["status"], confirmed.json()["filename"]) == ("applied", "插.txt")
+        assert (source_dir / "episode_1.txt").read_text(encoding="utf-8") == "丙丁插叙戊己"
+        assert put.json()["status"] == "applied"
+        assert (deleted.status_code, deleted.json()["status"]) == (200, "confirmation_required")
+        assert (source_dir / "a.txt").exists()
+
+    def test_deleting_a_whole_source_file_is_refused_while_a_removed_episode_has_active_tasks(
+        self,
+        tmp_path,
+        monkeypatch,
+        active_episode_tasks,
+    ):
+        client, pm = _client(monkeypatch, tmp_path)
+        source_dir = pm.get_project_path("demo") / "source"
+        (source_dir / "a.txt").write_text("甲乙丙丁", encoding="utf-8")
+        pm.update_project(
+            "demo",
+            lambda project: project.update(
+                whole_source_files=[{"source_file": "source/a.txt"}],
+                episodes=[
+                    {
+                        "episode": 1,
+                        "title": "",
+                        "script_file": "scripts/episode_1.json",
+                        "source_origin": "whole_source",
+                        "source_range": {"source_file": "source/a.txt", "start": 0, "end": 4},
+                        "ledger_status": "planned",
+                    }
+                ],
+                episode_id_high_water=1,
+            ),
+        )
+
+        active_episode_tasks["queued"] = [
+            {"resource_id": "script_plan", "script_file": None, "payload": {"episode": 1}}
+        ]
+
+        with client:
+            preview = client.delete("/api/v1/projects/demo/source/a.txt")
+            refused = client.delete(f"/api/v1/projects/demo/source/a.txt?revision={preview.json()['revision']}")
+
+        assert preview.json()["impact"]["removed"] == [1]
+        assert refused.status_code == 409
+        assert (source_dir / "a.txt").exists()
+        assert [entry["episode"] for entry in pm.load_project("demo")["episodes"]] == [1]
+
     def test_source_upload_race_project_deleted_reports_project_not_found(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
 
@@ -582,6 +669,51 @@ class TestFilesRouter:
             ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=entry.artifact_path).status
             is ArtifactStatus.CURRENT
         )
+
+    def test_bgm_upload_registers_the_track_and_lists_it_for_playback(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            upload = client.post(
+                "/api/v1/projects/demo/upload/bgm",
+                files={"file": ("雨夜.wav", wav_bytes(1.0, tone_hz=330), "audio/wav")},
+            )
+            assert upload.status_code == 200
+            bgm = upload.json()["bgm"]
+            assert (bgm["name"], bgm["duration"]) == ("雨夜", 1.0)
+            assert bgm["path"] == f"bgm/{bgm['id']}.wav"
+            assert 0 < bgm["gain"] < 1
+
+            listed = client.get("/api/v1/projects/demo/bgm")
+            assert listed.status_code == 200
+            assert listed.json() == {"bgm": [bgm]}
+
+            played = client.get(bgm["url"])
+            assert played.status_code == 200
+            assert played.content == wav_bytes(1.0, tone_hz=330)
+        assert set(pm.load_project("demo")["bgm"]) == {bgm["id"]}
+
+    @pytest.mark.parametrize(
+        ("filename", "content", "message_key", "params"),
+        [
+            ("silence.wav", wav_bytes(1.0), "bgm_silent", {}),
+            ("broken.mp3", b"not audio", "invalid_audio_file", {}),
+            ("cover.jpg", b"jpeg", "unsupported_audio_type", {"ext": ".jpg", "allowed": ".mp3, .wav, .m4a"}),
+        ],
+    )
+    def test_bgm_upload_refuses_unusable_audio_with_a_localized_reason(
+        self, tmp_path, monkeypatch, filename, content, message_key, params
+    ):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post("/api/v1/projects/demo/upload/bgm", files={"file": (filename, content, "audio/wav")})
+            assert resp.status_code == 400
+            assert resp.json()["detail"] == zh_errors.MESSAGES[message_key].format(**params)
+        assert "bgm" not in pm.load_project("demo")
+
+    def test_bgm_list_of_unknown_project_is_404(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            assert client.get("/api/v1/projects/absent/bgm").status_code == 404
 
     def test_character_audio_ref_upload_success(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
@@ -1107,6 +1239,7 @@ class TestFilesRouter:
         ]
         payloads = {
             "character_audio_ref": ("v.wav", wav_bytes(3), "audio/wav"),
+            "bgm": ("m.wav", wav_bytes(3), "audio/wav"),
             # source 不使用 name，但校验在其早返分支之前，同样应拒
             "source": ("novel.txt", b"chapter one", "text/plain"),
         }
@@ -1328,9 +1461,17 @@ class TestFilesRouter:
         plan_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
         plan_path.parent.mkdir(parents=True)
         plan_path.write_text('{"episode": 1, "segments": []}', encoding="utf-8")
-        # 该集已产出正式剧本、无确认记录：按存量口径视为脚本规划已确认。
+        # 该集已产出正式剧本，确认记录记的是当前规划。
         (project_dir / "scripts").mkdir(exist_ok=True)
         (project_dir / "scripts" / "episode_1.json").write_text('{"episode": 1, "segments": []}', encoding="utf-8")
+        fingerprint = script_review.content_fingerprint(plan_path)
+        assert fingerprint is not None
+
+        def _confirm(project: dict) -> None:
+            project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json"}]
+            script_review.apply_confirmation(project, 1, fingerprint, "2026-01-01T00:00:00+00:00")
+
+        pm.update_project("demo", _confirm)
         before = plan_path.read_bytes()
 
         with client:

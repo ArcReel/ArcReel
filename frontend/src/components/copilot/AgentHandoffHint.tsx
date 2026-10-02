@@ -41,7 +41,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
     }
   }, []);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
+  /* eslint-disable react-hooks/set-state-in-effect -- triggerKey 变化是外部事件，须同步显示提示并启动自动消失计时器 */
   useEffect(() => {
     if (triggerKey <= 0) return;
     const composite = `${sessionKey}:${triggerKey}`;

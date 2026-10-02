@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useSearch } from "wouter";
 import { BookOpen, Upload } from "lucide-react";
@@ -10,12 +10,15 @@ import type { EpisodesView as EpisodesViewData } from "@/types";
 import { errMsg } from "@/utils/async";
 
 import { EpisodesRail } from "./EpisodesRail";
+import { ExternalChangeNotice } from "./ExternalChangeNotice";
 import { SourceManuscript } from "./SourceManuscript";
 import { SourceUploadDialog } from "./SourceUploadDialog";
 import { ManualSplitToolbar, caretColor } from "./ManualSplitToolbar";
 import { useManualSplit } from "./useManualSplit";
 import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
 import { useDeleteEpisode } from "./useDeleteEpisode";
+import { useReplanEpisode } from "./useReplanEpisode";
+import { replanCompare } from "./replan-compare-model";
 import {
   EPISODES_VIEW_CREATE_PARAM,
   EPISODES_VIEW_EPISODE_PARAM,
@@ -98,6 +101,10 @@ export function EpisodesView({ projectName }: { projectName: string }) {
   });
   const episodeHeaders = useRef(new Map<number, HTMLElement>());
   const fileBars = useRef(new Map<string, HTMLElement>());
+  // 开始重新规划时左栏滚到重新规划的起点：发起的那一集
+  const onReplanStarted = useCallback((episode: number) => scrollIntoViewTop(episodeHeaders.current.get(episode)), []);
+  const replan = useReplanEpisode(projectName, onReplanStarted);
+  const compare = useMemo(() => (view === null ? null : replanCompare(view, view.replan)), [view]);
 
   const registerEpisodeHeader = useCallback((episode: number, el: HTMLElement | null) => {
     if (el) episodeHeaders.current.set(episode, el);
@@ -182,6 +189,11 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     <div className="flex h-full flex-col lg:flex-row">
       <main className="min-h-0 flex-1 overflow-y-auto px-6 lg:px-10" aria-label={t("episodes_view_source_label")}>
         <div className="mx-auto max-w-[44em]">
+          <ExternalChangeNotice
+            projectName={projectName}
+            changes={view.external_changes}
+            onLocate={scrollToFile}
+          />
           {view.files.length === 0 ? (
             <EmptySource hasEpisodes={episodes.length > 0} onUpload={openUpload} />
           ) : (
@@ -197,6 +209,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
               moving={split.moving}
               onPlace={split.place}
               onToggleMoving={split.toggleMoving}
+              compare={compare}
             />
           )}
         </div>
@@ -220,6 +233,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
           onClearAfter={split.clearAfter}
           onCreate={setCreateAfter}
           onDelete={(episode) => void deletion.requestDelete(episode)}
+          onReplan={(episode) => void replan.requestReplan(episode)}
         />
       </aside>
       {upload !== null ? (
@@ -238,6 +252,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
         />
       ) : null}
       {deletion.dialog}
+      {replan.dialog}
       {split.dialog}
     </div>
   );

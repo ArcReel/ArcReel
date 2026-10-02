@@ -1,6 +1,6 @@
 ---
 name: adapt-custom-endpoint
-description: 当用户要求把采用 JSON 提交后轮询协议的视频供应商接入 ArcReel，或要求编写、验证、测试、保存自定义调用端点定义时使用。
+description: 当用户要求把采用 JSON 提交后轮询协议的视频或图片供应商接入 ArcReel，或要求编写、验证、测试、保存自定义调用端点定义时使用。
 ---
 
 # 适配自定义调用端点

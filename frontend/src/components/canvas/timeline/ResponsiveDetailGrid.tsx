@@ -5,6 +5,8 @@ interface ResponsiveDetailGridProps {
   left: React.ReactNode;
   mid: React.ReactNode;
   right: React.ReactNode;
+  /** 值变为新的非空值时把右栏切到前台（单栏与抽屉布局下右栏可能不在可见位置）。 */
+  revealRightKey?: string | null;
 }
 
 /**
@@ -13,7 +15,7 @@ interface ResponsiveDetailGridProps {
  *   - 640-979px：mid + right 同屏；left 通过抽屉式 toggle 显示
  *   - < 640px：单栏 + 顶部 tab 选择
  */
-export function ResponsiveDetailGrid({ left, mid, right }: ResponsiveDetailGridProps) {
+export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }: ResponsiveDetailGridProps) {
   const { t } = useTranslation("dashboard");
   const [width, setWidth] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -36,6 +38,11 @@ export function ResponsiveDetailGrid({ left, mid, right }: ResponsiveDetailGridP
   const tight = width > 0 && width < 640;
 
   const [activeTab, setActiveTab] = useState<"left" | "mid" | "right">("mid");
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  if (revealRightKey !== null && revealRightKey !== revealedKey) {
+    setRevealedKey(revealRightKey);
+    setActiveTab("right");
+  }
 
   if (!narrow) {
     return (

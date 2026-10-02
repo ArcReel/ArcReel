@@ -2,6 +2,7 @@
 id: getting-started
 title: Complete Getting Started Guide
 sidebar_position: 1
+update_docs: full
 ---
 
 # Complete Getting Started Guide {#getting-started}
@@ -17,7 +18,7 @@ By the end of this guide, you will be able to:
 3. Create a project from a novel, finished screenplay, or ad/short video;
 4. Generate characters, scenes, props, storyboards, and video clips;
 5. Monitor task status and costs;
-6. Compose a drama episode, or export a draft and generated clips for further post-production.
+6. Edit an episode, then render the final cut or export a Jianying draft for further post-production.
 
 ## Estimated Time and Cost {#time-and-cost}
 
@@ -53,9 +54,9 @@ The default workflow uses remote model APIs and normally does not require a loca
 
 ArcReel uses two types of credentials for different purposes.
 
-#### AI Assistant Credentials {#assistant-credentials}
+#### Agent Credentials {#assistant-credentials}
 
-These credentials power project conversations, content understanding, episode planning, script planning (including asset identification), and workflow orchestration.
+The Agent drives project conversations, content understanding, episode planning, script planning (including asset identification), and workflow orchestration.
 
 You can use Anthropic's official service or a compatible service supported by ArcReel, and configure the Base URL and model name as needed.
 
@@ -173,11 +174,11 @@ For complete production deployment, upgrade, backup, and reverse proxy instructi
 
 ## 3. Complete the Initial Setup {#first-time-setup}
 
-After signing in, first complete the onboarding tour and open the read-only demo project. It introduces the project lobby, workbench, AI assistant, and settings without consuming model credits.
+After signing in, first complete the onboarding tour and open the read-only demo project. It introduces the project lobby, workbench, Agent, and settings without consuming model credits.
 
 Then open **Settings**.
 
-### 3.1 Configure the AI Assistant {#configure-assistant}
+### 3.1 Configure the Agent {#configure-assistant}
 
 Enter:
 
@@ -250,15 +251,15 @@ Prepare:
 
 For a detailed comparison, see [Workflows and Modes](./workflows.md).
 
-## 5. Run the Workflow with the AI Assistant {#run-workflow-with-assistant}
+## 5. Run the Workflow with the Agent {#run-workflow-with-assistant}
 
-Open the AI assistant panel on the right side of the project workbench.
+Open the Agent panel on the right side of the project workbench.
 
 Work through the process in stages instead of asking it to "generate the entire final video" at once.
 
 ### 5.1 Content Analysis {#content-analysis}
 
-Ask the AI assistant to analyze:
+Ask the Agent to analyze:
 
 - Main characters;
 - Important scenes;
@@ -315,10 +316,10 @@ After confirming the direction, generate them in batches.
 
 Choose a video generation mode based on the project:
 
-- Storyboard mode (storyboard image-to-video, with multi-grid storyboards as an option);
-- Reference-to-video mode.
+- Storyboard to video (narration/commentary and drama projects can enable multi-grid storyboards);
+- Reference to video.
 
-With multi-grid storyboards enabled, Storyboard mode first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
+When storyboard to video has multi-grid storyboards enabled, it first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
 
 Review the results for:
 
@@ -366,26 +367,35 @@ On the Usage page, review:
 - Text, image, video, and audio usage;
 - Statistics by provider and currency.
 
-## 7. Compose and Export {#compose-and-export}
+## 7. Edit and Render {#compose-and-export}
 
-### 7.1 Compose the Final Video for a Drama Episode {#compose-final-video}
+### 7.1 Edit and render the final cut {#compose-final-video}
 
-For Drama projects using Storyboard mode, you can use ArcReel to compose the final video after confirming every video clip. For Narration/Commentary and Ad / Short Video projects using Storyboard mode, export a Jianying draft. For Reference-to-video projects, download the generated clips and continue in post-production.
+After the videos are generated, switch to the **Edit** view at the top of the episode page. An episode's final form is defined by its edit timeline: let the Agent make a cut, or create an edit timeline from the script and then ask the Agent to adjust it in the chat. Every script layout uses the same entry points.
 
-Before composing, check:
+Click **Render** at the top of the edit view and select **Final cut** in the "Render · <edit timeline name>" dialog. An up-to-date final cut can be downloaded directly. When there is no final cut yet, or it is behind the edit timeline, start a render; the dialog shows its progress, and you can download the result when it finishes.
 
-- Clip order;
-- Aspect ratio;
-- The actual duration of each clip;
-- Voice-over alignment with the visuals;
-- Whether background music is needed;
-- Whether adjacent shots need transitions.
+The dialog also selects the final cut version; each combination is a separate final cut:
 
-### 7.2 Export a Jianying Draft or Generated Clips {#export-jianying-draft}
+- **Narration version**: available only to TTS voiceover projects, defaulting to **With narration**. A narration longer than its clip is mixed in at its full length; it is not shortened, later narrations are not shifted, and the issue list reports the overlap. Whatever runs past the end of the final cut is cut off.
+- **Burn in subtitles**: checked by default. Subtitles are drawn into the video frames and cannot be turned off during playback; the font is the bundled Source Han Sans. When subtitles contain characters this font lacks, the issue list names those characters.
 
-Narration/Commentary and Ad / Short Video projects using Storyboard mode complete the final video through a Jianying draft. Drama projects can also use this option when subtitles, audio tracks, transitions, or pacing need more work. Reference-to-video projects can download the generated video clips and continue editing them in Jianying or another post-production tool.
+For background music, click the upload button next to the BGM track name in the edit view and upload MP3, WAV, or M4A audio (up to 100 MB). ArcReel measures the loudness once during upload and brings every BGM to the same loudness level; near-silent audio cannot be uploaded. BGM belongs to the whole project, so edit timelines in every episode can use it. After uploading, ask the Agent in the chat to place the BGM on the edit timeline; when the BGM is shorter than the timeline, the Agent places another section after it. Only one BGM plays at a time; any part past the end of the edit timeline is cut off with a 1-second fade-out at the cut. Both the final cut and the Jianying draft mix in the BGM. Uploaded BGM cannot be deleted from the page yet.
 
-For detailed instructions, see [Jianying Draft Export Guide](./jianying-export.md).
+Before rendering, check:
+
+- clip order;
+- aspect ratio;
+- the actual duration of each clip;
+- alignment between narration and visuals;
+- whether background music is needed;
+- whether adjacent clips need transitions.
+
+### 7.2 Export a Jianying draft {#export-jianying-draft}
+
+To keep refining subtitles, audio tracks, transitions, and pacing in Jianying, select **Jianying draft** in the same render dialog. See the [Jianying Draft Export guide](./jianying-export.md) for detailed steps.
+
+**Export project** in the top bar only downloads the whole project as an archive; it does not export final cuts or Jianying drafts.
 
 ## 8. First Project Completion Checklist {#first-project-checklist}
 
@@ -397,7 +407,7 @@ Do not define completion as "every asset has been generated once." At a minimum,
 - Subjects and directions of motion connect across adjacent shots;
 - Video clips have no obvious generation failures;
 - Costs are within the expected range;
-- The project can be successfully composed or exported;
+- At least one episode can be rendered successfully;
 - The project has been backed up or archived at least once.
 
 ## 9. Next Steps {#next-steps}

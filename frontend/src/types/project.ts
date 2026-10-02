@@ -114,6 +114,8 @@ export interface ProjectStatus {
   /** Asset sheet counts keyed by asset type (character / scene / prop / product) */
   assets: Record<string, ArtifactCount>;
   episodes_summary: EpisodesSummary;
+  /** The whole source still has text not yet planned into episodes; recorded by ledger commands, not read from source */
+  source_remaining: boolean;
 }
 
 /**
@@ -133,8 +135,8 @@ export interface EpisodeMeta {
   script_file: string;
   /** Written by episode_planner at split time: ending hook / suspense */
   hook?: string;
-  /** Written by episode_planner at split time: slice boundary in the source file (char offsets) */
-  source_range?: { source_file?: string; start?: number; end?: number };
+  /** 切出集在整本源文里的原文范围（规范化文本的码位偏移）；`end` 落在 `end_file` 里，缺省同 `source_file`。 */
+  source_range?: { source_file?: string; start?: number; end?: number; end_file?: string };
   /**
    * 本集原文的来源：切自整本源文、自带原文（逐集上传或在集页填写）、无原文。
    * 缺省按有无 source_range 推断。

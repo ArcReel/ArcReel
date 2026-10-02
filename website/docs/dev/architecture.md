@@ -128,7 +128,8 @@ flowchart TD
 - 剧情演绎剧本规范化；
 - 参考生视频单元拆分；
 - 单集结构化剧本；
-- 资产生成。
+- 资产生成；
+- 审片。
 
 其中前三项是脚本规划，规划时同时识别本集新增资产。
 
@@ -369,9 +370,17 @@ ArcReel 使用 SQLAlchemy 2.0 异步 ORM。
 
 剪辑时间线是一集的一套具名剪辑决策，可以有多条，存放在项目目录的 `edit_timelines/episode_{N}/{timeline_id}.json`。每份文件保存稳定 ID、显示名、片段编号分配器与不可变修订序列；修订记作者、摘要、父修订和 Agent 轮次。它是正式内容，随项目归档导出和导入，不进入产物清单。
 
-`lib/edit_timeline/` 统一负责机械新建、列表和读取。HTTP 入口为 `POST /api/v1/projects/{project_name}/episodes/{episode}/edit-timelines`、`GET /api/v1/projects/{project_name}/edit-timelines` 与 `GET /api/v1/projects/{project_name}/edit-timelines/{timeline_id}`；Agent 工具 `create_timeline`、`list_timelines`、`read_timeline` 调用同一服务。集内写入持文件锁并原子落盘，Agent 禁止直接改写该目录。
+`lib/edit_timeline/` 统一负责新建、列表、读取、批量编辑和下述管理操作。HTTP 入口为 `POST /api/v1/projects/{project_name}/episodes/{episode}/edit-timelines`、`GET /api/v1/projects/{project_name}/edit-timelines` 与 `GET /api/v1/projects/{project_name}/edit-timelines/{timeline_id}`；Agent 工具 `create_timeline`、`list_timelines`、`read_timeline` 调用同一服务。集内写入持文件锁并原子落盘，Agent 禁止直接改写该目录。
 
 批量编辑由 Agent 工具 `edit_timeline` 调用服务的 `edit` 命令。服务在集内文件锁下读取最新修订，校验 `base_revision` 后整批应用按片段 ID 定位的操作，只追加一个修订。
+
+管理操作由同一服务提供，Agent 工具与 HTTP 入口共用：
+
+- **复制**：Agent 工具 `create_timeline`（`from: "timeline"`）与 `POST …/edit-timelines/{timeline_id}/copy`。把指定修订（缺省为最新修订）的内容原样复制成同一集的新剪辑时间线，片段编号与编号分配器一并带过去，新时间线从修订 1 起。
+- **改名**：`rename_timeline` 与 `PATCH …/edit-timelines/{timeline_id}`。只改文档头的显示名，不产生修订，成片与剪映草稿也不因此过期。
+- **修订历史**：`list_revisions` 与 `GET …/edit-timelines/{timeline_id}/revisions`。
+- **回滚**：`restore_revision` 与 `POST …/edit-timelines/{timeline_id}/restore`。以旧修订的内容追加新修订，`restored_from` 记录来源，历史不改写。回滚总是作用在最新修订上，不做乐观并发判定；改动记录取与最新修订之间的差异，相对顺序变化时两份内容共有的片段都计入，让基于旧修订的编辑宁可多报冲突。目标内容与最新修订相同时返回 `revision_unchanged`。
+- **删除**：只有 `DELETE …/edit-timelines/{timeline_id}`，不向 Agent 开放。时间线 ID 随机生成、不复用，成片与剪映草稿的产物身份挂在 ID 上，因此删除时同时清除这条时间线的成片与剪映草稿登记，并删除 `renders/episode_{N}/{timeline_id}/` 目录。当前用户提交的、以该时间线为对象的渲染任务仍在排队或执行时，端点以 `edit_timeline_render_in_progress` 拒绝。
 
 每个修订记录实际改动过的片段 ID。`base_revision` 落后时，服务累计期间每个修订的改动记录，并检查本批在基准修订和最新修订上的连带修改。涉及的片段都未被改过，且本批设置转场的片段在两个修订上接着同一个片段时，操作应用到最新修订；否则以 `revision_conflict` 拒绝。旧修订缺少改动记录时，由逐修订内容差异推断。
 
@@ -379,15 +388,34 @@ ArcReel 使用 SQLAlchemy 2.0 异步 ORM。
 
 片段引用视频单元的 current 视频，不随脚本增删自动更新。内部时间为整数微秒，读取时探测实际媒体时长并投影为最多三位小数的秒，返回片段绝对起点、旁白起止与结构问题。截取保存依据版本，换版本后按完整视频计算时长；原声默认音量按发声归属取值。转场、定格延长与 BGM 决策保存在修订内容中，字幕文字与旁白交付版本不写入剪辑时间线。
 
+旁白从承载片段的起点开始，按配音实测时长播放，可以延伸到后续片段上；`place_narration` 操作把旁白改挂到同一视频单元的另一个片段。TTS 配音项目的读取结果另报三类旁白问题，后期配音项目不报：缺少旁白配音（`narration_missing`，只阻断带旁白版本）；旁白越界（`narration_overrun`，与下一段旁白重叠或超出时间线末尾，警告，只影响带旁白版本）；可能与原声相撞（`narration_source_collision`，旁白延伸到台词片段或原声音量高于 0.3 的片段上，警告，只影响带旁白版本）。另有字幕缺字（`subtitle_missing_glyphs`，警告），按随包字幕字体的字符表检查所用视频单元的字幕文字，列出字体里没有的字符，不分项目的旁白交付方式。呈现模型允许旁白配音比视频长，字幕按旁白时长分布，所以这类视频单元的剪映草稿导出、预览素材层、单元预览与单元素材包照常进行。
+
+BGM 片段（编号 `b1`、`b2`……，与视频片段的编号分开分配）由 `insert_bgm`、`set_bgm`、`delete_bgm` 操作增删改，按时间线上的绝对起点摆放，主轨的增删移动不挪动它们；每段记录所引用的 BGM、截取区间、音量（默认 0.25）与淡入淡出（默认各 1 秒）。本批改动的 BGM 片段起点须落在时间线内，且不与其他 BGM 片段重叠。`lib/edit_timeline/bgm.py` 的摆放供读取、成片与剪映草稿共用：超出时间线末尾的部分截断，截断处固定淡出 1 秒；淡入淡出之和超过片段时长时缩短。读取结果按摆放给出每段的实际结束时间与生效的淡入淡出；引用的 BGM 已不在项目里时报 `bgm_missing`（阻断）。BGM 片段参与乐观并发判定，与视频片段一样按片段 ID 记录改动。
+
+剪辑视图的预览在浏览器里按读取结果实时拼接，不经服务端渲染。旁白配音、字幕与 BGM 文件由 `GET /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/preview-media` 提供：按最新修订列出引用的视频单元与 BGM（BGM 带文件路径与响度增益），旁白版本取项目默认值（TTS 配音项目带旁白），字幕取自各单元当前的呈现模型，与剪映草稿是同一份切分结果，时间相对单元。前端按剪辑片段把字幕摆到全局时间，摆放规则与剪映草稿相同。播放时，全局时钟在画面部分跟随视频；任一段媒体缓冲卡住，时钟与全部媒体一起暂停。旁白与 BGM 按全局时钟对齐：偏差小时微调播放速度，偏差大时直接跳转。视频单元的原声按「片段音量 × 生成时的供应商原声开关」播放，开关取自 current 视频的版本记录，口径与成片一致；`preview-media` 按单元返回 `provider_audio`，生成时关闭原声的单元预览静音。BGM 的预览音量是片段音量乘以响度增益。预览里的转场用透明度渐变近似。
+
+Agent 回复里的「跳到这里看」链接是普通的应用内路径，对话渲染器拦截同源且位于 `/app` 之下的链接，在应用内跳转，其余链接仍走外链确认。格式有两种，项目名按路径段做 URL 编码：
+
+- 剪辑视图：`/app/projects/{项目名}/episodes/{集 ID}?view=edit&tl={剪辑时间线ID}&t={秒}`。`tl` 与 `t` 可省略；`t` 是该剪辑时间线上的全局时间，剪辑视图据此选中落在其中的片段并把播放头移过去，不自动播放。读入后这两个参数从地址栏去掉，`tl` 指向的剪辑时间线已不存在时提示并停在默认的那条。
+- 视频单元：`/app/projects/{项目名}/episodes/{集 ID}?unit={单元ID}&t={秒}`。`t` 可省略，是该单元视频自身的时间，从视频开头算起。跳转后选中该单元（复用 Agent 定位用的滚动聚焦）并打开单元预览，窄屏下预览所在的子页签会切到前台。带 `t` 时播放器从 `t` 开始播放：超出可播放范围时夹到范围内，浏览器拦截自动播放时停在该位置。不带 `t` 时不自动播放。
+
+### BGM {#bgm}
+
+BGM 是项目级素材，各集的剪辑时间线共用。创作者在剪辑视图的 BGM 轨上传（`POST /api/v1/projects/{project_name}/upload/bgm`，MP3、WAV 或 M4A，不超过 100 MB），`GET /api/v1/projects/{project_name}/bgm` 列出全部 BGM；Agent 只能经只读工具 `list_bgm` 查看 ID、名称与时长。不提供管理页与删除。
+
+`lib/bgm/` 负责登记：先在 `bgm/` 下写隐藏临时文件，探测时长，再用随包 ffmpeg 的 `ebur128` 滤镜实测一次积分响度，折算成把响度统一到 −16 LUFS 的静态增益（增益 dB = −16 − 实测值，不设峰值上限）；积分响度不高于 −70 LUFS 的音频视为无声，拒绝登记。通过后在 `project.json` 的 `bgm` 中记下名称、文件、时长、实测响度、增益与内容指纹，同一次项目写入里把文件原子换到 `bgm/{bgm_id}.{扩展名}`，并在产物清单中按字节登记（产物身份 `project-bgm`，生成依据只有内容指纹）。文件不再改写，字节被替换时读为 stale。`bgm/` 随项目归档导出和导入，清单条目随之重建。
+
 ### 成片合成 {#final-composition}
 
-成片由一条剪辑时间线的一个修订渲染而来。产物身份为「集 + 剪辑时间线 + 旁白版本 + 是否烧入字幕」，每个身份只保留最新文件，存放在 `renders/episode_{N}/{timeline_id}/final_cut.{旁白版本}.{字幕方式}.mp4`，同目录下同名的 `.render.json` 渲染记录保存版本号（每次登记加一）与渲染时间。当前只支持渲染「硬切、无旁白、不烧入字幕」的成片。剪辑时间线含转场、BGM 或阻断问题时，提交会在入队前被拒绝。
+成片由一条剪辑时间线的一个修订渲染而来。产物身份为「集 + 剪辑时间线 + 旁白版本 + 是否烧入字幕」，每个身份只保留最新文件，存放在 `renders/episode_{N}/{timeline_id}/final_cut.{旁白版本}.{字幕方式}.mp4`，同目录下同名的 `.render.json` 渲染记录保存版本号（每次登记加一）与渲染时间。旁白版本省略时按项目取默认（TTS 配音项目带旁白，其余不带旁白），带旁白版本只对 TTS 配音项目开放；是否烧入字幕省略时烧入。剪辑时间线有阻断问题时，提交会在入队前被拒绝。
 
-渲染在生成队列的 `render` 车道上执行。这条车道不绑定供应商，全局并发固定为 1，不可配置，不产生用量记录；服务重启时中断的渲染任务直接判失败，不重新排队，并清理临时文件。渲染使用随包 ffmpeg：每个硬切段按项目画布与固定 30 fps 归一化后单独编码，截取与定格延长在画面渲染时生效，片段边界按剪辑时间线累计时间取整到帧格；音频不分段：按片段音量将整集原声混成一条音轨，再与按 `-c copy` 拼接好的视频合流。
+渲染在生成队列的 `render` 车道上执行。这条车道不绑定供应商，全局并发固定为 1，不可配置，不产生用量记录；服务重启时中断的渲染任务直接判失败，不重新排队，并清理临时文件。渲染使用随包 ffmpeg：每个硬切段按项目画布与固定 30 fps 归一化后单独编码，截取与定格延长在画面渲染时生效，片段边界按剪辑时间线累计时间取整到帧格。转场不改变片段边界与总时长，窗口以切点为中心、前后各占一半：重叠型转场让前一片段在出点之后、后一片段在入点之前各多取半个窗口的源素材，在同一段内用 `xfade` 交叉过渡，源素材余量不足或前一片段带定格延长时用边缘帧定格补齐；非重叠型转场（闪黑、闪白）不借素材，切点两侧仍分段，前一片段在最后半个窗口淡出、后一片段在开头半个窗口淡入。转场词表与剪映预设、`xfade` 效果的对照在 `lib/edit_timeline/transitions.py`。音频不分段：按片段音量将整集原声混成一条音轨，再与按 `-c copy` 拼接好的视频合流。带旁白版本把各段旁白配音延迟到承载片段的起点后混入这条音轨；越界的旁白按原长度保留、不顺延，超出成片末尾的部分随成片截止。BGM 按摆放结果截取、加淡入淡出，以响度增益乘以片段音量为音量，延迟到起点后混入同一条音轨，不改变成片时长。各路音频相加后经限幅器（`alimiter`，上限约 −1 dBFS），高增益的 BGM 与原声、旁白叠加时成片也不削波。
 
-`lib/artifacts/rendered_artifact.py` 是本地渲染产物共用的登记流程：任务开始时取好生成依据快照，渲染到正式目录内的隐藏临时文件，经媒体探测验收（两路流都在、时长在容差内）后撤下旧登记、原子替换正式文件、写入版本记录，最后按快照登记。版本记录写入失败时，产物没有登记，读取为 missing。成片的生成依据只包含实际消费的内容（剪辑时间线 ID 与修订号、各片段所用视频的版本、内容摘要与供应商原声开关、生效的截取、定格、原声音量、输出画布），版本记录为未生成原声的视频不使用其音轨，与剪映草稿一致。登记与时效比较共用 `lib/final_cut/basis.py` 的同一个构造器，因此渲染期间剪辑时间线被修改、或显式渲染旧修订时，成片读为 stale。`renders/` 不进项目归档，导入后成片读为 missing。
+烧入字幕时，字幕按与剪映草稿相同的摆放规则排到成片时间，写成一份 ASS 文档，在每个硬切段编码时由 libass（`subtitles` 滤镜）绘制。字体是随包的思源黑体 CN Bold（`lib/subtitle_style/fonts/`，SIL OFL 1.1，原样分发），经 `fontsdir` 交给 libass，不依赖系统字体。字号、行宽与纵向位置按 `lib/subtitle_style/baseline.py` 的字幕样式基线换算，剪映草稿的字幕样式取自同一份基线。中文字幕按「可用宽度 ÷ 字号」显式换行，句读与闭合标点不放在行首、开引号与开括号不留在行尾；其他语言交给 libass 在空格处换行。同时出现的多条字幕由 libass 的碰撞处理错开。
 
-HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut`（可带 `revision`，省略时渲染提交时的最新修订；返回任务 ID）与 `GET` 同一路径（返回时效、版本与下载地址）；下载走公开媒体文件路由；隐藏的临时文件、渲染记录与剪映草稿 zip 不可匿名读取。Agent 工具 `render_final_cut` 声明为长任务：ArcReel Agent 等到渲染完成拿到下载地址，外部 Agent 拿到生成批次句柄后轮询。
+`lib/artifacts/rendered_artifact.py` 是本地渲染产物共用的登记流程：任务开始时取好生成依据快照，渲染到正式目录内的隐藏临时文件，经媒体探测验收（两路流都在、时长在容差内）后撤下旧登记、原子替换正式文件、写入版本记录，最后按快照登记。版本记录写入失败时，产物没有登记，读取为 missing。成片的生成依据只包含实际消费的内容（剪辑时间线 ID 与修订号、各片段所用视频的版本、内容摘要与供应商原声开关、生效的截取、定格、原声音量、转场、输出画布），版本记录为未生成原声的视频不使用其音轨，与剪映草稿一致。带旁白或烧入字幕的版本另收录所用视频单元的呈现依据（与剪映草稿相同）；不带旁白也不烧入字幕的版本不消费旁白与字幕，不收录这部分，旁白配音或字幕改动不会让它过期。有 BGM 时另收录 BGM 片段与所引用每首 BGM 的内容指纹和增益；没有 BGM 的依据形态不变。登记与时效比较共用 `lib/final_cut/basis.py` 的同一个构造器，因此渲染期间剪辑时间线被修改、或显式渲染旧修订时，成片读为 stale。`renders/` 不进项目归档，导入后成片读为 missing。
+
+HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut`（可带 `revision`、`narration` 与 `subtitles`，`revision` 省略时渲染提交时的最新修订，`subtitles` 取 `burned_subtitles` 或 `no_subtitles`；返回任务 ID）与 `GET` 同一路径（以同名查询参数选版本，返回时效、版本与下载地址）；下载走公开媒体文件路由；隐藏的临时文件、渲染记录与剪映草稿 zip 不可匿名读取。Agent 工具 `render_final_cut` 以 `narration` 与 `burn_subtitles` 选版本，声明为长任务：ArcReel Agent 等到渲染完成拿到下载地址，外部 Agent 拿到生成批次句柄后轮询。
 
 ### 剪映草稿 {#jianying-draft}
 
@@ -402,9 +430,21 @@ HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id
 
 “可继续编辑”是 ArcReel 与只输出单个视频文件的生成工具之间的重要差异。
 
-由剪辑时间线生成的剪映草稿是产物，身份为「集 + 剪辑时间线 + 旁白版本」（`without_narration` 或 `with_narration`，带旁白版本只对 TTS 配音项目开放），落盘在 `renders/episode_{N}/{timeline_id}/jianying_draft.{旁白版本}.zip`。导出与成片一样是 `render` 车道任务（`render_jianying_draft`），经同一套「依据快照 → 临时文件 → 验收 → 原子替换并登记」落盘，每个产物身份只保留最新文件并记录版本号。`server/services/presentation/timeline_jianying_draft.py` 在入队前和任务开始时都按所选旁白版本检查阻断级 issue，并与成片共用同一项检查拒绝含转场或 BGM 的剪辑时间线，也和成片一样拒绝没有可导出剪辑片段的剪辑时间线，再以各视频单元当前的呈现模型为素材层，把截取、原声音量、定格延长（出点帧静帧）、旁白轨（仅带旁白版本）与字幕轨（思源黑体 CN Bold）映射到草稿。生成依据收录剪辑时间线的修订号、修订中参与渲染的部分、画幅与各单元的呈现依据；剪辑理由不单独进入依据，但任何新修订都会让旧修订导出的草稿读为 stale，素材改动同理。
+由剪辑时间线生成的剪映草稿是产物，身份为「集 + 剪辑时间线 + 旁白版本」（`without_narration` 或 `with_narration`，带旁白版本只对 TTS 配音项目开放），落盘在 `renders/episode_{N}/{timeline_id}/jianying_draft.{旁白版本}.zip`。导出与成片一样是 `render` 车道任务（`render_jianying_draft`），经同一套「依据快照 → 临时文件 → 验收 → 原子替换并登记」落盘，每个产物身份只保留最新文件并记录版本号。`server/services/presentation/timeline_jianying_draft.py` 在入队前和任务开始时都按所选旁白版本检查阻断级 issue，也和成片一样拒绝没有可导出剪辑片段的剪辑时间线，再以各视频单元当前的呈现模型为素材层，把截取、原声音量、定格延长（出点帧静帧）、转场（按词表挂在前一片段的最后一段画面上，带定格延长时即出点帧静帧）、旁白轨（仅带旁白版本）、字幕轨（思源黑体 CN Bold）与 BGM 轨（有 BGM 时，片段音量为响度增益乘以片段音量，淡入淡出写入音频淡化）映射到草稿。旁白或字幕在时间上重叠时按需增加轨道（「旁白 2」「字幕 2」……），重叠部分都保留；多出的字幕轨按固定距离逐条上移，与第一条字幕轨错开。生成依据收录剪辑时间线的修订号、修订中参与渲染的部分、画幅与各单元的呈现依据，有 BGM 时另收录所引用每首 BGM 的内容指纹与增益；剪辑理由不单独进入依据，但任何新修订都会让旧修订导出的草稿读为 stale，素材改动同理。
 
 产物 zip 只保存草稿文件、定格静帧和素材索引，素材路径写成占位符。HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft`（可带 `revision` 与 `narration`，`revision` 省略时导出提交时的最新修订，`narration` 省略时 TTS 配音项目默认带旁白、其余不带旁白；返回任务 ID）与 `GET` 同一路径（返回时效与版本）；下载 `GET .../jianying-draft/download` 凭项目下载 token 校验，这时才代入本机草稿目录与剪映版本（5.x 为 `draft_content.json`，6+ 为 `draft_info.json`），并从项目的版本快照取素材打包。公开媒体文件路由不放行草稿 zip。Agent 工具 `export_jianying_draft` 声明为长任务，调用方式与 `render_final_cut` 相同，但终态结果不带下载地址。与成片相同，草稿在归档导入后读为 missing。
+
+### 看素材 {#video-review}
+
+Agent 工具 `inspect_video_units` 让 Agent 看图审阅视频单元。服务端为每个视频单元的一个视频版本（默认 current，可指定历史版本，读该版本的快照）出联系表：用随包 ffmpeg 先只解复用读出逐帧时刻，按抽帧计划选帧，再一次解码取出选中的帧，因此每帧标注的时刻就是该帧自身的起点，与剪辑时间线的入出点同一时间轴。每张联系表最多 12 帧，长边不超过 2000 px，顶部标视频单元 ID 与版本号，每帧标视频单元 ID 与时刻；一次调用最多 96 帧，单元多时按单元数平分，不另设单元数上限。联系表不落盘，由 `lib/video_review/` 生成。
+
+联系表附带三类机器检查信号：黑屏段、卡帧段和镜头切换点，同样由随包 ffmpeg 在本地算出（`blackdetect`、`freezedetect` 与 `scene` 打分，一次解码完成）。黑屏段与卡帧段是疑似缺陷，黑屏不重复计入卡帧；镜头切换点是结构信息，不是缺陷。信号只作提示，不自动裁切或废弃素材。信号按视频版本惰性计算：版本第一次被看时才算，结果以 JSON 缓存在项目目录的 `.cache/video_signals/` 下，以视频文件的大小与修改时间作指纹，不接入生成链路。抽帧计划保证每个镜头至少一帧，并在信号两侧加密，预算有余时补均匀取样点；镜头数超过帧数预算时，每单元实际帧数提到镜头数，上限 24 帧。命中信号的帧在联系表上标 `CUT`、`BLACK` 或 `FREEZE`，信号区间也随结果返回。
+
+联系表以 MCP 图片内容块随结果返回，排在文本块之后。结果信封的图片块由声明的 `images` 钩子给出，两个 adapter 按同一份信封编码，ArcReel Agent 与外部 Agent 拿到相同的图片，不交文件路径。结果里的 `model_review` 预留给以后接入的服务端原生视频审阅，目前恒为 null。每个单元另带 `available_versions`，列出该单元现有的全部视频版本号，用来发现候选版本。
+
+首轮剪辑的全量审阅交给审片子智能体 `review-footage`：主 Agent 按场景或相邻单元分组并行派发，联系表只进子智能体的上下文，主 Agent 只收文字报告。审片子智能体是只读的，有两层约束：定义 frontmatter 的 `tools` 只开放 Read、Glob、Grep 与 `inspect_video_units`；`AgentAccessPolicy.READ_ONLY_SUBAGENT_TOOLS` 在 PreToolUse hook 上按 `agent_type` 再拒一次名单外的调用，两份名单须一致。
+
+重新生成要先由创作者确认费用。`generate_videos` 的 `preview: true` 走与正式提交同一份整批准入，但不入队、不产生批次，返回报价单 `video_quote`：逐单元的去向（生成、复用或受阻）、编排时长、申请档位、是否变档与预计费用。参考生视频的报价取自准入票，分镜图生视频按准入所用的同一份视频请求事实、以编排时长报价。正式提交时原样带上报价单的 `confirmed_request_durations`，准入不再要求确认同一档位；两次调用之间档位变了，仍会重新要求确认。REST 入口不受影响。
 
 ### 成片读取模型 {#presentation-read-model}
 

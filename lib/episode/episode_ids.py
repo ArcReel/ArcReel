@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Iterator, Mapping
-from pathlib import Path
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lib.episode.episode_ledger import parse_positive_episode_num
+from lib.project.asset_types import ASSET_SPECS
+from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 
 #: ``project.json`` 顶层字段：项目内出现过的最大集 ID。
 EPISODE_ID_HIGH_WATER_KEY = "episode_id_high_water"
@@ -28,6 +30,9 @@ _ITEM_ID_PREFIX_RE = re.compile(r"^E(\d+)(?=[A-Z]\d)")
 #: 以及媒体文件名里的 ``E3S01`` / ``E3U02`` 前缀（``scene_E3S01.png``）。
 _NAME_EPISODE_RE = re.compile(r"(?:^|[^A-Za-z0-9])episode[_-](\d+)(?![0-9])")
 _NAME_ITEM_ID_RE = re.compile(r"(?:^|[^A-Za-z0-9])E(\d+)[A-Z]\d")
+#: 资产图所在的目录（相对项目根，版本快照在 ``versions/`` 下的同名目录）。资产名由创作者命名，
+#: 形似条目 ID（``E12A1``）时也不是集 ID。
+_ASSET_DIRS = frozenset(spec.subdir for spec in ASSET_SPECS.values())
 
 
 def _stored_high_water(project: Mapping[str, Any]) -> int:
@@ -109,26 +114,28 @@ def episode_title(project: Mapping[str, Any], episode_id: int) -> str:
     return title.strip() if isinstance(title, str) else ""
 
 
-def default_episode_title(project: Mapping[str, Any], episode_id: int) -> str:
-    """需要落一个非空标题、而模型或草稿没给时的兜底：账本标题，其次是当下的播出位置。
+def episode_display_name(project: Mapping[str, Any], episode_id: int, translate: Callable[..., str]) -> str:
+    """创作者看到的集名：账本标题；标题为空时按当下播出位置派生「第 N 集」，不在账本里时是未命名集。
 
-    标题会显示给创作者并回写账本，所以兜底里不出现集 ID。
+    派生值只在呈现时成文、不落盘，插集或调序后跟随播出位置。
     """
 
     title = episode_title(project, episode_id)
     if title:
         return title
     position = episode_position(project, episode_id)
-    return f"第 {position} 集" if position is not None else "未命名集"
+    if position is None:
+        return translate("episode_unlisted_name")
+    return translate("episode_position_name", position=position)
 
 
-def episode_file_label(project: Mapping[str, Any], episode_id: int) -> str | None:
-    """文件与文件夹名里的集指称：``{两位播出位置}_{集标题}``；集不在账本里时返回 None。"""
+def episode_file_label(project: Mapping[str, Any], episode_id: int, translate: Callable[..., str]) -> str | None:
+    """文件与文件夹名里的集指称：``{两位播出位置}_{集名}``；集不在账本里时返回 None。"""
 
     position = episode_position(project, episode_id)
     if position is None:
         return None
-    return f"{position:02d}_{default_episode_title(project, episode_id)}"
+    return f"{position:02d}_{episode_display_name(project, episode_id, translate)}"
 
 
 def describe_episode_for_agent(project: Mapping[str, Any], episode_id: int) -> str:
@@ -174,11 +181,20 @@ def episode_item_ref(project: Mapping[str, Any], item_id: str) -> dict[str, Any]
     }
 
 
+def _is_asset_path(name: str) -> bool:
+    parts = PurePosixPath(name.replace("\\", "/")).parts
+    if parts[:1] == ("versions",):
+        parts = parts[1:]
+    return len(parts) > 1 and parts[0] in _ASSET_DIRS
+
+
 def episode_ids_in_names(names: Iterable[str]) -> set[int]:
-    """名字（文件名、相对路径、资源 ID）里出现的集 ID。"""
+    """名字（文件名、相对路径、资源 ID）里出现的集 ID；资产图与资产版本快照的路径不算。"""
 
     found: set[int] = set()
     for name in names:
+        if _is_asset_path(name):
+            continue
         found.update(int(value) for value in _NAME_EPISODE_RE.findall(name))
         found.update(int(value) for value in _NAME_ITEM_ID_RE.findall(name))
     return {value for value in found if value > 0}
@@ -205,10 +221,15 @@ def episode_ids_in_record(value: object) -> set[int]:
 
 
 def episode_ids_on_disk(project_dir: Path) -> set[int]:
-    """项目目录里仍带集 ID 的文件与目录名（剧本、草稿目录、源文留底、媒体名前缀等）。"""
+    """项目目录里仍带集 ID 的文件与目录名（剧本、草稿目录、源文留底、媒体名前缀等）。
+
+    资产图、资产版本快照与版本历史里的资产类记录不算。
+    """
 
     project_dir = Path(project_dir)
-    found = episode_ids_in_names(path.name for path in project_dir.rglob("*"))
+    found = episode_ids_in_names(
+        path.name for path in project_dir.rglob("*") if not _is_asset_path(path.relative_to(project_dir).as_posix())
+    )
     # 版本历史与宫格记录可以在媒体删去后独自留在盘上，文件名本身不一定带集 ID。
     for directory in (project_dir / "versions", project_dir / "grids"):
         for path in directory.rglob("*.json"):
@@ -216,15 +237,21 @@ def episode_ids_on_disk(project_dir: Path) -> set[int]:
                 record = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
+            if isinstance(record, dict) and directory.name == "versions":
+                record = {key: value for key, value in record.items() if not _is_asset_resource_type(key)}
             found.update(episode_ids_in_record(record))
     return found
+
+
+def _is_asset_resource_type(resource_type: object) -> bool:
+    return resource_type == CHARACTER_DERIVATIVE_RESOURCE_TYPE or resource_type in _ASSET_DIRS
 
 
 __all__ = [
     "EPISODE_ID_HIGH_WATER_KEY",
     "allocate_episode_ids",
-    "default_episode_title",
     "describe_episode_for_agent",
+    "episode_display_name",
     "episode_file_label",
     "episode_id_high_water",
     "episode_ids_in_names",

@@ -2024,14 +2024,14 @@ class TestLegacyEnumeration:
         _write_script_plan(pm, "drama", _drama_script_plan())
         assert (await _service(pm).get_state("demo", 1))["status"] == "pending_review"
 
-    async def test_script_plan_prompt_authoring_no_review_grandfathered_confirmed(self, tmp_path):
-        """存量项目（已产 script_plan + prompt_authoring、无 script_plan_review 字段）→ grandfather 放行，不阻塞重跑。"""
+    async def test_script_plan_prompt_authoring_no_review_pending(self, tmp_path):
+        """已产 script_plan + prompt_authoring、无确认记录 → 无从判断正式脚本出自这份规划，待确认。"""
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _drama_script_plan())
         _write_prompt_authoring(pm)
         project_path = pm.get_project_path("demo")
-        assert (await _service(pm).get_state("demo", 1))["status"] == "confirmed"
-        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
+        assert (await _service(pm).get_state("demo", 1))["status"] == "pending_review"
+        assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
     async def test_script_plan_prompt_authoring_review_matching_confirmed(self, tmp_path, video_request_facts):
         pm = _make_project(tmp_path, "drama")

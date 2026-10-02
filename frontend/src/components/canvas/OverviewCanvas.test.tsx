@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { ApiRequestError } from "@/api/errors";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -123,6 +124,36 @@ describe("OverviewCanvas", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   }, 10_000);
+
+  it("shows the way out when regenerating fails because the model output was truncated", async () => {
+    vi.spyOn(API, "generateOverview").mockRejectedValue(
+      new ApiRequestError(
+        "truncated",
+        { code: "text_output_truncated", params: { provider_id: "gemini-aistudio", model: "gemini-3-pro" } },
+        422,
+      ),
+    );
+
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
+    fireEvent.click(await screen.findByRole("button", { name: "替换并重新生成" }));
+
+    expect(await screen.findByText(/换一个文本模型/)).toBeInTheDocument();
+  });
+
+  it("shows no truncation hint when regenerating fails for another reason", async () => {
+    vi.spyOn(API, "generateOverview").mockRejectedValue(new ApiRequestError("boom", undefined, 500));
+
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
+    fireEvent.click(await screen.findByRole("button", { name: "替换并重新生成" }));
+
+    await waitFor(() => expect(API.generateOverview).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByText(/换一个文本模型/)).not.toBeInTheDocument();
+  });
 
   it("leaves the overview untouched when the regenerate confirm is cancelled", async () => {
     vi.spyOn(API, "generateOverview").mockResolvedValue(undefined as never);
@@ -482,5 +513,46 @@ describe("OverviewCanvas ad mode", () => {
     );
     expect(screen.queryByTestId("ad-init-canvas")).not.toBeInTheDocument();
     expect(screen.getByTestId("welcome-canvas")).toBeInTheDocument();
+  });
+
+  it("keeps the creative brief on the overview and saves brief with a custom target duration", async () => {
+    const update = vi
+      .spyOn(API, "updateProject")
+      .mockResolvedValue({ success: true, project: {} as ProjectData });
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    render(
+      <OverviewCanvas
+        projectName="ad-demo"
+        projectData={makeProjectData({
+          content_mode: "ad",
+          target_duration: 60,
+          brief: "",
+          products: { 冰饮: { description: "柠檬气泡水" } } as unknown as ProjectData["products"],
+          episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }],
+        })}
+      />,
+    );
+    const card = screen.getByRole("region", { name: "创作灵感" });
+    expect(within(card).getByText("还没有填写创作灵感")).toBeInTheDocument();
+    expect(within(card).getByText("目标总时长：60 秒")).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole("button", { name: "编辑" }));
+    fireEvent.change(within(card).getByRole("textbox", { name: "创作灵感" }), { target: { value: "夏日解渴" } });
+    fireEvent.click(within(card).getByRole("radio", { name: "自定义" }));
+    const save = within(card).getByRole("button", { name: "保存" });
+    expect(save).toBeDisabled();
+    fireEvent.change(within(card).getByRole("spinbutton", { name: "自定义目标总时长（秒）" }), {
+      target: { value: "45" },
+    });
+    fireEvent.click(save);
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("ad-demo", { brief: "夏日解渴", target_duration: 45 }),
+    );
+  });
+
+  it("does not show the creative brief for narration projects", () => {
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+    expect(screen.queryByRole("region", { name: "创作灵感" })).not.toBeInTheDocument();
   });
 });

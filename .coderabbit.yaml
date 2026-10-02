@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# 仓库 YAML 默认整体替换网页端配置；inheritance 让这里没写的配置项继续沿用网页端设置。
+inheritance: true
+knowledge_base:
+  code_guidelines:
+    # docs/standards/ 下各领域规范按 frontmatter 的 paths 应用到对应源码。
+    # standards:start 与 standards:end 之间由 `uv run python scripts/audit_conventions.py --fix` 生成，不手工修改。
+    filePatterns:
+      # standards:start
+      - files: "docs/standards/agent-runtime.md"
+        applyTo: "server/agent_runtime/**,server/agent_toolset/**,lib/agent/**,agent_runtime_profile/**"
+      - files: "docs/standards/backend.md"
+        applyTo: "lib/**,server/**,scripts/**,alembic/**,packages/**"
+      - files: "docs/standards/docs.md"
+        applyTo: "website/docs/**,README.md,README.en.md,CONTRIBUTING.md"
+      - files: "docs/standards/frontend-async.md"
+        applyTo: "frontend/src/**"
+      - files: "docs/standards/frontend-ui.md"
+        applyTo: "frontend/src/**"
+      - files: "docs/standards/general.md"
+        applyTo: "**"
+      - files: "docs/standards/providers.md"
+        applyTo: "lib/backends/**,lib/custom_provider/**,lib/config/**,lib/billing/**,lib/agent/agent_provider_catalog.py,lib/prompts/prompt_builders*.py,agent_runtime_profile/**,docs/api-docs/**"
+      - files: "docs/standards/testing.md"
+        applyTo: "tests/**,packages/*/tests/**,frontend/src/**/*.test.*,frontend/src/test/**,frontend/src/__mocks__/**"
+      - files: "docs/standards/windows.md"
+        applyTo: "lib/**,server/**,packages/*/src/**"
+      # standards:end

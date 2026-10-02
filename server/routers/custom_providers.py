@@ -1222,8 +1222,8 @@ def _check_google(
     from lib.config.url_utils import ensure_google_base_url
 
     effective_url = ensure_google_base_url(base_url)
-    http_options = {"base_url": effective_url} if effective_url else None
-    client = (client_factory or genai.Client)(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
+    http_options: genai.types.HttpOptionsDict | None = {"base_url": effective_url} if effective_url else None
+    client = (client_factory or genai.Client)(api_key=api_key, http_options=http_options)
     pager = client.models.list()
     count = sum(1 for _ in pager)
     return ConnectivityCheckResponse(

@@ -48,7 +48,7 @@ export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
   const abortRef = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
-    // 接管方轮换 controller（见 .claude/rules/frontend-async-race.md）。
+    // 接管方轮换 controller（见 docs/standards/frontend-async.md）。
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -68,8 +68,7 @@ export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
   }, [target]);
 
   useEffect(() => {
-    // 挂载时拉一次；reload 同步点亮加载态，属于受控的初始化加载。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时拉一次，reload 同步点亮加载态，属于受控的初始化加载
     void reload();
     return () => abortRef.current?.abort();
   }, [reload]);

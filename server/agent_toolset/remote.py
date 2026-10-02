@@ -2,8 +2,8 @@
 
 schema 头部追加必填 ``project``，每次调用显式定位项目；任何定位失败统一返回 ``invalid_project``。
 无 scope 声明（列出、创建项目）不追加 ``project``，也不定位项目。
-长任务声明在描述末尾追加统一的批次句柄与轮询说明。结果写进 ``structuredContent``，content 与内嵌宿主
-的文本块相同。
+长任务声明在描述末尾追加统一的批次句柄与轮询说明。结果写进 ``structuredContent``，content（文本块与图片块）
+与内嵌宿主相同。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp.tools import Tool as FastMCPTool
-from mcp.types import CallToolResult, TextContent
+from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 
 from lib.db.base import DEFAULT_USER_ID
@@ -79,7 +79,13 @@ def remote_description(declaration: AgentToolDeclaration) -> str:
 def remote_result(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any]) -> CallToolResult:
     envelope = encode_outcome(declaration, outcome)
     return CallToolResult(
-        content=[TextContent(type="text", text=text) for text in envelope.texts],
+        content=[
+            *(TextContent(type="text", text=text) for text in envelope.texts),
+            *(
+                ImageContent(type="image", data=image.base64_data, mimeType=image.mime_type)
+                for image in envelope.images
+            ),
+        ],
         structuredContent=envelope.structured,
         isError=envelope.is_error,
     )

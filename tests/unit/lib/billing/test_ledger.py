@@ -204,6 +204,46 @@ class TestRecordBracket:
         assert row.output_tokens == 50
         assert row.finished_at is not None
 
+    async def test_cancel_during_open_write_settles_cancelled_then_reraises(
+        self, db_factory: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """取消打在开账写入上（pending 行已提交、id 尚未返回）：等写入落地后按 cancelled 结算再传播取消。"""
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+        real_start_call = UsageRepository.start_call
+        committed = asyncio.Event()
+        release = asyncio.Event()
+
+        async def _commit_then_hold(repo: UsageRepository, **kwargs: Any) -> int:
+            call_id = await real_start_call(repo, **kwargs)
+            committed.set()
+            await release.wait()
+            return call_id
+
+        monkeypatch.setattr(UsageRepository, "start_call", _commit_then_hold)
+        entered = False
+
+        async def _run() -> None:
+            nonlocal entered
+            async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
+                entered = True
+
+        task = asyncio.create_task(_run())
+        await committed.wait()
+        task.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert not entered, "取消发生在开账期间，括号块不应执行"
+        row = await _only_row(db_factory)
+        assert row.status == "cancelled"
+        assert row.cost_amount == 0.0
+        assert row.finished_at is not None
+        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
+            ("demo", ["cancelled"])
+        ]
+
     async def test_cancellation_settlement_failure_still_reraises_cancellation(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -547,6 +587,54 @@ class TestResumeAndBackfill:
         assert row.usage_tokens == 1_200_000
         assert row.purpose == "assistant_session"
         assert row.session_id == "s1"
+
+    async def test_cancel_between_open_and_finish_still_writes_terminal_row(
+        self, db_factory: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """取消打在补录的开账与结算之间：等终态行带着 SDK 直报费用落库、事件发出后再传播取消。"""
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+        real_start_call = UsageRepository.start_call
+        committed = asyncio.Event()
+        release = asyncio.Event()
+
+        async def _commit_then_hold(repo: UsageRepository, **kwargs: Any) -> int:
+            call_id = await real_start_call(repo, **kwargs)
+            committed.set()
+            await release.wait()
+            return call_id
+
+        monkeypatch.setattr(UsageRepository, "start_call", _commit_then_hold)
+        task = asyncio.create_task(
+            ledger.backfill(
+                project_name="demo",
+                call_type="text",
+                model="claude-sonnet-4",
+                provider="anthropic",
+                prompt="u",
+                user_id="default",
+                status=CallStatus.CANCELLED,
+                input_tokens=1_000,
+                output_tokens=200,
+                cost_amount=0.05,
+                currency="USD",
+                purpose=CallPurpose.ASSISTANT_SESSION,
+                session_id="s1",
+            )
+        )
+        await committed.wait()
+        task.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        row = await _only_row(db_factory)
+        assert row.status == "cancelled"
+        assert row.cost_amount == pytest.approx(0.05)  # 中断前已消耗的费用不丢
+        assert row.finished_at is not None
+        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
+            ("demo", ["cancelled"])
+        ]
 
 
 class _RecordingPublisher:

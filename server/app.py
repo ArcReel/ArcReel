@@ -53,6 +53,7 @@ from server.dependencies import require_project_migration_ok, require_valid_proj
 from server.error_handlers import register_error_handlers
 from server.remote_mcp import remote_mcp_host
 from server.routers import (
+    ad_script,
     agent_config,
     agent_memory,
     api_keys,
@@ -571,7 +572,9 @@ _QUIET_SLOW_THRESHOLD_MS = 500.0
 
 
 @app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
+async def request_logging_middleware(
+    request: Request, call_next, *, quiet_slow_threshold_ms: float = _QUIET_SLOW_THRESHOLD_MS
+):
     start = time.perf_counter()
     path = request.url.path
     _skip_log = path.startswith("/assets") or path == "/health"
@@ -592,7 +595,7 @@ async def request_logging_middleware(request: Request, call_next):
         is_quiet = (
             (request.method, path) in _QUIET_POLL_ENDPOINTS
             and response.status_code < 400
-            and elapsed_ms < _QUIET_SLOW_THRESHOLD_MS
+            and elapsed_ms < quiet_slow_threshold_ms
         )
         log = logger.debug if is_quiet else logger.info
         log(
@@ -672,6 +675,12 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["脚本规划"],
+)
+app.include_router(
+    ad_script.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["广告/短片脚本"],
 )
 app.include_router(
     shot_uploads.router,

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import json
+
 import pytest
 
 from arcreel_market_core.endpoint_definition import AssetData
@@ -13,9 +16,11 @@ from lib.custom_provider.endpoint_test import (
     check_response,
     parse_response_body,
     preview_request,
+    stage_report_payload,
 )
 from lib.i18n import _
-from tests.factories import custom_endpoint_definition
+from tests.factories import custom_endpoint_definition, image_endpoint_definition
+from tests.fakes import PNG_BYTES
 from tests.http_capture import capture_http
 
 PARAMETERS = EndpointTestParameters(model="demo-v1", prompt="一只猫", duration_seconds=5, aspect_ratio="9:16")
@@ -207,3 +212,66 @@ class TestCheckResponse:
         assert issue.to_payload(lambda key, **params: _(key, locale="en", **params))["message"] == (
             "Could not evaluate extraction path: $[?@.a == 1e400]"
         )
+
+
+class TestImageDefinition:
+    """图片定义的预览与验证：按图片的变量渲染请求，按图片的产物字段判读响应。"""
+
+    def test_preview_renders_the_image_request_with_image_resolution_tiers(self):
+        parameters = EndpointTestParameters(model="gpt-image-2", prompt="一座灯塔", aspect_ratio="1:1", resolution="2K")
+
+        preview = preview_request(image_endpoint_definition(), parameters, credentials=CREDENTIALS)
+
+        assert preview.submit.url == "https://api.example.com/v1/images/generations"
+        assert preview.submit.body == {"model": "gpt-image-2", "prompt": "一座灯塔", "size": "1440x1440"}
+        assert preview.poll.url == "https://api.example.com/v1/tasks/{{ task_id }}"
+
+    def test_check_reads_the_image_url_and_maps_the_task_status(self):
+        body = {
+            "code": 200,
+            "data": {"status": "completed", "result": {"images": [{"url": ["https://cdn.test/a.png"]}]}},
+        }
+
+        report = check_response(image_endpoint_definition(), "poll", body)
+
+        assert report.status == "succeeded"
+        assert report.image_url == "https://cdn.test/a.png"
+        assert report.video_url is None
+
+    @pytest.mark.parametrize("prefix", ["", "data:image/png;base64,"])
+    def test_check_reports_a_base64_image_by_its_size_only(self, prefix: str):
+        definition = image_endpoint_definition()
+        definition["poll"]["extract"]["image_b64"] = ["$.data.result.images[0].b64_json"]
+        encoded = base64.b64encode(PNG_BYTES).decode("ascii")
+        body = {"data": {"status": "completed", "result": {"images": [{"b64_json": prefix + encoded}]}}}
+
+        payload = stage_report_payload(check_response(definition, "poll", body))
+
+        image_field = next(field for field in payload["fields"] if field["key"] == "image_b64")
+        assert image_field["value"] == {"image_bytes": len(PNG_BYTES)}
+        assert [attempt["value"] for attempt in image_field["attempts"]] == [{"image_bytes": len(PNG_BYTES)}]
+        assert payload["image_bytes"] == len(PNG_BYTES)
+        assert encoded not in json.dumps(payload)
+
+    def test_check_flags_a_base64_hit_that_is_not_an_image(self):
+        definition = image_endpoint_definition()
+        definition["poll"]["extract"]["image_b64"] = ["$.data.b64_json"]
+        body = {"data": {"status": "completed", "b64_json": "not base64!"}}
+
+        payload = stage_report_payload(check_response(definition, "poll", body))
+
+        image_field = next(field for field in payload["fields"] if field["key"] == "image_b64")
+        assert image_field["value"] == {"image_bytes": None}
+        assert payload["image_bytes"] is None
+
+    @pytest.mark.parametrize("value", ["0123456789abcdef0123456789abcdef", "SUCCESS"])
+    def test_check_flags_decodable_base64_that_is_not_an_image(self, value: str):
+        definition = image_endpoint_definition()
+        definition["poll"]["extract"]["image_b64"] = ["$.data.b64_json"]
+        body = {"data": {"status": "completed", "b64_json": value}}
+
+        payload = stage_report_payload(check_response(definition, "poll", body))
+
+        image_field = next(field for field in payload["fields"] if field["key"] == "image_b64")
+        assert image_field["value"] == {"image_bytes": None}
+        assert payload["image_bytes"] is None

@@ -165,3 +165,31 @@ async def test_media_durations_accumulate_before_rounding_to_milliseconds(
     assert [clip.duration for clip in readout.clips] == [1.033, 1.033, 1.033]
     assert [clip.start for clip in readout.clips] == [0.0, 1.033, 2.067]
     assert readout.duration == 3.1
+
+
+async def test_subtitle_characters_the_bundled_font_cannot_draw_are_reported(
+    pm: ProjectManager, service: EditTimelineService, install_video: InstallMedia
+) -> None:
+    pm.save_script(
+        "demo",
+        _script(
+            _unit("E1U1", "@[角色A]{你好😀}"),
+            _unit("E1U2", "{风起了𠀀，又停了😀}"),
+            _unit("E1U3", "推门进屋😀"),
+        ),
+        "episode_1.json",
+    )
+    for unit_id in ("E1U1", "E1U2", "E1U3"):
+        install_video(unit_id, 1.0)
+
+    readout = await service.create_from_script("demo", episode=1, name="初剪", author=CREATOR)
+
+    # 只查台词与画外音（字幕的来源）；E1U3 是无人声单位，动作描述不进字幕。
+    assert [
+        (issue.clip_ids, issue.unit_id, issue.severity.value, issue.applies_to.value, issue.params)
+        for issue in readout.issues
+        if issue.code == "subtitle_missing_glyphs"
+    ] == [
+        (("c1",), "E1U1", "warning", "all", {"characters": "😀"}),
+        (("c2",), "E1U2", "warning", "all", {"characters": "𠀀😀"}),
+    ]

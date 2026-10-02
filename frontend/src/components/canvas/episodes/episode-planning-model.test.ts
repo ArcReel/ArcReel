@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { makeTask } from "@/test/factories";
 import type { TaskItem } from "@/types";
 
-import { customModelSettingsPath, lastPlanningFailure } from "./episode-planning-model";
+import { lastPlanningFailure } from "./episode-planning-model";
 
 function planning(overrides: Partial<TaskItem>): TaskItem {
   return makeTask({ task_type: "text_episode_plan", resource_id: "episode-planning", ...overrides });
@@ -41,14 +41,5 @@ describe("lastPlanningFailure", () => {
     const rerun = planning({ task_id: "new", status: "running", queued_at: "2026-09-30T11:00:00Z" });
 
     expect(lastPlanningFailure([failed, rerun], "proj")).toBeNull();
-  });
-});
-
-describe("customModelSettingsPath", () => {
-  it("opens the custom provider form at the model, and has nowhere to go for a built-in provider", () => {
-    expect(customModelSettingsPath("custom-3", "my/llm")).toBe(
-      "/app/settings?section=providers&custom=3&model=my%2Fllm",
-    );
-    expect(customModelSettingsPath("gemini-aistudio", "gemini-3-pro")).toBeNull();
   });
 });

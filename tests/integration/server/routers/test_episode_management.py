@@ -95,16 +95,10 @@ def test_unknown_episode_is_not_found(tmp_path, monkeypatch):
     assert resp.status_code == 404
 
 
-def test_delete_is_refused_while_the_episode_has_active_tasks(tmp_path, monkeypatch):
+def test_delete_is_refused_while_the_episode_has_active_tasks(tmp_path, monkeypatch, active_episode_tasks):
     client, pm = _client(monkeypatch, tmp_path, [_cut(1, 0, 5), _cut(2, 5, 10)])
 
-    class _Queue:
-        async def list_tasks(self, *, project_name, status, page, page_size):
-            del project_name, page, page_size
-            items = [{"resource_id": "E2S01", "script_file": None, "payload": {}}] if status == "running" else []
-            return {"items": items}
-
-    monkeypatch.setattr(episode_management, "get_generation_queue", lambda: _Queue())
+    active_episode_tasks["running"] = [{"resource_id": "E2S01", "script_file": None, "payload": {}}]
 
     with client:
         revision = client.post("/api/v1/projects/demo/episodes/2/delete", json={}).json()["impact"]["revision"]

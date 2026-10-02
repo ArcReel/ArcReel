@@ -20,9 +20,8 @@ from lib.generation.video_request_facts import (
 )
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script.prompt_authoring_scope import select_prompt_authoring
-from lib.script.script_generator import PlanningVideoFacts, PromptAuthoringTargets, ScriptGenerator
+from lib.script.script_generator import AdScriptRejected, PlanningVideoFacts, PromptAuthoringTargets, ScriptGenerator
 from lib.script.script_review import content_fingerprint, script_plan_path
-from lib.script.script_structure_validator import ScriptStructureValidationError
 from lib.speech.speech_composition import SpeechAdmissionError
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
@@ -569,8 +568,8 @@ class TestScriptGenerator:
 
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)
-        # 校验失败降级返回原始数据；title 兜底在校验前注入，故降级结果也携带
-        assert parsed == {"foo": "bar", "title": "未命名集"}
+        # 校验失败降级返回原始数据；title 兜底（账本标题，空标题留空）在校验前注入，故降级结果也携带
+        assert parsed == {"foo": "bar", "title": ""}
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         """待编写分镜补上视觉层并清除标记：内容字段逐字保留，metadata 刷新 generator、保留 created_at。"""
@@ -1137,7 +1136,7 @@ class TestAddMetadataInjectsHiddenFields:
         assert dumped["novel"] == {"title": "", "chapter": ""}
 
         out = sg._add_metadata(dumped, episode=2)
-        assert out["novel"] == {"title": "项目标题", "chapter": "未命名集"}
+        assert out["novel"] == {"title": "项目标题", "chapter": ""}
 
     def test_partial_novel_only_title_is_also_reinjected(self, tmp_path: Path) -> None:
         """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 novel 残缺。"""
@@ -1970,7 +1969,7 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        with pytest.raises(ScriptStructureValidationError):
+        with pytest.raises(AdScriptRejected):
             await generator.generate(1)
 
         schema = fake.backend.last_request.response_schema
@@ -2063,7 +2062,8 @@ class TestAdParseResponseDriftRecovery:
         )
         parsed = generator._parse_response(llm_response, 1)
 
-        assert parsed["title"] == "第 1 集"
+        # 账本标题为空：标题留空，不落派生的「第 N 集」
+        assert parsed["title"] == ""
         first, second = parsed["shots"]
         assert first["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
         assert first["video_prompt"]["camera_motion"] == "Zoom Out"

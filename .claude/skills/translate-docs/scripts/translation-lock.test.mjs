@@ -138,7 +138,7 @@ test("status reports CONTRIBUTING.md stale when only its synced copy changed", (
   const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
   write(root, "CONTRIBUTING.md", "# 贡献\n");
   write(root, "website/docs/dev/contributing.md", "---\nid: contributing\n---\n\n# 贡献 {#contributing}\n");
-  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md", "# Contributing\n");
+  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md", "---\nid: contributing\n---\n\n# Contributing {#contributing}\n");
   record(root);
   write(root, "website/docs/dev/contributing.md", "---\nid: contributing\n---\n\n# 贡献 {#contribute}\n");
 
@@ -192,4 +192,79 @@ test("record refuses to hide an unregistered document translation", () => {
     result.stderr,
     /Refusing to record orphan translations:\nwebsite\/i18n\/en\/docusaurus-plugin-content-docs\/current\/guide\/unregistered\.md/,
   );
+});
+
+test("status reports a translation whose untranslated frontmatter drifted from the source", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "website/docs/guide/start.md", "---\nid: start\ntitle: 入门\nupdate_docs: full\n---\n\n# 入门 {#start}\n");
+  write(
+    root,
+    "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
+    "---\nid: start\ntitle: Getting Started\n---\n\n# Getting Started {#start}\n",
+  );
+
+  assert.deepEqual(status(root), [
+    {
+      source: "website/docs/guide/start.md",
+      target: "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
+      state: "frontmatter",
+    },
+    {
+      source: "website/docs/guide/start.md",
+      target: "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
+      state: "stale",
+    },
+  ]);
+});
+
+test("status accepts a translation that differs only in translated frontmatter values", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(
+    root,
+    "website/docs/guide/start.md",
+    "---\nid: start\ntitle: 入门\ndescription: >-\n  中文描述\nupdate_docs: full\n---\n\n# 入门 {#start}\n",
+  );
+  write(
+    root,
+    "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
+    "---\nid: start\ntitle: Getting Started\ndescription: >-\n  English description\nupdate_docs: full\n---\n\n# Getting Started {#start}\n",
+  );
+  record(root);
+
+  assert.deepEqual(status(root), []);
+});
+
+test("record refuses to hide frontmatter drift", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "website/docs/guide/start.md", "---\nid: start\nsidebar_position: 1\n---\n\n# 入门\n");
+  write(
+    root,
+    "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
+    "---\nid: start\nsidebar_position: 2\n---\n\n# Getting Started\n",
+  );
+
+  const result = spawnSync(process.execPath, [scriptPath, "record", "--root", root], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /untranslated frontmatter differs from the source:\nwebsite\/i18n\/en\//);
+  assert.equal(existsSync(join(root, "website/i18n/translation.lock.json")), false);
+});
+
+test("record refuses to hide drift in a quoted frontmatter key", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "website/docs/guide/start.md", '---\ntitle: 入门\n"update_docs": full\n---\n\n# 入门\n');
+  write(
+    root,
+    "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
+    "---\ntitle: Getting Started\n---\n\n# Getting Started\n",
+  );
+
+  const result = spawnSync(process.execPath, [scriptPath, "record", "--root", root], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /untranslated frontmatter differs from the source/);
 });

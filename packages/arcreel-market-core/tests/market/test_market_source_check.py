@@ -329,8 +329,8 @@ class TestProjectionRule:
 
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].min_app_version", "projection_mismatch")]
 
-    def test_a_declarative_definition_always_projects_video(self, source: _Source):
-        """声明式定义描述的是「JSON in/out + 提交 / 轮询」的视频协议，索引说别的即不符。"""
+    def test_a_declarative_definition_without_media_type_projects_video(self, source: _Source):
+        """未写 ``media_type`` 的声明式定义按视频投影，索引说别的即不符。"""
         source.add("demo", media_type="image")
 
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].media_type", "projection_mismatch")]

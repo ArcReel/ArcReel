@@ -11,6 +11,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
@@ -20,6 +21,8 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
+from lib.bgm.service import BgmError, BgmLibraryService
 from lib.config.resolver import VisionCapabilityError
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
@@ -35,6 +38,15 @@ from lib.episode.episode_source_commands import (
     add_own_source_episode,
     register_whole_source_file,
     unregister_source_file,
+)
+from lib.episode.episode_sources import whole_source_files
+from lib.episode.source_file_changes import (
+    SourceFileChangeError,
+    SourceFileChangeOutcome,
+    delete_whole_source_file,
+    edit_whole_source_file,
+    insert_whole_source_file,
+    replace_whole_source_file,
 )
 from lib.episode.source_kinds import SourceKind
 from lib.infra.api_errors import BadRequestError, NotFoundError
@@ -66,6 +78,12 @@ from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._script_review_errors import raise_review_error
+from server.routers._source_file_changes import (
+    ensure_no_displaced_tasks,
+    source_file_change_http_error,
+    source_file_change_payload,
+)
+from server.routers._source_uploads import extract_uploaded_source_text, source_loader_http_error
 from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 
@@ -84,7 +102,7 @@ public_router = APIRouter()
 # 公开端点可读的媒体范围，是 ADR 0071「静态媒体」在实现上的唯一定义处。
 # 目录：项目内由生成/上传流程写入、前端以媒体元素直接引用的子目录，含其嵌套子目录
 # （characters/refs、characters/refs_audio、characters/derivatives、products/refs、
-# reference_videos/thumbnails、renders/episode_N/<剪辑时间线> 等）；versions/ 下只放行这些目录各自的快照桶。
+# reference_videos/thumbnails、renders/episode_N/<剪辑时间线> 等，bgm 是项目级 BGM）；versions/ 下只放行这些目录各自的快照桶。
 PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
     {
         "storyboards",
@@ -98,6 +116,7 @@ PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
         "products",
         "grids",
         "audio",
+        "bgm",
         "renders",
     }
 )
@@ -106,7 +125,7 @@ PUBLIC_VERSIONS_DIR = "versions"
 PUBLIC_ROOT_MEDIA_STEM = "style_reference"
 # 扩展名：仅图片 / 视频 / 音频，不区分大小写；同目录下的 .json 等元数据文件不在其列。
 # 目录名与根文件名区分大小写。
-PUBLIC_MEDIA_EXTENSIONS: frozenset[str] = frozenset({*_IMAGE_EXTS, ".mp4", ".wav", ".mp3"})
+PUBLIC_MEDIA_EXTENSIONS: frozenset[str] = frozenset({*_IMAGE_EXTS, ".mp4", ".wav", ".mp3", ".m4a"})
 # 公开端点的所有文件响应都禁止浏览器按内容嗅探 MIME
 _PUBLIC_FILE_HEADERS: dict[str, str] = {"X-Content-Type-Options": "nosniff"}
 
@@ -238,6 +257,15 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         content_check="normalize_image",
         metadata_setter=ProjectManager.update_product_sheet,
     ),
+    # 项目级 BGM：由 BgmLibraryService 全权接管（实测响度、原子落盘并按字节登记），表项只提供类型校验与扩展名白名单。
+    "bgm": UploadSpec(
+        allowed_exts=BGM_EXTENSIONS,
+        subdir=(BGM_DIR,),
+        naming="delegated",
+        content_check="delegated",
+        unsupported_ext_key="unsupported_audio_type",
+        max_bytes=BGM_MAX_BYTES,
+    ),
     "product_ref": UploadSpec(
         allowed_exts=_IMAGE_EXTS,
         subdir=(ASSET_SPECS["product"].subdir, "refs"),
@@ -325,13 +353,14 @@ async def upload_file(
     role: SourceUploadRole = "whole_source",
     insert_at: Annotated[int | None, Query(ge=0)] = None,
     source_kind: SourceKind | None = None,
+    revision: str | None = None,
 ):
     """
     上传文件
 
     Args:
         project_name: 项目名称
-        upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref)
+        upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref/bgm)
         file: 上传的文件
         name: 可选，用于角色/场景/道具/商品名称（自动更新元数据）；product_ref 必填；
             分镜/视频上传走 shot_uploads 路由
@@ -340,6 +369,9 @@ async def upload_file(
             播出顺序末尾的一集自带原文的集
         insert_at: role=whole_source 独有 — 登记后文件在整本源文清单里的下标，缺省或超出末尾时接在末尾
         source_kind: source 类型独有 — 剧情演绎项目这份原文的源文件类型，缺省为小说；其他创作类型忽略
+        revision: role=whole_source 独有 — 确认过的受影响集清单的版本。插入处落在一个跨文件的集内部，或
+            on_conflict=replace 覆盖已登记的整本源文文件时，有受影响的集而它缺省或已过时，不写入，返回
+            ``status=confirmation_required`` 与受影响集清单
     """
     spec = UPLOAD_SPECS.get(upload_type)
     if spec is None:
@@ -377,6 +409,7 @@ async def upload_file(
             on_conflict=on_conflict,
             insert_at=insert_at,
             source_kind=source_kind,
+            revision=revision,
             _t=_t,
         )
 
@@ -388,6 +421,9 @@ async def upload_file(
                 status_code=400,
                 detail=_t("upload_too_large", max_mb=spec.max_bytes // (1024 * 1024)),
             )
+
+        if upload_type == "bgm":
+            return await _handle_bgm_upload(project_name, original_filename, content, _t)
 
         if spec.content_check == "audio":
             try:
@@ -506,6 +542,53 @@ async def upload_file(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
+_BGM_ERROR_STATUS: dict[str, tuple[int, str]] = {
+    "bgm_unsupported_type": (400, "unsupported_audio_type"),
+    "bgm_too_large": (400, "upload_too_large"),
+    "bgm_invalid_audio": (400, "invalid_audio_file"),
+    "bgm_silent": (400, "bgm_silent"),
+    "bgm_ffmpeg_unavailable": (503, "bgm_ffmpeg_unavailable"),
+}
+
+
+def _bgm_http_error(exc: BgmError, _t: Translator) -> HTTPException:
+    if exc.code == "project_not_found":
+        return HTTPException(status_code=404, detail=_t("project_not_found", name=exc.params.get("project", "")))
+    status, key = _BGM_ERROR_STATUS[exc.code]
+    return HTTPException(status_code=status, detail=_t(key, **exc.params))
+
+
+async def _handle_bgm_upload(project_name: str, filename: str, content: bytes, _t: Translator) -> dict[str, object]:
+    """登记一首项目级 BGM，返回它在 BGM 列表里的形态。"""
+    await asyncio.to_thread(assert_project_migration_ok, project_name)
+    try:
+        track = await BgmLibraryService(get_project_manager()).upload(project_name, filename=filename, content=content)
+    except BgmError as exc:
+        raise _bgm_http_error(exc, _t) from exc
+    return {"success": True, "bgm": _bgm_view(project_name, track)}
+
+
+def _bgm_view(project_name: str, track: BgmTrack) -> dict[str, object]:
+    return {
+        "id": track.id,
+        "name": track.name,
+        "duration": track.duration,
+        "gain": round(track.gain, 6),
+        "path": track.file,
+        "url": f"/api/v1/files/{project_name}/{track.file}",
+    }
+
+
+@router.get("/projects/{project_name}/bgm")
+async def list_bgm(project_name: str, _t: Translator):
+    """项目里已上传的 BGM，按上传先后排列；``gain`` 是把响度统一到 −16 LUFS 的线性增益。"""
+    try:
+        tracks = await BgmLibraryService(get_project_manager()).list(project_name)
+    except BgmError as exc:
+        raise _bgm_http_error(exc, _t) from exc
+    return {"bgm": [_bgm_view(project_name, track) for track in tracks]}
+
+
 @router.delete("/projects/{project_name}/characters/{name}/reference-audio")
 async def delete_character_reference_audio(project_name: str, name: str, _t: Translator):
     """删除角色的参考音频样本：清空 project.json 字段并移除文件。"""
@@ -539,9 +622,13 @@ async def _handle_source_upload(
     on_conflict: OnConflict,
     insert_at: int | None,
     source_kind: SourceKind | None,
+    revision: str | None,
     _t: Translator,
 ):
-    """Source 分支：通过 SourceLoader 规范化为 UTF-8 .txt，并按需备份原始字节，登记为整本源文的文件。"""
+    """Source 分支：通过 SourceLoader 规范化为 UTF-8 .txt，并按需备份原始字节，登记为整本源文的文件。
+
+    插入整本源文与覆盖已登记的整本源文文件都经 :mod:`lib.episode.source_file_changes`，重映射触及它的切出集。
+    """
     original_filename = _require_filename(file, _t)
     normalized_name = f"{Path(original_filename).stem}.txt"
     if is_derived_episode_name(normalized_name):
@@ -553,7 +640,52 @@ async def _handle_source_upload(
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
-    def _sync() -> NormalizeResult:
+    project = await asyncio.to_thread(manager.load_project, project_name)
+    if on_conflict == "replace" and f"source/{normalized_name}" in whole_source_files(project):
+        text = await asyncio.to_thread(extract_uploaded_source_text, file, _t)
+
+        def _replace() -> SourceFileChangeOutcome:
+            with project_change_source("webui"):
+                return replace_whole_source_file(
+                    manager, project_name, normalized_name, text, source_kind=source_kind, revision=revision
+                )
+
+        try:
+            await ensure_no_displaced_tasks(
+                project_name,
+                revision,
+                lambda: replace_whole_source_file(
+                    manager,
+                    project_name,
+                    normalized_name,
+                    text,
+                    source_kind=source_kind,
+                    revision=revision,
+                    dry_run=True,
+                ),
+                _t,
+            )
+            outcome = await asyncio.to_thread(_replace)
+        except SourceFileChangeError as exc:
+            raise source_file_change_http_error(exc, _t) from exc
+        payload = source_file_change_payload(outcome, project, _t)
+        if not outcome.applied:
+            return {"success": False, **payload}
+        relative_path = f"source/{normalized_name}"
+        return {
+            "success": True,
+            **payload,
+            "filename": normalized_name,
+            "path": relative_path,
+            "url": f"/api/v1/files/{project_name}/{relative_path}",
+            "normalized": True,
+            "original_kept": False,
+            "original_filename": original_filename,
+        }
+
+    loaded: dict[str, NormalizeResult] = {}
+
+    def _sync() -> SourceFileChangeOutcome:
         # 流式写入 tmp，避免把上传 body 整体拉进 Python 堆；
         # UploadFile.file 是 SpooledTemporaryFile，此处已是请求体完整到位状态。
         # 在 with 外包 try/finally：即使 copyfileobj 抛异常（如磁盘满），
@@ -563,22 +695,30 @@ async def _handle_source_upload(
         try:
             with tmp_path.open("wb") as out:
                 shutil.copyfileobj(file.file, out)
-            with manager.locked_source_registration(project_name) as (source_dir, project, _undo):
+
+            def _write(source_dir: Path, undo: ExitStack) -> str:
                 result = SourceLoader.load(
                     tmp_path,
                     source_dir,
                     original_filename=original_filename,
                     on_conflict=on_conflict,
                 )
-                register_whole_source_file(
-                    project, f"source/{result.normalized_path.name}", index=insert_at, source_kind=source_kind
+                undo.callback(result.normalized_path.unlink, missing_ok=True)
+                if result.raw_path is not None:
+                    undo.callback(result.raw_path.unlink, missing_ok=True)
+                loaded["result"] = result
+                return f"source/{result.normalized_path.name}"
+
+            with project_change_source("webui"):
+                outcome, _rel = insert_whole_source_file(
+                    manager, project_name, _write, index=insert_at, source_kind=source_kind, revision=revision
                 )
-                return result
+            return outcome
         finally:
             tmp_path.unlink(missing_ok=True)
 
     try:
-        result = await asyncio.to_thread(_sync)
+        outcome = await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         # 竞态窗口：get_project_path 通过后项目目录被并发删除，SourceLoader 写入时才炸。
         # 不映射会落到 app 级兜底的泛化 resource_not_found，丢失项目语义。
@@ -586,35 +726,10 @@ async def _handle_source_upload(
         if project_dir.exists():
             raise
         raise NotFoundError("project_not_found", name=project_name) from exc
-    except UnsupportedFormatError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=_t("source_unsupported_format", ext=exc.ext),
-        ) from exc
-    except FileSizeExceededError as exc:
-        raise HTTPException(
-            status_code=413,
-            detail=_t(
-                "source_too_large",
-                filename=exc.filename,
-                size_mb=round(exc.size_bytes / 1024 / 1024, 1),
-                limit_mb=round(exc.limit_bytes / 1024 / 1024, 1),
-            ),
-        ) from exc
-    except SourceDecodeError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=_t(
-                "source_decode_failed",
-                filename=exc.filename,
-                tried=", ".join(exc.tried_encodings),
-            ),
-        ) from exc
-    except CorruptFileError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=_t("source_corrupt_file", filename=exc.filename, reason=exc.reason),
-        ) from exc
+    except (UnsupportedFormatError, FileSizeExceededError, SourceDecodeError, CorruptFileError) as exc:
+        raise source_loader_http_error(exc, _t) from exc
+    except SourceFileChangeError as exc:
+        raise source_file_change_http_error(exc, _t) from exc
     except ConflictError as exc:
         raise HTTPException(
             status_code=409,
@@ -629,9 +744,14 @@ async def _handle_source_upload(
             },
         ) from exc
 
+    payload = source_file_change_payload(outcome, project, _t)
+    if not outcome.applied:
+        return {"success": False, **payload}
+    result = loaded["result"]
     relative_path = f"source/{result.normalized_path.name}"
     return {
         "success": True,
+        **payload,
         "filename": result.normalized_path.name,
         "path": relative_path,
         "url": f"/api/v1/files/{project_name}/{relative_path}",
@@ -792,24 +912,58 @@ async def get_source_file(project_name: str, filename: str, _t: Translator):
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
+async def _ensure_no_displaced_tasks_for_whole_source(
+    project_name: str,
+    filename: str,
+    revision: str | None,
+    preview: Callable[[ProjectManager], SourceFileChangeOutcome],
+    _t: Translator,
+) -> None:
+    """``source/<filename>`` 是已登记的整本源文文件时，执行前拦要移除或转为无原文的集的在途任务。"""
+    if revision is None:
+        return
+    manager = get_project_manager()
+    project = await asyncio.to_thread(manager.load_project, project_name)
+    if f"source/{filename}" in whole_source_files(project):
+        await ensure_no_displaced_tasks(project_name, revision, lambda: preview(manager), _t)
+
+
 @router.put("/projects/{project_name}/source/{filename}", dependencies=[Depends(require_project_migration_ok)])
 async def update_source_file(
     project_name: str,
     filename: str,
     _t: Translator,
     content: str = Body(..., media_type="text/plain"),
+    revision: str | None = None,
 ):
     """更新或创建 source 文件；新建的文件登记为整本源文的文件，接在清单末尾。
 
+    已登记的整本源文文件按编辑处理（:func:`lib.episode.source_file_changes.edit_whole_source_file`）：有受影响的集而
+    ``revision`` 缺省或已过时时不写入，返回 ``status=confirmation_required`` 与受影响集清单。
     ``episode_N.txt`` 是集原文文件名，这里拒绝：集原文经集页填写，切出集的集原文由分集规划派生。
     """
     if is_derived_episode_name(filename):
         raise HTTPException(status_code=400, detail=_t("source_name_reserved"))
     try:
+        await _ensure_no_displaced_tasks_for_whole_source(
+            project_name,
+            filename,
+            revision,
+            lambda manager: edit_whole_source_file(
+                manager, project_name, filename, content, revision=revision, dry_run=True
+            ),
+            _t,
+        )
 
         def _sync():
             manager = get_project_manager()
             project_dir = manager.get_project_path(project_name)
+            project = manager.load_project(project_name)
+            if f"source/{filename}" in whole_source_files(project):
+                with project_change_source("webui"):
+                    outcome = edit_whole_source_file(manager, project_name, filename, content, revision=revision)
+                payload = source_file_change_payload(outcome, project, _t)
+                return {"success": outcome.applied, **payload, "path": f"source/{filename}"}
 
             with manager.locked_source_registration(project_name) as (_source_dir, project, _undo):
                 # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
@@ -827,6 +981,8 @@ async def update_source_file(
 
         return await asyncio.to_thread(_sync)
 
+    except SourceFileChangeError as exc:
+        raise source_file_change_http_error(exc, _t) from exc
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
@@ -837,16 +993,30 @@ async def update_source_file(
 
 
 @router.delete("/projects/{project_name}/source/{filename}", dependencies=[Depends(require_project_migration_ok)])
-async def delete_source_file(project_name: str, filename: str, _t: Translator):
+async def delete_source_file(project_name: str, filename: str, _t: Translator, revision: str | None = None):
     """删除 source 文件，并撤销它的登记：移出整本源文；是自带原文的集的集文件时，该集转为无原文。
 
+    已登记的整本源文文件按删除处理（:func:`lib.episode.source_file_changes.delete_whole_source_file`）：有受影响的
+    集而 ``revision`` 缺省或已过时时不删除，返回 ``status=confirmation_required`` 与受影响集清单。
     切出集的集文件由分集规划派生，这里拒绝删除。
     """
     try:
+        await _ensure_no_displaced_tasks_for_whole_source(
+            project_name,
+            filename,
+            revision,
+            lambda manager: delete_whole_source_file(manager, project_name, filename, revision=revision, dry_run=True),
+            _t,
+        )
 
         def _sync():
             manager = get_project_manager()
             project_dir = manager.get_project_path(project_name)
+            project = manager.load_project(project_name)
+            if f"source/{filename}" in whole_source_files(project):
+                with project_change_source("webui"):
+                    outcome = delete_whole_source_file(manager, project_name, filename, revision=revision)
+                return {"success": outcome.applied, **source_file_change_payload(outcome, project, _t)}
 
             with manager.locked_source_registration(project_name) as (_source_dir, project, undo):
                 # 安全检查：确保路径在项目目录内
@@ -872,6 +1042,8 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator):
 
         return await asyncio.to_thread(_sync)
 
+    except SourceFileChangeError as exc:
+        raise source_file_change_http_error(exc, _t) from exc
     except EpisodeSourceError as exc:
         raise episode_source_http_error(exc, _t, filename=filename) from exc
     except FileNotFoundError as exc:

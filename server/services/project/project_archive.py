@@ -17,7 +17,6 @@ from types import MappingProxyType
 from typing import Any
 
 from arcreel_market_core.validation_messages import MessageRef, ValidationMessage
-from lib.agent.agent_memory_paths import project_memory_dir
 from lib.artifacts.artifact_activation import (
     ensure_imported_artifact_target_state,
     snapshot_preserved_artifact_manifest,
@@ -60,6 +59,7 @@ from lib.script.reference_video.duration_migration import migrate_unit_durations
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.script_skeleton import SKELETONS, resolve_declared_kind, resolve_kind_items
 from lib.script.source_loader.migration import migrate_project_source_encoding
+from server.services.project.project_retirement import RetireProject
 
 logger = logging.getLogger(__name__)
 
@@ -289,8 +289,10 @@ class ProjectArchiveService:
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES - _ARCHIVE_EXCLUDED_ROOTS)
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
 
-    def __init__(self, project_manager: ProjectManager):
+    def __init__(self, project_manager: ProjectManager, *, retire_project: RetireProject | None = None):
+        """``retire_project`` 收尾覆盖导入替换掉的现有项目，覆盖现有项目时必需。"""
         self.project_manager = project_manager
+        self._retire_project = retire_project
         self.validator = DataValidator(projects_dir=str(project_manager.projects_dir))
 
     def get_export_diagnostics(
@@ -2089,51 +2091,44 @@ class ProjectArchiveService:
         overwrite: bool,
     ) -> None:
         target_dir = self.project_manager.projects_dir / project_name
-        backup_dir: Path | None = None
+        prepared_dir = target_dir.with_name(f".import-staging-{target_dir.name}-{secrets.token_hex(4)}")
 
         try:
+            shutil.move(str(staging_dir), str(prepared_dir))
+            # profile sync 是安装的一部分，在项目目录旁做完：它失败时现有项目与其记录都还没动过。
+            self.project_manager.sync_agent_profile(prepared_dir)
             if overwrite and target_dir.exists():
-                backup_dir = target_dir.with_name(f".import-backup-{target_dir.name}-{secrets.token_hex(4)}")
-                target_dir.rename(backup_dir)
+                self._replace_project_dir(prepared_dir, target_dir)
+            else:
+                prepared_dir.rename(target_dir)
+        finally:
+            if prepared_dir.exists():
+                shutil.rmtree(prepared_dir, ignore_errors=True)
 
-            shutil.move(str(staging_dir), str(target_dir))
-            # profile sync 是安装的一部分；纳入同一个事务里，sync 失败也走下面的
-            # rollback：删 target_dir + 恢复 backup_dir。否则失败时旧项目已经被删，
-            # 用户会丢数据（overwrite 分支）或留半安装状态（new 分支）
-            self.project_manager.sync_agent_profile(target_dir)
-            if backup_dir is not None:
-                # 拷贝而非移动：备份目录保持完整，异常时下面的 rollback 才能把记忆一并还原
-                self._restore_project_memory(backup_dir, target_dir)
-        except Exception:
-            if target_dir.exists():
-                shutil.rmtree(target_dir, ignore_errors=True)
-            if backup_dir and backup_dir.exists():
+    def _replace_project_dir(self, prepared_dir: Path, target_dir: Path) -> None:
+        """覆盖导入等同于删除现有项目再导入：现有项目的记录按删除收尾，目录连同项目记忆一并换掉。
+
+        收尾里只做两次改名，数据库事务持有的时间不随项目大小增长。替换目录或提交记录失败时，
+        记录回滚，旧目录原样还原；还原也只用改名，不会因删不净新目录而卡在备份名下。
+        """
+        if self._retire_project is None:
+            raise RuntimeError("覆盖导入需要收尾现有项目的记录")
+        backup_dir = target_dir.with_name(f".import-backup-{target_dir.name}-{secrets.token_hex(4)}")
+
+        try:
+            with self._retire_project(target_dir.name):
+                target_dir.rename(backup_dir)
+                prepared_dir.rename(target_dir)
+        except BaseException:
+            if backup_dir.exists():
+                if target_dir.exists():
+                    discarded_dir = target_dir.with_name(f".import-discard-{target_dir.name}-{secrets.token_hex(4)}")
+                    target_dir.rename(discarded_dir)
+                    shutil.rmtree(discarded_dir, ignore_errors=True)
                 backup_dir.rename(target_dir)
             raise
-
-        if backup_dir and backup_dir.exists():
+        try:
             shutil.rmtree(backup_dir)
-
-    @staticmethod
-    def _restore_project_memory(backup_dir: Path, target_dir: Path) -> None:
-        """项目记忆随项目目录、不随归档内容：归档不携带 ``.arcreel/``（点目录过滤天然排除），
-        覆盖导入把旧目录的这份内容搬进新目录。目录位置取 ``lib.agent.agent_memory_paths`` 的派生
-        真相源，与围栏放行的目录同一处知识。
-        """
-        source_dir = project_memory_dir(backup_dir)
-        # 先判软链再判目录：``is_dir()`` 跟随软链，而 ``copytree`` 的 ``symlinks=True``
-        # 只对 src 之下的条目保留软链、对 src 自身照样解引用——记忆根本身是软链时会把
-        # 链接目标整棵拷进新项目。sandbox 内的 Bash 能在项目目录里建这条链，服务端这次
-        # 拷贝不受 sandbox 约束，等于把 Agent 读不到的宿主文件搬进它读得到的记忆目录。
-        if source_dir.is_symlink():
-            logger.warning("项目记忆根是软链，跳过恢复: %s", source_dir)
-            return
-        if not source_dir.is_dir():
-            return
-        # symlinks=True：软链原样复制，悬空软链不会让整次覆盖导入失败
-        shutil.copytree(
-            source_dir,
-            project_memory_dir(target_dir),
-            symlinks=True,
-            dirs_exist_ok=True,
-        )
+        except OSError:
+            # 覆盖已经生效，记录也已收尾；残留的旧目录不改变导入结果。
+            logger.warning("覆盖导入后旧项目目录删除失败: %s", backup_dir, exc_info=True)

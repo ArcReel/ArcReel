@@ -8,7 +8,12 @@ from lib.config.url_utils import normalize_base_url
 from lib.db.models.credential import ProviderCredential
 from lib.db.repositories.base import BaseRepository
 
-_UNSET = object()
+
+class _Unset:
+    """哨兵：区分「未传」（不修改该字段）与「显式传 None」（清空该字段）。"""
+
+
+_UNSET = _Unset()
 
 
 class CredentialRepository(BaseRepository):
@@ -55,7 +60,7 @@ class CredentialRepository(BaseRepository):
     async def get_active(self, provider: str) -> ProviderCredential | None:
         stmt = select(ProviderCredential).where(
             ProviderCredential.provider == provider,
-            ProviderCredential.is_active == True,  # noqa: E712
+            ProviderCredential.is_active,
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -66,7 +71,7 @@ class CredentialRepository(BaseRepository):
     async def get_active_credentials_bulk(self) -> dict[str, ProviderCredential]:
         """批量获取所有供应商的生效凭证。"""
         stmt = select(ProviderCredential).where(
-            ProviderCredential.is_active == True,  # noqa: E712
+            ProviderCredential.is_active,
         )
         result = await self.session.execute(stmt)
         return {c.provider: c for c in result.scalars()}
@@ -85,11 +90,11 @@ class CredentialRepository(BaseRepository):
         cred_id: int,
         *,
         name: str | None = None,
-        api_key: str | object | None = _UNSET,
+        api_key: str | _Unset | None = _UNSET,
         credentials_path: str | None = None,
-        base_url: str | object | None = _UNSET,
-        access_key: str | object | None = _UNSET,
-        secret_key: str | object | None = _UNSET,
+        base_url: str | _Unset | None = _UNSET,
+        access_key: str | _Unset | None = _UNSET,
+        secret_key: str | _Unset | None = _UNSET,
     ) -> None:
         """更新凭证字段。省略参数（保持 _UNSET）表示不修改；api_key/base_url/access_key/
         secret_key 显式传 None 会清空该字段——凭证切组时用于清空另一组的旧值（见
@@ -101,16 +106,16 @@ class CredentialRepository(BaseRepository):
             return
         if name is not None:
             cred.name = name
-        if api_key is not _UNSET:
-            cred.api_key = api_key  # type: ignore[assignment]
+        if not isinstance(api_key, _Unset):
+            cred.api_key = api_key
         if credentials_path is not None:
             cred.credentials_path = credentials_path
-        if base_url is not _UNSET:
-            cred.base_url = normalize_base_url(base_url)  # type: ignore[arg-type]
-        if access_key is not _UNSET:
-            cred.access_key = access_key  # type: ignore[assignment]
-        if secret_key is not _UNSET:
-            cred.secret_key = secret_key  # type: ignore[assignment]
+        if not isinstance(base_url, _Unset):
+            cred.base_url = normalize_base_url(base_url)
+        if not isinstance(access_key, _Unset):
+            cred.access_key = access_key
+        if not isinstance(secret_key, _Unset):
+            cred.secret_key = secret_key
 
     async def delete(self, cred_id: int) -> None:
         """删除凭证。若删除的是生效凭证，自动将最早的另一条设为生效。"""

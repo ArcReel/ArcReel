@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from lib.db.models.api_call import ApiCall
 from lib.generation.generation_worker import GenerationWorker
+from lib.generation.task_failure import encode_failure
 from lib.generation.video_resume import cleanup_video_staging
 from lib.script.script_editor import ScriptEditError
 from tests.integration.lib.generation.worker_support import (
@@ -291,3 +292,33 @@ class TestVideoResumeRunner:
         assert queue.failed
         assert queue.failed[0][0] == "no-job"
         assert "[restart_lost_no_job_id]" in queue.failed[0][1]
+
+    async def test_run_fails_a_task_of_a_deleted_project_as_deleted_during_task(self, monkeypatch, worker_db):
+        """重启前已删除的项目，任务挂在墓碑名下：续跑不按墓碑名解析目录，以 project_deleted_during_task 失败。"""
+        from lib.db.repositories.usage_repo import UsageRepository
+
+        deleted_name = "demo#deleted-20261002T034309Z"
+        async with worker_db() as session:
+            call_id = await UsageRepository(session).start_call(
+                project_name=deleted_name, call_type="video", model="m", task_id="gone"
+            )
+        queue = FakeWorkerQueue()
+        worker = GenerationWorker(
+            queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
+        )
+        resumed: list[str] = []
+
+        async def _resume(task, *, job_id):
+            resumed.append(job_id)
+            return {"ok": True}
+
+        monkeypatch.setattr(stub_executors, "resume", _resume)
+        task = storyboard_resume_task("gone", job_id="x")
+        task["project_name"] = deleted_name
+        await worker._resume.run(task)
+
+        assert resumed == []
+        assert queue.failed == [("gone", encode_failure("project_deleted_during_task"))]
+        async with worker_db() as session:
+            row = await session.get(ApiCall, call_id)
+        assert (row.status, row.cost_amount) == ("failed", 0)

@@ -68,10 +68,11 @@ You can also enter the "Market" section by clicking "Get from market" in the "En
 
 ### 3.1 Browse Entries {#browse-entries}
 
-The entry grid lists entries from all enabled sources in market source order, without grouping by source. Each card shows the icon, name, `author · vversion`, description, market source (entries from the official market source also show install counts and ratings next to it), and a primary button in the lower-right corner ("Install", "Update", or "Installed").
+The entry grid lists entries from all enabled sources in market source order, without grouping by source. Each card shows the icon, name, `author · vversion`, description, market source (entries from the official market source also show install counts and ratings next to it), and a primary button in the lower-right corner ("Install", "Update", or "Installed"). Endpoint entries show their media type, "Image" or "Video", in the upper-right corner of the image area.
 
 - **Search**: filter by name, author, and description.
 - **Entry type**: only "Endpoints" is currently available; "Prompts" and "Style templates" are marked as coming soon.
+- **Filter by media type**: choose one of "All", "Image", and "Video". The default is "All".
 - **Filter by source**: one filter per enabled market source, multi-select, all selected by default.
 - **Installed only**: show only installed entries.
 

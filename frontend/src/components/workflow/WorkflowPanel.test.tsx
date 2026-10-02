@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { API } from "@/api";
+import { useAdScriptStore } from "@/stores/ad-script-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
@@ -9,6 +10,7 @@ import { useWorkflowStore } from "@/stores/workflow-store";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { makeContent, makePlan, makeStatus, makeStep, makeTask } from "@/test/factories";
 import type { ProjectData } from "@/types";
+import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 import type {
   WorkflowActionType,
   WorkflowContent,
@@ -33,6 +35,33 @@ interface Scenario {
 function scenario({ next, content, status, steps }: Scenario): WorkflowPlan {
   const built = makeStatus({ content: makeContent(content), next_action: next, ...status });
   return makePlan({ status: built, next_action: next, next_alternatives: built.next_alternatives, steps: steps ?? [] });
+}
+
+function timelineSummary(id: string, name: string): EditTimelineSummary {
+  return {
+    id,
+    name,
+    episode: 1,
+    revision: 1,
+    clip_count: 2,
+    created_at: "",
+    updated_at: "",
+    updated_by: { kind: "creator", user_id: null },
+    update_summary: "",
+    agent_turn: null,
+  };
+}
+
+function createdTimeline(id: string, name: string): EditTimelineReadout {
+  return {
+    timeline: { id, name, episode: 1 },
+    revision: 1,
+    latest_revision: 1,
+    duration: 0,
+    clips: [],
+    bgm: [],
+    issues: [],
+  };
 }
 
 function mockPlan(plan: WorkflowPlan) {
@@ -261,11 +290,9 @@ describe("WorkflowPanel 剪辑", () => {
 
   it("新建剪辑时间线按脚本机械新建，集内已有「完整版」时依次加序号，然后刷新项目与计划", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({
-      timelines: [{ id: "tl-1", name: "完整版", episode: 1, revision: 1, clip_count: 2, created_at: "", updated_at: "" }],
+      timelines: [timelineSummary("tl-1", "完整版")],
     });
-    const create = vi
-      .spyOn(API, "createEditTimeline")
-      .mockResolvedValue({ timeline: { id: "tl-2", name: "完整版 2", episode: 1 }, revision: 1 });
+    const create = vi.spyOn(API, "createEditTimeline").mockResolvedValue(createdTimeline("tl-2", "完整版 2"));
     const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
     await renderExpanded(scenario({ next: nextAction("create_edit_timeline"), status: videosReady }));
     const plans = vi.mocked(API.getWorkflowPlan).mock.calls.length;
@@ -297,6 +324,14 @@ describe("WorkflowPanel 剪辑", () => {
     expect(within(row).getByRole("button", { name: "交给 Agent 剪辑" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "新建剪辑时间线" })).toBeInTheDocument();
     expect(overview).toHaveBeenCalledWith("proj", 1, expect.anything());
+
+    fireEvent.click(within(row).getByRole("button", { name: "去出片" }));
+    expect(window.location.pathname).toBe("/episodes/1");
+    expect(new URLSearchParams(window.location.search).get("tl")).toBe("tl-1");
+
+    fireEvent.click(within(row).getByRole("button", { name: "打开剪辑视图" }));
+    expect(window.location.search).toBe("?view=edit");
+    window.history.replaceState(null, "", "/");
   });
 
   it("本集没有可用视频时剪辑入口不可点，悬停说明需要先生成视频", async () => {
@@ -498,6 +533,156 @@ describe("WorkflowPanel AI 规划脚本", () => {
     fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "交给 Agent" }));
     await waitFor(() => expect(useAssistantStore.getState().input).toContain("节奏紧凑"));
     expect(save).toHaveBeenCalledWith("proj", 1, "节奏紧凑");
+  });
+
+  it("从空白开始的集没有规划时，脚本规划行给出 AI 规划脚本，弹窗说明确认后才替换正式脚本", async () => {
+    useScriptPlanStore.getState().close();
+    await renderExpanded(
+      scenario({
+        next: nextAction("add_script_items"),
+        content: { formal_script: "present", script_item_count: 0 },
+        status: {
+          artifacts: { script_plan: { state: "missing" } },
+          operations: { prepare_script_plan: { state: "admitted" } },
+        },
+      }),
+    );
+    const row = screen.getByTestId("workflow-row-plan");
+    fireEvent.click(within(row).getByRole("button", { name: "AI 规划脚本" }));
+    expect(useScriptPlanStore.getState().request).toEqual({ projectName: "proj", episode: 1, replaces: "formal_script" });
+  });
+
+  it("从空白开始的集没有集原文时，AI 规划脚本置灰并说明原因", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("add_script_items"),
+        content: { episode_source: "absent", formal_script: "present", script_item_count: 0 },
+        status: {
+          artifacts: { script_plan: { state: "missing" } },
+          operations: { prepare_script_plan: { state: "refused", reason: "episode_source_missing" } },
+        },
+      }),
+    );
+    const entry = within(screen.getByTestId("workflow-row-plan")).getByRole("button", { name: "AI 规划脚本" });
+    expect(entry).toHaveAttribute("aria-disabled", "true");
+    expect(entry).toHaveAttribute("title", "需要先补充集原文");
+  });
+
+  it("没有正式脚本也没有规划、下一步另有其事时，脚本规划行交给 Agent 预填规划请求原文", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("generate_script"),
+        content: { formal_script: "absent", script_item_count: null },
+        status: {
+          artifacts: { script_plan: { state: "missing" } },
+          operations: { prepare_script_plan: { state: "admitted" } },
+        },
+      }),
+    );
+    fireEvent.click(within(screen.getByTestId("workflow-row-plan")).getByRole("button", { name: "交给 Agent 规划脚本" }));
+    await waitFor(() => expect(useAssistantStore.getState().input).toMatch(/^请为.+规划脚本。$/));
+  });
+});
+
+describe("WorkflowPanel 补充集原文", () => {
+  const sourceless = (content: Partial<WorkflowContent>, planState: "missing" | "current") =>
+    scenario({
+      next: nextAction("none", { args: {} }),
+      content: { episode_source: "absent", formal_script: "absent", script_item_count: null, ...content },
+      status: { artifacts: { script_plan: { state: planState } } },
+    });
+
+  it("一集既没有原文也没有规划和草稿时，原文行给出补充集原文", async () => {
+    await renderExpanded(sourceless({}, "missing"));
+    expect(within(screen.getByTestId("workflow-row-source")).getByRole("button", { name: "补充集原文" })).toBeInTheDocument();
+  });
+
+  it("没有原文但已有规划时，原文行不给补充集原文", async () => {
+    await renderExpanded(sourceless({}, "current"));
+    expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
+  });
+
+  it("没有原文但有草稿时，原文行不给补充集原文", async () => {
+    const draft = { kind: "drama_script_plan", path: "drafts/episode_1.json", needs_repair: true };
+    await renderExpanded(sourceless({ drafts: [draft] }, "missing"));
+    expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
+  });
+});
+
+describe("WorkflowPanel 广告/短片 AI 生成脚本", () => {
+  const adStatus = (operations: WorkflowStatus["operations"]) => ({
+    project: { content_mode: "ad", generation_mode: "storyboard", grid_storyboard: false },
+    operations,
+  });
+
+  it("下一步的 AI 生成脚本直接提交整份生成，附加指令只随本次提交", async () => {
+    useTasksStore.getState().setTasks([]);
+    const submit = vi
+      .spyOn(API, "generateAdScript")
+      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.generateAdScript>>);
+    await renderExpanded(
+      scenario({
+        next: nextAction("generate_script"),
+        content: { ad_inputs: "present", episode_source: "not_applicable", formal_script: "absent", script_item_count: null },
+        status: adStatus({ generate_script: { state: "admitted", reason: null } }),
+      }),
+    );
+    const next = screen.getByTestId("workflow-next-step");
+    fireEvent.change(within(next).getByRole("textbox"), { target: { value: "结尾加一句行动号召" } });
+    fireEvent.click(within(next).getByRole("button", { name: "AI 生成脚本" }));
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith("proj", 1, {
+        instructions: "结尾加一句行动号召",
+        regenerate: false,
+        overwrite_revision: null,
+      }),
+    );
+  });
+
+  it("没有灵感和商品时 AI 生成脚本与交给 Agent 一并置灰", async () => {
+    const submit = vi.spyOn(API, "generateAdScript");
+    await renderExpanded(
+      scenario({
+        next: nextAction("collect_project_input", { args: {} }),
+        content: { ad_inputs: "absent", episode_source: "not_applicable", formal_script: "absent", script_item_count: null },
+        status: adStatus({ generate_script: { state: "refused", reason: "ad_brief_and_products_missing" } }),
+      }),
+    );
+    const ai = within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "AI 生成脚本" });
+    expect(ai).toHaveAttribute("aria-disabled", "true");
+    expect(ai).toHaveAttribute("title", "需要先填写创作灵感或添加商品");
+    fireEvent.click(ai);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("已有正式脚本时脚本行给出重新生成脚本，打开整份重做的弹窗", async () => {
+    useAdScriptStore.getState().close();
+    await renderExpanded(
+      scenario({
+        next: nextAction("author_prompts"),
+        content: { ad_inputs: "present", episode_source: "not_applicable", pending_authoring_ids: ["E1S02"] },
+        status: adStatus({ generate_script: { state: "refused", reason: "formal_script_exists" } }),
+      }),
+      { onAuthorPrompts: vi.fn() },
+    );
+    const entry = within(screen.getByTestId("workflow-row-script")).getByRole("button", { name: "重新生成脚本" });
+    expect(entry).not.toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(entry);
+    expect(useAdScriptStore.getState().request).toEqual({ projectName: "proj", episode: 1, regenerate: true });
+  });
+
+  it("重新生成脚本在缺灵感和商品时置灰并说明原因", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("author_prompts"),
+        content: { ad_inputs: "absent", episode_source: "not_applicable", pending_authoring_ids: ["E1S02"] },
+        status: adStatus({ generate_script: { state: "refused", reason: "ad_brief_and_products_missing" } }),
+      }),
+      { onAuthorPrompts: vi.fn() },
+    );
+    const entry = within(screen.getByTestId("workflow-row-script")).getByRole("button", { name: "重新生成脚本" });
+    expect(entry).toHaveAttribute("aria-disabled", "true");
+    expect(entry).toHaveAttribute("title", "需要先填写创作灵感或添加商品");
   });
 });
 

@@ -36,19 +36,20 @@ class SelectVideoVersionRequest(BaseModel):
     version: StrictInt = Field(ge=1, description="要设为 current 的视频版本号（从 1 起）")
 
 
-def _unit_exists(projects: ProjectManager, project_name: str, project: dict[str, Any], unit_id: str) -> bool:
+def project_video_unit_ids(projects: ProjectManager, project_name: str, project: dict[str, Any]) -> set[str]:
+    """项目全部剧本里的视频单元 ID：分镜图生视频为分镜 ID，参考生视频为 unit_id。"""
     kind = "video_units" if is_reference_video_project(project) else None
+    found: set[str] = set()
     for script_name in sorted(projects.list_scripts(project_name)):
         try:
             script = projects.load_script_readonly(project_name, script_name)
             items, id_field, _kind = resolve_items(script, kind=kind)
         except (ScriptEditError, ValueError, OSError):
             # 读不出的剧本无法证明单元存在，跳过；其余剧本照常判定
-            logger.warning("视频版本切换查找单元时跳过无法读取的剧本: %s", script_name, exc_info=True)
+            logger.warning("查找视频单元时跳过无法读取的剧本: %s", script_name, exc_info=True)
             continue
-        if any(isinstance(item, dict) and str(item.get(id_field)) == unit_id for item in items):
-            return True
-    return False
+        found.update(str(item.get(id_field)) for item in items if isinstance(item, dict) and item.get(id_field))
+    return found
 
 
 def _api_problem(exc: ApiError, *, unit_id: str, versions: VersionManager, resource_type: str) -> ToolOutcome[Any]:
@@ -75,7 +76,7 @@ async def select_video_version(
     unit_id = request.value.unit_id
     try:
         project = services.projects.load_project(scope.project_name)
-        if not _unit_exists(services.projects, scope.project_name, project, unit_id):
+        if unit_id not in project_video_unit_ids(services.projects, scope.project_name, project):
             return tool_problem(f"视频单元「{unit_id}」不存在", code="video_unit_not_found")
 
         resource_type = "reference_videos" if is_reference_video_project(project) else "videos"
@@ -107,4 +108,9 @@ def select_video_version_summary(value: dict[str, Any]) -> str:
     return f"✅ 视频单元 {value['unit_id']} 的 current 视频版本已切换为 v{value['current_version']}（{value['file_path']}）"
 
 
-__all__ = ["SelectVideoVersionRequest", "select_video_version", "select_video_version_summary"]
+__all__ = [
+    "SelectVideoVersionRequest",
+    "project_video_unit_ids",
+    "select_video_version",
+    "select_video_version_summary",
+]

@@ -623,8 +623,19 @@ export function ScriptReviewGate({
 
   const status = state?.status ?? "no_script_plan";
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
+    // 没有规划时也能在这里发起 AI 规划；已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
     return (
-      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_script_plan_content")}</div>
+      <div className="flex h-64 flex-col items-center justify-center gap-3 text-text-4">
+        <p>{t("dashboard:no_script_plan_content")}</p>
+        {status === "no_script_plan" && (
+          <ScriptPlanButton
+            projectName={projectName}
+            episode={episode}
+            replaces={state?.script_overwrite != null ? "formal_script" : "none"}
+            className={GHOST_BTN_LG_CLS}
+          />
+        )}
+      </div>
     );
   }
 

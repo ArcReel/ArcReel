@@ -166,6 +166,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "provider_rejected": GenerationAction.FIX_INPUT,
     "declarative_template_render_failed": GenerationAction.CONFIGURE_PROVIDER,
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
+    # 图片已出但没取回：图片不续跑，「重试下载」接不回原任务，重新生成是唯一的一步。
+    "declarative_image_save_failed": GenerationAction.RETRY,
     "comfyui_image_drop_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     # 传不上去多半是地址、凭据或磁盘的一次性问题，重发同一请求可能就好了。
     "comfyui_upload_failed": GenerationAction.RETRY,
@@ -219,6 +221,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_reference_images_required": GenerationAction.GENERATE_DEPENDENCY,
     "video_reference_images_unreadable": GenerationAction.GENERATE_DEPENDENCY,
     "video_reference_audio_unreadable": GenerationAction.GENERATE_DEPENDENCY,
+    # 项目已删除，产物无处可落，也没有可重试的对象。
+    "project_deleted_during_task": GenerationAction.NONE,
     # 进程重启 / 恢复失败：任务本身没有内在缺陷，重试即可。
     "dispatch_provider_requeue_failed": GenerationAction.RETRY,
     "restart_lost_image": GenerationAction.RETRY,
@@ -437,6 +441,9 @@ class GenerationTargetState:
     candidate: GenerationCandidate
     status: ArtifactStatus | None = None
     blocker: ArtifactBlocker | None = None
+    prior_artifact_key: ArtifactKey | None = None
+    prior_artifact_path: str | None = None
+    prior_artifact_status: ArtifactStatus | None = None
 
     @property
     def unit_id(self) -> str:

@@ -90,6 +90,10 @@ mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "
                                "confirmed_request_durations": {"E1U1": 8}})
 ```
 
+要在提交前先把费用交给用户确认时（如 `edit-video` 的勾选清单），带 `"preview": true` 预检：
+同一份准入，不入队，返回逐视频单元的预计费用与档位变化。用户确认后正式提交时原样带上预检给出的
+`confirmed_request_durations`，不会再收到档位确认。
+
 被拒时逐视频单元报告 `unit_id`、`problem.code`、原因与 `problem.action`；通过的视频单元带
 `generation_batch_admission_withheld`，其 `blocked_unit_ids` 指出是被谁挡住的，如实说明这层因果。
 **不要把整批拆小去先跑通过的那一半**——那既绕开全有或全无，也会重复提交已经付过费的视频单元。

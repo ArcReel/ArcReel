@@ -108,6 +108,7 @@ describe("ProjectsPage", () => {
               prop: { total: 1, available: 0, stale: 0 },
             },
             episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+            source_remaining: false,
           },
         },
       ],
@@ -138,6 +139,7 @@ describe("ProjectsPage", () => {
             repair_reason: null,
             assets: { character: { total: 1, available: 1, stale: 0 } },
             episodes_summary: { total: 2, scripted: 1, in_production: 0, completed: 0 },
+            source_remaining: false,
           },
         },
         {
@@ -151,6 +153,7 @@ describe("ProjectsPage", () => {
             repair_reason: null,
             assets: { character: { total: 1, available: 1, stale: 0 } },
             episodes_summary: { total: 2, scripted: 2, in_production: 0, completed: 2 },
+            source_remaining: false,
           },
         },
       ],
@@ -167,7 +170,7 @@ describe("ProjectsPage", () => {
     expect(screen.getAllByText("Shooting Project").length).toBeGreaterThan(0);
   });
 
-  it("tells the reader how many sheets are older than the current content", async () => {
+  it("counts stale sheets as available", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({
       projects: [
         {
@@ -183,10 +186,9 @@ describe("ProjectsPage", () => {
               character: { total: 3, available: 3, stale: 2 },
               scene: { total: 1, available: 1, stale: 0 },
               prop: { total: 0, available: 0, stale: 0 },
-              // 卡片的计数格只列举三类，这一行仍要把其余资产类型的 stale 算进去
-              product: { total: 1, available: 1, stale: 1 },
             },
             episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+            source_remaining: false,
           },
         },
       ],
@@ -194,9 +196,8 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("3 项需要更新")).toBeInTheDocument();
     // stale 仍是可用产物：计数格照报 3 / 3，不从可用里扣
-    expect(screen.getAllByText("3 / 3").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("3 / 3")).length).toBeGreaterThan(0);
   });
 
   it("marks a project that needs repair and shows the reason on the card", async () => {
@@ -217,6 +218,7 @@ describe("ProjectsPage", () => {
               prop: { total: 0, available: 0, stale: 0 },
             },
             episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+            source_remaining: false,
           },
         },
       ],
@@ -224,8 +226,14 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    // 唯一项目会成为「正在编辑」卡；标记与原因在两张卡上都必须出现
-    expect((await screen.findAllByText("需要修复")).length).toBeGreaterThan(0);
+    // 唯一项目会成为「正在编辑」卡；标记与原因在两张卡上都必须出现。顶部计数格与筛选项
+    // 同用「待修复」一词，不算在内
+    await waitFor(() => {
+      const pills = screen
+        .getAllByText("待修复")
+        .filter((el) => !el.closest("button") && !el.closest('[data-testid="lobby-hero-stats"]'));
+      expect(pills.length).toBeGreaterThan(0);
+    });
     // 原因是可见文本而非 tooltip：触摸设备打不开 title，屏幕阅读器也读不到
     expect(
       screen.getAllByText("episode script scripts/episode_1.json item 2 has no identity").length,
@@ -242,6 +250,7 @@ describe("ProjectsPage", () => {
         prop: { total: 0, available: 0, stale: 0 },
       },
       episodes_summary: { total: 1, scripted: 1, in_production: 1, completed: 0 },
+      source_remaining: false,
     };
     vi.spyOn(API, "listProjects").mockResolvedValue({
       projects: [
@@ -269,7 +278,7 @@ describe("ProjectsPage", () => {
     // 常规卡整张是一个 link，内部文本被 aria-label 覆盖——修复状态与原因必须写进这个名字
     expect(
       await screen.findByRole("link", {
-        name: /Broken Project.*需要修复.*episode script scripts\/episode_1\.json item 2 has no identity/s,
+        name: /Broken Project.*待修复.*episode script scripts\/episode_1\.json item 2 has no identity/s,
       }),
     ).toBeInTheDocument();
   });
@@ -293,6 +302,7 @@ describe("ProjectsPage", () => {
               prop: { total: 0, available: 0, stale: 0 },
             },
             episodes_summary: { total: 1, scripted: 0, in_production: 1, completed: 0 },
+            source_remaining: false,
           },
         },
       ],
@@ -323,6 +333,7 @@ describe("ProjectsPage", () => {
               prop: { total: 0, available: 0, stale: 0 },
             },
             episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
+            source_remaining: false,
           },
         },
       ],
@@ -367,6 +378,7 @@ describe("ProjectsPage", () => {
                 prop: { total: 0, available: 0, stale: 0 },
               },
               episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 },
+              source_remaining: false,
             },
           },
         ],
@@ -474,6 +486,7 @@ describe("ProjectsPage", () => {
                 prop: { total: 0, available: 0, stale: 0 },
               },
               episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 1 },
+              source_remaining: false,
             },
           },
         ],
@@ -547,6 +560,7 @@ describe("ProjectsPage", () => {
           prop: { total: 0, available: 0, stale: 0 },
         },
         episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
+        source_remaining: false,
       },
     });
     vi.spyOn(API, "listProjects").mockResolvedValue({
@@ -566,11 +580,11 @@ describe("ProjectsPage", () => {
     });
   });
 
-  it("counts projects by episode progress and by what needs attention", async () => {
+  it("counts projects by episode progress and by what needs repair", async () => {
     const project = (
       name: string,
       episodes: { total: number; completed: number },
-      needsRepair = false,
+      { needsRepair = false, sourceRemaining = false } = {},
     ) => ({
       name,
       title: name,
@@ -580,7 +594,7 @@ describe("ProjectsPage", () => {
         needs_repair: needsRepair,
         repair_reason: needsRepair ? "broken" : null,
         assets: {
-          character: { total: 0, available: 0, stale: 0 },
+          character: { total: 0, available: 0, stale: 2 },
           scene: { total: 0, available: 0, stale: 0 },
           prop: { total: 0, available: 0, stale: 0 },
         },
@@ -590,22 +604,26 @@ describe("ProjectsPage", () => {
           in_production: 0,
           completed: episodes.completed,
         },
+        source_remaining: sourceRemaining,
       },
     });
     vi.spyOn(API, "listProjects").mockResolvedValue({
       projects: [
         project("empty", { total: 0, completed: 0 }),
         project("halfway", { total: 4, completed: 2 }),
-        project("broken", { total: 2, completed: 0 }, true),
+        project("broken", { total: 2, completed: 0 }, { needsRepair: true }),
         project("done", { total: 3, completed: 3 }),
+        // 已切出的集全部完成，但源文还没规划完：项目顶栏提示继续分集规划，大厅也不算完成
+        project("unplanned", { total: 10, completed: 10 }, { sourceRemaining: true }),
       ],
     });
 
     renderPage();
 
-    // 没有集的项目算进行中；「需要处理」与进度正交，需要修复的项目同时计入两格。
+    // 没有集的项目算进行中；「待修复」与进度正交，待修复的项目同时计入两格；有 stale 产物不算待修复。
     const hero = await screen.findByTestId("lobby-hero-stats");
     const cells = Array.from(hero.children).map((cell) => cell.textContent);
-    expect(cells).toEqual(["项目4", "进行中3", "已完成1", "需要处理1"]);
+    expect(cells).toEqual(["项目5", "进行中4", "已完成1", "待修复1"]);
+    expect(screen.getByRole("button", { name: /^待修复\s*1$/ })).toBeInTheDocument();
   });
 });

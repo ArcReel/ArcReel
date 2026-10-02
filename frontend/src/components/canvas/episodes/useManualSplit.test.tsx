@@ -1,7 +1,8 @@
-import { act, fireEvent, renderHook } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import type { EpisodesView } from "@/types";
 
 import { useManualSplit } from "./useManualSplit";
@@ -13,16 +14,19 @@ const view: EpisodesView = {
   cut_units: 0,
   episodes: [],
   unregistered: [],
+  replan: null,
+  external_changes: [],
   files: [
     {
       source_file: "source/a.txt",
       name: "a.txt",
       original_filename: null,
       missing: false,
+      changed_outside: false,
       length: 30,
       units: 0,
       cut_units: 0,
-      segments: [{ kind: "unsplit", start: 0, end: 30, text: "", episode: null, gap: false, units: 0 }],
+      segments: [{ kind: "unsplit", start: 0, end: 30, text: "", episode: null, gap: false, units: 0, continued: false, continues: false }],
       source_kind: null,
     },
   ],
@@ -38,6 +42,20 @@ function mount<T extends HTMLElement>(element: T): T {
   document.body.append(element);
   return element;
 }
+
+describe("useManualSplit on a file changed outside ArcReel", () => {
+  it("places no caret and says splitting waits for the ledger update", () => {
+    const changed: EpisodesView = { ...view, files: [{ ...view.files[0], changed_outside: true }] };
+    const hook = renderHook(() => useManualSplit("p", changed, () => {}));
+
+    act(() => hook.result.current.place({ file: 0, offset: 12 }));
+
+    expect(hook.result.current.pending).toBeNull();
+    expect(useAppStore.getState().toast?.text).toBe(
+      "这个文件在 ArcReel 之外被改动过。先在页面顶部更新分集账本，再在这个文件上切分",
+    );
+  });
+});
 
 describe("useManualSplit keyboard", () => {
   afterEach(() => {
@@ -88,5 +106,74 @@ describe("useManualSplit keyboard", () => {
     });
 
     expect(split).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends a split inside a later file of a crossing episode with that file and the in-file offset", () => {
+    const split = vi.spyOn(API, "manualSplit").mockReturnValue(new Promise(() => {}));
+    const episodeSegment = { kind: "episode" as const, text: "", episode: 1, gap: false, units: 0 };
+    const crossing: EpisodesView = {
+      ...view,
+      files: [
+        { ...view.files[0], length: 10, segments: [{ ...episodeSegment, start: 0, end: 10, continued: false, continues: true }] },
+        {
+          ...view.files[0],
+          source_file: "source/b.txt",
+          name: "b.txt",
+          length: 6,
+          segments: [{ ...episodeSegment, start: 0, end: 6, continued: true, continues: false }],
+        },
+      ],
+    };
+    const hook = renderHook(() => useManualSplit("p", crossing, () => {}));
+
+    act(() => hook.result.current.place({ file: 1, offset: 3 }));
+    act(() => {
+      fireEvent.keyDown(document.body, { key: "Enter" });
+    });
+
+    expect(split).toHaveBeenCalledWith("p", { action: "split", episode: 1, at: 3, source_file: "source/b.txt" }, {});
+  });
+});
+
+describe("useManualSplit confirmation", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function MergeHarness() {
+    const split = useManualSplit("p", view, () => {});
+    return (
+      <>
+        <button type="button" onClick={() => split.mergeWithNext(1)}>
+          merge
+        </button>
+        {split.dialog}
+      </>
+    );
+  }
+
+  it("resubmits a merge with the volume of unsplit text the dialog stated", async () => {
+    const split = vi
+      .spyOn(API, "manualSplit")
+      .mockResolvedValueOnce({
+        status: "confirmation_required",
+        impact: { restaled: [], retired: [], removed: [2], merged_units: 5, text: "两集之间有 5 字未切分的原文" },
+      })
+      .mockReturnValueOnce(new Promise(() => {}));
+    render(<MergeHarness />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "merge" }));
+    });
+    expect(screen.getByText("两集之间有 5 字未切分的原文")).toBeInTheDocument();
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "确认调整" }));
+    });
+
+    expect(split).toHaveBeenLastCalledWith(
+      "p",
+      { action: "merge_next", episode: 1 },
+      { confirmEpisodes: [], confirmMergedUnits: 5 },
+    );
   });
 });

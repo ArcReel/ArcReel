@@ -12,10 +12,12 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError, ResumeExpiredError
 from lib.billing.ledger import Ledger
+from lib.db.repositories.project_records import is_deleted_project_name
 from lib.generation.media_generator import cleanup_staged_video_output
 from lib.generation.task_failure import encode_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.project.project_manager import get_project_manager
+from lib.project.task_project_claim import TaskProjectClaim, claim_task_project
 from lib.script.reference_video.execution_checkpoint import (
     VideoResumeState,
     classify_video_resume_state,
@@ -69,6 +71,18 @@ async def cleanup_video_staging(task: dict[str, Any]) -> None:
         logger.warning("video provider media cleanup failed task_id=%s", task.get("task_id"), exc_info=True)
 
 
+async def fail_task_of_deleted_project(queue: GenerationQueue, task: dict[str, Any]) -> None:
+    """执行期间项目被删除的任务以 ``project_deleted_during_task`` 失败，并清掉按旧名补建出的空目录。"""
+
+    task_id = task["task_id"]
+    logger.warning("任务 %s 执行期间项目 %s 已删除，放弃落盘", task_id, task.get("project_name"))
+    await asyncio.shield(queue.mark_task_failed(task_id, encode_failure("project_deleted_during_task")))
+    try:
+        await asyncio.to_thread(get_project_manager().remove_project_directory_residue, task["project_name"])
+    except Exception:
+        logger.warning("已删除项目的残余目录清理失败 task_id=%s", task_id, exc_info=True)
+
+
 class VideoResumeRunner:
     """把一个续跑任务跑到终态，并结算它那条 pending 的调用行。"""
 
@@ -93,7 +107,23 @@ class VideoResumeRunner:
         非视频媒体退到把持久化的 ``task["provider_id"]`` 注入 payload 的 ``image_provider``
         字段（只锁 provider、锁不住 model）。孤儿扫描只把 video 交到这里，image / audio 孤儿
         在扫描期即落 ``[restart_lost]``，该分支因而只在 media_type 为脏数据时可达。
+
+        续跑与常规执行一样在任务对项目的认领下进行，项目在续跑期间被删除时任务以
+        ``project_deleted_during_task`` 失败。项目在重启前已删除时，任务挂在墓碑名下、解析不出
+        项目目录，同样以这个失败码收口。
         """
+        project_name = task.get("project_name")
+        if isinstance(project_name, str) and is_deleted_project_name(project_name):
+            logger.warning("任务 %s 的项目已删除，不再续跑", task["task_id"])
+            await asyncio.shield(
+                self._queue.mark_task_failed(task["task_id"], encode_failure("project_deleted_during_task"))
+            )
+            await asyncio.shield(self.settle_unresumable_call(task, failure="project deleted before resume"))
+            return
+        with claim_task_project(task["task_id"], project_name) as claim:
+            await self._run_claimed(task, claim)
+
+    async def _run_claimed(self, task: dict[str, Any], claim: TaskProjectClaim) -> None:
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
 
@@ -183,11 +213,17 @@ class VideoResumeRunner:
             await asyncio.shield(self.settle_unresumable_call(task, failure=exc))
             return
         except Exception as exc:
-            logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-            await asyncio.shield(self._queue.mark_task_failed(task_id, encode_task_failure_message(exc)))
+            if claim.revoked:
+                await fail_task_of_deleted_project(self._queue, task)
+            else:
+                logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+                await asyncio.shield(self._queue.mark_task_failed(task_id, encode_task_failure_message(exc)))
             await asyncio.shield(self.settle_unresumable_call(task, failure=exc))
             return
 
+        if claim.revoked:
+            await fail_task_of_deleted_project(self._queue, task)
+            return
         try:
             await asyncio.shield(self._queue.mark_task_succeeded(task_id, result))
         except asyncio.CancelledError:

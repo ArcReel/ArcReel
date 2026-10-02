@@ -41,6 +41,11 @@ RENDERS_DIRNAME = "renders"
 _RECORD_SUFFIX = ".render.json"
 
 
+def timeline_renders_dir(episode: int, timeline_id: str) -> str:
+    """一条剪辑时间线全部渲染产物所在的项目内相对目录；时间线 ID 不复用，目录随时间线删除。"""
+    return f"{RENDERS_DIRNAME}/episode_{episode}/{timeline_id}"
+
+
 @dataclass(frozen=True, slots=True)
 class RenderRecord:
     """正式文件旁的渲染记录：版本号、登记时间与登记所用依据。"""

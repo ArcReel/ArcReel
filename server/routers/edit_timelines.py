@@ -1,4 +1,5 @@
-"""剪辑时间线的 HTTP 入口：列表、读取、按脚本机械新建、一集的剪辑概况，以及成片与剪映草稿的提交、现状与下载。
+"""剪辑时间线的 HTTP 入口：列表、读取、预览素材层、新建、复制、改名、修订历史、回滚、删除、一集的剪辑概况，
+以及成片与剪映草稿的提交、现状与下载。
 
 行为全部在 lib 层剪辑时间线命令、成片服务与剪映草稿服务里；渲染作为 ``render`` 车道任务入队。
 """
@@ -12,7 +13,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,11 +23,13 @@ from lib.edit_timeline import (
     EditTimelineError,
     EditTimelineReadout,
     EditTimelineService,
+    EditTimelineWriteResult,
     RevisionAuthor,
+    RevisionHistory,
     TimelineSummary,
 )
 from lib.edit_timeline.errors import edit_timeline_message
-from lib.final_cut.basis import DEFAULT_VARIANT
+from lib.final_cut.basis import SubtitleMode
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.overview import EpisodeEditOverview, episode_edit_overview
 from lib.final_cut.service import FinalCutService, FinalCutStatus
@@ -42,7 +45,12 @@ from server.auth import CurrentUser, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.media_tools.final_cuts import final_cut_download_url
-from server.services.tasks.render_tasks import final_cut_task_request, jianying_draft_task_request
+from server.services.presentation.timeline_preview import TimelinePreviewMedia, TimelinePreviewService
+from server.services.tasks.render_tasks import (
+    final_cut_task_request,
+    jianying_draft_task_request,
+    timeline_render_resource_ids,
+)
 
 if TYPE_CHECKING:
     from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
@@ -58,6 +66,13 @@ def get_edit_timeline_service() -> EditTimelineService:
 
 
 EditTimelineServiceDep = Annotated[EditTimelineService, Depends(get_edit_timeline_service)]
+
+
+def get_timeline_preview_service() -> TimelinePreviewService:
+    return TimelinePreviewService(get_project_manager())
+
+
+TimelinePreviewServiceDep = Annotated[TimelinePreviewService, Depends(get_timeline_preview_service)]
 
 
 def get_final_cut_service() -> FinalCutService:
@@ -97,6 +112,7 @@ _ERROR_STATUS: dict[str, int] = {
     "episode_not_found": 404,
     "timeline_not_found": 404,
     "revision_not_found": 404,
+    "revision_unchanged": 409,
     "timeline_name_conflict": 409,
     "timeline_name_invalid": 422,
     "script_invalid": 422,
@@ -113,9 +129,8 @@ def edit_timeline_api_error(exc: EditTimelineError) -> ApiError:
 
 
 _FINAL_CUT_STATUS: dict[str, int] = {
-    "final_cut_variant_unsupported": 422,
+    "final_cut_narration_unavailable": 422,
     "final_cut_blocked": 409,
-    "final_cut_content_unsupported": 422,
     "final_cut_empty": 422,
     "final_cut_ffmpeg_unavailable": 503,
     "final_cut_render_failed": 500,
@@ -141,10 +156,32 @@ class CreateEditTimelineRequest(BaseModel):
     name: str
 
 
+class CopyEditTimelineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    revision: int | None = Field(default=None, ge=1, description="被复制的修订号；省略时复制最新修订")
+
+
+class RenameEditTimelineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+
+
+class RestoreEditTimelineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    revision: int = Field(ge=1, description="要回滚到的修订号")
+
+
 class RenderFinalCutBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     revision: int | None = Field(default=None, ge=1)
+    # 省略时按项目补齐：TTS 配音项目带旁白、其余不带旁白；字幕默认烧入。
+    narration: DraftNarration | None = None
+    subtitles: SubtitleMode | None = None
 
 
 class FinalCutSubmission(BaseModel):
@@ -234,6 +271,107 @@ async def read_edit_timeline(
         raise edit_timeline_api_error(exc) from exc
 
 
+@router.post("/projects/{project_name}/edit-timelines/{timeline_id}/copy", status_code=201)
+async def copy_edit_timeline(
+    project_name: str,
+    timeline_id: str,
+    body: CopyEditTimelineRequest,
+    service: EditTimelineServiceDep,
+    user: CurrentUser,
+) -> EditTimelineReadout:
+    """把指定修订（缺省为最新修订）复制成同一集的新剪辑时间线，返回新时间线的第一个修订。"""
+    try:
+        return await service.copy(
+            project_name,
+            timeline_id,
+            name=body.name,
+            revision=body.revision,
+            author=RevisionAuthor(kind="creator", user_id=user.id),
+        )
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+
+
+@router.patch("/projects/{project_name}/edit-timelines/{timeline_id}")
+async def rename_edit_timeline(
+    project_name: str,
+    timeline_id: str,
+    body: RenameEditTimelineRequest,
+    service: EditTimelineServiceDep,
+) -> TimelineSummary:
+    """改显示名：不产生修订，成片与剪映草稿不因此过期。"""
+    try:
+        return await service.rename(project_name, timeline_id, name=body.name)
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+
+
+@router.get("/projects/{project_name}/edit-timelines/{timeline_id}/revisions")
+async def list_edit_timeline_revisions(
+    project_name: str,
+    timeline_id: str,
+    service: EditTimelineServiceDep,
+) -> RevisionHistory:
+    try:
+        return await service.list_revisions(project_name, timeline_id)
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+
+
+@router.post("/projects/{project_name}/edit-timelines/{timeline_id}/restore")
+async def restore_edit_timeline_revision(
+    project_name: str,
+    timeline_id: str,
+    body: RestoreEditTimelineRequest,
+    service: EditTimelineServiceDep,
+    user: CurrentUser,
+) -> EditTimelineWriteResult:
+    """回滚：以旧修订的内容追加一个新修订，历史不改写。"""
+    try:
+        return await service.restore(
+            project_name,
+            timeline_id,
+            revision=body.revision,
+            author=RevisionAuthor(kind="creator", user_id=user.id),
+        )
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+
+
+@router.delete("/projects/{project_name}/edit-timelines/{timeline_id}", status_code=204)
+async def delete_edit_timeline(
+    project_name: str,
+    timeline_id: str,
+    service: EditTimelineServiceDep,
+    queue: GenerationQueueDep,
+    user: CurrentUser,
+) -> Response:
+    """删除剪辑时间线及其成片与剪映草稿；仍有渲染任务在排队或执行时拒绝，等任务结束后再删。"""
+    for task_type, resource_ids in timeline_render_resource_ids(timeline_id).items():
+        active = await queue.get_active_tasks_for_resources(
+            project_name=project_name, task_type=task_type, resource_ids=resource_ids, user_id=user.id
+        )
+        if active:
+            raise ApiError("edit_timeline_render_in_progress", status_code=409, task_id=active[0]["task_id"])
+    try:
+        await service.delete(project_name, timeline_id)
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+    return Response(status_code=204)
+
+
+@router.get("/projects/{project_name}/edit-timelines/{timeline_id}/preview-media")
+async def read_edit_timeline_preview_media(
+    project_name: str,
+    timeline_id: str,
+    service: TimelinePreviewServiceDep,
+) -> TimelinePreviewMedia:
+    try:
+        return await service.media(project_name, timeline_id)
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+
+
 @router.post("/projects/{project_name}/edit-timelines/{timeline_id}/final-cut", status_code=202)
 async def render_final_cut(
     project_name: str,
@@ -243,16 +381,22 @@ async def render_final_cut(
     user: CurrentUser,
     body: RenderFinalCutBody | None = None,
 ) -> FinalCutSubmission:
-    """先检查阻断问题再入队；``revision`` 省略时渲染提交时的最新修订。"""
-    revision = body.revision if body is not None else None
+    """先按所选版本检查阻断问题再入队；``revision`` 省略时渲染提交时的最新修订。"""
+    request_body = body or RenderFinalCutBody()
     try:
-        check = await service.check(project_name, timeline_id, revision=revision, variant=DEFAULT_VARIANT)
+        check = await service.check(
+            project_name,
+            timeline_id,
+            revision=request_body.revision,
+            narration=request_body.narration,
+            subtitles=request_body.subtitles,
+        )
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
     except FinalCutError as exc:
         raise final_cut_api_error(exc) from exc
     request = final_cut_task_request(
-        episode=check.episode, timeline_id=check.timeline_id, revision=check.revision, variant=DEFAULT_VARIANT
+        episode=check.episode, timeline_id=check.timeline_id, revision=check.revision, variant=check.variant
     )
     try:
         enqueued = await queue.enqueue_task(
@@ -270,10 +414,12 @@ async def read_final_cut(
     project_name: str,
     timeline_id: str,
     service: FinalCutServiceDep,
+    narration: DraftNarration | None = Query(None, description="旁白版本；省略时按项目取默认版本"),
+    subtitles: SubtitleMode | None = Query(None, description="字幕方式；省略时为烧入字幕"),
 ) -> FinalCutStatusResponse:
     """成片现状；stale 的成片仍可下载，``download_url`` 只在文件存在时给出。"""
     try:
-        status = await service.status(project_name, timeline_id, variant=DEFAULT_VARIANT)
+        status = await service.status(project_name, timeline_id, narration=narration, subtitles=subtitles)
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
     download_url = (
@@ -301,7 +447,6 @@ class JianyingDraftSubmission(BaseModel):
 _JIANYING_DRAFT_STATUS: dict[str, int] = {
     "jianying_draft_narration_unavailable": 422,
     "jianying_draft_blocked": 409,
-    "jianying_draft_content_unsupported": 422,
     "jianying_draft_empty": 422,
     "jianying_draft_not_exported": 404,
     "jianying_draft_invalid": 409,
@@ -405,7 +550,12 @@ async def download_jianying_draft(
     root = _draft_root(draft_path, _t)
     try:
         package, name = await service.package_download(
-            project_name, timeline_id, narration=narration, draft_root=root, jianying_version=jianying_version
+            project_name,
+            timeline_id,
+            narration=narration,
+            draft_root=root,
+            jianying_version=jianying_version,
+            translate=_t,
         )
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc

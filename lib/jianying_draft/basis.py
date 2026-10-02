@@ -2,21 +2,24 @@
 
 产物身份是「集 + 剪辑时间线 + 旁白版本」。生成依据只收录草稿实际消费的内容：剪辑时间线的修订号与修订里
 参与渲染的部分、画幅，以及每个被引用视频单元作为素材层的呈现模型依据（其中已含视频版本、字幕草稿，
-带旁白版本还含旁白配音）。修订号标识本次剪辑决策快照，任何新修订都让旧修订导出的草稿过期；剪辑理由不单独进入依据。
+带旁白版本还含旁白配音）；有 BGM 时另收所引用每首 BGM 的内容指纹与静态增益。修订号标识本次剪辑决策快照，任何新修订都让旧修订导出的草稿过期；剪辑理由不单独进入依据。
 本机草稿目录与剪映版本在下载时才代入，不进依据。登记与比对都经 :func:`build_jianying_draft_basis` 构造依据。
 """
 
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
-from lib.artifacts.rendered_artifact import RENDERS_DIRNAME
+from lib.artifacts.rendered_artifact import timeline_renders_dir
+from lib.bgm.library import BgmSource
+from lib.edit_timeline.bgm import bgm_sources_input
 from lib.edit_timeline.model import EditTimelineContent, TimelineRevision
 from lib.infra.content_digest import canonical_json_bytes, prefixed
+from lib.speech.narration_config import project_narration_delivery
 from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.speech.speech_artifact_provenance import RenditionVariant
 from lib.speech.speech_composition import SpeechMode
@@ -31,13 +34,18 @@ WITHOUT_NARRATION: DraftNarration = "without_narration"
 WITH_NARRATION: DraftNarration = "with_narration"
 
 
+def default_draft_narration(project: Mapping[str, Any]) -> DraftNarration:
+    """省略旁白版本时的默认值：TTS 配音项目带旁白，后期配音项目不带旁白。"""
+    return WITH_NARRATION if project_narration_delivery(project) == USE_TTS else WITHOUT_NARRATION
+
+
 def jianying_draft_key(episode: int, timeline_id: str, narration: DraftNarration) -> ArtifactKey:
     return ArtifactKey.episode_jianying_draft(episode, timeline_id, narration)
 
 
 def jianying_draft_artifact_path(episode: int, timeline_id: str, narration: DraftNarration) -> str:
     """剪映草稿产物的正式路径；每个产物身份只保留最新一份。"""
-    return f"{RENDERS_DIRNAME}/episode_{episode}/{timeline_id}/jianying_draft.{narration}.zip"
+    return f"{timeline_renders_dir(episode, timeline_id)}/jianying_draft.{narration}.zip"
 
 
 def timeline_render_fingerprint(content: EditTimelineContent) -> str:
@@ -100,21 +108,22 @@ def build_jianying_draft_basis(
     narration: DraftNarration,
     aspect_ratio: str,
     units: Sequence[DraftUnitBasis],
+    bgm_sources: Mapping[str, BgmSource] | None = None,
 ) -> ArtifactBasis:
-    return ArtifactBasis.build(
-        JIANYING_DRAFT_BASIS_KIND,
-        kind_version=JIANYING_DRAFT_BASIS_VERSION,
-        inputs={
-            "timeline": {
-                "id": timeline_id,
-                "revision": revision.number,
-                "content": timeline_render_fingerprint(revision.content),
-            },
-            "narration": narration,
-            "aspect_ratio": aspect_ratio,
-            "units": {unit.unit_id: unit.to_input() for unit in units},
+    """``bgm_sources`` 是 BGM 轨所引用的 BGM；修订没有 BGM 时依据不含这一项，形态与没有 BGM 的草稿相同。"""
+    inputs: dict[str, object] = {
+        "timeline": {
+            "id": timeline_id,
+            "revision": revision.number,
+            "content": timeline_render_fingerprint(revision.content),
         },
-    )
+        "narration": narration,
+        "aspect_ratio": aspect_ratio,
+        "units": {unit.unit_id: unit.to_input() for unit in units},
+    }
+    if revision.content.bgm:
+        inputs["bgm"] = bgm_sources_input(revision.content.bgm, bgm_sources or {})
+    return ArtifactBasis.build(JIANYING_DRAFT_BASIS_KIND, kind_version=JIANYING_DRAFT_BASIS_VERSION, inputs=inputs)
 
 
 __all__ = [
@@ -125,6 +134,7 @@ __all__ = [
     "DraftNarration",
     "DraftUnitBasis",
     "build_jianying_draft_basis",
+    "default_draft_narration",
     "draft_unit_ids",
     "effective_unit_variant",
     "jianying_draft_artifact_path",

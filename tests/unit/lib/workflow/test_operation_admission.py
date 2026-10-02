@@ -132,18 +132,21 @@ def test_prompt_authoring_needs_pending_entries_and_no_pending_draft(kwargs: dic
 
 
 @pytest.mark.parametrize(
-    ("content_mode", "formal_script", "ad_inputs", "expected"),
+    ("content_mode", "formal_script", "ad_inputs", "regenerate", "expected"),
     [
-        ("ad", False, True, ("admitted", None)),
-        ("ad", False, False, ("refused", "ad_brief_and_products_missing")),
-        ("ad", True, True, ("refused", "formal_script_exists")),
-        ("narration", False, True, ("not_applicable", "operation_not_applicable")),
+        ("ad", False, True, False, ("admitted", None)),
+        ("ad", False, False, False, ("refused", "ad_brief_and_products_missing")),
+        ("ad", True, True, False, ("refused", "formal_script_exists")),
+        ("ad", True, False, False, ("refused", "ad_brief_and_products_missing")),
+        ("ad", True, True, True, ("admitted", None)),
+        ("ad", True, False, True, ("refused", "ad_brief_and_products_missing")),
+        ("narration", False, True, False, ("not_applicable", "operation_not_applicable")),
     ],
 )
-def test_ad_script_needs_a_brief_or_products_and_no_formal_script(
-    content_mode: str, formal_script: bool, ad_inputs: bool, expected: tuple
+def test_ad_script_needs_a_brief_or_products_and_regenerates_an_existing_script_only_on_request(
+    content_mode: str, formal_script: bool, ad_inputs: bool, regenerate: bool, expected: tuple
 ) -> None:
-    admission = admit_ad_script(content_mode, formal_script=formal_script, ad_inputs=ad_inputs)
+    admission = admit_ad_script(content_mode, formal_script=formal_script, ad_inputs=ad_inputs, regenerate=regenerate)
     assert _conclusion(admission) == expected
 
 

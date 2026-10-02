@@ -14,6 +14,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
+import { MergeAssetMenu } from "./MergeAssetMenu";
 import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
@@ -92,14 +93,12 @@ export function PropCard({
   const isDirty = description !== prop.description;
 
   useEffect(() => {
-    // 上游道具描述变化时同步本地草稿
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游道具描述变化时同步本地草稿
     setDescription(prop.description);
   }, [prop.description]);
 
   useEffect(() => {
-    // 道具立绘变化时重置图片加载错误标记
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 道具立绘变化时重置图片加载错误标记
     setImgError(false);
   }, [prop.prop_sheet, sheetFp]);
 
@@ -228,6 +227,13 @@ export function PropCard({
             resourceId={name}
             onRestore={onRestoreVersion}
             iconOnly
+            busy={generating || uploadingSheet}
+          />
+          <MergeAssetMenu
+            projectName={projectName}
+            assetType="prop"
+            name={name}
+            description={prop.description}
             busy={generating || uploadingSheet}
           />
         </div>

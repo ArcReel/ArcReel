@@ -165,7 +165,7 @@ class OpenAITextBackend:
                 len(raw_text) - len(text),
             )
 
-        check_truncation(
+        truncated = check_truncation(
             getattr(choice, "finish_reason", None),
             provider=self._provider_name,
             model=self._model,
@@ -178,6 +178,7 @@ class OpenAITextBackend:
             model=self._model,
             input_tokens=usage.prompt_tokens if usage else None,
             output_tokens=output_tokens,
+            truncated=truncated,
         )
 
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import tempfile
+import threading
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -33,7 +36,6 @@ from lib.speech.speech_artifact_provenance import (
     media_content_digest,
 )
 from lib.speech.speech_composition import admit_script_unit
-from server.services.presentation.jianying_draft_service import JianyingDraftService
 from server.services.presentation.presentation_bundle import PresentationBundleService
 from server.services.presentation.presentation_read_model import (
     PresentationReadModelService,
@@ -624,6 +626,51 @@ async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles
     assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == audio_before
 
 
+async def test_cancelling_a_bundle_export_settles_the_packaging_and_removes_its_temp_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm, _project_path, settings = _setup_narrator_project(tmp_path)
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    read_model = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    temp_root = tmp_path / "tmp"
+    temp_root.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp_root))
+    packaging, release, closed = threading.Event(), threading.Event(), threading.Event()
+
+    class _GatedZipFile(zipfile.ZipFile):
+        def writestr(self, *args, **kwargs) -> None:
+            packaging.set()
+            release.wait(5)
+            super().writestr(*args, **kwargs)
+
+        def close(self) -> None:
+            super().close()
+            closed.set()
+
+    monkeypatch.setattr(zipfile, "ZipFile", _GatedZipFile)
+    export = asyncio.create_task(
+        PresentationBundleService(pm, presentation_reader=read_model).export_unit(
+            project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+        )
+    )
+    assert await asyncio.to_thread(packaging.wait, 5)
+
+    export.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await export
+    assert await asyncio.to_thread(closed.wait, 5)
+
+    assert list(temp_root.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     ("video_shape", "video_microseconds", "audio_microseconds"),
     [("silent_cfr", 6_000_000, 4_500_000), ("silent_vfr", 1_866_667, 1_000_000), ("audio_tail", 1_000_000, 500_000)],
@@ -631,7 +678,7 @@ async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles
 async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, video_shape: str, video_microseconds: int, audio_microseconds: int
 ) -> None:
-    """系统 PATH 上没有 ffmpeg / ffprobe 时，预览、素材包与剪映草稿都用随包 ffmpeg 探出真实时长。"""
+    """系统 PATH 上没有 ffmpeg / ffprobe 时，预览与素材包都用随包 ffmpeg 探出真实时长。"""
     source_video = tmp_path / "source" / "clip.mp4"
     if video_shape == "silent_vfr":
         source_video.parent.mkdir(parents=True)
@@ -668,9 +715,6 @@ async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
     bundle = await PresentationBundleService(pm, presentation_reader=read_model).export_unit(
         project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
     )
-    draft = await JianyingDraftService(pm, presentation_reader=read_model).export_episode_draft(
-        "demo", 1, "/mock/JianyingDrafts", variant="use_tts"
-    )
 
     assert preview.presentation.video.duration_microseconds == video_microseconds
     assert preview.presentation.narration_audio is not None
@@ -679,18 +723,10 @@ async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
         model = json.loads(archive.read("presentation.json"))
     assert model["video"]["duration_microseconds"] == video_microseconds
     assert model["narration_audio"]["duration_microseconds"] == audio_microseconds
-    with zipfile.ZipFile(draft) as archive:
-        content = json.loads(
-            archive.read(next(name for name in archive.namelist() if name.endswith("draft_info.json")))
-        )
-    video_track = next(track for track in content["tracks"] if track.get("type") == "video")
-    audio_track = next(track for track in content["tracks"] if track.get("type") == "audio")
-    assert video_track["segments"][0]["target_timerange"] == {"start": 0, "duration": video_microseconds}
-    assert audio_track["segments"][0]["target_timerange"] == {"start": 0, "duration": audio_microseconds}
 
 
-async def test_overlong_selected_tts_is_unavailable_instead_of_clipped(tmp_path: Path) -> None:
-    pm, _project_path, settings = _setup_narrator_project(tmp_path)
+async def test_tts_longer_than_its_video_is_presented_whole_for_preview_and_bundle(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
         return 7.0 if path.suffix == ".wav" else 6.25
@@ -701,13 +737,29 @@ async def test_overlong_selected_tts_is_unavailable_instead_of_clipped(tmp_path:
         duration_probe=probe,
     )
 
-    with pytest.raises(PresentationUnavailableError, match="cannot form"):
-        await service.materialize_unit(
-            project_name="demo",
-            resource_type="videos",
-            resource_id="E1S01",
-            variant="use_tts",
-        )
+    result = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+
+    presentation = result.presentation
+    assert presentation.video.duration_microseconds == 6_250_000
+    assert presentation.narration_audio is not None
+    assert presentation.narration_audio.duration_microseconds == 7_000_000
+    assert presentation.subtitles[-1].end_microseconds == 7_000_000
+    assert result.presentation_artifact_path is not None
+    assert (project_path / result.presentation_artifact_path).is_file()
+    bundle = await PresentationBundleService(pm, presentation_reader=service).export_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+    with zipfile.ZipFile(bundle) as archive:
+        packaged = json.loads(archive.read("presentation.json"))
+    assert packaged["narration_audio"]["duration_microseconds"] == 7_000_000
 
 
 async def test_manual_upload_uses_explicit_unverified_raw_presentation_everywhere(tmp_path: Path) -> None:

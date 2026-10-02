@@ -55,6 +55,7 @@ const DEMO_STATUS: ProjectStatus = {
     prop: { total: 3, available: 2, stale: 0 },
   },
   episodes_summary: { total: 8, scripted: 1, in_production: 1, completed: 0 },
+  source_remaining: false,
 };
 
 /**

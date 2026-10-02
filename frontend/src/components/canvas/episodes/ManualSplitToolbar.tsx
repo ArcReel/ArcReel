@@ -38,8 +38,7 @@ export function ManualSplitToolbar({
   onCancel,
 }: ManualSplitToolbarProps) {
   const { t } = useTranslation(["dashboard", "common"]);
-  const file = view.files[action.file];
-  const volume = (start: number, end: number) => formatVolume(t, rangeUnits(file, start, end, view.unit), view.unit);
+  const volume = (start: number, end: number) => formatVolume(t, rangeUnits(view, start, end), view.unit);
   const color = caretColor(action);
   const ref = useRef<HTMLSpanElement>(null);
 

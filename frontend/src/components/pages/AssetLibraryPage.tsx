@@ -113,8 +113,7 @@ export function AssetLibraryPage() {
 
   // 浏览器前进/后退或外部地址栏变化导致 urlQ 改变时，把 URL 当前值同步到本地 q。
   useEffect(() => {
-    // 外部 URL 变化驱动本地 q 同步，functional setState 已做幂等保护
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部 URL 变化驱动本地 q 同步，functional setState 已做幂等保护
     setQ((prev) => (prev === urlQ ? prev : urlQ));
   }, [urlQ]);
 

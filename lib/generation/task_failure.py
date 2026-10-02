@@ -119,6 +119,8 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     # 译文模板：它不该被翻译，读侧按独立字段原样展示。
     "provider_rejected": "task_fail_provider_rejected",
     "dispatch_provider_requeue_failed": "task_fail_dispatch_provider_requeue_failed",
+    # 项目在任务执行期间被删除：任务放弃落盘，见 lib.project.task_project_claim。
+    "project_deleted_during_task": "task_fail_project_deleted_during_task",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",
     "restart_lost_text": "task_fail_restart_lost_text",
@@ -132,6 +134,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "resume_endpoint_changed_detail": "task_fail_resume_endpoint_changed_detail",
     "declarative_template_render_failed": "task_fail_declarative_template_render_failed",
     "declarative_response_extract_failed": "task_fail_declarative_response_extract_failed",
+    "declarative_image_save_failed": "task_fail_declarative_image_save_failed",
     # 参考图或首尾帧不足时的改图失败：级联触到产物节点，这份 workflow 出片本身依赖那张图。
     "comfyui_image_drop_unsupported": "task_fail_comfyui_image_drop_unsupported",
     "comfyui_upload_failed": "task_fail_comfyui_upload_failed",

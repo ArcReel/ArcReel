@@ -2,17 +2,18 @@
 id: providers
 title: Provider and Model Configuration
 sidebar_position: 3
+update_docs: fact-check
 ---
 
 # Provider and Model Configuration {#providers}
 
-ArcReel treats the AI assistant, text generation, image generation, video generation, and TTS as separate capabilities. You can choose different providers for different projects and media types instead of tying the entire production pipeline to one platform.
+ArcReel treats the Agent, text generation, image generation, video generation, and TTS as separate capabilities. You can choose different providers for different projects and media types instead of tying the entire production pipeline to one platform.
 
 ## 1. Start by Distinguishing Two Provider Categories {#two-provider-categories}
 
-### 1.1 AI Assistant Providers {#assistant-providers}
+### 1.1 Agent Providers {#assistant-providers}
 
-The AI assistant is responsible for:
+The Agent is responsible for:
 
 - Understanding user intent;
 - Analyzing novels and screenplays;
@@ -23,7 +24,7 @@ The AI assistant is responsible for:
 
 ArcReel's Agent Runtime is based on the Claude Agent SDK and supports Anthropic's official service as well as compatible configurations supported by the project.
 
-The AI assistant provider does not necessarily handle the actual image and video generation.
+The Agent provider does not necessarily handle the actual image and video generation.
 
 ### 1.2 Media and Text Providers {#media-and-text-providers}
 
@@ -36,7 +37,7 @@ These providers are responsible for:
 
 A complete project can use a combination of providers, for example:
 
-- AI assistant: a high-quality reasoning model;
+- Agent: a high-quality reasoning model;
 - Text structuring: a faster text model;
 - Character design: a high-quality image model;
 - Batch storyboards: a low-cost image model;
@@ -336,6 +337,12 @@ The model discovery protocol only determines which type of model-listing interfa
 
 If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
 
+When a provider submits jobs as JSON and then polls JSON results by task ID, you can click "New" in the "Endpoints" section and write a declarative definition yourself.
+
+Declarative definitions work for both video and image providers: a definition with `"media_type": "image"` is an image definition, and a definition without it is a video definition. After you attach an image definition to an image model of a custom provider, it can generate storyboard images and asset images. An image definition that declares image-to-image can also edit images.
+
+When creating an endpoint, you can pick the video or image "submit + poll" template under "Example template" as a starting point. Choosing a template replaces the current draft.
+
 For a self-hosted ComfyUI instance, you can import an API-format workflow and map prompts, assets, dimensions, duration, and output to its nodes. See [Connect a ComfyUI Workflow](./comfyui.md) for the complete setup and operational constraints.
 
 ### 10.1 Three Endpoint Test Modes {#custom-endpoint-tests}
@@ -344,6 +351,8 @@ The call endpoint detail page in Settings offers three test modes, ordered from 
 
 - **Check a response**: paste a provider response from the submit, progress, or fetch stage to inspect every
   extraction path, status mapping, and error field. This does not contact the provider or incur a charge.
+  When the base64 path of an image definition matches, only the number of image bytes is shown, not the
+  full string.
 - **Preview the request**: render the URL, method, headers, and body from sample parameters so you can compare
   them with the provider documentation. This also does not contact the provider or incur a charge.
 - **Test connection**: submit one real generation and track it to a terminal state. A billing badge identifies
@@ -352,14 +361,15 @@ The call endpoint detail page in Settings offers three test modes, ordered from 
 
 You can cancel a connection test while it is running. Cancellation stops ArcReel from tracking that test and
 removes its local result, but the provider's remote job may continue and charges already incurred remain in the
-ledger. A successful artifact plays directly in the result card, and the call number links to the spend ledger.
+ledger. A successful video artifact plays directly in the result card, and a successful image artifact is
+displayed there. The call number links to the spend ledger.
 The server retains terminal results and artifacts for 24 hours; they are unavailable after that period.
 
-### 10.2 Adapt a Custom Video Call Endpoint with an Agent {#custom-endpoint-agent}
+### 10.2 Adapt a Custom Call Endpoint with an Agent {#custom-endpoint-agent}
 
-When a provider submits jobs as JSON and then polls JSON results by task ID, you can delegate the adaptation to
-an external Agent such as Claude Code. Signature-based authentication, multipart requests sent to the provider,
-and routing by asset shape are outside the first version of declarative definitions.
+When a video or image provider submits jobs as JSON and then polls JSON results by task ID, you can delegate the
+adaptation to an external Agent such as Claude Code. Signature-based authentication, multipart requests sent to
+the provider, and routing by asset shape are outside the first version of declarative definitions.
 
 Install the public skill:
 
@@ -378,7 +388,7 @@ definition → run the shared validator → check responses offline → preview 
 save.” The definition reference and thin HTTP script are downloaded with the skill; the adaptation flow adds no
 MCP or SDK tool. Response checks and request previews do not contact the provider. A connection test performs a real
 generation and may incur charges, so the Agent must obtain your explicit approval first. When a definition with
-the same author and name exists, the Agent may save a copy and report it; overwriting the existing endpoint always
+the same author and name exists, the Agent may save a copy directly; overwriting the existing endpoint always
 requires your explicit approval.
 
 Pass required assets with `--start-image`, `--end-image`, repeatable `--reference-images`, and repeatable

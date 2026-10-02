@@ -44,7 +44,10 @@
 #   - The batch ends with a `closed` line. The file is NOT deleted — it is the
 #     retrospective/audit source, and recovery treats a `closed` line as the terminal
 #     marker (a ledger without one is a candidate for resumption).
-#   - A closed batch-id is terminal. A later execution uses a new batch-id.
+#   - A closed batch-id is terminal. A later execution uses a new batch-id. The one
+#     exception is `decision`: the user may rule on escalated items after the closing
+#     report, and that ruling belongs in this batch's ledger. "Closed" therefore means
+#     "has a closed line anywhere", not "ends with one".
 #
 # NOTE: .afk/ is gitignored. This ledger is local operational state, never committed.
 
@@ -135,8 +138,13 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p .afk
 LEDGER_FILE=".afk/${BATCH_ID}.jsonl"
 
-if [[ -s "$LEDGER_FILE" ]] && tail -n1 "$LEDGER_FILE" | jq -e '.kind == "closed"' >/dev/null 2>&1; then
-  die "batch-id is already closed; use a new unique batch-id: $BATCH_ID"
+if [[ -s "$LEDGER_FILE" ]]; then
+  # fail closed: an unparseable ledger must not read as "not closed"
+  IS_CLOSED=$(jq -s 'any(.[]; .kind == "closed")' "$LEDGER_FILE" 2>/dev/null) \
+    || die "ledger is not valid JSONL, refusing to append: $LEDGER_FILE"
+  if [[ "$IS_CLOSED" == "true" && "$KIND" != "decision" ]]; then
+    die "batch-id is already closed; only a decision on escalated items may follow, otherwise use a new unique batch-id: $BATCH_ID"
+  fi
 fi
 if [[ -e "$LEDGER_FILE" && ! -s "$LEDGER_FILE" ]]; then
   die "batch-id has an empty ledger reservation; use a new unique batch-id: $BATCH_ID"

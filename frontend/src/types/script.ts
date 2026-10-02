@@ -427,6 +427,19 @@ export interface PlanScriptRequest {
 /** 提交后立即返回的生成批次，形状同提示词编写。 */
 export type PlanScriptResponse = AuthorPromptsResponse;
 
+/** 广告/短片「AI 生成脚本」的请求：附加指令只随本次提交；整份重做时带上认可覆盖的令牌。 */
+export interface GenerateAdScriptRequest {
+  instructions?: string | null;
+  regenerate?: boolean;
+  overwrite_revision?: string | null;
+}
+
+/** 广告/短片整份生成任务成功时的结果：本次登记的新资产（衍生名写作「本体/衍生」）。 */
+export interface AdScriptTaskResult {
+  message?: string;
+  new_assets?: { type: "character" | "scene" | "prop"; name: string }[];
+}
+
 /** AI 修复待修复草稿：提交后立即返回的生成批次，形状同提示词编写。 */
 export type DraftRepairResponse = AuthorPromptsResponse;
 

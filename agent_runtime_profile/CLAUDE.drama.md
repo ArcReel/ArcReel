@@ -44,6 +44,7 @@
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/图片编辑/集脚本/规范化剧本/旁白/解说分镜拆分/视频单元拆分/分集规划与重置/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，Agent 直接以 tool 形式调用。
 - **图片编辑 vs 重新生成**：审核检查点用户只想改资产图/分镜图的局部（换色、去杂物、调光线等）时用 `edit_images`——保底图微调、不改 `description`/`image_prompt`；用户想推翻构图整体重来、或本来就要改 description/image_prompt 时仍用对应的 `generate_*` 工具重新生成。用户脱离生成流程直接说「把某某改一下」时也可直接调 `edit_images`，不依赖处于哪个工作流步骤。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script` 读取正文与 revision，再把其 revision 原样作为 `patch_episode_script` 的 `base_revision`，并传有序 `operations[]`（`update` / `insert` / `move` / `remove` / `split`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
+- **改源文**：`source/` 下的整本源文、集原文与快照只经 `upload_source`（新增文件，或 `on_conflict=replace` 整份覆盖）与 `edit_source_text`（按片段或整段修改）写入，Write / Edit / Bash 写 `source/` 同样被双层拒绝。改整本源文的文件会按改动前后的对齐重映射切出集；波及切出集时工具先不写入，返回受影响集清单与 `revision`，如实告知用户，确认后带同一 `revision` 重新调用。删除、调序整本源文的文件，以及文件在 ArcReel 之外被改过后更新分集账本，请用户在 Web 端「分集」视图里操作。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等）。
 - **敏感文件保护**：`.env` / `.claude/settings.json`，以及数据根里项目以外的全部数据（数据库、凭证、日志、其他用户的记忆等）由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
@@ -108,7 +109,8 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   ├─ dispatch → normalize-drama-script       剧情演绎规范化剧本（同时识别本集新增资产）
   ├─ dispatch → split-reference-video-units  参考生视频的视频单元拆分（同时识别本集新增资产）
   ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
-  └─ dispatch → generate-assets              资产生成（角色/场景/道具/分镜/视频）
+  ├─ dispatch → generate-assets              资产生成（角色/场景/道具/分镜/视频）
+  └─ dispatch → review-footage               只读审片：看一组视频单元的联系表，回文字报告（edit-video 首轮审阅与重新生成后验收）
 ```
 
 ### Skill/Agent 边界原则
@@ -127,7 +129,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ### 职责边界
 
-- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具或 `manage-project` 的现有脚本
+- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具
 - **代码 bug 上报**：如果明确判断 MCP 工具或 skill 脚本出现的是代码 bug（而非参数或环境问题），向用户报告错误并建议反馈给开发者
 
 ## 可用 Skills
@@ -206,7 +208,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 - `schema_version`：项目数据格式版本（当前 1）
 - `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`reference_video`，创建后不可更改）、`grid_storyboard`（布尔，仅 `generation_mode="storyboard"` 下生效，由用户在设置页开关）、`style`、`style_description`
 - `overview`：项目概述（synopsis、genre、theme、world_setting）
-- `episodes`：分集账本（单一真相源，排列即播出顺序）：episode（集 ID）、title、script_file，以及账本字段 `source_origin`（本集原文来源：`whole_source` 切自整本源文 / `own` 自带原文 / `none` 无原文）/ `source_range`（原文范围，仅切出集）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）。顶层 `whole_source_files` 是整本源文的文件清单，排列即文件先后；源文件类型 `source_kind`（`novel` 小说 / `screenplay` 成品剧本，缺失按小说）记在清单项和自带原文的集的条目上，切出集取原文范围起点所在文件的类型；下一批规划从最后一个切出集的结尾接续；`source/` 里未登记的文件不是源文，要纳入须经 `upload_source` 登记。切出集的 `source/episode_{集 ID}.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名。自带原文的集的集文件就是该集原文：用户自行拆好的分集用 `upload_source`（`role=episode`）逐集登记，逐集直接做脚本规划，不合并、不重切、不改名
+- `episodes`：分集账本（单一真相源，排列即播出顺序）：episode（集 ID）、title、script_file，以及账本字段 `source_origin`（本集原文来源：`whole_source` 切自整本源文 / `own` 自带原文 / `none` 无原文）/ `source_range`（原文范围，仅切出集；可以跨文件，终点不在起点文件 `source_file` 里时记在 `end_file`）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）。顶层 `whole_source_files` 是整本源文的文件清单，排列即文件先后；源文件类型 `source_kind`（`novel` 小说 / `screenplay` 成品剧本，缺失按小说）记在清单项和自带原文的集的条目上，切出集取原文范围起点所在文件的类型；下一批规划从最后一个切出集的结尾接续；`source/` 里未登记的文件不是源文，要纳入须经 `upload_source` 登记。切出集的 `source/episode_{集 ID}.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名。自带原文的集的集文件就是该集原文：用户自行拆好的分集用 `upload_source`（`role=episode`）逐集登记，逐集直接做脚本规划，不合并、不重切、不改名
 - `characters`：角色完整定义（description、voice_style、character_sheet）
 - `scenes`：场景完整定义（description、scene_sheet）
 - `props`：道具完整定义（description、prop_sheet）

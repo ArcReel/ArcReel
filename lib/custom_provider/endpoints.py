@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
 from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
-from arcreel_market_core.endpoint_definition.media_type import DECLARATIVE_MEDIA_TYPE
+from arcreel_market_core.endpoint_definition.media_type import definition_media_type
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.image_backends.base import ImageCapability
@@ -62,6 +62,7 @@ from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, bin
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
+from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend, image_capabilities_from_definition
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -575,14 +576,18 @@ def declarative_requires_api_key(definition: Mapping[str, Any]) -> bool:
     return bool(definition.get("auth"))
 
 
+def _require_declarative_base_url(definition: Mapping[str, Any], provider: CustomProvider) -> None:
+    if declarative_requires_base_url(definition) and not provider.base_url:
+        raise ValueError("声明式调用端点需要 base_url")
+
+
 def _build_declarative_video(
     definition: Mapping[str, Any],
 ) -> Callable[[CustomProvider, str], CustomVideoBackend]:
-    """声明式端点的 backend 构造闭包。"""
+    """声明式视频端点的 backend 构造闭包。"""
 
     def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
-        if declarative_requires_base_url(definition) and not provider.base_url:
-            raise ValueError("声明式调用端点需要 base_url")
+        _require_declarative_base_url(definition, provider)
         delegate = DeclarativeVideoBackend(
             api_key=provider.api_key,
             base_url=provider.base_url,
@@ -591,6 +596,25 @@ def _build_declarative_video(
             provider=provider.provider_id,
         )
         return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+    return build
+
+
+def _build_declarative_image(
+    definition: Mapping[str, Any],
+) -> Callable[[CustomProvider, str], CustomImageBackend]:
+    """声明式图片端点的 backend 构造闭包。"""
+
+    def build(provider: CustomProvider, model_id: str) -> CustomImageBackend:
+        _require_declarative_base_url(definition, provider)
+        delegate = DeclarativeImageBackend(
+            api_key=provider.api_key,
+            base_url=provider.base_url,
+            model=model_id,
+            definition=definition,
+            provider=provider.provider_id,
+        )
+        return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
     return build
 
@@ -607,23 +631,30 @@ def declarative_endpoint_spec(
     定义的表达力一样，两份实现只会在能力缺省这类地方悄悄分叉。差别只在 ``source`` 决定的家族归属
     ——随版端点的家族取键首段（协议出处），用户端点的协议由定义自身描述、没有可归属的外部家族。
 
-    能力由定义显式全量声明，与 model 无关，故走 video_caps_for_model 这条「四字段全量声明」的
-    通路（返回同一份常量），而不是只能表达参考图上限的 video_max_reference_images。
+    媒体类型经 :func:`definition_media_type` 读，与市场索引、镜像列同一读法，并决定 backend 走
+    图片还是视频通道。
+
+    能力由定义显式全量声明，与 model 无关。视频走 video_caps_for_model 这条「四字段全量声明」的
+    通路（返回同一份常量），而不是只能表达参考图上限的 video_max_reference_images；图片的能力
+    与 backend 共读 :func:`image_capabilities_from_definition`，生成前的闸门与这里投影的不会分叉。
     """
-    caps = declarative_video_capabilities(definition)
+    media_type = definition_media_type(definition)
+    is_video = media_type == "video"
+    caps = declarative_video_capabilities(definition) if is_video else None
     spec = EndpointSpec(
         key=key,
-        media_type=DECLARATIVE_MEDIA_TYPE,
+        media_type=media_type,
         family=CUSTOM_ENDPOINT_FAMILY if source == "custom" else declarative_family(key),
         # 声明式端点的显示名取 meta.name，不进 i18n 目录（见 EndpointSpec.display_name）。
         display_name_key="",
         source=source,
         request_method=definition["submit"]["method"],
         request_path_template=declarative_request_path(definition),
-        build_backend=_build_declarative_video(definition),
-        video_caps_for_model=lambda _model_id: caps,
-        end_image_capable=caps.last_frame,
-        reference_audio_capable=caps.reference_audio_mode is not ReferenceAudioMode.NONE,
+        build_backend=_build_declarative_video(definition) if is_video else _build_declarative_image(definition),
+        image_capabilities=None if is_video else image_capabilities_from_definition(definition),
+        video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
+        end_image_capable=caps.last_frame if caps is not None else False,
+        reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
         definition=definition,
     )
     # 内置注册表在 import 期逐条过同一条不变式（见 _validate_registry）；用户定义现构造、没有
@@ -682,16 +713,17 @@ def _build_comfyui_runtime(
 def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSpec:
     """把一份 ComfyUI 定义派生成 EndpointSpec。纯函数：不读库、不发请求。
 
-    媒体类型读定义自身声明的 ``media_type``——一份 workflow 产图还是产视频只有它自己知道。能力
-    全部从节点绑定推导（``docs/adr/0082``），不看模型名也不读定义里的能力声明（定义里没有那一
-    节）：能力对每个 model 是同一份，因为 workflow 只有一份，模型行换名字不改它能做什么。
+    媒体类型经 :func:`definition_media_type` 读定义自身声明的 ``media_type``——一份 workflow 产图
+    还是产视频只有它自己知道。能力全部从节点绑定推导（``docs/adr/0082``），不看模型名也不读定义
+    里的能力声明（定义里没有那一节）：能力对每个 model 是同一份，因为 workflow 只有一份，模型行
+    换名字不改它能做什么。
 
     实现落在本模块而非 ``comfyui`` 子包：子包受「不依赖声明式运行时」的 import 契约约束，而
     ``EndpointSpec`` 与它的不变式都在这里，子包够到本模块即间接够到声明式 backend。推导本身在
     子包的 ``comfyui.capabilities`` 里——它只依赖绑定表与 workflow，与 ``EndpointSpec`` 无关；
     两种媒体类型的装箱各借对应 backend 模块那一份，backend 自己的能力声明也用它。
     """
-    media_type = str(definition["media_type"])
+    media_type = definition_media_type(definition)
     is_video = media_type == "video"
     # 生成前的能力闸门读的是 backend 那一份、不是这里投影出来的 caps，两处各写一份就会在闸门上
     # 打架，故两种媒体类型的能力都借 backend 模块的装箱函数算。

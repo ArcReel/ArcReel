@@ -162,6 +162,12 @@ GENERATE_VIDEOS = generation_tool(
         "或有目标需要用户确认跨档时长费用时，本次零任务入队、不产生批次，"
         "结果带 batch_admission 逐单元明细与 request_projections 请求投影；"
         "用户确认档位后把原目标集合一次性重发，不要按档位拆成多次调用。"
+        "preview=true 只预检：走同一份准入但不入队、不产生批次，返回 video_quote 报价单"
+        "（逐 unit 的 outcome 为 generate / reuse / blocked，附编排时长、申请档位、tier_changed、"
+        "estimated_cost 与 problems，另有 estimated_total 与 confirmed_request_durations），"
+        "报价与正式提交一致；需要用户先确认费用时先预检。"
+        "用户确认后正式提交时原样带上报价单的 confirmed_request_durations，"
+        "就不会再返回档位确认；两次调用之间档位变了，仍会要求重新确认。"
         "终态结果的 generation_result 按 requested / succeeded / failed / blocked 逐 ID 给出结局，"
         "每个失败项带稳定 code 与下一步动作。"
     ),

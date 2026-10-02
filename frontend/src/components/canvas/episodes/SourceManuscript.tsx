@@ -1,4 +1,4 @@
-import { Fragment, memo, type MouseEvent, type ReactNode } from "react";
+import { Fragment, memo, useMemo, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { FileText, MoveHorizontal, TriangleAlert } from "lucide-react";
 
@@ -6,13 +6,19 @@ import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode, EpisodesViewFile, 
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
 import { PlanGapButton } from "./PlanGapButton";
+import { BoundaryRule, BoundaryTick, LaneBar, WaitingBadge } from "./ReplanCompareMarks";
 import { ReplannedBadge } from "./ReplannedBadge";
+import { SourceFileActions } from "./SourceFileActions";
 import { SourceFileKindControl } from "./SourceFileKindControl";
 import { episodeColor, formatSpoken, formatVolume } from "./episodes-view-model";
 import { adjacentBoundaries, pointInRun, textRuns, type ManuscriptPoint, type TextRun } from "./manual-split-model";
+import { lanesContinue, type ReplanCompare } from "./replan-compare-model";
 
 /** 原文阅读列：衬线正文，行长控制在约 40 个汉字。 */
 const MANUSCRIPT_TEXT_CLS = "cursor-text text-[14.5px] leading-[1.95] [font-family:var(--font-editorial)]";
+
+/** 对照新方案时正文右侧留出的位置：右侧色条画在这里，不被 `content-visibility` 的绘制裁剪裁掉。 */
+const COMPARE_GUTTER_CLS = "pr-6";
 
 interface SourceManuscriptProps {
   projectName: string;
@@ -28,9 +34,15 @@ interface SourceManuscriptProps {
   moving: number | null;
   onPlace: (point: ManuscriptPoint) => void;
   onToggleMoving: (left: number) => void;
+  /** 有新的分集方案时新旧两种分法的对照；没有方案或方案已过时为 null。 */
+  compare: ReplanCompare | null;
 }
 
-type CaretMark = { offset: number; node: ReactNode } | null;
+type InlineMark = { offset: number; node: ReactNode };
+type CaretMark = InlineMark | null;
+
+/** 一段原文所在文件的对照与该文件里新旧分界不同的位置；没有对照时为 null。 */
+type SegmentCompare = { compare: ReplanCompare; diffs: number[] } | null;
 
 /**
  * 正文容器的样式。屏幕外的段落跳过渲染；插入光标所在的段落照常绘制，
@@ -81,6 +93,9 @@ function pointFromMouse(event: MouseEvent): ManuscriptPoint | null {
  *
  * 每个文件开头是文件条；每集顶部是集标题条，段落左侧有集色竖条；夹在切出集之间的未切分原文显示为虚线卡片，
  * 最后一个切出集之后是「以下内容尚未分集」分隔线。
+ *
+ * 有新的分集方案时，正文右侧再加一条新方案的色条：左侧色条是现有分集，右侧是新方案，分界不同处画琥珀色虚线；
+ * 方案还没生成到的原文是虚线色条，原文全在那里的现有集标「等待规划」。
  */
 export function SourceManuscript({
   projectName,
@@ -94,6 +109,7 @@ export function SourceManuscript({
   moving,
   onPlace,
   onToggleMoving,
+  compare,
 }: SourceManuscriptProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const info = new Map(view.episodes.map((episode) => [episode.episode, episode]));
@@ -103,7 +119,12 @@ export function SourceManuscript({
     .flatMap((file) => file.segments.map((segment) => ({ file, segment })))
     .find(({ segment }) => segment.kind === "unsplit" && !segment.gap);
 
-  const movingPair = moving === null ? null : view.files.flatMap(adjacentBoundaries).find((b) => b.left === moving);
+  const allBoundaries = adjacentBoundaries(view);
+  const movingPair = moving === null ? null : allBoundaries.find((b) => b.left === moving);
+  const fileCompares = useMemo<SegmentCompare[]>(
+    () => view.files.map((_, index) => (compare === null ? null : { compare, diffs: compare.diffs(index) })),
+    [view.files, compare],
+  );
   const caretMark = (fileIndex: number): CaretMark =>
     caret !== null && caret.point.file === fileIndex
       ? { offset: caret.point.offset, node: <CaretMarker color={caret.color}>{caret.toolbar}</CaretMarker> }
@@ -123,7 +144,7 @@ export function SourceManuscript({
       {view.files.map((file, index) => {
         const mark = caretMark(index);
         const hostRun = mark === null ? null : caretRunStart(file, mark.offset);
-        const boundaries = new Map(adjacentBoundaries(file).map((b) => [b.right, b]));
+        const boundaries = new Map(allBoundaries.filter((b) => b.file === index).map((b) => [b.right, b]));
         return (
           <section key={file.source_file} aria-label={file.name}>
             <FileBar
@@ -141,7 +162,7 @@ export function SourceManuscript({
                 movingPair != null &&
                 !(segment.kind === "episode" && (segment.episode === movingPair.left || segment.episode === movingPair.right));
               if (segment.kind === "episode" && segment.episode !== null) {
-                const boundary = boundaries.get(segment.episode);
+                const boundary = segment.continued ? undefined : boundaries.get(segment.episode);
                 const episodeInfo = info.get(segment.episode);
                 return (
                   <Fragment key={`${segment.episode}`}>
@@ -167,6 +188,8 @@ export function SourceManuscript({
                       dimmed={dimmed}
                       caret={hosted}
                       hostRun={hosted ? hostRun : null}
+                      compare={fileCompares[index]}
+                      waiting={compare?.waiting.has(segment.episode) ?? false}
                       onSelect={onSelect}
                       register={registerEpisodeHeader}
                     />
@@ -184,6 +207,8 @@ export function SourceManuscript({
                   dimmed={dimmed}
                   caret={hosted}
                   hostRun={hosted ? hostRun : null}
+                  compare={fileCompares[index]}
+                  planBlocked={view.replan !== null ? t("dashboard:replan_pending_hint") : null}
                 />
               );
             })}
@@ -207,9 +232,9 @@ function CaretMarker({ color, children }: { color: string; children: ReactNode }
   );
 }
 
-/** 一行原文：文字带上 `data-file` / `data-run` 供点击换算偏移，落点在这一行时插入光标。 */
-function RunText({ fileIndex, run, caret }: { fileIndex: number; run: TextRun; caret: CaretMark }) {
-  if (caret === null) {
+/** 一行原文：文字带上 `data-file` / `data-run` 供点击换算偏移，在各标记的位置把文字断开插入标记。 */
+function RunText({ fileIndex, run, marks }: { fileIndex: number; run: TextRun; marks: InlineMark[] }) {
+  if (marks.length === 0) {
     return (
       <span data-file={fileIndex} data-run={run.start}>
         {run.text}
@@ -217,18 +242,24 @@ function RunText({ fileIndex, run, caret }: { fileIndex: number; run: TextRun; c
     );
   }
   const chars = [...run.text];
-  const split = Math.min(Math.max(caret.offset - run.start, 0), chars.length);
-  return (
-    <>
-      <span data-file={fileIndex} data-run={run.start}>
-        {chars.slice(0, split).join("")}
-      </span>
-      {caret.node}
-      <span data-file={fileIndex} data-run={run.start + split}>
-        {chars.slice(split).join("")}
-      </span>
-    </>
+  const parts: ReactNode[] = [];
+  let from = 0;
+  for (const [index, mark] of marks.entries()) {
+    const split = Math.min(Math.max(mark.offset - run.start, from), chars.length);
+    parts.push(
+      <span key={`t${index}`} data-file={fileIndex} data-run={run.start + from}>
+        {chars.slice(from, split).join("")}
+      </span>,
+      <Fragment key={`m${index}`}>{mark.node}</Fragment>,
+    );
+    from = split;
+  }
+  parts.push(
+    <span key="tail" data-file={fileIndex} data-run={run.start + from}>
+      {chars.slice(from).join("")}
+    </span>,
   );
+  return parts;
 }
 
 function SegmentText({
@@ -236,17 +267,39 @@ function SegmentText({
   segment,
   caret,
   hostRun,
+  compare,
 }: {
   fileIndex: number;
   segment: EpisodesViewSegment;
   caret: CaretMark;
   hostRun: number | null;
+  compare: SegmentCompare;
 }) {
-  return textRuns(segment.text, segment.start).map((run) => (
-    <p key={run.start}>
-      <RunText fileIndex={fileIndex} run={run} caret={run.start === hostRun ? caret : null} />
-    </p>
-  ));
+  const runs = textRuns(segment.text, segment.start).map((run) => ({ run, end: run.start + [...run.text].length }));
+  const lanes = compare ? runs.map(({ run, end }) => compare.compare.lanes(fileIndex, run.start, end)) : null;
+  return runs.map(({ run, end }, index) => {
+    const marks: InlineMark[] = (compare?.diffs ?? [])
+      .filter((offset) => run.start < offset && offset < end)
+      .map((offset) => ({ offset, node: <BoundaryTick /> }));
+    if (caret !== null && run.start === hostRun) marks.push(caret);
+    marks.sort((a, b) => a.offset - b.offset);
+    const pieces = lanes?.[index] ?? [];
+    const next = lanes?.[index + 1];
+    return (
+      <p key={run.start} className={lanes ? "relative" : undefined}>
+        {compare?.diffs.includes(run.start) ? <BoundaryRule /> : null}
+        <RunText fileIndex={fileIndex} run={run} marks={marks} />
+        {pieces.length > 0 ? (
+          <LaneBar
+            pieces={pieces}
+            start={run.start}
+            end={end}
+            continues={next !== undefined && lanesContinue(pieces, next)}
+          />
+        ) : null}
+      </p>
+    );
+  });
 }
 
 function BoundaryButton({
@@ -316,6 +369,12 @@ function FileBar({
       <span className="min-w-0 truncate text-[12.5px] font-medium text-text">{file.name}</span>
       <span className="flex-1" />
       <SourceFileKindControl projectName={projectName} file={file} episodes={episodes} />
+      {file.changed_outside ? (
+        <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--color-warm)]">
+          <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
+          {t("episodes_view_file_changed_outside")}
+        </span>
+      ) : null}
       {file.missing ? (
         <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--color-warm)]">
           <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
@@ -329,6 +388,7 @@ function FileBar({
           })}
         </span>
       )}
+      <SourceFileActions projectName={projectName} file={file} index={index} total={total} />
     </div>
   );
 }
@@ -344,6 +404,8 @@ const EpisodeBlock = memo(function EpisodeBlock({
   dimmed,
   caret,
   hostRun,
+  compare,
+  waiting,
   onSelect,
   register,
 }: {
@@ -357,6 +419,9 @@ const EpisodeBlock = memo(function EpisodeBlock({
   dimmed: boolean;
   caret: CaretMark;
   hostRun: number | null;
+  compare: SegmentCompare;
+  /** 新的分集方案还没生成到这一集。 */
+  waiting: boolean;
   onSelect: (episode: number) => void;
   register: (episode: number, el: HTMLElement | null) => void;
 }) {
@@ -364,6 +429,30 @@ const EpisodeBlock = memo(function EpisodeBlock({
   const id = segment.episode ?? 0;
   const color = episodeColor(id);
   const title = episode?.title?.trim();
+  const name =
+    position === null ? t("common:episode_unlisted_name") : t("common:episode_position_name", { position });
+  // 跨文件的一集只在起点所在文件里显示完整集头（也只有它登记为滚动目标）；后续文件里的部分只标明接续
+  if (segment.continued) {
+    return (
+      <article className="mb-6 transition-opacity" style={{ opacity: dimmed ? 0.45 : 1 }} aria-label={name}>
+        <button
+          type="button"
+          data-no-caret
+          onClick={() => onSelect(id)}
+          aria-pressed={selected}
+          className="focus-ring mb-2 block w-full rounded-md px-3 py-1 text-left text-[12px] text-text-3 transition-colors"
+          style={{
+            borderLeft: `3px solid ${color}`,
+            background: selected ? "var(--color-accent-dim)" : "oklch(0.21 0.01 265 / 0.4)",
+          }}
+        >
+          <span style={{ color }}>{t("dashboard:episodes_view_episode_continued", { name })}</span>
+          <span className="num ml-2.5 text-[11px] text-text-4">{formatVolume(t, segment.units, unit)}</span>
+        </button>
+        <EpisodeBody id={id} fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
+      </article>
+    );
+  }
   return (
     <article
       className="mb-6 transition-opacity"
@@ -384,7 +473,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
       >
         <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
           <span id={`episode-${id}-title`} className="text-[13px] font-semibold" style={{ color }}>
-            {position === null ? t("common:episode_unlisted_name") : t("common:episode_position_name", { position })}
+            {name}
           </span>
           <span className="min-w-0 text-[13px] text-text">{title || t("dashboard:episodes_view_untitled")}</span>
           <span className="num text-[11px] text-text-4">
@@ -392,6 +481,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
             {info?.spoken_seconds != null ? ` · ${formatSpoken(t, info.spoken_seconds)}` : ""}
           </span>
           {episode?.ledger_status === "stale" ? <ReplannedBadge /> : null}
+          {waiting ? <WaitingBadge /> : null}
         </span>
         {episode?.hook?.trim() ? (
           <span className="mt-1 block text-[12px] leading-[1.6] text-text-3">
@@ -399,18 +489,38 @@ const EpisodeBlock = memo(function EpisodeBlock({
           </span>
         ) : null}
       </button>
-      <div className="flex gap-4">
-        <span aria-hidden className="w-[3px] shrink-0 rounded-full" style={{ background: episodeColor(id, 0.7) }} />
-        <div
-          className={`min-w-0 flex-1 space-y-3 text-text-2 ${MANUSCRIPT_TEXT_CLS}`}
-          style={manuscriptTextStyle(caret !== null)}
-        >
-          <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} />
-        </div>
-      </div>
+      <EpisodeBody id={id} fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
     </article>
   );
 });
+
+function EpisodeBody({
+  id,
+  fileIndex,
+  segment,
+  caret,
+  hostRun,
+  compare,
+}: {
+  id: number;
+  fileIndex: number;
+  segment: EpisodesViewSegment;
+  caret: CaretMark;
+  hostRun: number | null;
+  compare: SegmentCompare;
+}) {
+  return (
+    <div className="flex gap-4">
+      <span aria-hidden className="w-[3px] shrink-0 rounded-full" style={{ background: episodeColor(id, 0.7) }} />
+      <div
+        className={`min-w-0 flex-1 space-y-3 text-text-2 ${MANUSCRIPT_TEXT_CLS} ${compare ? COMPARE_GUTTER_CLS : ""}`}
+        style={manuscriptTextStyle(caret !== null)}
+      >
+        <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
+      </div>
+    </div>
+  );
+}
 
 function UnsplitBlock({
   fileIndex,
@@ -421,6 +531,8 @@ function UnsplitBlock({
   dimmed,
   caret,
   hostRun,
+  compare,
+  planBlocked,
 }: {
   fileIndex: number;
   sourceFile: string;
@@ -430,6 +542,9 @@ function UnsplitBlock({
   dimmed: boolean;
   caret: CaretMark;
   hostRun: number | null;
+  compare: SegmentCompare;
+  /** 不能规划这段原文的原因（有等待处理的新的分集方案）；可以时为 null。 */
+  planBlocked: string | null;
 }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -444,7 +559,7 @@ function UnsplitBlock({
           <span className="num text-[11px] text-text-4">{formatVolume(t, segment.units, unit)}</span>
           <span className="basis-full text-[11.5px] text-text-4">{t("episodes_view_gap_hint")}</span>
           <span className="mt-1 basis-full">
-            <PlanGapButton sourceFile={sourceFile} end={segment.end} />
+            <PlanGapButton sourceFile={sourceFile} end={segment.end} blocked={planBlocked} />
           </span>
         </div>
       ) : divider ? (
@@ -458,10 +573,10 @@ function UnsplitBlock({
         </div>
       ) : null}
       <div
-        className={`space-y-3 pl-[19px] text-text-4 ${MANUSCRIPT_TEXT_CLS}`}
+        className={`space-y-3 pl-[19px] text-text-4 ${MANUSCRIPT_TEXT_CLS} ${compare ? COMPARE_GUTTER_CLS : ""}`}
         style={manuscriptTextStyle(caret !== null)}
       >
-        <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} />
+        <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
       </div>
     </div>
   );

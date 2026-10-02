@@ -68,6 +68,8 @@ export function railFileGroups(view: EpisodesView, episodes: EpisodeMeta[]): Rai
     let tailUnits = 0;
     for (const segment of file.segments) {
       if (segment.kind === "episode" && segment.episode !== null) {
+        // 跨文件的集只列在起点所在文件的分组里
+        if (segment.continued) continue;
         const episode = meta.get(segment.episode);
         const episodeInfo = info.get(segment.episode);
         if (episode && episodeInfo) rows.push({ kind: "episode", episode, info: episodeInfo });

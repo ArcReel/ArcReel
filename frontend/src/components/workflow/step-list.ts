@@ -11,7 +11,7 @@ import type {
   WorkflowPlan,
   WorkflowPlanStep,
 } from "@/types/workflow";
-import { ROUTE_APP_SETTINGS, WORKSPACE_ROUTE_PRODUCTS } from "@/app-routes";
+import { ROUTE_APP_SETTINGS, WORKSPACE_ROUTE_PRODUCTS, episodeEditViewPath } from "@/app-routes";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import type { EpisodeSurface } from "@/stores/episode-surface-store";
 import { formatNameList } from "@/utils/list-format";
@@ -50,6 +50,9 @@ export type StepIntent =
   | { type: "plan_script" }
   | { type: "plan_script_to_agent" }
   | { type: "start_blank_script" }
+  | { type: "open_script_plan" }
+  | { type: "generate_ad_script" }
+  | { type: "open_ad_script"; regenerate: boolean }
   | { type: "open_script_plan_over_draft" }
   | { type: "asset_batch"; episodeId: number }
   | { type: "storyboard_batch"; episodeId: number; kind: StoryboardBatchKind }
@@ -294,8 +297,16 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
         },
       });
     }
+    const planDraft = draftOf(content, false);
+    const planState = status.artifacts.script_plan?.state;
+    // 填写集原文的界面只在本集既没有规划也没有草稿时显示，其余时候这个入口点了没有去处。
+    const sourceSurfaceShown = (planState === undefined || planState === "missing") && content.drafts.length === 0;
     const acts: StepAct[] =
-      !present && formal !== "present" && nextType !== "start_blank_script" && nextType !== "provide_episode_source"
+      !present &&
+      formal !== "present" &&
+      sourceSurfaceShown &&
+      nextType !== "start_blank_script" &&
+      nextType !== "provide_episode_source"
         ? [provideSourceAct(t)]
         : [];
     const planningSteps = stepsFor(facts, ["episode_plan"]);
@@ -310,8 +321,6 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
       steps: planningSteps,
     });
 
-    const planDraft = draftOf(content, false);
-    const planState = status.artifacts.script_plan?.state;
     const review = status.gates.script_plan_review?.state;
     let planStatus: string;
     let planTone: StepRowTone;
@@ -330,18 +339,30 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
       planTone = "todo";
     }
     const planOp = status.operations.prepare_script_plan;
-    const planActs: StepAct[] =
-      formal !== "present" && !planDraft && planState === "missing" && nextType !== "prepare_script_plan" && operationApplies(planOp)
-        ? [
-            {
-              key: "agent-plan",
-              label: t("workflow:act_agent_plan_script"),
-              kind: "agent",
-              intent: { type: "agent", text: t("dashboard:episode_workspace_prefill_script", { episodeRef: ctx.episodeRef }) },
-              disabledReason: refusalReason(t, planOp),
-            },
-          ]
-        : [];
+    const planOffered = !planDraft && planState === "missing" && nextType !== "prepare_script_plan" && operationApplies(planOp);
+    let planActs: StepAct[] = [];
+    if (planOffered && formal !== "present") {
+      planActs = [
+        {
+          key: "agent-plan",
+          label: t("workflow:act_agent_plan_script"),
+          kind: "agent",
+          intent: { type: "agent", text: t("dashboard:script_plan_agent_prefill", { episodeRef: ctx.episodeRef }) },
+          disabledReason: refusalReason(t, planOp),
+        },
+      ];
+    } else if (planOffered && formal === "present") {
+      // 已有正式脚本（如从空白开始）时也能整集交给 AI 规划；新规划待确认，经覆盖确认才替换正式脚本。
+      planActs = [
+        {
+          key: "plan",
+          label: t("dashboard:script_plan_open"),
+          kind: "ai",
+          intent: { type: "open_script_plan" },
+          disabledReason: refusalReason(t, planOp),
+        },
+      ];
+    }
     rows.push({
       key: "plan",
       title: t("workflow:row_plan"),
@@ -370,13 +391,27 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     scriptStatus = t("workflow:status_none");
     scriptTone = "todo";
   }
+  // 广告/短片的整份重做：服务端先报输入缺失，`formal_script_exists` 只拦首次生成，不拦重做。
+  const generateOp = status.operations.generate_script;
+  const scriptActs: StepAct[] =
+    facts.isAd && formal === "present" && operationApplies(generateOp)
+      ? [
+          {
+            key: "regenerate-script",
+            label: t("dashboard:ad_script_regenerate"),
+            kind: "ai",
+            intent: { type: "open_ad_script", regenerate: true },
+            disabledReason: generateOp?.reason === "formal_script_exists" ? null : refusalReason(t, generateOp),
+          },
+        ]
+      : [];
   rows.push({
     key: "script",
     title: t("workflow:row_script"),
     tone: scriptTone,
     status: scriptStatus,
     notes: [],
-    acts: [],
+    acts: scriptActs,
     steps: stepsFor(facts, facts.isAd ? ["final_script", "script_structure"] : ["script_structure"]),
   });
 
@@ -499,12 +534,22 @@ function editActs(facts: Facts, ctx: StepListContext): StepAct[] {
   ];
 }
 
+/** 本集剪辑时间线条数：优先取剪辑概况，取不到时按计划里的剪辑时间线 ID 计。 */
+function editTimelineCount(facts: Facts, ctx: StepListContext): number {
+  const ids = facts.plan.status.artifacts.edit_timelines?.timeline_ids;
+  return ctx.editOverview?.timeline_count ?? (Array.isArray(ids) ? ids.length : 0);
+}
+
+/** 已有剪辑时间线时去剪辑视图的文字链；给出 `timelineId` 时切到那条剪辑时间线。 */
+function openEditViewAct(ctx: StepListContext, key: string, label: string, timelineId?: string): StepAct {
+  return { key, label, kind: "nav", intent: { type: "route", path: episodeEditViewPath(ctx.episodeId, timelineId) } };
+}
+
 function editRow(facts: Facts, ctx: StepListContext): StepRowView {
   const { t } = ctx;
   const { plan, content } = facts;
   const overview = ctx.editOverview;
-  const ids = plan.status.artifacts.edit_timelines?.timeline_ids;
-  const count = overview?.timeline_count ?? (Array.isArray(ids) ? ids.length : 0);
+  const count = editTimelineCount(facts, ctx);
   const issues = overview?.latest?.issue_count ?? 0;
   let status: string;
   if (count === 0) status = t("workflow:status_edit_none");
@@ -520,11 +565,13 @@ function editRow(facts: Facts, ctx: StepListContext): StepRowView {
         count: stale.length,
         names: formatNameList(stale.map((timeline) => timeline.name), ctx.lang),
       }),
+      act: openEditViewAct(ctx, "final-cut-stale-render", t("workflow:act_go_render"), stale[0].id),
     });
   }
   // 剪辑是下一步时入口就地展开在下一步里；其余时候有正式脚本条目就常驻在本行，准入不满足时置灰。
   const hasItems = content.formal_script === "present" && (content.script_item_count ?? 0) > 0;
   const acts = hasItems && plan.next_action.type !== "create_edit_timeline" ? editActs(facts, ctx) : [];
+  if (count > 0) acts.push(openEditViewAct(ctx, "open-edit-view", t("workflow:act_open_edit_view")));
   return {
     key: "edit",
     title: t("workflow:row_edit"),
@@ -646,6 +693,17 @@ function agentAct(t: TFunction, text: string, label?: string, disabledReason?: s
   };
 }
 
+/** 广告/短片「AI 生成脚本」：带上下一步的附加指令直接提交，结果写成正式脚本。 */
+function adScriptAct(t: TFunction, disabledReason?: string | null): StepAct {
+  return {
+    key: "ai-generate-script",
+    label: t("dashboard:ad_script_generate"),
+    kind: "ai",
+    intent: { type: "generate_ad_script" },
+    disabledReason,
+  };
+}
+
 function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): NextStepView | null {
   const { t } = ctx;
   const { plan, content } = facts;
@@ -762,7 +820,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         ...base,
         detail: t("workflow:next_detail_generate_script"),
         instruction: { initial: "", persist: null },
-        primary: [agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef }))],
+        primary: [agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef })), adScriptAct(t)],
         alternatives,
       };
     case "collect_project_input": {
@@ -771,7 +829,10 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         ...base,
         title: t("workflow:next_title_generate_script"),
         detail: t("workflow:next_detail_generate_script"),
-        primary: [agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef }), undefined, reason)],
+        primary: [
+          agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef }), undefined, reason),
+          adScriptAct(t, reason),
+        ],
         alternatives,
         hint: {
           key: "fill-brief",
@@ -872,6 +933,10 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         detail: t("workflow:next_detail_create_edit_timeline"),
         instruction: { initial: "", persist: null },
         primary: editActs(facts, ctx),
+        alternatives:
+          editTimelineCount(facts, ctx) > 0
+            ? [openEditViewAct(ctx, "open-edit-view", t("workflow:act_open_edit_view"))]
+            : [],
       };
     case "wait_for_task":
       if (rowKey === "source") {

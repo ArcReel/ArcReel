@@ -24,6 +24,7 @@ import type {
   DraftDocType,
   PlanningGap,
   PlanScriptRequest,
+  GenerateAdScriptRequest,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
   ReferenceGenerationRequestOptions,
@@ -496,6 +497,26 @@ export async function enqueueScriptPlan(
   return { taskIds, deduped };
 }
 
+/**
+ * 提交广告/短片「AI 生成脚本」，占用与提示词编写同一个槽（服务端同一任务类型、`episode-{N}`）。
+ * 整份重做需要确认覆盖时服务端 409，错误原样抛出，由调用方读 `diagnostic.script_overwrite` 弹确认框后带令牌重试。
+ */
+export async function enqueueAdScript(
+  projectName: string,
+  episode: number,
+  request: GenerateAdScriptRequest,
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_episode_script", promptAuthoringResourceId(episode), "text_episode_script")],
+    () => API.generateAdScript(projectName, episode, request),
+    (response) => memberTaskIds(response.batch),
+  );
+  const taskIds = memberTaskIds(res.batch);
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(deduped, i18n.t("dashboard:ad_script_queued"), "info");
+  return { taskIds, deduped };
+}
+
 /** 分集规划的两个占用槽，与服务端一致：首窗占前一个，之后逐窗在两槽间交替。 */
 export const EPISODE_PLANNING_SLOTS = ["episode-planning", "episode-planning-next"] as const;
 
@@ -511,6 +532,39 @@ export async function enqueueEpisodePlanning(
   const res = await submit(
     [markResource(projectName, "text_episode_plan", EPISODE_PLANNING_SLOTS[0], "text_episode_plan")],
     () => API.planEpisodes(projectName, instructions, gap),
+    (response) => memberTaskIds(response.batch),
+  );
+  const taskIds = memberTaskIds(res.batch);
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(deduped, null);
+  return { taskIds, deduped };
+}
+
+/**
+ * 发起重新规划：从这一集开始逐窗生成「新的分集方案」，与分集规划占同一对槽。已有方案或分集规划在进行时，
+ * 服务端的错误原样抛出。附加指令随方案保存。
+ */
+export async function enqueueEpisodeReplan(
+  projectName: string,
+  episode: number,
+  instructions: string | null,
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_episode_plan", EPISODE_PLANNING_SLOTS[0], "text_episode_plan")],
+    () => API.startEpisodeReplan(projectName, episode, instructions),
+    (response) => memberTaskIds(response.batch),
+  );
+  const taskIds = memberTaskIds(res.batch);
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(deduped, null);
+  return { taskIds, deduped };
+}
+
+/** 接着生成中途停止的新的分集方案，与分集规划占同一对槽。服务端的拒绝原样抛出。 */
+export async function enqueueEpisodeReplanContinue(projectName: string, candidateId: string): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_episode_plan", EPISODE_PLANNING_SLOTS[0], "text_episode_plan")],
+    () => API.continueEpisodeReplan(projectName, candidateId),
     (response) => memberTaskIds(response.batch),
   );
   const taskIds = memberTaskIds(res.batch);

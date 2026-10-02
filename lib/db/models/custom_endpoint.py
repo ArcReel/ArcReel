@@ -30,6 +30,6 @@ class CustomEndpoint(TimestampMixin, Base):
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     # 定义遵循的格式版本，原样保留文件里的值、不改写，也不做迁移
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
-    # 按容器类型取：声明式恒 "video"（格式本身不含该字段），ComfyUI 读定义里的 media_type
+    # 取自定义里的 media_type；声明式定义不写时为 "video"
     media_type: Mapped[str] = mapped_column(String(16), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)  # ← definition.meta.name

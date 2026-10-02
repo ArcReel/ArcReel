@@ -34,7 +34,7 @@ async function looksLikeGif(file: File): Promise<boolean> {
   return GIF_SIGNATURES.includes(signature);
 }
 
-function dataUrlByteLength(dataUrl: string): number {
+export function dataUrlByteLength(dataUrl: string): number {
   const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
   return Math.floor((base64.length * 3) / 4) - padding;

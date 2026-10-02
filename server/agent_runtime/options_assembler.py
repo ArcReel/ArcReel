@@ -38,7 +38,7 @@ from server.auth import create_token, is_auth_enabled
 logger = logging.getLogger(__name__)
 
 from claude_agent_sdk import ClaudeAgentOptions
-from claude_agent_sdk.types import HookMatcher, SystemPromptPreset
+from claude_agent_sdk.types import HookEvent, HookMatcher, SettingSource, SystemPromptPreset
 
 SDK_AVAILABLE = True
 _EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
@@ -92,7 +92,7 @@ class OptionsAssembler:
         *,
         data_root: Path,
         allowed_tools: Sequence[str],
-        setting_sources: Sequence[str],
+        setting_sources: Sequence[SettingSource],
         access_policy_provider: Callable[[], AgentAccessPolicy],
         max_turns_provider: Callable[[], int | None],
         resolve_project_cwd: Callable[[str], Path],
@@ -276,8 +276,9 @@ class OptionsAssembler:
         # Read/Glob/Grep are matched by allow rules (step 4 in the SDK
         # permission chain) before reaching can_use_tool (step 5).  Hooks
         # (step 1) fire for ALL tool calls and can override allow rules.
-        hooks = None
+        hooks: dict[HookEvent, list[HookMatcher]] | None = None
         hook_callbacks: list[Any] = [
+            self._subagent_tool_hook,
             self._build_file_access_hook(project_cwd),
         ]
         if can_use_tool is not None:
@@ -294,7 +295,7 @@ class OptionsAssembler:
                 HookMatcher(matcher=None, hooks=hook_callbacks),
                 HookMatcher(
                     matcher="Bash",
-                    hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]
+                    hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]  # 只挂在 PreToolUse 的 Bash 匹配器上，按该事件实际传入的 dict 读 tool_input；SDK 的 HookCallback 以全部事件输入的联合声明参数
                 ),
                 HookMatcher(
                     matcher="Write|Edit",
@@ -343,7 +344,7 @@ class OptionsAssembler:
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
-            setting_sources=self._setting_sources,  # type: ignore[arg-type]
+            setting_sources=self._setting_sources,
             # 项目记忆：把原生 auto memory 的目录从「按 git 仓库根派生」重定向到项目目录内，
             # 否则同一台机器上所有 ArcReel 项目与开发者的交互会话共用一份 MEMORY.md。
             # 走 JSON 串而非物化 settings 文件：路径按会话变化，落盘会与 profile manifest 的
@@ -357,6 +358,9 @@ class OptionsAssembler:
                 type="preset",
                 preset="claude_code",
                 append=await self._build_append_prompt(project_name, locale=locale),
+                # 会话首轮记录系统提示，之后每轮（含 resume）原样沿用：记忆等动态段的变化
+                # 不再打断 prompt cache。代价是 append 在会话内固定，resume 不会按新 locale 重建。
+                snapshot=True,
             ),
             include_partial_messages=True,
             max_buffer_size=CLI_STDOUT_MAX_BUFFER_BYTES,
@@ -366,11 +370,11 @@ class OptionsAssembler:
             resume=resume_id,
             session_id=session_id,
             can_use_tool=can_use_tool,
-            hooks=hooks,  # type: ignore[arg-type]
+            hooks=hooks,
             mcp_servers={"arcreel": arcreel_server},
-            session_store=self.build_session_store(),  # type: ignore[arg-type]
+            session_store=self.build_session_store(),
             session_store_flush=session_store_flush_mode(),
-            sandbox=sandbox_typed,  # type: ignore[arg-type]
+            sandbox=sandbox_typed,  # type: ignore[arg-type]  # SDK 的 SandboxSettings TypedDict 未声明 filesystem 子结构，CLI 按 JSON 透传接受
             env=provider_env,
             stderr=stderr,
         )
@@ -381,6 +385,29 @@ class OptionsAssembler:
     ) -> dict[str, bool]:
         """Required keep-alive hook for Python can_use_tool callback."""
         return {"continue_": True}
+
+    async def _subagent_tool_hook(
+        self,
+        input_data: dict[str, Any],
+        _tool_use_id: str | None,
+        _context: Any,
+    ) -> dict[str, Any]:
+        """只读子智能体的工具名单（``AgentAccessPolicy.check_subagent_tool``）的 SDK 封皮。
+
+        子智能体内的工具调用在 hook 输入里带 ``agent_type``；主对话不带，不受这道名单约束。
+        """
+        deny_reason = self._access_policy_provider().check_subagent_tool(
+            input_data.get("agent_type"), str(input_data.get("tool_name") or "")
+        )
+        if deny_reason is None:
+            return {"continue_": True}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            },
+        }
 
     async def _bash_env_scrub_hook(
         self,

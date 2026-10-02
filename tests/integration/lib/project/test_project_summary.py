@@ -24,12 +24,15 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_with_verdict
 from lib.project.resource_paths import resource_relative_path
 from lib.project.source_revision import SourceRevisionResult, compute_source_revision
+from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
+from tests.factories import register_project_sources
 from tests.integration.lib.workflow.test_workflow_state import (
     _complete_episode_media,
     _count_source_reads,
     _create_edit_timeline,
     _make_project,
+    _one_complete_episode,
     _register_produced_artifacts,
     _valid_ad_shot,
     _valid_narration_segment,
@@ -367,6 +370,39 @@ def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -
     assert summary.episodes[0].videos.total == 0
 
 
+def test_stale_episode_counts_as_complete_only_after_its_script_plan_is_rebuilt(tmp_path: Path) -> None:
+    """大厅与顶栏对 stale 集同一口径：未重建时两处都不算完成，重建后两处都按常规进度算完成。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _one_complete_episode(pm, project_path)
+    _create_edit_timeline(pm)
+
+    def _mark_stale(project: dict) -> None:
+        script_review.mark_ledger_stale(project_path, project, project["episodes"][0], 1)
+
+    pm.update_project("demo", _mark_stale)
+    service = WorkflowStateService(pm)
+
+    awaiting = service.get_project_summary("demo", currency="registered")
+    assert awaiting.episodes[0].script_status == "none"
+    assert awaiting.episodes_summary.completed == 0
+    awaiting_status = service.get_status("demo")
+    assert awaiting_status.content is not None
+    assert awaiting_status.content.project_complete is False
+
+    atomic_write_json(
+        project_path / "drafts" / "episode_1" / "script_plan_segments.json",
+        {"episode": 1, "segments": [{"segment_id": "E1S01"}]},
+    )
+
+    rebuilt = service.get_project_summary("demo", currency="registered")
+    assert rebuilt.episodes[0].status == "completed"
+    assert rebuilt.episodes_summary.completed == 1
+    rebuilt_status = service.get_status("demo")
+    assert rebuilt_status.content is not None
+    assert rebuilt_status.content.project_complete is True
+
+
 def test_stale_artifacts_stay_available_and_are_counted_separately(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -435,8 +471,8 @@ def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -
     assert all(episode.videos.available == 0 for episode in summary.episodes)
 
 
-def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path) -> None:
-    """分镜图也是一集要交的产物：删掉一张，大厅与工作台一起把该集退回制作中。"""
+def test_deleting_a_storyboard_keeps_the_episode_completed(tmp_path: Path) -> None:
+    """一集完成只看视频与剪辑时间线：删掉一张分镜图，该集仍完成，补分镜图作为集内建议的下一步。"""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -450,9 +486,12 @@ def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path
     summary = service.get_project_summary("demo")
     episode = summary.episodes[0]
     assert (episode.storyboards.total, episode.storyboards.available) == (1, 0)
-    assert episode.status == "in_production"
-    assert summary.episodes_summary.completed == 0
-    assert service.get_status("demo").next_action.type == "generate_storyboards"
+    assert episode.status == "completed"
+    assert summary.episodes_summary.completed == 1
+    status = service.get_status("demo", episode=1)
+    assert status.content is not None
+    assert status.content.episode_complete
+    assert status.next_action.type == "generate_storyboards"
 
 
 def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) -> None:
@@ -583,3 +622,41 @@ def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path)
 
     assert verified.videos.model_dump() == {"total": 1, "available": 1, "stale": 1}
     assert registered.videos.model_dump() == {"total": 1, "available": 1, "stale": 0}
+
+
+def test_source_remaining_follows_ledger_commands_like_the_workbench(tmp_path: Path) -> None:
+    """列表口径「源文还有未规划的原文」由账本命令记下，与工作台「继续分集规划」同一判定。
+
+    项目列表不读源文，靠写账本的命令把结论写进 project.json；每一步都与按源文现算的制作状态一致。
+    """
+
+    from lib.episode.episode_manual_split import cut_unsplit_source
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    text = "第一章。少年下山。第二章。城里起火。"
+    _write_source(pm, project_path, text)
+    service = WorkflowStateService(pm)
+
+    def _assert_remaining(expected: bool) -> None:
+        summary = service.get_project_summary("demo", currency="registered")
+        status = service.get_status("demo")
+        assert summary.source_remaining is expected
+        assert status.content is not None
+        assert status.content.source_remaining is expected
+
+    _assert_remaining(True)
+
+    cut_unsplit_source(project_path, source_file="source/novel.txt", end=text.index("第二章"))
+    _assert_remaining(True)
+
+    cut_unsplit_source(project_path, source_file="source/novel.txt", end=len(text))
+    _assert_remaining(False)
+
+    register_project_sources(pm, "demo", whole_source={"sequel.txt": "第三章。重逢。"})
+    _assert_remaining(True)
+
+
+def test_ad_project_never_reports_remaining_source(tmp_path: Path) -> None:
+    pm, _project_path = _make_project(tmp_path, "ad")
+
+    assert WorkflowStateService(pm).get_project_summary("demo", currency="registered").source_remaining is False

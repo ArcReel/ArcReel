@@ -64,16 +64,27 @@ describe("EditableEpisodeTitle", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("disables save for empty/whitespace input and does not call onSave on Enter", () => {
-    const onSave = vi.fn();
-    render(<EditableEpisodeTitle title="原标题" canEdit onSave={onSave} />);
+  it("saves a cleared title as an empty string so the episode falls back to its derived name", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<EditableEpisodeTitle title="原标题" placeholder="第 2 集" canEdit onSave={onSave} />);
 
     fireEvent.click(screen.getByRole("button", { name: "编辑分集标题" }));
     const input = screen.getByRole("textbox", { name: "编辑分集标题" });
     fireEvent.change(input, { target: { value: "   " } });
-
-    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
     fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(""));
+  });
+
+  it("closes without saving when an empty title stays empty", () => {
+    const onSave = vi.fn();
+    render(<EditableEpisodeTitle title="" placeholder="第 2 集" canEdit onSave={onSave} />);
+
+    expect(screen.getByRole("heading", { name: "第 2 集" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "编辑分集标题" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "编辑分集标题" }), { key: "Enter" });
+
     expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 });

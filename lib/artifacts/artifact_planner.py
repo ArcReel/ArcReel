@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
 from lib.artifacts.artifact_manifest import (
+    PROJECT_LEVEL_ARTIFACT_KINDS,
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
@@ -52,7 +53,11 @@ from lib.artifacts.visual_artifact_provenance import (
     project_basis_style_description,
     visual_file_digest,
 )
+from lib.bgm.library import BgmSource, bgm_basis, bgm_key, read_bgm_library, resolve_bgm_sources
+from lib.edit_timeline.bgm import bgm_ids
+from lib.edit_timeline.model import BgmClip
 from lib.episode.episode_paths import episode_source_relpath
+from lib.episode.episode_sources import SOURCE_ORIGIN_FIELD, SourceOrigin, episode_entry, episode_source_origin
 from lib.jianying_draft.basis import (
     DraftNarration,
     DraftUnitBasis,
@@ -278,6 +283,7 @@ class TargetStatePlanner:
             self._plan_storyboards()
             self._plan_typed_media()
             self._plan_persisted_presentations()
+            self._plan_bgm()
         except ProjectMigrationError:
             # Already carries the episode / file it was rejected at.
             raise
@@ -346,6 +352,8 @@ class TargetStatePlanner:
         elif kind == "episode-jianying-draft":
             self.load_episodes()
             self._plan_jianying_draft(key)
+        elif kind == "project-bgm":
+            self._plan_bgm()
 
     def load_episode_bindings(self) -> None:
         if self._bindings_loaded:
@@ -657,6 +665,10 @@ class TargetStatePlanner:
         script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
         self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
         script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
+        entry = episode_entry(self.project, binding.episode)
+        # 账本记录了集原文来源（v16 起）且为无原文时，盘上同名的集文件不是这一集的规划依据。
+        if entry is not None and SOURCE_ORIGIN_FIELD in entry and episode_source_origin(entry) is SourceOrigin.NONE:
+            return
         source_rel = episode_source_relpath(binding.episode)
         source_observation = self.adapter.inspect_artifact(source_rel)
         if source_observation.blocker is None and source_observation.present:
@@ -1133,11 +1145,14 @@ class TargetStatePlanner:
 
         Final cuts are only registered by the render that produced them; activation
         never plans them, so a present file without its render-time claim reads missing.
+        Narrated or subtitled versions also record each referenced unit's material layer,
+        derived like the Jianying draft's from the current presentations.
         """
 
         from lib.edit_timeline.store import read_timeline_document
         from lib.final_cut.basis import (
             FinalCutVariant,
+            SubtitleMode,
             current_video,
             final_cut_artifact_path,
             final_cut_basis,
@@ -1155,7 +1170,7 @@ class TargetStatePlanner:
             return
         resource_type = video_resource_type_for(episode.kind)
         versions = VersionManager(self.project_dir)
-        variant = FinalCutVariant(narration=str(narration), subtitles=str(subtitles))
+        variant = FinalCutVariant(narration=cast(DraftNarration, narration), subtitles=cast(SubtitleMode, subtitles))
         inputs = resolve_final_cut_inputs(
             document=document,
             revision=document.latest,
@@ -1167,12 +1182,51 @@ class TargetStatePlanner:
             video_of=lambda unit_id: current_video(
                 self.project_dir, versions, resource_type, unit_id, self._formal_content_digest
             ),
+            bgm_sources=self._bgm_sources(document.latest.content.bgm),
         )
         if inputs.missing_video_units:
             return
+        if variant.consumes_unit_materials:
+            self._plan_persisted_presentations()
+            items = {str(item[episode.id_field]): item for item in episode.items}
+            history = self._load_versions()
+            inputs = replace(
+                inputs,
+                units=tuple(
+                    self._draft_unit_basis(
+                        episode=episode,
+                        item=items[unit_id],
+                        unit_id=unit_id,
+                        resource_type=resource_type,
+                        narration=variant.narration,
+                        versions=history,
+                    )
+                    for unit_id in draft_unit_ids(document.latest.content, items)
+                ),
+            )
         self._add_if_present(
             key, final_cut_artifact_path(episode_number, timeline_id, variant), final_cut_basis(inputs)
         )
+
+    def _plan_bgm(self) -> None:
+        """上传的 BGM 按字节登记：依据只有正式文件当前字节的内容指纹，文件在场即可证明。"""
+
+        if "bgm" in self._planned:
+            return
+        for track in read_bgm_library(self.project).values():
+            key = bgm_key(track.id)
+            observation = self.adapter.inspect_artifact_content(track.file)
+            if observation.blocker is not None:
+                self._skip(key, track.file, observation.blocker.detail)
+                continue
+            if not observation.present or observation.content_digest is None:
+                self._skip(key, track.file, "uploaded BGM file is not present")
+                continue
+            self._add_if_present(key, track.file, bgm_basis(observation.content_digest))
+        self._planned.add("bgm")
+
+    def _bgm_sources(self, bgm: Sequence[BgmClip]) -> dict[str, BgmSource]:
+        return resolve_bgm_sources(self.project_dir, self.project, bgm_ids(bgm), self._formal_content_digest)
 
     def _formal_content_digest(self, artifact_path: str) -> str:
         observation = self.adapter.inspect_artifact_content(artifact_path)
@@ -1219,6 +1273,7 @@ class TargetStatePlanner:
             narration=narration,
             aspect_ratio=resolve_video_aspect_ratio(self.project, resource_type),
             units=units,
+            bgm_sources=self._bgm_sources(document.latest.content.bgm),
         )
         self._add_if_present(key, jianying_draft_artifact_path(episode_number, timeline_id, narration), basis)
 
@@ -1673,7 +1728,7 @@ def plan_artifact_target_state(
 def episode_scope_for_key(key: ArtifactKey) -> int | None:
     """Return the one episode whose control files may affect ``key``."""
 
-    if key.kind is ArtifactKind.ASSET_SHEET:
+    if key.kind in PROJECT_LEVEL_ARTIFACT_KINDS:
         return None
     episode = key.components[0]
     if type(episode) is not int:

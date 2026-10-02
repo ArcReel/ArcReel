@@ -15,14 +15,10 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal
-
-if TYPE_CHECKING:
-    from server.services.presentation.jianying_draft_service import JianyingDraftService
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
@@ -36,6 +32,7 @@ from starlette.background import BackgroundTask
 logger = logging.getLogger(__name__)
 
 from lib.agent.profile_manifest import ContentMode
+from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
@@ -59,6 +56,7 @@ from lib.episode.source_kinds import SourceKind
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
@@ -114,10 +112,12 @@ from server.services.project.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project.project_cover import resolve_project_cover
+from server.services.project.project_retirement import retire_project, retire_project_on
 from server.services.tasks.video_caps import (
     capability_request_facts,
     duration_constraints_payload,
 )
+from server.tool_runtime import truncation_problem
 
 router = APIRouter()
 
@@ -169,8 +169,12 @@ def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -
     return project
 
 
-def get_archive_service() -> ProjectArchiveService:
-    return ProjectArchiveService(get_project_manager())
+async def get_archive_service() -> ProjectArchiveService:
+    # 在事件循环上构造：覆盖导入跑在工作线程里，经捕获的事件循环收尾现有项目的记录。
+    return ProjectArchiveService(
+        get_project_manager(),
+        retire_project=retire_project_on(EventLoopBridge.capture(), async_session_factory),
+    )
 
 
 ArchiveServiceDep = Annotated[ProjectArchiveService, Depends(get_archive_service)]
@@ -389,10 +393,6 @@ def _cleanup_temp_file(path: str) -> None:
         return
 
 
-def _cleanup_temp_dir(dir_path: str) -> None:
-    shutil.rmtree(dir_path, ignore_errors=True)
-
-
 @router.post("/projects/import")
 async def import_project_archive(
     _t: Translator,
@@ -428,7 +428,7 @@ async def import_project_archive(
                 translate=_t,
             )
 
-        result = await asyncio.to_thread(_sync)
+        result = await run_sync_transaction(_sync)
         return {
             "success": True,
             "project_name": result.project_name,
@@ -532,96 +532,6 @@ async def export_project_archive(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
-
-
-# --- 剪映草稿导出 ---
-
-
-def get_jianying_draft_service() -> JianyingDraftService:
-    from server.services.presentation.jianying_draft_service import JianyingDraftService
-
-    return JianyingDraftService(get_project_manager())
-
-
-# 具体类型只在 TYPE_CHECKING 下可见：pyJianYingDraft 是重依赖，运行期仍按需惰性导入。
-JianyingDraftServiceDep = Annotated[Any, Depends(get_jianying_draft_service)]
-
-
-def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
-    """校验 draft_path 合法性"""
-    if not draft_path or not draft_path.strip():
-        raise HTTPException(status_code=422, detail=_t("jianying_path_invalid"))
-    if len(draft_path) > 1024:
-        raise HTTPException(status_code=422, detail=_t("jianying_path_too_long"))
-    if any(ord(c) < 32 for c in draft_path):
-        raise HTTPException(status_code=422, detail=_t("jianying_path_illegal"))
-    return draft_path.strip()
-
-
-@self_auth_router.get("/projects/{name}/export/jianying-draft")
-async def export_jianying_draft(
-    name: str,
-    _t: Translator,
-    svc: JianyingDraftServiceDep,
-    episode: int = Query(..., description="集数编号"),
-    draft_path: str = Query(..., description="用户本地剪映草稿目录"),
-    download_token: str = Query(..., description="下载 token"),
-    jianying_version: str = Query("6", description="剪映版本：6 或 5"),
-    narration_delivery: Literal["post_production", "use_tts"] = Query(
-        "post_production",
-        description="旁白交付版本",
-    ),
-):
-    """导出指定集的剪映草稿 ZIP"""
-    import jwt as pyjwt
-
-    # 1. 验证 download_token
-    try:
-        verify_download_token(download_token, name)
-    except pyjwt.ExpiredSignatureError as exc:
-        raise HTTPException(status_code=401, detail=_t("download_expired")) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=403, detail=_t("download_token_mismatch")) from exc
-    except pyjwt.InvalidTokenError as exc:
-        raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
-
-    # 2. 校验 draft_path
-    draft_path = _validate_draft_path(draft_path, _t)
-
-    # 3. 调用服务
-    from server.services.presentation.jianying_draft_service import NoCompletedSegmentsError
-    from server.services.presentation.presentation_read_model import PresentationUnavailableError
-
-    try:
-        zip_path = await svc.export_episode_draft(
-            project_name=name,
-            episode=episode,
-            draft_path=draft_path,
-            variant=narration_delivery,
-            use_draft_info_name=(jianying_version != "5"),
-        )
-    except FileNotFoundError:
-        # 项目/剧集/模板不存在：交给 app 级 FileNotFoundError handler 统一 404，
-        # str(e) 可能含服务器路径，不在此回传
-        raise
-    except NoCompletedSegmentsError as e:
-        logger.warning("剪映草稿导出参数错误: project=%s episode=%d (%s)", name, episode, e)
-        raise ApiError("jianying_no_completed_segments", status_code=422, episode=episode) from e
-    except PresentationUnavailableError as exc:
-        logger.warning("剪映草稿 presentation 不可用: project=%s episode=%d (%s)", name, episode, exc)
-        raise ApiError("presentation_unavailable", status_code=422) from exc
-    except Exception as exc:
-        # 含暂存/写入阶段的路径越界守卫（ValueError，str(e) 带真实路径）：属安全告警而非
-        # 常规空态，不应误报为「本集无已完成片段」，一律降级为通用 500，细节只进日志
-        logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
-        raise HTTPException(status_code=500, detail=_t("jianying_export_failed")) from exc
-
-    return FileResponse(
-        path=str(zip_path),
-        media_type="application/zip",
-        filename=zip_path.name,
-        background=BackgroundTask(_cleanup_temp_dir, str(zip_path.parent)),
-    )
 
 
 @router.get("/projects")
@@ -1223,12 +1133,12 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 async def delete_project(name: str, _t: Translator):
     """删除项目"""
     try:
-
-        def _sync():
-            get_project_manager().delete_project_directory(name)
-            return {"success": True, "message": _t("project_deleted", name=name)}
-
-        return await asyncio.to_thread(_sync)
+        manager = get_project_manager()
+        project_dir = await asyncio.to_thread(manager.get_project_path, name)
+        # 先收尾记录再删目录：排队任务不会在删了一半的目录上开跑，执行中的任务照常跑完但放弃落盘。
+        await retire_project(async_session_factory, project_dir.name)
+        await asyncio.to_thread(manager.delete_project_directory, name)
+        return {"success": True, "message": _t("project_deleted", name=name)}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
@@ -1839,10 +1749,9 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
     已移除（title 不在 EpisodePatch 上），杜绝第二真相源。
 
     还没有剧本的集（新建的空集、尚未规划脚本的集）标题只记在账本条目上；之后建出的剧本以它为初值。
+    标题可以清空，空标题的集名由呈现层按播出位置派生。
     """
     title = req.title.strip()
-    if not title:
-        raise HTTPException(status_code=422, detail=_t("episode_title_empty"))
 
     try:
 
@@ -2079,6 +1988,12 @@ async def generate_overview(name: str, _t: Translator):
         # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
         logger.exception("概述生成响应解析失败")
         raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid")) from exc
+    except TextOutputTruncatedError as exc:
+        # 输出被最大输出长度截断：与各文本任务同一个问题票形状，前端据此给出登记输出长度或换模型的出路
+        logger.warning("概述生成输出被截断: name=%s (%s)", name, exc)
+        raise UnprocessableError("text_output_truncated", model=exc.model).with_diagnostic(
+            truncation_problem(exc).model_dump()
+        ) from exc
     except EmptySourceError as e:
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e

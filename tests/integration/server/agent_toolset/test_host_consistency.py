@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import shutil
 from dataclasses import replace
@@ -42,14 +43,22 @@ from server.agent_toolset.declaration import (
     UnscopedToolDeclaration,
     tool_description,
 )
-from server.agent_toolset.edit_timelines import CREATE_TIMELINE, EDIT_TIMELINE, READ_TIMELINE
+from server.agent_toolset.edit_timelines import (
+    CREATE_TIMELINE,
+    EDIT_TIMELINE,
+    LIST_REVISIONS,
+    READ_TIMELINE,
+    RENAME_TIMELINE,
+    RESTORE_REVISION,
+)
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
 from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
-from server.agent_toolset.project_entry import CREATE_PROJECT
+from server.agent_toolset.project_entry import CREATE_PROJECT, EDIT_SOURCE_TEXT
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
+from server.agent_toolset.repair_channel import MERGE_ASSET
 from server.agent_toolset.script_authoring import (
     CONFIRM_SCRIPT_REVIEW,
     GENERATE_EPISODE_SCRIPT,
@@ -59,6 +68,7 @@ from server.agent_toolset.script_authoring import (
 )
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
+from server.agent_toolset.video_review import INSPECT_VIDEO_UNITS
 from server.agent_toolset.video_versions import SELECT_VIDEO_VERSION
 from server.agent_toolset.workflow_completion import COMPLETE_SCRIPT_PLAN_REBUILD
 from server.remote_mcp import build_remote_mcp_server
@@ -73,6 +83,7 @@ from server.tool_runtime import (
     ToolRequest,
     get_generation_batch,
 )
+from tests.factories import install_current_video, make_test_clip
 
 _ABSENT_REVISION = "sha256-v1:" + "0" * 64
 
@@ -81,6 +92,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "list_projects": {},
     "create_project": {"name": "fresh", "title": "Fresh"},
     "upload_source": {"filename": "novel.txt", "content": "第一章\n你好", "on_conflict": "replace"},
+    "edit_source_text": {"filename": "novel.txt", "text": "第一章\n改写"},
     "get_workflow_plan": {"episode_id": 1},
     "get_video_capabilities": {},
     "get_prompt_preview": {"script": "episode_1.json", "item_id": "E1S01"},
@@ -89,6 +101,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "patch_project": {"overview": {"synopsis": "梗概"}},
     "patch_episode_meta": {"script": "episode_1.json", "field": "title", "value": "第一集"},
     "rename_asset": {"table": "characters", "old_name": "甲", "new_name": "乙"},
+    "merge_asset": {"table": "characters", "source": "甲", "target": "乙", "dry_run": True},
     "retry_project_migration": {},
     "get_project_content": {},
     "list_source_files": {},
@@ -126,15 +139,20 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "complete_script_plan_rebuild": {"episode_id": 1, "expected_stale_script_plan_revision": None},
     "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
     "select_video_version": {"unit_id": "E1S01", "version": 1},
+    "inspect_video_units": {"unit_ids": ["E1S01"]},
     "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
     "list_timelines": {"episode": 1},
     "read_timeline": {"timeline": "tl-0000abcd"},
+    "list_bgm": {},
     "edit_timeline": {
         "timeline": "tl-0000abcd",
         "base_revision": 1,
         "summary": "压低开场原声",
         "operations": [{"op": "set_volume", "clip": "c1", "volume": 0.5}],
     },
+    "rename_timeline": {"timeline": "tl-0000abcd", "name": "定稿"},
+    "list_revisions": {"timeline": "tl-0000abcd"},
+    "restore_revision": {"timeline": "tl-0000abcd", "revision": 1},
     "render_final_cut": {"timeline": "tl-0000abcd"},
     "export_jianying_draft": {"timeline": "tl-0000abcd"},
 }
@@ -524,9 +542,17 @@ _PROBLEM_ON_SAMPLE = frozenset(
         PATCH_EPISODE_SCRIPT.name,
         SPLIT_GRIDS.name,
         SELECT_VIDEO_VERSION.name,
+        INSPECT_VIDEO_UNITS.name,
         READ_TIMELINE.name,
         EDIT_TIMELINE.name,
+        RENAME_TIMELINE.name,
+        LIST_REVISIONS.name,
+        RESTORE_REVISION.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
+        # 测试项目只登记了一个角色，没有可并入的保留方。
+        MERGE_ASSET.name,
+        # 测试项目没有登记整本源文的文件。
+        EDIT_SOURCE_TEXT.name,
     }
 )
 
@@ -553,6 +579,39 @@ async def test_embedded_content_carries_the_same_json_as_remote_structured_conte
     assert set(remote.structuredContent) == {"problem" if remote.isError else declaration.domain_key}
     assert _embedded_json(embedded) == remote.structuredContent
     assert _texts(embedded) == _texts(remote)
+
+
+async def test_contact_sheets_reach_both_hosts_as_the_same_image_blocks(
+    seeded_projects: ProjectManager, services: Services
+) -> None:
+    script = {
+        "episode": 1,
+        "title": "E1",
+        "content_mode": "narration",
+        "segments": [{"segment_id": "E1S01", "novel_text": "旁白"}],
+    }
+    seeded_projects.save_script("demo", script, "episode_1.json", validate=False)
+    project_path = seeded_projects.get_project_path("demo")
+    clip = project_path / ".staging" / "E1S01.mp4"
+    make_test_clip(clip, size="160x90", fps=25, seconds=1, tone=False)
+    install_current_video(project_path, "videos", "E1S01", clip)
+    arguments = {"unit_ids": ["E1S01"], "frames": 4}
+
+    embedded = await _call_embedded(INSPECT_VIDEO_UNITS, arguments, services)
+    remote = await _call_remote(INSPECT_VIDEO_UNITS, {"project": "demo", **arguments}, services)
+
+    assert embedded.isError is remote.isError is False
+    assert _embedded_json(embedded) == remote.structuredContent
+    assert _texts(embedded) == _texts(remote)
+    embedded_images = [block for block in embedded.content if isinstance(block, types.ImageContent)]
+    remote_images = [block for block in remote.content if isinstance(block, types.ImageContent)]
+    assert len(embedded_images) == 1
+    assert [(image.mimeType, image.data) for image in embedded_images] == [
+        (image.mimeType, image.data) for image in remote_images
+    ]
+    assert embedded_images[0].mimeType == "image/jpeg"
+    assert base64.b64decode(embedded_images[0].data).startswith(b"\xff\xd8")
+    assert isinstance(embedded.content[-1], types.ImageContent)
 
 
 async def test_a_summary_precedes_the_structured_json_in_both_hosts(services: Services) -> None:

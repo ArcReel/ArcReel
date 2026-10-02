@@ -38,7 +38,7 @@ const projectData = {
 
 // 回显 key 与参数，便于断言文案选择逻辑。
 const t = ((key: string, params?: Record<string, unknown>) =>
-  key === "common:episode_unlisted_name" ? "未命名集" : `${key}|${params?.id ?? params?.unitId ?? ""}|${params?.reason ?? ""}`) as unknown as TFunction;
+  key === "common:episode_unlisted_name" ? "未命名集" : `${key}|${params?.id ?? params?.unitId ?? params?.episode ?? ""}|${params?.reason ?? ""}`) as unknown as TFunction;
 
 describe("buildTaskFailureTarget", () => {
   it("maps character/scene/prop to asset routes", () => {
@@ -166,6 +166,14 @@ describe("describeTaskFailure", () => {
     expect(describeTaskFailure(t, makeTask({ task_type: "reference_video", resource_id: "E1U1" }))).toBe(
       "reference_generation_task_failed|未命名集 · U1|boom",
     );
+  });
+
+  it("names the episode for script plan failures", () => {
+    for (const taskType of ["text_drama_script_plan", "text_narration_script_plan", "text_reference_script_plan"]) {
+      expect(
+        describeTaskFailure(t, makeTask({ task_type: taskType, resource_id: "episode-2" }), projectData),
+      ).toBe("script_plan_task_failed|E2|boom");
+    }
   });
 
   it("falls back to a generic reason when error_message is null", () => {

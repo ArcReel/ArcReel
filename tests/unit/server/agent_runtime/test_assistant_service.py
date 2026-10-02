@@ -209,8 +209,8 @@ class TestAssistantService:
 
     @pytest.mark.asyncio
     async def test_send_or_create_threads_locale_into_continuation(self, tmp_path):
-        """Continuation (existing session) must forward the request locale so a
-        cold-recovered session rebuilds its language regulation correctly."""
+        """Continuation (existing session) must forward the request locale to the
+        revival, which renders the language regulation for a fresh session."""
         service = AssistantService(project_root=tmp_path)
         meta = make_session_meta(id="s1", status="idle")
 

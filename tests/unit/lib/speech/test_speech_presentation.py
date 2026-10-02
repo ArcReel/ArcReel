@@ -16,7 +16,6 @@ from lib.speech.speech_composition import (
 )
 from lib.speech.speech_presentation import (
     MechanicalSubtitleTiming,
-    PresentationBoundaryError,
     PresentationMedia,
     materialize_speech_presentation,
 )
@@ -235,7 +234,7 @@ def test_webvtt_projection_collapses_blank_paragraphs_without_changing_canonical
     assert presentation.subtitles_webvtt() == ("WEBVTT\n\n1\n00:00:00.000 --> 00:00:05.000\n第一段\n第二段\n")
 
 
-def test_use_tts_rejects_non_narrator_and_audio_longer_than_video_without_clipping() -> None:
+def test_use_tts_rejects_non_narrator() -> None:
     video = _media("versions/videos/E1U01_v1.mp4", kind="v", duration=5.0)
     audio = _media("versions/audio/E1U01_v1.wav", kind="a", duration=5.1)
 
@@ -247,14 +246,21 @@ def test_use_tts_rejects_non_narrator_and_audio_longer_than_video_without_clippi
             narration_audio=audio,
             provider_audio_enabled=True,
         )
-    with pytest.raises(PresentationBoundaryError, match="exceeds video boundary"):
-        materialize_speech_presentation(
-            _speech(SpeechMode.NARRATOR_VOICEOVER, (None, "旁白")),
-            variant=USE_TTS,
-            video=video,
-            narration_audio=audio,
-            provider_audio_enabled=True,
-        )
+
+
+def test_narration_longer_than_video_keeps_its_full_length_and_subtitles_follow_it() -> None:
+    presentation = materialize_speech_presentation(
+        _speech(SpeechMode.NARRATOR_VOICEOVER, (None, "旁白")),
+        variant=USE_TTS,
+        video=_media("versions/videos/E1U01_v1.mp4", kind="v", duration=5.0),
+        narration_audio=_media("versions/audio/E1U01_v1.wav", kind="a", duration=7.5),
+        provider_audio_enabled=True,
+    )
+
+    assert presentation.video.duration_microseconds == 5_000_000
+    assert presentation.narration_audio is not None
+    assert presentation.narration_audio.duration_microseconds == 7_500_000
+    assert [(cue.start_microseconds, cue.end_microseconds) for cue in presentation.subtitles] == [(0, 7_500_000)]
 
 
 def test_source_selection_and_currency_are_aggregated_without_hiding_history() -> None:

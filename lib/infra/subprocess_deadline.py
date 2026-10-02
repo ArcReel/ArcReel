@@ -99,10 +99,11 @@ async def run_with_deadline(
     capture_stderr: bool = False,
     cleanup_paths: Iterable[Path] = (),
     spawn: Spawner | None = None,
+    cwd: Path | None = None,
 ) -> SubprocessResult:
     """运行子进程直至退出或到达 ``deadline_seconds`` 秒。
 
-    ``spawn`` 缺省时于调用时取 ``asyncio.create_subprocess_exec``。
+    ``spawn`` 缺省时于调用时取 ``asyncio.create_subprocess_exec``；``cwd`` 是子进程的工作目录，缺省时继承当前进程。
 
     Raises:
         SubprocessDeadlineExceeded: 到达 deadline；子进程已终止并收尸，``cleanup_paths`` 已删除。
@@ -114,6 +115,7 @@ async def run_with_deadline(
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE if capture_stdout else asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE if capture_stderr else asyncio.subprocess.DEVNULL,
+        cwd=cwd,
     )
     try:
         if capture_stdout or capture_stderr:

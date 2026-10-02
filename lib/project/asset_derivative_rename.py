@@ -80,6 +80,7 @@ def plan_derivative_sheet_relocation(
     old_owner: str,
     new_owner: str,
     renames: Sequence[tuple[str, str]],
+    carry_unlisted: bool = True,
 ) -> DerivativeSheetRelocation:
     """规划一组衍生资产图的搬迁；只读，不写任何字节。
 
@@ -87,6 +88,8 @@ def plan_derivative_sheet_relocation(
     本体改名时额外把旧本体目录下**全部**文件一并搬走并收掉旧目录——与
     :func:`lib.project.asset_rename.plan_asset_file_renames` 同理，字段未写全的生成中间产物
     不该顶着旧名残留；本体没换名时只动被改名的那一个衍生，同本体的兄弟图不受牵连。
+    ``carry_unlisted=False`` 时只搬 ``renames`` 列出的衍生、不收旧目录：资产合并只迁走一部分衍生，
+    其余的由调用方另行清理。
 
     Raises:
         AssetRenameFileCollisionError: 某个迁移目标路径已被他人占用。
@@ -103,7 +106,9 @@ def plan_derivative_sheet_relocation(
         for file in sorted(source_dir.iterdir()):
             if not file.is_file():
                 continue
-            new_stem = stem_map.get(normalize_asset_name(file.stem)) or (file.stem if owner_moved else None)
+            new_stem = stem_map.get(normalize_asset_name(file.stem)) or (
+                file.stem if owner_moved and carry_unlisted else None
+            )
             if new_stem is None:
                 continue
             destination = destination_dir / (new_stem + file.suffix)
@@ -145,7 +150,9 @@ def plan_derivative_sheet_relocation(
         version_renames=tuple(version_renames),
         manifest_plans=tuple(manifest_plans),
         # 本体换了名，旧本体的两个收纳目录就此作废；同本体内的衍生改名不动目录。
-        retired_dirs=((source_dir, project_dir / derivative_version_dir(old_owner)) if owner_moved else ()),
+        retired_dirs=(
+            (source_dir, project_dir / derivative_version_dir(old_owner)) if owner_moved and carry_unlisted else ()
+        ),
         files=len(moves) + snapshots,
         _version_manager=version_manager,
     )

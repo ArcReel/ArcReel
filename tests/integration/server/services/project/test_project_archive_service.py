@@ -5,6 +5,8 @@ import re
 import shutil
 import stat
 import zipfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from threading import Event, Thread
 
@@ -23,8 +25,10 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.rendered_artifact import commit_rendered_artifact
 from lib.artifacts.version_manager import VersionManager
+from lib.bgm.library import bgm_key
+from lib.bgm.service import BgmLibraryService
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
-from lib.final_cut.basis import DEFAULT_VARIANT, final_cut_artifact_path, final_cut_key
+from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_cut_key
 from lib.i18n import _
 from lib.infra.validation_messages import default_translate
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
@@ -41,6 +45,22 @@ from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
 )
+from tests.factories import wav_bytes
+
+
+class _RetireRecorder:
+    """记下覆盖导入收尾的项目名，可在目录替换之后模拟提交失败。数据库那一半由导入路由的测试覆盖。"""
+
+    def __init__(self, *, fail_after_replace: bool = False) -> None:
+        self.retired: list[str] = []
+        self._fail_after_replace = fail_after_replace
+
+    @contextmanager
+    def __call__(self, project_name: str) -> Generator[None]:
+        self.retired.append(project_name)
+        yield
+        if self._fail_after_replace:
+            raise RuntimeError("commit failed")
 
 
 def _activate_artifact_manifest(project_dir: Path) -> None:
@@ -329,6 +349,25 @@ class TestProjectArchiveService:
         imported = await timelines.read("demo", created.timeline.id)
         assert imported == created
 
+    @pytest.mark.parametrize("scope", ["full", "current"])
+    async def test_uploaded_bgm_round_trips_through_archive_with_a_current_claim(self, tmp_path, scope):
+        """BGM 是按字节登记的项目级产物：文件、登记与产物清单条目都随归档往返，导入后仍是 current。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        track = await BgmLibraryService(pm).upload("demo", filename="主题曲.wav", content=wav_bytes(1.0, tone_hz=330))
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope=scope)
+        with zipfile.ZipFile(archive_path) as archive:
+            assert f"demo/{track.file}" in set(archive.namelist())
+        shutil.rmtree(pm.get_project_path("demo"))
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        assert await BgmLibraryService(pm).list("demo") == (track,)
+        project_dir = pm.get_project_path("demo")
+        resolver = ArtifactCurrencyResolver(project_dir)
+        assert resolver.compare(bgm_key(track.id), artifact_path=track.file).status is ArtifactStatus.CURRENT
+
     async def test_rendered_artifacts_stay_out_of_the_archive_and_read_missing_after_import(self, tmp_path):
         """成片与剪映草稿可随时重新渲染：文件与清单条目都不进归档，导出不报未知条目，导入后这些身份读 missing。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -338,7 +377,9 @@ class TestProjectArchiveService:
         )
         timeline_id = created.timeline.id
         rendered = {
-            final_cut_key(1, timeline_id, DEFAULT_VARIANT): final_cut_artifact_path(1, timeline_id, DEFAULT_VARIANT),
+            final_cut_key(1, timeline_id, FinalCutVariant()): final_cut_artifact_path(
+                1, timeline_id, FinalCutVariant()
+            ),
             jianying_draft_key(1, timeline_id, "with_narration"): jianying_draft_artifact_path(
                 1, timeline_id, "with_narration"
             ),
@@ -1645,7 +1686,8 @@ class TestProjectArchiveService:
     def test_import_overwrite_replaces_existing_project(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
-        service = ProjectArchiveService(pm)
+        retire = _RetireRecorder()
+        service = ProjectArchiveService(pm, retire_project=retire)
         archive_path, _ = service.export_project("demo")
 
         project = pm.load_project("demo")
@@ -1663,82 +1705,16 @@ class TestProjectArchiveService:
         assert result.conflict_resolution == "overwritten"
         assert pm.load_project("demo")["style"] == "Fresh"
         assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
+        assert retire.retired == ["demo"]
+        assert not list(pm.projects_dir.glob(".import-*"))
 
-    def test_import_overwrite_keeps_project_memory_from_the_old_directory(self, tmp_path):
-        """记忆随项目目录而非随归档内容：覆盖导入后旧 .arcreel/memory/ 全部搬回新目录。"""
+    def test_import_overwrite_drops_the_project_memory_of_the_replaced_project(self, tmp_path):
+        """覆盖导入等同于删除现有项目再导入：旧项目的记忆随旧目录删除，不带进新项目。"""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
-        service = ProjectArchiveService(pm)
+        service = ProjectArchiveService(pm, retire_project=_RetireRecorder())
         archive_path, _ = service.export_project("demo")
-
-        project_dir = pm.get_project_path("demo")
-        memory_dir = project_dir / ".arcreel" / "memory"
-        _write_text(memory_dir / "MEMORY.md", "index")
-        _write_text(memory_dir / "topics" / "style.md", "topic")
-
-        result = service.import_project_archive(
-            archive_path,
-            uploaded_filename="demo.zip",
-            conflict_policy="overwrite",
-        )
-
-        assert result.conflict_resolution == "overwritten"
-        restored = pm.get_project_path("demo") / ".arcreel" / "memory"
-        assert restored.joinpath("MEMORY.md").read_text(encoding="utf-8") == "index"
-        assert restored.joinpath("topics", "style.md").read_text(encoding="utf-8") == "topic"
-        assert not list(pm.projects_dir.glob(".import-backup-*"))
-
-    def test_import_overwrite_keeps_a_symlink_inside_project_memory_as_a_symlink(self, tmp_path):
-        """记忆目录里的软链原样搬回：悬空软链也不该让整次覆盖导入失败。"""
-        pm = ProjectManager(tmp_path / "projects")
-        _create_project(pm, style="Fresh")
-        service = ProjectArchiveService(pm)
-        archive_path, _ = service.export_project("demo")
-
-        memory_dir = pm.get_project_path("demo") / ".arcreel" / "memory"
-        _write_text(memory_dir / "MEMORY.md", "index")
-        (memory_dir / "dangling.md").symlink_to("missing.md")
-
-        result = service.import_project_archive(
-            archive_path,
-            uploaded_filename="demo.zip",
-            conflict_policy="overwrite",
-        )
-
-        assert result.conflict_resolution == "overwritten"
-        restored = pm.get_project_path("demo") / ".arcreel" / "memory"
-        assert restored.joinpath("MEMORY.md").read_text(encoding="utf-8") == "index"
-        assert restored.joinpath("dangling.md").is_symlink()
-
-    def test_import_overwrite_skips_a_symlinked_project_memory_root(self, tmp_path):
-        """记忆根本身是软链时不恢复：``copytree`` 会解引用 src 自身，把链接目标整棵
-        拷进新项目的记忆目录，而这次拷贝跑在不受 sandbox 约束的服务端进程里。"""
-        pm = ProjectManager(tmp_path / "projects")
-        _create_project(pm, style="Fresh")
-        service = ProjectArchiveService(pm)
-        archive_path, _ = service.export_project("demo")
-
-        outside_dir = tmp_path / "outside"
-        _write_text(outside_dir / "host-secret.md", "secret")
-        arcreel_dir = pm.get_project_path("demo") / ".arcreel"
-        arcreel_dir.mkdir(parents=True, exist_ok=True)
-        (arcreel_dir / "memory").symlink_to(outside_dir, target_is_directory=True)
-
-        result = service.import_project_archive(
-            archive_path,
-            uploaded_filename="demo.zip",
-            conflict_policy="overwrite",
-        )
-
-        assert result.conflict_resolution == "overwritten"
-        assert not (pm.get_project_path("demo") / ".arcreel" / "memory").exists()
-        assert outside_dir.joinpath("host-secret.md").read_text(encoding="utf-8") == "secret"
-
-    def test_import_overwrite_without_project_memory_leaves_no_memory_dir(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        _create_project(pm, style="Fresh")
-        service = ProjectArchiveService(pm)
-        archive_path, _ = service.export_project("demo")
+        _write_text(pm.get_project_path("demo") / ".arcreel" / "memory" / "MEMORY.md", "index")
 
         result = service.import_project_archive(
             archive_path,
@@ -1749,7 +1725,7 @@ class TestProjectArchiveService:
         assert result.conflict_resolution == "overwritten"
         assert pm.load_project("demo")["style"] == "Fresh"
         assert not (pm.get_project_path("demo") / ".arcreel").exists()
-        assert not list(pm.projects_dir.glob(".import-backup-*"))
+        assert not list(pm.projects_dir.glob(".import-*"))
 
     def test_export_omits_project_memory(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -1825,7 +1801,8 @@ class TestProjectArchiveService:
     def test_import_overwrite_rolls_back_on_install_failure(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
-        service = ProjectArchiveService(pm)
+        retire = _RetireRecorder()
+        service = ProjectArchiveService(pm, retire_project=retire)
         archive_path, _ = service.export_project("demo")
 
         project = pm.load_project("demo")
@@ -1848,14 +1825,14 @@ class TestProjectArchiveService:
 
         monkeypatch.setattr(project_archive_module.shutil, "move", original_move)
         assert pm.load_project("demo")["style"] == "Stale"
+        assert retire.retired == []
 
     def test_import_overwrite_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
-        """sync_agent_profile 失败时必须回滚（删 target_dir + 恢复 backup_dir）。
-        否则 overwrite 分支已删旧备份，用户会丢数据。
-        """
+        """sync_agent_profile 失败时现有项目原样保留，它的记录也不收尾。"""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
-        service = ProjectArchiveService(pm)
+        retire = _RetireRecorder()
+        service = ProjectArchiveService(pm, retire_project=retire)
         archive_path, _ = service.export_project("demo")
 
         project = pm.load_project("demo")
@@ -1875,10 +1852,34 @@ class TestProjectArchiveService:
                 conflict_policy="overwrite",
             )
 
-        # 旧项目恢复（backup 被 rename 回 target_dir）
         monkeypatch.undo()
         assert pm.load_project("demo")["style"] == "Stale"
-        assert not any(p.name.startswith(".import-backup-") for p in pm.projects_dir.iterdir())
+        assert retire.retired == []
+        assert not list(pm.projects_dir.glob(".import-*"))
+
+    def test_import_overwrite_restores_the_old_directory_when_retirement_fails_after_replacing(self, tmp_path):
+        """目录已替换、记录提交失败时，旧目录连同项目记忆原样还原。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm, style="Fresh")
+        service = ProjectArchiveService(pm, retire_project=_RetireRecorder(fail_after_replace=True))
+        archive_path, _ = service.export_project("demo")
+
+        project = pm.load_project("demo")
+        project["style"] = "Stale"
+        pm.save_project("demo", project)
+        _write_text(pm.get_project_path("demo") / ".arcreel" / "memory" / "MEMORY.md", "index")
+
+        with pytest.raises(RuntimeError, match="commit failed"):
+            service.import_project_archive(
+                archive_path,
+                uploaded_filename="demo.zip",
+                conflict_policy="overwrite",
+            )
+
+        assert pm.load_project("demo")["style"] == "Stale"
+        memory = pm.get_project_path("demo") / ".arcreel" / "memory" / "MEMORY.md"
+        assert memory.read_text(encoding="utf-8") == "index"
+        assert not list(pm.projects_dir.glob(".import-*"))
 
     def test_create_project_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
         """create_project 内 sync_agent_profile 失败必须 rmtree 残缺 project_dir，

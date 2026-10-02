@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FilePlus2 } from "lucide-react";
 import { API } from "@/api";
+import { AdScriptButton, AdScriptInputsLink, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useAdScriptEntry } from "@/hooks/useAdScriptEntry";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
@@ -66,18 +68,36 @@ export function StartBlankScriptButton({ projectName, episode, discardsPlan, cla
   );
 }
 
-/** 没有脚本规划可走的集（广告/短片）在没有正式脚本时的画布：说明现状，并给出「从空白开始」。 */
+/**
+ * 没有脚本规划可走的集（广告/短片）在没有正式脚本时的画布：说明现状，「AI 生成脚本」与「从空白开始」并排。
+ * 缺创作灵感与商品时「AI 生成脚本」置灰，并给出去填写的链接。
+ */
 export function NoScriptBlankState({ projectName, episode, className = "" }: { projectName: string; episode: number; className?: string }) {
   const { t } = useTranslation("dashboard");
+  const { refusedReason } = useAdScriptEntry(projectName, episode);
   return (
     <div className={`flex flex-col items-center justify-center gap-3 ${className}`.trim()} style={{ color: "var(--color-text-4)" }}>
       <p className="m-0">{t("timeline_no_script_blank_hint")}</p>
-      <StartBlankScriptButton
-        projectName={projectName}
-        episode={episode}
-        discardsPlan={false}
-        className="arc-btn-primary focus-ring rounded-lg px-4 py-2 text-[12.5px] font-semibold"
-      />
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <AdScriptButton
+          projectName={projectName}
+          episode={episode}
+          regenerate={false}
+          className="arc-btn-primary focus-ring rounded-lg px-4 py-2 text-[12.5px] font-semibold"
+        />
+        <StartBlankScriptButton
+          projectName={projectName}
+          episode={episode}
+          discardsPlan={false}
+          className="arc-btn-secondary focus-ring rounded-lg px-4 py-2 text-[12.5px] font-semibold"
+        />
+      </div>
+      {refusedReason && (
+        <p className="m-0 text-[12px]">
+          {refusedReason} <AdScriptInputsLink className="text-[var(--color-accent-2)]" />
+        </p>
+      )}
+      <AdScriptProgress projectName={projectName} episode={episode} noScript className="w-full max-w-md" />
     </div>
   );
 }

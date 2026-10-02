@@ -37,23 +37,26 @@ const VIEW: EpisodesViewData = {
       name: "上卷.txt",
       original_filename: "上卷.docx",
       missing: false,
+      changed_outside: false,
       length: 30,
       units: 30,
       cut_units: 20,
       segments: [
-        { kind: "episode", start: 0, end: 10, text: "第一集的原文。", episode: 1, gap: false, units: 10 },
-        { kind: "episode", start: 10, end: 20, text: "第二集的原文。", episode: 2, gap: false, units: 10 },
-        { kind: "unsplit", start: 20, end: 30, text: "还没分集的原文。", episode: null, gap: false, units: 10 },
+        { kind: "episode", start: 0, end: 10, text: "第一集的原文。", episode: 1, gap: false, units: 10, continued: false, continues: false },
+        { kind: "episode", start: 10, end: 20, text: "第二集的原文。", episode: 2, gap: false, units: 10, continued: false, continues: false },
+        { kind: "unsplit", start: 20, end: 30, text: "还没分集的原文。", episode: null, gap: false, units: 10, continued: false, continues: false },
       ],
       source_kind: null,
     },
   ],
   episodes: [
-    { episode: 1, origin: "whole_source", placed: true, source_file: "source/上卷.txt", units: 10, spoken_seconds: 3, first_sentence: "第一集的原文。", last_sentence: "第一集的原文。", source_kind: null },
-    { episode: 2, origin: "whole_source", placed: true, source_file: "source/上卷.txt", units: 10, spoken_seconds: 3, first_sentence: "", last_sentence: "", source_kind: null },
-    { episode: 3, origin: "own", placed: false, source_file: null, units: 8, spoken_seconds: 2, first_sentence: "", last_sentence: "", source_kind: null },
+    { episode: 1, origin: "whole_source", placed: true, source_file: "source/上卷.txt", end_file: "source/上卷.txt", units: 10, spoken_seconds: 3, first_sentence: "第一集的原文。", last_sentence: "第一集的原文。", source_kind: null },
+    { episode: 2, origin: "whole_source", placed: true, source_file: "source/上卷.txt", end_file: "source/上卷.txt", units: 10, spoken_seconds: 3, first_sentence: "", last_sentence: "", source_kind: null },
+    { episode: 3, origin: "own", placed: false, source_file: null, end_file: null, units: 8, spoken_seconds: 2, first_sentence: "", last_sentence: "", source_kind: null },
   ],
   unregistered: [],
+  replan: null,
+  external_changes: [],
 };
 
 function renderView(path = "/episodes") {
@@ -155,9 +158,9 @@ describe("EpisodesView", () => {
         {
           ...VIEW.files[0],
           segments: [
-            { kind: "episode", start: 0, end: 10, text: "第一集的原文。", episode: 1, gap: false, units: 10 },
-            { kind: "unsplit", start: 10, end: 20, text: "删掉的那一集的原文。", episode: null, gap: true, units: 10 },
-            { kind: "episode", start: 20, end: 30, text: "第二集的原文。", episode: 2, gap: false, units: 10 },
+            { kind: "episode", start: 0, end: 10, text: "第一集的原文。", episode: 1, gap: false, units: 10, continued: false, continues: false },
+            { kind: "unsplit", start: 10, end: 20, text: "删掉的那一集的原文。", episode: null, gap: true, units: 10, continued: false, continues: false },
+            { kind: "episode", start: 20, end: 30, text: "第二集的原文。", episode: 2, gap: false, units: 10, continued: false, continues: false },
           ],
         },
       ],
@@ -321,5 +324,193 @@ describe("EpisodesView", () => {
 
     await screen.findByRole("main", { name: "整本源文" });
     expect(screen.queryByRole("combobox", { name: /源文件类型/ })).not.toBeInTheDocument();
+  });
+  describe("replanning", () => {
+    const REPLAN: NonNullable<EpisodesViewData["replan"]> = {
+      id: "cand-1",
+      episode: 2,
+      instructions: "节奏放慢",
+      complete: true,
+      interrupted: null,
+      stale: null,
+      start: { source_file: "source/上卷.txt", offset: 10 },
+      end: { source_file: "source/上卷.txt", offset: 30 },
+      old_count: 1,
+      new_count: 2,
+      units: 20,
+      average_units: 10,
+      retired: [2],
+      removed: [],
+      needs_review: [2],
+      uncovered: [],
+      moved: [{ episode: 3, from: 3, to: 4 }],
+      episodes: [
+        { title: "新一", hook: "", source_file: "source/上卷.txt", start: 10, end: 20, units: 10, first_sentence: "第二集的原文。", last_sentence: "第二集的原文。", same_as: 2, overlaps: [2] },
+        { title: "新二", hook: "", source_file: "source/上卷.txt", start: 20, end: 30, units: 10, first_sentence: "", last_sentence: "", same_as: null, overlaps: [] },
+      ],
+    };
+
+    it("starts a replan from the selected cut episode after naming the started episodes", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      vi.spyOn(API, "previewEpisodeReplan").mockResolvedValue({
+        status: "preview",
+        episode: 2,
+        source_file: "source/上卷.txt",
+        offset: 10,
+        from_beginning: false,
+        source_replaced: false,
+        replaced: [2],
+        started: [2],
+      });
+      const start = vi.spyOn(API, "startEpisodeReplan").mockResolvedValue({
+        batch: { batch_id: "batch-1", members: [{ unit_id: "episode-planning", task_id: "plan-1" }] },
+      });
+      renderView("/episodes?episode=2");
+
+      const rail = await screen.findByRole("complementary", { name: "分集清单" });
+      fireEvent.click(within(rail).getByRole("button", { name: "从这一集开始重新规划" }));
+      const dialog = await screen.findByRole("dialog", { name: "从「转折」开始重新规划" });
+      expect(dialog).toHaveTextContent("采纳前现有分集不变");
+      expect(dialog).toHaveTextContent("其中已开始制作：转折。");
+      fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "节奏放慢" } });
+      const scroll = vi.mocked(Element.prototype.scrollIntoView);
+      scroll.mockClear();
+      fireEvent.click(within(dialog).getByRole("button", { name: "开始重新规划" }));
+
+      await waitFor(() => expect(start).toHaveBeenCalledWith("demo", 2, "节奏放慢"));
+      // 左栏滚到重新规划的起点
+      await waitFor(() => expect(scroll).toHaveBeenCalled());
+      expect(scroll.mock.contexts.at(-1)).toHaveTextContent("转折");
+    });
+
+    it("marks the boundaries that differ between the current episodes and the new plan", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({
+        ...VIEW,
+        replan: {
+          ...REPLAN,
+          episodes: [
+            { ...REPLAN.episodes[0], start: 10, end: 14 },
+            { ...REPLAN.episodes[1], start: 14, end: 30 },
+          ],
+        },
+      });
+      renderView();
+
+      const manuscript = await screen.findByRole("main", { name: "整本源文" });
+      // 14 落在第 2 集那一行中间，20 是第 2 集的结尾、新方案在这里不分集
+      await waitFor(() => expect(manuscript.querySelectorAll("[data-replan-diff]")).toHaveLength(2));
+      expect(within(manuscript).getAllByText("新旧分界不同")).toHaveLength(2);
+      expect(manuscript.querySelectorAll('[data-replan-lane="new"]').length).toBeGreaterThan(0);
+      expect(within(manuscript).queryByText("等待规划")).not.toBeInTheDocument();
+      expect(screen.getByRole("list", { name: "新旧分法对照的图例" })).toHaveTextContent("右侧：新方案");
+    });
+
+    it("continues, adopts the finished part or discards a plan that stopped without a cut point", async () => {
+      const partial = {
+        ...REPLAN,
+        episode: 1,
+        complete: false,
+        interrupted: "no_cut_point" as const,
+        start: { source_file: "source/上卷.txt", offset: 0 },
+        end: { source_file: "source/上卷.txt", offset: 5 },
+        old_count: 2,
+        new_count: 1,
+        retired: [2],
+        removed: [1],
+        needs_review: [2],
+        uncovered: [2],
+        moved: [],
+        episodes: [{ ...REPLAN.episodes[0], start: 0, end: 5, same_as: null, overlaps: [1] }],
+      };
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: partial });
+      const resume = vi.spyOn(API, "continueEpisodeReplan").mockResolvedValue({
+        batch: { batch_id: "batch-2", members: [{ unit_id: "episode-planning", task_id: "plan-2" }] },
+      });
+      renderView();
+
+      const panel = (await screen.findByRole("heading", { name: "新的分集方案" })).closest("section") as HTMLElement;
+      expect(within(panel).getByRole("status")).toHaveTextContent("AI 在 上卷.txt 17% 之后的原文里找不到合适的切分点");
+      expect(within(panel).getByRole("status")).toHaveTextContent("超出方案范围的集同样按被替换的集处理");
+      expect(within(panel).getByText("超出方案范围").nextElementSibling).toHaveTextContent("转折");
+      expect(within(panel).getByRole("button", { name: "采纳已完成的部分" })).toBeInTheDocument();
+      expect(within(panel).getByRole("button", { name: "放弃新方案" })).toBeInTheDocument();
+
+      const manuscript = screen.getByRole("main", { name: "整本源文" });
+      expect(within(manuscript).getByText("等待规划")).toBeInTheDocument();
+      expect(manuscript.querySelectorAll('[data-replan-lane="pending"]').length).toBeGreaterThan(0);
+
+      fireEvent.click(within(panel).getByRole("button", { name: "继续生成" }));
+
+      await waitFor(() => expect(resume).toHaveBeenCalledWith("demo", "cand-1"));
+    });
+
+    it("offers to register the output limit when a replan window of a custom model was truncated", async () => {
+      const failed = { ...REPLAN, complete: false, interrupted: "failed" as const };
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: failed });
+      useTasksStore.setState({
+        tasks: [
+          makeTask({
+            project_name: "demo",
+            task_type: "text_episode_plan",
+            resource_id: "episode-planning",
+            status: "failed",
+            error_message: "文本模型 my-llm 的输出超出了最大输出长度，内容不完整",
+            error_code: "text_output_truncated",
+            error_params: { provider_id: "custom-7", model: "my-llm", custom_model: true },
+          }),
+        ],
+      });
+      const { location } = renderView();
+
+      const panel = (await screen.findByRole("heading", { name: "新的分集方案" })).closest("section") as HTMLElement;
+      expect(within(panel).getByRole("status")).toHaveTextContent("AI 生成出错");
+      fireEvent.click(within(panel).getByRole("button", { name: "去登记最大输出长度" }));
+
+      expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
+    });
+
+    it("summarizes a pending plan in place of planning and adopts it with the retired episodes deleted", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: REPLAN });
+      const impact = {
+        candidate: "cand-1",
+        episode: 2,
+        old_count: 1,
+        new_count: 2,
+        retired: [2],
+        removed: [],
+        needs_review: [2],
+        uncovered: [],
+        moved: [{ episode: 3, from: 3, to: 4 }],
+        revision: "rev-1",
+        text: "服务端成文的后果",
+        delete_text: "服务端成文的丢失清单",
+      };
+      const adopt = vi
+        .spyOn(API, "adoptEpisodeReplan")
+        .mockResolvedValueOnce({ status: "confirmation_required", impact })
+        .mockResolvedValueOnce({ status: "adopted", episodes: [4, 5], deleted: [2] });
+      useProjectsStore.setState({ refreshProject: vi.fn().mockResolvedValue(undefined) });
+      renderView();
+
+      const panel = (await screen.findByRole("heading", { name: "新的分集方案" })).closest("section") as HTMLElement;
+      expect(within(panel).getByText("1 → 2")).toBeInTheDocument();
+      expect(within(panel).getByText("番外（第 3 → 4 集）")).toBeInTheDocument();
+      expect(within(panel).getByText("节奏放慢")).toBeInTheDocument();
+      expect(within(panel).getByText("与「转折」的原文相同")).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "继续 AI 分集规划" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/重置/)).not.toBeInTheDocument();
+
+      fireEvent.click(within(panel).getByRole("button", { name: "采纳新方案" }));
+      const dialog = await screen.findByRole("dialog", { name: "采纳新的分集方案" });
+      expect(dialog).toHaveTextContent("服务端成文的后果");
+      expect(dialog).not.toHaveTextContent("服务端成文的丢失清单");
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "一并删除" }));
+      expect(dialog).toHaveTextContent("服务端成文的丢失清单");
+      fireEvent.click(within(dialog).getByRole("button", { name: "采纳新方案" }));
+
+      await waitFor(() =>
+        expect(adopt).toHaveBeenLastCalledWith("demo", "cand-1", { revision: "rev-1", deleteRetired: true }),
+      );
+    });
   });
 });

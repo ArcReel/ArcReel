@@ -200,7 +200,6 @@ MESSAGES = {
     "val_ce_removed_reason_extract_source": "取值根一律是响应体，HTTP 状态码不走 JSONPath",
     "val_ce_removed_reason_extract_usage_keys": "用量改挂 poll.extract.usage",
     "val_ce_removed_reason_mime_types": "素材格式不做白名单，由供应商在提交时拒绝",
-    "val_ce_removed_reason_media_type": "声明式端点恒为视频，媒体类型不可声明",
     "val_ce_removed_reason_comfyui_capabilities": "ComfyUI 端点的能力只从节点绑定推导，定义不存能力声明",
     "val_ce_malformed_placeholder": (
         "{fragment} 不是合法占位符：只支持裸变量（如 prompt、inputs.first_frame），"
@@ -236,6 +235,9 @@ MESSAGES = {
         "submit 引用了 {source} 素材，却没有声明 {capability}，素材会发出去而界面不开放该能力"
     ),
     "val_ce_capability_incoherent": "能力 {capability} 与同组声明矛盾，须满足：{requirement}",
+    "val_ce_capability_not_declared": "须在 capabilities 中把至少一项能力声明为 true：{allowed}",
+    "val_ce_media_type_field_not_allowed": "{name} 不适用于媒体类型为 {media_type} 的定义",
+    "val_ce_artifact_extract_missing": "缺少产物提取路径，至少写一项：{keys}",
     "val_ce_jsonpath_not_a_string": "取值路径必须是字符串：{path_expression}",
     "val_ce_jsonpath_surrounding_whitespace": "取值路径首尾不得有空白：{path_expression}",
     "val_ce_jsonpath_missing_root": "取值路径必须以 $ 开头：{path_expression}",

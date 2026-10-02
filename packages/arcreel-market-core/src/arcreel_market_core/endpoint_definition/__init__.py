@@ -17,7 +17,7 @@ from arcreel_market_core.definition_diagnostics import (
 
 from .jsonpath_subset import JsonPathSubsetError, ParsedJsonPath, parse_json_path
 from .kinds import COMFYUI_KIND, DECLARATIVE_KIND
-from .media_type import DECLARATIVE_MEDIA_TYPE, definition_media_type
+from .media_type import DEFAULT_DECLARATIVE_MEDIA_TYPE, definition_media_type
 from .response_extractor import JsonPathEvaluationError, extract_value, map_status, normalize_extract_spec
 from .template_engine import (
     AssetData,
@@ -48,7 +48,7 @@ __all__ = [
     "COMFYUI_KIND",
     "CURRENT_SCHEMA_VERSION",
     "DECLARATIVE_KIND",
-    "DECLARATIVE_MEDIA_TYPE",
+    "DEFAULT_DECLARATIVE_MEDIA_TYPE",
     "IMAGE_INPUT_SOURCES",
     "MESSAGE_KEY_PREFIX",
     "ROOT_PATH",

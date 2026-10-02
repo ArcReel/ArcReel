@@ -26,6 +26,7 @@ import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { AdScriptButton, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
 import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
@@ -83,6 +84,8 @@ export interface ReferenceVideoCanvasProps {
    * 标志不从这里来：它们随单元列表由服务端按可用参考图逐单元给出（`unitCapabilitiesByEpisode`）。
    */
   videoModelUnresolved?: boolean;
+  /** 剧本规划档位（能力端点的 `duration_constraints.planning`）：内容确认页上端点固定的单元按它选时长、判越档。 */
+  planDurationOptions?: number[];
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -169,6 +172,7 @@ export function ReferenceVideoCanvas({
   showPreprocess = true,
   freeDuration = false,
   videoModelUnresolved,
+  planDurationOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -840,6 +844,11 @@ export function ReferenceVideoCanvas({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅通知 store，触发后切 tab + 选中
       setTab("units");
       select(scrollTarget.id);
+      // 应用内链接要求打开该单元的预览时，窄屏下把预览子页签切到前台。
+      const start = useAppStore.getState().playbackStart;
+      if (start?.resource_type === "reference_videos" && start.resource_id === scrollTarget.id) {
+        setStackTab("preview");
+      }
       clearScrollTarget(requestId);
       return;
     }
@@ -992,6 +1001,15 @@ export function ReferenceVideoCanvas({
         <span className="flex-1" />
         {tab === "units" && (
           <>
+            {/* 没有预处理的参考画布只用于广告/短片：有正式脚本时可整份重新生成。 */}
+            {hasScript && !showPreprocess && (
+              <AdScriptButton
+                projectName={projectName}
+                episode={episode}
+                regenerate
+                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
+              />
+            )}
             {hasScript && (
               <PromptAuthoringButton
                 projectName={projectName}
@@ -1034,6 +1052,10 @@ export function ReferenceVideoCanvas({
         </div>
       )}
 
+      {tab === "units" && hasScript && !showPreprocess && (
+        <AdScriptProgress projectName={projectName} episode={episode} noScript={false} className="mx-5 my-2" />
+      )}
+
       {error && tab === "units" && (
         <p
           role="alert"
@@ -1052,6 +1074,7 @@ export function ReferenceVideoCanvas({
               episode={episode}
               lookup={mentionLookup}
               videoModelUnresolved={videoModelUnresolved}
+              planningDurations={planDurationOptions}
               onOpenTimeline={() => setTab("units")}
             />
           </div>

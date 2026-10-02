@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 
-from lib.backends.text_backends.base import TextGenerationResult
+from lib.backends.text_backends.base import TextGenerationResult, TextOutputTruncatedError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -18,6 +18,7 @@ from lib.db.models.task import Task
 from lib.episode.episode_deletion import EpisodeDeletionConfirmationRequired, delete_episode
 from lib.episode.episode_planner import EpisodePlanner
 from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_result import GenerationAction, problem_from_task_failure
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.infra.app_data_dir import reset_for_tests
 from lib.project.project_manager import ProjectManager
@@ -27,9 +28,11 @@ from server.tool_runtime import (
     ProjectScope,
     Services,
     ToolRequest,
+    continue_episode_replan,
     execute_queued_text_task,
     plan_episodes,
     start_episode_planning,
+    start_episode_replan,
     stop_episode_planning,
 )
 from tests.factories import register_project_sources
@@ -50,8 +53,10 @@ class _Generator:
 
     model = "fake-model"
 
-    def __init__(self, *, hold: bool = False, max_output_tokens: int = 64000) -> None:
+    def __init__(self, *, hold: bool = False, max_output_tokens: int = 64000, stuck: bool = False) -> None:
         self.max_output_tokens = max_output_tokens
+        #: 置位时窗口里找不到切分点：一集都不回。
+        self.stuck = stuck
         self.prompts: list[str] = []
         self.started = asyncio.Event()
         self.release = asyncio.Event()
@@ -67,7 +72,7 @@ class _Generator:
         episodes = [
             {"title": f"第{index + 1}集", "hook": "悬念", "end_anchor": anchor}
             for index, anchor in enumerate(_ANCHORS)
-            if anchor in window
+            if anchor in window and not self.stuck
         ]
         body = {"episodes": episodes}
         return TextGenerationResult(text=json.dumps(body, ensure_ascii=False), provider="fake", model="fake-model")
@@ -288,3 +293,126 @@ async def test_the_gap_left_by_a_deleted_middle_episode_is_planned_back(
     assert episodes[1]["source_range"] == middle["source_range"]
     assert episodes[1]["episode"] > middle["episode"]
     assert "这段未切分的原文已全部规划完毕" in (tasks[-1].result_json or "")
+
+
+async def test_replanning_fills_a_candidate_window_by_window_and_leaves_the_ledger_alone(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    ledger = projects.load_project("planning")["episodes"]
+    generator = _Generator()
+    _use_generator(monkeypatch, generator)
+
+    outcome = await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest(instructions="节奏放慢")),
+        _scope(projects),
+        _WEB,
+        services,
+        episode=ledger[1]["episode"],
+    )
+
+    assert outcome.problem is None
+    tasks = await _wait_until_idle(session_factory)
+    assert [task.status for task in tasks] == ["succeeded"] * 5
+    project = projects.load_project("planning")
+    assert project["episodes"] == ledger
+    candidate = project["episode_replan"]
+    assert candidate["complete"] is True
+    assert [episode["source_range"] for episode in candidate["episodes"]] == [e["source_range"] for e in ledger[1:]]
+    assert all("节奏放慢" in prompt for prompt in generator.prompts)
+    assert "第一章" not in generator.prompts[0].rsplit("---", 2)[-2]
+
+
+async def test_a_pending_candidate_refuses_planning_and_another_replan(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    first = projects.load_project("planning")["episodes"][0]["episode"]
+    await start_episode_replan(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services, episode=first)
+    await _wait_until_idle(session_factory)
+
+    agent = await plan_episodes(
+        ToolRequest(PlanEpisodesRequest()),
+        _scope(projects),
+        CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
+        services,
+    )
+    again = await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services, episode=first
+    )
+
+    assert agent.problem is not None
+    assert agent.problem.params["reason"] == "replan_candidate_pending"
+    assert again.problem is not None
+    assert again.problem.params["reason"] in ("replan_candidate_pending", "candidate_pending")
+
+
+async def test_a_truncated_replan_window_fails_with_the_way_out(planning, monkeypatch: pytest.MonkeyPatch) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    ledger = projects.load_project("planning")["episodes"]
+
+    class _Truncating(_Generator):
+        async def generate(self, request: Any, project_name: str | None = None) -> TextGenerationResult:
+            raise TextOutputTruncatedError(
+                provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
+            )
+
+    _use_generator(monkeypatch, _Truncating())
+    outcome = await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services, episode=ledger[1]["episode"]
+    )
+
+    assert outcome.problem is None
+    tasks = await _wait_until_idle(session_factory)
+    (failed,) = [task for task in tasks if task.status == "failed" and task.resource_id == "episode-planning"]
+    problem = problem_from_task_failure(failed.error_message)
+    assert (problem.code, problem.action, problem.params) == (
+        "text_output_truncated",
+        GenerationAction.CONFIGURE_PROVIDER,
+        {"provider_id": "custom-3", "model": "my-llm", "custom_model": True},
+    )
+
+
+async def test_a_replan_stuck_without_a_cut_point_keeps_its_part_and_continues_with_the_same_instructions(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    _use_generator(monkeypatch, _Generator())
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await _wait_until_idle(session_factory)
+    first = projects.load_project("planning")["episodes"][0]["episode"]
+    _use_generator(monkeypatch, _Generator(stuck=True))
+
+    await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest(instructions="节奏放慢")), _scope(projects), _WEB, services, episode=first
+    )
+    await _wait_until_idle(session_factory)
+
+    candidate = projects.load_project("planning")["episode_replan"]
+    assert (candidate["complete"], candidate["interrupted"], candidate["episodes"]) == (False, "no_cut_point", [])
+
+    generator = _Generator()
+    _use_generator(monkeypatch, generator)
+    outcome = await continue_episode_replan(candidate["id"], _scope(projects), _WEB, services)
+
+    assert outcome.problem is None
+    await _wait_until_idle(session_factory)
+    candidate = projects.load_project("planning")["episode_replan"]
+    assert candidate["complete"] is True
+    assert "interrupted" not in candidate
+    assert len(candidate["episodes"]) == 3
+    assert generator.prompts
+    assert all("节奏放慢" in prompt for prompt in generator.prompts)
+
+    again = await continue_episode_replan(candidate["id"], _scope(projects), _WEB, services)
+    assert again.problem is not None
+    assert again.problem.params["reason"] == "candidate_complete"

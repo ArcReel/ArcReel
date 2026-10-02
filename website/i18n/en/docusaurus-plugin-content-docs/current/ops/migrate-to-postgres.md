@@ -2,6 +2,7 @@
 id: migrate-to-postgres
 title: Migrate from SQLite to PostgreSQL
 sidebar_position: 2
+update_docs: fact-check
 ---
 
 # Migrate from SQLite to PostgreSQL {#migrate-to-postgres}
@@ -72,7 +73,7 @@ tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
 cp deploy/.env "deploy/backups/arcreel-source-${backup_stamp}.env"
 ```
 
-The guard accepts only an exact `ok` response from `PRAGMA quick_check;`. Any backup, check, archive, or configuration-copy failure stops the migration immediately. `sqlite3 .backup` uses the SQLite backup API to create a consistent snapshot that includes committed WAL content. Do not copy only `arcreel.db` with `cp` while the service is running. `arcreel.db-wal` may contain committed transactions that have not yet been checkpointed, so separating it from the main file can lose data or corrupt the backup. The paired tar archive stores the complete contents of `source_projects`, while the adjacent `.env` copy stores the default deployment configuration. Restore only artifacts with the same timestamp. `umask 077` and directory mode `0700` restrict access to the credentials and project assets they contain.
+The guard accepts only an exact `ok` response from `PRAGMA quick_check;`. Any backup, check, archive, or configuration-copy failure stops the migration immediately. `sqlite3 .backup` uses the SQLite backup API to create a consistent snapshot that includes committed WAL content. Do not copy only `arcreel.db` with `cp` while the service is running. `arcreel.db-wal` may contain committed transactions that have not yet been checkpointed, so separating it from the main file can lose data or corrupt the backup. The paired tar archive stores the complete contents of `source_projects`, while the adjacent `.env` copy stores the default deployment configuration. When rolling back, both must use the same timestamp. `umask 077` and directory mode `0700` restrict access to the credentials and project assets they contain.
 
 ### 3. Prepare the PostgreSQL Deployment {#configure-env}
 

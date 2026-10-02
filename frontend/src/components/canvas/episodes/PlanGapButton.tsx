@@ -11,9 +11,9 @@ import { errMsg } from "@/utils/async";
 
 /**
  * 「规划这段未切分的原文」：以这段原文的结尾为终点直接提交 AI 分集规划，不替换任何集，新集按源文位置插入。
- * 分集规划进行中时不可用。
+ * 分集规划进行中、或有等待处理的新的分集方案（`blocked` 是原因）时不可用。
  */
-export function PlanGapButton({ sourceFile, end }: { sourceFile: string; end: number }) {
+export function PlanGapButton({ sourceFile, end, blocked }: { sourceFile: string; end: number; blocked: string | null }) {
   const { t } = useTranslation("dashboard");
   const projectName = useProjectsStore((s) => s.currentProjectName);
   const activePlanning = useActiveResourceIds("text_episode_plan", projectName ?? "");
@@ -40,8 +40,8 @@ export function PlanGapButton({ sourceFile, end }: { sourceFile: string; end: nu
     <button
       type="button"
       className={GHOST_BTN_CLS}
-      disabled={planning || submitting}
-      title={planning ? t("episode_planning_busy") : undefined}
+      disabled={planning || submitting || blocked !== null}
+      title={blocked ?? (planning ? t("episode_planning_busy") : undefined)}
       onClick={() => void submit()}
     >
       <Sparkles className="h-3.5 w-3.5" aria-hidden />

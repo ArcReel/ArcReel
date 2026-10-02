@@ -20,13 +20,23 @@ from tests.legacy_project_shapes import write_legacy_episode_id_remnants_project
 _NOW = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
 
 
-def _task(task_id: str, *, project_name: str, resource_id: str, script_file: str | None = None) -> Task:
+def _task(
+    task_id: str,
+    *,
+    project_name: str,
+    resource_id: str,
+    script_file: str | None = None,
+    task_type: str = "video",
+    media_type: str = "video",
+    resource_type: str | None = None,
+) -> Task:
     return Task(
         task_id=task_id,
         project_name=project_name,
-        task_type="video",
-        media_type="video",
+        task_type=task_type,
+        media_type=media_type,
         resource_id=resource_id,
+        resource_type=resource_type,
         script_file=script_file,
         status="succeeded",
         queued_at=_NOW,
@@ -34,10 +44,18 @@ def _task(task_id: str, *, project_name: str, resource_id: str, script_file: str
     )
 
 
-def _call(*, project_name: str, segment_id: str | None = None, output_path: str | None = None) -> ApiCall:
+def _call(
+    *,
+    project_name: str,
+    segment_id: str | None = None,
+    output_path: str | None = None,
+    call_type: str = "video",
+    task_id: str | None = None,
+) -> ApiCall:
     return ApiCall(
         project_name=project_name,
-        call_type="video",
+        call_type=call_type,
+        task_id=task_id,
         model="m",
         provider="gemini",
         status=CallStatus.SUCCESS,
@@ -63,6 +81,38 @@ async def test_max_recorded_episode_id_reads_tasks_and_calls_of_one_project(asyn
 
     assert await max_recorded_episode_id(async_session, "demo") == 11
     assert await max_recorded_episode_id(async_session, "missing") == 0
+
+
+async def test_asset_names_shaped_like_item_ids_do_not_count(async_session) -> None:
+    asset = "E12345678901234567A1"
+    async_session.add_all(
+        [
+            _task("t1", project_name="demo", resource_id="E2S01"),
+            _task("sheet", project_name="demo", resource_id=asset, task_type="character", media_type="image"),
+            _task("voice", project_name="demo", resource_id=asset, task_type="voice_sample", media_type="audio"),
+            _call(project_name="demo", call_type="audio", segment_id=asset, task_id="voice"),
+            _task(
+                "edit-sheet",
+                project_name="demo",
+                resource_id=asset,
+                task_type="image_edit",
+                media_type="image",
+                resource_type="character",
+            ),
+            _call(project_name="demo", call_type="image", segment_id=asset, task_id="edit-sheet"),
+            _task(
+                "edit-shot",
+                project_name="demo",
+                resource_id="E3S01",
+                task_type="image_edit",
+                media_type="image",
+                resource_type="storyboard",
+            ),
+        ]
+    )
+    await async_session.commit()
+
+    assert await max_recorded_episode_id(async_session, "demo") == 3
 
 
 async def test_migration_reserves_ids_only_retained_in_task_payloads_and_call_inputs(async_session, tmp_path) -> None:

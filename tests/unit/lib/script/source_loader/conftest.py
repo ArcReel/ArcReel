@@ -73,15 +73,17 @@ def epub_factory(tmp_path: Path):
     return _make
 
 
-@pytest.fixture
-def pdf_factory():
-    """返回预生成的 PDF fixture 路径（来自真实 PDF，见 data/SOURCES.md）。"""
+class _PdfFactory:
+    """调用得到文本 PDF，``scanned()`` 得到扫描件 PDF。"""
 
-    def _make() -> Path:
+    def __call__(self) -> Path:
         return _PDF_DATA_DIR / "sample_text.pdf"
 
-    def _make_scanned() -> Path:
+    def scanned(self) -> Path:
         return _PDF_DATA_DIR / "sample_scanned.pdf"
 
-    _make.scanned = _make_scanned  # type: ignore[attr-defined]
-    return _make
+
+@pytest.fixture
+def pdf_factory() -> _PdfFactory:
+    """返回预生成的 PDF fixture 路径（来自真实 PDF，见 data/SOURCES.md）。"""
+    return _PdfFactory()

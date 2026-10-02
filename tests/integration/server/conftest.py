@@ -112,3 +112,19 @@ async def fake_ctx(
     finally:
         await worker.stop()
         unregister()
+
+
+@pytest.fixture
+def active_episode_tasks(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[dict[str, Any]]]:
+    """在途任务检查读到的生成队列：按状态（``queued`` / ``running``）回放写进返回字典的任务。"""
+    from server.routers import episode_management
+
+    tasks: dict[str, list[dict[str, Any]]] = {}
+
+    class _Queue:
+        async def list_tasks(self, *, project_name: str, status: str, page: int, page_size: int) -> dict[str, Any]:
+            del project_name, page, page_size
+            return {"items": tasks.get(status, [])}
+
+    monkeypatch.setattr(episode_management, "get_generation_queue", lambda: _Queue())
+    return tasks

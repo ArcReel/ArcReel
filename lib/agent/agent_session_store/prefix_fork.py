@@ -10,9 +10,12 @@ uuid 不照面，因此 parentUuid 链、sidechain 独立图与交叉引用都�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Protocol
+
+from claude_agent_sdk import SessionKey, SessionListSubkeysKey, SessionStoreEntry
 
 SUBAGENT_SUBPATH_ROOT = "subagents/"
 SUBAGENT_LEAF_PREFIX = "agent-"
@@ -29,13 +32,13 @@ class InvalidAnchorError(ValueError):
 class SessionStoreLike(Protocol):
     """本模块用到的 SessionStore 子集。"""
 
-    async def load(self, key: dict) -> list[dict] | None: ...
+    async def load(self, key: SessionKey) -> list[SessionStoreEntry] | None: ...
 
-    async def append(self, key: dict, entries: list[dict]) -> None: ...
+    async def append(self, key: SessionKey, entries: list[SessionStoreEntry]) -> None: ...
 
-    async def list_subkeys(self, key: dict) -> list[str]: ...
+    async def list_subkeys(self, key: SessionListSubkeysKey) -> list[str]: ...
 
-    async def delete(self, key: dict) -> None: ...
+    async def delete(self, key: SessionKey) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +101,7 @@ async def copy_session_prefix(
     return PrefixCopyResult(entries_copied=copied, subagent_subpaths=tuple(carried))
 
 
-def _prefix_before_anchor(entries: list[dict], anchor_uuid: str) -> list[dict]:
+def _prefix_before_anchor(entries: list[SessionStoreEntry], anchor_uuid: str) -> list[SessionStoreEntry]:
     for index, entry in enumerate(entries):
         if entry.get("uuid") != anchor_uuid:
             continue
@@ -113,7 +116,7 @@ def _prefix_before_anchor(entries: list[dict], anchor_uuid: str) -> list[dict]:
     raise InvalidAnchorError(f"anchor {anchor_uuid} is not on the main timeline of session")
 
 
-def _carries_tool_result(entry: dict[str, Any]) -> bool:
+def _carries_tool_result(entry: SessionStoreEntry) -> bool:
     message = entry.get("message")
     if not isinstance(message, dict):
         return False
@@ -127,7 +130,7 @@ def _matches_subagent(subpath: str, wanted_leaves: set[str]) -> bool:
     return subpath.startswith(SUBAGENT_SUBPATH_ROOT) and subpath.rsplit("/", 1)[-1] in wanted_leaves
 
 
-def _prefix_agent_ids(prefix: list[dict]) -> set[str]:
+def _prefix_agent_ids(prefix: list[SessionStoreEntry]) -> set[str]:
     agent_ids: set[str] = set()
     for entry in prefix:
         tool_use_result = entry.get("toolUseResult")
@@ -139,22 +142,23 @@ def _prefix_agent_ids(prefix: list[dict]) -> set[str]:
     return agent_ids
 
 
-def _rebind(entry: dict[str, Any], *, new_session_id: str, origin: dict[str, str]) -> dict[str, Any]:
+def _rebind(entry: SessionStoreEntry, *, new_session_id: str, origin: dict[str, str]) -> SessionStoreEntry:
     """改写条目归属。
 
     ``sessionId`` 仅在原条目已有时改写，``forkedFrom`` 仅加在 transcript 行上
     ——subagent 子路径里的 ``agent_metadata`` 条目会被 SDK 原样写成 .meta.json
     旁车文件，多出的字段会跟着落进去。
     """
-    rebound = dict(entry)
+    rebound = entry.copy()
     if "sessionId" in rebound:
         rebound["sessionId"] = new_session_id
-    if isinstance(entry.get("uuid"), str) and entry["uuid"]:
-        rebound["forkedFrom"] = origin
+    if entry.get("uuid"):
+        rebound["forkedFrom"] = origin  # pyright: ignore[reportGeneralTypeIssues]  # SessionStoreEntry 只声明 type/uuid/timestamp，transcript 的其余字段按 SDK 约定原样透传，TypedDict 无法声明这类扩展键
     return rebound
 
 
-def _entry_type(entry: dict[str, Any]) -> str:
+# 历史 payload 的 type 不保证是字符串，读取时按 object 看待。
+def _entry_type(entry: Mapping[str, object]) -> str:
     entry_type = entry.get("type")
     return entry_type if isinstance(entry_type, str) else ""
 

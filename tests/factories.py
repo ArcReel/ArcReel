@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import struct
 import subprocess
 import wave
 from collections.abc import Callable
@@ -24,14 +26,22 @@ def make_translator(locale: str = "zh") -> Callable[..., str]:
     return translate
 
 
-def wav_bytes(duration_seconds: float, sample_rate: int = 8000) -> bytes:
-    """纯 stdlib 生成 wav 字节（不依赖 ffmpeg），供不要求真实音频编解码的用例使用。"""
+def wav_bytes(duration_seconds: float, sample_rate: int = 8000, *, tone_hz: float | None = None) -> bytes:
+    """纯 stdlib 生成 wav 字节（不依赖 ffmpeg）：默认静音；给出 ``tone_hz`` 时是该频率的正弦音，供需要听得见的用例使用。"""
+    frames = int(duration_seconds * sample_rate)
+    if tone_hz is None:
+        samples = b"\x00\x00" * frames
+    else:
+        samples = b"".join(
+            struct.pack("<h", round(12000 * math.sin(2 * math.pi * tone_hz * index / sample_rate)))
+            for index in range(frames)
+        )
     buf = BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
-        wf.writeframes(b"\x00\x00" * int(duration_seconds * sample_rate))
+        wf.writeframes(samples)
     return buf.getvalue()
 
 
@@ -75,6 +85,29 @@ def make_test_clip(path: Path, *, size: str, fps: int, seconds: float, tone: boo
         "-pix_fmt",
         "yuv420p",
         "-shortest",
+        str(path),
+    )
+
+
+def make_signal_clip(path: Path) -> None:
+    """用随包 ffmpeg 合成 25 fps、320x180、共 5 秒的带信号素材。
+
+    0–1 s 运动画面，1–2 s 纯黑，2–3 s 另一段运动画面，3–5 s 定格；镜头切换点在 1、2、3 s。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    run_bundled_ffmpeg(
+        "-filter_complex",
+        "testsrc=size=320x180:rate=25:duration=1[moving];"
+        "color=black:size=320x180:rate=25:duration=1[black];"
+        "testsrc2=size=320x180:rate=25:duration=1[other];"
+        "testsrc=size=320x180:rate=25:duration=0.04,loop=loop=49:size=1,setpts=N/25/TB[still];"
+        "[moving][black][other][still]concat=n=4:v=1:a=0[v]",
+        "-map",
+        "[v]",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
         str(path),
     )
 
@@ -155,24 +188,6 @@ def make_session_meta(**overrides) -> SessionMeta:
     return SessionMeta(**defaults)
 
 
-def make_task_params(**overrides) -> dict:
-    """Build a dict of parameters suitable for ``GenerationQueue.enqueue_task()``.
-
-    Any keyword argument overrides the corresponding default.
-    """
-    defaults = {
-        "project_name": "demo",
-        "task_type": "storyboard",
-        "media_type": "image",
-        "resource_id": "E1S01",
-        "payload": {"prompt": "test"},
-        "script_file": "episode_01.json",
-        "source": "webui",
-    }
-    defaults.update(overrides)
-    return defaults
-
-
 def make_sdk_transcript_entry(
     uuid: str, parent: str | None, entry_type: str, session_id: str, text: str
 ) -> dict[str, Any]:
@@ -187,41 +202,6 @@ def make_sdk_transcript_entry(
     }
 
 
-def make_transcript_entry(
-    msg_type: str = "assistant",
-    text: str = "hello",
-    *,
-    uuid: str = "msg-1",
-    tool_use_id: str | None = None,
-    tool_name: str | None = None,
-    **extra,
-) -> dict:
-    """Build a single transcript JSONL entry dict.
-
-    ``msg_type`` is one of ``"user"``, ``"assistant"``, ``"result"``.
-    """
-    if msg_type == "user":
-        content = text
-    elif msg_type == "result":
-        entry: dict = {
-            "type": "result",
-            "subtype": extra.get("subtype", "success"),
-            "is_error": extra.get("is_error", False),
-            "uuid": uuid,
-        }
-        entry.update(extra)
-        return entry
-    else:
-        if tool_use_id:
-            content = [{"type": "tool_use", "id": tool_use_id, "name": tool_name or "Tool", "input": {}}]
-        else:
-            content = [{"type": "text", "text": text}]
-
-    entry = {"type": msg_type, "message": {"content": content}, "uuid": uuid}
-    entry.update(extra)
-    return entry
-
-
 def custom_endpoint_definition(**overrides: Any) -> dict[str, Any]:
     """最小可用的声明式调用端点定义：单张首帧、提交 + 轮询、扁平取值，校验零错误零警告。
 
@@ -229,7 +209,7 @@ def custom_endpoint_definition(**overrides: Any) -> dict[str, Any]:
     """
     definition: dict[str, Any] = {
         "kind": "declarative",
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "meta": {"name": "示例端点", "author": "ArcReel", "version": "0.1.0"},
         "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
         "inputs": {"first_frame": {"source": "start_image", "encoding": "data_uri"}},
@@ -252,6 +232,51 @@ def custom_endpoint_definition(**overrides: Any) -> dict[str, Any]:
         },
         "status_map": {"pending": "queued", "processing": "running", "completed": "succeeded", "failed": "failed"},
         "capabilities": {"first_frame": True},
+    }
+    definition.update(overrides)
+    return definition
+
+
+def image_endpoint_definition(**overrides: Any) -> dict[str, Any]:
+    """最小可用的声明式图片定义：文生图、提交 + 轮询、取图片 URL，校验零错误零警告。
+
+    协议形状取「OpenAI 风格路径 + 异步任务」一类供应商：提交返回 ``data[0].task_id``，轮询读
+    ``data.status``，取图 ``data.result.images[0].url[0]``。用例就地改出反例。
+    """
+    definition: dict[str, Any] = {
+        "kind": "declarative",
+        "schema_version": "1.2.0",
+        "media_type": "image",
+        "meta": {"name": "示例图片端点", "author": "ArcReel", "version": "0.1.0"},
+        "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+        "submit": {
+            "method": "POST",
+            "url": "{{ base_url }}/v1/images/generations",
+            "body": {
+                "model": "{{ model }}",
+                "prompt": "{{ prompt }}",
+                "size": "{{ width }}x{{ height }}",
+                "seed": "{{ seed }}",
+            },
+            "extract": {"task_id": ["$.data[0].task_id"], "error": ["$.error.message"]},
+        },
+        "poll": {
+            "method": "GET",
+            "url": "{{ base_url }}/v1/tasks/{{ task_id }}",
+            "extract": {
+                "status": ["$.data.status"],
+                "image_url": ["$.data.result.images[0].url[0]"],
+                "error": ["$.data.error.message"],
+            },
+        },
+        "status_map": {
+            "pending": "queued",
+            "processing": "running",
+            "completed": "succeeded",
+            "failed": "failed",
+            "cancelled": "failed",
+        },
+        "capabilities": {"text_to_image": True},
     }
     definition.update(overrides)
     return definition

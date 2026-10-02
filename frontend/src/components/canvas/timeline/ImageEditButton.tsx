@@ -164,8 +164,7 @@ export function ImageEditButton({
               }
             }}
             rows={3}
-            // 弹窗打开即聚焦指令输入，符合"点开就写"的心智
-            // eslint-disable-next-line jsx-a11y/no-autofocus
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- 弹窗打开即聚焦指令输入，符合“点开就写”的心智
             autoFocus
             placeholder={t("image_edit_instruction_placeholder")}
             className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"

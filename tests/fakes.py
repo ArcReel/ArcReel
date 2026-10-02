@@ -180,18 +180,23 @@ class FakeTextGenerator:
 
     #: 与 ``TextGenerator.max_output_tokens`` 同名：未登记最大输出长度时的生效上限。
     max_output_tokens = 64000
+    #: 与 ``TextGenerator.model`` 同名：调用方写进元数据的模型名。
+    model = "fake-text"
 
     def __init__(self, *responses: str | BaseException):
         self._responses = list(responses)
         self.requests: list[Any] = []
+        #: 每次调用传入的 ``require_complete``，与 ``requests`` 一一对应。
+        self.require_complete: list[bool] = []
 
     async def create(self, _task_type: object, _project_name: str | None = None, **_kwargs: Any) -> FakeTextGenerator:
         return self
 
-    async def generate(self, request: Any, project_name: str | None = None) -> Any:
+    async def generate(self, request: Any, project_name: str | None = None, *, require_complete: bool = False) -> Any:
         from lib.backends.text_backends.base import TextGenerationResult
 
         self.requests.append(request)
+        self.require_complete.append(require_complete)
         response = self._responses.pop(0)
         if isinstance(response, BaseException):
             raise response
@@ -687,6 +692,19 @@ def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]
 
 
 @contextmanager
+def patched_instructor_from_openai(patched: Any = None, **patch_kwargs: Any) -> Generator[Any]:
+    """在 SDK 边界替换 ``instructor.from_openai``，yield 该替身，供测试断言传给 ``from_openai`` 的参数。
+
+    *patched* 是 ``from_openai`` 返回的 instructor 客户端；省略时返回默认替身。
+    其余关键字参数（``return_value`` / ``side_effect``）原样交给 ``patch``。
+    """
+    with patch("instructor.from_openai", **patch_kwargs) as from_openai:
+        if patched is not None:
+            from_openai.return_value = patched
+        yield from_openai
+
+
+@contextmanager
 def captured_backend_construction() -> Generator[list[dict[str, Any]]]:
     """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。
 
@@ -727,7 +745,7 @@ def captured_backend_construction() -> Generator[list[dict[str, Any]]]:
             table.update(saved[media])
 
 
-class BlockingFileReadGate:
+class _BlockingFileReadGate:
     """把某个路径的同步读挡在闸门后，观测 async 生产路径是否把该读卸载到线程。
 
     读若仍在事件循环线程上跑，循环就停在闸门里，测试协程推进不到 ``release()``，闸门
@@ -773,9 +791,9 @@ def blocking_file_read_gate(
     path: Path,
     *,
     method: str = "read_bytes",
-) -> Generator[BlockingFileReadGate]:
+) -> Generator[_BlockingFileReadGate]:
     """在文件系统边界上给 *path* 的 ``Path.<method>`` 读装一道闸门。"""
-    gate = BlockingFileReadGate(path, method)
+    gate = _BlockingFileReadGate(path, method)
     original = getattr(Path, method)
     target = path.resolve()
 

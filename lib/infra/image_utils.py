@@ -147,11 +147,9 @@ def compress_image_bytes(
     try:
         with _open_oriented(content, target_modes=("RGB",), fallback_mode="RGB") as img:
             img = _fit_long_edge(img, max_long_edge)
-            save_kwargs: dict[str, object] = {"format": "JPEG", "quality": quality, "optimize": True}
-            if subsampling >= 0:
-                save_kwargs["subsampling"] = subsampling
+            extra: dict[str, int] = {"subsampling": subsampling} if subsampling >= 0 else {}
             out = BytesIO()
-            img.save(out, **save_kwargs)  # pyright: ignore[reportArgumentType]
+            img.save(out, format="JPEG", quality=quality, optimize=True, **extra)
             return out.getvalue()
     except Exception as e:
         raise ValueError("Invalid image") from e

@@ -21,14 +21,19 @@ from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, 
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ledger import (
-    SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
-    mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
 )
 from lib.episode.episode_paths import episode_source_relpath
-from lib.episode.episode_sources import legacy_cut_episode_ids, unplanned_text_remains, whole_source_files
+from lib.episode.episode_replan import replan_candidate
+from lib.episode.episode_sources import (
+    legacy_cut_episode_ids,
+    source_fingerprints_diverged,
+    source_remaining,
+    stored_source_remaining,
+    whole_source_files,
+)
 from lib.infra.content_digest import prefixed_canonical_json_digest
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_table, split_derivative_artifact_id
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key
@@ -193,8 +198,9 @@ class WorkflowContent(BaseModel):
     集级字段只在有目标集时有值。``episode_plan_stale`` 表示该集的集规划状态为 stale、
     脚本规划尚待重建：它只在现状里陈述，不进建议的下一步。
 
-    ``episode_complete`` 是目标集已完成（视频齐全且至少有一条剪辑时间线）；``project_complete``
-    只在不指定集的查询里出现：每集都完成、没有待重新规划的集，且整本源文没有剩余。
+    ``episode_complete`` 是目标集已完成（判定见 ``is_episode_complete``）；完成的集仍可能有集内建议的
+    下一步，例如待编写条目或缺资产图。``project_complete`` 只在不指定集的查询里出现：每集都完成、
+    没有待重新规划的集，且整本源文没有剩余。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -254,14 +260,18 @@ class WorkflowStatus(BaseModel):
 
 #: 剪辑时间线目录读不出、或有时间线文件无法解析时记下的 issue 码。
 INVALID_EDIT_TIMELINES_CODE = "invalid_edit_timelines"
-#: 一集完成（视频齐全且至少有一条剪辑时间线）时 ``next_action`` 的理由；此时下一步为 ``none``。
+#: 一集完成且集内没有别的建议动作时 ``next_action`` 的理由；此时下一步为 ``none``。
 EPISODE_COMPLETE_REASON = "episode has an edit timeline"
 #: 查询范围内每一集都完成、源文也已排布完时 ``next_action`` 的理由。
 ALL_EPISODES_COMPLETE_REASON = "every episode has an edit timeline"
 
 
-def episode_complete(status: WorkflowStatus) -> bool:
-    """集状态是否已走到末尾：视频齐全，且该集至少有一条剪辑时间线。"""
+def workflow_finished(status: WorkflowStatus) -> bool:
+    """建议的下一步已走到末尾：集查询里是一集完成且集内没有别的建议动作，项目查询里是全部完成。
+
+    这不是「一集完成」的判定：完成的集仍可能有待编写条目等集内建议，那一集的完成看
+    ``content.episode_complete``。
+    """
 
     return status.next_action.type is WorkflowActionType.NONE and status.next_action.reason in {
         EPISODE_COMPLETE_REASON,
@@ -301,6 +311,16 @@ class ArtifactCount(BaseModel):
         return cls(total=total, available=len(collection["current_ids"]) + stale, stale=stale)
 
 
+def is_episode_complete(videos: ArtifactCount, *, has_edit_timeline: bool) -> bool:
+    """一集完成：视频齐全（可用 = current ∪ stale），且至少有一条剪辑时间线。
+
+    这是「一集完成」唯一的判定，集进度、项目卡、制作状态的 ``episode_complete`` 与跨集选择都用它。
+    分镜图、待编写条目、待重新规划的单元与资产图都不参与，它们只作为集内建议的下一步。
+    """
+
+    return videos.total > 0 and videos.available >= videos.total and has_edit_timeline
+
+
 class EpisodeSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -332,9 +352,9 @@ class ProjectSummary(BaseModel):
     项目元数据、各集脚本、产物清单与剪辑时间线的文件名：源文正文与源文修订号（sha256）不参与，否则列出
     N 个项目就要读 N 份小说。剪辑时间线不解析内容，文件损坏只在制作状态里报 issue。
 
-    代价是「源文是否已全部排布成集」不进入本投影，它只能由源文得出。因此本投影可能报告
-    「已有的集全部完成」，而制作状态的下一步仍是继续分集规划。
-    产物口径本身两处一致：可用与 stale 都取自同一份产物清单。
+    「源文是否还有未规划的原文」只能由源文得出，本投影读取写账本的命令记在 ``project.json`` 里的结论
+    （``source_remaining``），与制作状态的「继续分集规划」同一判定；源文在 ArcReel 之外被改动、账本
+    尚未更新时两处可能短暂不一致。产物口径本身两处一致：可用与 stale 都取自同一份产物清单。
 
     产物判定有两种口径（``ProjectSummaryCurrency``）：``verified`` 逐件与规范状态比对，能
     区分 current 与 stale；``registered`` 只看清单登记与文件在场，产物比对不产生 stale。
@@ -352,6 +372,8 @@ class ProjectSummary(BaseModel):
     assets: dict[str, ArtifactCount]
     episodes_summary: EpisodesSummary
     episodes: list[EpisodeSummary]
+    #: 整本源文还有未规划的原文：已有的集全部完成也不算项目完成，下一步是继续分集规划。
+    source_remaining: bool
 
 
 class EpisodeNextStep(BaseModel):
@@ -369,7 +391,7 @@ class EpisodeNextStep(BaseModel):
 class _SharedWorkflowFacts:
     source: SourceRevisionResult | None
     planning_sources: tuple[SourceDoc, ...]
-    planning_complete: bool
+    source_remaining: bool
     sheets: dict[str, dict[str, Any]]
     episodes: list[tuple[int, dict[str, Any]]]
     currency: ArtifactCurrencyResolver | None
@@ -417,13 +439,6 @@ def planning_docs(project: Mapping[str, Any], source: SourceRevisionResult | Non
     return tuple(docs)
 
 
-def _planning_fingerprints_diverged(project: Mapping[str, Any], sources: tuple[SourceDoc, ...]) -> bool:
-    recorded = project.get(SOURCE_FINGERPRINTS_KEY)
-    if not isinstance(recorded, Mapping) or not recorded:
-        return False
-    return bool(mismatched_source_fingerprints(recorded, list(sources)))
-
-
 def _empty_collection() -> dict[str, list[str]]:
     return {"current_ids": [], "missing_ids": [], "stale_ids": []}
 
@@ -439,19 +454,13 @@ def _episode_production_status(
     *,
     has_edit_timeline: bool,
 ) -> EpisodeProductionStatus:
-    """分镜图与视频一起算：两者都是一集要交的产物，缺任何一件该集都还没做完。
-    产物齐全后还要至少有一条剪辑时间线才算完成（与制作状态的 ``episode_complete`` 同一口径）。
-
-    参考生视频没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
-    """
+    """完成按 ``is_episode_complete`` 判定；分镜图或视频有任何一件可用即为制作中。"""
 
     if script_status != "generated":
         return "draft"
-    available = storyboards.available + videos.available
-    total = storyboards.total + videos.total
-    if total > 0 and available >= total and has_edit_timeline:
+    if is_episode_complete(videos, has_edit_timeline=has_edit_timeline):
         return "completed"
-    if available:
+    if storyboards.available + videos.available:
         return "in_production"
     return "scripted"
 
@@ -625,18 +634,6 @@ class WorkflowStateService:
                 continue
             parsed.append((number, entry))
         return parsed
-
-    @staticmethod
-    def _planning_complete(project: dict[str, Any], planning_sources: tuple[SourceDoc, ...]) -> bool:
-        """判定整本源文是否已全部排布完：由账本推导的规划起点之后没有非空白的原文。
-
-        源文只来自 ``planning_sources``——本次请求已经读过一遍的那份，不再回磁盘取。源文在规划之后
-        被改动时不算排布完，由规划动作转为重置。
-        """
-
-        if not planning_sources or _planning_fingerprints_diverged(project, planning_sources):
-            return False
-        return not unplanned_text_remains(project, list(planning_sources))
 
     def _load_script_artifacts(
         self,
@@ -914,6 +911,7 @@ class WorkflowStateService:
             assets=assets,
             episodes_summary=_episodes_summary(episode_summaries),
             episodes=episode_summaries,
+            source_remaining=stored_source_remaining(project),
         )
 
     def _asset_counts(
@@ -1028,10 +1026,11 @@ class WorkflowStateService:
     ) -> EpisodeScriptStatus:
         """由 script_plan 与正式脚本的产物态派生该集的脚本进度。
 
-        账本标 stale 的集（重新规划后原文范围已失效）回到 none：它的下游要重做。
+        集规划状态为 stale 且脚本规划尚未重建的集（重新规划后原文范围已失效）回到 none：它的
+        下游要重做。判定与顶栏同用 ``_stale_episode_plan``，重建完成后按常规产物态派生。
         """
 
-        if entry.get("ledger_status") == "stale":
+        if project.get("content_mode") != "ad" and self._stale_episode_plan(project_path, project, number, entry)[0]:
             return "none"
         script_file = entry.get("script_file")
         if resolver is not None and isinstance(script_file, str) and script_file:
@@ -1091,6 +1090,7 @@ class WorkflowStateService:
             },
             episodes_summary=_episodes_summary(summaries),
             episodes=summaries,
+            source_remaining=stored_source_remaining(project),
         )
 
     def _shared_facts(self, project_path: Path, project: dict[str, Any]) -> _SharedWorkflowFacts:
@@ -1163,13 +1163,12 @@ class WorkflowStateService:
             )
         source = self._source_revision(project_path, project, str(mode), issues)
         planning_sources = planning_docs(project, source) if mode != "ad" else ()
-        planning_complete = self._planning_complete(project, planning_sources)
         sheets = self._asset_sheets(project_path, project, issues, currency)
         episodes = self._episodes(project, issues)
         return _SharedWorkflowFacts(
             source=source,
             planning_sources=planning_sources,
-            planning_complete=planning_complete,
+            source_remaining=source_remaining(project, list(planning_sources)),
             sheets=sheets,
             episodes=episodes,
             currency=currency,
@@ -1243,11 +1242,11 @@ class WorkflowStateService:
             if status.content is not None and status.content.episode_plan_stale:
                 first_stale = first_stale or status
                 continue
-            if not episode_complete(status):
+            if status.content is None or not status.content.episode_complete:
                 return status
             any_complete = True
         assert first is not None
-        if shared.whole_source and not shared.planning_complete:
+        if shared.source_remaining:
             next_action = self._planning_action(project, shared, "source text remains unplanned")
         elif first_stale is not None:
             reason = "remaining episodes await replanning" if any_complete else "every episode awaits replanning"
@@ -1274,7 +1273,7 @@ class WorkflowStateService:
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "episode ledger lacks source range records",
             )
-        if _planning_fingerprints_diverged(project, shared.planning_sources):
+        if source_fingerprints_diverged(project, list(shared.planning_sources)):
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "source files changed after episode planning",
@@ -1288,7 +1287,7 @@ class WorkflowStateService:
         return WorkflowContent(
             episode_count=len(shared.episodes),
             whole_source="not_applicable" if is_ad else ("present" if shared.whole_source else "absent"),
-            source_remaining=not is_ad and shared.whole_source and not shared.planning_complete,
+            source_remaining=shared.source_remaining,
             ad_inputs=("present" if ad_inputs_present(project) else "absent") if is_ad else "not_applicable",
             products_without_selling_points=(
                 [
@@ -1326,7 +1325,9 @@ class WorkflowStateService:
             content=self._project_content(project, shared),
             operations={
                 WorkflowActionType.PLAN_EPISODES: admit_plan_episodes(
-                    project.get("content_mode"), whole_source=shared.whole_source
+                    project.get("content_mode"),
+                    whole_source=shared.whole_source,
+                    replan_pending=replan_candidate(project) is not None,
                 )
             },
             gates={},
@@ -1558,7 +1559,9 @@ class WorkflowStateService:
         }
         content = self._project_content(project, shared)
         operations: dict[str, OperationAdmission] = {
-            WorkflowActionType.PLAN_EPISODES: admit_plan_episodes(mode, whole_source=shared.whole_source),
+            WorkflowActionType.PLAN_EPISODES: admit_plan_episodes(
+                mode, whole_source=shared.whole_source, replan_pending=replan_candidate(project) is not None
+            ),
         }
 
         def respond(
@@ -1604,11 +1607,6 @@ class WorkflowStateService:
                 artifacts["script_plan"]["state"] = "stale"
             script_plan_state = artifacts["script_plan"]["state"]
             review = script_review.review_status(project_path, project, number)
-            if (
-                entry.get("ledger_status") == "stale"
-                and script_review.stored_review(project, number).get("fingerprint") is None
-            ):
-                review = "pending_review"
             gates["script_plan_review"] = {
                 "state": "confirmed" if review == "confirmed" else "pending",
                 "revision": artifacts["script_plan"].get("revision"),
@@ -1703,6 +1701,11 @@ class WorkflowStateService:
         videos = artifacts["videos"]
         operations[WorkflowActionType.CREATE_EDIT_TIMELINE] = admit_edit_timeline(
             available_videos=len(videos.get("current_ids", [])) + len(videos.get("stale_ids", []))
+        )
+        content.episode_complete = (
+            formal_present
+            and videos.get("state") != "blocked"
+            and is_episode_complete(ArtifactCount.of(videos, total=len(items)), has_edit_timeline=bool(timeline_ids))
         )
 
         operations[WorkflowActionType.PREPARE_SCRIPT_PLAN] = admit_script_plan(mode, episode_source=episode_source)
@@ -1863,7 +1866,6 @@ class WorkflowStateService:
                 target,
                 _action(WorkflowActionType.CREATE_EDIT_TIMELINE, "episode has no edit timeline", args=episode_args),
             )
-        content.episode_complete = True
         return respond(target, _action(WorkflowActionType.NONE, EPISODE_COMPLETE_REASON))
 
     @staticmethod
@@ -1970,8 +1972,9 @@ __all__ = [
     "WorkflowStateService",
     "WorkflowStatus",
     "WorkflowTarget",
-    "episode_complete",
+    "is_episode_complete",
     "migration_blocker",
     "migration_next_action",
     "planning_docs",
+    "workflow_finished",
 ]

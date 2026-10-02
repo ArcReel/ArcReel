@@ -15,7 +15,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.config.resolver import ConfigResolver
-from lib.episode.episode_ids import default_episode_title
+from lib.episode.episode_ids import episode_title
 from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
 from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.async_thread import run_sync_transaction
@@ -783,7 +783,7 @@ async def _open_drama_script_plan_for_edit(
         QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
         source,
         _drama_script_plan_draft_shape,
-        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path.relative_to(project_path).as_posix()} 不存在、不是合法 JSON，"
         "或 scenes 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
@@ -983,7 +983,7 @@ async def _open_narration_script_plan_for_edit(
         QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
         source,
         _narration_script_plan_draft_shape,
-        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path.relative_to(project_path).as_posix()} 不存在、不是合法 JSON，"
         "或 segments 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
@@ -1089,7 +1089,7 @@ async def _open_reference_script_plan_for_edit(
         QUARANTINE_KIND_SCRIPT_PLAN,
         source,
         _reference_script_plan_draft_shape,
-        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path.relative_to(project_path).as_posix()} 不存在、不是合法 JSON，"
         "或 units 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
@@ -1214,8 +1214,7 @@ class DraftWorkflow:
             episode,
             resolved,
             content={
-                "title": script.get("title")
-                or default_episode_title(self.ctx.pm.load_project(self.ctx.project_name), episode),
+                "title": script.get("title") or episode_title(self.ctx.pm.load_project(self.ctx.project_name), episode),
                 "units": [{"text": unit.get("text", "")} for unit in units if isinstance(unit, dict)],
             },
             violations=[],

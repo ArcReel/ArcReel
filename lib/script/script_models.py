@@ -279,7 +279,7 @@ class NovelInfo(BaseModel):
     """小说来源信息
 
     title/chapter 都带 default,以便 SkipJsonSchema[NovelInfo] 的 default_factory=NovelInfo 构造。
-    真实值由 ``ScriptGenerator._add_metadata`` setdefault 注入(项目 title + ``f"第N集"``);
+    真实值由 ``ScriptGenerator._add_metadata`` setdefault 注入(项目 title + 分集账本标题,账本标题为空时留空);
     LLM 不再被引导填写,避免虚构章节名污染下游消费方。
     """
 
@@ -307,7 +307,7 @@ class NarrationEpisodeScript(BaseModel):
     title: str = Field(description="剧集标题")
     # content_mode 由 _add_metadata setdefault 注入项目级真值;Literal 单值让 LLM 写无意义
     content_mode: SkipJsonSchema[Literal["narration"]] = Field(default="narration", description="创作类型")
-    # novel 由 _add_metadata 注入 {项目 title, f"第N集"};LLM 自由发挥反而不可预测
+    # novel 由 _add_metadata 注入 {项目 title, 分集账本标题};LLM 自由发挥反而不可预测
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     # hook / next_episode_teaser 由 _add_metadata 从分集账本注入（账本是钩子设计的
     # 单一真相源，LLM 不参与填写）；账本无规划数据时为 null。
@@ -324,6 +324,8 @@ class NarrationEpisodeScript(BaseModel):
 
 
 NewAssetType = Literal["character", "scene", "prop"]
+#: 脚本规划顶层承载本集新增资产清单（``list[PlanNewAsset]``）的字段名。
+NEW_ASSETS_FIELD = "new_assets"
 NewAssetDecision = Literal["register", "merge", "derivative", "skip"]
 
 
@@ -649,7 +651,7 @@ class DramaSceneVisual(BaseModel):
 class DramaVisualScript(BaseModel):
     """prompt_authoring 视觉层剧本：各分镜视觉字段（按 scene_id 与 script_plan 内容对齐）。
 
-    顶层不走 ``extra="forbid"`` 同 ``DramaNormalizedScript``。``title`` 可选，最终标题取自 script_plan 内容。
+    顶层不走 ``extra="forbid"`` 同 ``DramaNormalizedScript``。``title`` 可选、不采用，集标题取分集账本。
     """
 
     title: str = Field(default="", description="剧集标题（可选，最终以 script_plan 内容为准）")
@@ -1021,6 +1023,9 @@ class AdReferenceFlatScript(BaseModel):
 
     title: str = Field(description="短片标题")
     units: list[AdReferenceFlatUnit] = Field(min_length=1, description="按播放顺序排列的视频单元")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本片引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
 
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
@@ -1123,6 +1128,18 @@ def _ad_episode_model(duration_type: object, description: str) -> type[BaseModel
         "AdEpisodeScript",
         __base__=AdEpisodeScript,
         shots=(list[shot], Field(description="分镜列表")),
+    )
+
+
+def with_new_assets_field(model: type[BaseModel]) -> type[BaseModel]:
+    """给整份生成的 ``response_schema`` 加上本次新增资产；落盘的剧本模型不带这个字段。"""
+    return create_model(
+        model.__name__,
+        __base__=model,
+        new_assets=(
+            list[PlanNewAsset],
+            Field(default_factory=list, description="本片引用的、尚未登记的角色 / 场景 / 道具及其处理决定"),
+        ),
     )
 
 

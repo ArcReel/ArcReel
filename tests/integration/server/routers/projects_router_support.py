@@ -6,6 +6,7 @@ import shutil
 from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,6 +14,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from lib.backends.providers import CallStatus
+from lib.backends.text_backends.base import TextOutputTruncatedError
+from lib.db.models.api_call import ApiCall
+from lib.db.repositories.session_repo import SessionRepository
+from lib.db.repositories.task_repo import TaskRepository
 from lib.project.project_manager import EmptySourceError
 from lib.script.script_batch_edit import (
     InsertAfterOperation,
@@ -90,6 +96,7 @@ class _FakePM:
         (self.base / "no-provider").mkdir(parents=True, exist_ok=True)
         (self.base / "corrupted").mkdir(parents=True, exist_ok=True)
         (self.base / "bad-schema").mkdir(parents=True, exist_ok=True)
+        (self.base / "truncated").mkdir(parents=True, exist_ok=True)
         # 上传后概览生成失败的软降级路径：项目存在，但 generate_overview 抛带路径异常
         (self.base / "leaky").mkdir(parents=True, exist_ok=True)
 
@@ -273,6 +280,11 @@ class _FakePM:
             # 模拟供应商解析链路内部重新 load_project 时命中损坏的 project.json：
             # JSONDecodeError 是 ValueError 子类，不该被误判为「未配置供应商」
             json.loads("{not valid json")
+        if name == "truncated":
+            # 模拟文本模型的输出被最大输出长度截断（TextGenerator 补齐 provider_id / custom_model 后抛出）
+            raise TextOutputTruncatedError(
+                provider="openai", model="my-llm", output_tokens=64, provider_id="custom-3", custom_model=True
+            )
         if name == "bad-schema":
             # 模拟模型输出未通过 schema 校验：pydantic ValidationError 同样是 ValueError 子类，
             # 不该被误判为「未配置供应商」
@@ -436,11 +448,15 @@ class _FakeSummaries:
                     videos=ArtifactCount(total=1, available=0, stale=0),
                 )
             ],
+            source_remaining=False,
         )
 
 
-def build_projects_client(monkeypatch, fake_pm, fake_summaries=None):
+def build_projects_client(monkeypatch, fake_pm, fake_summaries=None, *, session_factory=None):
+    """``session_factory`` 给出时，路由经它开数据库会话（默认是生产的 ``async_session_factory``）。"""
     monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
+    if session_factory is not None:
+        monkeypatch.setattr(projects, "async_session_factory", session_factory)
 
     app = FastAPI()
     app.dependency_overrides[projects.get_workflow_state_service] = lambda: fake_summaries or _FakeSummaries()
@@ -457,3 +473,32 @@ def build_projects_client(monkeypatch, fake_pm, fake_summaries=None):
 def override(client: TestClient, dependency: Callable[..., Any], provider: Callable[..., Any]) -> None:
     """给 ``build_projects_client`` 建好的 app 补挂依赖覆盖（``TestClient.app`` 的静态类型只是裸 ASGI 可调用）。"""
     cast(FastAPI, client.app).dependency_overrides[dependency] = provider
+
+
+async def seed_project_records(db_factory) -> dict[str, str]:
+    """给项目 demo 留下排队中与执行中的任务各一个、一条有费用的调用记录和一个助手会话，返回两个任务的 id。"""
+    async with db_factory() as session:
+        repo = TaskRepository(session)
+        queued = await repo.enqueue(
+            project_name="demo", task_type="storyboard", media_type="image", resource_id="E1S01"
+        )
+        running = await repo.enqueue(project_name="demo", task_type="video", media_type="video", resource_id="E1S02")
+        claimed = await repo.claim_next("video")
+        assert (claimed or {})["task_id"] == running["task_id"]
+        session.add(
+            ApiCall(
+                project_name="demo",
+                call_type="video",
+                model="veo",
+                provider="gemini",
+                status=CallStatus.SUCCESS,
+                started_at=datetime(2026, 3, 1, 12, 0, tzinfo=UTC),
+                cost_amount=1.5,
+                currency="USD",
+                segment_id="E1S02",
+                task_id=running["task_id"],
+            )
+        )
+        await session.commit()
+        await SessionRepository(session).create("demo", "sdk-old-demo", title="旧会话")
+    return {"queued": queued["task_id"], "running": running["task_id"]}

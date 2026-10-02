@@ -1,4 +1,5 @@
 import json
+import shutil
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -118,6 +119,24 @@ class TestProjectManager:
 
         assert overview["genre"] == "悬疑"
         assert captured["purpose"] is CallPurpose.PROJECT_OVERVIEW
+
+    def test_delete_continues_after_a_concurrent_cleanup_removed_an_empty_subdirectory(self, tmp_path, monkeypatch):
+        """删除中途并发的残余目录清理先删掉了一个空目录：rmtree 报目录不存在，但项目目录还在，要接着删净。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        real_rmtree = shutil.rmtree
+        raced: list[Path] = []
+
+        def _rmtree_raced_by_cleanup(path):
+            if not raced:
+                raced.append(path)
+                raise FileNotFoundError(path / "videos")
+            real_rmtree(path)
+
+        monkeypatch.setattr(shutil, "rmtree", _rmtree_raced_by_cleanup)
+        pm.delete_project_directory("demo")
+        assert raced == [project_dir]
+        assert not project_dir.exists()
 
     def test_filesystem_script_binding_forgets_unbound_resource_claims(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

@@ -5,201 +5,37 @@ from __future__ import annotations
 import json
 import shutil
 import zipfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+from pyJianYingDraft import TransitionType as JianyingTransition
 
 from lib.artifacts.artifact_activation import reconcile_artifact_target_claims
 from lib.artifacts.artifact_manifest import (
-    ArtifactBasisDescriptor,
     ArtifactKey,
-    ArtifactManifest,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
-    compose_video_artifact_basis,
 )
-from lib.artifacts.version_manager import VersionManager
-from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
-from lib.edit_timeline import EditTimelineService, RevisionAuthor
-from lib.edit_timeline.model import BgmClip, ClipTrim, EditTimelineContent, TimelineRevision
-from lib.edit_timeline.operations import SetReason, SetTransition, SetVolume, TransitionSpec
+from lib.bgm.service import BgmLibraryService
+from lib.edit_timeline import EditTimelineService
+from lib.edit_timeline.model import BgmClip, EditTimelineContent
+from lib.edit_timeline.operations import InsertBgm, SetHold, SetReason, SetTransition, SetVolume, TransitionSpec
 from lib.edit_timeline.store import EditTimelineStore
 from lib.jianying_draft.errors import JianyingDraftError
-from lib.project.project_manager import ProjectManager
-from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, canonical_narration_text
-from lib.speech.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
-from lib.speech.speech_composition import admit_script_unit
 from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
-from tests.factories import make_test_video, wav_bytes
+from tests.factories import wav_bytes
+from tests.integration.server.services.presentation.timeline_render_support import (
+    CREATOR,
+    append_revision,
+    edited_timeline,
+    install_video,
+    narration_segment,
+    setup_project,
+    write_json,
+)
 
-CREATOR = RevisionAuthor(kind="creator", user_id="u1")
-SETTINGS = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
 PLACEHOLDER = "{{ARCREEL_JIANYING_ASSETS}}/"
-
-
-def _write_json(path: Path, value: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-
-
-def _segment(segment_id: str, text: str) -> dict[str, Any]:
-    return {
-        "segment_id": segment_id,
-        "duration_seconds": 4,
-        "novel_text": text,
-        "video_prompt": {"action": "Clouds move", "camera_motion": "Static"},
-        "generated_assets": {
-            "storyboard_image": f"storyboards/scene_{segment_id}.png",
-            "video_clip": f"videos/scene_{segment_id}.mp4",
-            "narration_audio": f"audio/segment_{segment_id}.wav",
-        },
-    }
-
-
-def _install_video(project_path: Path, item: dict[str, Any], seconds: float) -> None:
-    segment_id = item["segment_id"]
-    storyboard = project_path / "storyboards" / f"scene_{segment_id}.png"
-    storyboard.parent.mkdir(parents=True, exist_ok=True)
-    storyboard.write_bytes(f"storyboard-{segment_id}".encode())
-    video = project_path / "videos" / f"scene_{segment_id}.mp4"
-    make_test_video(video, duration_sec=seconds, fps=10)
-    preparation = admit_script_unit("segments", item).preparation
-    visual = build_storyboard_video_artifact_visual_basis(
-        resource_id=segment_id,
-        visual_prompt=item["video_prompt"],
-        storyboard_image=storyboard,
-        end_frame_image=None,
-        aspect_ratio="9:16",
-    )
-    speech = build_video_speech_basis(preparation)
-    duration = build_video_duration_basis(4)
-    currency = VideoArtifactCurrencyFacts(
-        episode=1,
-        request_duration_seconds=4,
-        visual_basis=visual,
-        speech_basis=speech,
-        duration_basis=duration,
-        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
-        voice_style_speakers=(),
-        duration_tiers=(4, 8),
-        reference_image_limit=None,
-        parent_version=0,
-    )
-    VersionManager(project_path).add_version(
-        "videos",
-        segment_id,
-        "video",
-        source_file=video,
-        execution_checkpoint_schema_version=3,
-        execution_script_file="episode_1.json",
-        execution_duration_seconds=4,
-        execution_request_digest="d" * 64,
-        execution_provider_media=[],
-        execution_generate_audio=True,
-        artifact_video_currency=currency.to_dict(),
-    )
-    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
-        ArtifactKey.episode_video(1, segment_id),
-        artifact_path=f"videos/scene_{segment_id}.mp4",
-        basis=currency.video_basis,
-    )
-
-
-def _install_narration(project_path: Path, item: dict[str, Any], seconds: float) -> None:
-    segment_id = item["segment_id"]
-    audio = project_path / "audio" / f"segment_{segment_id}.wav"
-    audio.parent.mkdir(parents=True, exist_ok=True)
-    audio.write_bytes(wav_bytes(seconds))
-    preparation = admit_script_unit("segments", item).preparation
-    audio_basis = build_narration_audio_basis(preparation, SETTINGS)
-    VersionManager(project_path).add_version(
-        "audio",
-        segment_id,
-        canonical_narration_text(preparation),
-        source_file=audio,
-        execution_script_file="episode_1.json",
-        artifact_episode=1,
-        artifact_audio_basis=ArtifactBasisDescriptor.from_basis(audio_basis).to_dict(),
-        tts_basis_digest=audio_basis.digest,
-        tts_actual_duration_seconds=seconds,
-        tts_provider_id=SETTINGS.provider_id,
-        tts_model_id=SETTINGS.model_id,
-        tts_voice=SETTINGS.voice,
-        tts_speed=SETTINGS.speed,
-    )
-    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
-        ArtifactKey.episode_audio(1, segment_id),
-        artifact_path=f"audio/segment_{segment_id}.wav",
-        basis=audio_basis,
-    )
-
-
-def _setup_project(tmp_path: Path, *, narration_delivery: str = "use_tts") -> tuple[ProjectManager, Path]:
-    """两个画外音分镜：S01 视频 2 秒、带 1.2 秒旁白配音，S02 视频 1.5 秒、没有旁白配音。"""
-    project_path = tmp_path / "projects" / "demo"
-    first, second = _segment("E1S01", "旁白一句"), _segment("E1S02", "第二段")
-    _write_json(
-        project_path / "project.json",
-        {
-            "title": "Demo",
-            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
-            "content_mode": "narration",
-            "generation_mode": "storyboard",
-            "grid_storyboard": False,
-            "aspect_ratio": "9:16",
-            "default_duration": 4,
-            "characters": {},
-            "narration_delivery": narration_delivery,
-            "audio_backend": "openai/tts-1",
-            "narration_voice": "alloy",
-            "narration_speed": 1.0,
-            "episodes": [{"episode": 1, "title": "One", "script_file": "scripts/episode_1.json"}],
-        },
-    )
-    _write_json(
-        project_path / "scripts" / "episode_1.json",
-        {"episode": 1, "content_mode": "narration", "segments": [first, second]},
-    )
-    _install_video(project_path, first, 2.0)
-    _install_video(project_path, second, 1.5)
-    _install_narration(project_path, first, 1.2)
-    return ProjectManager(tmp_path), project_path
-
-
-def _append_revision(pm: ProjectManager, timeline_id: str, content: EditTimelineContent) -> None:
-    store = EditTimelineStore(pm, "demo")
-    document = store.find(timeline_id)
-    with store.locked_episode(document.episode):
-        latest = document.latest
-        revision = TimelineRevision(
-            number=latest.number + 1,
-            parent=latest.number,
-            author=CREATOR,
-            summary="调整",
-            created_at=datetime.now(UTC).isoformat(),
-            content=content,
-        )
-        store.write(document.model_copy(update={"revisions": (*document.revisions, revision)}))
-
-
-async def _edited_timeline(pm: ProjectManager) -> str:
-    """c1 截取 0.5–1.5 秒（依据版本 1）、原声 0.5、定格 0.5 秒；c2 整段使用、原声取画外音默认值。"""
-    created = await EditTimelineService(pm).create_from_script("demo", episode=1, name="完整版", author=CREATOR)
-    content = EditTimelineStore(pm, "demo").find(created.timeline.id).latest.content
-    first, second = content.clips
-    edited = first.model_copy(
-        update={
-            "trim": ClipTrim(in_us=500_000, out_us=1_500_000, basis_version=1),
-            "source_volume": 0.5,
-            "hold_us": 500_000,
-        }
-    )
-    _append_revision(pm, created.timeline.id, EditTimelineContent(clips=(edited, second)))
-    return created.timeline.id
 
 
 def _draft_content(archive_path: Path) -> dict[str, Any]:
@@ -232,8 +68,8 @@ def _subtitles(content: dict[str, Any]) -> list[tuple[str, int, int, str]]:
 
 
 async def test_with_narration_draft_maps_trim_volume_hold_narration_and_subtitles(tmp_path: Path) -> None:
-    pm, project_path = _setup_project(tmp_path)
-    timeline_id = await _edited_timeline(pm)
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
 
     result = await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="with_narration")
 
@@ -261,9 +97,13 @@ async def test_with_narration_draft_maps_trim_volume_hold_narration_and_subtitle
 
     narration = _track(content, "audio", "旁白")["segments"]
     audios = _materials(content, "audios")
-    assert [_timing(segment) for segment in narration] == [(0, 1_200_000)]
+    # S02 的 2 秒旁白比 1.5 秒的视频长，照常导出，超出时间线末尾的部分截掉，并以警告报出
+    assert [_timing(segment) for segment in narration] == [(0, 1_200_000), (1_500_000, 1_500_000)]
     assert audios[narration[0]["material_id"]]["path"].startswith(PLACEHOLDER)
-    # S01 的字幕跟随旁白；S02 没有旁白配音，按源素材时间保留
+    assert [(issue.code, issue.clip_ids, issue.params) for issue in result.warnings] == [
+        ("narration_overrun", ("c2",), {"cause": "timeline_end", "overflow": 0.5})
+    ]
+    # 字幕跟随旁白，同样截到时间线末尾
     assert _subtitles(content) == [
         ("旁白一句", 0, 1_200_000, "7265596643066516029"),
         ("第二段", 1_500_000, 1_500_000, "7265596643066516029"),
@@ -272,11 +112,64 @@ async def test_with_narration_draft_maps_trim_volume_hold_narration_and_subtitle
     assert all(material["path"].startswith(PLACEHOLDER) for material in [*videos.values(), *audios.values()])
 
 
+async def test_overlapping_narrations_and_subtitles_get_extra_tracks_and_extra_subtitle_tracks_are_raised(
+    tmp_path: Path,
+) -> None:
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+    # 去掉 c1 的定格后 c1 只剩 1 秒，S01 的 1.2 秒旁白压到 c2 从 1 秒起的旁白上。
+    await EditTimelineService(pm).edit(
+        "demo",
+        timeline_id,
+        base_revision=2,
+        summary="去掉定格",
+        operations=[SetHold(op="set_hold", clip="c1", hold=0)],
+        author=CREATOR,
+    )
+
+    result = await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="with_narration")
+
+    content = _draft_content(project_path / result.artifact_path)
+    audios = _materials(content, "audios")
+    assert [
+        (
+            track["name"],
+            [
+                (_timing(segment), audios[segment["material_id"]]["name"].split("_v")[0])
+                for segment in track["segments"]
+            ],
+        )
+        for track in content["tracks"]
+        if track["type"] == "audio"
+    ] == [
+        ("旁白", [((0, 1_200_000), "E1S01")]),
+        ("旁白 2", [((1_000_000, 1_500_000), "E1S02")]),
+    ]
+    texts = _materials(content, "texts")
+    assert [
+        (
+            track["name"],
+            [
+                (json.loads(texts[segment["material_id"]]["content"])["text"], *_timing(segment))
+                for segment in track["segments"]
+            ],
+            [round(segment["clip"]["transform"]["y"], 6) for segment in track["segments"]],
+        )
+        for track in content["tracks"]
+        if track["type"] == "text"
+    ] == [
+        ("字幕", [("旁白一句", 0, 1_200_000)], [-0.75]),
+        # 新增的字幕轨整轨上移 0.2（剪映纵向位置，半个画布高为 1）
+        ("字幕 2", [("第二段", 1_000_000, 1_500_000)], [-0.55]),
+    ]
+    assert {issue.code for issue in result.warnings} == {"narration_overrun"}
+
+
 async def test_without_narration_draft_has_no_narration_track_and_keeps_source_time_subtitles(
     tmp_path: Path,
 ) -> None:
-    pm, project_path = _setup_project(tmp_path)
-    timeline_id = await _edited_timeline(pm)
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
 
     result = await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="without_narration")
 
@@ -287,8 +180,8 @@ async def test_without_narration_draft_has_no_narration_track_and_keeps_source_t
 
 
 async def test_download_substitutes_local_draft_directory_and_jianying_version(tmp_path: Path) -> None:
-    pm, project_path = _setup_project(tmp_path)
-    timeline_id = await _edited_timeline(pm)
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
     service = TimelineJianyingDraftService(pm)
     exported = await service.render("demo", timeline_id, narration="with_narration")
     stored = project_path / exported.artifact_path
@@ -308,7 +201,7 @@ async def test_download_substitutes_local_draft_directory_and_jianying_version(t
                 names = set(archive.namelist())
                 content = json.loads(archive.read(f"{name}/{content_name}"))
             paths = [material["path"] for group in ("videos", "audios") for material in content["materials"][group]]
-            assert len(paths) == 4
+            assert len(paths) == 5
             assert all(path.startswith(assets_dir) for path in paths)
             assert {f"{name}/assets/{path.removeprefix(assets_dir)}" for path in paths} <= names
             assert f"{name}/draft_meta_info.json" in names
@@ -326,8 +219,8 @@ async def _status(service: TimelineJianyingDraftService, timeline_id: str, narra
 
 
 async def test_every_new_revision_makes_the_draft_stale_and_each_export_bumps_its_version(tmp_path: Path) -> None:
-    pm, _project_path = _setup_project(tmp_path)
-    timeline_id = await _edited_timeline(pm)
+    pm, _project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
     service = TimelineJianyingDraftService(pm)
     timelines = EditTimelineService(pm)
 
@@ -367,12 +260,12 @@ async def test_every_new_revision_makes_the_draft_stale_and_each_export_bumps_it
 
 
 async def test_draft_stays_stale_and_claimed_while_a_new_video_has_no_presentation_yet(tmp_path: Path) -> None:
-    pm, project_path = _setup_project(tmp_path)
-    timeline_id = await _edited_timeline(pm)
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
     service = TimelineJianyingDraftService(pm)
     await service.render("demo", timeline_id, narration="with_narration")
 
-    _install_video(project_path, _segment("E1S02", "第二段"), 1.0)
+    install_video(project_path, narration_segment("E1S02", "第二段"), 1.0)
     key = ArtifactKey.episode_jianying_draft(1, timeline_id, "with_narration")
 
     assert reconcile_artifact_target_claims(project_path, [key]) is False
@@ -381,8 +274,8 @@ async def test_draft_stays_stale_and_claimed_while_a_new_video_has_no_presentati
 
 
 async def test_export_is_refused_on_blocking_issues_and_unavailable_narration_variant(tmp_path: Path) -> None:
-    pm, project_path = _setup_project(tmp_path, narration_delivery="post_production")
-    timeline_id = await _edited_timeline(pm)
+    pm, project_path = setup_project(tmp_path, narration_delivery="post_production")
+    timeline_id = await edited_timeline(pm)
     service = TimelineJianyingDraftService(pm)
 
     with pytest.raises(JianyingDraftError) as variant_refused:
@@ -391,8 +284,8 @@ async def test_export_is_refused_on_blocking_issues_and_unavailable_narration_va
 
     script_path = project_path / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["segments"].append(_segment("E1S03", "还没有视频"))
-    _write_json(script_path, script)
+    script["segments"].append(narration_segment("E1S03", "还没有视频"))
+    write_json(script_path, script)
     blocked_id = (
         await EditTimelineService(pm).create_from_script("demo", episode=1, name="新版", author=CREATOR)
     ).timeline.id
@@ -406,49 +299,187 @@ async def test_export_is_refused_on_blocking_issues_and_unavailable_narration_va
     assert not (project_path / "renders" / "episode_1" / blocked_id).exists()
 
 
-async def test_transitions_and_bgm_are_refused_like_the_final_cut(tmp_path: Path) -> None:
-    pm, project_path = _setup_project(tmp_path)
-    timeline_id = await _edited_timeline(pm)
+async def test_missing_narration_audio_blocks_only_the_narrated_draft(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    third = narration_segment("E1S03", "还没有配音")
+    script["segments"].append(third)
+    write_json(script_path, script)
+    install_video(project_path, third, 1.0)
+    timeline_id = (
+        await EditTimelineService(pm).create_from_script("demo", episode=1, name="新版", author=CREATOR)
+    ).timeline.id
     service = TimelineJianyingDraftService(pm)
-    await EditTimelineService(pm).edit(
+
+    with pytest.raises(JianyingDraftError) as blocked:
+        await service.check("demo", timeline_id, narration="with_narration")
+    assert blocked.value.code == "jianying_draft_blocked"
+    assert [(issue["code"], issue["unit_id"]) for issue in blocked.value.params["issues"]] == [
+        ("narration_missing", "E1S03")
+    ]
+
+    result = await service.render("demo", timeline_id, narration="without_narration")
+    assert result.artifact_path.endswith("jianying_draft.without_narration.zip")
+
+
+def _transitions(content: dict[str, Any]) -> list[tuple[int, int, str, int, bool, str]]:
+    """主视频轨上挂了转场的段：(段序号, 段起点, 转场名, 时长, 是否重叠, 效果 ID)。"""
+    transitions = _materials(content, "transitions")
+    rows = []
+    for index, segment in enumerate(_track(content, "video")["segments"]):
+        for ref in segment["extra_material_refs"]:
+            if ref in transitions:
+                material = transitions[ref]
+                rows.append(
+                    (
+                        index,
+                        segment["target_timerange"]["start"],
+                        material["name"],
+                        material["duration"],
+                        material["is_overlap"],
+                        material["effect_id"],
+                    )
+                )
+    return rows
+
+
+async def test_transitions_hang_on_the_last_segment_of_the_previous_clip(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+    service = TimelineJianyingDraftService(pm)
+    editor = EditTimelineService(pm)
+    await editor.edit(
         "demo",
         timeline_id,
         base_revision=2,
         summary="加转场",
         operations=[
-            SetTransition(op="set_transition", clip="c1", transition=TransitionSpec(type="dissolve", duration=0.4))
+            SetTransition(op="set_transition", clip="c1", transition=TransitionSpec(type="push_left", duration=0.4))
         ],
         author=CREATOR,
     )
 
-    with pytest.raises(JianyingDraftError) as transition_refused:
-        await service.render("demo", timeline_id, narration="without_narration")
-    assert transition_refused.value.code == "jianying_draft_content_unsupported"
-    assert transition_refused.value.params == {"clip_ids": ["c1"], "bgm_ids": []}
+    with_hold = await service.render("demo", timeline_id, narration="without_narration")
 
+    # c1 带 0.5 秒定格：转场挂在出点帧静帧这一段（主轨第 2 段）上；草稿总长不变。
+    assert with_hold.duration == 3.0
+    content = _draft_content(project_path / with_hold.artifact_path)
+    assert _transitions(content) == [(1, 1_000_000, "向左", 400_000, False, JianyingTransition.向左.value.effect_id)]
+
+    await editor.edit(
+        "demo",
+        timeline_id,
+        base_revision=3,
+        summary="去掉定格，改为叠化",
+        operations=[
+            SetHold(op="set_hold", clip="c1", hold=0),
+            SetTransition(op="set_transition", clip="c1", transition=TransitionSpec(type="dissolve", duration=0.6)),
+        ],
+        author=CREATOR,
+    )
+
+    without_hold = await service.render("demo", timeline_id, narration="without_narration")
+
+    content = _draft_content(project_path / without_hold.artifact_path)
+    assert _transitions(content) == [(0, 0, "叠化", 600_000, True, JianyingTransition.叠化.value.effect_id)]
+    assert [_timing(segment) for segment in _track(content, "video")["segments"]] == [
+        (0, 1_000_000),
+        (1_000_000, 1_500_000),
+    ]
+
+
+async def test_bgm_track_maps_placement_trim_gain_volume_and_fades_and_cuts_at_the_timeline_end(
+    tmp_path: Path,
+) -> None:
+    pm, project_path = setup_project(tmp_path)
+    track = await BgmLibraryService(pm).upload("demo", filename="主题曲.wav", content=wav_bytes(2.0, tone_hz=330))
+    timeline_id = await edited_timeline(pm)
+    revision = EditTimelineStore(pm, "demo").find(timeline_id).latest.number
+    # 时间线 3 秒：b1 截取 BGM 的 0.2–1.2 秒放在开头；b2 从 1.5 秒起放整首 2 秒，越过末尾，截到 1.5 秒。
+    await EditTimelineService(pm).edit(
+        "demo",
+        timeline_id,
+        base_revision=revision,
+        summary="加 BGM",
+        operations=[
+            InsertBgm(
+                op="insert_bgm",
+                bgm_id=track.id,
+                start=0,
+                source_in=0.2,
+                source_out=1.2,
+                volume=0.5,
+                fade_in=0.3,
+                fade_out=0.2,
+            ),
+            InsertBgm(op="insert_bgm", bgm_id=track.id, start=1.5, fade_in=0.5),
+        ],
+        author=CREATOR,
+    )
+
+    result = await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="without_narration")
+
+    assert result.duration == 3.0
+    content = _draft_content(project_path / result.artifact_path)
+    segments = _track(content, "audio", "BGM")["segments"]
+    audios = _materials(content, "audios")
+    fades = _materials(content, "audio_fades")
+    assert [
+        (
+            _timing(segment),
+            (segment["source_timerange"]["start"], segment["source_timerange"]["duration"]),
+            segment["volume"],
+            audios[segment["material_id"]]["path"],
+        )
+        for segment in segments
+    ] == [
+        (
+            (0, 1_000_000),
+            (200_000, 1_000_000),
+            pytest.approx(0.5 * track.gain),
+            f"{PLACEHOLDER}{Path(track.file).name}",
+        ),
+        (
+            (1_500_000, 1_500_000),
+            (0, 1_500_000),
+            pytest.approx(0.25 * track.gain),
+            f"{PLACEHOLDER}{Path(track.file).name}",
+        ),
+    ]
+    # 截断处固定淡出 1 秒，盖过片段自带的淡出
+    assert [
+        next(
+            (fades[ref]["fade_in_duration"], fades[ref]["fade_out_duration"])
+            for ref in segment["extra_material_refs"]
+            if ref in fades
+        )
+        for segment in segments
+    ] == [(300_000, 200_000), (500_000, 1_000_000)]
+
+
+async def test_a_bgm_missing_from_the_project_blocks_the_draft(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
     store = EditTimelineStore(pm, "demo")
     document = store.find(timeline_id)
-    content = document.latest.content
-    hard_cut = content.model_copy(
-        update={
-            "clips": tuple(clip.model_copy(update={"transition_to_next": None}) for clip in content.clips),
-            "bgm": (BgmClip(id="b1", bgm_id="theme", start_us=0, in_us=0, out_us=1_000_000),),
-        }
+    content = document.latest.content.model_copy(
+        update={"bgm": (BgmClip(id="b1", bgm_id="bgm-0000abcd", start_us=0, in_us=0, out_us=1_000_000),)}
     )
     with store.locked_episode(document.episode):
         store.write(document.model_copy(update={"next_bgm_number": 2}))
-    _append_revision(pm, timeline_id, hard_cut)
+    append_revision(pm, timeline_id, content)
 
-    with pytest.raises(JianyingDraftError) as bgm_refused:
-        await service.check("demo", timeline_id, narration="without_narration")
-    assert bgm_refused.value.params == {"clip_ids": [], "bgm_ids": ["b1"]}
+    with pytest.raises(JianyingDraftError) as refused:
+        await TimelineJianyingDraftService(pm).check("demo", timeline_id, narration="without_narration")
+    assert refused.value.code == "jianying_draft_blocked"
     assert not (project_path / "renders" / "episode_1" / timeline_id).exists()
 
 
 async def test_edit_timeline_without_clips_is_refused_like_the_final_cut(tmp_path: Path) -> None:
-    pm, project_path = _setup_project(tmp_path)
-    timeline_id = await _edited_timeline(pm)
-    _append_revision(pm, timeline_id, EditTimelineContent())
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+    append_revision(pm, timeline_id, EditTimelineContent())
 
     with pytest.raises(JianyingDraftError) as refused:
         await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="without_narration")
@@ -463,8 +494,8 @@ async def test_edit_timeline_without_clips_is_refused_like_the_final_cut(tmp_pat
 async def test_omitted_narration_version_follows_the_project_narration_delivery(
     tmp_path: Path, narration_delivery: str, expected: str
 ) -> None:
-    pm, _project_path = _setup_project(tmp_path, narration_delivery=narration_delivery)
-    timeline_id = await _edited_timeline(pm)
+    pm, _project_path = setup_project(tmp_path, narration_delivery=narration_delivery)
+    timeline_id = await edited_timeline(pm)
     service = TimelineJianyingDraftService(pm)
 
     check = await service.check("demo", timeline_id)

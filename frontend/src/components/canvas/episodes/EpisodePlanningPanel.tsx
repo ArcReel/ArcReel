@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "wouter";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
 import { prefillAssistant } from "@/components/shared/DraftStatus";
+import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { StepActButton } from "@/components/workflow/StepActButton";
 import type { StepAct } from "@/components/workflow/step-list";
@@ -18,7 +18,6 @@ import { errMsg } from "@/utils/async";
 import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
 
 import {
-  customModelSettingsPath,
   lastPlanningFailure,
   remainingUnits,
   wholeSourceStats,
@@ -39,7 +38,6 @@ interface Props {
  */
 export function EpisodePlanningPanel({ projectName, view, active }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
-  const [, setLocation] = useLocation();
   const [instruction, setInstruction] = useState(() => lastInstruction(projectName));
   const [submitting, setSubmitting] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
@@ -187,7 +185,7 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
           ? t("dashboard:episode_planning_continue_detail", { volume: formatVolume(t, remaining, view.unit) })
           : t("dashboard:guide_plan_detail")}
       </p>
-      {failure ? <FailureNote failure={failure} onNavigate={setLocation} /> : null}
+      {failure ? <FailureNote failure={failure} /> : null}
       <label className="block">
         <span className="mb-0.5 block text-[11px] text-text-3">{t("dashboard:guide_instruction_label")}</span>
         <input
@@ -210,22 +208,15 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
   );
 }
 
-function FailureNote({ failure, onNavigate }: { failure: PlanningFailure; onNavigate: (to: string) => void }) {
+function FailureNote({ failure }: { failure: PlanningFailure }) {
   const { t } = useTranslation("dashboard");
-  const truncated = failure.truncated;
-  const settingsPath = truncated?.custom ? customModelSettingsPath(truncated.providerId, truncated.model) : null;
   return (
     <div role="alert" className="space-y-1.5 rounded-md p-2 text-[11.5px] leading-[1.6]" style={{ background: "var(--color-warm-soft)" }}>
       <p className="m-0 flex gap-1.5 text-text-2">
         <AlertTriangle aria-hidden className="mt-[3px] h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warm)" }} />
         <span>{t("episode_planning_failed", { reason: failure.message })}</span>
       </p>
-      {truncated && !truncated.custom ? <p className="m-0 text-text-3">{t("episode_planning_switch_model")}</p> : null}
-      {settingsPath ? (
-        <button type="button" className={GHOST_BTN_CLS} onClick={() => onNavigate(`~${settingsPath}`)}>
-          {t("episode_planning_register_output_limit")}
-        </button>
-      ) : null}
+      {failure.truncated ? <OutputTruncationHint truncation={failure.truncated} /> : null}
     </div>
   );
 }

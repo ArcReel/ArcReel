@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from pydantic import BaseModel
 from xai_sdk import chat as xai_chat
 
 from lib.backends.grok_shared import create_grok_client, grok_should_retry
@@ -18,6 +19,9 @@ from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
+
+# xai_sdk 的 Response.finish_reason 返回 FinishReason 枚举名；"length" 留给按 OpenAI 兼容形态返回的响应
+_TRUNCATION_REASONS = ("length", "REASON_MAX_LEN", "REASON_MAX_CONTEXT")
 
 DEFAULT_MODEL = "grok-4-1-fast-reasoning"
 
@@ -51,6 +55,9 @@ class GrokTextBackend:
         chat_kwargs: dict = {"model": self._model}
         if request.max_output_tokens is not None:
             chat_kwargs["max_tokens"] = request.max_output_tokens
+        response_model = _response_model(request.response_schema) if request.response_schema else None
+        if response_model is not None:
+            chat_kwargs["response_format"] = response_model
         chat = self._client.chat.create(**chat_kwargs)
 
         # System prompt
@@ -88,19 +95,10 @@ class GrokTextBackend:
             ),
         )
 
-        # Structured output or plain
-        if request.response_schema:
-            if isinstance(request.response_schema, type):
-                DynamicModel = request.response_schema
-            else:
-                from lib.backends.text_backends.base import resolve_schema
-
-                DynamicModel = _schema_to_pydantic(resolve_schema(request.response_schema))
-            response, parsed = await chat.parse(DynamicModel)
-            text = response.content if hasattr(response, "content") else parsed.model_dump_json()
-        else:
-            response = await chat.sample()
-            text = response.content if hasattr(response, "content") else str(response)
+        # 结构化输出也走 sample()，先判截断、再自行校验：chat.parse() 在 SDK 内部直接 model_validate_json，
+        # 截断的 JSON 会先抛 pydantic ValidationError，截断判定就执行不到。
+        response = await chat.sample()
+        text = response.content if hasattr(response, "content") else str(response)
 
         # Try to extract token usage from the response
         input_tokens = None
@@ -115,21 +113,33 @@ class GrokTextBackend:
             choices = getattr(response, "choices", None) or []
             if choices:
                 finish_reason = getattr(choices[0], "finish_reason", None)
-        check_truncation(
+        truncated = check_truncation(
             finish_reason,
             provider=PROVIDER_GROK,
             model=self._model,
             output_tokens=output_tokens,
             structured=bool(request.response_schema),
+            truncation_values=_TRUNCATION_REASONS,
         )
+        if response_model is not None:
+            response_model.model_validate_json(text)
 
         return TextGenerationResult(
-            text=text.strip() if isinstance(text, str) else str(text),
+            text=text.strip(),
             provider=PROVIDER_GROK,
             model=self._model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            truncated=truncated,
         )
+
+
+def _response_model(response_schema: dict | type) -> type[BaseModel]:
+    if isinstance(response_schema, type):
+        return response_schema
+    from lib.backends.text_backends.base import resolve_schema
+
+    return _schema_to_pydantic(resolve_schema(response_schema))
 
 
 def _schema_to_pydantic(schema: dict):

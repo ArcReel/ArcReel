@@ -6,7 +6,7 @@ import {
   WORKSPACE_ROUTE_SCENES,
 } from "@/app-routes";
 import type { ProjectData, TaskItem, WorkspaceNotificationTarget } from "@/types";
-import { itemIdsInEpisodeText, episodeItemLabel } from "@/utils/episode-display";
+import { episodeDisplayName, episodeItemLabel, itemIdsInEpisodeText } from "@/utils/episode-display";
 
 /**
  * 由失败任务构建可点击回跳的通知 target，以及人类可读的失败文案。
@@ -38,7 +38,7 @@ export function assetNotificationTarget(
 }
 
 const FAILURE_TEXT_KEYS: Partial<
-  Record<TaskItem["task_type"], { key: string; idParam: "id" | "unitId" }>
+  Record<TaskItem["task_type"], { key: string; idParam: "id" | "unitId" | "episode" }>
 > = {
   storyboard: { key: "storyboard_task_failed", idParam: "id" },
   video: { key: "video_task_failed", idParam: "id" },
@@ -49,7 +49,25 @@ const FAILURE_TEXT_KEYS: Partial<
   grid: { key: "grid_task_failed", idParam: "id" },
   reference_video: { key: "reference_generation_task_failed", idParam: "unitId" },
   image_edit: { key: "image_edit_task_failed", idParam: "id" },
+  text_drama_script_plan: { key: "script_plan_task_failed", idParam: "episode" },
+  text_narration_script_plan: { key: "script_plan_task_failed", idParam: "episode" },
+  text_reference_script_plan: { key: "script_plan_task_failed", idParam: "episode" },
 };
+
+/** 集级任务的 resource_id 形如 `episode-3`，失败文案按集名指称。 */
+const EPISODE_RESOURCE_ID = /^episode-(\d+)$/;
+
+function failureTarget(
+  idParam: "id" | "unitId" | "episode",
+  task: TaskItem,
+  projectData: ProjectData | null,
+  t: TFunction,
+): string {
+  const episodes = projectData?.episodes ?? [];
+  if (idParam !== "episode") return episodeItemLabel(task.resource_id, episodes, t);
+  const match = EPISODE_RESOURCE_ID.exec(task.resource_id);
+  return match ? episodeDisplayName(episodes, Number(match[1]), t) : task.resource_id;
+}
 
 /**
  * 归一化 script_file：episode 元数据固定带 `scripts/` 前缀，任务行与 grid 记录
@@ -169,7 +187,7 @@ export function describeTaskFailure(
   const reason = task.error_message ?? t("reference_status_failed");
   const config = FAILURE_TEXT_KEYS[task.task_type];
   if (!config) return null;
-  const target = episodeItemLabel(task.resource_id, projectData?.episodes ?? [], t);
+  const target = failureTarget(config.idParam, task, projectData, t);
   const message = t(config.key, { [config.idParam]: target, reason });
   const providerReason = providerReasonOf(task);
   if (!providerReason) return message;

@@ -385,6 +385,8 @@ def test_project_without_registered_narration_audio_becomes_post_production(tmp_
         "whole_source_files": [{"source_file": "source/1-7-0227.txt"}],
         "narration_delivery": "post_production",
         EPISODE_ID_HIGH_WATER_KEY: 1,
+        # 整本源文还没有切出集
+        "source_remaining": True,
         "schema_version": 16,
     }
 
@@ -653,6 +655,16 @@ def test_high_water_covers_records_left_after_the_media_was_deleted(tmp_path: Pa
     assert allocate_episode_ids(project, 1) == [42]
 
 
+def test_high_water_ignores_asset_names_that_look_like_item_ids(tmp_path: Path) -> None:
+    project_dir = write_legacy_episode_id_remnants_project(tmp_path / "projects", asset_named_like_an_item=True)
+
+    migrate_project_dir(project_dir)
+
+    project = ProjectManager.for_project_dir(project_dir).load_project(project_dir.name)
+    assert project[EPISODE_ID_HIGH_WATER_KEY] == 8
+    assert allocate_episode_ids(project, 1) == [9]
+
+
 def test_script_plans_stale_only_by_the_next_episode_outline_stay_current(tmp_path: Path) -> None:
     """下集大纲改为「没有规划数据时给标题」：只因此变了依据的脚本规划登记随升级改写，仍是时新。"""
 
@@ -762,6 +774,9 @@ def test_episode_file_without_a_ledger_entry_becomes_an_own_source_episode(tmp_p
     assert status.content.episode_source == "present"
     assert status.content.source_remaining is True
     assert status.operations["prepare_script_plan"].state == "admitted"
+    # 项目列表不读源文，读迁移记下的结论：与制作状态一致，已有的集全部完成也不算项目完成
+    assert project["source_remaining"] is True
+    assert WorkflowStateService(pm).get_project_summary(project_dir.name, currency="registered").source_remaining
 
 
 def test_screenplay_whole_source_files_and_cut_episodes_read_as_screenplay(tmp_path: Path) -> None:
@@ -806,6 +821,7 @@ def test_pre_split_episode_files_become_own_source_episodes(tmp_path: Path) -> N
     pm = ProjectManager(project_dir.parent.parent)
     summary = WorkflowStateService(pm).get_project_summary(project_dir.name)
     assert [episode.episode for episode in summary.episodes] == [1, 2]
+    assert summary.source_remaining is False
     status = WorkflowStateService(pm).get_status(project_dir.name, 1)
     assert status.operations["plan_episodes"].reason == "whole_source_missing"
     assert status.operations["prepare_script_plan"].state == "admitted"

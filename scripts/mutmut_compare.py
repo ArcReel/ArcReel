@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""比对两轮 mutmut 结果，按 CONTRIBUTING「变异测试」的三层验收判据出报告。
+"""比对两轮 mutmut 结果，按 docs/testing/mutmut-runbook.md「三层验收」的判据出报告。
 
 输入是两个目录下的 `*.meta` 文件（mutmut 写在 `mutants/` 里，每个源模块一份），
 只读其中的 `exit_code_by_key`（mutant 名 → exit code），不读 mutmut 的终端汇总——

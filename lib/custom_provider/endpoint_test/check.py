@@ -1,30 +1,48 @@
 """验证响应：拿一份供应商的真实响应，逐条路径报告命中情况与最终判定，零费用。
 
 逐条求值与运行时读的是同一份归一化规则（:func:`normalize_extract_spec`），最终判定则直接调运行时
-那一份 :func:`extract_provider_state`——验证之所以能替代真花钱的调用，全靠这两处不另写一遍。
+按媒体类型选用的那一份判读函数（视频 :func:`extract_provider_state`、图片
+:func:`extract_image_state`）——验证之所以能替代真花钱的调用，全靠这两处不另写一遍。
 本模块产出的报告同时是测试连接结果体里的「逐阶段提取」段。
+
+``image_b64`` 取到的是整张图的 base64，报告里只给解出的字节数（解不出图片时为 ``None``），
+不回显原串。
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
-from arcreel_market_core.endpoint_definition import JsonPathEvaluationError, extract_value, normalize_extract_spec
+from arcreel_market_core.endpoint_definition import (
+    JsonPathEvaluationError,
+    definition_media_type,
+    extract_value,
+    normalize_extract_spec,
+)
 from arcreel_market_core.video_backend_contract import ProviderJobStatus
 from lib.custom_provider.declarative_backend import (
     DeclarativeRuntimeError,
+    JobState,
     ProviderState,
+    StateReader,
     extract_provider_state,
     text_or_none,
 )
+from lib.custom_provider.declarative_image_backend import ImageJobState, decode_image_b64, extract_image_state
 
 from .errors import EndpointTestDefinitionError
 
 #: 可验证的三节。``result`` 只有定义声明了二次取件节时才存在。
 STAGES = ("submit", "poll", "result")
+
+#: 媒体类型 → 运行时判读响应的函数。
+_STATE_READERS: dict[str, StateReader[Any]] = {
+    "video": extract_provider_state,
+    "image": extract_image_state,
+}
 
 
 @dataclass(frozen=True)
@@ -56,6 +74,9 @@ class StageReport:
     raw_status: object | None
     status: str | None
     video_url: str | None
+    image_url: str | None
+    #: 按 ``image_b64`` 取到的图片解码后的字节数；没取到或解不出图片为 ``None``。
+    image_bytes: int | None
     error: str | None
     result_id: str | None
     duration_seconds: int | None
@@ -89,16 +110,20 @@ def check_response(definition: Mapping[str, Any], stage: str, response_body: obj
         state = _runtime_state(definition, stage, extract, response_body)
     except DeclarativeRuntimeError as exc:
         raise EndpointTestDefinitionError.from_render_failure(f"{stage}.extract", str(exc)) from exc
+    video = state if isinstance(state, ProviderState) else None
+    image = state if isinstance(state, ImageJobState) else None
     return StageReport(
         stage=stage,
         fields=fields,
         task_id=_task_id(values.get("task_id")) if stage == "submit" else None,
         raw_status=values.get("status"),
         status=state.status.value if state else None,
-        video_url=state.video_url if state else None,
+        video_url=video.video_url if video else None,
+        image_url=image.image_url if image else None,
+        image_bytes=_image_bytes(image.image_b64) if image and image.image_b64 else None,
         error=state.error if state else text_or_none(values.get("error")),
         result_id=state.result_id if state else None,
-        duration_seconds=state.duration_seconds if state else None,
+        duration_seconds=video.duration_seconds if video else None,
     )
 
 
@@ -126,6 +151,8 @@ def stage_report_payload(report: StageReport) -> dict[str, Any]:
         "raw_status": report.raw_status,
         "status": report.status,
         "video_url": report.video_url,
+        "image_url": report.image_url,
+        "image_bytes": report.image_bytes,
         "error": report.error,
         "result_id": report.result_id,
         "duration_seconds": report.duration_seconds,
@@ -134,10 +161,10 @@ def stage_report_payload(report: StageReport) -> dict[str, Any]:
 
 def _runtime_state(
     definition: Mapping[str, Any], stage: str, extract: Mapping[str, Any], body: object
-) -> ProviderState | None:
+) -> JobState | None:
     if stage == "submit":
         return None
-    return extract_provider_state(
+    return _STATE_READERS[definition_media_type(definition)](
         body,
         extract,
         status_map=definition.get("status_map"),
@@ -152,13 +179,37 @@ def _task_id(value: object | None) -> str | None:
     return text_or_none(value)
 
 
+def _image_bytes(text: str) -> int | None:
+    try:
+        return len(decode_image_b64(text))
+    except ValueError:
+        return None
+
+
+def _image_summary(value: object | None) -> object | None:
+    """``image_b64`` 的命中值换成字节数摘要。"""
+    if value is None:
+        return None
+    text = text_or_none(value)
+    return {"image_bytes": _image_bytes(text) if text else None}
+
+
+def _summarized(report: FieldExtraction) -> FieldExtraction:
+    return replace(
+        report,
+        attempts=tuple(replace(attempt, value=_image_summary(attempt.value)) for attempt in report.attempts),
+        value=_image_summary(report.value),
+    )
+
+
 def _field_reports(extract: Mapping[str, Any], body: object):
     for key, spec in extract.items():
         if key == "usage" and isinstance(spec, Mapping):
             for usage_key, usage_spec in spec.items():
                 yield _field_report(f"usage.{usage_key}", usage_spec, body)
             continue
-        yield _field_report(key, spec, body)
+        report = _field_report(key, spec, body)
+        yield _summarized(report) if key == "image_b64" else report
 
 
 def _field_report(key: str, spec: object, body: object) -> FieldExtraction:

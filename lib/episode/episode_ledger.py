@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, get_args
@@ -69,10 +69,12 @@ def _validate_rel_posix_path(value: str) -> str:
 
 
 class SourceRange(BaseModel):
-    """集对应的原文素材范围。
+    """集对应的原文素材范围，可以沿整本源文的文件顺序跨文件（ADR 0097）。
 
-    偏移量落在 ``normalize_source_text`` 的归一化坐标系内（narration 为精确切分点，
-    drama 为软素材范围）。``source_file`` 是项目根相对 POSIX 路径（如 ``source/novel.txt``）。
+    起点是 ``source_file`` 里的 ``start``，终点是 ``end_file`` 里的 ``end``（不含）；``end_file`` 缺省时与
+    ``source_file`` 相同。偏移量落在 ``normalize_source_text`` 的归一化坐标系内（narration 为精确切分点，
+    drama 为软素材范围），是各自文件内的下标。路径是项目根相对 POSIX 路径（如 ``source/novel.txt``）。
+    两个文件之间的先后由整本源文清单决定，这里不校验。
     """
 
     model_config = _STRICT_CONFIG
@@ -80,15 +82,16 @@ class SourceRange(BaseModel):
     source_file: str
     start: int = Field(ge=0)
     end: int = Field(ge=0)
+    end_file: str | None = None
 
-    @field_validator("source_file")
+    @field_validator("source_file", "end_file")
     @classmethod
-    def _check_source_file(cls, value: str) -> str:
-        return _validate_rel_posix_path(value)
+    def _check_source_file(cls, value: str | None) -> str | None:
+        return None if value is None else _validate_rel_posix_path(value)
 
     @model_validator(mode="after")
     def _check_order(self) -> SourceRange:
-        if self.start > self.end:
+        if (self.end_file is None or self.end_file == self.source_file) and self.start > self.end:
             raise ValueError(LEDGER_START_AFTER_END_KEY)
         return self
 
@@ -205,6 +208,20 @@ def parse_positive_episode_num(value: Any) -> int | None:
     """
     num = parse_episode_num(value)
     return num if num is not None and num > 0 else None
+
+
+def well_formed_ledger_entries(project: Mapping[str, Any]) -> list[dict[str, Any]] | None:
+    """按播出顺序改写整份账本前取条目：``episodes`` 是对象列表、集 ID 都是不重复的正整数时返回其副本，否则为 None。
+
+    改写方按集 ID 索引条目再按新顺序重排，集 ID 解析不了或重复的条目会在重排中丢失或重复出现。
+    """
+    raw = project.get("episodes")
+    if not isinstance(raw, list) or not all(isinstance(entry, dict) for entry in raw):
+        return None
+    nums = [parse_positive_episode_num(entry.get("episode")) for entry in raw]
+    if None in nums or len(set(nums)) != len(nums):
+        return None
+    return list(raw)
 
 
 def is_derived_episode_name(name: str) -> bool:
@@ -325,11 +342,62 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
     return drafts_dir.is_dir() and any(drafts_dir.glob("script_plan_*"))
 
 
-def parse_source_range(entry: Mapping[str, Any]) -> tuple[str, int, int] | None:
+def episode_has_products(
+    project_dir: Path, episode_num: int, entry: Mapping[str, Any], *, product_nums: Collection[int]
+) -> bool:
+    """一集有产物：账本标 consumed，或磁盘上已有剧本 / script_plan（含补零的剧本文件名）。
+
+    ``product_nums`` 取自 :func:`discover_product_episode_nums`，由调用方一次算好。手工切分、重新规划与重置按同一口径
+    判定被替换的旧切出集是转为无原文的集还是直接移除。
+    """
+    return (
+        entry.get("ledger_status") == "consumed"
+        or episode_num in product_nums
+        or has_downstream_products(project_dir, episode_num, entry)
+    )
+
+
+def episodes_with_products(project_dir: Path, entries: Iterable[Mapping[str, Any]]) -> set[int]:
+    """账本条目里已有产物的集 ID，逐集按 :func:`episode_has_products` 判定。"""
+    product_nums = discover_product_episode_nums(project_dir)
+    found: set[int] = set()
+    for entry in entries:
+        episode = parse_positive_episode_num(entry.get("episode"))
+        if episode is not None and episode_has_products(project_dir, episode, entry, product_nums=product_nums):
+            found.add(episode)
+    return found
+
+
+@dataclass(frozen=True)
+class SourceSpan:
+    """账本条目的原文范围坐标：起点 ``(source_file, start)``，终点 ``(end_file, end)``（不含）。
+
+    单个文件内的范围 ``end_file == source_file``。
+    """
+
+    source_file: str
+    start: int
+    end_file: str
+    end: int
+
+    @property
+    def crosses_files(self) -> bool:
+        return self.end_file != self.source_file
+
+
+def source_range_value(source_file: str, start: int, end_file: str, end: int) -> dict[str, Any]:
+    """原文范围写进账本的形态：终点与起点在同一个文件里时不写 ``end_file``。"""
+    value: dict[str, Any] = {"source_file": source_file, "start": start, "end": end}
+    if end_file != source_file:
+        value["end_file"] = end_file
+    return value
+
+
+def parse_source_range(entry: Mapping[str, Any]) -> SourceSpan | None:
     """解析条目的 ``source_range`` 坐标，结构不完整时返回 None。
 
     「这一集有没有位置记录」的唯一判据，plan 与重置两侧共用：只查字段类型
-    （``source_file`` 是 str、``start`` / ``end`` 是非 bool 的 int），不校验数值是否
+    （``source_file`` / ``end_file`` 是 str、``start`` / ``end`` 是非 bool 的 int），不校验数值是否
     越界——是否要求坐标落在源文界内由调用方按各自口径决定。空字典 ``{}`` 或缺字段的
     损坏映射满足 ``isinstance(..., Mapping)`` 但没有可用坐标，一律按无坐标处理。
     """
@@ -339,12 +407,14 @@ def parse_source_range(entry: Mapping[str, Any]) -> tuple[str, int, int] | None:
     rel = source_range.get("source_file")
     start = source_range.get("start")
     end = source_range.get("end")
+    end_file = source_range.get("end_file", rel)
     if (
         isinstance(rel, str)
+        and isinstance(end_file, str)
         and isinstance(start, int)
         and not isinstance(start, bool)
         and isinstance(end, int)
         and not isinstance(end, bool)
     ):
-        return rel, start, end
+        return SourceSpan(source_file=rel, start=start, end_file=end_file, end=end)
     return None

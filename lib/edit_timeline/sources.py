@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from lib.artifacts.version_manager import VersionManager
+from lib.bgm.library import read_bgm_library
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import MICROSECONDS_PER_SECOND, seconds_to_microseconds
 from lib.project.project_manager import ProjectManager
@@ -16,16 +17,21 @@ from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_models import item_duration
 from lib.speech.audio_utils import probe_existing_audio_duration_seconds, probe_existing_video_duration_seconds
+from lib.speech.narration_config import USE_TTS, project_narration_delivery
 from lib.speech.speech_composition import SpeechMode, admit_script_unit
 
 
 @dataclass(frozen=True, slots=True)
 class ScriptUnit:
-    """脚本里的一个视频单元及其发声归属；归属判不出（混合发声、待重新规划）时为 None。"""
+    """脚本里的一个视频单元及其发声归属；归属判不出（混合发声、待重新规划）时为 None。
+
+    ``subtitle_text`` 是该单元台词与画外音的原文，字幕草稿由它切分而来。
+    """
 
     unit_id: str
     speech_mode: SpeechMode | None
     scripted_duration_us: int
+    subtitle_text: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,9 +55,24 @@ class UnitMedia:
 
 
 @dataclass(frozen=True, slots=True)
+class BgmMedia:
+    """项目里一首已上传、文件在场的 BGM。"""
+
+    name: str
+    duration_us: int
+
+
+@dataclass(frozen=True, slots=True)
 class EpisodeSources:
+    """``tts_narration`` 为项目的旁白交付方式是否为 TTS 配音；后期配音项目不检查旁白。
+
+    ``bgm`` 是项目里已上传、文件在场的 BGM，按 BGM ID 索引。
+    """
+
     script: EpisodeScriptUnits
     media: Mapping[str, UnitMedia]
+    tts_narration: bool
+    bgm: Mapping[str, BgmMedia] = field(default_factory=dict)
 
     def unit(self, unit_id: str) -> ScriptUnit | None:
         return next((unit for unit in self.script.units if unit.unit_id == unit_id), None)
@@ -91,6 +112,7 @@ def load_episode_script_units(projects: ProjectManager, project_name: str, episo
                 unit_id=unit_id,
                 speech_mode=admission.mode,
                 scripted_duration_us=seconds_to_microseconds(item_duration(kind, item)),
+                subtitle_text="\n".join(utterance.text for utterance in admission.preparation.utterances),
             )
         )
     return EpisodeScriptUnits(episode=episode, kind=kind, units=tuple(units))
@@ -135,8 +157,9 @@ _PROBE_CONCURRENCY = 4
 async def load_episode_sources(
     projects: ProjectManager, project_name: str, script: EpisodeScriptUnits, unit_ids: set[str]
 ) -> EpisodeSources:
-    """读取 ``unit_ids`` 中仍在脚本里的视频单元的 current 视频与旁白配音。"""
+    """读取 ``unit_ids`` 中仍在脚本里的视频单元的 current 视频与旁白配音，项目的旁白交付方式，以及项目里的 BGM。"""
     project_path = projects.get_project_path(project_name)
+    project = await asyncio.to_thread(projects.load_project, project_name)
     versions = VersionManager(project_path)
     wanted = [unit.unit_id for unit in script.units if unit.unit_id in unit_ids]
     limiter = asyncio.Semaphore(_PROBE_CONCURRENCY)
@@ -146,10 +169,24 @@ async def load_episode_sources(
             return await _unit_media(project_path, versions, script.video_resource_type, unit_id)
 
     media = await asyncio.gather(*(probe(unit_id) for unit_id in wanted))
-    return EpisodeSources(script=script, media=dict(zip(wanted, media, strict=True)))
+    return EpisodeSources(
+        script=script,
+        media=dict(zip(wanted, media, strict=True)),
+        tts_narration=project_narration_delivery(project) == USE_TTS,
+        bgm=await asyncio.to_thread(_present_bgm, project_path, project),
+    )
+
+
+def _present_bgm(project_path: Path, project: Mapping[str, Any]) -> dict[str, BgmMedia]:
+    return {
+        track.id: BgmMedia(name=track.name, duration_us=track.duration_us)
+        for track in read_bgm_library(project).values()
+        if (project_path / track.file).is_file()
+    }
 
 
 __all__ = [
+    "BgmMedia",
     "EpisodeScriptUnits",
     "EpisodeSources",
     "ScriptUnit",

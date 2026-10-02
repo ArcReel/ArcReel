@@ -1,12 +1,12 @@
 [project]
 name = "arcreel"
 # managed by release-please — do not bump manually
-version = "0.31.0"
+version = "0.32.0"
 description = "AI video generation workspace"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "claude-agent-sdk>=0.1.76",
+    "claude-agent-sdk>=0.2.153",
     "fastapi>=0.138.2",
     # fastapi 未 re-export 的 ASGI 类型与 MutableHeaders / FormData / UploadFile 直接取自 starlette。
     "starlette>=1.6.0",
@@ -29,7 +29,7 @@ dependencies = [
     "openai>=2.30.0",
     "xai-sdk>=1.8.2",
     "pyjianyingdraft>=0.3.0",
-    "instructor>=1.14.5",
+    "instructor>=1.16.0",
     "charset-normalizer>=3.4.6",
     "docx2txt>=0.9",
     "mammoth>=1.12.0",
@@ -103,6 +103,7 @@ markers = [
     "e2e: 端到端、依赖真实外部资源（远程 API、大模型调用、重型 ffmpeg 等）的测试；CI 默认跳过",
     "sqlite_only: 仅适用于 SQLite 的测试（依赖 SQLite 特定 fixture / 行为，PG CI job 会跳过）",
     "uses_db: 触达真实数据库的测试（repo/DAO/ORM/迁移）；PG job 用 `-m uses_db` 选集合。由 conftest 根据 fixture 使用自动注入",
+    "local_port: 绑定 127.0.0.1 端口的测试；在禁止绑定本地端口的环境（如 Agent 沙箱）中由 conftest 跳过并给出原因",
 ]
 
 [tool.coverage.run]
@@ -268,6 +269,7 @@ source_modules = [
     "server.agent_toolset.script_authoring",
     "server.agent_toolset.script_editing",
     "server.agent_toolset.toolset",
+    "server.agent_toolset.video_review",
     "server.agent_toolset.workflow_completion",
     "server.media_tools.assets",
     "server.media_tools.context",
@@ -275,6 +277,7 @@ source_modules = [
     "server.media_tools.image_edits",
     "server.media_tools.narration_audio",
     "server.media_tools.storyboards",
+    "server.media_tools.video_review",
     "server.media_tools.videos",
     "server.tool_runtime",
 ]
