@@ -305,7 +305,7 @@ export function MarketSection() {
         className="pointer-events-none absolute inset-x-0 top-0 h-56 opacity-[0.05]"
         style={posterGridStyle({ size: 36, maskShape: "80% 100% at 50% 0%" })}
       />
-      <div className="relative mx-auto max-w-6xl px-8 pb-16 pt-10">
+      <div className="relative pb-8">
         <header className="mb-6 flex flex-wrap items-end gap-4">
           <div className="min-w-[16rem] flex-1">
             <div className={KICKER_ACCENT_CLS}>

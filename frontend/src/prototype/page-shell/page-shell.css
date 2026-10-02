@@ -1,0 +1,16 @@
+/* PROTOTYPE — #2969 辅助线：给外壳各区域描边，宽度读数显示在切换条上。 */
+.proto-guides [data-zone] {
+  outline: 1px dashed oklch(0.8 0.14 200 / 0.75);
+  outline-offset: -1px;
+}
+.proto-guides [data-zone="column"] {
+  outline: 1px solid oklch(0.82 0.16 140 / 0.9);
+  background: oklch(0.82 0.16 140 / 0.04);
+}
+.proto-guides [data-zone="footer-column"] {
+  outline: 1px solid oklch(0.82 0.16 140 / 0.9);
+}
+.proto-guides [data-scroll-owner] {
+  outline: 2px solid oklch(0.78 0.16 60 / 0.9);
+  outline-offset: -2px;
+}

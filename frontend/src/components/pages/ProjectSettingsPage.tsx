@@ -40,6 +40,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 import { getProjectDisplayName } from "@/utils/project-display";
+import { ProtoPageShell } from "@/prototype/page-shell/ProtoPageShell";
+import { useShellParams } from "@/prototype/page-shell/shell";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
   const styleImage = project.style_image as string | undefined;
@@ -81,7 +83,9 @@ interface SectionCardProps {
 function SectionCard({ kicker, title, description, children, footer }: SectionCardProps) {
   return (
     <section
-      className="overflow-hidden rounded-[12px] border border-hairline"
+      id={`ps-${kicker.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+      data-ps-section={title ?? kicker}
+      className="scroll-mt-6 overflow-hidden rounded-[12px] border border-hairline"
       style={{
         background:
           "linear-gradient(180deg, oklch(0.20 0.012 270 / 0.55), oklch(0.16 0.010 265 / 0.55))",
@@ -678,6 +682,21 @@ export function ProjectSettingsPage() {
     }
   }, [loadedAgentProfile, profileResetProject, projectName, t]);
 
+  // PROTOTYPE #2969：侧栏先用本页卡片的锚点占位
+  const { variant, guides } = useShellParams();
+  const [anchors, setAnchors] = useState<{ id: string; label: string }[]>([]);
+  const [activeAnchor, setActiveAnchor] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const next = [...document.querySelectorAll<HTMLElement>("[data-ps-section]")].map((el) => ({
+        id: el.id,
+        label: el.dataset.psSection ?? el.id,
+      }));
+      setAnchors((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  });
+
   const handleOpenAgentProfileReset = useCallback(async () => {
     const resetProject = projectName;
     try {
@@ -689,66 +708,69 @@ export function ProjectSettingsPage() {
     }
   }, [projectName, t]);
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col text-text"
-      style={
-        {
-          background:
-            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
-        }
-      }
-    >
-      {/* ─── Sticky top bar ─── */}
-      <header
-        className="sticky top-0 z-30 shrink-0"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
-          backdropFilter: "blur(28px) saturate(1.5)",
-          WebkitBackdropFilter: "blur(28px) saturate(1.5)",
-          borderBottom: "1px solid var(--color-hairline)",
-          boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.05), 0 6px 24px -12px oklch(0 0 0 / 0.45)",
-        }}
-      >
-        <div className="mx-auto flex max-w-3xl items-center gap-4 px-6 py-4">
-          <button
-            onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t("back_to_project")}
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-            <span>{t("back_to_project")}</span>
-          </button>
-          <span aria-hidden className="h-5 w-px bg-hairline-soft" />
-          <div className="min-w-0 flex-1">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary-2">
-              Project Booth — {projectName.toUpperCase()}
-            </div>
-            <h1
-              className="font-editorial mt-0.5 truncate"
+  const saveBar = (
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="min-w-0 flex items-center gap-2 text-[11.5px] text-text-3">
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full"
               style={{
-                fontWeight: 400,
-                fontSize: 24,
-                lineHeight: 1.05,
-                letterSpacing: "-0.012em",
-                color: "var(--color-text)",
+                background: isDirty ? "var(--color-warm)" : "var(--color-good)",
+                boxShadow: isDirty
+                  ? "0 0 6px oklch(0.85 0.13 75 / 0.4)"
+                  : "0 0 6px oklch(0.78 0.10 155 / 0.4)",
               }}
-              title={getProjectDisplayName(projectTitle, t("untitled_project"))}
+            />
+            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em]">
+              {isDirty ? t("unsaved_changes_hint") : t("saved")}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
+              className={GHOST_BTN_LG_CLS}
             >
-              {t("project_settings")}
-              <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-text-3">
-                {getProjectDisplayName(projectTitle, t("untitled_project"))}
-              </span>
-            </h1>
+              {t("common:cancel")}
+            </button>
+            <button
+              // eslint-disable-next-line react-hooks/refs -- handleSave 在 onClick 时才执行，规则误报
+              onClick={voidPromise(handleSave)}
+              // 口播语速越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
+              disabled={
+                saving ||
+                !isValidSpeechRate(speechRate) ||
+                !isValidEpisodeTargetDuration(episodeTargetDuration) ||
+                (contentMode === "ad" && adTargetDuration === null)
+              }
+              className={`${ACCENT_BTN_CLS} px-5`}
+              style={ACCENT_BUTTON_STYLE}
+            >
+              {saving && <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />}
+              {saving ? t("common:saving") : t("common:save")}
+            </button>
           </div>
         </div>
-      </header>
+  );
 
-      {/* ─── Scrollable body ─── */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-6 py-7 pb-24 space-y-5">
+  return (
+    <ProtoPageShell
+      variant={variant}
+      guides={guides}
+      title={t("project_settings")}
+      subtitle={getProjectDisplayName(projectTitle, t("untitled_project"))}
+      back={{ label: t("back_to_project"), onClick: () => guardedNavigate(`/app/projects/${projectName}`) }}
+      groups={[{ label: "本页（锚点占位，待「原型：项目设置页布局」决定）", items: anchors }]}
+      navLabel={t("project_settings")}
+      activeId={activeAnchor}
+      onSelect={(id) => {
+        setActiveAnchor(id);
+        document.getElementById(id)?.scrollIntoView({ block: "start" });
+      }}
+      tier="form"
+      viewTitle={t("project_settings")}
+      footer={saveBar}
+    >
+        <div className="space-y-5">
           <div>
             <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-3">
               {t("model_config")}
@@ -1063,62 +1085,7 @@ export function ProjectSettingsPage() {
             </div>
           )}
         </div>
-      </div>
 
-      {/* ─── Sticky save bar ─── */}
-      <footer
-        className="shrink-0"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.18 0.011 265 / 0.65), oklch(0.14 0.009 265 / 0.85))",
-          backdropFilter: "blur(20px) saturate(1.3)",
-          WebkitBackdropFilter: "blur(20px) saturate(1.3)",
-          borderTop: "1px solid var(--color-hairline)",
-          boxShadow: "0 -8px 28px -12px oklch(0 0 0 / 0.55)",
-        }}
-      >
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-6 py-3">
-          <div className="min-w-0 flex items-center gap-2 text-[11.5px] text-text-3">
-            <span
-              aria-hidden
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{
-                background: isDirty ? "var(--color-warm)" : "var(--color-good)",
-                boxShadow: isDirty
-                  ? "0 0 6px oklch(0.85 0.13 75 / 0.4)"
-                  : "0 0 6px oklch(0.78 0.10 155 / 0.4)",
-              }}
-            />
-            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em]">
-              {isDirty ? t("unsaved_changes_hint") : t("saved")}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-              className={GHOST_BTN_LG_CLS}
-            >
-              {t("common:cancel")}
-            </button>
-            <button
-              // eslint-disable-next-line react-hooks/refs -- handleSave 在 onClick 时才执行，规则误报
-              onClick={voidPromise(handleSave)}
-              // 口播语速越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
-              disabled={
-                saving ||
-                !isValidSpeechRate(speechRate) ||
-                !isValidEpisodeTargetDuration(episodeTargetDuration) ||
-                (contentMode === "ad" && adTargetDuration === null)
-              }
-              className={`${ACCENT_BTN_CLS} px-5`}
-              style={ACCENT_BUTTON_STYLE}
-            >
-              {saving && <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />}
-              {saving ? t("common:saving") : t("common:save")}
-            </button>
-          </div>
-        </div>
-      </footer>
 
       <ConfirmDialog
         open={profileResetProject === projectName && agentProfile !== null}
@@ -1149,6 +1116,6 @@ export function ProjectSettingsPage() {
         onCancel={() => setPendingNavigation(null)}
         onConfirm={confirmDiscardAndNavigate}
       />
-    </div>
+    </ProtoPageShell>
   );
 }

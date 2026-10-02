@@ -150,11 +150,11 @@ export function ProviderSection() {
   }
 
   return (
-    <div className="flex">
+    <div className="flex h-full min-h-0">
       {/* Provider list sidebar */}
       <nav
         aria-label={t("provider_list")}
-        className="sticky top-0 max-h-screen w-56 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
+        className="h-full w-56 shrink-0 overflow-y-auto border-r border-hairline-soft px-3 py-5"
         style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
       >
         <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4">
@@ -204,7 +204,7 @@ export function ProviderSection() {
       </nav>
 
       {/* Detail panel */}
-      <div className="min-w-0 flex-1">
+      <div data-scroll-owner className="min-w-0 flex-1 overflow-y-auto">
         {selection?.kind === "preset" && (
           <div className="p-6">
             <ProviderDetail providerId={selection.id} onSaved={refreshAfterSave} />

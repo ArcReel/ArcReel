@@ -532,10 +532,10 @@ export function EndpointsSection() {
   }
 
   return (
-    <div className="flex">
+    <div className="flex h-full min-h-0">
       <nav
         aria-label={t("ce_section_title")}
-        className="sticky top-0 max-h-screen w-60 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
+        className="h-full w-60 shrink-0 overflow-y-auto border-r border-hairline-soft px-3 py-5"
         style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
       >
         <div className="mb-3 flex items-center gap-1.5 px-1">
@@ -629,7 +629,7 @@ export function EndpointsSection() {
         )}
       </nav>
 
-      <div className="min-w-0 flex-1">
+      <div data-scroll-owner className="min-w-0 flex-1 overflow-y-auto">
         {selection ? (
           <EndpointDetail
             key={detailInstanceKey(selectedKey, selection)}

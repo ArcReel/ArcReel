@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { useFooterSlot } from "@/prototype/page-shell/shell";
 import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
@@ -31,14 +33,17 @@ export function TabSaveFooter({
 }: TabSaveFooterProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const controlsDisabled = saving || disabled;
+  // PROTOTYPE #2969：外壳提供保存栏插槽时，整条栏 portal 进外壳的固定底行，不再在区段里 sticky。
+  const slot = useFooterSlot();
 
-  return (
+  const bar = (
     <div
       className={
-        "flex items-center justify-between px-5 py-3" +
-        (isDirty ? " sticky bottom-0 z-10" : "")
+        slot
+          ? "flex w-full items-center justify-between"
+          : "flex items-center justify-between px-5 py-3" + (isDirty ? " sticky bottom-0 z-10" : "")
       }
-      style={isDirty ? FOOTER_DIRTY_STYLE : undefined}
+      style={isDirty && !slot ? FOOTER_DIRTY_STYLE : undefined}
     >
       <div className="flex min-w-0 items-center gap-2.5">
         {isDirty && !error && (
@@ -100,4 +105,5 @@ export function TabSaveFooter({
       </div>
     </div>
   );
+  return slot ? createPortal(bar, slot) : bar;
 }

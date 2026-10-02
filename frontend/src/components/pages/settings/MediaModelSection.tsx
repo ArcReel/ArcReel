@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
+import { TabSaveFooter } from "../TabSaveFooter";
 import { API } from "@/api";
 import type {
   SystemConfigSettings,
@@ -556,30 +557,14 @@ export function MediaModelSection() {
         />
       </SectionCard>
 
-      {/* Footer */}
-      {isDirty && (
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
-          >
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
-            ) : null}
-            {saving ? t("common:saving") : t("common:save")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setDraft({})}
-            className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            {t("common:reset")}
-          </button>
-        </div>
-      )}
+      {/* PROTOTYPE #2969：改用常驻保存栏，portal 进外壳底行 */}
+      <TabSaveFooter
+        isDirty={isDirty}
+        saving={saving}
+        error={null}
+        onSave={() => void handleSave()}
+        onReset={() => setDraft({})}
+      />
     </div>
   );
 }
