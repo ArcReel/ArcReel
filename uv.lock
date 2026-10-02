@@ -266,7 +266,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
     { name = "charset-normalizer", specifier = ">=3.4.6" },
-    { name = "claude-agent-sdk", specifier = ">=0.1.76" },
+    { name = "claude-agent-sdk", specifier = ">=0.2.153" },
     { name = "docx2txt", specifier = ">=0.9" },
     { name = "ebooklib", specifier = ">=0.20" },
     { name = "fastapi", specifier = ">=0.138.2" },

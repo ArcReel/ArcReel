@@ -68,7 +68,7 @@ def build_remote_mcp_server(
             issuer_url=public_url,
             resource_server_url=public_url,
             required_scopes=["arcreel"],
-            # AccessToken 不带 resource，必须显式关闭；mcp 3.0 起设了 resource_server_url 时默认开启
+            # ArcApiKeyVerifier 返回的 AccessToken 不带 resource，资源绑定校验不适用，显式关闭
             validate_token_resource=False,
         ),
         stateless_http=True,
