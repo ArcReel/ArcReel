@@ -270,7 +270,7 @@ requires-dist = [
     { name = "docx2txt", specifier = ">=0.9" },
     { name = "ebooklib", specifier = ">=0.20" },
     { name = "fastapi", specifier = ">=0.138.2" },
-    { name = "google-genai", specifier = ">=1.65.0" },
+    { name = "google-genai", specifier = ">=2.21.0" },
     { name = "grpcio", specifier = ">=1.83.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "imageio-ffmpeg", specifier = ">=0.6.0" },
@@ -299,7 +299,7 @@ requires-dist = [
     { name = "starlette", specifier = ">=1.6.0" },
     { name = "uvicorn", specifier = ">=0.41.0" },
     { name = "volcengine-python-sdk", extras = ["ark"], specifier = ">=5.0.17" },
-    { name = "xai-sdk", specifier = ">=1.8.2" },
+    { name = "xai-sdk", specifier = ">=1.20.0" },
 ]
 
 [package.metadata.requires-dev]
