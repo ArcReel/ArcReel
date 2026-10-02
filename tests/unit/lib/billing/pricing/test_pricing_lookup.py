@@ -31,6 +31,12 @@ class TestRegistryHit:
         assert isinstance(pricing, PerSecondMatrix)
         assert pricing.dimensions == "resolution_audio"
 
+    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+    def test_gemini_31_flash_lite_official_text_pricing(self, provider_id: str):
+        pricing = lookup_pricing(provider_id, "gemini-3.1-flash-lite", "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.rates["gemini-3.1-flash-lite"] == {"input": 0.25, "output": 1.50}
+
     def test_openai_image_token(self):
         pricing = lookup_pricing("openai", "gpt-image-2", "image")
         assert isinstance(pricing, PerImageOpenAIToken)

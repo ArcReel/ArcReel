@@ -174,6 +174,28 @@ def write_legacy_storyboard_project(
     return project_dir
 
 
+def write_legacy_retired_flash_lite_project(root: Path, *, provider_id: str) -> Path:
+    """schema 16 项目仍把 Flash-Lite preview ID 写在默认与简单档文本 backend 字段。"""
+
+    project_dir = write_legacy_storyboard_project(
+        root,
+        name=f"legacy-retired-flash-lite-{provider_id}",
+    )
+    advance_project_schema(project_dir, to_version=16)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    retired = f"{provider_id}/gemini-3.1-flash-lite-preview"
+    project.update(
+        {
+            "default_text_backend": retired,
+            "text_backend_simple": retired,
+            "text_backend_complex": "gemini-aistudio/gemini-3-flash-preview",
+        }
+    )
+    _write_json(project_path, project)
+    return project_dir
+
+
 def write_legacy_episode_id_remnants_project(
     root: Path,
     name: str = "legacy-episode-id-remnants",
@@ -1200,6 +1222,7 @@ __all__ = [
     "write_legacy_episode_id_remnants_project",
     "write_legacy_presentation_project",
     "write_legacy_reference_video_project",
+    "write_legacy_retired_flash_lite_project",
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",
     "write_legacy_style_project",

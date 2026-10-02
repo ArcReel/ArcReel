@@ -418,11 +418,11 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_gemini_text_pricing("gemini-3-flash-preview", 0.50, 3.00),
                 max_output_tokens=65536,
             ),
-            "gemini-3.1-flash-lite-preview": ModelInfo(
+            "gemini-3.1-flash-lite": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
-                pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
+                pricing=_gemini_text_pricing("gemini-3.1-flash-lite", 0.25, 1.50),
                 max_output_tokens=65536,
             ),
             # --- image ---
@@ -505,11 +505,11 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_gemini_text_pricing("gemini-3-flash-preview", 0.50, 3.00),
                 max_output_tokens=65536,
             ),
-            "gemini-3.1-flash-lite-preview": ModelInfo(
+            "gemini-3.1-flash-lite": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
-                pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
+                pricing=_gemini_text_pricing("gemini-3.1-flash-lite", 0.25, 1.50),
                 max_output_tokens=65536,
             ),
             # --- image ---

@@ -294,6 +294,7 @@ async def test_tts_snapshot_takes_the_most_recently_generated_audio_settings(tmp
     advance_project_schema(project_dir, to_version=15)
 
     migrate_v15_to_v16(project_dir)
+    advance_project_schema(project_dir, to_version=CURRENT_SCHEMA_VERSION)
 
     project = _read_json(project_dir / "project.json")
     assert project["narration_delivery"] == "use_tts"
@@ -541,6 +542,7 @@ def test_rerun_after_the_manifest_was_rebased_but_the_file_was_not(tmp_path: Pat
     (project_dir / _PRESENTATION_PATH).write_bytes(legacy_bytes)
     (project_dir / "project.json").write_bytes(project_bytes)
     migrate_v15_to_v16(project_dir)
+    advance_project_schema(project_dir, to_version=CURRENT_SCHEMA_VERSION)
 
     assert (project_dir / _PRESENTATION_PATH).read_bytes() == migrated_bytes
     assert ProjectArtifactManifestAdapter(project_dir).snapshot_entries() == entries
