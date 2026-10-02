@@ -1,7 +1,8 @@
 // router.tsx — Route definitions for the studio layout
 
 import { useEffect, useRef } from "react";
-import { Route, Switch, Redirect, useParams } from "wouter";
+import { Route, Switch, Redirect, useParams, useSearch } from "wouter";
+import { readPsVariant } from "@/prototype/project-settings/ps-variant";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { StudioLayout } from "@/components/layout";
@@ -193,6 +194,8 @@ function StudioWorkspace() {
 // ---------------------------------------------------------------------------
 
 export function AppRoutes() {
+  // PROTOTYPE #2971：变体 C 把项目设置嵌进工作区，这里让出顶层全屏路由，由工作区 nest 路由接住
+  const psNested = readPsVariant(useSearch()) === "C";
   return (
     <>
       <ConfigStatusLoader />
@@ -240,11 +243,13 @@ export function AppRoutes() {
         </Route>
 
         {/* Project settings — full-screen, must be before the nested workspace route */}
-        <Route path={`${ROUTE_APP_PROJECTS}/:projectName/${WORKSPACE_ROUTE_SETTINGS}`}>
-          <AuthGuard>
-            <ProjectSettingsPage />
-          </AuthGuard>
-        </Route>
+        {!psNested && (
+          <Route path={`${ROUTE_APP_PROJECTS}/:projectName/${WORKSPACE_ROUTE_SETTINGS}`}>
+            <AuthGuard>
+              <ProjectSettingsPage />
+            </AuthGuard>
+          </Route>
+        )}
 
         {/* Studio workspace (three-column layout) */}
         <Route path={`${ROUTE_APP_PROJECTS}/:projectName`} nest>

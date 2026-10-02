@@ -40,6 +40,8 @@ export interface ProtoPageShellProps {
   /** C 的视图头标题 */
   viewTitle: string;
   footer?: ReactNode;
+  /** PROTOTYPE #2971：项目设置用自己的切换条 */
+  hideProtoBar?: boolean;
   children: ReactNode;
 }
 
@@ -55,7 +57,7 @@ export function ProtoPageShell(props: ProtoPageShellProps) {
       <div className={cn("relative h-dvh overflow-hidden text-text", BG, props.guides && "proto-guides")}>
         <Variant {...props} slotRef={setSlot} />
       </div>
-      <ShellProtoBar />
+      {!props.hideProtoBar && <ShellProtoBar />}
     </FooterSlotContext.Provider>
   );
 }
@@ -139,7 +141,7 @@ function Body({ tier, children }: { tier: Tier; children: ReactNode }) {
       <Column tier={tier}>{children}</Column>
     </div>
   ) : (
-    <div data-zone="body" data-scroll-owner className="relative min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+    <div data-zone="body" data-scroll-owner data-ps-scroll className="@container/body relative min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
       <Column tier={tier}>{children}</Column>
     </div>
   );

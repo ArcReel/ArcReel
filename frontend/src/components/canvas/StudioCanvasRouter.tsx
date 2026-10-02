@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
 import { Route, Switch, Redirect, useSearchParams } from "wouter";
+import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
 import {
   WORKSPACE_ROUTE_LOREBOOK,
   WORKSPACE_ROUTE_CLUES,
@@ -619,6 +620,11 @@ export function StudioCanvasRouter() {
 
   return (
     <Switch>
+      {/* PROTOTYPE #2971 变体 C：项目设置作为工作区子路由 */}
+      <Route path="/settings">
+        <ProjectSettingsPage />
+      </Route>
+
       <Route path="/">
         <OverviewCanvas
           projectName={currentProjectName}
