@@ -114,6 +114,8 @@ export interface ProjectStatus {
   /** Asset sheet counts keyed by asset type (character / scene / prop / product) */
   assets: Record<string, ArtifactCount>;
   episodes_summary: EpisodesSummary;
+  /** The whole source still has text not yet planned into episodes; recorded by ledger commands, not read from source */
+  source_remaining: boolean;
 }
 
 /**

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import unicodedata
 from collections.abc import Collection, Iterable, Mapping, Sequence
@@ -29,6 +30,7 @@ from lib.episode.episode_ledger import (
     SourceSpan,
     compute_source_fingerprints,
     is_derived_episode_name,
+    mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
     parse_source_range,
@@ -45,6 +47,11 @@ WHOLE_SOURCE_FILES_KEY = "whole_source_files"
 
 #: 规范化文本快照所在目录（相对项目根）。
 SOURCE_SNAPSHOTS_DIR = "source/snapshots"
+
+#: ``project.json`` 顶层字段：整本源文是否还有未规划成集的原文（:func:`source_remaining` 的结论）。
+#: ``ProjectManager`` 写 ``project.json`` 时按当时的源文记下，项目列表据此判「已完成」而不读源文；
+#: 源文在 ArcReel 之外被改动、账本尚未更新时，它与制作状态可能短暂不一致。
+SOURCE_REMAINING_KEY = "source_remaining"
 
 
 class SourceOrigin(StrEnum):
@@ -427,6 +434,53 @@ def unplanned_text_remains(project: Mapping[str, Any], docs: list[SourceDoc]) ->
     return any(doc.text.strip() for doc in docs[index + 1 :])
 
 
+def source_fingerprints_diverged(project: Mapping[str, Any], docs: list[SourceDoc]) -> bool:
+    """源文在分集规划之后被改动过：已记录的源文指纹与当前源文不一致。"""
+    return bool(mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), docs))
+
+
+def source_remaining(project: Mapping[str, Any], docs: list[SourceDoc]) -> bool:
+    """整本源文还有未规划成集的原文，下一步是继续分集规划。
+
+    有非空白的整本源文，且源文在规划之后被改动过（规划转为重置），或规划起点之后还有非空白的原文。
+    广告项目没有分集规划，恒为 False。制作状态的「继续分集规划」与项目列表的「已完成」都取这一判定。
+    """
+    if project.get("content_mode") == "ad" or not any(doc.text.strip() for doc in docs):
+        return False
+    return source_fingerprints_diverged(project, docs) or unplanned_text_remains(project, docs)
+
+
+def source_planning_inputs(project: Mapping[str, Any]) -> str:
+    """:func:`source_remaining` 在 ``project.json`` 里的全部输入，序列化为可比较的字符串。
+
+    写入方据此判断一次改动是否可能改变结论，没变就不必重读源文。
+    """
+    episodes = [
+        {key: entry.get(key) for key in ("episode", SOURCE_ORIGIN_FIELD, "source_range")} for entry in _entries(project)
+    ]
+    return json.dumps(
+        [
+            project.get("content_mode"),
+            project.get(WHOLE_SOURCE_FILES_KEY),
+            project.get(SOURCE_FINGERPRINTS_KEY),
+            episodes,
+        ],
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+def record_source_remaining(project_dir: Path, project: dict[str, Any]) -> None:
+    """按盘上的整本源文把 :func:`source_remaining` 的结论写进 ``project`` 的 :data:`SOURCE_REMAINING_KEY`。"""
+    project[SOURCE_REMAINING_KEY] = source_remaining(project, discover_sources(project_dir, project))
+
+
+def stored_source_remaining(project: Mapping[str, Any]) -> bool:
+    """``project.json`` 记下的 :data:`SOURCE_REMAINING_KEY`；缺失或不是布尔值时按没有剩余原文。"""
+    return project.get(SOURCE_REMAINING_KEY) is True
+
+
 def archive_episode_file_path(path: Path) -> Path:
     """集文件的留底路径：下划线前缀 + ``.bak`` 尾缀，同名时追加序号。
 
@@ -534,6 +588,7 @@ def changed_outside_service(project_dir: Path, project: Mapping[str, Any], doc: 
 __all__ = [
     "SOURCE_ORIGINS",
     "SOURCE_ORIGIN_FIELD",
+    "SOURCE_REMAINING_KEY",
     "SOURCE_SNAPSHOTS_DIR",
     "WHOLE_SOURCE_FILES_KEY",
     "CutPlacement",
@@ -554,9 +609,14 @@ __all__ = [
     "placement_text",
     "planning_start",
     "read_source_snapshot",
+    "record_source_remaining",
     "remove_whole_source_file",
+    "source_fingerprints_diverged",
+    "source_planning_inputs",
+    "source_remaining",
     "source_snapshot_path",
     "span_text",
+    "stored_source_remaining",
     "sync_source_snapshots",
     "unplanned_text_remains",
     "unsplit_range_ending_at",

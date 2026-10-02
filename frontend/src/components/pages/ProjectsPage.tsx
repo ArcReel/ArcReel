@@ -34,14 +34,12 @@ import {
   Poster,
   ProgressPill,
   NeedsRepairPill,
-  NeedsUpdateLine,
   RepairReasonLine,
   asProjectStatus,
   assetCount,
   gradientProgressStyles,
   projectProgress,
   repairReasonOf,
-  staleArtifactTotal,
   useProgressLabel,
 } from "./ProjectCard";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
@@ -60,16 +58,16 @@ import {
 // 数据：仅消费 ProjectSummary 真实字段；hue 由 project.name 哈希派生
 
 /**
- * 大厅的筛选维度：按集进度分「进行中 / 已完成」，另有与之正交的「需要处理」
- * （需要修复或有产物需要更新）。项目没有流水线阶段。
+ * 大厅的筛选维度：按集进度分「进行中 / 已完成」，另有与之正交的「待修复」
+ * （项目结构升级失败）。项目没有流水线阶段。
  */
-type LobbyFilter = "all" | "in_progress" | "completed" | "attention";
-const LOBBY_FILTERS = ["in_progress", "completed", "attention"] as const satisfies readonly LobbyFilter[];
+type LobbyFilter = "all" | "in_progress" | "completed" | "repair";
+const LOBBY_FILTERS = ["in_progress", "completed", "repair"] as const satisfies readonly LobbyFilter[];
 
 function matchesFilter(status: ProjectStatus | null, filter: LobbyFilter): boolean {
   if (filter === "all") return true;
   if (!status) return false;
-  if (filter === "attention") return status.needs_repair || staleArtifactTotal(status) > 0;
+  if (filter === "repair") return status.needs_repair;
   const completed = projectProgress(status) === "completed";
   return filter === "completed" ? completed : !completed;
 }
@@ -89,14 +87,14 @@ const ACCENT_BUTTON_STYLE: CSSProperties = {
 
 /**
  * 「接着上一次」卡的候选分：已有集进入制作的项目优先，其次是只有脚本的项目；
- * 没有集或已有的集全部完成的项目不作候选。
+ * 没有集或已完成的项目不作候选。
  */
 function projectActivityScore(p: ProjectSummary): number {
   const status = asProjectStatus(p.status);
   if (!status) return -1;
   const { total, scripted, in_production, completed } = status.episodes_summary;
   if (total === 0) return 0;
-  if (completed >= total) return -10;
+  if (projectProgress(status) === "completed") return -10;
   if (in_production + completed > 0) return 100 + (completed / total) * 10;
   return 10 + scripted / total;
 }
@@ -225,8 +223,6 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
             </span>
           </div>
         </div>
-
-        <NeedsUpdateLine count={staleArtifactTotal(status)} />
 
         <div
           className="relative grid overflow-hidden rounded-[8px]"
@@ -548,7 +544,7 @@ interface HeroStripProps {
     total: number;
     inProgress: number;
     completed: number;
-    attention: number;
+    repair: number;
     episodesCompleted: number;
     episodesInProduction: number;
   };
@@ -599,9 +595,9 @@ function HeroStrip({ totals, t }: HeroStripProps) {
       tone: { color: "var(--color-good)" },
     },
     {
-      key: "attention",
-      label: t("dashboard:lobby_filter_attention"),
-      value: totals.attention,
+      key: "repair",
+      label: t("dashboard:lobby_filter_repair"),
+      value: totals.repair,
       tone: { color: "var(--color-warm)" },
     },
   ];
@@ -905,7 +901,7 @@ export function ProjectsPage() {
   };
 
   const filterCounts = useMemo(() => {
-    const out: Record<LobbyFilter, number> = { all: 0, in_progress: 0, completed: 0, attention: 0 };
+    const out: Record<LobbyFilter, number> = { all: 0, in_progress: 0, completed: 0, repair: 0 };
     for (const p of projects) {
       const status = asProjectStatus(p.status);
       for (const filter of ["all", ...LOBBY_FILTERS] as const) {
@@ -929,7 +925,7 @@ export function ProjectsPage() {
       total: projects.length,
       inProgress: filterCounts.in_progress,
       completed: filterCounts.completed,
-      attention: filterCounts.attention,
+      repair: filterCounts.repair,
       episodesCompleted,
       episodesInProduction,
     };

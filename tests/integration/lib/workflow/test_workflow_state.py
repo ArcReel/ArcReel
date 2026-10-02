@@ -19,7 +19,7 @@ from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
-from lib.episode.episode_sources import discover_sources
+from lib.episode.episode_sources import discover_sources, source_remaining
 from lib.infra.json_io import atomic_write_json
 from lib.project.episode_asset_references import episode_referenced_assets
 from lib.project.project_manager import ProjectManager
@@ -2295,7 +2295,7 @@ def test_planning_completion_resolves_nfc_range_to_nfd_filesystem_path(tmp_path:
     assert source.revision is not None
     _cut_everything(project, discover_sources(project_path, project))
 
-    assert WorkflowStateService._planning_complete(project, planning_docs(project, source)) is True
+    assert source_remaining(project, list(planning_docs(project, source))) is False
 
 
 def test_planning_without_source_fingerprint_baseline_is_incomplete(tmp_path: Path) -> None:
@@ -2305,7 +2305,7 @@ def test_planning_without_source_fingerprint_baseline_is_incomplete(tmp_path: Pa
     source = compute_source_revision(project_path, project, SourceScope(kind="all"))
     assert source.revision is not None
 
-    assert WorkflowStateService._planning_complete(project, planning_docs(project, source)) is False
+    assert source_remaining(project, list(planning_docs(project, source))) is True
 
 
 def test_new_source_file_continues_planning_without_resetting_existing_fingerprints(tmp_path: Path) -> None:
@@ -2335,10 +2335,10 @@ def test_planning_completion_follows_the_registered_file_order(tmp_path: Path) -
     assert [doc.rel_path for doc in planning_docs(project, source)] == [doc.rel_path for doc in docs]
     assert [unicodedata.normalize("NFC", doc.rel_path) for doc in docs] == ["source/b.txt", "source/á.txt"]
     _cut_everything(project, docs[:1])
-    assert WorkflowStateService._planning_complete(project, planning_docs(project, source)) is False
+    assert source_remaining(project, list(planning_docs(project, source))) is True
     _cut_everything(project, docs)
 
-    assert WorkflowStateService._planning_complete(project, planning_docs(project, source)) is True
+    assert source_remaining(project, list(planning_docs(project, source))) is False
 
 
 def test_duplicate_reference_video_unit_ids_block_completion(tmp_path: Path) -> None:

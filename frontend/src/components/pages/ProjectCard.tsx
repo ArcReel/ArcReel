@@ -20,7 +20,7 @@ interface ProgressTone {
   glow: string;
 }
 
-/** 集进度徽标的三种色调：尚未建集、制作中、已有的集全部完成。 */
+/** 集进度徽标的三种色调：尚未建集、制作中、项目完成。 */
 const PROGRESS_TONE: Record<ProjectProgress, ProgressTone> = {
   empty: {
     dot: "oklch(0.64 0.020 265)",
@@ -40,15 +40,15 @@ const PROGRESS_TONE: Record<ProjectProgress, ProgressTone> = {
 };
 
 /**
- * 项目的集进度：没有集、制作中、已有的集全部完成。只由各集进度得出，不是流水线阶段；
- * 「全部完成」不看源文是否还有未切分的部分（项目摘要不读源文）。
+ * 项目的集进度：没有集、制作中、项目完成。不是流水线阶段。项目完成要求已有的集全部完成，且整本源文
+ * 没有未规划成集的原文，与项目顶栏的「全部完成」同一口径。源文是否规划完由账本命令记进项目摘要，大厅不读源文。
  */
 export type ProjectProgress = "empty" | "in_progress" | "completed";
 
 export function projectProgress(status: ProjectStatus | null): ProjectProgress {
   const episodes = status?.episodes_summary;
   if (!episodes || episodes.total === 0) return "empty";
-  return episodes.completed >= episodes.total ? "completed" : "in_progress";
+  return episodes.completed >= episodes.total && !status.source_remaining ? "completed" : "in_progress";
 }
 
 /** 集进度的一句话：「已完成 N / M 集」，没有集时「尚未建集」。 */
@@ -278,37 +278,11 @@ export function gradientProgressStyles(variant: "accent" | "good"): {
 
 // -- ProjectCard --------------------------------------------------------------
 
-/**
- * 「N 项需要更新」的提醒：比当前内容旧的产物。stale 的产物仍然可用，
- * 所以它不进缺口计数，而是单独提醒——大厅卡与「正在编辑」卡共用同一句话。
- */
-export function NeedsUpdateLine({ count }: { count: number }) {
-  const { t } = useTranslation("dashboard");
-  if (count <= 0) return null;
-  return (
-    <div className="mt-2.5 flex items-center gap-1.5 border-t border-dashed border-hairline-soft pt-2.5">
-      <span
-        aria-hidden
-        className="h-[5px] w-[5px] rounded-full"
-        style={{ background: "var(--color-warm-bright)" }}
-      />
-      <span className="font-mono text-[10px] tracking-[0.04em] text-warm-bright">
-        {t("lobby_card_needs_update", { count })}
-      </span>
-    </div>
-  );
-}
-
 const EMPTY_COUNT = { total: 0, available: 0, stale: 0 } as const;
 
 /** 一类资产的可用计数：产物清单里 current ∪ stale 的那些。 */
 export function assetCount(status: ProjectStatus | null, assetType: string): ArtifactCount {
   return status?.assets?.[assetType] ?? EMPTY_COUNT;
-}
-
-/** 需要更新的产物件数：全部资产类型的 stale 张数——卡片只列举三类计数，这里不漏掉其余类型。 */
-export function staleArtifactTotal(status: ProjectStatus | null): number {
-  return Object.values(status?.assets ?? {}).reduce((sum, count) => sum + count.stale, 0);
 }
 
 interface ProjectCardBaseProps {
@@ -358,7 +332,6 @@ export function ProjectCard(props: ProjectCardProps) {
   const characters = assetCount(status, "character");
   const scenes = assetCount(status, "scene");
   const propsStat = assetCount(status, "prop");
-  const staleArtifacts = staleArtifactTotal(status);
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
   const projectDisplayName = getProjectDisplayName(project.title, t("untitled_project"));
@@ -372,7 +345,6 @@ export function ProjectCard(props: ProjectCardProps) {
     progressText,
     status?.needs_repair ? t("lobby_card_needs_repair") : "",
     repairReason ?? "",
-    staleArtifacts > 0 ? t("lobby_card_needs_update", { count: staleArtifacts }) : "",
     props.readOnly ? t("onboarding:demo_banner_title") : "",
   ]
     .filter(Boolean)
@@ -435,8 +407,6 @@ export function ProjectCard(props: ProjectCardProps) {
             </div>
           ))}
         </div>
-
-        <NeedsUpdateLine count={staleArtifacts} />
       </div>
     </>
   );

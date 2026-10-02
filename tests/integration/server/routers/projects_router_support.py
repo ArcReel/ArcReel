@@ -443,6 +443,7 @@ class _FakeSummaries:
                     videos=ArtifactCount(total=1, available=0, stale=0),
                 )
             ],
+            source_remaining=False,
         )
 
 
