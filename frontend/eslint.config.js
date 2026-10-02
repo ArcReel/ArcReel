@@ -12,13 +12,41 @@ import globals from "globals";
 
 const TEST_FILES = ["src/**/*.test.{ts,tsx}"];
 
+// 入队类 API 方法清单：新增入队方法时在数组里加一行（按字母序）。
+const ENQUEUE_METHODS = [
+  "authorPrompts",
+  "continueEpisodeReplan",
+  "editImage",
+  "exportJianyingDraft",
+  "generateAdScript",
+  "generateCharacter",
+  "generateCharacterDerivative",
+  "generateCharacterVoiceSample",
+  "generateEpisodeNarrationAudio",
+  "generateGrid",
+  "generateNarrationAudio",
+  "generateProjectProduct",
+  "generateProjectProp",
+  "generateProjectScene",
+  "generateReferenceVideoBatch",
+  "generateReferenceVideoUnit",
+  "generateStoryboard",
+  "generateVideo",
+  "planEpisodes",
+  "planScript",
+  "regenerateGrid",
+  "renderFinalCut",
+  "repairEpisodeDraft",
+  "startEpisodeReplan",
+  "submitStoryboardBatch",
+];
+
 // no-restricted-syntax 的各条约束定义在此处、由下方配置块组合。
 // flat config 对同一文件匹配到的同名规则是「后者整体替换前者的选项」而非合并：若拆成多个
 // 配置块各写一条 selector，文件范围重叠时先声明的那条会被静默摘除。故每个配置块都必须把
 // 该文件应受的全部约束一次性列全，豁免用「少列一条」表达，而不是另起一块。
 const RESTRICT_ENQUEUE = {
-  selector:
-    "CallExpression[callee.object.name='API'][callee.property.name=/^(generateStoryboard|generateVideo|generateNarrationAudio|generateEpisodeNarrationAudio|generateCharacter|generateCharacterDerivative|generateCharacterVoiceSample|generateProjectScene|generateProjectProp|generateProjectProduct|editImage|generateGrid|regenerateGrid|generateReferenceVideoUnit|generateReferenceVideoBatch|submitStoryboardBatch|authorPrompts|planScript|repairEpisodeDraft|planEpisodes|startEpisodeReplan|continueEpisodeReplan|generateAdScript|renderFinalCut|exportJianyingDraft)$/]",
+  selector: `CallExpression[callee.object.name='API'][callee.property.name=/^(${ENQUEUE_METHODS.join("|")})$/]`,
   message:
     "入队类 API 方法只能经 src/actions/ 的入队动作层调用（统一封装乐观占用打标与去重提示）。",
 };

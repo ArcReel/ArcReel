@@ -567,7 +567,7 @@ _QUIET_POLL_ENDPOINTS: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/v1/tasks/stats"),
     }
 )
-_QUIET_SLOW_THRESHOLD_MS = 500.0
+QUIET_SLOW_THRESHOLD_MS = 500.0
 
 
 @app.middleware("http")
@@ -592,7 +592,7 @@ async def request_logging_middleware(request: Request, call_next):
         is_quiet = (
             (request.method, path) in _QUIET_POLL_ENDPOINTS
             and response.status_code < 400
-            and elapsed_ms < _QUIET_SLOW_THRESHOLD_MS
+            and elapsed_ms < QUIET_SLOW_THRESHOLD_MS
         )
         log = logger.debug if is_quiet else logger.info
         log(
