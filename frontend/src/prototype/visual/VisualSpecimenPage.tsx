@@ -32,6 +32,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -316,12 +317,15 @@ export function VisualSpecimenPage() {
                 打开下拉 <MoreHorizontal />
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56">
-                <DropdownMenuLabel>最近项目</DropdownMenuLabel>
-                {projects.slice(0, 4).map((p) => (
-                  <DropdownMenuItem key={p.name}>
-                    <Film /> {p.title || p.name}
-                  </DropdownMenuItem>
-                ))}
+                {/* Base UI 的 GroupLabel 必须在 Group 内，否则抛错（Radix 版没有这个约束） */}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>最近项目</DropdownMenuLabel>
+                  {projects.slice(0, 4).map((p) => (
+                    <DropdownMenuItem key={p.name}>
+                      <Film /> {p.title || p.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive">
                   <Trash2 /> 删除项目
