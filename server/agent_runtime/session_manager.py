@@ -895,11 +895,11 @@ class SessionManager:
     ) -> ManagedSession:
         """Get existing managed session or spin up an actor for resumed session.
 
-        ``locale`` only matters when this call revives a cold session: the SDK's
-        ``resume`` rebuilds the whole system prompt from current options, so the
-        language regulation segment must reflect the caller's request locale. An
-        already-resident session returns from cache and ``locale`` is ignored —
-        the session-fixed system prompt stays unchanged.
+        ``locale`` only shapes the system prompt of a session's first turn: the
+        system prompt is snapshotted into the session on its first request
+        (``SystemPromptPreset.snapshot``), so a resumed session keeps the language
+        regulation it started with and an already-resident session returns from
+        cache. Here it matters for ``resumable=False`` sessions, which start fresh.
 
         ``resumable=False`` 用于元数据行已建、transcript 却是空的会话（改写第一条
         消息分叉出的分支）：这类会话没有历史可 resume，改以 ``session_id=`` 预指定
@@ -1017,9 +1017,8 @@ class SessionManager:
     ) -> dict[str, Any] | None:
         """Send a message via the session actor.
 
-        ``locale`` is forwarded to ``get_or_connect`` so a cold-recovered
-        session rebuilds its language regulation from the current request's
-        locale rather than the default.
+        ``locale`` is forwarded to ``get_or_connect``; it shapes the system
+        prompt only when the revival starts a fresh session (see there).
 
         ``user_entry`` 是本条用户消息的事件日志条目：先写日志分配身份（并发
         与容量校验之后、送入 SDK 之前），返回权威条目供受理响应回传；同一
@@ -1710,9 +1709,9 @@ class SessionManager:
     async def _subscribe(self, session_id: str, *, locale: str = DEFAULT_LOCALE) -> tuple[SseChannel, asyncio.Queue]:
         """Register a live-message queue for a session.
 
-        ``locale`` is forwarded to ``get_or_connect`` so reviving a cold session
-        through the stream path rebuilds its language regulation from the current
-        request's locale, matching the send-message path.
+        ``locale`` is forwarded to ``get_or_connect``, matching the send-message
+        path; it shapes the system prompt only when the revival starts a fresh
+        session.
 
         Private: the only consumer is :meth:`stream_messages`, which owns the
         deterministic unsubscribe via its context-manager ``__aexit__``.
