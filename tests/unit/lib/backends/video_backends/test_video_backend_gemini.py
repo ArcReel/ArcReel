@@ -2,6 +2,7 @@
 
 import urllib.error
 from email.message import Message
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -444,6 +445,78 @@ class TestDownloadVideo:
         gemini_backend._download_video(mock_ref, output)
 
         assert output.read_bytes() == b"video-data"
+        assert list(tmp_path.iterdir()) == [output]
+
+    def test_vertex_download_from_bytes_failure_keeps_existing_video(self, gemini_backend, tmp_path):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        output.write_bytes(b"previous-video")
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = b"video-data"
+
+        def interrupted_write(self, data):
+            self.write_text("partial")
+            raise OSError("disk full")
+
+        with patch("pathlib.Path.write_bytes", interrupted_write), pytest.raises(OSError, match="disk full"):
+            gemini_backend._download_video(mock_ref, output)
+
+        assert output.read_bytes() == b"previous-video"
+        assert list(tmp_path.iterdir()) == [output]
+
+    def test_vertex_download_from_bytes_failure_leaves_no_partial_file(self, gemini_backend, tmp_path):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = b"video-data"
+
+        def interrupted_write(self, data):
+            self.write_text("partial")
+            raise OSError("disk full")
+
+        with patch("pathlib.Path.write_bytes", interrupted_write), pytest.raises(OSError, match="disk full"):
+            gemini_backend._download_video(mock_ref, output)
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_vertex_download_from_uri(self, gemini_backend, tmp_path):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = None
+        mock_ref.uri = "https://example.com/video.mp4"
+
+        def urlretrieve(url, filename):
+            assert url == "https://example.com/video.mp4"
+            Path(filename).write_bytes(b"uri-video")
+
+        with patch("urllib.request.urlretrieve", side_effect=urlretrieve):
+            gemini_backend._download_video(mock_ref, output)
+
+        assert output.read_bytes() == b"uri-video"
+        assert list(tmp_path.iterdir()) == [output]
+
+    @pytest.mark.parametrize("existing", [None, b"previous-video"])
+    def test_vertex_download_from_uri_failure_keeps_target_untouched(self, gemini_backend, tmp_path, existing):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        if existing is not None:
+            output.write_bytes(existing)
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = None
+        mock_ref.uri = "https://example.com/video.mp4"
+
+        def interrupted(url, filename):
+            Path(filename).write_bytes(b"partial")
+            raise urllib.error.ContentTooShortError("retrieval incomplete", b"partial")
+
+        with patch("urllib.request.urlretrieve", side_effect=interrupted), pytest.raises(urllib.error.URLError):
+            gemini_backend._download_video(mock_ref, output)
+
+        expected = [] if existing is None else [output]
+        assert list(tmp_path.iterdir()) == expected
+        if existing is not None:
+            assert output.read_bytes() == existing
 
     def test_vertex_no_data_raises(self, gemini_backend, tmp_path):
         gemini_backend._backend_type = "vertex"
