@@ -1482,6 +1482,8 @@ export default {
   'grid_status_generating': '生成中',
   'grid_status_completed': '已完成',
   'grid_status_failed': '失败',
+  'grid_status_interrupted': '已中断',
+  'grid_interrupted_hint': '上次生成已中断，可重新生成',
   'grid_unsplit_hint': '未切分',
   'grid_preview_title': '多宫格分镜预览',
   'grid_not_generated': '尚未生成',

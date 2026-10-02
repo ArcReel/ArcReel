@@ -1473,6 +1473,8 @@ export default {
   'grid_status_generating': 'Đang tạo',
   'grid_status_completed': 'Hoàn tất',
   'grid_status_failed': 'Thất bại',
+  'grid_status_interrupted': 'Đã gián đoạn',
+  'grid_interrupted_hint': 'Lần tạo trước đã bị gián đoạn. Bạn có thể tạo lại.',
   'grid_unsplit_hint': 'Chưa tách',
   'grid_preview_title': 'Xem trước phân cảnh đa lưới',
   'grid_not_generated': 'Chưa tạo',

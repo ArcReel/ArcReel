@@ -52,6 +52,7 @@ from server.services.grid.grid_submission import (
     GridSubmissionPlan,
     commit_grid_submission,
     ensure_grid_submittable,
+    grid_is_in_flight,
     grid_submission_section,
     plan_grid_submission,
     queue_active_grid_tasks,
@@ -292,10 +293,16 @@ def _load_project_for_grid_write(project_name: str) -> dict:
     return project
 
 
-def _ensure_grid_idle(grid: GridGeneration) -> None:
+async def _ensure_grid_idle(project_name: str, grid: GridGeneration, user_id: str) -> None:
     """生成在途（pending/generating）的宫格拒绝切分/上传：worker 完成时会覆写联合图，
-    与刚上传的图或按旧图的切分互相踩踏。"""
-    if grid.status in ("pending", "generating"):
+    与刚上传的图或按旧图的切分互相踩踏。只有队列里仍有活动任务才算在途；任务被取消、
+    重启丢失或入队失败后，停在中间态的孤儿记录可以由用户动作接管。"""
+    if await grid_is_in_flight(
+        grid,
+        queue=get_generation_queue(),
+        project_name=project_name,
+        user_id=user_id,
+    ):
         raise ConflictError("grid_generation_in_progress", grid_id=grid.id)
 
 
@@ -364,7 +371,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
 
 
 @router.post("/grids/{grid_id}/split")
-async def split_grid(project_name: str, grid_id: str):
+async def split_grid(project_name: str, grid_id: str, user: CurrentUser):
     """按当前联合图切分并覆写各分镜格——唯一覆写分镜格的操作，直接执行不设确认。
 
     逐格覆写前旧文件补登版本、覆写后登记新版本；frame_chain 中已不在剧本内的
@@ -372,17 +379,18 @@ async def split_grid(project_name: str, grid_id: str):
     """
     _load_project_for_grid_write(project_name)
     project_path = get_project_manager().get_project_path(project_name)
-    grid = _load_grid_or_404(project_path, grid_id)
-    _ensure_grid_idle(grid)
-    if not grid.grid_image_path or not GridManager(project_path).image_path(grid_id).exists():
-        raise BadRequestError("grid_image_not_ready", grid_id=grid_id)
+    async with grid_submission_section(project_name):
+        grid = _load_grid_or_404(project_path, grid_id)
+        await _ensure_grid_idle(project_name, grid, user.id)
+        if not grid.grid_image_path or not GridManager(project_path).image_path(grid_id).exists():
+            raise BadRequestError("grid_image_not_ready", grid_id=grid_id)
 
-    try:
-        with project_change_source("webui"):
-            result = await apply_grid_split(project_name, grid)
-    except GridImageNotReadyError as exc:
-        # 服务侧兜底（与上方预检间存在文件被并发删除的窗口）
-        raise BadRequestError("grid_image_not_ready", grid_id=grid_id) from exc
+        try:
+            with project_change_source("webui"):
+                result = await apply_grid_split(project_name, grid)
+        except GridImageNotReadyError as exc:
+            # 服务侧兜底（与上方预检间存在文件被并发删除的窗口）
+            raise BadRequestError("grid_image_not_ready", grid_id=grid_id) from exc
 
     return {
         "success": True,
@@ -400,6 +408,7 @@ async def split_grid(project_name: str, grid_id: str):
 async def upload_grid_image(
     project_name: str,
     grid_id: str,
+    user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
 ):
@@ -412,7 +421,7 @@ async def upload_grid_image(
     project = _load_project_for_grid_write(project_name)
     project_path = get_project_manager().get_project_path(project_name)
     grid = _load_grid_or_404(project_path, grid_id)
-    _ensure_grid_idle(grid)
+    await _ensure_grid_idle(project_name, grid, user.id)
     aspect_ratio = video_aspect_ratio_of(project)
 
     try:
@@ -436,15 +445,21 @@ async def upload_grid_image(
 
     with project_change_source("webui"):
         staged_file = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
-        try:
+    try:
+        async with grid_submission_section(project_name):
+            # 入队与记录写入在同一临界区内完成。这里在持有临界区后重读并再次探测，
+            # 防止早先的孤儿判定之后、提交之前插入一次重新生成。
+            current_grid = _load_grid_or_404(project_path, grid_id)
+            await _ensure_grid_idle(project_name, current_grid, user.id)
 
             def _commit() -> int:
                 version_box: list[int] = []
 
                 def _replace_record(current_grid: GridGeneration) -> None:
-                    _ensure_grid_idle(current_grid)
                     # 手动补图等价于一次成功的联合图产出：failed 记录就此回到就绪态；
                     # 联合图内容已变更，split_at 清空表示「待显式切分」。
+                    current_grid.status = "completed"
+                    current_grid.error_message = None
                     current_grid.mark_composite_replaced()
                     # 上传按项目当前比例排布，冻结值随之改写；沿用旧值会在项目比例
                     # 改过之后把新图按旧比例中心裁切。
@@ -482,24 +497,26 @@ async def upload_grid_image(
                         )
                     )
 
-                committed = grid_manager.update_formal(grid_id, _replace_record, on_commit=_activate)
-                if committed is None or len(version_box) != 1:
-                    raise RuntimeError("grid upload metadata commit skipped staged activation")
-                return version_box[0]
+                with project_change_source("webui"):
+                    committed = grid_manager.update_formal(grid_id, _replace_record, on_commit=_activate)
+                    if committed is None or len(version_box) != 1:
+                        raise RuntimeError("grid upload metadata commit skipped staged activation")
+                    return version_box[0]
 
             version = await run_noninterruptible_sync(_commit)
-        finally:
-            await asyncio.to_thread(staged_file.unlink, missing_ok=True)
 
-        from server.services.tasks.generation_tasks import emit_generation_success_batch
+        with project_change_source("webui"):
+            from server.services.tasks.generation_tasks import emit_generation_success_batch
 
-        fingerprints = await asyncio.to_thread(
-            emit_generation_success_batch,
-            task_type="grid",
-            project_name=project_name,
-            resource_id=grid_id,
-            payload={"script_file": grid.script_file},
-        )
+            fingerprints = await asyncio.to_thread(
+                emit_generation_success_batch,
+                task_type="grid",
+                project_name=project_name,
+                resource_id=grid_id,
+                payload={"script_file": grid.script_file},
+            )
+    finally:
+        await asyncio.to_thread(staged_file.unlink, missing_ok=True)
 
     return {
         "success": True,
