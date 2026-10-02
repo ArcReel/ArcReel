@@ -353,14 +353,23 @@ def _kling_image_by_resolution_pricing(model_id: str, rates: dict[str, float]) -
 
 
 # Agnes 图片费率（美元/张）按官方标准价建模，不纳入促销价。
-def _agnes_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
-    return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
+def _agnes_image_pricing(model_id: str, rates: dict[str, float]) -> PerImageByResolution:
+    return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="USD")
 
 
 # Agnes 文本费率（美元/百万 token），官方原价。
-def _agnes_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+def _agnes_text_pricing(
+    model_id: str,
+    input_rate: float,
+    output_rate: float,
+    *,
+    cached_input_rate: float | None = None,
+) -> PerToken:
+    rates = {"input": input_rate, "output": output_rate}
+    if cached_input_rate is not None:
+        rates["cached_input"] = cached_input_rate
     return PerToken(
-        rates={model_id: {"input": input_rate, "output": output_rate}},
+        rates={model_id: rates},
         default_model=model_id,
         currency="USD",
     )
@@ -372,6 +381,15 @@ def _agnes_video_pricing(model_id: str, per_second: float) -> PerSecondMatrix:
         rates={model_id: {("", None): per_second}},
         default_model=model_id,
         dimensions="flat",
+        currency="USD",
+    )
+
+
+def _agnes_video_pricing_by_resolution(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {(resolution, None): rate for resolution, rate in rates.items()}},
+        default_model=model_id,
+        dimensions="resolution_only",
         currency="USD",
     )
 
@@ -1393,36 +1411,89 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             # --- text ---
-            # agnes-2.0-flash：OpenAI 兼容 /v1/chat/completions，原生 response_format json_schema
-            # 结构化输出，失败再降级 Instructor（见 AgnesTextBackend）。
+            # OpenAI 兼容 /v1/chat/completions，原生 response_format json_schema 结构化输出，
+            # 失败再降级 Instructor（见 AgnesTextBackend）。
+            "agnes-3.0-flash": ModelInfo(
+                display_name="Agnes 3.0 Flash",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                default=True,
+                pricing=_agnes_text_pricing("agnes-3.0-flash", 0.05, 0.15, cached_input_rate=0.005),
+                max_output_tokens=65536,
+            ),
+            "agnes-2.5-flash": ModelInfo(
+                display_name="Agnes 2.5 Flash",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_agnes_text_pricing("agnes-2.5-flash", 0.05, 0.15, cached_input_rate=0.005),
+                max_output_tokens=65536,
+            ),
+            "agnes-2.5-pro": ModelInfo(
+                display_name="Agnes 2.5 Pro",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_agnes_text_pricing("agnes-2.5-pro", 0.45, 0.90, cached_input_rate=0.045),
+                max_output_tokens=65536,
+            ),
             "agnes-2.0-flash": ModelInfo(
                 display_name="Agnes 2.0 Flash",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
-                default=True,
+                hidden=True,
                 pricing=_agnes_text_pricing("agnes-2.0-flash", 0.03, 0.15),
                 max_output_tokens=65536,
             ),
             # --- image ---
-            # agnes-image-2.1-flash：OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
-            # 仅注册 2.1；2.0 与 2.1 共用相同的价格和字段契约，model 目录收敛到 2.1。
-            # resolutions 是保守的 UI 档位；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            # OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
+            "agnes-image-2.5-flash": ModelInfo(
+                display_name="Agnes Image 2.5 Flash",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["1K", "2K", "3K", "4K"],
+                pricing=_agnes_image_pricing(
+                    "agnes-image-2.5-flash",
+                    {"1K": 0.010, "2K": 0.018, "3K": 0.021, "4K": 0.024},
+                ),
+            ),
             "agnes-image-2.1-flash": ModelInfo(
                 display_name="Agnes Image 2.1 Flash",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
-                default=True,
+                hidden=True,
                 resolutions=["1K", "2K"],
-                pricing=_agnes_image_pricing("agnes-image-2.1-flash", 0.003),
+                pricing=_agnes_image_pricing(
+                    "agnes-image-2.1-flash",
+                    {"1K": 0.010, "2K": 0.018, "3K": 0.021, "4K": 0.024},
+                ),
             ),
             # --- video ---
-            # agnes-video-v2.0：apihub 异步 /v1/videos，图生 / 首尾帧 / 多图主体参考；fps 固定 24、
-            # 时长 1–18s。resolutions 为保守 UI 档位；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            # 2.5：apihub 异步 /v1/videos，文生 / 首尾关键帧 / 多图主体参考；按分辨率与秒数计费。
+            "agnes-video-2.5-flash": ModelInfo(
+                display_name="Agnes Video 2.5 Flash",
+                media_type="video",
+                capabilities=[],
+                default=True,
+                supported_durations=list(range(4, 13)),
+                resolutions=["720p"],
+                pricing=_agnes_video_pricing_by_resolution("agnes-video-2.5-flash", {"720p": 0.025}),
+            ),
+            "agnes-video-2.5": ModelInfo(
+                display_name="Agnes Video 2.5",
+                media_type="video",
+                capabilities=[],
+                supported_durations=list(range(4, 13)),
+                resolutions=["720p", "1080p", "2K"],
+                pricing=_agnes_video_pricing_by_resolution(
+                    "agnes-video-2.5", {"720p": 0.025, "1080p": 0.040, "2k": 0.055}
+                ),
+            ),
+            # 旧 v2.0 契约保留，仅从 UI 下拉隐藏。
             "agnes-video-v2.0": ModelInfo(
                 display_name="Agnes Video 2.0",
                 media_type="video",
                 capabilities=[],
-                default=True,
+                hidden=True,
                 supported_durations=list(range(1, 19)),
                 resolutions=["480p", "720p", "1080p"],
                 pricing=_agnes_video_pricing("agnes-video-v2.0", 0.005),

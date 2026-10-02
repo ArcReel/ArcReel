@@ -4,7 +4,7 @@ from typing import ClassVar
 
 import pytest
 
-from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
+from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta, default_model_for_provider
 
 
 class TestModelInfo:
@@ -175,6 +175,42 @@ class TestProviderRegistry:
         for provider_id in self._TEXT_PROVIDERS:
             meta = PROVIDER_REGISTRY[provider_id]
             assert "text" in meta.media_types, f"{provider_id} missing 'text'"
+
+    def test_agnes_25_models_are_registered_and_legacy_models_are_hidden(self):
+        meta = PROVIDER_REGISTRY["agnes"]
+
+        for model_id in (
+            "agnes-3.0-flash",
+            "agnes-2.5-flash",
+            "agnes-2.5-pro",
+            "agnes-image-2.5-flash",
+            "agnes-video-2.5",
+            "agnes-video-2.5-flash",
+        ):
+            assert model_id in meta.models
+
+        assert meta.models["agnes-3.0-flash"].default is True
+        assert meta.models["agnes-2.5-flash"].default is False
+        assert meta.models["agnes-2.5-pro"].default is False
+        assert meta.models["agnes-image-2.5-flash"].default is True
+        assert meta.models["agnes-video-2.5-flash"].default is True
+        assert meta.models["agnes-video-2.5"].default is False
+
+        assert meta.models["agnes-2.0-flash"].hidden is True
+        assert meta.models["agnes-image-2.1-flash"].hidden is True
+        assert meta.models["agnes-video-v2.0"].hidden is True
+
+        assert meta.models["agnes-image-2.5-flash"].resolutions == ["1K", "2K", "3K", "4K"]
+        assert meta.models["agnes-image-2.1-flash"].resolutions == ["1K", "2K"]
+        assert meta.models["agnes-video-2.5-flash"].supported_durations == list(range(4, 13))
+        assert meta.models["agnes-video-2.5-flash"].resolutions == ["720p"]
+        assert meta.models["agnes-video-2.5"].supported_durations == list(range(4, 13))
+        assert meta.models["agnes-video-2.5"].resolutions == ["720p", "1080p", "2K"]
+        assert "agnes-image-2.0-flash" not in meta.models
+
+        assert default_model_for_provider("agnes", "text") == "agnes-3.0-flash"
+        assert default_model_for_provider("agnes", "image") == "agnes-image-2.5-flash"
+        assert default_model_for_provider("agnes", "video") == "agnes-video-2.5-flash"
 
     def test_dashscope_video_models_include_happyhorse_11(self):
         meta = PROVIDER_REGISTRY["dashscope"]

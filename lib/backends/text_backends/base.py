@@ -145,6 +145,27 @@ def strip_leading_think_block(text: str) -> str:
     return body[end + len(_THINK_CLOSE) :].lstrip()
 
 
+def strip_json_code_fence(text: str) -> str:
+    """剥掉包裹整个输出的 Markdown JSON 代码围栏，返回围栏内的 JSON 文本。
+
+    只处理首尾成对的 ``json`` / 无语言围栏；正文前后空白与无尾换行的形态都归一化。
+    非围栏内容原样返回，避免误改普通文本或截断的 JSON。
+    """
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return text
+
+    lines = stripped.splitlines()
+    if len(lines) < 2 or lines[-1].strip() != "```":
+        return text
+
+    opening = lines[0].strip().lower()
+    if opening not in {"```", "```json"}:
+        return text
+
+    return "\n".join(lines[1:-1]).strip()
+
+
 # 文本输出上限：非约束安全阀，仅防模型退化性 runaway，不是功能预算——分集规划、剧本生成、
 # drama script_plan 规范化三处的正常输出体量由各自 schema/内容天然约束，永远不会触碰这个高位值；
 # 只有病态超大批量，或用户配置了输出能力偏低的模型时才会命中。三处共用同一常量，调整只改
