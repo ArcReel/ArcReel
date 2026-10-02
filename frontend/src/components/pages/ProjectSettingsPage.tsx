@@ -847,14 +847,17 @@ export function ProjectSettingsPage() {
         video: {
           overridden: !!(videoBackend || videoProviderI2V || videoProviderR2V) || audioOverride !== null,
           onReset: () => { setVideoBackend(""); setVideoProviderI2V(""); setVideoProviderR2V(""); setAudioOverride(null); },
+          globalLabel: modelLabel(effectiveModel(usesRef ? globalDefaults.videoR2V : globalDefaults.videoI2V, globalDefaults.video)),
         },
         image: {
           overridden: !!(imageBackendDefault || imageBackendT2I || imageBackendI2I),
           onReset: () => { setImageBackendDefault(""); setImageBackendT2I(""); setImageBackendI2I(""); },
+          globalLabel: modelLabel(effectiveModel(globalDefaults.imageT2I, globalDefaults.image)),
         },
         text: {
           overridden: !!(textDefault || textSimple || textComplex),
           onReset: () => { setTextDefault(""); setTextSimple(""); setTextComplex(""); },
+          globalLabel: modelLabel(effectiveModel(globalDefaults.textDefault)),
         },
       } : undefined}
     />

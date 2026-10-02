@@ -130,6 +130,8 @@ export interface ModelConfigSectionProps {
 export interface ChannelSource {
   overridden: boolean;
   onReset: () => void;
+  /** 跟随全局时显示的全局默认模型名 */
+  globalLabel: string;
 }
 
 interface ChannelCardProps {
@@ -162,7 +164,9 @@ function ChannelCard({ kicker, title, source, children }: ChannelCardProps) {
               </button>
             </div>
           ) : (
-            <span className="shrink-0 px-1.5 py-0.5 text-[12px] text-text-3">跟随全局</span>
+            <span className="min-w-0 max-w-[60%] truncate px-1.5 py-0.5 text-[12px] text-text-3" title={source.globalLabel}>
+              跟随全局 · {source.globalLabel}
+            </span>
           )
         )}
       </div>
