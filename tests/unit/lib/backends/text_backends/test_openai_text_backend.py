@@ -77,6 +77,30 @@ class TestOpenAITextBackend:
             assert TextCapability.STRUCTURED_OUTPUT in backend.capabilities
             assert TextCapability.VISION in backend.capabilities
 
+    def test_official_openai_unregistered_model_keeps_structured_output_capability(self):
+        with captured_openai_clients():
+            from lib.backends.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key", model="qwen-long", provider_name="openai")
+
+        assert TextCapability.STRUCTURED_OUTPUT in backend.capabilities
+
+    def test_dashscope_qwen_long_omits_structured_output_capability(self):
+        with captured_openai_clients():
+            from lib.backends.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key", model="qwen-long", provider_name="dashscope")
+
+        assert TextCapability.STRUCTURED_OUTPUT not in backend.capabilities
+
+    def test_dashscope_structured_model_keeps_structured_output_capability(self):
+        with captured_openai_clients():
+            from lib.backends.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key", model="qwen-plus", provider_name="dashscope")
+
+        assert TextCapability.STRUCTURED_OUTPUT in backend.capabilities
+
     async def test_generate_plain_text(self):
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Test output", 15, 8))
@@ -209,6 +233,36 @@ class _PersonSchema(BaseModel):
 
 class TestInstructorFallback:
     """Instructor 降级路径测试。"""
+
+    async def test_dashscope_qwen_long_skips_native_structured_output(self):
+        """未声明原生 structured_output 的 DashScope 模型应直接走 Instructor。"""
+        instructor_result = _PersonSchema(name="Bob", age=25)
+        instructor_completion = MagicMock()
+        instructor_completion.usage = MagicMock()
+        instructor_completion.usage.prompt_tokens = 50
+        instructor_completion.usage.completion_tokens = 20
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_make_mock_response(json.dumps({"name": "Alice", "age": 30}), 100, 60)
+        )
+        mock_patched = _make_instructor_client()
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            captured_openai_clients(mock_client),
+            patched_instructor_from_openai(return_value=mock_patched),
+        ):
+            from lib.backends.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(api_key="test-key", model="qwen-long", provider_name="dashscope")
+            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
+
+        assert result.text == instructor_result.model_dump_json()
+        mock_client.chat.completions.create.assert_not_awaited()
+        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
 
     async def test_native_structured_output_success_no_fallback(self):
         """原生 response_format 成功时，不走 Instructor 降级。"""

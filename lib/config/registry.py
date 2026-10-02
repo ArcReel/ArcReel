@@ -1056,7 +1056,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "qwen-long": ModelInfo(
                 display_name="Qwen Long",
                 media_type="text",
-                capabilities=["text_generation", "structured_output"],
+                capabilities=["text_generation"],
                 pricing=_dashscope_text_pricing("qwen-long", 0.5, 2.0),
                 max_output_tokens=8192,
             ),

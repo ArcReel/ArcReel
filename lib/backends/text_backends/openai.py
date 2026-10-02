@@ -7,7 +7,7 @@ import logging
 from openai import AsyncOpenAI, BadRequestError
 
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
-from lib.backends.providers import PROVIDER_OPENAI
+from lib.backends.providers import PROVIDER_DASHSCOPE, PROVIDER_OPENAI
 from lib.backends.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
@@ -51,11 +51,22 @@ class OpenAITextBackend:
         self._max_tokens_param: TokenParam = (
             "max_completion_tokens" if is_official_openai_base_url(base_url) else "max_tokens"
         )
-        self._capabilities: set[TextCapability] = {
-            TextCapability.TEXT_GENERATION,
-            TextCapability.STRUCTURED_OUTPUT,
-            TextCapability.VISION,
-        }
+        self._capabilities: set[TextCapability] = self._resolve_capabilities()
+
+    def _resolve_capabilities(self) -> set[TextCapability]:
+        """官方 OpenAI 与自定义 provider 保持固定能力；DashScope 按注册表声明判定。"""
+        base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
+        if self._provider_name != PROVIDER_DASHSCOPE:
+            base.add(TextCapability.STRUCTURED_OUTPUT)
+            return base
+
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        provider_meta = PROVIDER_REGISTRY.get(self._provider_name)
+        model_info = provider_meta.models.get(self._model) if provider_meta else None
+        if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
+            base.add(TextCapability.STRUCTURED_OUTPUT)
+        return base
 
     @property
     def name(self) -> str:
@@ -78,6 +89,17 @@ class OpenAITextBackend:
         可能误中重试判定的字符串模式。
         """
         messages = _build_messages(request)
+        if request.response_schema and TextCapability.STRUCTURED_OUTPUT not in self._capabilities:
+            logger.info("%s/%s 未声明原生结构化输出，直接走 Instructor", self._provider_name, self._model)
+            return await _instructor_fallback(
+                self._client,
+                self._model,
+                request,
+                messages,
+                provider=self._provider_name,
+                token_param=self._max_tokens_param,
+            )
+
         native = await self._generate_native(request, messages)
         if native is None:
             # 原生 response_format 通道不兼容（schema 错误），结构化输出整体降级
