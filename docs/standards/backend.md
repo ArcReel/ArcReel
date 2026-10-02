@@ -27,8 +27,6 @@ basedpyright 不跟踪回调里的赋值，`x: T | None = None` 加 `nonlocal` �
 
 模块级 `_` 前缀函数被别的模块 import 时，改成公开名，不加豁免。下划线表示「只在本模块内使用」，被外部 import 的符号已不符合这层含义。
 
-放行条件：装饰器就地注册的处理器（`@app.exception_handler`、`@router.*`、`@server.tool`、`@event.listens_for`）定义在函数作用域内，`reportUnusedFunction` 会把它们误判为未使用。每个处理器添加 `# pyright: ignore[reportUnusedFunction]`，理由在注册块开头写一条注释，不在每行重复。
-
 ## 依赖边界
 
 ### 新增 import-linter ignore 之前，先尝试消除对应的依赖边
