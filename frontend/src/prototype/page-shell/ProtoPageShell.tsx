@@ -49,7 +49,7 @@ const BG = "bg-[linear-gradient(180deg,var(--color-bg-grad-a),var(--color-bg-gra
 
 export function ProtoPageShell(props: ProtoPageShellProps) {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
-  const Variant = props.variant === "B" ? VariantB : props.variant === "C" ? VariantC : VariantA;
+  const Variant = props.variant === "B" ? VariantB : props.variant === "C" ? VariantC : VariantA; // D 复用 A
   return (
     <FooterSlotContext.Provider value={slot}>
       <div className={cn("relative h-dvh overflow-hidden text-text", BG, props.guides && "proto-guides")}>
@@ -170,16 +170,27 @@ const FOOTER_ROW = "shrink-0 border-t border-border bg-card has-[[data-footer-sl
 function VariantA(p: VariantProps) {
   return (
     <div className="flex h-full flex-col">
-      <header data-zone="header" className="flex h-14 shrink-0 items-center border-b border-border">
-        <div className={cn(NAV_W, "shrink-0 px-3")}>
+      {p.variant === "D" ? (
+        // D：顶栏沿用 B 的写法（返回 | 标题 成组），但整组靠左，返回箭头与侧栏图标同一竖线
+        <header data-zone="header" className="flex h-14 shrink-0 items-center gap-3 border-b border-border pl-3 pr-6 xl:pr-8">
           <BackButton {...p.back} />
-        </div>
-        <div className={cn("flex min-w-0 flex-1 items-baseline gap-3", GUTTER_X)}>
+          <span aria-hidden className="h-4 w-px bg-border" />
           <h1 className="truncate text-[17px] font-medium">{p.title}</h1>
           {p.subtitle && <span className="truncate text-[13px] text-text-3">{p.subtitle}</span>}
-          {p.actions && <div className="ml-auto flex shrink-0 items-center gap-2 self-center">{p.actions}</div>}
-        </div>
-      </header>
+          {p.actions && <div className="ml-auto flex shrink-0 items-center gap-2">{p.actions}</div>}
+        </header>
+      ) : (
+        <header data-zone="header" className="flex h-14 shrink-0 items-center border-b border-border">
+          <div className={cn(NAV_W, "shrink-0 px-3")}>
+            <BackButton {...p.back} />
+          </div>
+          <div className={cn("flex min-w-0 flex-1 items-baseline gap-3", GUTTER_X)}>
+            <h1 className="truncate text-[17px] font-medium">{p.title}</h1>
+            {p.subtitle && <span className="truncate text-[13px] text-text-3">{p.subtitle}</span>}
+            {p.actions && <div className="ml-auto flex shrink-0 items-center gap-2 self-center">{p.actions}</div>}
+          </div>
+        </header>
+      )}
       <div className="flex min-h-0 flex-1">
         <aside data-zone="nav" className={cn(NAV_W, "shrink-0 overflow-y-auto border-r border-border px-3 py-4")}>
           <NavList groups={p.groups} activeId={p.activeId} onSelect={p.onSelect} label={p.navLabel} />

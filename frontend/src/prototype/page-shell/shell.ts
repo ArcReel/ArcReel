@@ -4,12 +4,13 @@
 import { createContext, useContext } from "react";
 import { useLocation, useSearch } from "wouter";
 
-export type ShellVariant = "A" | "B" | "C";
-export const VARIANT_KEYS: ShellVariant[] = ["A", "B", "C"];
+export type ShellVariant = "A" | "B" | "C" | "D";
+export const VARIANT_KEYS: ShellVariant[] = ["A", "B", "C", "D"];
 export const VARIANT_NAMES: Record<ShellVariant, string> = {
   A: "顶栏贯通 · 左对齐",
   B: "居中组块",
   C: "侧栏头 · 无顶栏",
+  D: "A 的布局 + B 的顶栏",
 };
 
 /** 容器档位。阅读与表单限宽并靠左（A、C）或随组块居中（B）；宽档铺满；全出血连内边距也不要。 */
@@ -33,7 +34,7 @@ export function useShellParams() {
   const [location, navigate] = useLocation();
   const params = new URLSearchParams(search);
   const raw = params.get("variant");
-  const variant: ShellVariant = raw === "B" || raw === "C" ? raw : "A";
+  const variant: ShellVariant = raw === "B" || raw === "C" || raw === "D" ? raw : "A";
   const guides = params.get("guides") === "1";
   const set = (key: string, value: string | null) => {
     const next = new URLSearchParams(search);
