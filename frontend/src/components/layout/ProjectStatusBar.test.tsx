@@ -21,6 +21,7 @@ const SUMMARY: ProjectStatus = {
   repair_reason: null,
   assets: {},
   episodes_summary: { total: 3, scripted: 2, in_production: 1, completed: 1 },
+  source_remaining: false,
 };
 
 const EPISODES: Partial<EpisodeMeta>[] = [

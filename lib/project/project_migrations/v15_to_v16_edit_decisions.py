@@ -68,6 +68,11 @@
 
 - 删去 ``project.json`` 的 ``workflow.asset_inventory`` 标记，``workflow`` 随之变空时整个删去。
 
+**项目列表的「已完成」与制作状态同一口径**
+
+- ``project.json`` 写入 ``source_remaining``：按补记后的整本源文清单与账本，整本源文是否还有未规划的原文。
+  此后由写账本与源文登记的命令维护（``ProjectManager``），项目列表据此判定项目是否已完成，不读源文。
+
 除上传产物的补登外，本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
@@ -124,6 +129,7 @@ from lib.episode.episode_sources import (
     SourceOrigin,
     cut_episode_source_files,
     episode_source_origin,
+    record_source_remaining,
     sync_source_snapshots,
 )
 from lib.episode.source_kinds import DEFAULT_SOURCE_KIND, SOURCE_KIND_FIELD, is_source_kind, source_kind_applies
@@ -686,6 +692,19 @@ def _without_asset_inventory_marker(project: Mapping[str, Any]) -> dict[str, Any
     return migrated
 
 
+# ---------------------------------------------------------------------------
+# 子步：项目列表的「已完成」与制作状态同一口径
+# ---------------------------------------------------------------------------
+
+
+def _with_source_remaining(project_dir: Path, project: Mapping[str, Any]) -> dict[str, Any]:
+    """按盘上的整本源文记下源文是否还有未规划的原文；须在整本源文清单与集原文来源补记之后调用。"""
+
+    migrated = dict(project)
+    record_source_remaining(project_dir, migrated)
+    return migrated
+
+
 def migrate_v15_to_v16(
     project_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None
 ) -> ArtifactBackfillOutcome | None:
@@ -710,8 +729,11 @@ def migrate_v15_to_v16(
             project_dir, _narration_delivery_fields(project_dir, project)
         )
         migrated_project = {
-            **_without_asset_inventory_marker(
-                _with_episode_id_high_water(project_dir, _with_source_kinds(with_sources), recorded_episode_ids)
+            **_with_source_remaining(
+                project_dir,
+                _without_asset_inventory_marker(
+                    _with_episode_id_high_water(project_dir, _with_source_kinds(with_sources), recorded_episode_ids)
+                ),
             ),
             "schema_version": TARGET_SCHEMA_VERSION,
         }

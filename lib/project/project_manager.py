@@ -49,7 +49,13 @@ from lib.episode.episode_paths import (
     episode_script_filename,
     episode_script_relpath,
 )
-from lib.episode.episode_sources import SOURCE_ORIGIN_FIELD, WHOLE_SOURCE_FILES_KEY, SourceOrigin
+from lib.episode.episode_sources import (
+    SOURCE_ORIGIN_FIELD,
+    WHOLE_SOURCE_FILES_KEY,
+    SourceOrigin,
+    record_source_remaining,
+    source_planning_inputs,
+)
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
@@ -1890,8 +1896,9 @@ class ProjectManager:
         """:meth:`locked_source_mutation` 的登记变体：源文文件与 project.json 的登记在同一把项目锁内改。
 
         产出 ``(source_dir, project, undo)``；块内就地修改 ``project``（整本源文清单、分集账本），块正常
-        退出且 ``project`` 有变化时写回 ``project.json``。调用方每改一处盘上文件，就把它的撤销回调登记进
-        ``undo``；块内抛错或写回 ``project.json`` 失败时不写回，并在锁内按登记的逆序执行这些回调。
+        退出时先按盘上源文重记源文是否还有未规划的原文，``project`` 有变化时写回 ``project.json``。调用方
+        每改一处盘上文件，就把它的撤销回调登记进 ``undo``；块内抛错或写回 ``project.json`` 失败时不写回，
+        并在锁内按登记的逆序执行这些回调。
         """
         project_file = self._get_project_file_path(project_name)
         changed = False
@@ -1901,8 +1908,10 @@ class ProjectManager:
             undo = ExitStack()
             try:
                 yield source_dir, project, undo
+                # 块内可能只改了源文文本、没动登记：源文是否还有未规划的原文每次都按盘上源文重记
+                record_source_remaining(source_dir.parent, project)
                 if json.dumps(project, sort_keys=True, ensure_ascii=False) != before:
-                    self._apply_project_mutation_unlocked(project, lambda _project: None)
+                    self._apply_project_mutation_unlocked(project_name, project, lambda _project: None)
                     atomic_write_json(project_file, project)
                     changed = True
             except BaseException:
@@ -2026,7 +2035,7 @@ class ProjectManager:
                 transaction.enter_context(formal_write_transaction(project_file, *formal_paths))
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
-            self._apply_project_mutation_unlocked(project, mutate_fn)
+            self._apply_project_mutation_unlocked(project_name, project, mutate_fn)
             atomic_write_json(project_file, project)
             if on_commit is not None:
                 on_commit(project_file)
@@ -2156,7 +2165,9 @@ class ProjectManager:
 
         return self.update_project(project_name, _mutate, on_commit=_reconcile_claims)
 
-    def _apply_project_mutation_unlocked(self, project: dict, mutate_fn: Callable[[dict], None]) -> None:
+    def _apply_project_mutation_unlocked(
+        self, project_name: str, project: dict, mutate_fn: Callable[[dict], None]
+    ) -> None:
         """Apply one mutation plus the canonical save-time normalizations.
 
         The caller owns the project lock and is responsible for the durable
@@ -2169,7 +2180,12 @@ class ProjectManager:
             ensure_project_asset_namespace(project)
         # 变更可能把条目移出账本：先让历史最高号记下变更前的集 ID
         raise_episode_id_high_water(project)
+        planning_inputs = source_planning_inputs(project)
         mutate_fn(project)
+        # 分集规划、手工切分、重新规划采纳、重置与删集都经由这里改账本：账本或源文登记变了，
+        # 就按盘上源文重记源文是否还有未规划的原文，项目列表读它而不读源文
+        if source_planning_inputs(project) != planning_inputs:
+            record_source_remaining(self.get_project_path(project_name), project)
         if self._requires_unique_asset_namespace(project):
             ensure_project_asset_namespace(project)
         self._migrate_legacy_resolution_on_save(project)
@@ -3493,7 +3509,7 @@ class ProjectManager:
                 locked_bucket[key][spec.sheet_field] = sheet_path
 
             with formal_write_transaction(project_file, target):
-                self._apply_project_mutation_unlocked(project, _mutate)
+                self._apply_project_mutation_unlocked(project_name, project, _mutate)
                 atomic_write_json(project_file, project)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 atomic_write_bytes(target, content)

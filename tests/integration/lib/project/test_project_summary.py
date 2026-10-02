@@ -25,6 +25,7 @@ from lib.project.project_migrations.runner import migrate_project_with_verdict
 from lib.project.resource_paths import resource_relative_path
 from lib.project.source_revision import SourceRevisionResult, compute_source_revision
 from lib.workflow.workflow_state import WorkflowStateService
+from tests.factories import register_project_sources
 from tests.integration.lib.workflow.test_workflow_state import (
     _complete_episode_media,
     _count_source_reads,
@@ -586,3 +587,41 @@ def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path)
 
     assert verified.videos.model_dump() == {"total": 1, "available": 1, "stale": 1}
     assert registered.videos.model_dump() == {"total": 1, "available": 1, "stale": 0}
+
+
+def test_source_remaining_follows_ledger_commands_like_the_workbench(tmp_path: Path) -> None:
+    """列表口径「源文还有未规划的原文」由账本命令记下，与工作台「继续分集规划」同一判定。
+
+    项目列表不读源文，靠写账本的命令把结论写进 project.json；每一步都与按源文现算的制作状态一致。
+    """
+
+    from lib.episode.episode_manual_split import cut_unsplit_source
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    text = "第一章。少年下山。第二章。城里起火。"
+    _write_source(pm, project_path, text)
+    service = WorkflowStateService(pm)
+
+    def _assert_remaining(expected: bool) -> None:
+        summary = service.get_project_summary("demo", currency="registered")
+        status = service.get_status("demo")
+        assert summary.source_remaining is expected
+        assert status.content is not None
+        assert status.content.source_remaining is expected
+
+    _assert_remaining(True)
+
+    cut_unsplit_source(project_path, source_file="source/novel.txt", end=text.index("第二章"))
+    _assert_remaining(True)
+
+    cut_unsplit_source(project_path, source_file="source/novel.txt", end=len(text))
+    _assert_remaining(False)
+
+    register_project_sources(pm, "demo", whole_source={"sequel.txt": "第三章。重逢。"})
+    _assert_remaining(True)
+
+
+def test_ad_project_never_reports_remaining_source(tmp_path: Path) -> None:
+    pm, _project_path = _make_project(tmp_path, "ad")
+
+    assert WorkflowStateService(pm).get_project_summary("demo", currency="registered").source_remaining is False
