@@ -74,7 +74,7 @@ export default {
   'duplicate_project_id': '检测到项目编号重复',
   'overwrite_existing': '覆盖现有项目',
   'auto_rename_import': '自动重命名导入',
-  'overwrite_hint': '使用导入包内容替换现有项目编号对应的数据',
+  'overwrite_hint': '等同于删除现有项目后再导入：现有项目排队中的任务取消，任务、使用记录与 Agent 会话按已删除项目保留，不带入导入的项目，项目记忆一并删除',
   'rename_hint': '保留现有项目，新导入项目自动生成新的内部编号',
   'id_intended_hint': '导入包准备使用的项目编号',
   'already_exists_conflict_hint': '已存在。你可以覆盖现有项目，或自动重命名后继续导入。',

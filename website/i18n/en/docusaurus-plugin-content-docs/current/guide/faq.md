@@ -281,6 +281,8 @@ There is no fixed “price per minute” that applies to every project. Evaluate
 
 A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory.
 
+When an imported project has the same name as an existing one, choosing **Overwrite Existing Project** is the same as deleting the existing project and then importing: the existing project's queued tasks are cancelled; its tasks, usage records, and Agent sessions stay with the deleted project instead of carrying over to the imported one; and its Agent memory is deleted with it. To keep both projects, choose **Auto Rename and Import**.
+
 For disaster recovery, use the full-instance backup approach described above and save the project directory, database, and required credentials together.
 
 ### Why is my Jianying draft missing or missing clips? {#jianying-draft-issues}

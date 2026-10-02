@@ -40,7 +40,6 @@ from lib.config.resolver import (
     video_bucket_for_generation_mode,
 )
 from lib.db import async_session_factory
-from lib.db.repositories.project_records import retire_project_records
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_source_commands import (
     EpisodeSourceError,
@@ -57,12 +56,12 @@ from lib.episode.source_kinds import SourceKind
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import EmptySourceError, EpisodeScriptReboundError, get_project_manager
-from lib.project.task_project_claim import revoke_task_project_claims
 from lib.prompts.style_templates import is_known_template, resolve_template_prompt
 from lib.script.blank_script import BlankScriptError, start_blank_script
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
@@ -113,6 +112,7 @@ from server.services.project.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project.project_cover import resolve_project_cover
+from server.services.project.project_retirement import retire_project, retire_project_on
 from server.services.tasks.video_caps import (
     capability_request_facts,
     duration_constraints_payload,
@@ -169,8 +169,12 @@ def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -
     return project
 
 
-def get_archive_service() -> ProjectArchiveService:
-    return ProjectArchiveService(get_project_manager())
+async def get_archive_service() -> ProjectArchiveService:
+    # 在事件循环上构造：覆盖导入跑在工作线程里，经捕获的事件循环收尾现有项目的记录。
+    return ProjectArchiveService(
+        get_project_manager(),
+        retire_project=retire_project_on(EventLoopBridge.capture(), async_session_factory),
+    )
 
 
 ArchiveServiceDep = Annotated[ProjectArchiveService, Depends(get_archive_service)]
@@ -424,7 +428,7 @@ async def import_project_archive(
                 translate=_t,
             )
 
-        result = await asyncio.to_thread(_sync)
+        result = await run_sync_transaction(_sync)
         return {
             "success": True,
             "project_name": result.project_name,
@@ -1131,11 +1135,8 @@ async def delete_project(name: str, _t: Translator):
     try:
         manager = get_project_manager()
         project_dir = await asyncio.to_thread(manager.get_project_path, name)
-        # 先让记录改挂墓碑名再删目录：删除中途失败时，旧记录也不会留给之后同名的新项目，
-        # 排队任务也不会在删了一半的目录上开跑。执行中的任务照常跑完，但认领作废，放弃落盘。
-        async with async_session_factory() as session:
-            running_task_ids = await retire_project_records(session, project_dir.name)
-        revoke_task_project_claims(running_task_ids)
+        # 先收尾记录再删目录：排队任务不会在删了一半的目录上开跑，执行中的任务照常跑完但放弃落盘。
+        await retire_project(async_session_factory, project_dir.name)
         await asyncio.to_thread(manager.delete_project_directory, name)
         return {"success": True, "message": _t("project_deleted", name=name)}
     except FileNotFoundError as exc:

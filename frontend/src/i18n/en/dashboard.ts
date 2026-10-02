@@ -73,7 +73,7 @@ export default {
   'duplicate_project_id': 'Duplicate Project ID Detected',
   'overwrite_existing': 'Overwrite Existing Project',
   'auto_rename_import': 'Auto Rename and Import',
-  'overwrite_hint': 'Replace existing project data with the imported package content',
+  'overwrite_hint': 'Same as deleting the existing project and then importing: its queued tasks are cancelled; its tasks, usage records, and Agent sessions stay with the deleted project instead of carrying over; and its project memory is deleted',
   'rename_hint': 'Keep the existing project and automatically generate a new ID for the imported one',
   'id_intended_hint': 'The project ID intended for use in the import package',
   'already_exists_conflict_hint': 'already exists. You can overwrite the existing project or auto-rename it to continue importing.',

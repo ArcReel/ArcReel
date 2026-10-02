@@ -1,10 +1,10 @@
 """执行中任务对项目的认领。
 
-任务按项目名定位项目目录。执行中的任务不可取消，删除项目时照常跑完；执行期间项目若被删除，
-同一个名字之后可能指向同名新建或导入的另一个项目。删除项目时作废该项目执行中任务的认领，
+任务按项目名定位项目目录。执行中的任务不可取消，删除项目时照常跑完；执行期间项目若被删除或被
+覆盖导入替换，同一个名字之后可能指向另一个项目。删除或覆盖项目时作废该项目执行中任务的认领，
 任务写产物与写回前经 :func:`ensure_task_project_claim` 复核，认领已作废就放弃落盘。
 
-认领与作废都只在本进程内生效：删除项目的路由与生成 worker 运行在同一进程。
+认领与作废都只在本进程内生效：删除项目的路由、导入项目的路由与生成 worker 运行在同一进程。
 """
 
 from __future__ import annotations
@@ -66,6 +66,15 @@ def revoke_task_project_claims(task_ids: Iterable[str]) -> None:
         _revoked_task_ids.update(task_ids)
 
 
+def restore_task_project_claims(task_ids: Iterable[str]) -> None:
+    """恢复这些任务对项目的认领：作废它们的那次删除或覆盖没有完成，项目原样保留。
+
+    在恢复之前已复核到作废的任务已经放弃落盘，不随之恢复。
+    """
+    with _revoked_lock:
+        _revoked_task_ids.difference_update(task_ids)
+
+
 def ensure_task_project_claim(project_name: str) -> None:
     """当前任务认领的正是 ``project_name`` 且认领已作废时，抛 :class:`ProjectDeletedDuringTaskError`。
 
@@ -81,5 +90,6 @@ __all__ = [
     "TaskProjectClaim",
     "claim_task_project",
     "ensure_task_project_claim",
+    "restore_task_project_claims",
     "revoke_task_project_claims",
 ]
