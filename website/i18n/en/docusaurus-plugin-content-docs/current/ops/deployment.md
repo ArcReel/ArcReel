@@ -381,8 +381,6 @@ The same upgrade makes the project register episode source text and whole-source
 
 The same upgrade moves the source type of drama projects (novel or screenplay) from the project settings onto each piece of source text: the migration gives every whole-source file and every episode with its own source text the project's previous type, and other content modes drop the setting. Afterwards, change the type of a whole-source file on its file bar in the **Episodes** view, and the type of an episode with its own source text while editing that text on the episode page. Script plans of drama storyboard projects stay current after the upgrade. Reference-video script plans did not distinguish source types before and were always planned as a novel, so in screenplay projects they show as outdated after the upgrade; formal scripts are not affected.
 
-When upgrading to the version where Gemini 3.1 Flash Lite uses its formal model ID, a project whose default text model or either text tier is set to `gemini-3.1-flash-lite-preview` on Gemini AI Studio or Vertex AI is migrated to `gemini-3.1-flash-lite`; the same selection in the global settings is rewritten at startup. Other preview models and models from custom providers stay unchanged, and generated artifacts do not become outdated because of this change.
-
 One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
 
 - Free space is checked before the migration starts. If it cannot hold the copy, that project fails with a "disk space is insufficient" error and its directory is left untouched; free up space and restart to continue.
