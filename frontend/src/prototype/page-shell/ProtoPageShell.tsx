@@ -9,7 +9,6 @@ import { useState, type ComponentType, type ReactNode } from "react";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FooterSlotContext, TIER_MAX, type ShellVariant, type Tier } from "./shell";
-import { ShellProtoBar } from "./ShellProtoBar";
 import "./page-shell.css";
 
 export interface ShellNavItem {
@@ -49,13 +48,13 @@ const BG = "bg-[linear-gradient(180deg,var(--color-bg-grad-a),var(--color-bg-gra
 
 export function ProtoPageShell(props: ProtoPageShellProps) {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
-  const Variant = props.variant === "B" ? VariantB : props.variant === "C" ? VariantC : VariantA; // D 复用 A
+  // #2972：外壳固定为 #2969 选定的变体 D（A 的布局 + B 的顶栏），?variant= 让给本原型的预设
+  const Variant = VariantA;
   return (
     <FooterSlotContext.Provider value={slot}>
       <div className={cn("relative h-dvh overflow-hidden text-text", BG, props.guides && "proto-guides")}>
-        <Variant {...props} slotRef={setSlot} />
+        <Variant {...props} variant="D" slotRef={setSlot} />
       </div>
-      <ShellProtoBar />
     </FooterSlotContext.Provider>
   );
 }

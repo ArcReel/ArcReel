@@ -26,10 +26,11 @@ import { ApiKeysTab } from "./ApiKeysTab";
 import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
-import { ProviderSection } from "./ProviderSection";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
-import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
-import { MarketSection } from "./settings/market/MarketSection";
+import { ProvidersProto } from "@/prototype/providers-market/ProvidersProto";
+import { EndpointsProto } from "@/prototype/providers-market/EndpointsProto";
+import { MarketProto } from "@/prototype/providers-market/MarketProto";
+import { ProtoBar } from "@/prototype/providers-market/ProtoBar";
 import {
   SUPPORTED_LANGUAGES,
   LANGUAGE_DISPLAY_LABELS,
@@ -179,9 +180,10 @@ export function SystemConfigPage() {
       tier={SECTION_TIER[activeSection]}
       viewTitle={activeLabel}
     >
-      {activeSection === "providers" && <ProviderSection />}
-      {activeSection === "endpoints" && <EndpointsSection />}
-      {activeSection === "market" && <MarketSection />}
+      {activeSection === "providers" && <ProvidersProto />}
+      {activeSection === "endpoints" && <EndpointsProto />}
+      {activeSection === "market" && <MarketProto />}
+      {(activeSection === "providers" || activeSection === "endpoints" || activeSection === "market") && <ProtoBar />}
       {activeSection === "agent" && <AgentConfigTab visible />}
       {activeSection === "media" && <MediaModelSection />}
       {activeSection === "usage" && <UsageRecordsSection />}
