@@ -11,6 +11,7 @@ import { formatCost } from "@/utils/cost-format";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useEpisodeProto } from "@/prototype/episode/store";
 
 export interface UnitPreviewPanelProps {
   unit: ReferenceVideoUnit | null;
@@ -90,6 +91,10 @@ export function UnitPreviewPanel({
   // 上传/还原后路径不变，靠 fingerprint cache-bust 让 <video> 重新拉取
   const clipFp = useProjectsStore((s) => (clip ? s.getAssetFingerprint(clip) : null));
   const playbackStart = usePlaybackStart("reference_videos", unit?.unit_id ?? "");
+  // PROTOTYPE（#2974）：预览按项目画幅显示
+  const protoRefCols = useEpisodeProto().axes.refCols;
+  const projectAspect = useProjectsStore((s) => s.currentProjectData?.aspect_ratio);
+  const protoPortrait = protoRefCols !== "current" && projectAspect === "9:16";
 
   if (!unit) {
     return (
@@ -121,7 +126,7 @@ export function UnitPreviewPanel({
       : t("reference_preview_generate");
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-3.5 py-3.5">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-3.5 py-3.5 [container-type:inline-size]">
       <div className="flex items-center gap-1.5">
         <Film className="h-4 w-4 text-[var(--color-text-3)]" aria-hidden="true" />
         <span className="text-xs font-semibold text-[var(--color-text-2)]">
@@ -157,7 +162,8 @@ export function UnitPreviewPanel({
       </div>
 
       <div
-        className={`relative aspect-video w-full overflow-hidden rounded-lg border border-[var(--color-hairline)] shadow-[0_16px_40px_-16px_oklch(0_0_0_/_0.7)] ${
+        style={protoPortrait ? { aspectRatio: "9 / 16", height: "min(55dvh, calc(100cqw * 16 / 9))" } : undefined}
+        className={`relative ${protoPortrait ? "mx-auto shrink-0" : "aspect-video w-full"} overflow-hidden rounded-lg border border-[var(--color-hairline)] shadow-[0_16px_40px_-16px_oklch(0_0_0_/_0.7)] ${
           ready
             ? "bg-[linear-gradient(135deg,oklch(0.32_0.04_240),oklch(0.18_0.02_280))]"
             : "bg-[oklch(0.18_0.010_265_/_0.5)]"

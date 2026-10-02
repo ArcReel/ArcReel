@@ -6,6 +6,9 @@ import type { EpisodeCost } from "@/types";
 import { totalBreakdown, currentScriptBreakdown, formatCost } from "@/utils/cost-format";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
+import { useEpisodeProto } from "@/prototype/episode/store";
+import { SlotPortal } from "@/prototype/episode/slots";
+import { CompactEpisodeHead } from "@/prototype/episode/CompactEpisodeHead";
 
 interface EpisodeHeaderProps {
   ep: EpisodeMeta;
@@ -43,6 +46,36 @@ export function EpisodeHeader({
   const remainingBreakdown: Record<string, number> = {};
   for (const [c, v] of Object.entries(estimateBreakdown)) {
     remainingBreakdown[c] = Math.max(0, v - (currentScriptActual[c] ?? 0));
+  }
+
+  // PROTOTYPE（#2974）：合并页头时改为单行集头，portal 到路由层页头。
+  const { axes } = useEpisodeProto();
+  if (axes.header !== "stacked") {
+    return (
+      <SlotPortal name="head">
+        <CompactEpisodeHead
+          chip={t("episode_header_episode_chip", { number: position === null ? "—" : String(position).padStart(2, "0") })}
+          title={
+            <EditableEpisodeTitle
+              title={ep.title}
+              placeholder={episodeDisplayName(ledger, ep.episode, t)}
+              canEdit={Boolean(canEditTitle && onSaveTitle)}
+              onSave={onSaveTitle ?? (async () => {})}
+              headingClassName="m-0 truncate"
+            />
+          }
+          meta={t("episode_header_segment_count", { count: segmentCount, duration: totalDuration })}
+          progress={isActive ? t("episode_header_progress_inline", { percent: progress }) : undefined}
+          cost={episodeCost ? formatCost(estimateBreakdown) : undefined}
+          costDetail={
+            episodeCost
+              ? `已花 ${formatCost(actualBreakdown)} · 剩余 ${formatCost(remainingBreakdown)}`
+              : undefined
+          }
+          episode={ep.episode}
+        />
+      </SlotPortal>
+    );
   }
 
   return (

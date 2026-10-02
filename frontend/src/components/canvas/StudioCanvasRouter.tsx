@@ -41,6 +41,8 @@ import {
   type EpisodeView,
 } from "./EpisodeViewSwitch";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
+import { useEpisodeProto } from "@/prototype/episode/store";
+import { EpisodePageHeader } from "@/prototype/episode/EpisodePageHeader";
 import { API } from "@/api";
 import { PromptAuthoringHost } from "@/components/canvas/shared/PromptAuthoringDialog";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
@@ -119,6 +121,8 @@ export function StudioCanvasRouter() {
     useProjectsStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const episodeView = episodeViewOf(searchParams);
+  // PROTOTYPE（#2974）
+  const { axes: protoAxes } = useEpisodeProto();
   const setEpisodeView = (view: EpisodeView) =>
     setSearchParams((params) => {
       if (view === "edit") params.set(EPISODE_VIEW_PARAM, EPISODE_VIEW_EDIT);
@@ -736,10 +740,10 @@ export function StudioCanvasRouter() {
           const canEdit = Boolean(script) && !demoMode;
           const showEditView = canEdit && episodeView === "edit";
 
-          return (
-            <div className="flex h-full flex-col">
-              {/* 演示态没有真实项目事实可投影，面板不挂载。 */}
-              {!demoMode && currentProjectName && (
+          // PROTOTYPE（#2974）：页头与制作进度的呈现方式由原型轴决定。
+          const mergedHeader = protoAxes.header !== "stacked";
+          const progressInHeader = protoAxes.progress === "drawer" || protoAxes.progress === "popover";
+          const workflowPanel = !demoMode && currentProjectName ? (
                 <WorkflowPanel
                   projectName={currentProjectName}
                   episode={epNum}
@@ -759,41 +763,8 @@ export function StudioCanvasRouter() {
                       : undefined
                   }
                 />
-              )}
-              {!demoMode && currentProjectName && (
-                <TextTaskFailureNote
-                  projectName={currentProjectName}
-                  episode={epNum}
-                  isAd={isAd}
-                  hasScript={Boolean(script)}
-                />
-              )}
-              {!demoMode && currentProjectName && (
-                <ScriptPlanHost
-                  projectName={currentProjectName}
-                  episode={epNum}
-                  savedInstructions={episode?.script_plan_instructions}
-                />
-              )}
-              {!demoMode && currentProjectName && isAd && (
-                <AdScriptHost projectName={currentProjectName} episode={epNum} />
-              )}
-              {!demoMode && currentProjectName && (
-                <PromptAuthoringHost
-                  projectName={currentProjectName}
-                  episode={epNum}
-                  script={script}
-                  savedInstructions={episode?.prompt_authoring_instructions}
-                />
-              )}
-              {canEdit && <EpisodeViewSwitch view={episodeView} onChange={setEpisodeView} />}
-              <div
-                className="min-h-0 flex-1"
-                role={canEdit ? "tabpanel" : undefined}
-                id={canEdit ? EPISODE_VIEW_PANEL_ID : undefined}
-                aria-labelledby={canEdit ? episodeViewTabId(episodeView) : undefined}
-              >
-                {showEditView ? (
+              ) : null;
+          const editNode = showEditView ? (
                   <EditTimelineView
                     key={`${currentProjectName}::${epNum}`}
                     projectName={currentProjectName}
@@ -822,7 +793,61 @@ export function StudioCanvasRouter() {
                       />
                     )}
                   />
-                ) : demoMode && !script ? (
+          ) : null;
+          return (
+            <div className="flex h-full flex-col [container-type:size]">
+              {(!mergedHeader || !progressInHeader) && workflowPanel && (
+                !progressInHeader ? workflowPanel : (
+                  <div className="flex shrink-0 justify-end border-b border-border px-4 py-1.5">{workflowPanel}</div>
+                )
+              )}
+              {!demoMode && currentProjectName && (
+                <TextTaskFailureNote
+                  projectName={currentProjectName}
+                  episode={epNum}
+                  isAd={isAd}
+                  hasScript={Boolean(script)}
+                />
+              )}
+              {!demoMode && currentProjectName && (
+                <ScriptPlanHost
+                  projectName={currentProjectName}
+                  episode={epNum}
+                  savedInstructions={episode?.script_plan_instructions}
+                />
+              )}
+              {!demoMode && currentProjectName && isAd && (
+                <AdScriptHost projectName={currentProjectName} episode={epNum} />
+              )}
+              {!demoMode && currentProjectName && (
+                <PromptAuthoringHost
+                  projectName={currentProjectName}
+                  episode={epNum}
+                  script={script}
+                  savedInstructions={episode?.prompt_authoring_instructions}
+                />
+              )}
+              {mergedHeader ? (
+                <EpisodePageHeader
+                  mode={protoAxes.header === "twoRow" ? "twoRow" : "oneRow"}
+                  canEdit={canEdit}
+                  editActive={showEditView}
+                  onEditChange={(edit) => setEpisodeView(edit ? "edit" : "storyboard")}
+                  progress={progressInHeader ? workflowPanel : null}
+                />
+              ) : (
+                canEdit && <EpisodeViewSwitch view={episodeView} onChange={setEpisodeView} />
+              )}
+              <div
+                className="min-h-0 flex-1"
+                role={canEdit ? "tabpanel" : undefined}
+                id={canEdit ? EPISODE_VIEW_PANEL_ID : undefined}
+                aria-labelledby={canEdit ? episodeViewTabId(episodeView) : undefined}
+              >
+                {showEditView && editNode}
+                {(!showEditView || mergedHeader) && (
+                <div className={showEditView ? "hidden" : "contents"}>
+                {demoMode && !script ? (
                   <DemoEpisodePlaceholder />
                 ) : showSourceReview && episode ? (
                   <EpisodeSourceReview
@@ -913,6 +938,8 @@ export function StudioCanvasRouter() {
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}
                   />
+                )}
+                </div>
                 )}
               </div>
             </div>

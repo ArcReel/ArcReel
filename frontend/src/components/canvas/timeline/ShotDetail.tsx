@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ImageIcon,
@@ -27,7 +27,9 @@ import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
-import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
+import { ProtoDetailGrid } from "@/prototype/episode/DetailGrid";
+import { useEpisodeProto } from "@/prototype/episode/store";
+import { registerShotGuard } from "@/prototype/episode/shotGuard";
 import { MediaCard } from "./MediaCard";
 import { EndFrameRow } from "./EndFrameRow";
 import { NarrationAudioCard } from "./NarrationAudioCard";
@@ -476,6 +478,7 @@ export function ShotDetail({
   durationWarningReason,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
+  const { axes: protoAxes } = useEpisodeProto();
   const status = statusFromAssets(segment.generated_assets?.status);
   const narrationText = getNarrationText(segment, contentMode);
   const hasNarrationText = narrationText.trim().length > 0;
@@ -775,6 +778,23 @@ export function ShotDetail({
     setDraft(baselineDraft(upstreamContent));
   };
 
+  useEffect(() => {
+    registerShotGuard({
+      dirty,
+      save: async () => {
+        if (!dirty) return true;
+        try {
+          await handleSave();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      discard: handleCancel,
+    });
+    return () => registerShotGuard(null);
+  });
+
   const sbEstimate = segCost?.estimate?.image;
   const vidEstimate = segCost?.estimate?.video;
   const narrationEstimate = segCost?.estimate?.audio;
@@ -806,6 +826,94 @@ export function ShotDetail({
     letterSpacing: "1px",
     fontFamily: "var(--font-mono)",
   };
+
+  // PROTOTYPE（#2974）：台词 / 发声序列与旁白正文可放在左栏（现状）或中栏。
+  const dialogueBlock = (
+    <>
+      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 使用分镜级
+          utterances（判别式台词 + 画外音），此处直接编辑 scene.utterances 并双向保存同步。 */}
+      {isDrama ? (
+        <div>
+          <div
+            className="mb-2 text-[10.5px] font-bold uppercase"
+            style={{
+              color: "var(--color-text-4)",
+              letterSpacing: "1px",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {t("detail_section_utterances")}
+          </div>
+          <UtteranceListEditor
+            utterances={draft.utterances ?? EMPTY_UTTERANCES}
+            onChange={handleUtterancesChange}
+            disabled={saving || refsReadOnly}
+            speakerCandidates={speakerNames}
+          />
+        </div>
+      ) : (
+        <div>
+          <div
+            className="mb-2 text-[10.5px] font-bold uppercase"
+            style={{
+              color: "var(--color-text-4)",
+              letterSpacing: "1px",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {t("detail_section_dialogue")}
+          </div>
+          {vidDraft ? (
+            <DialogueListEditor
+              dialogue={vidDraft.dialogue ?? []}
+              onChange={handleDialogueChange}
+              readOnly={refsReadOnly}
+            />
+          ) : (
+            <div
+              className="rounded-md py-3 text-center text-[11.5px] italic"
+              style={{
+                border: "1px dashed var(--color-hairline)",
+                color: "var(--color-text-4)",
+              }}
+            >
+              {t("detail_dialogue_empty")}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+  const narrationTextBlock = (
+    <>
+      {isNarration && (
+        <div>
+          <div className="mb-2 flex items-center gap-1.5">
+            <label
+              htmlFor={`shot-narration-text-${segmentId}`}
+              className="text-[10.5px] font-bold uppercase"
+              style={sectionHeaderStyle}
+            >
+              {t("detail_section_narration_text")}
+            </label>
+            <span className="flex-1" />
+            <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+              {t("detail_field_chars_count", { count: (draft.novel_text ?? "").length })}
+            </span>
+          </div>
+          <textarea
+            id={`shot-narration-text-${segmentId}`}
+            className="prompt-ta display-serif"
+            value={draft.novel_text ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, novel_text: e.target.value }))}
+            readOnly={refsReadOnly}
+            placeholder={t("detail_narration_text_placeholder")}
+            style={{ minHeight: 120, lineHeight: 1.65 }}
+          />
+        </div>
+      )}
+    </>
+  );
 
   const leftColumn = (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3.5 pb-5 pt-3.5">
@@ -896,85 +1004,8 @@ export function ShotDetail({
         disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
-      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 使用分镜级
-          utterances（判别式台词 + 画外音），此处直接编辑 scene.utterances 并双向保存同步。 */}
-      {isDrama ? (
-        <div>
-          <div
-            className="mb-2 text-[10.5px] font-bold uppercase"
-            style={{
-              color: "var(--color-text-4)",
-              letterSpacing: "1px",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {t("detail_section_utterances")}
-          </div>
-          <UtteranceListEditor
-            utterances={draft.utterances ?? EMPTY_UTTERANCES}
-            onChange={handleUtterancesChange}
-            disabled={saving || refsReadOnly}
-            speakerCandidates={speakerNames}
-          />
-        </div>
-      ) : (
-        <div>
-          <div
-            className="mb-2 text-[10.5px] font-bold uppercase"
-            style={{
-              color: "var(--color-text-4)",
-              letterSpacing: "1px",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {t("detail_section_dialogue")}
-          </div>
-          {vidDraft ? (
-            <DialogueListEditor
-              dialogue={vidDraft.dialogue ?? []}
-              onChange={handleDialogueChange}
-              readOnly={refsReadOnly}
-            />
-          ) : (
-            <div
-              className="rounded-md py-3 text-center text-[11.5px] italic"
-              style={{
-                border: "1px dashed var(--color-hairline)",
-                color: "var(--color-text-4)",
-              }}
-            >
-              {t("detail_dialogue_empty")}
-            </div>
-          )}
-        </div>
-      )}
-
-      {isNarration && (
-        <div>
-          <div className="mb-2 flex items-center gap-1.5">
-            <label
-              htmlFor={`shot-narration-text-${segmentId}`}
-              className="text-[10.5px] font-bold uppercase"
-              style={sectionHeaderStyle}
-            >
-              {t("detail_section_narration_text")}
-            </label>
-            <span className="flex-1" />
-            <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
-              {t("detail_field_chars_count", { count: (draft.novel_text ?? "").length })}
-            </span>
-          </div>
-          <textarea
-            id={`shot-narration-text-${segmentId}`}
-            className="prompt-ta display-serif"
-            value={draft.novel_text ?? ""}
-            onChange={(e) => setDraft((d) => ({ ...d, novel_text: e.target.value }))}
-            readOnly={refsReadOnly}
-            placeholder={t("detail_narration_text_placeholder")}
-            style={{ minHeight: 120, lineHeight: 1.65 }}
-          />
-        </div>
-      )}
+      {protoAxes.dialogue === "left" && dialogueBlock}
+      {protoAxes.dialogue === "left" && narrationTextBlock}
 
       {isDrama && <SourceTextReadonly text={dramaScene?.source_text} />}
 
@@ -1131,11 +1162,17 @@ export function ShotDetail({
         )}
         {renderFormSwitchError("video")}
       </section>
+      {protoAxes.dialogue === "mid" && (
+        <section className="flex flex-col gap-4 border-t border-[var(--color-hairline-soft)] pt-4">
+          {dialogueBlock}
+          {narrationTextBlock}
+        </section>
+      )}
     </div>
   );
 
-  const rightColumn = (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-[18px] pb-7 pt-3.5">
+  const storyboardMedia = (
+    <>
       <MediaCard
         kind="storyboard"
         projectName={projectName}
@@ -1155,6 +1192,10 @@ export function ShotDetail({
         generateDisabled={dirty || saving}
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />
+    </>
+  );
+  const videoMedia = (
+    <>
       <div className="flex flex-col">
         {scriptFile && onGenerateVideo && (
           <EndFrameRow
@@ -1204,21 +1245,21 @@ export function ShotDetail({
           onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
         />
       )}
-      <ConfirmDialog
-        open={pendingStructSwitch !== null}
-        title={t("prompt_form_to_structured_title")}
-        description={t("prompt_form_to_structured_desc")}
-        confirmLabel={t("prompt_form_to_structured_confirm")}
-        tone="danger"
-        onConfirm={confirmStructuredForm}
-        onCancel={() => setPendingStructSwitch(null)}
-      />
+    </>
+  );
+
+  const rightColumn = (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-[18px] pb-7 pt-3.5">
+      {storyboardMedia}
+      {videoMedia}
     </div>
   );
 
   // 重排在途也要锁定切镜：ShotSplitView 在移动完成回调里按当前 selectedIndex 偏移，
   // 在途切换分镜会让偏移作用到新选中项，选中态跳到错误分镜。
-  const navDisabled = dirty || saving || !!movePending || !!structurePending;
+  // PROTOTYPE（#2974）：拦截模式下草稿不再禁止翻页，切换时由 ShotSplitView 弹三按钮对话框。
+  const intercept = protoAxes.shotNav !== "blocked";
+  const navDisabled = (intercept ? saving : dirty || saving) || !!movePending || !!structurePending;
   // 禁用原因提示与禁用条件同源：重排在途、增删在途与未保存修改分别给出对应说明
   const navDisabledHint = movePending
     ? t("shot_move_pending")
@@ -1421,11 +1462,23 @@ export function ShotDetail({
         </div>
       )}
 
-      <ResponsiveDetailGrid
+      <ProtoDetailGrid
         left={leftColumn}
         mid={midColumn}
         right={rightColumn}
+        storyboard={storyboardMedia}
+        video={videoMedia}
+        aspectRatio={aspectRatio}
         revealRightKey={videoStartRequestId}
+      />
+      <ConfirmDialog
+        open={pendingStructSwitch !== null}
+        title={t("prompt_form_to_structured_title")}
+        description={t("prompt_form_to_structured_desc")}
+        confirmLabel={t("prompt_form_to_structured_confirm")}
+        tone="danger"
+        onConfirm={confirmStructuredForm}
+        onCancel={() => setPendingStructSwitch(null)}
       />
     </div>
   );

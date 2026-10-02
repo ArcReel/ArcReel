@@ -7,6 +7,9 @@ import { formatCost, totalBreakdown } from "@/utils/cost-format";
 import { sumItemDuration } from "@/utils/script-shape";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
+import { useEpisodeProto } from "@/prototype/episode/store";
+import { SlotPortal } from "@/prototype/episode/slots";
+import { CompactEpisodeHead } from "@/prototype/episode/CompactEpisodeHead";
 
 /**
  * 头部统计只需要时长与成片两项，故按结构约束而非绑定具体单元类型：
@@ -52,6 +55,32 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
   const epLabel = t("episode_header_episode_chip", {
     number: position === null ? "—" : String(position).padStart(2, "0"),
   });
+
+  // PROTOTYPE（#2974）：合并页头时改为单行集头，portal 到路由层页头。
+  const { axes } = useEpisodeProto();
+  if (axes.header !== "stacked") {
+    return (
+      <SlotPortal name="head">
+        <CompactEpisodeHead
+          chip={epLabel}
+          title={
+            <EditableEpisodeTitle
+              title={title}
+              placeholder={episodeDisplayName(ledger, episode, t)}
+              canEdit={Boolean(canEditTitle && onSaveTitle)}
+              onSave={onSaveTitle ?? (async () => {})}
+              headingClassName="m-0 truncate"
+            />
+          }
+          meta={`${t("reference_episode_header_units", { count: stats.total })} · ~${stats.totalDur}s`}
+          progress={`就绪 ${stats.ready}/${stats.total}`}
+          cost={stats.estimated}
+          costDetail={`已花 ${stats.actual}`}
+          episode={episode}
+        />
+      </SlotPortal>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--color-hairline)] bg-[linear-gradient(180deg,oklch(0.22_0.014_290_/_0.4),oklch(0.20_0.012_250_/_0.15))] px-6 py-4">

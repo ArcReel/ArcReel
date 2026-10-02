@@ -3,7 +3,7 @@
 // 应用内跳转会丢 query，所以状态同时留在内存与 sessionStorage。
 
 import { useSyncExternalStore } from "react";
-import { AXES, AXIS_KEYS, PRESETS, PRESET_KEYS, type AxisKey, type AxisState, type PresetKey } from "./axes";
+import { PRESETS, PRESET_KEYS, type AxisKey, type AxisState, type PresetKey } from "./axes";
 
 interface State {
   preset: PresetKey;
@@ -19,29 +19,9 @@ export interface Metrics {
   agentMode: string;
 }
 
-const STORAGE_KEY = "PROTOTYPE_workspace_shell";
 
-function isAxisValue(key: AxisKey, value: string): boolean {
-  return value in AXES[key].values;
-}
-
+// #2974：外壳已定为预设 B，固定下来；地址栏的 variant 交给剧集页原型使用。
 function readInitial(): State {
-  const params = new URLSearchParams(window.location.search);
-  const fromUrl = params.get("variant");
-  if (fromUrl && (PRESET_KEYS as string[]).includes(fromUrl)) {
-    const overrides: Record<string, string> = {};
-    for (const key of AXIS_KEYS) {
-      const v = params.get(`s.${key}`);
-      if (v && isAxisValue(key, v)) overrides[key] = v;
-    }
-    return { preset: fromUrl as PresetKey, overrides };
-  }
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as State;
-  } catch {
-    // 原型：读不到就用默认
-  }
   return { preset: "B", overrides: {} };
 }
 
@@ -54,21 +34,7 @@ export function resolveAxes(s: State = state): AxisState {
   return { ...PRESETS[s.preset].axes, ...s.overrides };
 }
 
-function syncUrl() {
-  const params = new URLSearchParams(window.location.search);
-  params.set("variant", state.preset);
-  for (const key of AXIS_KEYS) {
-    const o = state.overrides[key];
-    if (o) params.set(`s.${key}`, String(o));
-    else params.delete(`s.${key}`);
-  }
-  window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
-}
+function syncUrl() {}
 
 function set(next: State) {
   state = next;

@@ -21,6 +21,9 @@ import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { deriveUnitStatus } from "./unit-status";
 import { tierProblemText } from "./unit-tier-problem";
 import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
+import { useEpisodeProto } from "@/prototype/episode/store";
+import { SlotPortal, useCanvasTabBridge } from "@/prototype/episode/slots";
+import { ProtoRefColumns } from "@/prototype/episode/RefColumns";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
@@ -832,6 +835,11 @@ export function ReferenceVideoCanvas({
     if (showPreprocess) setTab("preproc");
   });
   useEpisodeSurfaceRequest(projectName, episode, "prompt_authoring_draft", () => setTab("units"));
+  useCanvasTabBridge(
+    tab === "preproc" ? "plan" : "board",
+    { hasPlan: showPreprocess, boardEnabled: true, boardLabel: t("reference_tab_units") },
+    (next) => setTab(next === "plan" && showPreprocess ? "preproc" : "units"),
+  );
 
   // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
@@ -942,6 +950,41 @@ export function ReferenceVideoCanvas({
     [handleMove, units, selectedIndex],
   );
 
+  // PROTOTYPE（#2974）：合并页头时，tab 由路由层页头渲染，这里只同步状态。
+  const { axes: protoAxes } = useEpisodeProto();
+  const mergedHeader = protoAxes.header !== "stacked";
+  const renderUnitActions = () => (
+          <>
+            {/* 没有预处理的参考画布只用于广告/短片：有正式脚本时可整份重新生成。 */}
+            {hasScript && !showPreprocess && (
+              <AdScriptButton
+                projectName={projectName}
+                episode={episode}
+                regenerate
+                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
+              />
+            )}
+            {hasScript && (
+              <PromptAuthoringButton
+                projectName={projectName}
+                episode={episode}
+                scope={selectedUnitId ? "current" : "pending"}
+                currentEntryId={selectedUnitId}
+                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => void handleBatchGenerate()}
+              disabled={batchTargets.length === 0}
+              className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t("reference_batch_generate")}</span>
+            </button>
+          </>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <EpisodeHeader
@@ -953,6 +996,9 @@ export function ReferenceVideoCanvas({
       />
 
       {/* Tabs + request-local generation controls */}
+      {mergedHeader ? (
+        tab === "units" && <SlotPortal name="actions"><div className="inline-flex items-center gap-1.5">{renderUnitActions()}</div></SlotPortal>
+      ) : (
       <div className="flex items-center gap-0.5 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.5)] px-5">
         <div role="tablist" aria-label={t("reference_main_tab_aria")} className="flex items-center gap-0.5">
           {showPreprocess && <button
@@ -999,38 +1045,9 @@ export function ReferenceVideoCanvas({
           </button>
         </div>
         <span className="flex-1" />
-        {tab === "units" && (
-          <>
-            {/* 没有预处理的参考画布只用于广告/短片：有正式脚本时可整份重新生成。 */}
-            {hasScript && !showPreprocess && (
-              <AdScriptButton
-                projectName={projectName}
-                episode={episode}
-                regenerate
-                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
-              />
-            )}
-            {hasScript && (
-              <PromptAuthoringButton
-                projectName={projectName}
-                episode={episode}
-                scope={selectedUnitId ? "current" : "pending"}
-                currentEntryId={selectedUnitId}
-                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
-              />
-            )}
-            <button
-              type="button"
-              onClick={() => void handleBatchGenerate()}
-              disabled={batchTargets.length === 0}
-              className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{t("reference_batch_generate")}</span>
-            </button>
-          </>
-        )}
+        {tab === "units" && renderUnitActions()}
       </div>
+      )}
 
       {tab === "units" && voiceLegacyNotice.count > 0 && (
         <VoiceLegacyBanner
@@ -1096,7 +1113,7 @@ export function ReferenceVideoCanvas({
           ref={workbenchRef}
           className="relative min-h-0 flex-1 overflow-hidden bg-[oklch(0.18_0.011_250_/_0.25)]"
         >
-          <div className="grid h-full min-h-0" style={{ gridTemplateColumns: gridCols }}>
+          <ProtoRefColumns gridCols={gridCols} listMode={listMode}>
             {/* 左：UnitList / UnitRail */}
             {listMode === "full" ? (
               <UnitList
@@ -1532,7 +1549,7 @@ export function ReferenceVideoCanvas({
                 />
               </div>
             )}
-          </div>
+          </ProtoRefColumns>
 
           {/* 折叠态下的展开抽屉 */}
           {listFlyoutOpen && (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEpisodeProto } from "@/prototype/episode/store";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "wouter";
 
@@ -215,6 +216,7 @@ export function EditTimelineView({
     return () => controller.abort();
   }, [projectName, readoutKey, selectedId]);
 
+  const protoEditLayout = useEpisodeProto().axes.edit;
   if (list && "error" in list && !timelines) {
     return <LoadFailed message={list.error} onRetry={reload} />;
   }
@@ -246,7 +248,7 @@ export function EditTimelineView({
   const updatedAt = formatRelativeTime(selected.updated_at, i18n.language) ?? selected.updated_at;
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto px-6 py-5">
+    <div className={`flex h-full flex-col gap-4 px-6 py-5 ${protoEditLayout === "current" ? "overflow-y-auto" : "overflow-hidden"}`}>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center rounded-[9px] border border-hairline bg-bg-grad-a/55 p-0.5">
           <div role="tablist" aria-label={t("edit_view_timelines_aria")} className="flex flex-wrap">
@@ -301,7 +303,7 @@ export function EditTimelineView({
         role="tabpanel"
         id={panelId}
         aria-labelledby={tabId(selected.id)}
-        className="flex flex-1 flex-col gap-4"
+        className={`flex flex-1 flex-col gap-4 ${protoEditLayout === "current" ? "" : "min-h-0"}`}
       >
         {current && "value" in current ? (
           <TimelinePreview
@@ -348,6 +350,7 @@ function TimelinePreview({
   onSeekHandled,
 }: TimelinePreviewProps) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const protoEdit = useEpisodeProto().axes.edit;
   const [showSubtitles, setShowSubtitles] = useState(true);
 
   // 内容相同的重新读取不换计划引用，播放不因项目的无关变更而重新定位。
@@ -420,9 +423,10 @@ function TimelinePreview({
   const selectedClip = readout.clips.find((clip) => clip.id === selectedClipId);
   const clipIds = useMemo(() => new Set(readout.clips.map((clip) => clip.id)), [readout]);
 
-  return (
-    <>
+  // PROTOTYPE（#2974）：剪辑视图的两种不滚动布局。
+  const player = (fill: boolean) => (
       <EditTimelinePlayer
+        fill={fill}
         plan={plan}
         playback={playback}
         aspect={aspect}
@@ -432,6 +436,8 @@ function TimelinePreview({
         showSubtitles={showSubtitles}
         onToggleSubtitles={() => setShowSubtitles((shown) => !shown)}
       />
+  );
+  const tracks = (
       <EditTimelineTracks
         projectName={projectName}
         readout={readout}
@@ -447,6 +453,54 @@ function TimelinePreview({
         onSelectClip={setSelectedClipId}
         onSeek={playback.seek}
       />
+  );
+  const inspector = (
+        <div className="rounded-[10px] border border-hairline bg-bg-grad-a p-4">
+          <ClipInspector
+            projectName={projectName}
+            clip={selectedClip}
+            trimIgnored={selectedClip ? trimIgnored.has(selectedClip.id) : false}
+            thumbnail={selectedClip ? thumbnails.get(selectedClip.unit_id) : undefined}
+          />
+        </div>
+  );
+  const issues = (
+        <div className="rounded-[10px] border border-hairline bg-bg-grad-a p-4">
+          <IssueList issues={readout.issues} clipIds={clipIds} onSelectClip={setSelectedClipId} />
+        </div>
+  );
+
+  if (protoEdit === "sideInspector") {
+    return (
+      <div className="grid min-h-0 flex-1 gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(280px, 340px)", gridTemplateRows: "minmax(0,1fr) auto" }}>
+        <div className="min-h-0">{player(true)}</div>
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain">
+          {inspector}
+          {issues}
+        </div>
+        <div className="col-span-2 min-w-0">{tracks}</div>
+      </div>
+    );
+  }
+  if (protoEdit === "rightRail") {
+    return (
+      <div className="grid min-h-0 flex-1 gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(280px, 360px)" }}>
+        <div className="flex min-h-0 min-w-0 flex-col gap-4">
+          <div className="min-h-0 flex-1">{player(true)}</div>
+          <div className="shrink-0">{tracks}</div>
+        </div>
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain">
+          {inspector}
+          {issues}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {player(false)}
+      {tracks}
       <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
         <div className="rounded-[10px] border border-hairline bg-bg-grad-a p-4">
           <ClipInspector

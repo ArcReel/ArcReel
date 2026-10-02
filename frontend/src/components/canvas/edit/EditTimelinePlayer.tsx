@@ -24,6 +24,8 @@ interface EditTimelinePlayerProps {
   subtitles: readonly PlacedSubtitle[];
   showSubtitles: boolean;
   onToggleSubtitles: () => void;
+  /** PROTOTYPE（#2974）：按所在容器的可用宽高缩放画面，不再用 vh 估高。 */
+  fill?: boolean;
 }
 
 /** 播放画面与播放控制：两个 `<video>` 叠放，只显示当前那一个；字幕按剪映草稿的样式比例叠在画面上。 */
@@ -36,6 +38,7 @@ export function EditTimelinePlayer({
   subtitles,
   showSubtitles,
   onToggleSubtitles,
+  fill = false,
 }: EditTimelinePlayerProps) {
   const { t } = useTranslation("dashboard");
   const segment = plan.segments[playback.index];
@@ -49,11 +52,23 @@ export function EditTimelinePlayer({
       ? "aspect-[9/16] h-[min(56vh,520px)]"
       : "aspect-video w-full max-w-[760px]";
 
+  const ratio = aspect === "9:16" ? 9 / 16 : 16 / 9;
+  const stage = (children: React.ReactNode) =>
+    fill ? (
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center [container-type:size]">{children}</div>
+    ) : (
+      children
+    );
   return (
-    <div className="flex flex-col items-center gap-2.5">
+    <div className={`flex flex-col items-center gap-2.5 ${fill ? "h-full min-h-0" : ""}`}>
+      {stage(
       <div
-        className={`relative overflow-hidden rounded-[10px] bg-black ${frame}`}
-        style={{ containerType: "size" }}
+        className={`relative overflow-hidden rounded-[10px] bg-black ${fill ? "" : frame}`}
+        style={
+          fill
+            ? { containerType: "size", aspectRatio: `${ratio}`, width: `min(100cqw, calc(100cqh * ${ratio}))` }
+            : { containerType: "size" }
+        }
         role="region"
         aria-label={t("edit_view_player_aria")}
       >
@@ -117,8 +132,9 @@ export function EditTimelinePlayer({
             {t("edit_view_buffering")}
           </span>
         )}
-      </div>
-      <div className="flex w-full max-w-[760px] items-center gap-3">
+      </div>,
+      )}
+      <div className="flex w-full max-w-[760px] shrink-0 items-center gap-3">
         <button
           type="button"
           onClick={playback.toggle}

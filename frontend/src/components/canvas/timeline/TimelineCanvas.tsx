@@ -17,6 +17,8 @@ import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import { previewAspect } from "@/utils/preview-aspect";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
+import { useEpisodeProto } from "@/prototype/episode/store";
+import { SlotPortal, useCanvasTabBridge } from "@/prototype/episode/slots";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   EpisodeScript,
@@ -143,6 +145,18 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     if (showTabs) setActiveTab("preprocessing");
   });
 
+  // PROTOTYPE（#2974）：合并页头时，tab 由路由层页头渲染，这里只同步状态。
+  const { axes: protoAxes } = useEpisodeProto();
+  const mergedHeader = protoAxes.header !== "stacked";
+  useCanvasTabBridge(
+    activeTab === "preprocessing" ? "plan" : "board",
+    { hasPlan: showTabs, boardEnabled: hasScript, boardLabel: t("tab_timeline") },
+    (tab) => {
+      if (tab === "plan" && showTabs) setActiveTab("preprocessing");
+      if (tab === "board" && hasScript) setActiveTab("timeline");
+    },
+  );
+
   const episodeCost = useCostStore((s) =>
     episodeScript ? s.getEpisodeCost(episodeScript.episode) : undefined,
   );
@@ -253,6 +267,52 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     ? (segId: string) => onGenerateNarration(segId, scriptFile)
     : undefined;
 
+  const renderBatchActions = () => (
+          <div className="mr-1 inline-flex items-center gap-1.5">
+            {editorContentMode === "ad" && !demoReadOnly && (
+              <AdScriptButton projectName={projectName} episode={episode} regenerate className="sv-navbtn" />
+            )}
+            <PromptAuthoringButton
+              projectName={projectName}
+              episode={episode}
+              scope="pending"
+              className="sv-navbtn"
+            />
+            <button
+              type="button"
+              className="sv-navbtn inline-flex items-center gap-1.5"
+              disabled={demoReadOnly}
+              onClick={() => setBatchKind("storyboards")}
+              title={t("batch_generate_storyboards")}
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>{t("batch_generate_storyboards")}</span>
+            </button>
+            <button
+              type="button"
+              className="sv-navbtn inline-flex items-center gap-1.5"
+              disabled={demoReadOnly}
+              onClick={() => setBatchKind("videos")}
+              title={t("batch_generate_videos")}
+            >
+              <Sparkles className="h-3 w-3" />
+              <span>{t("batch_generate_videos")}</span>
+            </button>
+            {contentMode === "narration" && onGenerateEpisodeNarration && (
+              <button
+                type="button"
+                className="sv-navbtn inline-flex items-center gap-1.5"
+                disabled={narrationBatchBusy}
+                onClick={() => onGenerateEpisodeNarration(scriptFile)}
+                title={t("batch_generate_narration")}
+              >
+                <Sparkles className="h-3 w-3" />
+                <span>{t("batch_generate_narration")}</span>
+              </button>
+            )}
+          </div>
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* 集 header */}
@@ -266,6 +326,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       />
 
       {/* Tab bar + 批量按钮 */}
+      {mergedHeader ? (
+        activeTab === "timeline" && hasScript && <SlotPortal name="actions">{renderBatchActions()}</SlotPortal>
+      ) : (
       <div
         className="flex items-center gap-0.5 px-5"
         style={{
@@ -320,52 +383,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         </button>
         <span className="flex-1" />
 
-        {activeTab === "timeline" && hasScript && (
-          <div className="mr-1 inline-flex items-center gap-1.5">
-            {editorContentMode === "ad" && !demoReadOnly && (
-              <AdScriptButton projectName={projectName} episode={episode} regenerate className="sv-navbtn" />
-            )}
-            <PromptAuthoringButton
-              projectName={projectName}
-              episode={episode}
-              scope="pending"
-              className="sv-navbtn"
-            />
-            <button
-              type="button"
-              className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled={demoReadOnly}
-              onClick={() => setBatchKind("storyboards")}
-              title={t("batch_generate_storyboards")}
-            >
-              <Sparkles className="h-3 w-3" />
-              <span>{t("batch_generate_storyboards")}</span>
-            </button>
-            <button
-              type="button"
-              className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled={demoReadOnly}
-              onClick={() => setBatchKind("videos")}
-              title={t("batch_generate_videos")}
-            >
-              <Sparkles className="h-3 w-3" />
-              <span>{t("batch_generate_videos")}</span>
-            </button>
-            {contentMode === "narration" && onGenerateEpisodeNarration && (
-              <button
-                type="button"
-                className="sv-navbtn inline-flex items-center gap-1.5"
-                disabled={narrationBatchBusy}
-                onClick={() => onGenerateEpisodeNarration(scriptFile)}
-                title={t("batch_generate_narration")}
-              >
-                <Sparkles className="h-3 w-3" />
-                <span>{t("batch_generate_narration")}</span>
-              </button>
-            )}
-          </div>
-        )}
+        {activeTab === "timeline" && hasScript && renderBatchActions()}
       </div>
+      )}
 
       {batchKind && (
         <StoryboardBatchDialog

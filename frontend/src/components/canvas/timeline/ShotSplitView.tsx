@@ -10,6 +10,10 @@ import { getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
 import { stepAnchor } from "@/utils/move-anchor";
 import { ShotList } from "./ShotList";
 import { ShotDetail } from "./ShotDetail";
+import { useShotSwitchGuard } from "@/prototype/episode/ShotSwitchGuard";
+import { useEpisodeProto } from "@/prototype/episode/store";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 import type { InsertShotHandler } from "./ShotStructureActions";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
@@ -166,6 +170,17 @@ export function ShotSplitView({
     }
   }, [scrollTarget, segments, contentMode, clearScrollTarget]);
 
+  // PROTOTYPE（#2974）：切换分镜的草稿拦截与快捷键；可拖拽调宽时列表也能拖。
+  const { axes: protoAxes } = useEpisodeProto();
+  const protoSafeIndex = Math.min(selectedIndex, Math.max(0, segments.length - 1));
+  const protoSegment = segments[protoSafeIndex];
+  const { guardedSelect, dialog: switchDialog, hint: switchHint } = useShotSwitchGuard({
+    selectedIndex: protoSafeIndex,
+    count: segments.length,
+    select: setSelectedIndex,
+    currentLabel: protoSegment ? itemIdWithinEpisode(getScriptItemId(protoSegment, contentMode)) : "",
+  });
+
   if (segments.length === 0) {
     return null;
   }
@@ -174,21 +189,16 @@ export function ShotSplitView({
   const segment = segments[safeIndex];
   const segmentId = getScriptItemId(segment, contentMode);
 
-  return (
-    <div
-      className="grid h-full min-w-0 overflow-hidden"
-      style={{
-        gridTemplateColumns: collapsed ? "44px minmax(0, 1fr)" : "220px minmax(0, 1fr)",
-        gridTemplateRows: "minmax(0, 1fr)",
-      }}
-    >
+  const listNode = (
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col">
       <ShotList
         segments={segments}
         selectedIndex={safeIndex}
-        onSelect={setSelectedIndex}
+        onSelect={guardedSelect}
         contentMode={contentMode}
         projectName={projectName}
-        collapsed={collapsed}
+        collapsed={protoAxes.sizing === "resizable" ? false : collapsed}
         onToggleCollapse={() => setCollapsed((c) => !c)}
         scrollContainerRef={listScrollRef}
         onAppend={handleInsertShot}
@@ -196,6 +206,11 @@ export function ShotSplitView({
         onMove={handleMoveShot}
         moveDisabled={structurePending || movePending}
       />
+      </div>
+      {!collapsed || protoAxes.sizing === "resizable" ? switchHint : null}
+    </div>
+  );
+  const detailNode = (
       <ShotDetail
         key={segmentId}
         segment={segment}
@@ -207,8 +222,8 @@ export function ShotSplitView({
         scriptFile={scriptFile}
         selectedIndex={safeIndex}
         totalCount={segments.length}
-        onPrev={() => setSelectedIndex((i) => Math.max(0, i - 1))}
-        onNext={() => setSelectedIndex((i) => Math.min(segments.length - 1, i + 1))}
+        onPrev={() => guardedSelect(safeIndex - 1)}
+        onNext={() => guardedSelect(safeIndex + 1)}
         onUpdatePrompt={onUpdatePrompt}
         onMoveShot={handleMoveStep}
         movePending={movePending}
@@ -229,6 +244,36 @@ export function ShotSplitView({
         capabilitiesLoading={capabilitiesLoading}
         durationWarningReason={durationWarningReason}
       />
+  );
+
+  if (protoAxes.sizing === "resizable") {
+    return (
+      <>
+        <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0">
+          <ResizablePanel defaultSize={220} minSize={180} maxSize={320} className="min-h-0">
+            {listNode}
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel minSize={480} className="flex min-h-0 min-w-0 flex-col">
+            {detailNode}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+        {switchDialog}
+      </>
+    );
+  }
+
+  return (
+    <div
+      className="grid h-full min-w-0 overflow-hidden"
+      style={{
+        gridTemplateColumns: collapsed ? "44px minmax(0, 1fr)" : "220px minmax(0, 1fr)",
+        gridTemplateRows: "minmax(0, 1fr)",
+      }}
+    >
+      {listNode}
+      {detailNode}
+      {switchDialog}
     </div>
   );
 }

@@ -44,6 +44,8 @@ import { StepListRow } from "./StepListRow";
 import { BLOCKED_TONE } from "./state-language";
 import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
 import { buildStepList, type StepAct } from "./step-list";
+import { useEpisodeProto } from "@/prototype/episode/store";
+import { ProgressEntry } from "@/prototype/episode/ProgressEntry";
 
 /**
  * 任务指纹变化到发起重新求解之间的合并窗口（毫秒）。
@@ -213,7 +215,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
 
   const pushToast = useAppStore((s) => s.pushToast);
   // 助手面板收起时右上角浮着 Agent 球，收起行右端的入口要给它让出位置。
-  const assistantFloating = !useAppStore((s) => s.assistantPanelOpen);
+  const protoMode = useEpisodeProto().axes.progress;
 
   const withInstruction = useCallback(
     (text: string) => {
@@ -389,13 +391,126 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         ? t("plan_loading")
         : t("plan_unavailable");
 
+  const body = (
+        <div id={panelId} className="mt-2 space-y-3">
+          {blockers.length > 0 && (
+            <div
+              role="alert"
+              className="rounded-lg px-3 py-2"
+              style={{
+                background: BLOCKED_TONE.soft,
+                border: `1px solid ${BLOCKED_TONE.ring}`,
+              }}
+            >
+              <h3
+                id={alertId}
+                className="text-[12px] font-medium"
+                style={{ color: BLOCKED_TONE.color }}
+              >
+                {t("blockers_title", { count: blockers.length })}
+              </h3>
+              <ProblemList
+                problems={blockers}
+                labelledBy={alertId}
+                className="mt-1 space-y-1.5 text-[12px]"
+              />
+            </div>
+          )}
+
+          {issues.length > 0 && <ProblemList problems={issues} className="space-y-1.5 text-[12px]" />}
+
+          {planProblems.length > 0 && (
+            <ProblemList problems={planProblems} className="space-y-1.5 text-[12px]" />
+          )}
+
+          {view ? (
+            <ol className="m-0 list-none p-0">
+              {view.rows.map((row) => (
+                <StepListRow
+                  key={row.key}
+                  row={row}
+                  next={next?.rowKey === row.key ? next : null}
+                  instruction={instruction}
+                  onInstructionChange={(value) => instructionKey && setInstructionDraft({ key: instructionKey, value })}
+                  onRun={(act) => void run(act)}
+                  onViewUnit={onViewUnit}
+                  onRegenerate={onRegenerate}
+                  onConfirmDurations={confirmDurations}
+                  busy={loading || running}
+                />
+              ))}
+            </ol>
+          ) : (
+            !shown && (
+              <p className="text-[12px]" style={{ color: "var(--color-text-3)" }}>
+                {loading ? t("plan_loading") : t("plan_unavailable")}
+              </p>
+            )
+          )}
+        </div>
+  );
+  const dialogs = (
+    <>
+      {assetBatchEpisode !== null && (
+        <AssetSheetBatchDialog
+          projectName={projectName}
+          scope={{ episode_id: assetBatchEpisode }}
+          onClose={() => setAssetBatchEpisode(null)}
+        />
+      )}
+      {storyboardBatch !== null && (
+        <StoryboardBatchDialog
+          projectName={projectName}
+          episode={storyboardBatch.episodeId}
+          kind={storyboardBatch.kind}
+          onClose={() => setStoryboardBatch(null)}
+        />
+      )}
+      {pendingDiscard && (
+        <DiscardDraftDialog
+          open
+          agentOwned={pendingDiscard.agentOwned}
+          fallbackText={pendingDiscard.fallbackText}
+          loading={discarding}
+          onConfirm={() => void confirmDiscard()}
+          onCancel={() => setPendingDiscard(null)}
+        />
+      )}
+    </>
+  );
+
+  // PROTOTYPE（#2974）：页头入口 + 抽屉 / 下拉面板两种呈现。
+  if (protoMode === "drawer" || protoMode === "popover") {
+    return (
+      <ProgressEntry
+        mode={protoMode}
+        title={t("panel_title")}
+        headline={headline}
+        blockerCount={blockers.length}
+        nextActs={
+          next && next.primary.length > 0 ? (
+            <span className="flex flex-wrap items-center gap-2">
+              {next.primary.map((act) => (
+                <StepActButton key={act.key} act={act} onRun={(target) => void run(target)} size="sm" busy={running} />
+              ))}
+            </span>
+          ) : null
+        }
+        refreshFailed={error ? t("plan_refresh_failed") : null}
+      >
+        {body}
+        {dialogs}
+      </ProgressEntry>
+    );
+  }
+
   return (
     <section
       className="border-b px-4 py-2"
       style={{ borderColor: "var(--color-hairline)" }}
       data-testid="workflow-panel"
     >
-      <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${assistantFloating ? "pr-12" : ""}`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <button
           type="button"
           aria-expanded={expanded}
@@ -462,89 +577,12 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         </p>
       )}
 
-      {expanded && (
-        <div id={panelId} className="mt-2 space-y-3">
-          {blockers.length > 0 && (
-            <div
-              role="alert"
-              className="rounded-lg px-3 py-2"
-              style={{
-                background: BLOCKED_TONE.soft,
-                border: `1px solid ${BLOCKED_TONE.ring}`,
-              }}
-            >
-              <h3
-                id={alertId}
-                className="text-[12px] font-medium"
-                style={{ color: BLOCKED_TONE.color }}
-              >
-                {t("blockers_title", { count: blockers.length })}
-              </h3>
-              <ProblemList
-                problems={blockers}
-                labelledBy={alertId}
-                className="mt-1 space-y-1.5 text-[12px]"
-              />
-            </div>
-          )}
-
-          {issues.length > 0 && <ProblemList problems={issues} className="space-y-1.5 text-[12px]" />}
-
-          {planProblems.length > 0 && (
-            <ProblemList problems={planProblems} className="space-y-1.5 text-[12px]" />
-          )}
-
-          {view ? (
-            <ol className="m-0 list-none p-0">
-              {view.rows.map((row) => (
-                <StepListRow
-                  key={row.key}
-                  row={row}
-                  next={next?.rowKey === row.key ? next : null}
-                  instruction={instruction}
-                  onInstructionChange={(value) => instructionKey && setInstructionDraft({ key: instructionKey, value })}
-                  onRun={(act) => void run(act)}
-                  onViewUnit={onViewUnit}
-                  onRegenerate={onRegenerate}
-                  onConfirmDurations={confirmDurations}
-                  busy={loading || running}
-                />
-              ))}
-            </ol>
-          ) : (
-            !shown && (
-              <p className="text-[12px]" style={{ color: "var(--color-text-3)" }}>
-                {loading ? t("plan_loading") : t("plan_unavailable")}
-              </p>
-            )
-          )}
-        </div>
-      )}
-      {assetBatchEpisode !== null && (
-        <AssetSheetBatchDialog
-          projectName={projectName}
-          scope={{ episode_id: assetBatchEpisode }}
-          onClose={() => setAssetBatchEpisode(null)}
-        />
-      )}
-      {storyboardBatch !== null && (
-        <StoryboardBatchDialog
-          projectName={projectName}
-          episode={storyboardBatch.episodeId}
-          kind={storyboardBatch.kind}
-          onClose={() => setStoryboardBatch(null)}
-        />
-      )}
-      {pendingDiscard && (
-        <DiscardDraftDialog
-          open
-          agentOwned={pendingDiscard.agentOwned}
-          fallbackText={pendingDiscard.fallbackText}
-          loading={discarding}
-          onConfirm={() => void confirmDiscard()}
-          onCancel={() => setPendingDiscard(null)}
-        />
-      )}
+      {expanded && (protoMode === "capped" ? (
+        <div className="mt-2 max-h-[40cqh] overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">{body}</div>
+      ) : (
+        body
+      ))}
+      {dialogs}
     </section>
   );
 }
