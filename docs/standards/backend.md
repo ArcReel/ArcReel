@@ -38,3 +38,14 @@ basedpyright 不跟踪回调里的赋值，`x: T | None = None` 加 `nonlocal` �
 ### 只在 `fastapi` / `pydantic` 没有 re-export 时直接依赖底层包
 
 直接 import `starlette` / `pydantic_core` 会把底层包的版本绑进本仓库的依赖面；上层已经 re-export 的符号从上层导入。
+
+## 并发
+
+### 线程里写入正式文件或创建临时产物时，用 `run_sync_transaction`
+
+在请求或任务上下文里，把写入、替换、删除正式文件，或创建需要交还调用方清理的临时产物的同步代码放进线程时，调用 `lib/infra/async_thread.py` 的 `run_sync_transaction`。它让已开始的线程事务结束、结果确定后再传播取消。裸 `asyncio.to_thread` 被取消时，`await` 立即抛出 `CancelledError`，线程却继续运行，调用方的清理逻辑与线程并发执行，有两类后果：
+
+- 临时产物泄漏：线程在调用方清理之后才创建的临时目录、zip 等产物没有人回收。
+- 外部已成功、内部报失败：`finally` 的清理与线程里的 `replace` 竞争，文件已经落盘，调用方却按失败处理。
+
+放行条件：只读文件，或产出可丢弃的中间结果时，用裸 `asyncio.to_thread`。

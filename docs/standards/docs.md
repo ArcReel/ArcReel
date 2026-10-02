@@ -8,6 +8,8 @@ paths:
 
 # 用户文档
 
+编写或修改本规范覆盖的中文文档前，用 Skill 工具调用 `tech-doc-style-chinese`；改完用 `.agents/skills/tech-doc-style-chinese/scripts/lint_copy_rules.py <文件>` 自查。
+
 ### README 只回答「是什么、适合谁、和直接调用模型 API 有什么区别、如何最快运行起来」
 
 README 面向第一次访问仓库的人。具体模型名、单价与接口参数放到文档站对应页面；写进 README 的这类信息会随供应商每次更新而过期。
