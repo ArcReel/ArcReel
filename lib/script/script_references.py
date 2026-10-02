@@ -1,11 +1,11 @@
 """剧本 / 草稿载荷里名称引用的落点遍历：改写与扫描共用同一份「引用写在哪些位置」。
 
-引用名（资产名，或角色的 ``本体名/衍生名``）在剧本载荷里有四种落点：各骨架的引用数组
+引用名（资产名，或角色的 ``本体名/衍生名``）在剧本载荷里有五种落点：各骨架的引用数组
 （``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``）、``speaker`` 字段、
-单元正文里的 ``@[名称]`` 记号，以及分镜画面描述里的 ``@[名称]`` 记号。级联改名与合并要把它们
-一次改齐，「这条资产被脚本引用了吗」要把它们一次数清——两者只在「读到的名字怎么处理」上
-不同，落点集合必须是同一份：分成两套遍历时，新增一种落点只被其中一侧认识，改名会漏改或
-引用状态会漏报。
+单元正文里的 ``@[名称]`` 记号、分镜画面描述里的 ``@[名称]`` 记号，以及脚本规划「新增资产」清单
+里并入项与衍生项的 ``target``。级联改名与合并要把它们一次改齐，「这条资产被脚本引用了吗」要把
+它们一次数清——两者只在「读到的名字怎么处理」上不同，落点集合必须是同一份：分成两套遍历时，
+新增一种落点只被其中一侧认识，改名会漏改或引用状态会漏报。
 
 分镜画面描述里的记号只指认该分镜引用字段里已声明的资产、不派生参考图（见
 :mod:`lib.script.storyboard_mentions`），所以改名要改它，「引用了吗」不数它。
@@ -19,6 +19,7 @@ from typing import Any, Literal
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, asset_name_comparison_key
 from lib.references.reference_catalog import derivative_reference
 from lib.script.reference_video.text_parser import mention_names
+from lib.script.script_models import NEW_ASSETS_FIELD
 
 #: 承载单元正文的列表字段。参考生视频的 mention 落在 ``video_units[].text``（草稿里是
 #: ``units[].text``），ad 分镜的 shot 还带引用数组与 ``video_prompt.dialogue``。
@@ -30,10 +31,11 @@ _ALL_REFERENCE_LIST_FIELDS: frozenset[str] = frozenset(
     field for spec in ASSET_SPECS.values() for field in spec.reference_list_fields
 )
 
-#: 引用落点的四种形态：``name`` 是引用数组里的一个完整引用名，``speaker`` 是承载角色本体名的
+#: 引用落点的五种形态：``name`` 是引用数组里的一个完整引用名，``speaker`` 是承载角色本体名的
 #: 说话人字段，``text`` 是含 ``@[名称]`` 记号的单元正文，``scene`` 是含 ``@[名称]`` 记号的分镜画面
-#: 描述（``image_prompt.scene``，或字符串形态的 ``image_prompt``）。
-SiteKind = Literal["name", "speaker", "text", "scene"]
+#: 描述（``image_prompt.scene``，或字符串形态的 ``image_prompt``），``target`` 是新增资产清单里
+#: 并入项归入的资产名或衍生项的本体角色名——与说话人一样只写资产表的条目名，不写 ``本体名/衍生名``。
+SiteKind = Literal["name", "speaker", "text", "scene", "target"]
 
 
 def _dict_writer(node: dict[str, Any], key: str) -> Callable[[str], None]:
@@ -48,6 +50,25 @@ def _list_writer(items: list[Any], index: int) -> Callable[[str], None]:
         items[index] = value
 
     return write
+
+
+def _new_asset_target_sites(
+    items: list[Any], list_fields: frozenset[str]
+) -> Iterator[tuple[SiteKind, str, Callable[[str], None]]]:
+    """新增资产清单里的 ``target`` 落点；只产出指向的资产类型落在 ``list_fields`` 覆盖范围内的那些。
+
+    并入项的 ``target`` 指向同类资产，衍生项的指向本体角色；其余处理决定的 ``target`` 留空，不是
+    落点。``list_fields`` 即调用方关心的资产类型：改角色名时只给角色的引用数组字段，并入场景的
+    那一项就不该被当成落点。
+    """
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("target"), str):
+            continue
+        decision = item.get("decision")
+        target_type = item.get("type") if decision == "merge" else "character" if decision == "derivative" else None
+        spec = ASSET_SPECS.get(target_type) if isinstance(target_type, str) else None
+        if spec is not None and not list_fields.isdisjoint(spec.reference_list_fields):
+            yield "target", item["target"], _dict_writer(item, "target")
 
 
 def iter_reference_sites(
@@ -72,6 +93,9 @@ def iter_reference_sites(
                         yield "name", item, _list_writer(value, index)
                     else:
                         yield from iter_reference_sites(item, list_fields, with_speaker=with_speaker)
+                continue
+            if key == NEW_ASSETS_FIELD and isinstance(value, list):
+                yield from _new_asset_target_sites(value, list_fields)
                 continue
             if key == "speaker" and with_speaker and isinstance(value, str):
                 yield "speaker", value, _dict_writer(payload, key)

@@ -760,7 +760,8 @@ def carry_confirmation_through_migration(project: dict[str, Any], episode: int, 
 
     供调用方在 ``ProjectManager.update_project`` 的锁内回调中调用（确保比对的是加锁后重读的
     最新 project）——``server/services/project/script_review.py`` 与 ``lib/script/script_generator.py`` 的两处
-    迁移写回入口共用本函数，不各自重复这段判断。
+    迁移写回入口共用本函数，不各自重复这段判断。资产改名、衍生改名与合并的级联改写同样只换名字、
+    不改内容，也经本函数平移（``ProjectManager._carry_script_plan_confirmations``）。
     """
     stored = stored_review(project, episode)
     if stored.get("fingerprint") != before:

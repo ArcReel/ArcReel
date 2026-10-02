@@ -178,7 +178,10 @@ def merge_payload_references(
                 write(rewritten)
                 mentions += hits[0]
             continue
-        merged = merged_reference(value, source, target, as_derivative=as_derivative, speaker=kind == "speaker")
+        # 新增资产清单的 target 与说话人一样只认本体：并为衍生时改指保留方，不写成 ``保留方/被并方``。
+        merged = merged_reference(
+            value, source, target, as_derivative=as_derivative, speaker=kind in ("speaker", "target")
+        )
         if merged is None:
             continue
         write(merged)

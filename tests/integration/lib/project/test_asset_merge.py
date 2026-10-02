@@ -24,11 +24,19 @@ from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.asset_merge import AssetMergeEpisodeImpact, AssetMergeNotFoundError, AssetMergeRejectedError
 from lib.project.project_manager import ProjectManager
+from lib.script.plan_new_assets import resolve_new_assets
 from lib.script.reference_video.request_projection import (
     FilesystemReferenceAssets,
     hydrate_reference_assets,
     resolve_reference_assets,
     unit_reference_declarations,
+)
+from lib.script.script_review import (
+    apply_confirmation,
+    content_fingerprint,
+    formal_script_plan_confirmed,
+    review_status,
+    script_plan_path,
 )
 from lib.speech.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
 from lib.speech.speech_composition import admit_script_unit
@@ -159,6 +167,92 @@ class TestMergeIntoAsset:
         assert (executed.episodes, executed.aliases_added) == (preview.episodes, preview.aliases_added)
         draft = load_json_or_none(drafts / "episode_1" / NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME)
         assert draft == {"segments": [{"segment_id": "E1S01", "characters_in_segment": ["王建国"]}]}
+
+
+def _write_confirmed_plan(pm: ProjectManager, plan: dict[str, Any]) -> Path:
+    """写下第 1 集的正式脚本规划并确认它。"""
+    pm.save_script(PROJECT, _narration_script(), "episode_1.json")
+    project_dir = pm.get_project_path(PROJECT)
+    path = script_plan_path(project_dir, pm.load_project(PROJECT), 1)
+    assert path is not None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(path, plan)
+    fingerprint = content_fingerprint(path)
+    assert fingerprint is not None
+
+    def confirm(project: dict[str, Any]) -> None:
+        apply_confirmation(project, 1, fingerprint, "2026-10-01T00:00:00+00:00")
+
+    pm.update_project(PROJECT, confirm)
+    return path
+
+
+def _plan_review(pm: ProjectManager) -> tuple[str, bool]:
+    """第 1 集的内容确认状态，以及正式脚本规划是否因已确认而只读。"""
+    project_dir = pm.get_project_path(PROJECT)
+    project = pm.load_project(PROJECT)
+    return review_status(project_dir, project, 1), formal_script_plan_confirmed(project_dir, project, 1)
+
+
+def _plan_with_merged_new_asset() -> dict[str, Any]:
+    return {
+        "segments": [{"segment_id": "E1S01", "characters_in_segment": ["老王", "小王"], "scenes": [], "props": []}],
+        "new_assets": [
+            {"type": "character", "name": "小王", "decision": "merge", "reason": "同一人", "target": "老王"}
+        ],
+    }
+
+
+class TestMergeKeepsScriptPlanConfirmation:
+    """合并只换资产的名字：已确认的集不退回待确认，规划里「并入」项的目标随之改指保留方。"""
+
+    def test_confirmed_episode_stays_confirmed_and_read_only(self, pm: ProjectManager) -> None:
+        path = _write_confirmed_plan(pm, _plan_with_merged_new_asset())
+        assert _plan_review(pm) == ("confirmed", True)
+
+        pm.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        assert _plan_review(pm) == ("confirmed", True)
+        plan = load_json_or_none(path)
+        assert plan is not None
+        assert plan["segments"][0]["characters_in_segment"] == ["王建国", "小王"]
+        assert plan["new_assets"][0]["target"] == "王建国"
+
+    def test_merged_new_asset_target_is_counted_and_still_resolves(self, pm: ProjectManager) -> None:
+        path = _write_confirmed_plan(pm, _plan_with_merged_new_asset())
+
+        preview = pm.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
+        pm.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        impact = next(item for item in preview.episodes if item.episode == 1)
+        assert impact.script_plan == 2  # 引用数组一处 + 并入目标一处
+        plan = load_json_or_none(path)
+        assert plan is not None
+        resolution = resolve_new_assets(pm.load_project(PROJECT), plan["new_assets"])
+        assert resolution.aliases == [("character", "王建国", "小王")]
+
+    def test_merging_as_a_derivative_points_the_target_at_the_base(self, pm: ProjectManager) -> None:
+        path = _write_confirmed_plan(pm, _plan_with_merged_new_asset())
+
+        pm.merge_asset(PROJECT, "characters", "老王", "王建国", as_derivative=True)
+
+        assert _plan_review(pm) == ("confirmed", True)
+        plan = load_json_or_none(path)
+        assert plan is not None
+        assert plan["segments"][0]["characters_in_segment"] == ["王建国/老王", "小王"]
+        assert plan["new_assets"][0]["target"] == "王建国"
+
+    def test_plan_edited_after_confirmation_stays_pending(self, pm: ProjectManager) -> None:
+        """确认指纹本就对不上（确认后又改过规划）时不平移：合并不替用户确认一份没看过的规划。"""
+        path = _write_confirmed_plan(pm, _plan_with_merged_new_asset())
+        edited = _plan_with_merged_new_asset()
+        edited["segments"][0]["scenes"] = ["杂货店"]
+        atomic_write_json(path, edited)
+        assert _plan_review(pm) == ("pending_review", False)
+
+        pm.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        assert _plan_review(pm) == ("pending_review", False)
 
 
 class TestMergeRejections:

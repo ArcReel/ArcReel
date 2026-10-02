@@ -2861,6 +2861,28 @@ class ProjectManager:
             return ProjectArtifactManifestAdapter(project_dir)
         return None
 
+    def _carry_script_plan_confirmations(
+        self, project_dir: Path, project: dict, changed_drafts: Sequence[tuple[Path, dict, str]]
+    ) -> None:
+        """级联改写只换资产的名字，不改规划内容：确认的恰是改写前内容的集，确认指纹随之平移。
+
+        ``changed_drafts`` 是 ``(路径, 改写后载荷, 改写前指纹)``，指纹与确认记录同一口径（整份 JSON 的
+        规范化哈希，见 ``content_fingerprint_of_data``）；只有各集的正式脚本规划参与确认判定。
+        ``project`` 是将随这批改写提交的 project.json 载荷。不平移时确认指纹与改写后的规划对不上，
+        用户只改了个名字，那一集就退回待确认、被引向覆盖正式脚本的确认操作。
+        """
+        # script_review 在模块级 import 本模块，惰性 import 破环。
+        from lib.script.script_review import (
+            carry_confirmation_through_migration,
+            content_fingerprint_of_data,
+            script_plan_path,
+        )
+
+        for path, payload, before in changed_drafts:
+            episode = self.filename_episode(path.parent.name)
+            if episode is not None and script_plan_path(project_dir, project, episode) == path:
+                carry_confirmation_through_migration(project, episode, before, content_fingerprint_of_data(payload))
+
     def rename_asset(
         self, project_name: str, table: str, old_name: str, new_name: str, *, dry_run: bool = False
     ) -> AssetRenameReport:
@@ -2987,17 +3009,18 @@ class ProjectManager:
                 if changes:
                     changed_scripts.append((filename, script, before))
                     references += changes
-            changed_drafts: list[tuple[Path, dict]] = []
+            changed_drafts: list[tuple[Path, dict, str]] = []
             for path in draft_files:
                 payload = load_json_or_none(path)
                 if not isinstance(payload, dict):
                     continue
+                fingerprint = canonical_json_digest(payload)
                 changes = rewrite_payload_references(payload, asset_type, old_key, new_clean)
                 if changes:
-                    changed_drafts.append((path, payload))
+                    changed_drafts.append((path, payload, fingerprint))
                     references += changes
             episode_ids = {Path(filename).stem for filename, _s, _b in changed_scripts} | {
-                path.parent.name for path, _p in changed_drafts
+                path.parent.name for path, _p, _f in changed_drafts
             }
 
             moves = plan_asset_file_renames(project_dir, spec, old_key, new_clean)
@@ -3065,7 +3088,8 @@ class ProjectManager:
                     sync_project=False,
                     before=before,
                 )
-            for path, payload in changed_drafts:
+            self._carry_script_plan_confirmations(project_dir, mutated, changed_drafts)
+            for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
             for src, dst in moves:
                 if src.exists():
@@ -3137,13 +3161,14 @@ class ProjectManager:
                 before = copy.deepcopy(script)
                 if rewrite_payload_references(script, asset_type, old_reference, new_reference):
                     changed_scripts.append((filename, script, before))
-            changed_drafts: list[tuple[Path, dict]] = []
+            changed_drafts: list[tuple[Path, dict, str]] = []
             for path in draft_files:
                 payload = load_json_or_none(path)
                 if not isinstance(payload, dict):
                     continue
+                fingerprint = canonical_json_digest(payload)
                 if rewrite_payload_references(payload, asset_type, old_reference, new_reference):
-                    changed_drafts.append((path, payload))
+                    changed_drafts.append((path, payload, fingerprint))
 
             # 衍生资产图的三样坐标（图、版本快照、清单键）都含衍生名，与条目键一起搬；
             # 规划先于任何写入，冲突在此整体拒绝、零字节落盘。
@@ -3168,7 +3193,8 @@ class ProjectManager:
                     sync_project=False,
                     before=before,
                 )
-            for path, payload in changed_drafts:
+            self._carry_script_plan_confirmations(project_dir, project, changed_drafts)
+            for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
             relocation.relocate()
             self._touch_metadata(project)
@@ -3290,15 +3316,16 @@ class ProjectManager:
                     storyboards=storyboards,
                     videos=videos,
                 )
-            changed_drafts: list[tuple[Path, dict]] = []
+            changed_drafts: list[tuple[Path, dict, str]] = []
             for path in draft_files:
                 payload = load_json_or_none(path)
                 if not isinstance(payload, dict):
                     continue
+                fingerprint = canonical_json_digest(payload)
                 changes = merge_payload_references(payload, asset_type, source, target, as_derivative=as_derivative)
                 if not changes.total:
                     continue
-                changed_drafts.append((path, payload))
+                changed_drafts.append((path, payload, fingerprint))
                 category = "draft" if path.name in QUARANTINE_FILENAMES else "script_plan"
                 tally(
                     self.filename_episode(path.parent.name),
@@ -3378,7 +3405,8 @@ class ProjectManager:
             # —— 落盘 ——
             for filename, script, before in changed_scripts:
                 self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
-            for path, payload in changed_drafts:
+            self._carry_script_plan_confirmations(project_dir, mutated, changed_drafts)
+            for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
             relocation.relocate()
             self._touch_metadata(mutated)
