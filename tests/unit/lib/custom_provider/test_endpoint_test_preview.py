@@ -263,3 +263,15 @@ class TestImageDefinition:
         image_field = next(field for field in payload["fields"] if field["key"] == "image_b64")
         assert image_field["value"] == {"image_bytes": None}
         assert payload["image_bytes"] is None
+
+    @pytest.mark.parametrize("value", ["0123456789abcdef0123456789abcdef", "SUCCESS"])
+    def test_check_flags_decodable_base64_that_is_not_an_image(self, value: str):
+        definition = image_endpoint_definition()
+        definition["poll"]["extract"]["image_b64"] = ["$.data.b64_json"]
+        body = {"data": {"status": "completed", "b64_json": value}}
+
+        payload = stage_report_payload(check_response(definition, "poll", body))
+
+        image_field = next(field for field in payload["fields"] if field["key"] == "image_b64")
+        assert image_field["value"] == {"image_bytes": None}
+        assert payload["image_bytes"] is None

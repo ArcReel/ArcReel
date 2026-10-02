@@ -23,6 +23,7 @@ import httpx
 from arcreel_market_core.video_backend_contract import ProviderJobStatus
 from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS
+from lib.backends.container_sniff import CONTAINER_HEAD_BYTES, sniff_container
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.custom_provider.declarative_backend import (
     DeclarativeJobEngine,
@@ -71,12 +72,15 @@ class ImageJobState(JobState):
 
 _DATA_URI_PREFIX = re.compile(r"^data:image/[\w.+-]+;base64,", re.IGNORECASE)
 
+#: 内联图片落盘前认的容器：认不出的字节不当图片写盘。
+_INLINE_IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp"})
+
 
 def decode_image_b64(text: str) -> bytes:
     """把 ``image_b64`` 取到的原文解成图片字节，裸 base64 与 ``data:image/...;base64,`` 都认。
 
     Raises:
-        ValueError: 不是合法的 base64，解出来为空，或超出图片产物的体积上限。
+        ValueError: 不是合法的 base64，解出来为空，超出图片产物的体积上限，或文件头不是 PNG / JPEG / WebP。
     """
     payload = "".join(_DATA_URI_PREFIX.sub("", text.strip(), count=1).split())
     # 先按编码长度估算体积再解码：超限的串不值得花内存解出来。
@@ -88,6 +92,9 @@ def decode_image_b64(text: str) -> bytes:
         raise ValueError("image_b64 is not valid base64") from exc
     if not image:
         raise ValueError("image_b64 decoded to an empty image")
+    # 纯字母数字的串（如 ``SUCCESS``）恰好是合法 base64：解得出来不等于是图片。
+    if sniff_container(image[:CONTAINER_HEAD_BYTES]) not in _INLINE_IMAGE_MIMES:
+        raise ValueError("image_b64 decoded to bytes that are not a PNG, JPEG or WebP image")
     return image
 
 

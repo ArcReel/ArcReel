@@ -247,6 +247,40 @@ class TestDeclarativeImageBackend:
         assert caught.value.code == "declarative_response_extract_failed"
         assert not (tmp_path / "out.png").exists()
 
+    @pytest.mark.parametrize("value", ["0123456789abcdef0123456789abcdef", "SUCCESS"])
+    async def test_decodable_base64_that_is_not_an_image_fails_without_writing(self, tmp_path: Path, value: str):
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_task("completed", result={"images": [{"b64_json": value}]})
+            )
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await _backend(_base64_only_definition()).generate(_request(tmp_path))
+
+        assert caught.value.code == "declarative_response_extract_failed"
+        assert not (tmp_path / "out.png").exists()
+
+    @pytest.mark.parametrize(
+        ("image", "mime"),
+        [
+            (b"\xff\xd8\xff\xe0jpeg-bytes", "jpeg"),
+            (b"RIFF\x00\x00\x00\x00WEBPwebp-bytes", "webp"),
+        ],
+    )
+    @pytest.mark.parametrize("prefix", ["", "data:image/{mime};base64,"])
+    async def test_inline_jpeg_and_webp_are_written(self, tmp_path: Path, image: bytes, mime: str, prefix: str):
+        encoded = prefix.format(mime=mime) + base64.b64encode(image).decode("ascii")
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_task("completed", result={"images": [{"b64_json": encoded}]})
+            )
+
+            result = await _backend(_base64_only_definition()).generate(_request(tmp_path))
+
+        assert result.image_path.read_bytes() == image
+
     async def test_exhausted_image_download_asks_for_regeneration_not_a_download_retry(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():
             router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
