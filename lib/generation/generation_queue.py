@@ -31,15 +31,23 @@ from lib.generation.render_lane import RENDER_MEDIA_TYPE, RENDER_PROVIDER_ID, is
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES, emit_task_terminal_events
 from lib.infra.async_thread import run_noninterruptible_async
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
+from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_guard import assert_project_migration_ok
 
 if TYPE_CHECKING:
     from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
     from lib.config.resolver import ConfigResolver, ProviderModel, VideoGenerationType
-    from lib.project.project_manager import ProjectManager
     from lib.script.reference_video.request_projection import ReferenceUnitRequestProjection
 
 logger = logging.getLogger(__name__)
+
+
+def _normalized_script_file(script_file: str | None) -> str | None:
+    """入队与在途探测共用的剧本定位：`scripts/episode_N.json` 与 `episode_N.json` 是同一剧本的别名。
+
+    去重键含剧本文件名，Web 传账本原值、Agent 传纯文件名，不归一就会把同一单元排成两个任务。
+    """
+    return ProjectManager.normalize_script_filename(script_file) if script_file is not None else None
 
 
 _VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
@@ -400,6 +408,8 @@ class GenerationQueue:
         # at each caller. Nothing is created and nothing is billed.
         await self.assert_project_migration_ok(project_name)
 
+        script_file = _normalized_script_file(script_file)
+
         if task_type == "reference_video":
             payload = reference_video_enqueue_payload(payload, script_file=script_file)
 
@@ -614,6 +624,7 @@ class GenerationQueue:
         resource_type: str | None = None,
         user_id: str = DEFAULT_USER_ID,
     ) -> list[dict[str, Any]]:
+        script_file = _normalized_script_file(script_file)
         async with self._task_repo() as repo:
             return await repo.get_active_tasks_for_resources(
                 project_name=project_name,

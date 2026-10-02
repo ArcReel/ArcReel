@@ -148,6 +148,59 @@ class TestGenerationQueue:
                 provider_id="video-provider",
             )
 
+    @pytest.mark.parametrize(
+        ("first_alias", "second_alias"),
+        [
+            ("scripts/episode_1.json", "episode_1.json"),
+            ("episode_1.json", "scripts/episode_1.json"),
+            ("./scripts/episode_1.json", "episode_1.json"),
+        ],
+    )
+    async def test_script_file_aliases_dedupe_to_one_active_reference_video_task(
+        self, queue, db_factory, first_alias, second_alias
+    ):
+        """账本原值与纯文件名指向同一剧本：无论哪种写法先入队，第二次都判为已在队列中。"""
+
+        enqueue = {
+            "project_name": "demo",
+            "task_type": "reference_video",
+            "media_type": "video",
+            "resource_id": "E1U1",
+            "payload": {},
+            "provider_id": "video-provider",
+        }
+        first = await queue.enqueue_task(**enqueue, script_file=first_alias)
+        duplicate = await queue.enqueue_task(**enqueue, script_file=second_alias)
+
+        assert first["deduped"] is False
+        assert duplicate["deduped"] is True
+        assert duplicate["task_id"] == first["task_id"]
+        async with db_factory() as session:
+            task = await session.get(Task, first["task_id"])
+            assert task is not None
+            assert task.script_file == "episode_1.json"
+
+    @pytest.mark.parametrize("probe_alias", ["scripts/episode_1.json", "episode_1.json"])
+    async def test_active_task_probe_matches_a_task_enqueued_under_another_script_file_alias(self, queue, probe_alias):
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={},
+            script_file="scripts/episode_1.json",
+            provider_id="video-provider",
+        )
+
+        active = await queue.get_active_tasks_for_resources(
+            project_name="demo",
+            task_type="reference_video",
+            resource_ids=["E1U1"],
+            script_file=probe_alias,
+        )
+
+        assert [task["task_id"] for task in active] == [first["task_id"]]
+
     async def test_active_reference_video_task_ignores_a_legacy_delivery_key_when_deduping(self, queue, db_factory):
         """旧版本入队的 reference_request_options 里还带着 narration_delivery；比对请求选项时忽略它。"""
 

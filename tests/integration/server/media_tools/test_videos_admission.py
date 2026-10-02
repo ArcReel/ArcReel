@@ -102,6 +102,84 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
     assert codes["E1S01"] == "generation_batch_admission_withheld"
 
 
+_WEB_SCRIPT_FILE = "scripts/episode_1.json"  # Web 路由传账本原值；Agent 工具传纯文件名
+
+
+def _enqueue_reference_video_as_web(fake_ctx: ToolHarness) -> Any:
+    return fake_ctx.queue.enqueue_task(
+        project_name="demo",
+        task_type="reference_video",
+        media_type="video",
+        resource_id="E1U1",
+        payload={},
+        script_file=_WEB_SCRIPT_FILE,
+        provider_id="fake",
+    )
+
+
+async def test_generate_reference_videos_refuses_a_unit_the_web_route_already_queued(
+    idle_fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Web 先入队同一单元：Agent 整集生成在准入处被「已在队列中」拦下，不再入队计费。"""
+    fake_ctx = idle_fake_ctx
+    monkeypatch.setattr(
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
+        fake_reference_projection(),
+    )
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
+    queued = await _enqueue_reference_video_as_web(fake_ctx)
+    enqueue = AsyncMock(return_value=([], []))
+
+    out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=enqueue)
+
+    enqueue.assert_not_awaited()
+    result = read_generation_result(out)
+    assert result.blocked == ["E1U1"]
+    codes = {item.unit_id: item.problem.code for item in result.items if item.problem is not None}
+    assert codes["E1U1"] == "generation_active_task_conflict"
+    active = await fake_ctx.queue.get_active_tasks_for_resources(
+        project_name="demo", task_type="reference_video", resource_ids=["E1U1"], script_file="episode_1.json"
+    )
+    assert [task["task_id"] for task in active] == [queued["task_id"]]
+
+
+async def test_web_route_enqueue_dedupes_to_the_task_the_agent_tool_already_queued(
+    idle_fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Agent 先入队同一单元：Web 路由随后的入队落在同一个任务上，只产生一个任务。"""
+    fake_ctx = idle_fake_ctx
+    monkeypatch.setattr(
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
+        fake_reference_projection(),
+    )
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
+    agent_task_ids: list[str] = []
+
+    async def enqueue_as_agent(*, specs, **_batch_kwargs):
+        for spec in specs:
+            queued = await fake_ctx.queue.enqueue_task(
+                project_name="demo",
+                task_type=spec.task_type,
+                media_type=spec.media_type,
+                resource_id=spec.resource_id,
+                payload=spec.payload,
+                script_file=spec.script_file,
+                provider_id="fake",
+            )
+            agent_task_ids.append(queued["task_id"])
+        return [], []
+
+    out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=enqueue_as_agent)
+
+    assert out.problem is None, out
+    assert len(agent_task_ids) == 1
+    web = await _enqueue_reference_video_as_web(fake_ctx)
+    assert web["deduped"] is True
+    assert web["task_id"] == agent_task_ids[0]
+
+
 async def test_generate_reference_videos_ignores_narration_audio_state(
     idle_fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
