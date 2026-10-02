@@ -253,7 +253,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patched_instructor_from_openai(return_value=mock_patched),
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 

@@ -15,7 +15,7 @@ from lib.backends.backend_assembly.assembler import OutputLimitFacts, _load_buil
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from tests.fakes import captured_backend_construction, captured_openai_clients
+from tests.fakes import captured_backend_construction, captured_openai_clients, patched_instructor_from_openai
 
 
 async def _seed_provider_config(factory, provider: str, **kv: str) -> None:
@@ -153,7 +153,7 @@ class TestAssembleBuiltinEndToEnd:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patched_instructor_from_openai(return_value=mock_patched),
         ):
             backend = await assemble_backend(
                 provider_id="dashscope",
