@@ -418,6 +418,7 @@ function TimelinePreview({
   const activeClipId = plan.segments[playback.index]?.clipId ?? null;
   const currentClip = readout.clips.find((clip) => clip.id === activeClipId);
   const selectedClip = readout.clips.find((clip) => clip.id === selectedClipId);
+  const clipIds = useMemo(() => new Set(readout.clips.map((clip) => clip.id)), [readout]);
 
   return (
     <>
@@ -456,7 +457,7 @@ function TimelinePreview({
           />
         </div>
         <div className="rounded-[10px] border border-hairline bg-bg-grad-a p-4">
-          <IssueList issues={readout.issues} onSelectClip={setSelectedClipId} />
+          <IssueList issues={readout.issues} clipIds={clipIds} onSelectClip={setSelectedClipId} />
         </div>
       </div>
     </>

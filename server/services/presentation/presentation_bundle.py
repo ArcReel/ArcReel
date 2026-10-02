@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Protocol
 
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_manager import ProjectManager
 from lib.speech.speech_artifact_provenance import RenditionVariant
@@ -65,10 +66,18 @@ class PresentationBundleService:
             audio_version=audio_version,
         )
         project_path = await asyncio.to_thread(self._project_manager.get_project_path, project_name)
-        return await asyncio.to_thread(self._write_bundle, project_path=project_path, result=result)
+        temp_dir = Path(tempfile.mkdtemp(prefix="arcreel_presentation_"))
+        bundle_path = temp_dir / "presentation.zip"
+        try:
+            # 取消时先等打包线程收尾，再删掉临时目录，不留下写到一半或无人认领的压缩包。
+            await run_sync_transaction(self._write_bundle, project_path=project_path, result=result, output=bundle_path)
+        except BaseException:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
+        return bundle_path
 
     @staticmethod
-    def _write_bundle(*, project_path: Path, result: MaterializedPresentation) -> Path:
+    def _write_bundle(*, project_path: Path, result: MaterializedPresentation, output: Path) -> None:
         presentation = result.presentation
         video = _selected_path(project_path, presentation.video.media.artifact_path)
         narration = (
@@ -76,35 +85,28 @@ class PresentationBundleService:
             if presentation.narration_audio is not None
             else None
         )
-        temp_dir = Path(tempfile.mkdtemp(prefix="arcreel_presentation_"))
-        bundle_path = temp_dir / "presentation.zip"
-        try:
-            subtitle_value = presentation.subtitle_artifact_dict()
-            subtitle_webvtt = presentation.subtitles_webvtt()
-            with zipfile.ZipFile(bundle_path, "w") as archive:
-                archive.write(video, f"media/video{video.suffix.lower()}", compress_type=zipfile.ZIP_STORED)
-                if narration is not None:
-                    archive.write(
-                        narration,
-                        f"media/narration{narration.suffix.lower()}",
-                        compress_type=zipfile.ZIP_STORED,
-                    )
-                archive.writestr(
-                    "presentation.json",
-                    json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n",
+        subtitle_value = presentation.subtitle_artifact_dict()
+        subtitle_webvtt = presentation.subtitles_webvtt()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.write(video, f"media/video{video.suffix.lower()}", compress_type=zipfile.ZIP_STORED)
+            if narration is not None:
+                archive.write(
+                    narration,
+                    f"media/narration{narration.suffix.lower()}",
+                    compress_type=zipfile.ZIP_STORED,
                 )
-                if subtitle_value is not None:
-                    if subtitle_webvtt is None:
-                        raise RuntimeError("presentation subtitle projections disagree")
-                    archive.writestr(
-                        "subtitles.json",
-                        json.dumps(subtitle_value, ensure_ascii=False, indent=2) + "\n",
-                    )
-                    archive.writestr("subtitles.vtt", subtitle_webvtt)
-            return bundle_path
-        except BaseException:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            raise
+            archive.writestr(
+                "presentation.json",
+                json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n",
+            )
+            if subtitle_value is not None:
+                if subtitle_webvtt is None:
+                    raise RuntimeError("presentation subtitle projections disagree")
+                archive.writestr(
+                    "subtitles.json",
+                    json.dumps(subtitle_value, ensure_ascii=False, indent=2) + "\n",
+                )
+                archive.writestr("subtitles.vtt", subtitle_webvtt)
 
 
 def _selected_path(project_path: Path, relative_path: str) -> Path:

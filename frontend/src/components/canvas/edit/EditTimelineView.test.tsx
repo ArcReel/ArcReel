@@ -235,7 +235,7 @@ describe("EditTimelineView", () => {
         {
           code: "narration_source_collision",
           severity: "warning",
-          applies_to: "all",
+          applies_to: "with_narration",
           clip_ids: ["c1", "c3"],
           unit_id: "E1U1",
           params: { cause: "dialogue", other_unit_id: "E1U3", source_volume: 1, overlap: 0.8 },
@@ -258,6 +258,34 @@ describe("EditTimelineView", () => {
     expect(within(issues).getByText("c3：旁白超出时间线末尾 1.2s")).toBeInTheDocument();
     expect(within(issues).getByText("c1、c3：旁白延伸到台词片段上 0.8s，可能与原声相撞")).toBeInTheDocument();
     expect(within(issues).getByText("c3：视频单元 U3 还没有旁白配音，带旁白版本无法出片")).toBeInTheDocument();
+  });
+
+  it("lists a missing BGM as plain text, since a BGM clip is not a timeline clip to select", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue({
+      ...INITIAL_CUT,
+      bgm: [
+        { id: "b1", bgm_id: "bgm-0009", name: null, start: 0, end: 7.8, source_in: 0, source_out: 30, volume: 1, fade_in: 0, fade_out: 0 },
+      ],
+      issues: [
+        {
+          code: "bgm_missing",
+          severity: "blocking",
+          applies_to: "all",
+          clip_ids: ["b1"],
+          unit_id: null,
+          params: { bgm_id: "bgm-0009" },
+        },
+      ],
+    });
+
+    renderView();
+
+    const issues = (await screen.findByRole("heading", { name: "问题（1）" })).parentElement as HTMLElement;
+    const text = within(issues).getByText("b1：引用的 BGM bgm-0009 已不在项目里，无法出片");
+    expect(text.closest("button")).toBeNull();
   });
 
   it("shows the new revision after the project reports a change", async () => {

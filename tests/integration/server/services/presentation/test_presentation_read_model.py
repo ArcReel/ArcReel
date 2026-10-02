@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import tempfile
+import threading
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -621,6 +624,51 @@ async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles
         assert "00:00:00.000 --> 00:00:04.500" in archive.read("subtitles.vtt").decode("utf-8")
     assert (project_path / "videos" / "scene_E1S01.mp4").read_bytes() == video_before
     assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == audio_before
+
+
+async def test_cancelling_a_bundle_export_settles_the_packaging_and_removes_its_temp_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm, _project_path, settings = _setup_narrator_project(tmp_path)
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    read_model = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    temp_root = tmp_path / "tmp"
+    temp_root.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp_root))
+    packaging, release, closed = threading.Event(), threading.Event(), threading.Event()
+
+    class _GatedZipFile(zipfile.ZipFile):
+        def writestr(self, *args, **kwargs) -> None:
+            packaging.set()
+            release.wait(5)
+            super().writestr(*args, **kwargs)
+
+        def close(self) -> None:
+            super().close()
+            closed.set()
+
+    monkeypatch.setattr(zipfile, "ZipFile", _GatedZipFile)
+    export = asyncio.create_task(
+        PresentationBundleService(pm, presentation_reader=read_model).export_unit(
+            project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+        )
+    )
+    assert await asyncio.to_thread(packaging.wait, 5)
+
+    export.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await export
+    assert await asyncio.to_thread(closed.wait, 5)
+
+    assert list(temp_root.iterdir()) == []
 
 
 @pytest.mark.parametrize(

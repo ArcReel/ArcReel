@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import math
 import os
 import re
 import shutil
+import struct
 import subprocess
+import wave
+from array import array
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -368,6 +373,57 @@ async def test_bgm_is_mixed_in_and_cut_at_the_timeline_end_without_changing_the_
     assert audio.duration_seconds == pytest.approx(video.duration_seconds, abs=0.05)
     assert _max_volume_db(output, start=1.6, seconds=0.6) > -30
     assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.CURRENT
+
+
+def _quiet_bgm_with_loud_hits(seconds: float, sample_rate: int = 8000) -> bytes:
+    """−40 dBFS 上下的正弦音，每 0.5 秒一下几个采样长、接近满幅的脉冲：积分响度很低，登记的响度增益很高。"""
+    samples = array("h")
+    for index in range(int(seconds * sample_rate)):
+        if index % (sample_rate // 2) < 3:
+            samples.append(30000 if index % 2 == 0 else -30000)
+        else:
+            samples.append(round(300 * math.sin(2 * math.pi * 330 * index / sample_rate)))
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(samples.tobytes())
+    return buffer.getvalue()
+
+
+def _float_peak(path: Path) -> float:
+    """成片音轨解码为浮点采样后的峰值；超过 1.0 即越过 0 dBFS。"""
+    decoded = subprocess.run(
+        [ffmpeg_executable(), "-hide_banner", "-nostdin", "-i", str(path), "-vn", "-f", "f32le", "-"],
+        capture_output=True,
+        check=True,
+    ).stdout
+    values = struct.unpack(f"<{len(decoded) // 4}f", decoded)
+    return max(abs(value) for value in values)
+
+
+@pytest.mark.usefixtures("media")
+async def test_a_high_gain_bgm_over_source_audio_is_limited_below_full_scale(render_project: ProjectManager) -> None:
+    track = await BgmLibraryService(render_project).upload(
+        "demo", filename="hits.wav", content=_quiet_bgm_with_loud_hits(3.0)
+    )
+    assert track.gain_db > 6
+    timeline_id = await _create_timeline(render_project)
+    await EditTimelineService(render_project).edit(
+        "demo",
+        timeline_id,
+        base_revision=1,
+        summary="加 BGM",
+        operations=[InsertBgm(op="insert_bgm", bgm_id=track.id, start=0.0, volume=1.0)],
+        author=CREATOR,
+    )
+
+    result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
+
+    # BGM 的重击按登记增益放大后远超满幅，又与 E1U1 的原声相加；混音限幅后成片不削波。
+    output = render_project.get_project_path("demo") / result.artifact_path
+    assert 0.5 < _float_peak(output) <= 1.0
 
 
 @pytest.mark.usefixtures("media")
