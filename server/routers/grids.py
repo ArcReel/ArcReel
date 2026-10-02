@@ -443,7 +443,8 @@ async def upload_grid_image(
     target = grid_manager.image_path(grid_id)
     versions = VersionManager(project_path)
 
-    staged_file = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
+    with project_change_source("webui"):
+        staged_file = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
     try:
         async with grid_submission_section(project_name):
             # 入队与记录写入在同一临界区内完成。这里在持有临界区后重读并再次探测，
@@ -504,15 +505,16 @@ async def upload_grid_image(
 
             version = await run_noninterruptible_sync(_commit)
 
-        from server.services.tasks.generation_tasks import emit_generation_success_batch
+        with project_change_source("webui"):
+            from server.services.tasks.generation_tasks import emit_generation_success_batch
 
-        fingerprints = await asyncio.to_thread(
-            emit_generation_success_batch,
-            task_type="grid",
-            project_name=project_name,
-            resource_id=grid_id,
-            payload={"script_file": grid.script_file},
-        )
+            fingerprints = await asyncio.to_thread(
+                emit_generation_success_batch,
+                task_type="grid",
+                project_name=project_name,
+                resource_id=grid_id,
+                payload={"script_file": grid.script_file},
+            )
     finally:
         await asyncio.to_thread(staged_file.unlink, missing_ok=True)
 

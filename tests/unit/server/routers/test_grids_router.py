@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.i18n import _ as i18n_message
+from lib.project.project_change_hints import get_project_change_source
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.grid.grid_manager import GridManager
@@ -1338,6 +1339,34 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
     assert saved.error_message is None
     assert saved.split_at is None
     assert saved.grid_image_path == f"grids/{grid.id}.png"
+
+
+def test_upload_grid_image_marks_stage_and_emit_as_webui(monkeypatch, tmp_path):
+    """上传的文件落盘和成功事件都必须在 webui 上下文内，避免前端误判为文件系统变更。"""
+    grid = _make_completed_grid(tmp_path)
+    sources: list[tuple[str, str]] = []
+    original_stage = grids.stage_uploaded_bytes
+
+    def _stage(*args, **kwargs):
+        sources.append(("stage", get_project_change_source()))
+        return original_stage(*args, **kwargs)
+
+    def _emit(**_kwargs):
+        sources.append(("emit", get_project_change_source()))
+        return {}
+
+    monkeypatch.setattr(grids, "stage_uploaded_bytes", _stage)
+    monkeypatch.setattr("server.services.tasks.generation_tasks.emit_generation_success_batch", _emit)
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("photo.png", _png_bytes(), "image/png")},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert sources == [("stage", "webui"), ("emit", "webui")]
 
 
 def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeypatch, tmp_path):
