@@ -72,8 +72,8 @@ export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisSt
     axes: { rail: "fixed", railOrder: "type", models: "inspector", endpoint: "peek", cred: "draft", market: "rail" },
   },
   D: {
-    name: "维护者选定（二级栏按状态分组）",
-    axes: { rail: "adaptive", railOrder: "status", models: "table", endpoint: "jump", cred: "dialog", market: "tabs" },
+    name: "维护者选定",
+    axes: { rail: "adaptive", railOrder: "tabs", models: "table", endpoint: "jump", cred: "dialog", market: "tabs" },
   },
 };
 
