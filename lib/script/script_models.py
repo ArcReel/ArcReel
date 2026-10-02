@@ -649,7 +649,7 @@ class DramaSceneVisual(BaseModel):
 class DramaVisualScript(BaseModel):
     """prompt_authoring 视觉层剧本：各分镜视觉字段（按 scene_id 与 script_plan 内容对齐）。
 
-    顶层不走 ``extra="forbid"`` 同 ``DramaNormalizedScript``。``title`` 可选，最终标题取自 script_plan 内容。
+    顶层不走 ``extra="forbid"`` 同 ``DramaNormalizedScript``。``title`` 可选、不采用，集标题取分集账本。
     """
 
     title: str = Field(default="", description="剧集标题（可选，最终以 script_plan 内容为准）")
