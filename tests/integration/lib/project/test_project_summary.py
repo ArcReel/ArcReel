@@ -24,6 +24,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_with_verdict
 from lib.project.resource_paths import resource_relative_path
 from lib.project.source_revision import SourceRevisionResult, compute_source_revision
+from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
 from tests.factories import register_project_sources
 from tests.integration.lib.workflow.test_workflow_state import (
@@ -31,6 +32,7 @@ from tests.integration.lib.workflow.test_workflow_state import (
     _count_source_reads,
     _create_edit_timeline,
     _make_project,
+    _one_complete_episode,
     _register_produced_artifacts,
     _valid_ad_shot,
     _valid_narration_segment,
@@ -366,6 +368,39 @@ def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -
     assert [episode.script_status for episode in summary.episodes] == ["none"]
     assert summary.episodes_summary.scripted == 0
     assert summary.episodes[0].videos.total == 0
+
+
+def test_stale_episode_counts_as_complete_only_after_its_script_plan_is_rebuilt(tmp_path: Path) -> None:
+    """大厅与顶栏对 stale 集同一口径：未重建时两处都不算完成，重建后两处都按常规进度算完成。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _one_complete_episode(pm, project_path)
+    _create_edit_timeline(pm)
+
+    def _mark_stale(project: dict) -> None:
+        script_review.mark_ledger_stale(project_path, project, project["episodes"][0], 1)
+
+    pm.update_project("demo", _mark_stale)
+    service = WorkflowStateService(pm)
+
+    awaiting = service.get_project_summary("demo", currency="registered")
+    assert awaiting.episodes[0].script_status == "none"
+    assert awaiting.episodes_summary.completed == 0
+    awaiting_status = service.get_status("demo")
+    assert awaiting_status.content is not None
+    assert awaiting_status.content.project_complete is False
+
+    atomic_write_json(
+        project_path / "drafts" / "episode_1" / "script_plan_segments.json",
+        {"episode": 1, "segments": [{"segment_id": "E1S01"}]},
+    )
+
+    rebuilt = service.get_project_summary("demo", currency="registered")
+    assert rebuilt.episodes[0].status == "completed"
+    assert rebuilt.episodes_summary.completed == 1
+    rebuilt_status = service.get_status("demo")
+    assert rebuilt_status.content is not None
+    assert rebuilt_status.content.project_complete is True
 
 
 def test_stale_artifacts_stay_available_and_are_counted_separately(tmp_path: Path) -> None:

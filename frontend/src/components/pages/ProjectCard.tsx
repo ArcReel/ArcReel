@@ -156,7 +156,7 @@ export function Poster({ project, styleLabel, large = false }: PosterProps) {
   );
 }
 
-// -- 需要修复标记 --------------------------------------------------------------
+// -- 待修复标记 ---------------------------------------------------------------
 
 /** 迁移未跑完的项目在列表上的标记。大厅两张卡（常规卡与「正在编辑」卡）共用一份。 */
 export function NeedsRepairPill() {
@@ -336,7 +336,7 @@ export function ProjectCard(props: ProjectCardProps) {
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
   const projectDisplayName = getProjectDisplayName(project.title, t("untitled_project"));
   // 演示卡的可读名里带上「只读」：视觉上有 eyebrow 说明，只听朗读的人否则会以为点进的是自己的项目
-  // 「需要修复」与原因也进可读名：视觉上是一枚 pill 加一行原因，只听朗读的人否则拿不到
+  // 「待修复」与原因也进可读名：视觉上是一枚 pill 加一行原因，只听朗读的人否则拿不到
   // 这张卡为什么被阻断
   const repairReason = repairReasonOf(status);
   const linkLabel = [

@@ -1026,10 +1026,11 @@ class WorkflowStateService:
     ) -> EpisodeScriptStatus:
         """由 script_plan 与正式脚本的产物态派生该集的脚本进度。
 
-        账本标 stale 的集（重新规划后原文范围已失效）回到 none：它的下游要重做。
+        集规划状态为 stale 且脚本规划尚未重建的集（重新规划后原文范围已失效）回到 none：它的
+        下游要重做。判定与顶栏同用 ``_stale_episode_plan``，重建完成后按常规产物态派生。
         """
 
-        if entry.get("ledger_status") == "stale":
+        if project.get("content_mode") != "ad" and self._stale_episode_plan(project_path, project, number, entry)[0]:
             return "none"
         script_file = entry.get("script_file")
         if resolver is not None and isinstance(script_file, str) and script_file:
