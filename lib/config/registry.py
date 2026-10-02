@@ -229,6 +229,18 @@ def _grok_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
 
 
+# Grok 视频费率（美元/秒），按分辨率分档、不随音轨变化。未指定分辨率时 xAI 按 480p 出片
+# （https://docs.x.ai/developers/model-capabilities/video/generation 的 Resolution 表），结算跟随同一默认档。
+def _grok_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {(res, None): rate for res, rate in rates.items()}},
+        default_model=model_id,
+        dimensions="resolution_only",
+        currency="USD",
+        default_resolution="480p",
+    )
+
+
 # OpenAI 文本费率（美元/百万 token）。
 def _openai_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
     return PerToken(
@@ -851,22 +863,44 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_grok_image_pricing("grok-imagine-image", 0.02),
             ),
             # --- video ---
+            # 时长 1–15 秒对全系成立（视频生成页 Duration 段）。参考图生视频以
+            # https://docs.x.ai/developers/model-capabilities/video/reference-to-video.md 为准：reference_images
+            # 全系可用，last_frame 仅 1.5；输入模式、尾帧与参考图上限的真相源在
+            # GrokVideoBackend.video_capabilities_for_model。
             "grok-imagine-video": ModelInfo(
                 display_name="Grok Imagine Video",
                 media_type="video",
                 capabilities=[],
                 default=True,
                 supported_durations=list(range(1, 16)),
-                # 1080p 官方仅对 grok-imagine-video-1.5 开放，本模型只有 480p/720p 两档。
+                # 1080p 官方仅对 grok-imagine-video-1.5 系列开放，本模型只有 480p/720p 两档。
                 resolutions=["480p", "720p"],
-                # 秒费率按分辨率分档、不随音轨变化（https://docs.x.ai/developers/models/grok-imagine-video）；
-                # 未指定分辨率时 xAI 按 480p 出片，结算跟随同一默认档。
-                pricing=PerSecondMatrix(
-                    rates={"grok-imagine-video": {("480p", None): 0.050, ("720p", None): 0.070}},
-                    default_model="grok-imagine-video",
-                    dimensions="resolution_only",
-                    currency="USD",
-                    default_resolution="480p",
+                # https://docs.x.ai/developers/models/grok-imagine-video
+                pricing=_grok_video_pricing("grok-imagine-video", {"480p": 0.050, "720p": 0.070}),
+            ),
+            "grok-imagine-video-1.5": ModelInfo(
+                display_name="Grok Imagine Video 1.5",
+                media_type="video",
+                capabilities=[],
+                supported_durations=list(range(1, 16)),
+                # 视频生成页：「1080p is supported on grok-imagine-video-1.5 for text-to-video and
+                # image-to-video. Reference-to-video is capped at 720p.」参考生视频的 720p 上限在
+                # GrokVideoBackend 请求期校验。
+                resolutions=["480p", "720p", "1080p"],
+                # https://docs.x.ai/developers/models/grok-imagine-video-1.5
+                pricing=_grok_video_pricing("grok-imagine-video-1.5", {"480p": 0.080, "720p": 0.140, "1080p": 0.250}),
+            ),
+            "grok-imagine-video-1.5-lite": ModelInfo(
+                display_name="Grok Imagine Video 1.5 Lite",
+                media_type="video",
+                capabilities=[],
+                supported_durations=list(range(1, 16)),
+                # 两处官方来源有分歧：视频生成页只写 1.5 支持 1080p、未提及 lite；lite 模型页
+                # （https://docs.x.ai/developers/models/grok-imagine-video-1.5-lite）列出 480p/720p/1080p
+                # 三档价格。以模型专属页为准开放 1080p。
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_grok_video_pricing(
+                    "grok-imagine-video-1.5-lite", {"480p": 0.020, "720p": 0.030, "1080p": 0.140}
                 ),
             ),
         },

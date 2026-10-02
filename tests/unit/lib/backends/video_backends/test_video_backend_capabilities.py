@@ -223,6 +223,8 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("gemini-vertex", "veo-3.1-fast-generate-001"): ("controllable", "controllable"),
     ("gemini-vertex", "veo-3.1-generate-001"): ("controllable", "controllable"),
     ("grok", "grok-imagine-video"): ("controllable", "controllable"),
+    ("grok", "grok-imagine-video-1.5"): ("controllable", "controllable"),
+    ("grok", "grok-imagine-video-1.5-lite"): ("controllable", "controllable"),
     ("kling", "kling-v2-5-turbo"): ("always_off", "always_off"),
     # 可灵有音频能力的三档：图生/文生子路径带 sound 开关，多图主体（R2V）子路径的原生 schema
     # 不含该字段，成片必然无声。

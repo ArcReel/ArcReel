@@ -49,6 +49,7 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "video_reference_images_unreadable",
         "video_reference_images_unsupported",
         "video_reference_images_with_frames_unsupported",
+        "video_reference_resolution_unsupported",
         "video_reference_audio_duration_exceeded",
         "video_reference_audio_exceeded",
         "video_reference_audio_format_unsupported",
