@@ -24,6 +24,15 @@ updates:
       - "python:uv"
     commit-message:
       prefix: "chore(deps)"
+    # pydantic 精确锁定 pydantic-core 的版本，pydantic-core 只能随 pydantic 一起升级；
+    # 单独升级 pydantic-core 会把 pydantic 拉到与之配套的预发布版。只忽略版本更新：
+    # 不带 update-types 的 ignore 会连安全更新一起屏蔽。
+    ignore:
+      - dependency-name: "pydantic-core"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     # 各域分组只收 minor/patch，聚合成可安全自动合并的 PR；
     # major 不匹配任何分组 → 单独成 PR，留给人工审查。
     groups:
