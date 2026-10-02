@@ -281,7 +281,7 @@ class Ledger:
 
         无 backend 结果对象 union —— 用量与 SDK 直报费用由调用方显式给出。内部经 start_call +
         finish_call 复用结算口径（含 SQLite 跨 session 的 duration_ms 兜底语义），调用方不需自行
-        管理 pending 中间态。
+        管理 pending 中间态。两步写入整体不被取消打断：取消到达时先等终态行落库、事件发出，再传播取消。
         """
         if status is CallStatus.PENDING:
             raise ValueError("backfill 只写终态行：status 不能是 pending")
@@ -292,18 +292,28 @@ class Ledger:
             cost_amount=cost_amount,
             currency=currency,
         )
-        call_id = await self._start_call(
-            project_name=project_name,
-            call_type=call_type,
-            model=model,
-            prompt=prompt,
-            provider=provider,
-            user_id=user_id,
-            task_id=task_id,
-            purpose=purpose,
-            session_id=session_id,
-            inputs=inputs,
+        await self._settle(
+            self._write_backfill(
+                status=status,
+                settlement=settlement,
+                project_name=project_name,
+                call_type=call_type,
+                model=model,
+                prompt=prompt,
+                provider=provider,
+                user_id=user_id,
+                task_id=task_id,
+                purpose=purpose,
+                session_id=session_id,
+                inputs=inputs,
+            )
         )
+
+    async def _write_backfill(
+        self, *, status: CallStatus, settlement: SettlementInput, project_name: str, **kwargs: Any
+    ) -> None:
+        """补录的开账与结算是一次写入：两步之间被打断会留下 pending 行，SDK 直报费用也随之丢失。"""
+        call_id = await self._start_call(project_name=project_name, **kwargs)
         async with self._session_factory() as session:
             await UsageRepository(session).finish_call(call_id, status=status, settlement=settlement)
         self._emit_recorded(project_name, call_id, status)

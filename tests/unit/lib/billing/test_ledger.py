@@ -588,6 +588,54 @@ class TestResumeAndBackfill:
         assert row.purpose == "assistant_session"
         assert row.session_id == "s1"
 
+    async def test_cancel_between_open_and_finish_still_writes_terminal_row(
+        self, db_factory: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """取消打在补录的开账与结算之间：等终态行带着 SDK 直报费用落库、事件发出后再传播取消。"""
+        publisher = _RecordingPublisher()
+        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
+        real_start_call = UsageRepository.start_call
+        committed = asyncio.Event()
+        release = asyncio.Event()
+
+        async def _commit_then_hold(repo: UsageRepository, **kwargs: Any) -> int:
+            call_id = await real_start_call(repo, **kwargs)
+            committed.set()
+            await release.wait()
+            return call_id
+
+        monkeypatch.setattr(UsageRepository, "start_call", _commit_then_hold)
+        task = asyncio.create_task(
+            ledger.backfill(
+                project_name="demo",
+                call_type="text",
+                model="claude-sonnet-4",
+                provider="anthropic",
+                prompt="u",
+                user_id="default",
+                status=CallStatus.CANCELLED,
+                input_tokens=1_000,
+                output_tokens=200,
+                cost_amount=0.05,
+                currency="USD",
+                purpose=CallPurpose.ASSISTANT_SESSION,
+                session_id="s1",
+            )
+        )
+        await committed.wait()
+        task.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        row = await _only_row(db_factory)
+        assert row.status == "cancelled"
+        assert row.cost_amount == pytest.approx(0.05)  # 中断前已消耗的费用不丢
+        assert row.finished_at is not None
+        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
+            ("demo", ["cancelled"])
+        ]
+
 
 class _RecordingPublisher:
     """记下发上项目变更总线的 (project_name, changes)。"""
