@@ -43,6 +43,13 @@ from lib.project.asset_rename import (
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, _rename_agnostic_errors
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
+from lib.script.script_review import (
+    apply_confirmation,
+    content_fingerprint,
+    formal_script_plan_confirmed,
+    review_status,
+    script_plan_path,
+)
 
 
 def _narration_script(**overrides: Any) -> dict[str, Any]:
@@ -159,6 +166,30 @@ def _load_script(pm_with_assets: ProjectManager) -> dict[str, Any]:
     return pm_with_assets.load_script("demo", "episode_1.json")
 
 
+def _write_confirmed_plan(manager: ProjectManager, plan: dict[str, Any]) -> Path:
+    """写下第 1 集的正式脚本规划并确认它。"""
+    manager.save_script("demo", _narration_script(), "episode_1.json")
+    path = script_plan_path(_project_dir(manager), manager.load_project("demo"), 1)
+    assert path is not None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(path, plan)
+    fingerprint = content_fingerprint(path)
+    assert fingerprint is not None
+
+    def confirm(project: dict[str, Any]) -> None:
+        apply_confirmation(project, 1, fingerprint, "2026-10-01T00:00:00+00:00")
+
+    manager.update_project("demo", confirm)
+    return path
+
+
+def _plan_review(manager: ProjectManager) -> tuple[str, bool]:
+    """第 1 集的内容确认状态，以及正式脚本规划是否因已确认而只读。"""
+    project = manager.load_project("demo")
+    project_dir = _project_dir(manager)
+    return review_status(project_dir, project, 1), formal_script_plan_confirmed(project_dir, project, 1)
+
+
 class TestRewritePayloadReferences:
     def test_only_matching_type_rewritten(self) -> None:
         payload = _narration_script()
@@ -197,6 +228,21 @@ class TestRewritePayloadReferences:
         shot = payload["shots"][0]
         assert shot["characters_in_shot"] == ["新角色"]
         assert shot["video_prompt"]["dialogue"][0]["speaker"] == "新角色"
+
+    def test_new_asset_targets_follow_the_type_they_point_at(self) -> None:
+        """并入项的 target 指向同类资产、衍生项的指向本体角色；衍生改名不碰只写本体名的 target。"""
+        payload = {
+            "new_assets": [
+                {"type": "character", "name": "小A", "decision": "merge", "target": "角色A"},
+                {"type": "character", "name": "夜装", "decision": "derivative", "target": "角色A"},
+                {"type": "scene", "name": "村头", "decision": "merge", "target": "角色A"},
+                {"type": "character", "name": "新人", "decision": "register", "target": "角色A"},
+            ]
+        }
+
+        assert rewrite_payload_references(payload, "character", "角色A/夜装", "角色A/夜行衣") == 0
+        assert rewrite_payload_references(payload, "character", "角色A", "主角甲") == 2
+        assert [item["target"] for item in payload["new_assets"]] == ["主角甲", "主角甲", "角色A", "角色A"]
 
     def test_narration_video_prompt_dialogue_speaker(self) -> None:
         # speaker 不在 DataValidator 引用扫描范围内，须直接断言改写（narration 的
@@ -365,6 +411,29 @@ class TestRenameAssetCascade:
         assert report.references == 1
         saved = json.loads((draft_dir / "script_plan_reference_units.json").read_text(encoding="utf-8"))
         assert saved["units"][0]["text"] == "@[主角甲] 在河边"
+
+    def test_confirmed_episode_stays_confirmed_and_its_merge_target_follows(
+        self, pm_with_assets: ProjectManager
+    ) -> None:
+        """改名只换名字：已确认的集不退回待确认，规划里并入该资产的新增项随之改指新名。"""
+        path = _write_confirmed_plan(
+            pm_with_assets,
+            {
+                "segments": [{"segment_id": "E1S01", "characters_in_segment": ["角色A"], "scenes": [], "props": []}],
+                "new_assets": [
+                    {"type": "character", "name": "小A", "decision": "merge", "reason": "同一人", "target": "角色A"}
+                ],
+            },
+        )
+        assert _plan_review(pm_with_assets) == ("confirmed", True)
+
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert _plan_review(pm_with_assets) == ("confirmed", True)
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        assert plan["segments"][0]["characters_in_segment"] == ["主角甲"]
+        assert plan["new_assets"][0]["target"] == "主角甲"
+        assert report.references == 3  # 正式脚本一处 + 规划引用数组一处 + 并入目标一处
 
     def test_sibling_with_numeric_suffix_untouched(self, pm_with_assets: ProjectManager) -> None:
         """``旧名_2`` 是合法资产名：兄弟资产的资产图不得被序号形态的 stem 匹配卷走。"""
@@ -1013,6 +1082,19 @@ class TestDerivativeReferenceCascade:
 
         assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["角色A", "角色A/夜行衣"]
         assert unbound.read_bytes() == before
+
+    def test_derivative_rename_keeps_a_confirmed_episode_confirmed(self, pm_with_assets: ProjectManager) -> None:
+        self._register(pm_with_assets, "劲装")
+        path = _write_confirmed_plan(
+            pm_with_assets,
+            {"segments": [{"segment_id": "E1S01", "characters_in_segment": ["角色A/劲装"], "scenes": [], "props": []}]},
+        )
+
+        pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜行衣")
+
+        assert _plan_review(pm_with_assets) == ("confirmed", True)
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        assert plan["segments"][0]["characters_in_segment"] == ["角色A/夜行衣"]
 
     def test_derivative_rename_keeps_the_description(self, pm_with_assets: ProjectManager) -> None:
         self._register(pm_with_assets, "劲装")

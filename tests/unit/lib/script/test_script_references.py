@@ -50,6 +50,20 @@ class TestPayloadReferenceNames:
 
         assert payload_reference_names(payload) == {"阿岚"}
 
+    def test_new_asset_targets_of_merges_and_derivatives_count_as_references(self):
+        """并入项与衍生项的 ``target`` 写的是资产名：改名要改它，被引用要数它；其余决定的不算。"""
+        payload = {
+            "new_assets": [
+                {"type": "character", "name": "小岚", "decision": "merge", "target": "阿岚"},
+                {"type": "character", "name": "夜装", "decision": "derivative", "target": "青禾"},
+                {"type": "scene", "name": "旧楼", "decision": "merge", "target": "茶楼"},
+                {"type": "prop", "name": "玉坠", "decision": "register", "target": "玉佩"},
+                {"type": "prop", "name": "香囊", "decision": "skip", "target": ""},
+            ]
+        }
+
+        assert payload_reference_names(payload) == {"阿岚", "青禾", "茶楼"}
+
     @pytest.mark.parametrize("payload", [None, [], "text", 7], ids=["空", "列表", "字符串", "数字"])
     def test_malformed_payload_yields_nothing(self, payload: object):
         assert payload_reference_names(payload) == set()

@@ -41,9 +41,7 @@ from lib.project.asset_types import (
 from lib.references.reference_catalog import build_reference_catalog, derivative_reference
 from lib.script.draft_violation import DraftViolation
 from lib.script.reference_video.text_parser import extract_mentions, remap_mentions
-from lib.script.script_models import NewAssetType, PlanNewAsset
-
-NEW_ASSETS_FIELD = "new_assets"
+from lib.script.script_models import NEW_ASSETS_FIELD, NewAssetType, PlanNewAsset
 
 _TYPES: tuple[NewAssetType, ...] = ("character", "scene", "prop")
 

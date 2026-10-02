@@ -324,6 +324,8 @@ class NarrationEpisodeScript(BaseModel):
 
 
 NewAssetType = Literal["character", "scene", "prop"]
+#: 脚本规划顶层承载本集新增资产清单（``list[PlanNewAsset]``）的字段名。
+NEW_ASSETS_FIELD = "new_assets"
 NewAssetDecision = Literal["register", "merge", "derivative", "skip"]
 
 
