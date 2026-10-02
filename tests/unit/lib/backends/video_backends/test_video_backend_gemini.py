@@ -2,7 +2,6 @@
 
 import urllib.error
 from email.message import Message
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -40,6 +39,23 @@ def mock_rate_limiter():
     return _RecordingRateLimiter()
 
 
+def _stream_to_destination(content: bytes = b"aistudio-bytes", *, fail_after: bytes | None = None):
+    """``files.download`` 替身：带 destination 时直接写目标路径，与 SDK 一样以 "wb" 打开。
+
+    ``fail_after`` 给定时先写入这段字节再抛错，模拟中途中断留下的截断文件。
+    """
+
+    def download(*, file, destination=None):
+        assert destination is not None, "AI Studio 取件必须带 destination，不得把整段视频读进内存"
+        with open(destination, "wb") as handle:
+            if fail_after is not None:
+                handle.write(fail_after)
+                raise ConnectionError("download interrupted")
+            handle.write(content)
+
+    return download
+
+
 @pytest.fixture
 def gemini_backend(mock_rate_limiter):
     """创建 aistudio 模式的 GeminiVideoBackend（mock genai SDK）。"""
@@ -55,6 +71,8 @@ def gemini_backend(mock_rate_limiter):
         b._test_genai = genai_mock
         b._client = MagicMock()
         b._client.aio = MagicMock()
+        # 成片取件默认按 SDK 形态把内容流式写进 destination；个别用例改写 side_effect 模拟失败
+        b._client.files.download.side_effect = _stream_to_destination()
         yield b
 
 
@@ -153,10 +171,13 @@ class TestGeminiVideoBackendGenerate:
 
         # 确认调用了 API
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
-        # 成片经 files.download 取回后落盘到 output_path
-        video = mock_op.response.generated_videos[0].video
-        gemini_backend._client.files.download.assert_called_once_with(file=video)
-        video.save.assert_called_once_with(str(output))
+        # 成片经 files.download(destination=...) 流式落盘，最终产物在 output_path，不留 .part
+        assert output.read_bytes() == b"aistudio-bytes"
+        assert not output.with_name("out.mp4.part").exists()
+        gemini_backend._client.files.download.assert_called_once()
+        assert gemini_backend._client.files.download.call_args.kwargs["file"] is (
+            mock_op.response.generated_videos[0].video
+        )
 
     async def test_generate_image_to_video(self, gemini_backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -375,35 +396,43 @@ class TestPrepareImageParam:
 # ── _download_video 测试 ──────────────────────────────────
 
 
-class _AiStudioFileRef:
-    """AI Studio 文件引用替身：先 download 取到字节，save 才能把它落到给定路径。
-
-    这一支的契约是「下载后落盘到 output_path」，断言落在真实文件内容上；顺序颠倒
-    （未下载先落盘）在替身里直接 fail-loud。
-    """
-
-    def __init__(self, content: bytes = b"aistudio-bytes") -> None:
-        self._content = content
-        self._downloaded = False
-
-    def download(self) -> None:
-        self._downloaded = True
-
-    def save(self, path: str) -> None:
-        if not self._downloaded:
-            raise RuntimeError("save 前须先 files.download 取到字节")
-        Path(path).write_bytes(self._content)
-
-
 class TestDownloadVideo:
-    def test_aistudio_download(self, gemini_backend, tmp_path):
+    def test_aistudio_download_streams_to_destination(self, gemini_backend, tmp_path):
         output = tmp_path / "video.mp4"
-        ref = _AiStudioFileRef()
-        gemini_backend._client = SimpleNamespace(files=SimpleNamespace(download=lambda file: file.download()))
+        ref = MagicMock()
+        gemini_backend._client = SimpleNamespace(files=SimpleNamespace(download=_stream_to_destination()))
 
         gemini_backend._download_video(ref, output)
 
         assert output.read_bytes() == b"aistudio-bytes"
+        assert list(tmp_path.iterdir()) == [output]
+        # 不再走先读入内存、再 save() 的两步
+        ref.save.assert_not_called()
+
+    def test_aistudio_download_failure_leaves_no_partial_file(self, gemini_backend, tmp_path):
+        output = tmp_path / "video.mp4"
+        gemini_backend._client = SimpleNamespace(
+            files=SimpleNamespace(download=_stream_to_destination(fail_after=b"partial"))
+        )
+
+        with pytest.raises(ConnectionError):
+            gemini_backend._download_video(MagicMock(), output)
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_aistudio_download_failure_keeps_existing_video(self, gemini_backend, tmp_path):
+        # 重新生成时旧成片已在 output_path：下载中断不得把它破坏
+        output = tmp_path / "video.mp4"
+        output.write_bytes(b"previous-video")
+        gemini_backend._client = SimpleNamespace(
+            files=SimpleNamespace(download=_stream_to_destination(fail_after=b"partial"))
+        )
+
+        with pytest.raises(ConnectionError):
+            gemini_backend._download_video(MagicMock(), output)
+
+        assert output.read_bytes() == b"previous-video"
+        assert list(tmp_path.iterdir()) == [output]
 
     def test_vertex_download_from_bytes(self, gemini_backend, tmp_path):
         gemini_backend._backend_type = "vertex"

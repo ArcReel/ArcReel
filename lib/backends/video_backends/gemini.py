@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -394,9 +395,16 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             else:
                 raise RuntimeError("视频生成成功但无法获取视频数据")
         else:
-            # AI Studio 模式：使用 files.download
-            self._client.files.download(file=video_ref)
-            video_ref.save(str(output_path))
+            # AI Studio 模式：files.download 带 destination 时分块直写磁盘，不把整段视频读进内存。
+            # SDK 直接以 "wb" 打开目标，中途失败会留下截断文件；故先写同目录 .part、成功后原子改名，
+            # 失败时 output_path 上不会出现被当作成品的残片（已有的旧成片也保持原样）。
+            partial_path = output_path.with_name(f"{output_path.name}.part")
+            try:
+                self._client.files.download(file=video_ref, destination=partial_path)
+                os.replace(partial_path, output_path)
+            except BaseException:
+                partial_path.unlink(missing_ok=True)
+                raise
 
 
 def _format_durations(durations: list[int]) -> str:
