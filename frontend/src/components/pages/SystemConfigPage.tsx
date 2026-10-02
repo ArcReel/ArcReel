@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { SETTINGS_RETURN_TO_KEY } from "@/prototype/shell/HeaderPieces";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { ApiKeysTab } from "./ApiKeysTab";
@@ -173,7 +174,7 @@ export function SystemConfigPage() {
       >
         <div className="mx-auto flex max-w-[1320px] items-center gap-5 px-6 py-4">
           <Link
-            href="/app/projects"
+            href={sessionStorage.getItem(SETTINGS_RETURN_TO_KEY) ?? "/app/projects"}
             className="inline-flex items-center gap-1.5 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={t("common:back")}
           >

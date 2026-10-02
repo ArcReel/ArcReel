@@ -1,10 +1,11 @@
 // router.tsx — Route definitions for the studio layout
 
 import { useEffect, useRef } from "react";
-import { Route, Switch, Redirect, useParams } from "wouter";
+import { Route, Switch, Redirect, useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { StudioLayout } from "@/components/layout";
+import { SETTINGS_RETURN_TO_KEY } from "@/prototype/shell/HeaderPieces";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
@@ -59,7 +60,7 @@ function ConfigStatusLoader() {
       if (configStatus.initialized) {
         useAppStore
           .getState()
-          .initializeAssistantPanel(configStatus.isEmbeddedAgentConfigured);
+          .initializeAssistantPanel(true); // PROTOTYPE（#2970）：Agent 优先，默认展开
       } else if (attempts < 5) {
         attempts += 1;
         timer = setTimeout(() => void tick(), 800 * attempts);
@@ -192,10 +193,22 @@ function StudioWorkspace() {
 // Top-level route tree
 // ---------------------------------------------------------------------------
 
+// PROTOTYPE（#2970）：记住最后一个非设置页，全局设置的「返回」回到那里（工作台进来就回工作台）
+function SettingsReturnTracker() {
+  const [location] = useLocation();
+  useEffect(() => {
+    if (location.startsWith("/app/") && !location.startsWith("/app/settings")) {
+      sessionStorage.setItem(SETTINGS_RETURN_TO_KEY, location);
+    }
+  }, [location]);
+  return null;
+}
+
 export function AppRoutes() {
   return (
     <>
       <ConfigStatusLoader />
+      <SettingsReturnTracker />
       <OnboardingTour />
       <Switch>
         {/* Login page */}

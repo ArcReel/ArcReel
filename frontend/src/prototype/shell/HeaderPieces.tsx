@@ -43,6 +43,8 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useShellProto } from "./store";
 
+// PROTOTYPE（#2970）：进入全局设置前记住来源页，设置页的「返回」回到这里
+export const SETTINGS_RETURN_TO_KEY = "PROTOTYPE_settings_returnTo";
 const ICON_BTN =
   "relative grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-ring";
 
@@ -210,7 +212,10 @@ export function ProtoSettingsEntries({ configIncomplete }: { configIncomplete: b
           <SlidersHorizontal className="size-4" />
         </IconLink>
       )}
-      <IconLink label="全局设置" onClick={() => setLocation("~/app/settings")}>
+      <IconLink
+        label="全局设置"
+        onClick={() => setLocation("~/app/settings")}
+      >
         <Settings className="size-4" />
         {dot}
       </IconLink>

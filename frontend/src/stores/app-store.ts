@@ -254,7 +254,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   clearWorkspaceNotifications: () => set({ workspaceNotifications: [] }),
 
-  assistantPanelOpen: initialAssistantPanelOpen ?? false,
+  assistantPanelOpen: initialAssistantPanelOpen ?? true, // PROTOTYPE（#2970）：Agent 优先，默认展开
   assistantPanelInitialized: initialAssistantPanelOpen !== null,
   initializeAssistantPanel: (openByDefault) =>
     set((s) => {
