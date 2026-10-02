@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MoreHorizontal, Pencil, Trash2, X, FolderInput } from "lucide-react";
 import { cn } from "cn";
 import { API } from "@/api";
+import { AssetCard } from "@/components/assets/AssetCard";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { Button } from "@/components/ui/button";
 import {
@@ -104,6 +105,19 @@ export function ProtoLibraryGrid({ assets, activeTab }: { assets: Asset[]; activ
       {items.length > 0 && items[0].sample && (
         <p className="mb-3 text-[12px] text-muted-foreground">本地资产库为空，以下是用本地项目冒充的原型样例。</p>
       )}
+      {variant === "A" ? (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {items.map((it) => (
+            <AssetCard
+              key={it.asset.id}
+              asset={it.asset}
+              imageUrlOverride={it.imageUrl}
+              onEdit={() => setEditing(it)}
+              onDelete={() => setDeleting(it)}
+            />
+          ))}
+        </div>
+      ) : (
       <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
         {items.map((it) => (
           <LibraryCard
@@ -116,6 +130,7 @@ export function ProtoLibraryGrid({ assets, activeTab }: { assets: Asset[]; activ
           />
         ))}
       </div>
+      )}
 
       <Sheet open={detail !== null} onOpenChange={(o) => !o && setDetail(null)}>
         <SheetContent side="right" showCloseButton={false} className="gap-0 p-0 data-[side=right]:w-[min(520px,92vw)] data-[side=right]:sm:max-w-none">

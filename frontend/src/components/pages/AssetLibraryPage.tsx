@@ -295,7 +295,7 @@ export function AssetLibraryPage() {
           tabIndex={0}
           className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-        {protoVariant !== "A" ? (
+        {protoVariant !== "A" || assets.length === 0 ? (
           <ProtoLibraryGrid assets={assets} activeTab={activeTab} />
         ) : assets.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-hairline bg-bg-grad-a/30 py-24 text-center">

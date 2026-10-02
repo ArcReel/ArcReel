@@ -10,6 +10,8 @@ interface Props {
   asset: Asset;
   onEdit: (asset: Asset) => void;
   onDelete: (asset: Asset) => void;
+  /** PROTOTYPE #2973：样例资产的图不在全局资产库里，直接给 URL。 */
+  imageUrlOverride?: string | null;
 }
 
 const TYPE_ICON = { character: UserIcon, scene: Landmark, prop: Package };
@@ -18,10 +20,10 @@ const SHORT_DATE_OPTS: Intl.DateTimeFormatOptions = { month: "short", day: "nume
 
 export const AssetCard = memo(AssetCardImpl);
 
-function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
+function AssetCardImpl({ asset, onEdit, onDelete, imageUrlOverride }: Props) {
   const { t, i18n } = useTranslation("assets");
   const Icon = TYPE_ICON[asset.type];
-  const imageUrl = API.getGlobalAssetUrl(asset.image_path, asset.updated_at);
+  const imageUrl = imageUrlOverride !== undefined ? imageUrlOverride : API.getGlobalAssetUrl(asset.image_path, asset.updated_at);
   const formattedDate = asset.updated_at
     ? formatDate(asset.updated_at, i18n.language, SHORT_DATE_OPTS, "")
     : "";
