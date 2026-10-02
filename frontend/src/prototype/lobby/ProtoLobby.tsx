@@ -3,8 +3,9 @@
 // 三个形态共用结论已定的结构（顶栏 → 问候区 → 吸顶工具栏 → 项目网格；铺满档、无侧栏；
 // 外壳根 h-dvh、文档不滚动、主体是唯一滚动容器）。它们分歧的是项目卡的形态与问候区的占高：
 //   B 海报卡：海报在上、信息在下，最接近现状的精简版
-//   C 横排紧凑卡：缩略图在左、信息在右，一张卡约 104px 高，首屏放得下最多项目
-//   D 海报铺满卡：整张卡就是海报，信息叠在海报底部渐变上
+//   E 胶片海报（B 的精修）：借 A 的胶片孔与衬线海报字，标题叠在海报上
+//   F 宽银幕（B 的精修）：无卡片外框，2.39:1 画面加黑边，分集胶片格落在下黑边里
+// 第一轮的 C 横排紧凑卡、D 海报铺满卡已删除，见提交 1e53afa4a。
 // 写操作（新建、导入、重命名、导出、删除）全部是桩，只弹提示。
 // 「最近活动」时间是假数据：后端还没有 last_activity_at，这里按项目名哈希出一个时间并按它排序。
 
@@ -257,7 +258,9 @@ function greetingOf(d = new Date()) {
   return "夜深了，导演。";
 }
 
-function Greeting({ list, inline }: { list: LobbyProject[]; inline?: boolean }) {
+const DATE_FMT = new Intl.DateTimeFormat("zh", { month: "long", day: "numeric", weekday: "long" });
+
+function Greeting({ list, refined }: { list: LobbyProject[]; refined?: boolean }) {
   const inProgress = list.filter((x) => matches(x, "in_progress")).length;
   let done = 0;
   let making = 0;
@@ -268,14 +271,19 @@ function Greeting({ list, inline }: { list: LobbyProject[]; inline?: boolean }) 
   const status = list.length === 0 ? "从第一部作品开始吧。" : inProgress > 0 ? `${inProgress} 部作品正在制作中。` : "所有作品都已完成。";
   const summary = list.length === 0 ? null : `已完成 ${done} 集，${making} 集还在制作`;
   return (
-    <div className={cn("px-6 pt-7 pb-5 xl:px-8", inline && "flex flex-wrap items-baseline gap-x-5 gap-y-1 pt-6 pb-4")}>
+    <div className="px-6 pt-7 pb-5 xl:px-8">
+      {/* 精修版：A 的日期小标题改为本地化常规字 */}
+      {refined && <p className="m-0 mb-2 text-[12px] tracking-[0.04em] text-primary/80">{DATE_FMT.format(new Date())}</p>}
       <h1 className="font-editorial m-0 text-[32px] leading-[1.2] font-normal tracking-[-0.01em]">
         <Typewriter
           once="proto-lobby-hero"
-          segments={[{ text: greetingOf() }, { text: status, style: { color: "var(--color-primary)" } }]}
+          segments={[
+            { text: greetingOf() },
+            { text: status, style: { color: "var(--color-primary)", ...(refined ? { fontStyle: "italic" } : {}) } },
+          ]}
         />
       </h1>
-      {summary && <p className={cn("m-0 text-[13px] text-muted-foreground", !inline && "mt-1.5")}>{summary}</p>}
+      {summary && <p className="m-0 mt-1.5 text-[13px] text-muted-foreground">{summary}</p>}
     </div>
   );
 }
@@ -459,48 +467,108 @@ function PosterCard({ lp, actions }: { lp: LobbyProject; actions: CardActions })
   );
 }
 
-/** C 横排紧凑卡：缩略图在左，信息在右。 */
-function RowCard({ lp, actions }: { lp: LobbyProject; actions: CardActions }) {
+function Sprockets() {
+  // 借自 A 的海报：左右两条胶片孔
+  const style = { background: "repeating-linear-gradient(0deg, rgb(0 0 0 / 0.6) 0 6px, transparent 6px 12px)" };
+  return (
+    <>
+      <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-2.5 opacity-60" style={style} />
+      <span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-2.5 opacity-60" style={style} />
+    </>
+  );
+}
+
+/** 分集「胶片格」：每集一格，完成为绿、制作中为紫、有脚本为灰。 */
+function FrameStrip({ lp, className }: { lp: LobbyProject; className?: string }) {
+  const s = lp.status?.episodes_summary;
+  if (!s || s.total === 0) return <span className={cn("h-1.5 rounded-[1px] bg-muted", className)} />;
+  return (
+    <div aria-hidden className={cn("flex gap-[2px]", className)}>
+      {Array.from({ length: s.total }).map((_, i) => (
+        <span
+          key={i}
+          className={cn(
+            "h-1.5 flex-1 rounded-[1px]",
+            i < s.completed ? "bg-good" : i < s.completed + s.in_production ? "bg-primary" : i < s.completed + s.in_production + s.scripted ? "bg-text-3/70" : "bg-white/10",
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+function episodeText(lp: LobbyProject): string {
+  const s = lp.status?.episodes_summary;
+  if (!s || s.total === 0) return "还没有集";
+  return lp.progress === "completed" ? `${s.total} 集` : `${s.completed} / ${s.total} 集`;
+}
+
+const POSTER_IMG_FX =
+  "transition-[filter] duration-200 ease-out brightness-[0.86] saturate-[0.95] [@media(hover:hover)]:group-hover:brightness-100 [@media(hover:hover)]:group-hover:saturate-100";
+
+/** E 胶片海报：借 A 的胶片孔与衬线海报字。标题只出现在海报上，卡身只留状态、时间与分集胶片格。 */
+function FilmCard({ lp, actions }: { lp: LobbyProject; actions: CardActions }) {
   return (
     <article className={CARD_SHELL}>
-      <Link href={`/app/projects/${lp.p.name}`} className="flex gap-3 p-2.5 text-foreground no-underline outline-none" aria-label={lp.title}>
-        <PosterArt lp={lp} className="aspect-[4/3] w-[128px] shrink-0 rounded-lg">
+      <Link href={`/app/projects/${lp.p.name}`} className="block text-foreground no-underline outline-none" aria-label={lp.title}>
+        <div className="relative aspect-[16/9] overflow-hidden bg-black">
+          <PosterArt lp={lp} className={cn("absolute inset-0", POSTER_IMG_FX)} />
+          <Sprockets />
+          <div aria-hidden className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
           <StyleBadge lp={lp} />
-        </PosterArt>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5 pr-8">
-          <h3 className="truncate text-[15px] font-medium">{lp.title}</h3>
-          <ProgressLine lp={lp} />
-          <RepairReason lp={lp} className="line-clamp-1" />
-          <div className="mt-auto space-y-1.5">
-            <EpisodeStrip lp={lp} />
-            <p className="truncate text-[12px] text-muted-foreground">{metaLine(lp)}</p>
+          {lp.status?.needs_repair && (
+            <span className="absolute top-2.5 left-5 rounded bg-warm px-1.5 py-0.5 text-[11px] text-black">待修复</span>
+          )}
+          <h3 className="font-editorial absolute inset-x-5 bottom-3 line-clamp-2 text-[26px] leading-[1.08] font-normal tracking-[-0.01em] text-white [text-shadow:0_2px_20px_rgb(0_0_0/0.5)]">
+            {lp.title}
+          </h3>
+        </div>
+        <div className="space-y-2.5 px-4 pt-3 pb-3.5">
+          <div className="flex items-center justify-between gap-3 text-[12px]">
+            <span className="inline-flex items-center gap-1.5 text-text-2">
+              <span aria-hidden className={cn("size-1.5 rounded-full", PROGRESS_DOT[lp.progress])} />
+              {PROGRESS_TEXT[lp.progress]}
+            </span>
+            <span className="text-muted-foreground">{relTime(lp.lastActivity)}更新</span>
+          </div>
+          <RepairReason lp={lp} />
+          <div className="flex items-center gap-3">
+            <FrameStrip lp={lp} className="min-w-0 flex-1" />
+            <span className="shrink-0 text-[12px] tabular-nums text-text-2">{episodeText(lp)}</span>
           </div>
         </div>
       </Link>
-      <CardMenu lp={lp} actions={actions} className="absolute top-2 right-2 bg-transparent text-text-2 hover:bg-accent" />
+      <CardMenu lp={lp} actions={actions} className="absolute top-2 right-4" />
     </article>
   );
 }
 
-/** D 海报铺满卡：整张卡是海报，信息叠在底部渐变上。 */
-function FullPosterCard({ lp, actions }: { lp: LobbyProject; actions: CardActions }) {
+/** F 宽银幕：没有卡片外框。海报是 16:9 黑底里的 2.39:1 画面，分集胶片格落在下黑边里；标题用衬线放在画面下方，像片目。 */
+function CinemaCard({ lp, actions }: { lp: LobbyProject; actions: CardActions }) {
   return (
-    <article className={cn(CARD_SHELL, "bg-black")}>
-      <Link href={`/app/projects/${lp.p.name}`} className="block text-white no-underline outline-none" aria-label={lp.title}>
-        <PosterArt lp={lp} className="aspect-[4/3]">
+    <article className="group relative">
+      <Link
+        href={`/app/projects/${lp.p.name}`}
+        className="block rounded-xl text-foreground no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+        aria-label={lp.title}
+      >
+        <div className="relative flex aspect-[16/9] items-center overflow-hidden rounded-xl bg-black ring-1 ring-white/8 transition-[box-shadow] duration-200 [@media(hover:hover)]:group-hover:ring-primary/50">
+          <PosterArt lp={lp} className={cn("aspect-[2.39/1] w-full", POSTER_IMG_FX)} titleOnArt />
           <StyleBadge lp={lp} />
-          {lp.status?.needs_repair && (
-            <span className="absolute top-2 right-11 rounded-md bg-warm px-1.5 py-0.5 text-[11px] text-black">待修复</span>
-          )}
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-3.5 pt-10 pb-3">
-            <h3 className="truncate text-[16px] font-medium">{lp.title}</h3>
-            <p className="mt-0.5 truncate text-[12px] text-white/70">
-              {PROGRESS_TEXT[lp.progress]} · {metaLine(lp)}
-            </p>
-            <RepairReason lp={lp} className="mt-1 text-white/70" />
+          {lp.status?.needs_repair && <span className="absolute top-1 left-3 text-[11px] text-warm">待修复</span>}
+          <div className="absolute inset-x-3 bottom-[5px] flex items-center gap-2.5">
+            <FrameStrip lp={lp} className="min-w-0 flex-1 [&>span]:h-1" />
+            <span className="shrink-0 text-[11px] tabular-nums text-white/60">{episodeText(lp)}</span>
           </div>
-          <EpisodeStrip lp={lp} className="absolute inset-x-0 bottom-0 gap-px [&>span]:rounded-none" />
-        </PosterArt>
+        </div>
+        <div className="px-0.5 pt-3">
+          <h3 className="font-editorial truncate text-[20px] leading-tight font-normal">{lp.title}</h3>
+          <p className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <span aria-hidden className={cn("size-1.5 rounded-full", PROGRESS_DOT[lp.progress])} />
+            {PROGRESS_TEXT[lp.progress]} · {relTime(lp.lastActivity)}更新
+          </p>
+          <RepairReason lp={lp} className="mt-1" />
+        </div>
       </Link>
       <CardMenu lp={lp} actions={actions} className="absolute top-2 right-2" />
     </article>
@@ -509,9 +577,9 @@ function FullPosterCard({ lp, actions }: { lp: LobbyProject; actions: CardAction
 
 const GRID: Record<Exclude<LobbyVariant, "A">, string> = {
   // 列数由网格实际宽度决定（铺满档），宽窗口自动加列
-  B: "grid-cols-[repeat(auto-fill,minmax(280px,1fr))]",
-  C: "grid-cols-[repeat(auto-fill,minmax(380px,1fr))]",
-  D: "grid-cols-[repeat(auto-fill,minmax(300px,1fr))]",
+  B: "gap-4 grid-cols-[repeat(auto-fill,minmax(280px,1fr))]",
+  E: "gap-4 grid-cols-[repeat(auto-fill,minmax(280px,1fr))]",
+  F: "gap-x-5 gap-y-7 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]",
 };
 
 // ---------------------------------------------------------------------------
@@ -543,14 +611,14 @@ export function ProtoLobby({ variant }: { variant: Exclude<LobbyVariant, "A"> })
   const openWizard = () => (params.wizard === "A" ? setShowCreateModal(true) : setProtoParam("open", "1"));
   const onImport = () => stub("导入 ZIP");
   const actions: CardActions = { onRename: setRenaming, onDelete: setDeleting };
-  const Card = variant === "B" ? PosterCard : variant === "C" ? RowCard : FullPosterCard;
+  const Card = variant === "B" ? PosterCard : variant === "E" ? FilmCard : CinemaCard;
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden bg-[linear-gradient(180deg,var(--color-bg-grad-a),var(--color-bg-grad-b))] text-foreground">
       <TopBar query={query} onQuery={setQuery} onCreate={openWizard} onImport={onImport} onExternal={() => setExternal(true)} />
 
       <main data-scroll-owner className="relative min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <Greeting list={list} inline={variant === "C"} />
+        <Greeting list={list} refined={variant !== "B"} />
 
         {loading && !params.empty ? (
           <p className="px-8 py-16 text-center text-muted-foreground">正在加载项目…</p>
@@ -592,7 +660,7 @@ export function ProtoLobby({ variant }: { variant: Exclude<LobbyVariant, "A"> })
                 </Button>
               </div>
             ) : (
-              <div className={cn("grid gap-4 px-6 pt-5 pb-24 xl:px-8", GRID[variant])}>
+              <div className={cn("grid px-6 pt-5 pb-24 xl:px-8", GRID[variant])}>
                 {shown.map((lp) => (
                   <Card key={lp.p.name} lp={lp} actions={actions} />
                 ))}

@@ -1,7 +1,8 @@
 // PROTOTYPE — 项目大厅与新建项目向导（#2979）。不合并，只在 prototype/2979-lobby 分支上。
 // 「大厅三个形态加现状，向导两个形态加现状，同一路由 /app/projects，参数全在地址栏。」
-//   ?variant=A|B|C|D      大厅：A 现状；B 海报卡；C 横排紧凑卡；D 海报铺满卡
-//   &tag=badge|none        风格标签：海报角标 / 删除
+//   ?variant=A|B|E|F      大厅：A 现状；B 海报卡；E、F 是 B 的两种精修（第一轮选定 B 后加入；
+//                          第一轮的 C 横排紧凑卡、D 海报铺满卡见提交 1e53afa4a）
+//   &tag=badge|none        风格标签：海报角标 / 删除（第一轮定为删除，默认 none）
 //   &empty=1               强制空状态（不改数据）
 //   &wizard=A|B|C          向导：A 现状；B 顶部步骤条；C 左侧步骤栏
 //   &wh=fixed|auto         向导高度：固定 / 随内容
@@ -12,8 +13,8 @@ import { useSearch } from "wouter";
 export const LOBBY_VARIANTS = {
   A: "现状",
   B: "海报卡",
-  C: "横排紧凑卡",
-  D: "海报铺满卡",
+  E: "B · 胶片海报",
+  F: "B · 宽银幕",
 } as const;
 
 export const WIZARD_VARIANTS = {
@@ -31,7 +32,7 @@ export function useProtoParams() {
   const w = params.get("wizard");
   return {
     variant: (v && v in LOBBY_VARIANTS ? v : "B") as LobbyVariant,
-    tag: params.get("tag") === "none" ? ("none" as const) : ("badge" as const),
+    tag: params.get("tag") === "badge" ? ("badge" as const) : ("none" as const),
     empty: params.get("empty") === "1",
     wizard: (w && w in WIZARD_VARIANTS ? w : "B") as WizardVariant,
     wizardHeight: params.get("wh") === "auto" ? ("auto" as const) : ("fixed" as const),
