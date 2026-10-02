@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { ApiRequestError } from "@/api/errors";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -123,6 +124,36 @@ describe("OverviewCanvas", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   }, 10_000);
+
+  it("shows the way out when regenerating fails because the model output was truncated", async () => {
+    vi.spyOn(API, "generateOverview").mockRejectedValue(
+      new ApiRequestError(
+        "truncated",
+        { code: "text_output_truncated", params: { provider_id: "gemini-aistudio", model: "gemini-3-pro" } },
+        422,
+      ),
+    );
+
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
+    fireEvent.click(await screen.findByRole("button", { name: "替换并重新生成" }));
+
+    expect(await screen.findByText(/换一个文本模型/)).toBeInTheDocument();
+  });
+
+  it("shows no truncation hint when regenerating fails for another reason", async () => {
+    vi.spyOn(API, "generateOverview").mockRejectedValue(new ApiRequestError("boom", undefined, 500));
+
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
+    fireEvent.click(await screen.findByRole("button", { name: "替换并重新生成" }));
+
+    await waitFor(() => expect(API.generateOverview).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByText(/换一个文本模型/)).not.toBeInTheDocument();
+  });
 
   it("leaves the overview untouched when the regenerate confirm is cancelled", async () => {
     vi.spyOn(API, "generateOverview").mockResolvedValue(undefined as never);

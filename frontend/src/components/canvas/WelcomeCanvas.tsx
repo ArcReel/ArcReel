@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   Plus,
 } from "lucide-react";
+import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
+import { outputTruncationOfError, type OutputTruncation } from "@/utils/output-truncation";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { SOURCE_FILE_FORMATS_LABEL } from "@/utils/source-files";
 import { SourceUploadDialog, type SourceUploadResult } from "./episodes/SourceUploadDialog";
@@ -53,6 +55,7 @@ export function WelcomeCanvas({
   const [isDragging, setIsDragging] = useState(false);
   const [analysis, setAnalysis] = useState<"analyzing" | "done" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [truncation, setTruncation] = useState<OutputTruncation | null>(null);
   const displayProjectTitle = getProjectDisplayName(projectTitle, t("untitled_project"));
   const sourceFiles = wholeSourceFiles;
   const phase: UploadPhase = analysis ?? (sourceFiles.length > 0 ? "has_sources" : "idle");
@@ -60,12 +63,14 @@ export function WelcomeCanvas({
   const startAnalysis = useCallback(async () => {
     if (!onAnalyze) return;
     setError(null);
+    setTruncation(null);
     setAnalysis("analyzing");
     try {
       await onAnalyze();
       setAnalysis("done");
     } catch (err) {
       setError(t("analysis_failed", { message: errMsg(err) }));
+      setTruncation(outputTruncationOfError(err));
       setAnalysis(null);
     }
   }, [onAnalyze, t]);
@@ -452,8 +457,8 @@ export function WelcomeCanvas({
 
       {/* Error */}
       {error && (
-        <p
-          className="rounded-xl px-4 py-2.5 text-center text-[12px]"
+        <div
+          className="space-y-1.5 rounded-xl px-4 py-2.5 text-center text-[12px]"
           style={{
             border: "1px solid oklch(0.45 0.18 25 / 0.4)",
             background: "oklch(0.30 0.10 25 / 0.18)",
@@ -461,8 +466,9 @@ export function WelcomeCanvas({
           }}
           role="alert"
         >
-          {error}
-        </p>
+          <p className="m-0">{error}</p>
+          {truncation ? <OutputTruncationHint truncation={truncation} /> : null}
+        </div>
       )}
 
       {uploadFiles !== null ? (

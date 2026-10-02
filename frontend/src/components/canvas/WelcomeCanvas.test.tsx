@@ -3,6 +3,7 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { ApiRequestError } from "@/api/errors";
 import { WelcomeCanvas } from "@/components/canvas/WelcomeCanvas";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -65,6 +66,21 @@ describe("WelcomeCanvas", () => {
     fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
 
     await waitFor(() => expect(onAnalyze).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows the way out when the analysis fails because the model output was truncated", async () => {
+    const onAnalyze = vi.fn().mockRejectedValue(
+      new ApiRequestError(
+        "truncated",
+        { code: "text_output_truncated", params: { provider_id: "custom-3", model: "my-llm", custom_model: true } },
+        422,
+      ),
+    );
+    renderWelcome({ onAnalyze, wholeSourceFiles: ["source/first.txt"] });
+
+    fireEvent.click(screen.getByRole("button", { name: /开始 AI 分析/ }));
+
+    expect(await screen.findByRole("button", { name: "去登记最大输出长度" })).toBeInTheDocument();
   });
 
   it("only adds files when the project already has a whole source", async () => {
