@@ -4,6 +4,9 @@ import { useTranslation } from "react-i18next";
 import { ChevronLeft, Landmark, Package as PackageIcon, Plus, Search, User } from "lucide-react";
 import { AssetGrid } from "@/components/assets/AssetGrid";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
+// PROTOTYPE #2973
+import { ProtoLibraryGrid } from "@/prototype/asset-gallery/ProtoLibrary";
+import { useProtoParams } from "@/prototype/asset-gallery/proto-params";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useAssetsStore } from "@/stores/assets-store";
 import { API } from "@/api";
@@ -51,6 +54,7 @@ const HEADER_GLOW_STYLE = ambientGlowStyle({ at: "30% 0%", intensity: 0.08 });
 export function AssetLibraryPage() {
   const { t } = useTranslation("assets");
   const [, navigate] = useLocation();
+  const { variant: protoVariant } = useProtoParams();
   const search = useSearch();
 
   const activeTab = useMemo((): AssetType => {
@@ -291,7 +295,9 @@ export function AssetLibraryPage() {
           tabIndex={0}
           className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-        {assets.length === 0 ? (
+        {protoVariant !== "A" ? (
+          <ProtoLibraryGrid assets={assets} activeTab={activeTab} />
+        ) : assets.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-hairline bg-bg-grad-a/30 py-24 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-dim text-primary-2">
               <ActiveIcon className="h-5 w-5" />

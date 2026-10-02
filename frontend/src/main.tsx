@@ -4,6 +4,7 @@
 
 import { createRoot } from "react-dom/client";
 import { AppRoutes } from "./router";
+import { ProtoBar } from "./prototype/asset-gallery/ProtoBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/stores/auth-store";
 import { i18nReady } from "@/i18n";
@@ -70,6 +71,7 @@ if (root) {
   const render = () => createRoot(root).render(
       <TooltipProvider>
         <AppRoutes />
+        <ProtoBar />
       </TooltipProvider>,
     );
   i18nReady.then(render, (err) => {

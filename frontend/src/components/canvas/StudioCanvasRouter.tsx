@@ -27,6 +27,9 @@ import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ProductsPage } from "./lorebook/ProductsPage";
+// PROTOTYPE #2973
+import { ProtoGallery } from "@/prototype/asset-gallery/ProtoGallery";
+import { useProtoParams } from "@/prototype/asset-gallery/proto-params";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
@@ -609,6 +612,8 @@ export function StudioCanvasRouter() {
   // `currentProjectName` 在详情到达前就已落地（见 router.tsx 首屏加载的注释），
   // 仅查它会在深链（/characters 等）直接打开或详情较慢时把空集合渲染成可交互的
   // 「空项目」页面；`projectDetailLoading` 才是详情是否已到达的信号。
+  const { variant: protoVariant } = useProtoParams();
+
   if (!currentProjectName || projectDetailLoading) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
@@ -645,64 +650,80 @@ export function StudioCanvasRouter() {
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_CHARACTERS}`}>
-        <CharactersPage
-          key={currentProjectName}
-          projectName={currentProjectName}
-          characters={currentProjectData?.characters ?? {}}
-          readOnly={demoMode}
-          onSaveCharacter={handleSaveCharacter}
-          onGenerateCharacter={handleGenerateCharacterVoid}
-          onAddCharacter={handleAddCharacterSubmit}
-          onRestoreCharacterVersion={handleRestoreAsset}
-          onRefreshProject={refreshProject}
-          generatingCharacterNames={generatingCharacterNames}
-          voiceBinding={currentProjectData?.character_voice_binding}
-        />
+        {protoVariant !== "A" ? (
+          <ProtoGallery key={currentProjectName} projectName={currentProjectName} type="character" data={currentProjectData?.characters ?? {}} generatingNames={generatingCharacterNames} />
+        ) : (
+          <CharactersPage
+            key={currentProjectName}
+            projectName={currentProjectName}
+            characters={currentProjectData?.characters ?? {}}
+            readOnly={demoMode}
+            onSaveCharacter={handleSaveCharacter}
+            onGenerateCharacter={handleGenerateCharacterVoid}
+            onAddCharacter={handleAddCharacterSubmit}
+            onRestoreCharacterVersion={handleRestoreAsset}
+            onRefreshProject={refreshProject}
+            generatingCharacterNames={generatingCharacterNames}
+            voiceBinding={currentProjectData?.character_voice_binding}
+          />
+        )}
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_SCENES}`}>
-        <ScenesPage
-          key={currentProjectName}
-          projectName={currentProjectName}
-          scenes={currentProjectData?.scenes ?? {}}
-          readOnly={demoMode}
-          onUpdateScene={handleUpdateSceneVoid}
-          onGenerateScene={handleGenerateSceneVoid}
-          onAddScene={handleAddSceneSubmit}
-          onRestoreSceneVersion={handleRestoreAsset}
-          onRefreshProject={refreshProject}
-          generatingSceneNames={generatingSceneNames}
-        />
+        {protoVariant !== "A" ? (
+          <ProtoGallery key={currentProjectName} projectName={currentProjectName} type="scene" data={currentProjectData?.scenes ?? {}} generatingNames={generatingSceneNames} />
+        ) : (
+          <ScenesPage
+            key={currentProjectName}
+            projectName={currentProjectName}
+            scenes={currentProjectData?.scenes ?? {}}
+            readOnly={demoMode}
+            onUpdateScene={handleUpdateSceneVoid}
+            onGenerateScene={handleGenerateSceneVoid}
+            onAddScene={handleAddSceneSubmit}
+            onRestoreSceneVersion={handleRestoreAsset}
+            onRefreshProject={refreshProject}
+            generatingSceneNames={generatingSceneNames}
+          />
+        )}
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_PROPS}`}>
-        <PropsPage
-          key={currentProjectName}
-          projectName={currentProjectName}
-          props={currentProjectData?.props ?? {}}
-          readOnly={demoMode}
-          onUpdateProp={handleUpdatePropVoid}
-          onGenerateProp={handleGeneratePropVoid}
-          onAddProp={handleAddPropSubmit}
-          onRestorePropVersion={handleRestoreAsset}
-          onRefreshProject={refreshProject}
-          generatingPropNames={generatingPropNames}
-        />
+        {protoVariant !== "A" ? (
+          <ProtoGallery key={currentProjectName} projectName={currentProjectName} type="prop" data={currentProjectData?.props ?? {}} generatingNames={generatingPropNames} />
+        ) : (
+          <PropsPage
+            key={currentProjectName}
+            projectName={currentProjectName}
+            props={currentProjectData?.props ?? {}}
+            readOnly={demoMode}
+            onUpdateProp={handleUpdatePropVoid}
+            onGenerateProp={handleGeneratePropVoid}
+            onAddProp={handleAddPropSubmit}
+            onRestorePropVersion={handleRestoreAsset}
+            onRefreshProject={refreshProject}
+            generatingPropNames={generatingPropNames}
+          />
+        )}
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_PRODUCTS}`}>
-        <ProductsPage
-          key={currentProjectName}
-          projectName={currentProjectName}
-          products={currentProjectData?.products ?? {}}
-          readOnly={demoMode}
-          onUpdateProduct={handleUpdateProductVoid}
-          onGenerateProduct={handleGenerateProductVoid}
-          onAddProduct={handleAddProductSubmit}
-          onRestoreProductVersion={handleRestoreAsset}
-          onRefreshProject={refreshProject}
-          generatingProductNames={generatingProductNames}
-        />
+        {protoVariant !== "A" ? (
+          <ProtoGallery key={currentProjectName} projectName={currentProjectName} type="product" data={currentProjectData?.products ?? {}} generatingNames={generatingProductNames} />
+        ) : (
+          <ProductsPage
+            key={currentProjectName}
+            projectName={currentProjectName}
+            products={currentProjectData?.products ?? {}}
+            readOnly={demoMode}
+            onUpdateProduct={handleUpdateProductVoid}
+            onGenerateProduct={handleGenerateProductVoid}
+            onAddProduct={handleAddProductSubmit}
+            onRestoreProductVersion={handleRestoreAsset}
+            onRefreshProject={refreshProject}
+            generatingProductNames={generatingProductNames}
+          />
+        )}
       </Route>
 
       <Route path={EPISODE_ROUTE_PATH}>
