@@ -11,6 +11,14 @@ export const AXES = {
       adaptive: "标准档 264 两行；紧凑档收为 56 图标栏",
     },
   },
+  railOrder: {
+    label: "二级栏排序",
+    values: {
+      type: "预置在上，自定义在下（现状）",
+      customFirst: "自定义在上，预置在下",
+      status: "已配置在上（混排），未配置的预置折叠在底部",
+    },
+  },
   models: {
     label: "模型列表",
     values: {
@@ -49,18 +57,22 @@ export type AxisValue<K extends AxisKey> = keyof (typeof AXES)[K]["values"];
 export type AxisState = { [K in AxisKey]: AxisValue<K> };
 export const AXIS_KEYS = Object.keys(AXES) as AxisKey[];
 
-export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }> = {
+export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisState }> = {
   A: {
     name: "保守：卡片 + 跳转 + Tabs",
-    axes: { rail: "fixed", models: "cards", endpoint: "jump", cred: "dialog", market: "tabs" },
+    axes: { rail: "fixed", railOrder: "type", models: "cards", endpoint: "jump", cred: "dialog", market: "tabs" },
   },
   B: {
     name: "表格：行内展开 + Sheet + 侧边栏",
-    axes: { rail: "adaptive", models: "table", endpoint: "sheet", cred: "dialog", market: "aside" },
+    axes: { rail: "adaptive", railOrder: "type", models: "table", endpoint: "sheet", cred: "dialog", market: "aside" },
   },
   C: {
     name: "检查器：三栏 + 速览 + 筛选栏",
-    axes: { rail: "fixed", models: "inspector", endpoint: "peek", cred: "draft", market: "rail" },
+    axes: { rail: "fixed", railOrder: "type", models: "inspector", endpoint: "peek", cred: "draft", market: "rail" },
+  },
+  D: {
+    name: "维护者选定（二级栏按状态分组）",
+    axes: { rail: "adaptive", railOrder: "status", models: "table", endpoint: "jump", cred: "dialog", market: "tabs" },
   },
 };
 

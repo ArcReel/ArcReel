@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useSearch } from "wouter";
-import { Check, Eye, EyeOff, MoreHorizontal, Pencil, Plus, Trash2, Zap } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Eye, EyeOff, MoreHorizontal, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { API } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ import { MEDIA_LABEL, commitCustomProvider, useCatalog, useOnce } from "./data";
 import { EndpointSheetHost, useGoSection } from "./EndpointRef";
 import { ModelList } from "./ModelList";
 import { SAMPLE_CREDENTIALS, type ProtoCustomProvider } from "./samples";
-import { useAxis } from "./store";
+import { useAxis, useProto } from "./store";
 
 function useStandardTier() {
   return useSyncExternalStore(
@@ -154,47 +154,114 @@ function ProviderRail({
     </span>
   );
 
+  const order = useAxis("railOrder");
+  const { samples } = useProto();
+  const configured = (p: ProviderInfo) => p.status === "ready" || (samples && (SAMPLE_CREDENTIALS[p.id]?.length ?? 0) > 0);
+  const [showIdle, setShowIdle] = useState(false);
+  const selectedIdle = sel?.kind === "preset" && !configured(presets.find((p) => p.id === sel.id) ?? presets[0]);
+
+  const presetItem = (p: ProviderInfo, compact = false) => {
+    const on = configured(p);
+    const n = SAMPLE_CREDENTIALS[p.id]?.length ?? 0;
+    const meta = on ? (n > 0 ? `已配置 ${n} 个密钥` : "已连接") : "未配置";
+    const node = item(
+      p.id,
+      sel?.kind === "preset" && sel.id === p.id,
+      <ProviderIcon providerId={p.id} className="size-4" />,
+      p.display_name,
+      compact ? "" : meta,
+      on ? "good" : "muted",
+      () => onSelect({ kind: "preset", id: p.id }),
+    );
+    return node;
+  };
+  const customItem = (p: ProtoCustomProvider) =>
+    item(
+      String(p.id),
+      sel?.kind === "custom" && sel.id === p.id,
+      letter(p.display_name),
+      p.display_name,
+      `${p.models.length} 个模型，${p.models.filter((m) => m.is_enabled).length} 个启用`,
+      p.base_url ? "good" : "muted",
+      () => onSelect({ kind: "custom", id: p.id }),
+      p.sample,
+    );
+  const addItem = item("new", sel?.kind === "new", <Plus className="size-4" />, "添加自定义供应商", "", "muted", () => onSelect({ kind: "new" }));
+  const heading = (text: ReactNode) => !icon && <div className="mb-1 flex items-center px-2.5 text-[12px] text-text-3">{text}</div>;
+  const divider = <div className={cn("my-3 border-t border-border", icon && "mx-1")} />;
+
+  let body: ReactNode;
+  if (order === "status") {
+    const active = presets.filter(configured);
+    const idle = presets.filter((p) => !configured(p));
+    const idleOpen = showIdle || selectedIdle || icon || active.length + custom.length === 0;
+    body = (
+      <>
+        {!icon && (
+          <Button variant="outline" className="mb-4 w-full justify-start" onClick={() => onSelect({ kind: "new" })}>
+            <Plus />
+            添加自定义供应商
+          </Button>
+        )}
+        {heading("已配置")}
+        {active.map((p) => presetItem(p))}
+        {custom.map(customItem)}
+        {active.length + custom.length === 0 && !icon && <p className="px-2.5 py-1 text-[12px] text-text-3">还没有配置任何供应商。</p>}
+        {icon && addItem}
+        {divider}
+        {!icon && (
+          <button
+            type="button"
+            aria-expanded={idleOpen}
+            onClick={() => setShowIdle(!showIdle)}
+            disabled={selectedIdle}
+            className="mb-1 flex h-7 w-full items-center gap-1 rounded-md px-2.5 text-left text-[12px] text-text-3 hover:text-text disabled:hover:text-text-3"
+          >
+            {idleOpen ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronRight className="size-3.5" aria-hidden />}
+            未配置的预置供应商
+            <span className="ml-auto tabular-nums">{idle.length}</span>
+          </button>
+        )}
+        {idleOpen && idle.map((p) => presetItem(p, true))}
+      </>
+    );
+  } else {
+    const presetGroup = (
+      <>
+        {heading("预置供应商")}
+        {presets.map((p) => presetItem(p))}
+      </>
+    );
+    const customGroup = (
+      <>
+        {heading("自定义供应商")}
+        {custom.map(customItem)}
+        {addItem}
+      </>
+    );
+    body =
+      order === "customFirst" ? (
+        <>
+          {customGroup}
+          {divider}
+          {presetGroup}
+        </>
+      ) : (
+        <>
+          {presetGroup}
+          {divider}
+          {customGroup}
+        </>
+      );
+  }
+
   return (
     <nav
       aria-label="供应商列表"
       data-zone="rail"
       className={cn("h-full shrink-0 overflow-y-auto border-r border-border bg-sidebar/50", icon ? "w-14 px-2 py-3" : mode === "adaptive" ? "w-[264px] px-3 py-4" : "w-60 px-3 py-4")}
     >
-      {!icon && <div className="mb-1 px-2.5 text-[12px] text-text-3">预置供应商</div>}
-      {presets.map((p) =>
-        item(
-          p.id,
-          sel?.kind === "preset" && sel.id === p.id,
-          <ProviderIcon providerId={p.id} className="size-4" />,
-          p.display_name,
-          p.status === "ready" ? `已连接，${p.media_types.map((m) => MEDIA_LABEL[m]).join("、")}` : "未配置",
-          p.status === "ready" ? "good" : "muted",
-          () => onSelect({ kind: "preset", id: p.id }),
-        ),
-      )}
-      <div className={cn("my-3 border-t border-border", icon && "mx-1")} />
-      {!icon && <div className="mb-1 px-2.5 text-[12px] text-text-3">自定义供应商</div>}
-      {custom.map((p) =>
-        item(
-          String(p.id),
-          sel?.kind === "custom" && sel.id === p.id,
-          letter(p.display_name),
-          p.display_name,
-          `${p.models.length} 个模型，${p.models.filter((m) => m.is_enabled).length} 个启用`,
-          p.base_url ? "good" : "muted",
-          () => onSelect({ kind: "custom", id: p.id }),
-          p.sample,
-        ),
-      )}
-      {item(
-        "new",
-        sel?.kind === "new",
-        <Plus className="size-4" />,
-        "添加自定义供应商",
-        "",
-        "muted",
-        () => onSelect({ kind: "new" }),
-      )}
+      {body}
     </nav>
   );
 }
@@ -257,7 +324,7 @@ function PresetDetail({ provider }: { provider: ProviderInfo | undefined }) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="text-[18px] font-medium">{provider.display_name}</h2>
-              <Badge variant={provider.status === "ready" ? "secondary" : "outline"}>{provider.status === "ready" ? "已连接" : "未配置"}</Badge>
+              <Badge variant={provider.status === "ready" || list.length > 0 ? "secondary" : "outline"}>{provider.status === "ready" || list.length > 0 ? "已配置" : "未配置"}</Badge>
             </div>
             <p className="mt-1 max-w-[40em] text-[13px] text-text-3">{provider.description}</p>
           </div>
