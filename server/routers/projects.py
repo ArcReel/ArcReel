@@ -40,6 +40,7 @@ from lib.config.resolver import (
     video_bucket_for_generation_mode,
 )
 from lib.db import async_session_factory
+from lib.db.repositories.project_records import retire_project_records
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_source_commands import (
     EpisodeSourceError,
@@ -1127,12 +1128,14 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 async def delete_project(name: str, _t: Translator):
     """删除项目"""
     try:
-
-        def _sync():
-            get_project_manager().delete_project_directory(name)
-            return {"success": True, "message": _t("project_deleted", name=name)}
-
-        return await asyncio.to_thread(_sync)
+        manager = get_project_manager()
+        project_dir = await asyncio.to_thread(manager.get_project_path, name)
+        # 先让记录改挂墓碑名再删目录：删除中途失败时，旧记录也不会留给之后同名的新项目，
+        # 排队任务也不会在删了一半的目录上开跑。
+        async with async_session_factory() as session:
+            await retire_project_records(session, project_dir.name)
+        await asyncio.to_thread(manager.delete_project_directory, name)
+        return {"success": True, "message": _t("project_deleted", name=name)}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):

@@ -10,6 +10,7 @@ import {
   MEDIA_META,
   formatRatio,
   providerLabelResolver,
+  usageProjectLabel,
 } from "./usage-record-format";
 
 interface UsageAttentionCardProps {
@@ -73,7 +74,7 @@ function AttentionItem({
           : providerLabel(item.provider),
       })
     : t("usage_attention_consecutive_title", {
-        project: item.project_name || t("usage_project_untitled"),
+        project: usageProjectLabel(item.project_name, t, i18n.language),
         segment: episodeItemRefLabel(item.segment_id, item.segment_ref, t),
       });
 

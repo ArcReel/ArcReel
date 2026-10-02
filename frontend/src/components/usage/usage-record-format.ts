@@ -155,6 +155,28 @@ export function formatCalendarDay(
   return formatter.format(new Date(year, month - 1, date));
 }
 
+/**
+ * 已删除项目的记录改挂到墓碑名 `<项目名>#deleted-<UTC 时刻>`（见 `lib/db/repositories/project_records.py`），
+ * 与同名新项目分开。界面显示原名与删除日期，筛选仍用墓碑名原值。
+ */
+const DELETED_PROJECT = /^(.+)#deleted-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/;
+
+/** 用量页的项目名；端点试跑的记录没有项目，给「未命名」。 */
+export function usageProjectLabel(
+  name: string,
+  t: (key: string, params?: Record<string, string>) => string,
+  language: string,
+): string {
+  if (!name) return t("usage_project_untitled");
+  const match = DELETED_PROJECT.exec(name);
+  if (!match) return name;
+  const [, project, ...parts] = match;
+  const [year, month, day, hour, minute, second] = parts.map(Number);
+  const deletedAt = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  const date = new Intl.DateTimeFormat(intlLocale(language), { dateStyle: "medium" }).format(deletedAt);
+  return t("usage_project_deleted", { name: project, date });
+}
+
 /** 耗时列；无时长可显示时给破折号。文案与任务读数共用 `formatElapsedMs`。 */
 export function formatDurationMs(
   durationMs: number | null,
