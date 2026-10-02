@@ -2215,7 +2215,7 @@ export default {
   'lobby_now_editing_progress_label': '完成进度',
   'lobby_now_editing_episodes_label': '剧集',
   'lobby_now_editing_episodes_value': '{{completed}}/{{total}} 集',
-  'lobby_card_needs_repair': '需要修复',
+  'lobby_card_needs_repair': '待修复',
   'lobby_card_stat_cast': 'CAST',
   'lobby_card_stat_scene': 'SCENE',
   'lobby_card_stat_prop': 'PROP',

@@ -226,8 +226,14 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    // 唯一项目会成为「正在编辑」卡；标记与原因在两张卡上都必须出现
-    expect((await screen.findAllByText("需要修复")).length).toBeGreaterThan(0);
+    // 唯一项目会成为「正在编辑」卡；标记与原因在两张卡上都必须出现。顶部计数格与筛选项
+    // 同用「待修复」一词，不算在内
+    await waitFor(() => {
+      const pills = screen
+        .getAllByText("待修复")
+        .filter((el) => !el.closest("button") && !el.closest('[data-testid="lobby-hero-stats"]'));
+      expect(pills.length).toBeGreaterThan(0);
+    });
     // 原因是可见文本而非 tooltip：触摸设备打不开 title，屏幕阅读器也读不到
     expect(
       screen.getAllByText("episode script scripts/episode_1.json item 2 has no identity").length,
@@ -272,7 +278,7 @@ describe("ProjectsPage", () => {
     // 常规卡整张是一个 link，内部文本被 aria-label 覆盖——修复状态与原因必须写进这个名字
     expect(
       await screen.findByRole("link", {
-        name: /Broken Project.*需要修复.*episode script scripts\/episode_1\.json item 2 has no identity/s,
+        name: /Broken Project.*待修复.*episode script scripts\/episode_1\.json item 2 has no identity/s,
       }),
     ).toBeInTheDocument();
   });
@@ -614,7 +620,7 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    // 没有集的项目算进行中；「待修复」与进度正交，需要修复的项目同时计入两格；有 stale 产物不算待修复。
+    // 没有集的项目算进行中；「待修复」与进度正交，待修复的项目同时计入两格；有 stale 产物不算待修复。
     const hero = await screen.findByTestId("lobby-hero-stats");
     const cells = Array.from(hero.children).map((cell) => cell.textContent);
     expect(cells).toEqual(["项目5", "进行中4", "已完成1", "待修复1"]);
