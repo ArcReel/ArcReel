@@ -270,7 +270,7 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
           </p>
         </div>
       ) : (
-        <div className="grid max-h-[420px] grid-cols-4 gap-3 overflow-y-auto p-1 pr-2">
+        <div className="grid grid-cols-4 gap-3 p-1">{/* PROTOTYPE #2979：去掉内层 max-h 滚动，由向导 Body 唯一滚动 */}
           {templates.map((tpl) => (
             <TemplateCard
               key={tpl.id}

@@ -3,6 +3,7 @@
 // The old main.js is kept as a reference during the migration.
 
 import { createRoot } from "react-dom/client";
+import { ProtoBar } from "./prototype/lobby/ProtoBar";
 import { AppRoutes } from "./router";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/stores/auth-store";
@@ -70,6 +71,7 @@ if (root) {
   const render = () => createRoot(root).render(
       <TooltipProvider>
         <AppRoutes />
+        <ProtoBar />
       </TooltipProvider>,
     );
   i18nReady.then(render, (err) => {

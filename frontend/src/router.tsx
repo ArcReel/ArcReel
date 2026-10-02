@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
-import { ProjectsPage } from "@/components/pages/ProjectsPage";
+import { ProtoLobbySwitch } from "@/prototype/lobby/ProtoLobbySwitch";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
 import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
@@ -214,7 +214,7 @@ export function AppRoutes() {
         {/* Projects list */}
         <Route path={ROUTE_APP_PROJECTS}>
           <AuthGuard>
-            <ProjectsPage />
+            <ProtoLobbySwitch />
           </AuthGuard>
         </Route>
 
