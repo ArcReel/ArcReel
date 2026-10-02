@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.base import utc_now
@@ -26,11 +26,12 @@ def _deleted_project_name(project_name: str, deleted_at: datetime) -> str:
     return f"{project_name}#deleted-{deleted_at:%Y%m%dT%H%M%SZ}"
 
 
-async def retire_project_records(session: AsyncSession, project_name: str) -> None:
-    """取消项目排队中的任务，并把项目的全部记录改挂到墓碑名。
+async def retire_project_records(session: AsyncSession, project_name: str) -> list[str]:
+    """取消项目排队中的任务，并把项目的全部记录改挂到墓碑名，返回执行中任务的 id。
 
     取消与改名在同一事务里提交，读侧看不到只做了一半的记录。执行中的任务不可取消，照常跑完，
-    结算落在墓碑名下。不按用户区分：项目目录本身不分用户。
+    结算落在墓碑名下；调用方据返回的 id 作废它们对项目的认领，让它们放弃落盘。不按用户区分：
+    项目目录本身不分用户。
     """
     now = utc_now()
     tombstone = _deleted_project_name(project_name, now)
@@ -39,9 +40,15 @@ async def retire_project_records(session: AsyncSession, project_name: str) -> No
         .where(Task.project_name == project_name, Task.status == "queued")
         .values(status="cancelled", cancelled_by="user", finished_at=now, updated_at=now)
     )
+    # 在取消排队任务之后读：与之并发的认领要么已把任务翻成 running，要么只能看到它已取消。
+    running = await session.execute(
+        select(Task.task_id).where(Task.project_name == project_name, Task.status == "running")
+    )
+    running_task_ids = list(running.scalars())
     for model in (Task, GenerationBatch, ApiCall, AgentSession):
         await session.execute(update(model).where(model.project_name == project_name).values(project_name=tombstone))
     await session.commit()
+    return running_task_ids
 
 
 __all__ = ["retire_project_records"]

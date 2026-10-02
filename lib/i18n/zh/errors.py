@@ -79,6 +79,7 @@ MESSAGES = {
     "task_fail_provider_unsupported_media": "供应商 {provider_id} 不支持 {media_type} 生成",
     "task_fail_provider_rejected": "供应商拒绝了这次生成请求（HTTP {status}）",
     "task_fail_dispatch_provider_requeue_failed": "任务供应商从 {claimed_provider_id} 变为 {actual_provider_id}，但无法回队重新认领，请重试",
+    "task_fail_project_deleted_during_task": "项目已在任务执行期间删除，本次生成结果未保存",
     "task_fail_restart_lost_image": "图片任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_audio": "配音任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_text": "文本任务在服务重启时中断且无法接续，请手动重试以避免重复计费",

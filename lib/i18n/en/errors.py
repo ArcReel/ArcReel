@@ -79,6 +79,7 @@ MESSAGES = {
     "task_fail_provider_unsupported_media": "Provider {provider_id} does not support {media_type} generation",
     "task_fail_provider_rejected": "The provider rejected this generation request (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "The task provider changed from {claimed_provider_id} to {actual_provider_id}, but the task could not be requeued for a new slot; please retry",
+    "task_fail_project_deleted_during_task": "The project was deleted while the task was running; the generated result was not saved",
     "task_fail_restart_lost_image": "The image task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_audio": "The audio task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_text": "The text task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",

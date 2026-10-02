@@ -119,6 +119,8 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     # 译文模板：它不该被翻译，读侧按独立字段原样展示。
     "provider_rejected": "task_fail_provider_rejected",
     "dispatch_provider_requeue_failed": "task_fail_dispatch_provider_requeue_failed",
+    # 项目在任务执行期间被删除：任务放弃落盘，见 lib.project.task_project_claim。
+    "project_deleted_during_task": "task_fail_project_deleted_during_task",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",
     "restart_lost_text": "task_fail_restart_lost_text",
