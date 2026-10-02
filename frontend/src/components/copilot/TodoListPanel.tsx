@@ -112,10 +112,6 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
         {currentTask && (
           <span className="relative flex h-2 w-2 shrink-0">
             <span
-              className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
-              style={{ background: "var(--color-warn)" }}
-            />
-            <span
               className="relative inline-flex h-2 w-2 rounded-full"
               style={{ background: "var(--color-warn)" }}
             />
@@ -186,10 +182,6 @@ function TodoRow({ todo }: { todo: TodoItem }) {
         />
       ) : isInProgress ? (
         <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
-          <span
-            className="absolute h-2 w-2 animate-ping rounded-full opacity-40"
-            style={{ background: "var(--color-warn)" }}
-          />
           <span
             className="relative h-1.5 w-1.5 rounded-full"
             style={{ background: "var(--color-warn)" }}

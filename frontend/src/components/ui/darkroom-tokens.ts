@@ -1,10 +1,9 @@
 import type { CSSProperties } from "react";
 
+// 视觉方向（#2963）：主按钮为纯色 primary，无渐变与光晕
 export const ACCENT_BUTTON_STYLE: CSSProperties = {
   color: "oklch(0.14 0 0)",
-  background: "linear-gradient(180deg, var(--color-primary-2), var(--color-primary))",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px var(--color-primary-glow)",
+  background: "var(--primary)",
 };
 
 export const CARD_STYLE: CSSProperties = {
@@ -22,15 +21,14 @@ export const GHOST_BTN_CLS = `${GHOST_BTN_BASE_CLS} gap-1.5 px-3 py-1.5 text-[12
 
 export const GHOST_BTN_LG_CLS = `${GHOST_BTN_BASE_CLS} gap-2 px-3.5 py-2 text-[12.5px]`;
 
+// 视觉方向（#2963）：下拉面板为不透明 overlay surface
 export const DROPDOWN_PANEL_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
+  background: "var(--popover)",
+  boxShadow: "var(--shadow-overlay)",
 };
 
 const ACCENT_BTN_BASE_CLS =
-  "inline-flex items-center rounded-[8px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0";
+  "inline-flex items-center rounded-[8px] font-semibold transition-[filter] enabled:hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50";
 
 export const ACCENT_BTN_CLS = `${ACCENT_BTN_BASE_CLS} gap-2 px-4 py-2 text-[12.5px]`;
 
@@ -63,35 +61,14 @@ export function hashHue(name: string, salt: number): number {
   return hash % 360;
 }
 
-interface PosterGridOptions {
-  size?: number;
-  maskShape?: string;
-  opacity?: number;
+// 视觉方向（#2963）：组件内的网格与光晕装饰删除，只保留页面底色渐变。
+// 原型基座让两个工具返回隐藏样式，调用点不动；正式迁移时删除工具与调用点。
+const HIDDEN_DECORATION: CSSProperties = { display: "none" };
+
+export function posterGridStyle(_opts?: { size?: number; maskShape?: string; opacity?: number }): CSSProperties {
+  return HIDDEN_DECORATION;
 }
 
-export function posterGridStyle(opts?: PosterGridOptions): CSSProperties {
-  const size = opts?.size ?? 40;
-  const mask = `radial-gradient(${opts?.maskShape ?? "70% 70% at 50% 50%"}, black, transparent)`;
-  const style: CSSProperties = {
-    backgroundImage:
-      "linear-gradient(oklch(1 0 0) 1px, transparent 1px), linear-gradient(90deg, oklch(1 0 0) 1px, transparent 1px)",
-    backgroundSize: `${size}px ${size}px`,
-    maskImage: mask,
-    WebkitMaskImage: mask,
-  };
-  if (opts?.opacity !== undefined) style.opacity = opts.opacity;
-  return style;
-}
-
-interface AmbientGlowOptions {
-  at?: string;
-  intensity?: number;
-}
-
-export function ambientGlowStyle(opts?: AmbientGlowOptions): CSSProperties {
-  const at = opts?.at ?? "50% 0%";
-  const alpha = opts?.intensity ?? 0.16;
-  return {
-    background: `radial-gradient(circle at ${at}, oklch(0.76 0.09 295 / ${alpha}), transparent 60%)`,
-  };
+export function ambientGlowStyle(_opts?: { at?: string; intensity?: number }): CSSProperties {
+  return HIDDEN_DECORATION;
 }

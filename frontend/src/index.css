@@ -20,13 +20,16 @@
     --color-text: oklch(0.975 0.004 265);
     --color-text-2: oklch(0.820 0.008 265);
     --color-text-3: oklch(0.640 0.010 265);
-    --color-text-4: oklch(0.490 0.010 265);
+    /* 视觉方向（#2963）：文字收为三档，text-4（对比度 3.1:1）并入 text-3 */
+    --color-text-4: var(--color-text-3);
 
-    /* Primary — 紫色（基色在下方 :root 的 --primary，此处只放变体） */
-    --color-primary-2: oklch(0.88 0.05 295);
+    /* Primary — 紫色（基色在下方 :root 的 --primary，此处只放变体）
+     * 视觉方向（#2963）：只留基色，变体用透明度表达。primary-2 指回基色让渐变变成纯色，
+     * primary-glow 置为透明去掉光晕；soft / dim 本身就是基色加透明度，保留。正式迁移时删除这些旧名。 */
+    --color-primary-2: var(--primary);
     --color-primary-soft: oklch(0.76 0.09 295 / 0.22);
     --color-primary-dim: oklch(0.76 0.09 295 / 0.12);
-    --color-primary-glow: oklch(0.76 0.09 295 / 0.35);
+    --color-primary-glow: transparent;
 
     /* 状态色 */
     --color-good: oklch(0.78 0.10 155);
@@ -57,7 +60,8 @@
     /* 衬线 — 仅项目大厅 (Darkroom) 用于编辑式电影感大标题 */
     --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
 
-    /* 阴影 */
+    /* 阴影 — overlay 是弹层面板唯一的阴影（#2963） */
+    --shadow-overlay: 0 16px 40px -12px oklch(0 0 0 / 0.6);
     --shadow-glow: 0 0 0 1px oklch(0.76 0.09 295 / 0.28), 0 18px 40px oklch(0 0 0 / 0.45);
 
     /* ---- Legacy aliases — 旧组件继续可用，逐步迁移 ---- */
@@ -159,19 +163,17 @@ body {
 
 /* === Modal / Glass panel chrome — 收拢弹窗 chrome 的重复样式 === */
 
-/* 玻璃面板 — GlassModal / GlassPopover 的内容容器样式 */
+/* 弹层面板 — GlassModal / GlassPopover 的内容容器样式。
+ * 视觉方向（#2963）：不透明 surface，一条描边、一个阴影，不用 blur 与渐变。 */
 .arc-glass-panel {
-    background: linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96));
+    background: var(--popover);
     border: 1px solid var(--color-hairline);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow:
-        0 24px 60px -12px oklch(0 0 0 / 0.6),
-        inset 0 1px 0 oklch(1 0 0 / 0.05);
+    box-shadow: var(--shadow-overlay);
 }
 
 /* 顶部 hairline 渐变线（accent 默认 / warm 用 data-tone="warm"） */
 .arc-glass-hairline {
+    display: none; /* #2963：去掉顶部渐变线；正式迁移时删除元素 */
     pointer-events: none;
     position: absolute;
     inset-inline: 0;
@@ -210,45 +212,53 @@ body {
     cursor: not-allowed;
 }
 
-/* 主按钮 CTA — accent 默认，warm/danger 用 data-tone */
+/* 主按钮 CTA — accent 默认，warm/danger 用 data-tone。
+ * 视觉方向（#2963）：纯色，无渐变、光晕与悬停上移。危险操作统一走 danger（红色）。 */
 .arc-btn-primary {
     color: oklch(0.14 0 0);
-    background: linear-gradient(135deg, var(--color-primary-2), var(--color-primary));
-    box-shadow:
-        inset 0 1px 0 oklch(1 0 0 / 0.35),
-        0 6px 18px -6px var(--color-primary-glow),
-        0 0 0 1px var(--color-primary-soft);
-    transition: transform 150ms, opacity 150ms;
+    background: var(--primary);
+    transition: filter 150ms, opacity 150ms;
 }
 .arc-btn-primary[data-tone="warm"] {
-    background: linear-gradient(135deg, var(--color-warm-bright), var(--color-warm));
-    box-shadow:
-        inset 0 1px 0 oklch(1 0 0 / 0.35),
-        0 6px 18px -6px var(--color-warm-glow),
-        0 0 0 1px var(--color-warm-ring);
+    background: var(--color-warm);
 }
 .arc-btn-primary[data-tone="danger"] {
-    background: linear-gradient(135deg, var(--color-danger-bright), var(--color-danger-2));
-    box-shadow:
-        inset 0 1px 0 oklch(1 0 0 / 0.35),
-        0 6px 18px -6px var(--color-danger-glow),
-        0 0 0 1px var(--color-danger-ring);
+    background: var(--color-danger);
 }
 .arc-btn-primary:hover:not(:disabled) {
-    transform: translateY(-1px);
+    filter: brightness(1.08);
 }
 .arc-btn-primary:disabled {
     opacity: 0.4;
     cursor: not-allowed;
-    transform: none;
+}
+
+/* 视觉方向（#2963）：英文等宽大写小标题改为本地化常规字。
+ * 原型基座用一条全局规则近似，正式迁移时逐处改写这些元素的类名。 */
+.font-mono.uppercase {
+    font-family: var(--font-sans);
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+    font-weight: 500;
 }
 
 /* === shadcn/ui 语义 token ===
  * 应用只有暗色主题（<html class="dark">），:root 直接放暗色值。
  * 与旧 token 重名的 primary / accent 基色只在这里定义，其余引用上方 @theme 的旧 token，保证旧页面视觉不变。
- * 圆角沿用 Tailwind 默认刻度，不采用预设的 --radius 派生刻度（否则旧页面的 rounded-* 全部变化）。 */
+ * 圆角按 #2963 的结论采用预设的 --radius 派生刻度（见 @theme inline）。
+ * popover 按 #2963 改为不透明的 overlay surface，比页面底色略亮。 */
 
 @theme inline {
+    /* 视觉方向（#2963）：启用 Nova 派生圆角刻度，--radius 为 10px */
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --color-card: var(--card);
@@ -289,7 +299,7 @@ body {
     --foreground: var(--color-text);
     --card: var(--color-bg-grad-a);
     --card-foreground: var(--color-text);
-    --popover: var(--color-bg-grad-a);
+    --popover: oklch(0.205 0.011 265);
     --popover-foreground: var(--color-text);
     --primary: oklch(0.76 0.09 295);
     --primary-foreground: oklch(0.14 0 0);

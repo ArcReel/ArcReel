@@ -4,7 +4,6 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { GlassModal } from "./GlassModal";
 import { PrimaryButton } from "./PrimaryButton";
 import { SecondaryButton } from "./SecondaryButton";
-import { WARM_TONE } from "@/utils/severity-tone";
 
 export type ConfirmTone = "default" | "danger";
 
@@ -24,7 +23,7 @@ interface ConfirmDialogProps {
 }
 
 // 通用确认弹窗（站内 yes/no 类破坏性确认的入口）。
-// tone="danger" 时顶部 hairline 走 warm、确认按钮走 warm tone；并显示左上角告警 icon。
+// tone="danger" 时确认按钮走红色 danger tone（#2963：危险色统一为红色），并显示左上角告警 icon。
 // 视觉与其他 v3 玻璃 modal 统一。
 export function ConfirmDialog({
   open,
@@ -64,11 +63,9 @@ export function ConfirmDialog({
               aria-hidden
               className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
               style={{
-                background:
-                  "linear-gradient(135deg, var(--color-warm-tint), var(--color-warm-tint-faint))",
-                border: `1px solid ${WARM_TONE.ring}`,
-                color: WARM_TONE.color,
-                boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
+                background: "var(--color-danger-soft)",
+                border: "1px solid var(--color-danger-ring)",
+                color: "var(--color-danger-2)",
               }}
             >
               <AlertTriangle className="h-4 w-4" />
@@ -104,7 +101,7 @@ export function ConfirmDialog({
           </SecondaryButton>
           <PrimaryButton
             size="sm"
-            tone={isDanger ? "warm" : "accent"}
+            tone={isDanger ? "danger" : "accent"}
             onClick={() => void onConfirm()}
             disabled={loading || confirmDisabled}
             leadingIcon={
