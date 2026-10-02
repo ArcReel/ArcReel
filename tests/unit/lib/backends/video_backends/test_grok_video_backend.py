@@ -99,6 +99,60 @@ class TestGrokVideoBackend:
             assert call_kwargs["resolution"] == "720p"
             assert "image_url" not in call_kwargs
 
+    @pytest.mark.parametrize("generate_audio", [True, False])
+    async def test_audio_intent_reaches_sdk_and_settlement(self, video_output_path: Path, generate_audio: bool):
+        """音轨开关原样下发为 SDK 的 generate_audio，结算按实际下发值记录，关闭即落无声。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        mock_response = MagicMock()
+        mock_response.url = "https://vidgen.x.ai/test/video.mp4"
+        mock_response.duration = 5
+
+        mock_video = MagicMock()
+        mock_video.generate = AsyncMock(return_value=mock_response)
+        mock_client = MagicMock()
+        mock_client.video = mock_video
+
+        with patch("lib.backends.video_backends.grok.create_grok_client", return_value=mock_client):
+            backend = GrokVideoBackend(api_key="test-key")
+
+            with _video_download(mock_response.url, b"fake-video-data"):
+                request = VideoGenerationRequest(
+                    prompt="A cat walking",
+                    output_path=video_output_path,
+                    duration_seconds=5,
+                    generate_audio=generate_audio,
+                )
+                result = await backend.generate(request)
+
+        assert mock_video.generate.call_args[1]["generate_audio"] is generate_audio
+        assert result.generate_audio is generate_audio
+
+    async def test_default_request_keeps_audio(self, video_output_path: Path):
+        """请求不声明音轨意图时保持有声：下发 True，结算记录有声。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        mock_response = MagicMock()
+        mock_response.url = "https://vidgen.x.ai/test/video.mp4"
+        mock_response.duration = 5
+
+        mock_video = MagicMock()
+        mock_video.generate = AsyncMock(return_value=mock_response)
+        mock_client = MagicMock()
+        mock_client.video = mock_video
+
+        with patch("lib.backends.video_backends.grok.create_grok_client", return_value=mock_client):
+            backend = GrokVideoBackend(api_key="test-key")
+
+            with _video_download(mock_response.url, b"fake-video-data"):
+                request = VideoGenerationRequest(
+                    prompt="A cat walking", output_path=video_output_path, duration_seconds=5
+                )
+                result = await backend.generate(request)
+
+        assert mock_video.generate.call_args[1]["generate_audio"] is True
+        assert result.generate_audio is True
+
     async def test_marks_resubmit_unsafe_before_opaque_provider_call(self, video_output_path: Path):
         from lib.backends.video_backends.grok import GrokVideoBackend
 

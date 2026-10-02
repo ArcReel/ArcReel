@@ -286,6 +286,32 @@ class TestGrokVideoCost:
         assert cost == pytest.approx(0.50)
         assert currency == "USD"
 
+    @pytest.mark.parametrize(
+        ("resolution", "expected"),
+        [
+            ("480p", 0.50),
+            ("720p", 0.70),
+            # 未显式指定分辨率时 xAI 按 480p 出片，结算跟随同一默认档
+            (None, 0.50),
+        ],
+    )
+    def test_per_second_rate_follows_resolution(self, resolution, expected):
+        cost, currency = _cost("grok", "video", duration_seconds=10, resolution=resolution, model="grok-imagine-video")
+        assert cost == pytest.approx(expected)
+        assert currency == "USD"
+
+    @pytest.mark.parametrize("generate_audio", [True, False])
+    def test_audio_track_does_not_change_rate(self, generate_audio):
+        cost, _ = _cost(
+            "grok",
+            "video",
+            duration_seconds=10,
+            resolution="720p",
+            generate_audio=generate_audio,
+            model="grok-imagine-video",
+        )
+        assert cost == pytest.approx(0.70)
+
     def test_short_video(self):
         cost, currency = _cost("grok", "video", duration_seconds=1, model="grok-imagine-video")
         assert cost == pytest.approx(0.050)
