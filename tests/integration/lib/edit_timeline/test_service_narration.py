@@ -83,7 +83,7 @@ async def test_overlap_past_end_and_unlowered_source_are_reported(pm: ProjectMan
         (
             "narration_source_collision",
             "warning",
-            "all",
+            "with_narration",
             ("c2", "c3"),
             {"cause": "source_volume", "other_unit_id": "E1U3", "source_volume": 1.0, "overlap": 1.0},
         ),
@@ -106,7 +106,7 @@ async def test_narration_extending_onto_a_dialogue_clip_is_reported(pm: ProjectM
     assert collisions[0] == (
         "narration_source_collision",
         "warning",
-        "all",
+        "with_narration",
         ("c2", "c1"),
         {"cause": "dialogue", "other_unit_id": "E1U1", "source_volume": 1.0, "overlap": 1.0},
     )

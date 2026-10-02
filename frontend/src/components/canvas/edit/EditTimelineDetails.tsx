@@ -115,11 +115,13 @@ export const ISSUE_LIST_HEADING_ID = "edit-view-issues-title";
 
 interface IssueListProps {
   issues: readonly EditTimelineIssue[];
+  /** 可选中的剪辑片段 ID；BGM 片段（如 b1）不在其中，相关 issue 不带定位按钮。 */
+  clipIds: ReadonlySet<string>;
   onSelectClip: (clipId: string) => void;
 }
 
-/** 「问题（N）」列表：每条带片段或视频单元编号，点击选中对应片段。 */
-export function IssueList({ issues, onSelectClip }: IssueListProps) {
+/** 「问题（N）」列表：每条带片段或视频单元编号，指向剪辑片段的点击选中该片段。 */
+export function IssueList({ issues, clipIds, onSelectClip }: IssueListProps) {
   const { t, i18n } = useTranslation("dashboard");
   return (
     <section aria-labelledby={ISSUE_LIST_HEADING_ID}>
@@ -135,7 +137,7 @@ export function IssueList({ issues, onSelectClip }: IssueListProps) {
       ) : (
         <ul className="space-y-1">
           {issues.map((issue, index) => {
-            const clipId = issue.clip_ids[0];
+            const clipId = issue.clip_ids.find((id) => clipIds.has(id));
             const params = {
               ...issue.params,
               clip: formatNameList(issue.clip_ids, i18n.language),

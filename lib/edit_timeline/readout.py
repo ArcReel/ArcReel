@@ -61,7 +61,7 @@ ISSUE_LEVELS: dict[IssueCode, tuple[IssueSeverity, IssueScope]] = {
     IssueCode.HOLD_TOO_LONG: (IssueSeverity.WARNING, IssueScope.ALL),
     IssueCode.NARRATION_MISSING: (IssueSeverity.BLOCKING, IssueScope.WITH_NARRATION),
     IssueCode.NARRATION_OVERRUN: (IssueSeverity.WARNING, IssueScope.WITH_NARRATION),
-    IssueCode.NARRATION_SOURCE_COLLISION: (IssueSeverity.WARNING, IssueScope.ALL),
+    IssueCode.NARRATION_SOURCE_COLLISION: (IssueSeverity.WARNING, IssueScope.WITH_NARRATION),
     IssueCode.SUBTITLE_MISSING_GLYPHS: (IssueSeverity.WARNING, IssueScope.ALL),
     IssueCode.BGM_MISSING: (IssueSeverity.BLOCKING, IssueScope.ALL),
 }

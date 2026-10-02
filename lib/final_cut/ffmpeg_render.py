@@ -5,7 +5,8 @@
 ``xfade`` 在切点窗口内交叉过渡；烧入字幕时各段把画面时间平移回成片时间，交给 libass 按整集的 ASS 文档
 渲染。各段用同一组编码参数输出，最后以 ``-c copy`` 无损拼接。音频不分段：整集原声按片段音量与帧边界、
 旁白配音（仅带旁白版本）按承载片段的起点、BGM 按片段起点以响度增益乘片段音量并做淡入淡出，一次混音、
-一次编码，再与拼好的画面封装，避免各段 AAC 编码的前置填充在段边界产生缝隙与累积偏差。旁白越界如实渲染：
+一次编码，再与拼好的画面封装，避免各段 AAC 编码的前置填充在段边界产生缝隙与累积偏差。各路相加后先过限幅器，
+高增益 BGM 与原声、旁白叠加也不越过满幅。旁白越界如实渲染：
 重叠处同时响起，超出末尾的部分随成片截止。
 """
 
@@ -31,6 +32,9 @@ from lib.infra.subprocess_deadline import (
 from lib.subtitle_style.font import SUBTITLE_FONT_FILE
 
 AUDIO_SAMPLE_RATE = 48_000
+
+MIX_LIMIT = 0.891251
+"""混音限幅器的上限（线性幅度，约 −1 dBFS），给 AAC 编码的峰值过冲留出余量。"""
 
 ACCEPTANCE_TOLERANCE_SECONDS = 0.1
 """验收时音视频流时长与剪辑时间线时长之间允许的最大偏差。"""
@@ -213,7 +217,7 @@ def audio_mix_args(
     bgm: Sequence[BgmInput] = (),
 ) -> list[str]:
     """整集混音参数：以静音垫底，每个有声片段按帧边界落位、按原声音量缩放；旁白配音从起点所在的帧边界起
-    原音量叠加；BGM 从起点所在的帧边界起按增益与音量叠加并淡入淡出，整体截到成片时长。"""
+    原音量叠加；BGM 从起点所在的帧边界起按增益与音量叠加并淡入淡出，相加后限幅，整体截到成片时长。"""
     fps = plan.profile.fps
     total_samples = _samples(plan.total_frames, fps)
     inputs: list[str] = ["-f", "lavfi", "-i", f"anullsrc=r={AUDIO_SAMPLE_RATE}:cl=stereo"]
@@ -248,6 +252,8 @@ def audio_mix_args(
     else:
         chains.append(
             f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:normalize=0:dropout_transition=0,"
+            # 只压超限的峰：关闭自动电平，补偿前视延迟以免整条音轨后移。
+            f"alimiter=limit={MIX_LIMIT}:level=false:latency=true,"
             f"atrim=end_sample={total_samples}[mix]"
         )
     return [
