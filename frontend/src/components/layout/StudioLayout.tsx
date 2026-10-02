@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GlobalHeader } from "./GlobalHeader";
@@ -21,6 +21,17 @@ import {
   useAppStore,
 } from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
+import { EPISODE_VIEW_EDIT } from "@/app-routes";
+import { ShellProtoBar } from "@/prototype/shell/ShellProtoBar";
+import { publishMetrics, useShellProto } from "@/prototype/shell/store";
+import { AgentRail, DragHandle, useElementWidth, useViewportWidth } from "@/prototype/shell/ShellParts";
+import {
+  AGENT_RAIL_WIDTH,
+  CANVAS_MIN_WIDTH,
+  COMPACT_BREAKPOINT,
+  SIDEBAR_RAIL_WIDTH,
+  WIDTH_LIMITS,
+} from "@/prototype/shell/axes";
 
 interface StudioLayoutProps {
   children: React.ReactNode;
@@ -153,6 +164,15 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   ]);
 
   const displayedPanelWidth = draftWidth ?? assistantPanelWidth;
+  void displayedPanelWidth;
+  void handleResizeMouseDown;
+  void handleResizeDoubleClick;
+
+  if (!demoMode) {
+    return (
+      <PrototypeShell sseProjectName={sseProjectName}>{children}</PrototypeShell>
+    );
+  }
 
   return (
     <div
@@ -162,94 +182,257 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
       <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
-      {demoMode ? <DemoReadOnlyBanner /> : null}
+      <DemoReadOnlyBanner />
       <div className="flex flex-1 overflow-hidden">
         <AssetSidebar />
-        <main className="flex-1 overflow-hidden">
-          {children}
-        </main>
-        {/* 真实 Agent 是写路径（建会话、跑工具），演示态下换成静态演示对话的面板：
-            不可收起、不可拖宽——演示里没有要腾的空间，少两个交互点。宽度封顶在默认宽度
-            但随视口收缩：真实面板窄屏下还能手动收起，演示面板收不起来，引导期间底层又是
-            inert 的，固定 505px 会把工作区挤没，后面几步就没东西可看了 */}
-        {demoMode ? (
-          <div
-            className="shrink-0 overflow-hidden"
-            style={{
-              width: `min(${ASSISTANT_PANEL_DEFAULT_WIDTH}px, 40vw)`,
-              minWidth: 0,
-              background: "oklch(0.19 0.011 250 / 0.5)",
-              borderLeft: "1px solid var(--color-hairline)",
-            }}
-          >
-            <DemoAssistantPanel />
-          </div>
-        ) : (
+        <main className="flex-1 overflow-hidden">{children}</main>
         <div
-          className={`relative shrink-0 overflow-hidden ${
-            isResizing
-              ? "transition-[min-width,border-color]"
-              : "transition-[width,min-width,border-color] duration-300 ease-in-out"
-          }`}
+          className="shrink-0 overflow-hidden"
           style={{
-            width: assistantPanelOpen ? displayedPanelWidth : 0,
+            width: `min(${ASSISTANT_PANEL_DEFAULT_WIDTH}px, 40vw)`,
+            minWidth: 0,
             background: "oklch(0.19 0.011 250 / 0.5)",
-            borderLeft: assistantPanelOpen
-              ? "1px solid var(--color-hairline)"
-              : "1px solid transparent",
+            borderLeft: "1px solid var(--color-hairline)",
           }}
         >
-          {assistantPanelOpen ? (
-            <AssistantResizeHandle
-              width={displayedPanelWidth}
-              isResizing={isResizing}
-              onMouseDown={handleResizeMouseDown}
-              onDoubleClick={handleResizeDoubleClick}
+          <DemoAssistantPanel />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PROTOTYPE（#2970）：按 ?variant= 与逐轴覆盖渲染的工作区外壳。不合并。
+// ---------------------------------------------------------------------------
+
+const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+
+function PrototypeShell({
+  sseProjectName,
+  children,
+}: {
+  sseProjectName: string | null;
+  children: React.ReactNode;
+}) {
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
+  const { t } = useTranslation("dashboard");
+  const { axes } = useShellProto();
+  const viewport = useViewportWidth();
+  const wide = viewport >= COMPACT_BREAKPOINT;
+  const open = useAppStore((s) => s.assistantPanelOpen);
+  const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
+
+  const inEpisode = /^\/episodes\/\d+/.test(location);
+  const inEdit = inEpisode && new URLSearchParams(search).get("view") === EPISODE_VIEW_EDIT;
+
+  const limits = WIDTH_LIMITS[axes.resize];
+  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [agentWidth, setAgentWidth] = useState<number>(limits.agentDefault);
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    // 切换调宽轴时回到该轴的默认宽度
+    /* eslint-disable react-hooks/set-state-in-effect -- 原型 */
+    setSidebarWidth(256);
+    setAgentWidth(WIDTH_LIMITS[axes.resize].agentDefault);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [axes.resize]);
+
+  // 侧栏折叠：有「强制折叠」理由时默认折叠，用户可临时展开，理由变化或换页后复位
+  const forcedReason =
+    !wide && axes.compact !== "keep"
+      ? "compact"
+      : axes.autoCollapse === "episode" && inEpisode
+        ? "episode"
+        : axes.autoCollapse === "edit" && inEdit
+          ? "edit"
+          : null;
+  const [userCollapsed, setUserCollapsed] = useState(false);
+  const [tempExpanded, setTempExpanded] = useState(false);
+  const resetKey = `${forcedReason}|${location}|${inEdit}`;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 原型
+    setTempExpanded(false);
+  }, [resetKey]);
+  const sidebarCollapsed = forcedReason ? !tempExpanded : userCollapsed;
+  const toggleSidebar = () =>
+    forcedReason ? setTempExpanded((v) => !v) : setUserCollapsed((v) => !v);
+
+  const overlay =
+    axes.panel === "overlay" || (!wide && axes.compact === "railSidebarOverlay");
+
+  const [rowRef, rowWidth] = useElementWidth<HTMLDivElement>();
+  const sidebarPx = sidebarCollapsed
+    ? SIDEBAR_RAIL_WIDTH
+    : Math.max(limits.sidebar[0], Math.min(limits.sidebar[1], sidebarWidth));
+  const railPx = axes.reopen === "rail" && !open ? AGENT_RAIL_WIDTH : 0;
+  // 挤压模式给画布留 480px 下限；覆盖模式至少露出 64px 画布
+  const agentCap = overlay
+    ? rowWidth - sidebarPx - 64
+    : rowWidth - sidebarPx - CANVAS_MIN_WIDTH;
+  const agentPx = Math.max(
+    limits.agent[0],
+    Math.min(agentWidth, limits.agent[1], agentCap),
+  );
+  const canvasPx = Math.max(
+    0,
+    rowWidth - sidebarPx - railPx - (open && !overlay ? agentPx : 0),
+  );
+
+  useEffect(() => {
+    publishMetrics({
+      viewport,
+      tier: wide ? "standard" : "compact",
+      sidebar: sidebarPx,
+      canvas: canvasPx,
+      agent: open ? agentPx : 0,
+      agentMode: open ? (overlay ? "覆盖" : "挤压") : "收起",
+    });
+  }, [viewport, wide, sidebarPx, canvasPx, agentPx, open, overlay]);
+
+  // 覆盖模式下 Esc 收起（焦点在面板内时）
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!overlay || !open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && panelRef.current?.contains(document.activeElement)) {
+        toggleAssistantPanel();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [overlay, open, toggleAssistantPanel]);
+
+  const motion = axes.motion;
+  const widthTransition =
+    dragging || overlay
+      ? undefined
+      : motion === "width300"
+        ? "width 300ms ease-in-out"
+        : motion === "slide"
+          ? `width 200ms ${EASE_OUT}`
+          : undefined;
+  const overlayTransition =
+    !overlay || dragging
+      ? undefined
+      : motion === "slide"
+        ? `transform 200ms ${EASE_OUT}, visibility 0s linear ${open ? "0s" : "200ms"}`
+        : motion === "width300"
+          ? `opacity 200ms ease, visibility 0s linear ${open ? "0s" : "200ms"}`
+          : undefined;
+  const contentFade =
+    motion === "fade" ? (open ? "opacity 150ms ease-out" : "none") : undefined;
+
+  const agentHandle =
+    axes.resize !== "none" && open ? (
+      <DragHandle
+        edge="left"
+        label="调整 Agent 面板宽度"
+        value={agentPx}
+        min={limits.agent[0]}
+        max={Math.max(limits.agent[0], Math.min(limits.agent[1], agentCap))}
+        onChange={setAgentWidth}
+        onReset={() => setAgentWidth(limits.agentDefault)}
+        onDragging={setDragging}
+      />
+    ) : null;
+
+  const panelInner = (
+    <div
+      aria-hidden={!open}
+      inert={!open}
+      className="h-full"
+      style={{
+        opacity: open ? 1 : 0,
+        transition: contentFade,
+        visibility: open ? "visible" : "hidden",
+      }}
+    >
+      <AgentCopilot />
+    </div>
+  );
+
+  return (
+    <div className="flex h-dvh flex-col text-foreground">
+      <TaskFailureListener projectName={sseProjectName} />
+      <ScriptGenerationNoticeListener />
+      <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
+      <div ref={rowRef} className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex shrink-0">
+          <AssetSidebar
+            collapsed={sidebarCollapsed}
+            onToggleCollapsed={toggleSidebar}
+            width={sidebarPx}
+            animate={!dragging}
+          />
+          {axes.resize === "both" && !sidebarCollapsed ? (
+            <DragHandle
+              edge="right"
+              label="调整侧栏宽度"
+              value={sidebarPx}
+              min={limits.sidebar[0]}
+              max={limits.sidebar[1]}
+              onChange={setSidebarWidth}
+              onReset={() => setSidebarWidth(256)}
+              onDragging={setDragging}
             />
           ) : null}
-          {/* 始终渲染但收起时透明 + 不可达，保持内部状态；invisible + aria-hidden 防止 Tab 仍可聚焦内部控件 */}
-          <div
-            aria-hidden={!assistantPanelOpen}
-            inert={!assistantPanelOpen}
-            className={`h-full transition-opacity duration-200 ${
-              assistantPanelOpen
-                ? "opacity-100"
-                : "pointer-events-none invisible opacity-0"
-            }`}
-          >
-            <AgentCopilot />
-          </div>
         </div>
+        <main className="min-w-0 flex-1 overflow-hidden">{children}</main>
+
+        {overlay ? (
+          <div
+            ref={panelRef}
+            className="absolute inset-y-0 right-0 z-30 border-l border-border bg-popover shadow-[-16px_0_40px_-12px_oklch(0_0_0/0.6)]"
+            style={{
+              width: agentPx,
+              transform: motion === "slide" && !open ? "translateX(100%)" : "none",
+              opacity: motion === "width300" && !open ? 0 : 1,
+              visibility: open ? "visible" : "hidden",
+              transition: overlayTransition,
+            }}
+          >
+            {agentHandle}
+            {panelInner}
+          </div>
+        ) : (
+          <div
+            ref={panelRef}
+            className="relative shrink-0 overflow-hidden"
+            style={{
+              width: open ? agentPx : 0,
+              borderLeft: open ? "1px solid var(--color-hairline)" : "none",
+              transition: widthTransition,
+            }}
+          >
+            {agentHandle}
+            <div className="h-full" style={{ width: agentPx }}>
+              {panelInner}
+            </div>
+          </div>
         )}
+
+        {railPx > 0 ? <AgentRail /> : null}
       </div>
 
-      {/* 悬浮 Agent 球：收起时显示在右上角 */}
-      {demoMode ? null : (
-      <button
-        type="button"
-        onClick={toggleAssistantPanel}
-        disabled={assistantPanelOpen}
-        tabIndex={assistantPanelOpen ? -1 : 0}
-        aria-hidden={assistantPanelOpen}
-        className={`fixed right-4 top-14 grid h-10 w-10 place-items-center rounded-xl transition-all duration-300 ease-in-out ${UI_LAYERS.workspaceFloating} ${
-          assistantPanelOpen
-            ? "scale-0 pointer-events-none opacity-0"
-            : "scale-100 cursor-pointer opacity-100"
-        }`}
-        style={{
-          background:
-            "linear-gradient(135deg, var(--color-primary), oklch(0.60 0.10 280))",
-          color: "oklch(0.12 0 0)",
-          boxShadow:
-            "0 0 0 1px oklch(1 0 0 / 0.1), 0 6px 20px -6px var(--color-primary-glow)",
-          transitionDelay: assistantPanelOpen ? "0ms" : "200ms",
-        }}
-        title={t("open_assistant_panel")}
-        aria-label={t("open_assistant_panel")}
-      >
-        <Bot className="h-5 w-5" />
-      </button>
-      )}
+      {axes.reopen === "ball" && !open ? (
+        <button
+          type="button"
+          onClick={toggleAssistantPanel}
+          className={`fixed right-4 top-14 grid h-10 w-10 place-items-center rounded-xl ${UI_LAYERS.workspaceFloating}`}
+          style={{
+            background: "var(--color-primary)",
+            color: "oklch(0.12 0 0)",
+            boxShadow: "0 0 0 1px oklch(1 0 0 / 0.1), 0 6px 20px -6px oklch(0 0 0 / 0.6)",
+          }}
+          title={t("open_assistant_panel")}
+          aria-label={t("open_assistant_panel")}
+        >
+          <Bot className="h-5 w-5" />
+        </button>
+      ) : null}
+      <ShellProtoBar />
     </div>
   );
 }

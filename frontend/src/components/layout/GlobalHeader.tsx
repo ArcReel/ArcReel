@@ -15,6 +15,13 @@ import { ExportScopeDialog } from "./ExportScopeDialog";
 import { episodeDisplayName } from "@/utils/episode-display";
 import { ProjectMenu } from "./ProjectMenu";
 import { ProjectStatusBar } from "./ProjectStatusBar";
+import { useShellProto } from "@/prototype/shell/store";
+import {
+  ProtoAgentToggle,
+  ProtoProjectActions,
+  ProtoProjectSwitcher,
+  ProtoSettingsEntries,
+} from "@/prototype/shell/HeaderPieces";
 
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
@@ -48,6 +55,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
+  const { axes: shellAxes } = useShellProto();
 
   // 「导出项目」提示里的剪辑视图链接：在集页时指向当前集，否则指向播出顺序上的第一集；文案用集名。
   const routeEpisode = /\/episodes\/(\d+)/.exec(location)?.[1];
@@ -173,7 +181,13 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             className="h-4 w-px"
             style={{ background: "var(--color-hairline)" }}
           />
-          <ProjectMenu />
+          {shellAxes.projectMenu === "switcher" ? (
+            <ProtoProjectSwitcher />
+          ) : shellAxes.projectMenu === "actions" ? (
+            <ProtoProjectActions onExport={() => setExportDialogOpen(true)} />
+          ) : (
+            <ProjectMenu />
+          )}
         </div>
 
         {/* ---- Center: project status bar ---- */}
@@ -315,6 +329,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             <Package className="h-4 w-4" />
           </button>
 
+          {shellAxes.settings === "single" ? (
+            <>
           {/* Settings */}
           <button
             type="button"
@@ -348,6 +364,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               />
             )}
           </button>
+            </>
+          ) : (
+            <ProtoSettingsEntries configIncomplete={!isConfigComplete} />
+          )}
+          {shellAxes.reopen === "header" && !demoMode ? <ProtoAgentToggle /> : null}
         </div>
       </header>
 

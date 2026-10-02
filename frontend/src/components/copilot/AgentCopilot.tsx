@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { ImageLightbox } from "@/components/ui/ImageLightbox";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useShellProto } from "@/prototype/shell/store";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
@@ -174,6 +176,8 @@ export function AgentCopilot() {
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
+  const composerMode = useShellProto().axes.composer;
+  const [composerExpanded, setComposerExpanded] = useState(false);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
   const { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
     useAssistantSession(currentProjectName);
@@ -254,7 +258,7 @@ export function AgentCopilot() {
           setLocalInput("");
           resetImages();
           // Reset textarea height
-          if (textareaRef.current) {
+          if (textareaRef.current?.dataset.composer === "current") {
             textareaRef.current.style.height = "auto";
           }
         },
@@ -326,6 +330,8 @@ export function AgentCopilot() {
 
     // Auto-resize: grow upward until 50vh, then scroll
     const el = e.target;
+    // PROTOTYPE（#2970）：只有「现状」轴值走 JS 测高
+    if (el.dataset.composer !== "current") return;
     el.style.height = "auto";
     const maxH = window.innerHeight * (MAX_TEXTAREA_HEIGHT_VH / 100);
     el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
@@ -381,7 +387,7 @@ export function AgentCopilot() {
 
   return (
     <div
-      className="relative isolate flex h-full flex-col"
+      className="relative isolate flex h-full flex-col [container-type:size]"
       style={{ background: "oklch(0.19 0.011 250 / 0.5)" }}
     >
       {/* Header */}
@@ -636,7 +642,6 @@ export function AgentCopilot() {
             }}
             onPaste={handlePaste}
             placeholder={inputPlaceholder}
-            rows={1}
             aria-label={t("assistant_input")}
             aria-expanded={showSlashMenu}
             aria-controls={showSlashMenu ? "slash-command-menu" : undefined}
@@ -644,14 +649,35 @@ export function AgentCopilot() {
               // eslint-disable-next-line react-hooks/refs -- aria-activedescendant 需实时读取 slashMenuRef 的派生值，改用回调 prop 需修改 SlashCommandMenu 接口，超出范围
               slashMenuRef.current?.activeDescendantId
             }
-            className="flex-1 resize-none overflow-hidden bg-transparent text-[13px] outline-none"
-            style={{
-              maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh`,
-              color: "var(--color-text)",
-            }}
+            data-composer={composerMode}
+            rows={composerMode === "fixedExpand" ? 3 : 1}
+            className={`flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none ${
+              composerMode === "current" ? "overflow-hidden" : "overflow-y-auto"
+            } ${composerMode === "fieldSizing" ? "[field-sizing:content]" : ""}`}
+            style={
+              composerMode === "current"
+                ? { maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh`, color: "var(--color-text)" }
+                : composerMode === "fieldSizing"
+                  ? { maxHeight: "40cqh", minHeight: 20, color: "var(--color-text)" }
+                  : {
+                      height: composerExpanded ? "50cqh" : 60,
+                      color: "var(--color-text)",
+                    }
+            }
             disabled={inputDisabled}
           />
 
+          {composerMode === "fixedExpand" ? (
+            <button
+              type="button"
+              onClick={() => setComposerExpanded((v) => !v)}
+              className="shrink-0 rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-ring"
+              title={composerExpanded ? "收起输入框" : "展开输入框"}
+              aria-label={composerExpanded ? "收起输入框" : "展开输入框"}
+            >
+              {composerExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+          ) : null}
           {/* Attachment button */}
           <button
             type="button"

@@ -31,6 +31,11 @@ import { SidebarEpisodeList } from "./SidebarEpisodeList";
 
 interface AssetSidebarProps {
   className?: string;
+  // PROTOTYPE（#2970）：外壳接管折叠与宽度
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  width?: number;
+  animate?: boolean;
 }
 
 interface NavItem {
@@ -47,12 +52,15 @@ interface NavItem {
  * - 分集列表（搜索 + 卡片列表，每张卡片含缩略+状态+进度+费用）
  * - 折叠态（64px）：仅图标 + Ex 字符
  */
-export function AssetSidebar({ className }: AssetSidebarProps) {
+export function AssetSidebar({ className, collapsed: collapsedProp, onToggleCollapsed, width, animate = true }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
   const { currentProjectName, currentProjectData } = useProjectsStore();
   const debouncedFetchCost = useCostStore((s) => s.debouncedFetch);
   const [location, setLocation] = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const collapsed = collapsedProp ?? internalCollapsed;
+  const setCollapsed = (fn: (c: boolean) => boolean) =>
+    onToggleCollapsed ? onToggleCollapsed() : setInternalCollapsed(fn);
   const [search, setSearch] = useState("");
   /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
   const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
@@ -152,8 +160,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     <aside
       className={`flex flex-col overflow-hidden ${className ?? ""}`}
       style={{
-        width: collapsed ? 64 : 256,
-        transition: "width .18s ease",
+        width: width ?? (collapsed ? 64 : 256),
+        transition: animate ? "width .18s ease" : undefined,
         borderRight: "1px solid var(--color-hairline)",
         background:
           "linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5))",
