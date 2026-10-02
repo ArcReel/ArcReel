@@ -935,14 +935,22 @@ class TestScriptPlanMaterialization:
         assert script_path.read_bytes() == before
         assert (project_dir / "project.json").read_bytes() == project_before
 
-    async def test_blank_plan_title_falls_back_to_the_episode_title(self, tmp_path: Path) -> None:
-        """drama 规划标题只有空白：正式剧本取分集账本标题。"""
+    @pytest.mark.parametrize("ledger_title", ["", "用户起的名字"])
+    async def test_materialization_keeps_the_ledger_title_over_the_plan_title(
+        self, tmp_path: Path, ledger_title: str
+    ) -> None:
+        """drama 规划里模型起的标题不采用：剧本与账本的集标题保持账本原值，空标题仍为空。"""
         project_dir, plan_path = DRAMA.build(tmp_path)
+        project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+        project["episodes"][0]["title"] = ledger_title
+        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
         document = json.loads(plan_path.read_text(encoding="utf-8"))
-        document["title"] = "   "
+        document["title"] = "模型起的名字"
         plan_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
         _activate(project_dir)
 
         await _materialize(project_dir, plan_path)
 
-        assert _script(project_dir)["title"] == "第一集"
+        assert _script(project_dir)["title"] == ledger_title
+        ledger = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))["episodes"][0]
+        assert ledger["title"] == ledger_title

@@ -226,9 +226,31 @@ async def test_regenerating_replaces_the_formal_script_after_the_loss_list_is_ac
     )
 
     script = _script(project_dir)
-    assert script["title"] == "雨停"
+    assert script["title"] == ""
     assert [shot["shot_id"] for shot in script["shots"]] == ["E1S01"]
     assert "阿杰" in _project(project_dir)["characters"]
+
+
+@pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
+@pytest.mark.parametrize("ledger_title", ["", "用户起的名字"])
+async def test_whole_generation_keeps_the_ledger_title_over_the_model_title(
+    tmp_path: Path, generation_mode: str, ledger_title: str
+) -> None:
+    """模型给出的标题照填、不采用：剧本与账本的集标题保持账本原值，空标题仍为空。"""
+    project_dir = _write_ad_project(
+        tmp_path,
+        generation_mode,
+        episodes=[{"episode": 1, "title": ledger_title, "script_file": "scripts/episode_1.json"}],
+    )
+    if generation_mode == "storyboard":
+        response: dict[str, Any] = {"title": "共伞", "shots": [_shot("E1S01", characters=["小美"])]}
+    else:
+        response = {"title": "共伞", "units": [{"duration_seconds": 6, "text": "镜头1：@[小美] 撑开伞"}]}
+
+    await _generator(project_dir, response).generate(1)
+
+    assert _script(project_dir)["title"] == ledger_title
+    assert _project(project_dir)["episodes"][0]["title"] == ledger_title
 
 
 @pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
