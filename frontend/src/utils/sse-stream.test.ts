@@ -82,6 +82,34 @@ describe("openSseStream", () => {
     handle.close();
   });
 
+  it("tracks id-only blocks and drops Last-Event-ID after an empty id field", async () => {
+    const fake = stubSseFetch();
+    const messages: SseMessage[] = [];
+    const handle = openSseStream({
+      url: "/api/v1/stream",
+      headers: () => ({}),
+      onMessage: (message) => messages.push(message),
+    });
+    await flushStream();
+
+    fake.latest.emit("entry", { seq: 3 }, "3");
+    fake.latest.write("id: 7\n\n");
+    await flushStream();
+    expect(messages).toHaveLength(1);
+    expect(handle.lastEventId).toBe("7");
+
+    fake.latest.write("id:\n\n");
+    fake.latest.end();
+    await flushStream();
+    expect(handle.lastEventId).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await flushStream();
+    expect(fake.connections).toHaveLength(2);
+    expect(fake.latest.headers.has("Last-Event-ID")).toBe(false);
+    handle.close();
+  });
+
   it("backs off exponentially across consecutive failures and resets only after an event arrives", async () => {
     const fake = stubSseFetch((index) => (index < 3 ? 503 : 200));
     const messages: SseMessage[] = [];
