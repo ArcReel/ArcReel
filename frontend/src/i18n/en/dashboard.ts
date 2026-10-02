@@ -2665,7 +2665,6 @@ export default {
   'ce_var_prompt': 'Prompt',
   'ce_var_model': 'Model',
   'ce_var_duration': 'Duration',
-  'ce_var_duration_seconds': 'Duration in seconds',
   'ce_var_resolution': 'Resolution tier, e.g. 720p',
   'ce_var_aspect_ratio': 'Aspect ratio, e.g. 16:9',
   'ce_var_width': 'Pixel width, derived',

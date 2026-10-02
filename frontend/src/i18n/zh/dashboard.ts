@@ -2664,7 +2664,6 @@ export default {
   'ce_var_prompt': '提示词',
   'ce_var_model': '模型',
   'ce_var_duration': '时长',
-  'ce_var_duration_seconds': '时长（秒）',
   'ce_var_resolution': '分辨率档位，如 720p',
   'ce_var_aspect_ratio': '画面比例，如 16:9',
   'ce_var_width': '像素宽，派生',

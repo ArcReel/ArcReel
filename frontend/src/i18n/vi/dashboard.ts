@@ -2665,7 +2665,6 @@ export default {
   'ce_var_prompt': 'Câu lệnh',
   'ce_var_model': 'Mô hình',
   'ce_var_duration': 'Thời lượng',
-  'ce_var_duration_seconds': 'Thời lượng tính bằng giây',
   'ce_var_resolution': 'Bậc độ phân giải, ví dụ 720p',
   'ce_var_aspect_ratio': 'Tỷ lệ khung hình, ví dụ 16:9',
   'ce_var_width': 'Chiều rộng pixel, suy ra',

@@ -43,7 +43,6 @@ export const MEDIA_TYPE_FORM_PROFILES: Record<EndpointMediaType, MediaTypeFormPr
       variable("prompt"),
       variable("model"),
       variable("duration"),
-      variable("duration_seconds"),
       variable("resolution"),
       variable("aspect_ratio"),
       variable("width"),
