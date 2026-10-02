@@ -172,20 +172,27 @@ def _post(client: TestClient, path: str, payload: dict[str, Any]):
     return client.post(f"/api/v1/custom-endpoints/{path}", json=payload)
 
 
-def _hold_submit(router) -> None:
+def _hold_submit(router) -> asyncio.Queue[None]:
     """让提交请求停在一道只由取消解除的闸口上，run 在测试说停之前一定还在进行。
 
     「仍在进行」若靠 ``status: processing`` 的轮询维持，就成了一场竞速：假表下的一轮轮询几乎
     不耗真实时间，后台任务能在两次断言之间跑满 ``poll_timeout`` 撞进终态、把名额让出去。闸口
     把这段生命周期交给测试，机器负载再高结论也不变。
+
+    每个提交请求到达闸口时往返回的队列里放一项。取消前先经 ``client.portal.call(queue.get)``
+    等它：``create`` 返回时后台任务可能还在提交之前的记账插入里，取消落在那里会让 SQLAlchemy
+    作废连接，内存库随唯一的连接一起丢掉表，下一笔 run 插账即失败、自行结束，取消它得到 404。
     """
+    arrived: asyncio.Queue[None] = asyncio.Queue()
     gate = asyncio.Event()  # 永不置位：这次 run 只可能被 cancel 停下
 
     async def _never_responds(_request: httpx.Request) -> httpx.Response:
+        arrived.put_nowait(None)
         await gate.wait()
         raise AssertionError("闸口只由取消解除，不该走到这里")
 
     router.post("https://relay.test/v1/video/create").mock(side_effect=_never_responds)
+    return arrived
 
 
 class TestPreviewRequest:
@@ -434,7 +441,7 @@ class TestTrialRuns:
 
     def test_a_second_concurrent_run_is_refused(self, client: TestClient, trial_runs: TrialRunManager):
         with capture_http() as router:
-            _hold_submit(router)
+            submits = _hold_submit(router)
             payload = {
                 "definition": custom_endpoint_definition(),
                 "parameters": PARAMETERS,
@@ -447,6 +454,7 @@ class TestTrialRuns:
             assert second.status_code == 409
 
             run_id = first.json()["id"]
+            client.portal.call(submits.get)
             cancelled = client.post(f"/api/v1/custom-endpoints/trial-runs/{run_id}/cancel")
             assert cancelled.status_code == 204
             # 取消后名额让出，同一份定义可以再发一次。
@@ -454,11 +462,12 @@ class TestTrialRuns:
             assert third.status_code == 201
             # 这一笔也要在离开 http 替身之前停掉，否则它会挂在闸口上直到事件循环消亡。
             third_id = third.json()["id"]
+            client.portal.call(submits.get)
             assert client.post(f"/api/v1/custom-endpoints/trial-runs/{third_id}/cancel").status_code == 204
 
     def test_a_cancelled_run_leaves_nothing_to_read(self, client: TestClient, trial_runs: TrialRunManager):
         with capture_http() as router:
-            _hold_submit(router)
+            submits = _hold_submit(router)
             created = _post(
                 client,
                 "trial-runs",
@@ -469,6 +478,7 @@ class TestTrialRuns:
                 },
             )
             run_id = created.json()["id"]
+            client.portal.call(submits.get)
             # 204 本身是判据：取消停下的是一笔仍在进行的 run，不是一笔已经自己跑完的。
             assert client.post(f"/api/v1/custom-endpoints/trial-runs/{run_id}/cancel").status_code == 204
 
