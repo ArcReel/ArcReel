@@ -267,6 +267,33 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     ? (segId: string) => onGenerateNarration(segId, scriptFile)
     : undefined;
 
+  // PROTOTYPE（#2974）：批量按钮写明「补齐缺失」并带数量；数量按本地分镜状态估算，准确清单以确认框为准。
+  const protoCounted = protoAxes.batch === "counted";
+  // 前面有提前 return，这里不能用 hook，直接计算
+  const missing = (() => {
+    let storyboards = 0;
+    let videos = 0;
+    let narration = 0;
+    for (const seg of segments) {
+      const a = seg.generated_assets;
+      if (!a?.storyboard_image) storyboards += 1;
+      else if (!a.video_clip) videos += 1;
+      if (contentMode === "narration" && (seg as NarrationSegment).novel_text?.trim() && !a?.narration_audio) narration += 1;
+    }
+    return { storyboards, videos, narration };
+  })();
+  const batchLabel = (kind: "storyboards" | "videos" | "narration") => {
+    if (!protoCounted) return t(`batch_generate_${kind}`);
+    const noun = kind === "storyboards" ? "分镜图" : kind === "videos" ? "视频" : "旁白配音";
+    return missing[kind] > 0 ? `补齐${noun} · ${missing[kind]}` : `${noun}已齐`;
+  };
+  const batchTitle = (kind: "storyboards" | "videos" | "narration") =>
+    protoCounted
+      ? kind === "narration"
+        ? "为还没有配音的分镜生成旁白配音"
+        : `只生成缺失的${kind === "storyboards" ? "分镜图" : "视频"}；已过期的请在分镜详情里逐条重新生成`
+      : t(`batch_generate_${kind}`);
+
   const renderBatchActions = () => (
           <div className="mr-1 inline-flex items-center gap-1.5">
             {editorContentMode === "ad" && !demoReadOnly && (
@@ -281,33 +308,33 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled={demoReadOnly}
+              disabled={demoReadOnly || (protoCounted && missing.storyboards === 0)}
               onClick={() => setBatchKind("storyboards")}
-              title={t("batch_generate_storyboards")}
+              title={batchTitle("storyboards")}
             >
               <Sparkles className="h-3 w-3" />
-              <span>{t("batch_generate_storyboards")}</span>
+              <span>{batchLabel("storyboards")}</span>
             </button>
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled={demoReadOnly}
+              disabled={demoReadOnly || (protoCounted && missing.videos === 0)}
               onClick={() => setBatchKind("videos")}
-              title={t("batch_generate_videos")}
+              title={batchTitle("videos")}
             >
               <Sparkles className="h-3 w-3" />
-              <span>{t("batch_generate_videos")}</span>
+              <span>{batchLabel("videos")}</span>
             </button>
             {contentMode === "narration" && onGenerateEpisodeNarration && (
               <button
                 type="button"
                 className="sv-navbtn inline-flex items-center gap-1.5"
-                disabled={narrationBatchBusy}
+                disabled={narrationBatchBusy || (protoCounted && missing.narration === 0)}
                 onClick={() => onGenerateEpisodeNarration(scriptFile)}
-                title={t("batch_generate_narration")}
+                title={batchTitle("narration")}
               >
                 <Sparkles className="h-3 w-3" />
-                <span>{t("batch_generate_narration")}</span>
+                <span>{batchLabel("narration")}</span>
               </button>
             )}
           </div>

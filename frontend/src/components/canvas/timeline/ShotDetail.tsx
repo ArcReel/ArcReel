@@ -915,8 +915,9 @@ export function ShotDetail({
     </>
   );
 
-  const leftColumn = (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3.5 pb-5 pt-3.5">
+  // PROTOTYPE（#2974）：取消左栏时，广告段落 / 口播 / 商品与引用并入中栏顶部，对应原文进中栏底部的折叠区。
+  const leftTopBlock = (
+    <>
       {isAd && (
         <>
           <div>
@@ -1004,9 +1005,10 @@ export function ShotDetail({
         disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
-      {protoAxes.dialogue === "left" && dialogueBlock}
-      {protoAxes.dialogue === "left" && narrationTextBlock}
-
+    </>
+  );
+  const sourceBlock = (
+    <>
       {isDrama && <SourceTextReadonly text={dramaScene?.source_text} />}
 
       {isAd && hasNarrationText && (
@@ -1039,11 +1041,22 @@ export function ShotDetail({
           </div>
         </div>
       )}
+    </>
+  );
+  const mergeLeft = protoAxes.leftCol === "merge";
+
+  const leftColumn = (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3.5 pb-5 pt-3.5">
+      {leftTopBlock}
+      {protoAxes.dialogue === "left" && dialogueBlock}
+      {protoAxes.dialogue === "left" && narrationTextBlock}
+      {sourceBlock}
     </div>
   );
 
   const midColumn = (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
+      {mergeLeft && <div className="flex flex-col gap-4 border-b border-[var(--color-hairline-soft)] pb-4">{leftTopBlock}</div>}
       <div className="flex items-center gap-2">
         <div
           className="text-[10.5px] font-bold uppercase"
@@ -1167,6 +1180,12 @@ export function ShotDetail({
           {dialogueBlock}
           {narrationTextBlock}
         </section>
+      )}
+      {mergeLeft && (
+        <details className="group border-t border-[var(--color-hairline-soft)] pt-3">
+          <summary className="cursor-pointer select-none text-[12px] text-muted-foreground hover:text-foreground">对应原文与参考</summary>
+          <div className="mt-3 flex flex-col gap-4">{sourceBlock}</div>
+        </details>
       )}
     </div>
   );
@@ -1463,7 +1482,7 @@ export function ShotDetail({
       )}
 
       <ProtoDetailGrid
-        left={leftColumn}
+        left={mergeLeft ? null : leftColumn}
         mid={midColumn}
         right={rightColumn}
         storyboard={storyboardMedia}

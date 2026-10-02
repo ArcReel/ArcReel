@@ -1,5 +1,5 @@
 // PROTOTYPE — 剧集页原型（#2974），不合并。
-// 三个预设 A/B/C 是八条轴的组合；底栏可逐轴覆盖，方便「B 的这个 + C 的那个」式取舍。
+// 预设 A/B/C 是各条轴的组合，D 是维护者的选择；底栏可逐轴覆盖，方便「B 的这个 + C 的那个」式取舍。
 // 工作区外壳固定为「工作区外壳与 Agent 面板」的结论（预设 B），不在这里切换。
 
 export const AXES = {
@@ -42,12 +42,26 @@ export const AXES = {
       mid: "中栏，接在视频提示词后",
     },
   },
+  leftCol: {
+    label: "分镜左栏",
+    values: {
+      keep: "保留左栏（引用、原文），窄时进抽屉（现状）",
+      merge: "取消左栏：引用并入中栏顶部，原文折叠在底部",
+    },
+  },
   shotNav: {
     label: "切换分镜",
     values: {
       blocked: "有草稿时禁止翻页（现状）",
       intercept: "三按钮拦截 + J/K 切换、⌘S 保存",
       interceptAlt: "三按钮拦截 + Alt+↑/↓ 切换、⌘S 保存",
+    },
+  },
+  batch: {
+    label: "批量生成按钮",
+    values: {
+      current: "「批量生成分镜图 / 视频」（现状）",
+      counted: "写明范围并带数量：「补齐分镜图 · 3」",
     },
   },
   edit: {
@@ -74,7 +88,7 @@ export type AxisState = { [K in AxisKey]: AxisValue<K> };
 
 export const AXIS_KEYS = Object.keys(AXES) as AxisKey[];
 
-export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }> = {
+export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisState }> = {
   A: {
     name: "现状",
     axes: {
@@ -83,7 +97,9 @@ export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }>
       editor: "current",
       sizing: "tiers",
       dialogue: "left",
+      leftCol: "keep",
       shotNav: "blocked",
+      batch: "current",
       edit: "current",
       refCols: "current",
     },
@@ -96,7 +112,9 @@ export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }>
       editor: "mediaWide",
       sizing: "tiers",
       dialogue: "mid",
+      leftCol: "keep",
       shotNav: "intercept",
+      batch: "current",
       edit: "sideInspector",
       refCols: "aspect",
     },
@@ -109,9 +127,26 @@ export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }>
       editor: "fourCol",
       sizing: "resizable",
       dialogue: "left",
+      leftCol: "keep",
       shotNav: "interceptAlt",
+      batch: "current",
       edit: "rightRail",
       refCols: "resizable",
+    },
+  },
+  D: {
+    name: "维护者选定",
+    axes: {
+      header: "twoRow",
+      progress: "popover",
+      editor: "mediaWide",
+      sizing: "tiers",
+      dialogue: "mid",
+      leftCol: "merge",
+      shotNav: "intercept",
+      batch: "counted",
+      edit: "sideInspector",
+      refCols: "aspect",
     },
   },
 };

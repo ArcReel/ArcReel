@@ -980,7 +980,13 @@ export function ReferenceVideoCanvas({
               className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{t("reference_batch_generate")}</span>
+              <span>
+                {protoAxes.batch === "counted"
+                  ? batchTargets.length > 0
+                    ? `补齐视频 · ${batchTargets.length}`
+                    : "视频已齐"
+                  : t("reference_batch_generate")}
+              </span>
             </button>
           </>
   );

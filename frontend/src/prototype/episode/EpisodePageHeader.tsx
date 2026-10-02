@@ -58,8 +58,14 @@ export function EpisodePageHeader({
   );
 
   const head = <div ref={(el) => setSlot("head", el)} className="flex min-w-0 flex-1 items-center" />;
+  // 单行页头放不下时批量按钮只留图标；两行页头的第二行有空间，文字一直显示
   const actions = (
-    <div ref={(el) => setSlot("actions", el)} className="flex min-w-0 shrink-0 items-center gap-1.5 [&_.sv-navbtn]:whitespace-nowrap @max-[1240px]/ephdr:[&_.sv-navbtn>span]:sr-only" />
+    <div
+      ref={(el) => setSlot("actions", el)}
+      className={`flex min-w-0 shrink-0 items-center gap-1.5 [&_.sv-navbtn]:whitespace-nowrap ${
+        mode === "oneRow" ? "@max-[1240px]/ephdr:[&_.sv-navbtn>span]:sr-only" : ""
+      }`}
+    />
   );
 
   if (mode === "oneRow") {

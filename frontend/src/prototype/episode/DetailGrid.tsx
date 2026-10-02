@@ -9,7 +9,8 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { useEpisodeProto } from "./store";
 
 interface Props {
-  left: ReactNode;
+  /** null 表示取消左栏（引用与原文并入中栏） */
+  left: ReactNode | null;
   mid: ReactNode;
   /** 现状的右栏：分镜图 + 尾帧 + 视频 + 配音 */
   right: ReactNode;
@@ -59,7 +60,18 @@ export function ProtoDetailGrid({ left, mid, right, storyboard, video, revealRig
   const veryWide = width >= 1280;
 
   let body: ReactNode;
-  if (!wide || (axes.editor === "current" && axes.sizing === "tiers")) {
+  if (left === null) {
+    // 取消左栏：只有「中栏 + 媒体栏」，窄时媒体栏固定 300，宽时中栏限宽、余量给媒体
+    body = (
+      <div
+        className="grid h-full min-h-0 divide-x divide-[var(--color-hairline-soft)]"
+        style={{ gridTemplateColumns: width > 0 && width < 860 ? "minmax(0,1fr) 300px" : `minmax(360px, ${MID_MAX}px) minmax(320px, 1fr)` }}
+      >
+        <div className={col}>{mid}</div>
+        <MediaColumn storyboard={storyboard} video={video} aspectRatio={aspectRatio} />
+      </div>
+    );
+  } else if (!wide || (axes.editor === "current" && axes.sizing === "tiers")) {
     body = <ResponsiveDetailGrid left={left} mid={mid} right={right} revealRightKey={revealRightKey} />;
   } else if (axes.sizing === "tiers") {
     if (axes.editor === "fourCol" && veryWide) {
