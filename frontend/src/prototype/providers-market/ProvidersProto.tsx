@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ProviderIcon } from "@/components/ui/ProviderIcon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -158,6 +159,8 @@ function ProviderRail({
   const { samples } = useProto();
   const configured = (p: ProviderInfo) => p.status === "ready" || (samples && (SAMPLE_CREDENTIALS[p.id]?.length ?? 0) > 0);
   const [showIdle, setShowIdle] = useState(false);
+  // tabs：手动切换后记住；没切过时跟随当前选中项所在的分组（外部跳转进来也能落在对的 Tab）
+  const [railTab, setRailTab] = useState<"preset" | "custom" | null>(null);
   const selectedIdle = sel?.kind === "preset" && !configured(presets.find((p) => p.id === sel.id) ?? presets[0]);
 
   const presetItem = (p: ProviderInfo, compact = false) => {
@@ -191,7 +194,33 @@ function ProviderRail({
   const divider = <div className={cn("my-3 border-t border-border", icon && "mx-1")} />;
 
   let body: ReactNode;
-  if (order === "status") {
+  const selTab = sel?.kind === "preset" ? "preset" : sel ? "custom" : null;
+  const tab = railTab ?? selTab ?? "preset";
+  if (order === "tabs" && !icon) {
+    body = (
+      <>
+        <Tabs value={tab} onValueChange={(v) => setRailTab(v as "preset" | "custom")} className="mb-3">
+          <TabsList className="w-full">
+            <TabsTrigger value="preset">
+              预置 <span className="text-text-3 tabular-nums">{presets.length}</span>
+            </TabsTrigger>
+            <TabsTrigger value="custom">
+              自定义 <span className="text-text-3 tabular-nums">{custom.length}</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+        {tab === "preset" ? (
+          presets.map((p) => presetItem(p))
+        ) : (
+          <>
+            {custom.map(customItem)}
+            {custom.length === 0 && <p className="px-2.5 py-1 text-[12px] text-text-3">还没有自定义供应商。接入中转站、本地模型或 ComfyUI 时添加。</p>}
+            {addItem}
+          </>
+        )}
+      </>
+    );
+  } else if (order === "status") {
     const active = presets.filter(configured);
     const idle = presets.filter((p) => !configured(p));
     const idleOpen = showIdle || selectedIdle || icon || active.length + custom.length === 0;

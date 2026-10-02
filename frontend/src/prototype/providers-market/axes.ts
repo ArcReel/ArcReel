@@ -17,6 +17,7 @@ export const AXES = {
       type: "预置在上，自定义在下（现状）",
       customFirst: "自定义在上，预置在下",
       status: "已配置在上（混排），未配置的预置折叠在底部",
+      tabs: "顶部 Tab 切换：预置 | 自定义",
     },
   },
   models: {
