@@ -168,9 +168,9 @@ class Ledger:
 
         退出语义：``CancelledError`` 结算为 cancelled（零费用）后原样重抛；``Exception`` 翻
         failed 后原样重抛；正常退出但未声明成功抛 ``RuntimeError``；声明成功则以 backend 结果
-        对象结算翻 success。
+        对象结算翻 success。取消落在进入时的开账写入上，同样等 pending 行落库后结算为 cancelled 再重抛。
         """
-        call_id = await self._start_call(
+        call_id = await self._open_call(
             project_name=project_name,
             call_type=call_type,
             model=model,
@@ -332,6 +332,22 @@ class Ledger:
     async def _start_call(self, **kwargs: Any) -> int:
         async with self._session_factory() as session:
             return await UsageRepository(session).start_call(**kwargs)
+
+    async def _open_call(self, *, project_name: str, **kwargs: Any) -> int:
+        """记账括号的开账写入不被取消打断：取消到达时先等 pending 行落库拿到 id，按 cancelled
+        结算后再把取消继续传播。
+
+        仓储先提交再回读 id，取消若打在两者之间，行已落库而括号还没进 ``try``，调用方也拿不到
+        id，只能等启动收口。护盾模式同 ``_settle``。
+        """
+        opening = asyncio.ensure_future(self._start_call(project_name=project_name, **kwargs))
+        try:
+            return await asyncio.shield(opening)
+        except asyncio.CancelledError:
+            call_id = await asyncio.shield(opening)
+            if await self._finish_cancelled(call_id):
+                self._emit_recorded(project_name, call_id, CallStatus.CANCELLED)
+            raise
 
     async def _settle[T](self, write: Coroutine[Any, Any, T]) -> T:
         """结算写入不被取消打断：取消到达时先等写入落地，再把取消继续传播。
