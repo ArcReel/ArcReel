@@ -6,6 +6,7 @@ import asyncio
 import io
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -383,28 +384,43 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         )
 
     def _download_video(self, video_ref, output_path: Path) -> None:
-        """下载视频到本地文件 — 提取自 GeminiClient。"""
+        """下载视频到本地文件 — 提取自 GeminiClient。
+
+        三条落盘路径都经 ``_write_atomically``：先写同目录 ``.part``，成功后原子改名，
+        失败时 output_path 上不会出现被当作成品的残片（已有的旧成片也保持原样）。
+        """
         if self._backend_type == "vertex":
             if video_ref and hasattr(video_ref, "video_bytes") and video_ref.video_bytes:
-                with open(output_path, "wb") as f:
-                    f.write(video_ref.video_bytes)
+                video_bytes = video_ref.video_bytes
+                _write_atomically(output_path, lambda target: target.write_bytes(video_bytes))
             elif video_ref and hasattr(video_ref, "uri") and video_ref.uri:
                 import urllib.request
 
-                urllib.request.urlretrieve(video_ref.uri, str(output_path))
+                uri = video_ref.uri
+                _write_atomically(output_path, lambda target: urllib.request.urlretrieve(uri, str(target)))
             else:
                 raise RuntimeError("视频生成成功但无法获取视频数据")
         else:
             # AI Studio 模式：files.download 带 destination 时分块直写磁盘，不把整段视频读进内存。
-            # SDK 直接以 "wb" 打开目标，中途失败会留下截断文件；故先写同目录 .part、成功后原子改名，
-            # 失败时 output_path 上不会出现被当作成品的残片（已有的旧成片也保持原样）。
-            partial_path = output_path.with_name(f"{output_path.name}.part")
-            try:
-                self._client.files.download(file=video_ref, destination=partial_path)
-                os.replace(partial_path, output_path)
-            except BaseException:
-                partial_path.unlink(missing_ok=True)
-                raise
+            _write_atomically(
+                output_path,
+                lambda target: self._client.files.download(file=video_ref, destination=target),
+            )
+
+
+def _write_atomically(output_path: Path, write: Callable[[Path], object]) -> None:
+    """让 ``write`` 把内容写进同目录 ``<name>.part``，成功后 ``os.replace`` 改名为 output_path。
+
+    SDK 与 ``urlretrieve`` 都以 "wb" 直开目标路径，中途失败会留下截断文件；写 ``.part``
+    可保证失败时 output_path 不被覆盖，``BaseException`` 时清掉残片。
+    """
+    partial_path = output_path.with_name(f"{output_path.name}.part")
+    try:
+        write(partial_path)
+        os.replace(partial_path, output_path)
+    except BaseException:
+        partial_path.unlink(missing_ok=True)
+        raise
 
 
 def _format_durations(durations: list[int]) -> str:
