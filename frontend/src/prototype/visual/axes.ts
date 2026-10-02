@@ -27,9 +27,13 @@ export const AXES = {
     label: "圆角刻度",
     values: { tw: "Tailwind 默认（现状）", nova10: "Nova 派生 10px", nova8: "Nova 派生 8px" },
   },
+  textLevels: {
+    label: "文字层级",
+    values: { four: "四档（现状）", three: "三档：删 text-4", twoUp: "两档：text-2 并入 foreground", twoDown: "两档：text-2 并入 muted" },
+  },
   running: {
     label: "运行中",
-    values: { pulse: "透明度呼吸（现状）", static: "静态点 + 计数", bar: "不确定进度条" },
+    values: { pulse: "透明度呼吸（现状）", pulseCount: "呼吸点 + 计数", static: "静态点 + 计数", bar: "不确定进度条" },
   },
 } as const;
 
@@ -49,19 +53,21 @@ export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }>
       brand: "gradient",
       danger: "amber",
       radius: "tw",
+      textLevels: "four",
       running: "pulse",
     },
   },
   B: {
-    name: "精修：保留氛围、收敛装饰",
+    name: "定稿：维护者选定的组合",
     axes: {
       surface: "solid",
       deco: "ambient",
       eyebrow: "sans",
       brand: "flat",
       danger: "red",
-      radius: "nova8",
-      running: "static",
+      radius: "nova10",
+      textLevels: "three",
+      running: "pulseCount",
     },
   },
   C: {
@@ -73,6 +79,7 @@ export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }>
       brand: "restrained",
       danger: "red",
       radius: "nova10",
+      textLevels: "twoDown",
       running: "bar",
     },
   },

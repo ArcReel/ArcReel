@@ -132,12 +132,25 @@ html:is([data-v-radius="nova10"], [data-v-radius="nova8"]) {
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ---------------------------------------------------------------- 文字层级 */
+
+/* text-4 在所有收敛方案里都并入 muted-foreground（text-3） */
+html:is([data-v-textLevels="three"], [data-v-textLevels="twoUp"], [data-v-textLevels="twoDown"]) {
+  --color-text-4: var(--color-text-3);
+}
+html[data-v-textLevels="twoUp"] {
+  --color-text-2: var(--color-text);
+}
+html[data-v-textLevels="twoDown"] {
+  --color-text-2: var(--color-text-3);
+}
+
 /* ---------------------------------------------------------------- 运行中 */
 
 html:is([data-v-running="static"], [data-v-running="bar"]) :is(.motion-safe\:animate-pulse, .animate-ping, .animate-pulse:not([data-slot="skeleton"])) {
   animation: none !important;
 }
-html:is([data-v-running="static"], [data-v-running="bar"]) .animate-ping {
+html:is([data-v-running="pulseCount"], [data-v-running="static"], [data-v-running="bar"]) .animate-ping {
   display: none;
 }
 

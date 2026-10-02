@@ -98,6 +98,14 @@ function RunningIndicator({ count }: { count: number }) {
       </span>
     );
   }
+  if (axes.running === "pulseCount") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12px] text-text-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-primary motion-safe:animate-pulse" />
+        <span className="num">{count}</span> 个运行中
+      </span>
+    );
+  }
   if (axes.running === "static") {
     return (
       <span className="inline-flex items-center gap-1.5 text-[12px] text-text-2">
@@ -144,7 +152,7 @@ function TaskRow({ task }: { task: Pick<TaskItem, "task_id" | "task_type" | "res
         <span className="h-1.5 w-1.5 shrink-0" />
       ) : (
         <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotClass} ${running && axes.running === "pulse" ? "motion-safe:animate-pulse" : ""}`}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotClass} ${running && (axes.running === "pulse" || axes.running === "pulseCount") ? "motion-safe:animate-pulse" : ""}`}
         />
       )}
       <span className="min-w-0 flex-1 truncate text-text-2">
@@ -489,6 +497,40 @@ export function VisualSpecimenPage() {
                     <span className="text-[11px] text-text-3">{t}</span>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        </Section>
+
+        {/* ------------------------------------------------ 文字层级 */}
+        <Section
+          axis="textLevels"
+          title="文字层级"
+          note="对比度按页面底色计：text 17.8、text-2 11.0、text-3 5.7、text-4 3.1（低于 AA 的 4.5）。代码里 text-2 有 317 处、text-3 有 560 处、text-4 有 612 处；text-4 多用于 10.5–11.5px 的提示与路径。各方案都会删掉 text-4，区别只在 text-2 的去向。"
+        >
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="rounded-lg border border-hairline-soft p-4">
+              <div className="text-[15px] font-semibold text-text">自定义供应商</div>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-text-2">
+                接入兼容 OpenAI 协议的第三方服务。保存后，图片与视频生成可以选择这里配置的模型；修改地址或密钥不会影响已经生成的素材。
+              </p>
+              <div className="mt-3 flex items-center gap-3 text-[12px] text-text-3">
+                <span>3 个模型</span>
+                <span>上次测试：2 小时前</span>
+              </div>
+              <p className="mt-2 font-mono text-[11px] text-text-4">https://api.example.com/v1</p>
+              <Input className="mt-3" placeholder="输入模型名称，例如 gpt-image-1" />
+            </div>
+            <div className="text-[13px] leading-relaxed text-text-3">
+              <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+                <span className="text-text">标题</span>
+                <span>text → foreground</span>
+                <span className="text-text-2">正文说明</span>
+                <span>text-2（317 处）→ {axes.textLevels === "twoUp" ? "foreground" : axes.textLevels === "twoDown" ? "muted-foreground" : "中间档（自定义）"}</span>
+                <span className="text-text-3">次要信息</span>
+                <span>text-3 → muted-foreground</span>
+                <span className="text-text-4">提示 / 路径</span>
+                <span>text-4（612 处）→ {axes.textLevels === "four" ? "保留" : "muted-foreground"}</span>
               </div>
             </div>
           </div>
