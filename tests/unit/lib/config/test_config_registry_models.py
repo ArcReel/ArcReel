@@ -192,6 +192,7 @@ class TestProviderRegistry:
         assert meta.models["agnes-video-v2.0"].hidden is True
 
         assert meta.models["agnes-image-2.5-flash"].resolutions == ["1K", "2K", "3K", "4K"]
+        assert meta.models["agnes-image-2.1-flash"].resolutions == ["1K", "2K"]
         assert meta.models["agnes-video-2.5-flash"].supported_durations == list(range(4, 13))
         assert meta.models["agnes-video-2.5-flash"].resolutions == ["720p"]
         assert meta.models["agnes-video-2.5"].supported_durations == list(range(4, 13))

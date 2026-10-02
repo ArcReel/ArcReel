@@ -215,9 +215,10 @@ def _safe_body_for_log(body: dict) -> dict:
     return view
 
 
-def _extract_task_id(body: dict) -> str:
-    """从提交响应取轮询用任务 id（``video_id`` / ``task_id`` / ``id``）。"""
-    for key in ("video_id", "task_id", "id"):
+def _extract_task_id(body: dict, *, prefer_video_id: bool) -> str:
+    """从提交响应取轮询用任务 id；2.5 轮询 video_id，v2.0 路径轮询 task_id。"""
+    keys = ("video_id", "task_id", "id") if prefer_video_id else ("task_id", "video_id", "id")
+    for key in keys:
         value = body.get(key)
         if isinstance(value, str) and value:
             return value
@@ -550,7 +551,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             provider=PROVIDER_AGNES,
             request=request,
         )
-        return _extract_task_id(resp.json())
+        return _extract_task_id(resp.json(), prefer_video_id=_uses_v25_contract(self._model))
 
     async def _poll_once(self, client: httpx.AsyncClient, task_id: str) -> dict:
         resp = await client.get(

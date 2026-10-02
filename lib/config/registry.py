@@ -1461,7 +1461,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 hidden=True,
-                resolutions=["1K", "2K", "3K", "4K"],
+                resolutions=["1K", "2K"],
                 pricing=_agnes_image_pricing(
                     "agnes-image-2.1-flash",
                     {"1K": 0.010, "2K": 0.018, "3K": 0.021, "4K": 0.024},

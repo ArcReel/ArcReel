@@ -239,6 +239,19 @@ class TestTextToVideo:
         assert str(downloaded.url) == "https://cdn.agnes/out.mp4"
         assert "Authorization" not in downloaded.headers
 
+    async def test_submit_prefers_task_id_for_v20(self, tmp_path: Path):
+        """v2.0 的轮询路径按 task_id；响应同时带 video_id 时不得改用后者。"""
+        with _agnes_api(base_url=_GATEWAY_BASE_URL) as routes:
+            routes.submit.mock(return_value=_json({"task_id": "task-v20", "video_id": "video-v20", "status": "queued"}))
+            routes.poll.mock(return_value=_json(_completed("task-v20", seconds="5")))
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4-bytes"))
+
+            backend = AgnesVideoBackend(api_key="sk-test", model="agnes-video-v2.0", base_url=_GATEWAY_BASE_URL)
+            result = await backend.generate(_request(tmp_path))
+
+        assert result.task_id == "task-v20"
+        assert only_request(routes.poll).url.path == "/v1/videos/task-v20"
+
     async def test_polls_through_in_progress(self, tmp_path: Path):
         in_progress = _json({"task_id": "t3", "status": "in_progress", "progress": 40})
 

@@ -157,7 +157,7 @@ class TestGenerate:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai") as from_openai,
+            patched_instructor_from_openai() as from_openai,
         ):
             from lib.backends.text_backends.agnes import AgnesTextBackend
 
