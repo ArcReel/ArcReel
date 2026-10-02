@@ -750,7 +750,7 @@ class TestVoiceConsistency:
         assert caps["voice_consistency"] == "soft"
 
     async def test_grok_imagine_soft(self, db_factory):
-        """Grok Imagine：恒有声、无参考音频通道 → soft。"""
+        """Grok Imagine：音轨可开关、无参考音频通道 → soft。"""
         caps = await _video_caps(db_factory, {"video_backend": "grok/grok-imagine-video"})
         assert caps["voice_consistency"] == "soft"
 

@@ -54,10 +54,10 @@ class GrokVideoBackend:
         保持 backend 为单一真相源。参考图上限取自第三方来源，官方文档未明确列出，
         不硬编当既成事实。
 
-        音轨恒有声：SDK 调用不带音轨开关，成片必然带音轨（``generate`` 结算时直接写死
-        ``generate_audio=True``），用户的关闭意图无处可下发。
+        音轨可开关：请求把音轨意图下发为 SDK 的 ``generate_audio``（缺省有声，``False`` 出无声
+        视频），``generate`` 结算按同一下发值记录。
         """
-        return VideoCapabilities(max_reference_images=7, audio_track=VideoAudioMode.ALWAYS_ON)
+        return VideoCapabilities(max_reference_images=7, audio_track=VideoAudioMode.CONTROLLABLE)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
@@ -105,7 +105,7 @@ class GrokVideoBackend:
             model=self._model,
             duration_seconds=actual_duration,
             video_uri=video_url,
-            generate_audio=True,
+            generate_audio=request.generate_audio,
         )
 
     async def _create_video(self, request: VideoGenerationRequest):
@@ -115,6 +115,7 @@ class GrokVideoBackend:
             "model": self._model,
             "duration": request.duration_seconds,
             "aspect_ratio": request.aspect_ratio,
+            "generate_audio": request.generate_audio,
             # 轮询在 SDK 内部，仍按请求快照里的全局超时收口，否则该设置独独对 Grok 不生效。
             "timeout": timedelta(seconds=request.poll_timeout_seconds),
             "interval": timedelta(seconds=5),

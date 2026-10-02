@@ -857,13 +857,16 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=[],
                 default=True,
                 supported_durations=list(range(1, 16)),
+                # 1080p 官方仅对 grok-imagine-video-1.5 开放，本模型只有 480p/720p 两档。
                 resolutions=["480p", "720p"],
-                # 不区分分辨率/音频的单一秒费率。
+                # 秒费率按分辨率分档、不随音轨变化（https://docs.x.ai/developers/models/grok-imagine-video）；
+                # 未指定分辨率时 xAI 按 480p 出片，结算跟随同一默认档。
                 pricing=PerSecondMatrix(
-                    rates={"grok-imagine-video": {("", None): 0.050}},
+                    rates={"grok-imagine-video": {("480p", None): 0.050, ("720p", None): 0.070}},
                     default_model="grok-imagine-video",
-                    dimensions="flat",
+                    dimensions="resolution_only",
                     currency="USD",
+                    default_resolution="480p",
                 ),
             ),
         },
