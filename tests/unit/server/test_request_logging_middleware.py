@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -17,9 +18,12 @@ def _access_log_records(records: list[logging.LogRecord]) -> list[logging.LogRec
     return [r for r in records if r.name == "server.app" and r.msg == _ACCESS_LOG_FMT]
 
 
-def _build_app_with_ok_routes() -> FastAPI:
+def _build_app_with_ok_routes(*, quiet_slow_threshold_ms: float | None = None) -> FastAPI:
     app = FastAPI()
-    app.middleware("http")(request_logging_middleware)
+    if quiet_slow_threshold_ms is None:
+        app.middleware("http")(request_logging_middleware)
+    else:
+        app.middleware("http")(partial(request_logging_middleware, quiet_slow_threshold_ms=quiet_slow_threshold_ms))
 
     # 以下路由桩由装饰器就地注册，函数体内无其它引用；basedpyright 把函数作用域内的符号一律
     # 判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
@@ -38,14 +42,10 @@ def _build_app_with_ok_routes() -> FastAPI:
     return app
 
 
-@pytest.mark.asyncio
-async def test_quiet_endpoint_fast_200_is_debug(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_quiet_endpoint_fast_200_is_debug(caplog: pytest.LogCaptureFixture) -> None:
     # 阈值放到无穷大，使“快响应”判定不依赖真实耗时（慢 runner 上首个请求要构建中间件栈）。
-    monkeypatch.setattr("server.app.QUIET_SLOW_THRESHOLD_MS", float("inf"))
     caplog.set_level(logging.DEBUG, logger="server.app")
-    app = _build_app_with_ok_routes()
+    app = _build_app_with_ok_routes(quiet_slow_threshold_ms=float("inf"))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp_list = await client.get("/api/v1/tasks")
@@ -59,14 +59,10 @@ async def test_quiet_endpoint_fast_200_is_debug(
     assert all(r.levelno == logging.DEBUG for r in records)
 
 
-@pytest.mark.asyncio
-async def test_quiet_endpoint_slow_200_is_info(
-    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_quiet_endpoint_slow_200_is_info(caplog: pytest.LogCaptureFixture) -> None:
     """阈值为 0 时任何耗时都算慢，静默路径的 2xx 也要走 INFO。"""
-    monkeypatch.setattr("server.app.QUIET_SLOW_THRESHOLD_MS", 0.0)
     caplog.set_level(logging.DEBUG, logger="server.app")
-    app = _build_app_with_ok_routes()
+    app = _build_app_with_ok_routes(quiet_slow_threshold_ms=0.0)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/api/v1/tasks")
@@ -77,7 +73,6 @@ async def test_quiet_endpoint_slow_200_is_info(
     assert records[0].levelno == logging.INFO
 
 
-@pytest.mark.asyncio
 async def test_quiet_endpoint_5xx_still_info(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG, logger="server.app")
     app = FastAPI()
@@ -98,7 +93,6 @@ async def test_quiet_endpoint_5xx_still_info(caplog: pytest.LogCaptureFixture) -
     assert records[0].levelno == logging.INFO
 
 
-@pytest.mark.asyncio
 async def test_non_quiet_endpoint_200_still_info(caplog: pytest.LogCaptureFixture) -> None:
     """回归保护：非静默路径的行为不变。"""
     caplog.set_level(logging.DEBUG, logger="server.app")

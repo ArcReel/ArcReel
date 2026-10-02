@@ -107,8 +107,7 @@ class TestRealResolverResponse:
                 "video_provider_i2v": fixed_model if fixed_bucket == "i2v" else self.VEO,
             }
         )
-        monkeypatch.setattr(projects, "async_session_factory", factory)
-        client = build_projects_client(monkeypatch, pm)
+        client = build_projects_client(monkeypatch, pm, session_factory=factory)
         with client:
             response = client.get("/api/v1/projects/ready/video-capabilities")
         assert response.status_code == 200, response.text
@@ -122,12 +121,13 @@ class TestRealResolverResponse:
 
     @pytest.fixture
     def client(self, tmp_path, db_engine, monkeypatch) -> TestClient:
-        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
         pm = _FakePM(tmp_path)
         pm.project_data["ready"]["content_mode"] = "narration"
         pm.project_data["ready"]["video_backend"] = self.VEO
         pm.project_data["ready"]["model_settings"] = {self.VEO: {"resolution": "1080p"}}
-        return build_projects_client(monkeypatch, pm)
+        return build_projects_client(
+            monkeypatch, pm, session_factory=async_sessionmaker(db_engine, expire_on_commit=False)
+        )
 
     def test_saved_resolution_narrows_durations_with_reasons(self, client):
         """缺省上下文按项目已保存档位收窄；supported_durations 仍是型号声明全集。"""
@@ -248,11 +248,10 @@ class TestDurationConstraintsMatchRequestFacts:
         if saved is not None:
             project["model_settings"] = {self.VEO: {"resolution": saved}}
         pm.project_data["ready"] = project
-        monkeypatch.setattr(projects, "async_session_factory", factory)
         params: dict[str, str] = {"video_backend": self.VEO} if candidate else {}
         if query is not None:
             params["resolution"] = query
-        with build_projects_client(monkeypatch, pm) as client:
+        with build_projects_client(monkeypatch, pm, session_factory=factory) as client:
             response = client.get("/api/v1/projects/ready/video-capabilities", params=params)
 
         saved_configuration = {**project, bucket_key: self.VEO}
@@ -286,8 +285,9 @@ class TestDurationConstraintsMatchRequestFacts:
         )
         pm = _FakePM(tmp_path)
         pm.project_data["ready"]["video_backend"] = self.VEO
-        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
-        with build_projects_client(monkeypatch, pm) as client:
+        with build_projects_client(
+            monkeypatch, pm, session_factory=async_sessionmaker(db_engine, expire_on_commit=False)
+        ) as client:
             response = client.get("/api/v1/projects/ready/video-capabilities", params={"resolution": "4k"})
         assert response.status_code == 422
         assert response.json()["detail"] == zh_errors.MESSAGES["video_supported_durations_incompatible"].format(
@@ -308,11 +308,12 @@ class TestDurationConstraintsMatchRequestFacts:
                 "model_settings": {self.VEO: {"resolution": "1080p"}},
             }
         )
-        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
         params = {"resolution": "720p", "uses_reference_images": "false"}
         if candidate:
             params["video_backend"] = self.VEO
-        with build_projects_client(monkeypatch, pm) as client:
+        with build_projects_client(
+            monkeypatch, pm, session_factory=async_sessionmaker(db_engine, expire_on_commit=False)
+        ) as client:
             response = client.get("/api/v1/projects/ready/video-capabilities", params=params)
 
         assert response.status_code == 200, response.text

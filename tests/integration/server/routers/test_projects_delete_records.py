@@ -8,7 +8,6 @@ from lib.db.repositories.session_repo import SessionRepository
 from lib.db.repositories.task_repo import TaskRepository
 from lib.db.repositories.usage_repo import UsageFilters, UsageRepository
 from lib.project.project_manager import ProjectManager
-from server.routers import projects
 from tests.integration.server.routers.projects_router_support import build_projects_client
 
 BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
@@ -46,9 +45,8 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
     manager = ProjectManager(tmp_path)
     manager.create_project("demo")
     old = await _seed_old_project(db_factory)
-    monkeypatch.setattr(projects, "async_session_factory", db_factory)
 
-    with build_projects_client(monkeypatch, manager) as client:
+    with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
         response = client.delete("/api/v1/projects/demo")
     assert response.status_code == 200
     manager.create_project("demo")
@@ -78,9 +76,8 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
 
 async def test_delete_missing_project_is_404_and_leaves_records(tmp_path, monkeypatch, db_factory):
     old = await _seed_old_project(db_factory)
-    monkeypatch.setattr(projects, "async_session_factory", db_factory)
 
-    with build_projects_client(monkeypatch, ProjectManager(tmp_path)) as client:
+    with build_projects_client(monkeypatch, ProjectManager(tmp_path), session_factory=db_factory) as client:
         response = client.delete("/api/v1/projects/demo")
     assert response.status_code == 404
 

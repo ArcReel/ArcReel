@@ -447,8 +447,11 @@ class _FakeSummaries:
         )
 
 
-def build_projects_client(monkeypatch, fake_pm, fake_summaries=None):
+def build_projects_client(monkeypatch, fake_pm, fake_summaries=None, *, session_factory=None):
+    """``session_factory`` 给出时，路由经它开数据库会话（默认是生产的 ``async_session_factory``）。"""
     monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
+    if session_factory is not None:
+        monkeypatch.setattr(projects, "async_session_factory", session_factory)
 
     app = FastAPI()
     app.dependency_overrides[projects.get_workflow_state_service] = lambda: fake_summaries or _FakeSummaries()

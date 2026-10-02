@@ -13,7 +13,6 @@ from lib.generation.generation_worker import (
     _extract_provider,
     _read_int_env,
 )
-from lib.project.project_manager import ProjectManager
 from lib.project.task_project_claim import revoke_task_project_claims
 from lib.script.script_editor import ScriptEditError
 from tests.factories import activate_reference_project
@@ -614,13 +613,12 @@ class TestGenerationWorker:
             '[script_edit_items_not_list] {"kind": "segments", "type_name": "dict"}',
         )
 
-    async def test_task_whose_project_was_deleted_after_its_last_write_does_not_succeed(self, monkeypatch, tmp_path):
+    async def test_task_whose_project_was_deleted_after_its_last_write_does_not_succeed(self, monkeypatch):
         """执行器已写完、返回之前项目才被删除：产物随项目目录一起删掉了，任务不能报成功。"""
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
         )
-        monkeypatch.setattr("lib.generation.video_resume.get_project_manager", lambda: ProjectManager(tmp_path))
 
         async def _project_deleted_before_return(task, **_kwargs):
             revoke_task_project_claims([task["task_id"]])
