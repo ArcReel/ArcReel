@@ -79,16 +79,14 @@ class TestGenerate:
     async def test_structured_output(self, backend):
         mock_chat = MagicMock()
         mock_response = SimpleNamespace(content='{"name": "test"}')
-        mock_parsed = MagicMock()
-        mock_parsed.model_dump_json.return_value = '{"name": "test"}'
-        mock_chat.parse = AsyncMock(return_value=(mock_response, mock_parsed))
+        mock_chat.sample = AsyncMock(return_value=mock_response)
         backend._test_client.chat.create.return_value = mock_chat
 
         schema = {"type": "object", "properties": {"name": {"type": "string"}}}
         result = await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert result.text == '{"name": "test"}'
-        dynamic_model = mock_chat.parse.call_args.args[0]
+        dynamic_model = backend._test_client.chat.create.call_args.kwargs["response_format"]
         assert set(dynamic_model.model_fields) == {"name"}
         name_field = dynamic_model.model_fields["name"]
         assert name_field.annotation == (str | None)
@@ -112,9 +110,7 @@ class TestGenerate:
 
         mock_chat = MagicMock()
         mock_response = SimpleNamespace(content='{"name": "test"}', finish_reason="length")
-        mock_parsed = MagicMock()
-        mock_parsed.model_dump_json.return_value = '{"name": "test"}'
-        mock_chat.parse = AsyncMock(return_value=(mock_response, mock_parsed))
+        mock_chat.sample = AsyncMock(return_value=mock_response)
         backend._test_client.chat.create.return_value = mock_chat
 
         schema = {"type": "object", "properties": {"name": {"type": "string"}}}
@@ -122,6 +118,32 @@ class TestGenerate:
             await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
         assert exc_info.value.provider == "grok"
+
+    async def test_truncated_invalid_json_raises_truncation_not_validation_error(self, backend):
+        """截断的结构化响应是残缺 JSON：先于校验判截断，抛 TextOutputTruncatedError 而不是 pydantic ValidationError。"""
+        from lib.backends.text_backends.base import TextOutputTruncatedError
+
+        mock_chat = MagicMock()
+        mock_chat.sample = AsyncMock(
+            return_value=SimpleNamespace(content='{"name": "te', finish_reason="REASON_MAX_LEN")
+        )
+        backend._test_client.chat.create.return_value = mock_chat
+
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
+        with pytest.raises(TextOutputTruncatedError):
+            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
+
+    async def test_complete_invalid_json_still_fails_validation(self, backend):
+        """未截断但不满足 schema 的响应仍抛校验错误，交给调用方的校验重试。"""
+        from pydantic import ValidationError
+
+        mock_chat = MagicMock()
+        mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="{}", finish_reason="REASON_STOP"))
+        backend._test_client.chat.create.return_value = mock_chat
+
+        schema = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
+        with pytest.raises(ValidationError):
+            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
     async def test_free_text_truncation_only_warns(self, backend, caplog):
         """自由文本（无 response_schema）被截断时告警并在结果上标记截断，不抛错。"""

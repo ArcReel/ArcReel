@@ -32,6 +32,7 @@ from starlette.background import BackgroundTask
 logger = logging.getLogger(__name__)
 
 from lib.agent.profile_manifest import ContentMode
+from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
@@ -114,6 +115,7 @@ from server.services.tasks.video_caps import (
     capability_request_facts,
     duration_constraints_payload,
 )
+from server.tool_runtime import _truncation_problem
 
 router = APIRouter()
 
@@ -1980,6 +1982,12 @@ async def generate_overview(name: str, _t: Translator):
         # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
         logger.exception("概述生成响应解析失败")
         raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid")) from exc
+    except TextOutputTruncatedError as exc:
+        # 输出被最大输出长度截断：与各文本任务同一个问题票形状，前端据此给出登记输出长度或换模型的出路
+        logger.warning("概述生成输出被截断: name=%s (%s)", name, exc)
+        raise UnprocessableError("text_output_truncated", model=exc.model).with_diagnostic(
+            _truncation_problem(exc).model_dump()
+        ) from exc
     except EmptySourceError as e:
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e

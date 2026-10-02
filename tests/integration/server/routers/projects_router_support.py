@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.project.project_manager import EmptySourceError
 from lib.script.script_batch_edit import (
     InsertAfterOperation,
@@ -90,6 +91,7 @@ class _FakePM:
         (self.base / "no-provider").mkdir(parents=True, exist_ok=True)
         (self.base / "corrupted").mkdir(parents=True, exist_ok=True)
         (self.base / "bad-schema").mkdir(parents=True, exist_ok=True)
+        (self.base / "truncated").mkdir(parents=True, exist_ok=True)
         # 上传后概览生成失败的软降级路径：项目存在，但 generate_overview 抛带路径异常
         (self.base / "leaky").mkdir(parents=True, exist_ok=True)
 
@@ -273,6 +275,11 @@ class _FakePM:
             # 模拟供应商解析链路内部重新 load_project 时命中损坏的 project.json：
             # JSONDecodeError 是 ValueError 子类，不该被误判为「未配置供应商」
             json.loads("{not valid json")
+        if name == "truncated":
+            # 模拟文本模型的输出被最大输出长度截断（TextGenerator 补齐 provider_id / custom_model 后抛出）
+            raise TextOutputTruncatedError(
+                provider="openai", model="my-llm", output_tokens=64, provider_id="custom-3", custom_model=True
+            )
         if name == "bad-schema":
             # 模拟模型输出未通过 schema 校验：pydantic ValidationError 同样是 ValueError 子类，
             # 不该被误判为「未配置供应商」

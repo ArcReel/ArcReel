@@ -9,6 +9,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { costEntries, formatCost, totalBreakdown } from "@/utils/cost-format";
 import { errMsg } from "@/utils/async";
+import { outputTruncationOfError, type OutputTruncation } from "@/utils/output-truncation";
 import { itemCountKey, normalizeRoute } from "@/utils/generation-mode";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
@@ -16,6 +17,7 @@ import { AdInitCanvas } from "./AdInitCanvas";
 import { AdBriefCard } from "./AdBriefCard";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
+import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 
 interface OverviewCanvasProps {
@@ -70,6 +72,8 @@ export function OverviewCanvas({
   }, [projectName, projectData?.episodes, debouncedFetch]);
 
   const [regenerating, setRegenerating] = useState(false);
+  // 重新生成因输出被截断而失败时的出路（登记最大输出长度或换模型）；toast 会消失，出路留在概述卡上直到下次重试。
+  const [regenerateTruncation, setRegenerateTruncation] = useState<OutputTruncation | null>(null);
   const [confirmingRegenerate, setConfirmingRegenerate] = useState(false);
 
   // 欢迎页的上传对话框打开期间欢迎页保持挂载：逐集原文登记出第一集后项目就不再是空项目，
@@ -127,11 +131,13 @@ export function OverviewCanvas({
 
   const handleRegenerate = useCallback(async () => {
     setRegenerating(true);
+    setRegenerateTruncation(null);
     try {
       await API.generateOverview(projectName);
       await refreshProject();
       useAppStore.getState().pushToast(t("project_overview_regenerated"), "success");
     } catch (err) {
+      setRegenerateTruncation(outputTruncationOfError(err));
       useAppStore
         .getState()
         .pushNotification(t("regenerate_failed", { message: errMsg(err) }), "error");
@@ -324,6 +330,12 @@ export function OverviewCanvas({
                   </>
                 )}
               </div>
+
+              {regenerateTruncation && !readOnly ? (
+                <div role="alert" className="mb-3 text-[12px]">
+                  <OutputTruncationHint truncation={regenerateTruncation} />
+                </div>
+              ) : null}
 
               {editingOverview && !readOnly ? (
                 <div className="space-y-3">
