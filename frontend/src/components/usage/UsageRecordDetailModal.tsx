@@ -18,6 +18,7 @@ import {
   formatDurationMs,
   providerLabelResolver,
   purposeKey,
+  usageProjectLabel,
 } from "./usage-record-format";
 
 interface UsageRecordDetailModalProps {
@@ -198,7 +199,7 @@ export function UsageRecordDetailModal({
   providerLabel,
   onClose,
 }: UsageRecordDetailModalProps) {
-  const { t } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
   const titleId = useId();
   const [rawOpen, setRawOpen] = useState(false);
 
@@ -238,7 +239,7 @@ export function UsageRecordDetailModal({
               />
               <span>{t(`dashboard:${media.labelKey}`)}</span>
               <span aria-hidden="true">·</span>
-              <span>{detail.project_name || t("dashboard:usage_project_untitled")}</span>
+              <span>{usageProjectLabel(detail.project_name, t, i18n.language)}</span>
               <span aria-hidden="true">·</span>
               <span style={{ color: STATUS_COLORS[detail.status] }}>
                 {t(`dashboard:${STATUS_LABEL_KEYS[detail.status]}`)}

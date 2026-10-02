@@ -5,7 +5,7 @@ import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { UsageStatsBlock, UsageSummary } from "@/types";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
-import { formatRatio, providerLabelResolver } from "./usage-record-format";
+import { formatRatio, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 
 /** 构成表的三个维度；模型行按 (provider, model) 分组。 */
 type BreakdownDim = "project" | "provider" | "model";
@@ -55,14 +55,14 @@ export function UsageBreakdownCard({
   onChange,
   wide,
 }: UsageBreakdownCardProps) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const [dim, setDim] = useState<BreakdownDim>("provider");
   const providerLabel = providerLabelResolver(summary);
   const primary = summary?.primary_currency ?? null;
 
   const rows = buildRows(dim, summary, filters, {
     providerLabel,
-    untitled: t("usage_project_untitled"),
+    projectLabel: (name: string) => usageProjectLabel(name, t, i18n.language),
     other: (count: number) => t("usage_breakdown_other", { count }),
   });
   const totalCalls = Math.max(1, summary?.kpi.calls ?? 0);
@@ -224,7 +224,7 @@ function CostCell({ cost, primary }: { cost: Record<string, number>; primary: st
 
 interface RowLabels {
   providerLabel: (provider: string | null) => string;
-  untitled: string;
+  projectLabel: (name: string) => string;
   other: (count: number) => string;
 }
 
@@ -246,7 +246,7 @@ function buildRows(
     for (const row of summary.breakdown.project.rows) {
       rows.push({
         key: `project:${row.project_name}`,
-        name: row.project_name || labels.untitled,
+        name: labels.projectLabel(row.project_name),
         sub: null,
         stats: row,
         active: filters.project === row.project_name,

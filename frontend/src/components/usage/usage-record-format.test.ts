@@ -7,6 +7,7 @@ import {
   formatCount,
   formatDurationMs,
   formatRatio,
+  usageProjectLabel,
 } from "./usage-record-format";
 
 /** 取当前语言的 dashboard 取词器，行为与组件里的 `useTranslation("dashboard")` 一致。 */
@@ -92,5 +93,20 @@ describe("formatDurationMs", () => {
   it("shows a dash when there is no duration to show", () => {
     expect(formatDurationMs(null, dashboardT())).toBe("—");
     expect(formatDurationMs(-1, dashboardT())).toBe("—");
+  });
+});
+
+describe("usageProjectLabel", () => {
+  it("shows a deleted project by its old name and deletion date, not the stored tombstone", () => {
+    const t = dashboardT();
+    expect(usageProjectLabel("demo#deleted-20261002T120000Z", t, "zh")).toBe("demo（2026年10月2日删除）");
+  });
+
+  it("keeps live project names as they are and labels endpoint trials as untitled", async () => {
+    await i18n.changeLanguage("en");
+    const t = dashboardT();
+    expect(usageProjectLabel("demo", t, "en")).toBe("demo");
+    expect(usageProjectLabel("", t, "en")).toBe("Untitled");
+    expect(usageProjectLabel("demo#deleted-20261002T120000Z", t, "en")).toBe("demo (deleted Oct 2, 2026)");
   });
 });

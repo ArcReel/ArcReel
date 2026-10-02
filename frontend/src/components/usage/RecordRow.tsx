@@ -13,6 +13,7 @@ import {
   formatDurationMs,
   purposeKey,
   truncateReason,
+  usageProjectLabel,
 } from "./usage-record-format";
 import { episodeItemRefLabel } from "@/utils/episode-display";
 import type { UsageRecordView } from "./usage-record-view";
@@ -88,12 +89,12 @@ export function RecordRow({
   onOpenDetail,
   trailing,
 }: RecordRowProps) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const target = useTargetLabel(record);
   const media = MEDIA_META[record.mediaType];
   const MediaIcon = media.Icon;
   const model = record.model ?? t("usage_model_unresolved");
-  const projectLabel = record.projectName || t("usage_project_untitled");
+  const projectLabel = usageProjectLabel(record.projectName, t, i18n.language);
   const phraseKey = failurePhraseKey(record.errorCode);
   const failureReason =
     record.status === "failed"

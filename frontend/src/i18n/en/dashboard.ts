@@ -826,6 +826,7 @@ export default {
   'usage_purpose_assistant_session': 'Assistant session',
   'usage_purpose_endpoint_trial': 'Endpoint trial',
   'usage_project_untitled': 'Untitled',
+  'usage_project_deleted': '{{name}} (deleted {{date}})',
   'usage_media_image': 'Image',
   'usage_media_video': 'Video',
   'usage_media_text': 'Text',

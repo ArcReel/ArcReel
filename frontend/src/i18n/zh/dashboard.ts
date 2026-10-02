@@ -825,6 +825,7 @@ export default {
   'usage_purpose_assistant_session': '助手会话',
   'usage_purpose_endpoint_trial': '端点试跑',
   'usage_project_untitled': '未命名',
+  'usage_project_deleted': '{{name}}（{{date}}删除）',
   'usage_media_image': '图片',
   'usage_media_video': '视频',
   'usage_media_text': '文本',

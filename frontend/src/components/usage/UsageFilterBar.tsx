@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { CallType, EpisodeItemRef, UsageSummary } from "@/types";
 import type { UsageRecordsFilters, UsageTimeRange } from "@/stores/usage-records-store";
 import { episodeItemRefLabel } from "@/utils/episode-display";
-import { MEDIA_META, providerLabelResolver } from "./usage-record-format";
+import { MEDIA_META, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 
 interface UsageFilterBarProps {
   filters: UsageRecordsFilters;
@@ -40,7 +40,7 @@ export function UsageFilterBar({
   onRefresh,
   refreshing,
 }: UsageFilterBarProps) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const providerLabel = providerLabelResolver(summary);
   const options = summary?.filter_options;
   // 选定供应商后只列它的模型：跨供应商的同名模型混在一起既选不准也读不懂。
@@ -48,7 +48,7 @@ export function UsageFilterBar({
     (option) => !filters.provider || option.provider === filters.provider,
   );
 
-  const projectLabel = (name: string) => name || t("usage_project_untitled");
+  const projectLabel = (name: string) => usageProjectLabel(name, t, i18n.language);
 
   const chips: { key: string; label: string; clear: Partial<UsageRecordsFilters> }[] = [];
   if (filters.project !== null) {

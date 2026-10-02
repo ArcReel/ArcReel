@@ -820,6 +820,7 @@ export default {
   'usage_purpose_assistant_session': 'Phiên trợ lý',
   'usage_purpose_endpoint_trial': 'Chạy thử điểm cuối',
   'usage_project_untitled': 'Chưa đặt tên',
+  'usage_project_deleted': '{{name}} (đã xóa {{date}})',
   'usage_media_image': 'Hình ảnh',
   'usage_media_video': 'Video',
   'usage_media_text': 'Văn bản',
