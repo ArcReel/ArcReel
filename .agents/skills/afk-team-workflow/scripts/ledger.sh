@@ -138,9 +138,13 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p .afk
 LEDGER_FILE=".afk/${BATCH_ID}.jsonl"
 
-if [[ -s "$LEDGER_FILE" ]] && jq -se 'any(.[]; .kind == "closed")' "$LEDGER_FILE" >/dev/null 2>&1 \
-  && [[ "$KIND" != "decision" ]]; then
-  die "batch-id is already closed; only a decision on escalated items may follow, otherwise use a new unique batch-id: $BATCH_ID"
+if [[ -s "$LEDGER_FILE" ]]; then
+  # fail closed: an unparseable ledger must not read as "not closed"
+  IS_CLOSED=$(jq -s 'any(.[]; .kind == "closed")' "$LEDGER_FILE" 2>/dev/null) \
+    || die "ledger is not valid JSONL, refusing to append: $LEDGER_FILE"
+  if [[ "$IS_CLOSED" == "true" && "$KIND" != "decision" ]]; then
+    die "batch-id is already closed; only a decision on escalated items may follow, otherwise use a new unique batch-id: $BATCH_ID"
+  fi
 fi
 if [[ -e "$LEDGER_FILE" && ! -s "$LEDGER_FILE" ]]; then
   die "batch-id has an empty ledger reservation; use a new unique batch-id: $BATCH_ID"
