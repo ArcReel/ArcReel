@@ -1,4 +1,4 @@
-"""删除项目时仍在执行的任务放弃落盘：不写进同名的新项目，也不在已删除项目下留下残余目录。"""
+"""删除或覆盖项目时仍在执行的任务放弃落盘：不写进同名的新项目，也不在已删除项目下留下残余目录。"""
 
 import contextvars
 from pathlib import Path
@@ -11,6 +11,7 @@ from lib.db.repositories.task_repo import TaskRepository
 from lib.generation.generation_worker import GenerationWorker
 from lib.generation.task_failure import encode_failure
 from lib.project.project_manager import ProjectManager, get_project_manager
+from server.services.project.project_archive import ProjectArchiveService
 from server.services.tasks import generation_tasks
 from tests.fakes import refuse_resume_execution
 from tests.http_capture import capture_http
@@ -39,11 +40,12 @@ def _tree(root: Path) -> dict[str, bytes | None]:
     }
 
 
-@pytest.mark.parametrize("recreate", [True, False], ids=["recreated", "deleted-only"])
-async def test_task_running_when_project_deleted_leaves_no_trace(monkeypatch, db_factory, recreate):
+@pytest.mark.parametrize("replacement", ["recreated", "deleted-only", "overwritten"])
+async def test_task_running_when_project_replaced_leaves_no_trace(monkeypatch, db_factory, replacement):
     manager = get_project_manager()
     _create_demo(manager)
     project_dir = manager.get_project_path("demo")
+    archive_path, _ = ProjectArchiveService(manager).export_project("demo")
     generator = build_generator(project_dir, DashScopeImageBackend(api_key="sk", model="qwen-image-2.0"))
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
 
@@ -56,15 +58,24 @@ async def test_task_running_when_project_deleted_leaves_no_trace(monkeypatch, db
     new_project: dict[str, bytes | None] = {}
     with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
 
-        def _delete_and_recreate() -> None:
-            assert client.delete("/api/v1/projects/demo").status_code == 200
-            if recreate:
+        def _replace() -> None:
+            if replacement == "overwritten":
+                response = client.post(
+                    "/api/v1/projects/import",
+                    files={"file": ("demo.zip", archive_path.read_bytes(), "application/zip")},
+                    data={"conflict_policy": "overwrite"},
+                )
+                assert response.json()["conflict_resolution"] == "overwritten"
+            else:
+                assert client.delete("/api/v1/projects/demo").status_code == 200
+            if replacement == "recreated":
                 _create_demo(manager)
+            if replacement != "deleted-only":
                 new_project.update(_tree(project_dir))
 
         def _delete_while_generating(_request: httpx.Request) -> httpx.Response:
-            # 删除与重建来自别的请求，不在任务的执行上下文里。
-            contextvars.Context().run(_delete_and_recreate)
+            # 删除、重建与覆盖导入来自别的请求，不在任务的执行上下文里。
+            contextvars.Context().run(_replace)
             return httpx.Response(
                 200, json={"output": {"choices": [{"message": {"content": [{"image": RESULT_URL}]}}]}}
             )
@@ -84,7 +95,7 @@ async def test_task_running_when_project_deleted_leaves_no_trace(monkeypatch, db
     assert finished is not None
     assert finished["status"] == "failed"
     assert finished["error_message"] == encode_failure("project_deleted_during_task")
-    if recreate:
+    if replacement != "deleted-only":
         assert _tree(project_dir) == new_project
     else:
         assert not project_dir.exists()

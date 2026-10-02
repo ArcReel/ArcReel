@@ -1,50 +1,16 @@
 """删除项目后，数据库里的旧记录与同名新项目断开关联，费用统计仍按已删除项目保留。"""
 
-from datetime import UTC, datetime
-
-from lib.backends.providers import CallStatus
-from lib.db.models.api_call import ApiCall
 from lib.db.repositories.session_repo import SessionRepository
 from lib.db.repositories.task_repo import TaskRepository
 from lib.db.repositories.usage_repo import UsageFilters, UsageRepository
 from lib.project.project_manager import ProjectManager
-from tests.integration.server.routers.projects_router_support import build_projects_client
-
-BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
-
-
-async def _seed_old_project(db_factory) -> dict[str, str]:
-    async with db_factory() as session:
-        repo = TaskRepository(session)
-        queued = await repo.enqueue(
-            project_name="demo", task_type="storyboard", media_type="image", resource_id="E1S01"
-        )
-        running = await repo.enqueue(project_name="demo", task_type="video", media_type="video", resource_id="E1S02")
-        claimed = await repo.claim_next("video")
-        assert (claimed or {})["task_id"] == running["task_id"]
-        session.add(
-            ApiCall(
-                project_name="demo",
-                call_type="video",
-                model="veo",
-                provider="gemini",
-                status=CallStatus.SUCCESS,
-                started_at=BASE_TIME,
-                cost_amount=1.5,
-                currency="USD",
-                segment_id="E1S02",
-                task_id=running["task_id"],
-            )
-        )
-        await session.commit()
-        await SessionRepository(session).create("demo", "sdk-old-demo", title="旧会话")
-    return {"queued": queued["task_id"], "running": running["task_id"]}
+from tests.integration.server.routers.projects_router_support import build_projects_client, seed_project_records
 
 
 async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monkeypatch, db_factory):
     manager = ProjectManager(tmp_path)
     manager.create_project("demo")
-    old = await _seed_old_project(db_factory)
+    old = await seed_project_records(db_factory)
 
     with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
         response = client.delete("/api/v1/projects/demo")
@@ -75,7 +41,7 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
 
 
 async def test_delete_missing_project_is_404_and_leaves_records(tmp_path, monkeypatch, db_factory):
-    old = await _seed_old_project(db_factory)
+    old = await seed_project_records(db_factory)
 
     with build_projects_client(monkeypatch, ProjectManager(tmp_path), session_factory=db_factory) as client:
         response = client.delete("/api/v1/projects/demo")

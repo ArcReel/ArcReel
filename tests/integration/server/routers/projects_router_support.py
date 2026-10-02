@@ -6,6 +6,7 @@ import shutil
 from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,7 +14,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from lib.backends.providers import CallStatus
 from lib.backends.text_backends.base import TextOutputTruncatedError
+from lib.db.models.api_call import ApiCall
+from lib.db.repositories.session_repo import SessionRepository
+from lib.db.repositories.task_repo import TaskRepository
 from lib.project.project_manager import EmptySourceError
 from lib.script.script_batch_edit import (
     InsertAfterOperation,
@@ -468,3 +473,32 @@ def build_projects_client(monkeypatch, fake_pm, fake_summaries=None, *, session_
 def override(client: TestClient, dependency: Callable[..., Any], provider: Callable[..., Any]) -> None:
     """给 ``build_projects_client`` 建好的 app 补挂依赖覆盖（``TestClient.app`` 的静态类型只是裸 ASGI 可调用）。"""
     cast(FastAPI, client.app).dependency_overrides[dependency] = provider
+
+
+async def seed_project_records(db_factory) -> dict[str, str]:
+    """给项目 demo 留下排队中与执行中的任务各一个、一条有费用的调用记录和一个助手会话，返回两个任务的 id。"""
+    async with db_factory() as session:
+        repo = TaskRepository(session)
+        queued = await repo.enqueue(
+            project_name="demo", task_type="storyboard", media_type="image", resource_id="E1S01"
+        )
+        running = await repo.enqueue(project_name="demo", task_type="video", media_type="video", resource_id="E1S02")
+        claimed = await repo.claim_next("video")
+        assert (claimed or {})["task_id"] == running["task_id"]
+        session.add(
+            ApiCall(
+                project_name="demo",
+                call_type="video",
+                model="veo",
+                provider="gemini",
+                status=CallStatus.SUCCESS,
+                started_at=datetime(2026, 3, 1, 12, 0, tzinfo=UTC),
+                cost_amount=1.5,
+                currency="USD",
+                segment_id="E1S02",
+                task_id=running["task_id"],
+            )
+        )
+        await session.commit()
+        await SessionRepository(session).create("demo", "sdk-old-demo", title="旧会话")
+    return {"queued": queued["task_id"], "running": running["task_id"]}

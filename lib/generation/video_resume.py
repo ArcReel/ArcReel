@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError, ResumeExpiredError
 from lib.billing.ledger import Ledger
+from lib.db.repositories.project_records import is_deleted_project_name
 from lib.generation.media_generator import cleanup_staged_video_output
 from lib.generation.task_failure import encode_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
@@ -108,9 +109,18 @@ class VideoResumeRunner:
         在扫描期即落 ``[restart_lost]``，该分支因而只在 media_type 为脏数据时可达。
 
         续跑与常规执行一样在任务对项目的认领下进行，项目在续跑期间被删除时任务以
-        ``project_deleted_during_task`` 失败。
+        ``project_deleted_during_task`` 失败。项目在重启前已删除时，任务挂在墓碑名下、解析不出
+        项目目录，同样以这个失败码收口。
         """
-        with claim_task_project(task["task_id"], task.get("project_name")) as claim:
+        project_name = task.get("project_name")
+        if isinstance(project_name, str) and is_deleted_project_name(project_name):
+            logger.warning("任务 %s 的项目已删除，不再续跑", task["task_id"])
+            await asyncio.shield(
+                self._queue.mark_task_failed(task["task_id"], encode_failure("project_deleted_during_task"))
+            )
+            await asyncio.shield(self.settle_unresumable_call(task, failure="project deleted before resume"))
+            return
+        with claim_task_project(task["task_id"], project_name) as claim:
             await self._run_claimed(task, claim)
 
     async def _run_claimed(self, task: dict[str, Any], claim: TaskProjectClaim) -> None:
