@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { useLayoutEffect, type RefObject } from "react";
 
 const FOCUSABLE =
   'a[href], area[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -16,8 +16,10 @@ const activeTraps: object[] = [];
  * 将键盘焦点困在 ref 容器内（Tab / Shift+Tab 循环）。
  * 多个 trap 同时激活时（对话框上再弹确认框），只有最后激活的那个处理 Tab。
  * 启用时把焦点移到容器内首个可聚焦元素；卸载时把焦点还给之前持有焦点的元素。
- * 例外：若 effect 触发时焦点已经在容器内（子组件在更深的 useEffect 里抢先调了
- * `someRef.current?.focus()`），保留它，避免反复夺焦。
+ * 初始聚焦在 layout effect 里同步完成：对话框一出现在 DOM 里，焦点就已经落进容器，
+ * 不会留下「已渲染、焦点未落定」的窗口（passive effect 可能晚于 DOM 变化才执行）。
+ * 例外：若 effect 触发时焦点已经在容器内（子组件在更深的 layout effect 里抢先调了
+ * `someRef.current?.focus()`），保留它，避免反复夺焦；子组件在 useEffect 里调的 focus 晚于本 hook，直接覆盖初始聚焦。
  *
  * 关闭回焦：调用方可传 `returnTargetRef`，cleanup 时优先恢复 ref 内保存的目标。
  * useEffect 在 React 里是 bottom-up：子组件的 nameRef.focus() 先于本 hook 跑，
@@ -31,7 +33,7 @@ export function useFocusTrap(
   active = true,
   returnTargetRef?: RefObject<HTMLElement | null>,
 ) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return;
     const container = ref.current;
     if (!container) return;
