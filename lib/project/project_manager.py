@@ -99,6 +99,7 @@ from lib.project.asset_types import (
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_schema import parse_project_schema_version
 from lib.project.script_entry_cleanup import purge_replaced_entry_media
+from lib.project.task_project_claim import ensure_task_project_claim
 from lib.references.reference_catalog import derivative_reference
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.reference_video.duration_migration import migrate_script_unit_durations
@@ -460,12 +461,31 @@ class ProjectManager:
                 return
             except FileNotFoundError:
                 # 目录已不存在——上一次重试已经成功,或并发的另一次删除已经完成,
-                # 删除目的已达成,无需继续重试或报错。
-                return
+                # 删除目的已达成,无需继续重试或报错。目录还在时，是并发的残余目录清理
+                # （remove_project_directory_residue）先删掉了其中的空目录，接着重试。
+                if not project_dir.exists():
+                    return
+                if attempt == attempts - 1:
+                    raise
             except OSError as exc:
                 if exc.errno not in self._DELETE_RETRYABLE_ERRNOS or attempt == attempts - 1:
                     raise
                 time.sleep(0.05)
+
+    def remove_project_directory_residue(self, name: str) -> None:
+        """删除同名项目目录里只剩空目录的残余。
+
+        项目删除后仍在执行的任务，可能经 ``mkdir(parents=True)`` 按旧名补建出空的子目录。目录下
+        有 project.json 时不动，那是同名新建或导入的项目；只删空目录，任何文件都原样保留。
+        """
+        project_dir = safe_join(self.projects_dir, self.normalize_project_name(name))
+        if (project_dir / self.PROJECT_FILE).exists():
+            return
+        for directory, _subdirs, _files in os.walk(project_dir, topdown=False):
+            try:
+                os.rmdir(directory)
+            except OSError:
+                continue
 
     def sync_agent_profile(
         self,
@@ -598,8 +618,13 @@ class ProjectManager:
         return totals
 
     def get_project_path(self, name: str) -> Path:
-        """获取项目路径（含路径遍历防护）"""
+        """获取项目路径（含路径遍历防护）。
+
+        在执行任务的上下文里，项目已在任务执行期间删除时抛 ``ProjectDeletedDuringTaskError``：
+        同名目录此时可能已属于新建或导入的另一个项目。
+        """
         name = self.normalize_project_name(name)
+        ensure_task_project_claim(name)
         try:
             project_dir = safe_join(self.projects_dir, name)
         except PathTraversalError as exc:

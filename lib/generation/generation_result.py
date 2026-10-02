@@ -221,6 +221,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_reference_images_required": GenerationAction.GENERATE_DEPENDENCY,
     "video_reference_images_unreadable": GenerationAction.GENERATE_DEPENDENCY,
     "video_reference_audio_unreadable": GenerationAction.GENERATE_DEPENDENCY,
+    # 项目已删除，产物无处可落，也没有可重试的对象。
+    "project_deleted_during_task": GenerationAction.NONE,
     # 进程重启 / 恢复失败：任务本身没有内在缺陷，重试即可。
     "dispatch_provider_requeue_failed": GenerationAction.RETRY,
     "restart_lost_image": GenerationAction.RETRY,

@@ -53,8 +53,9 @@ from lib.generation.render_lane import RENDER_LANE_CONCURRENCY, RENDER_MEDIA_TYP
 from lib.generation.restart_recovery import InterruptedCallSettler, RestartRecovery
 from lib.generation.task_failure import encode_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
-from lib.generation.video_resume import ResumeExecutor, VideoResumeRunner
+from lib.generation.video_resume import ResumeExecutor, VideoResumeRunner, fail_task_of_deleted_project
 from lib.project.project_manager import get_project_manager
+from lib.project.task_project_claim import TaskProjectClaim, claim_task_project
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -813,7 +814,17 @@ class GenerationWorker:
         关停超时等）打断：此时经 ``mark_task_interrupted`` 落 cancelled，避免任务停在
         running、被每次重启的自愈重新拉起。所有 DB 写入都用 ``asyncio.shield`` 包裹，
         打断落在 await 期间时让 UPDATE 跑完再向外传播。
+
+        执行在任务对项目的认领下进行。项目在执行期间被删除时认领作废，执行器在落盘前中止；
+        无论执行器以什么结果返回，任务都以 ``project_deleted_during_task`` 失败。
         """
+        task_id = task["task_id"]
+        with claim_task_project(task_id, task.get("project_name")) as claim:
+            await self._run_claimed_task(task, claim, claimed_provider_id=claimed_provider_id)
+
+    async def _run_claimed_task(
+        self, task: dict[str, Any], claim: TaskProjectClaim, *, claimed_provider_id: str | None
+    ) -> None:
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
         provider_id = claimed_provider_id or await self._provider_projection(task)
@@ -829,6 +840,9 @@ class GenerationWorker:
             await asyncio.shield(self.queue.mark_task_interrupted(task_id))
             raise
         except DispatchProviderChanged as exc:
+            if claim.revoked:
+                await fail_task_of_deleted_project(self.queue, task)
+                return
             # 视频任务在执行入口重新读取当前状态；若 provider 已从认领时的槽漂移，
             # 不得占着旧槽提交到新 provider。刷新 advisory 列并回队，让下一 cycle 在新槽
             # 完成容量校验后再执行。此处尚未调用 provider，不会造成重复扣费。
@@ -868,10 +882,16 @@ class GenerationWorker:
             )
             return
         except Exception as exc:
+            if claim.revoked:
+                await fail_task_of_deleted_project(self.queue, task)
+                return
             logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
             await asyncio.shield(self.queue.mark_task_failed(task_id, encode_task_failure_message(exc)))
             return
 
+        if claim.revoked:
+            await fail_task_of_deleted_project(self.queue, task)
+            return
         try:
             await asyncio.shield(self.queue.mark_task_succeeded(task_id, result))
         except asyncio.CancelledError:

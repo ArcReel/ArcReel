@@ -62,6 +62,7 @@ from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import EmptySourceError, EpisodeScriptReboundError, get_project_manager
+from lib.project.task_project_claim import revoke_task_project_claims
 from lib.prompts.style_templates import is_known_template, resolve_template_prompt
 from lib.script.blank_script import BlankScriptError, start_blank_script
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
@@ -1131,9 +1132,10 @@ async def delete_project(name: str, _t: Translator):
         manager = get_project_manager()
         project_dir = await asyncio.to_thread(manager.get_project_path, name)
         # 先让记录改挂墓碑名再删目录：删除中途失败时，旧记录也不会留给之后同名的新项目，
-        # 排队任务也不会在删了一半的目录上开跑。
+        # 排队任务也不会在删了一半的目录上开跑。执行中的任务照常跑完，但认领作废，放弃落盘。
         async with async_session_factory() as session:
-            await retire_project_records(session, project_dir.name)
+            running_task_ids = await retire_project_records(session, project_dir.name)
+        revoke_task_project_claims(running_task_ids)
         await asyncio.to_thread(manager.delete_project_directory, name)
         return {"success": True, "message": _t("project_deleted", name=name)}
     except FileNotFoundError as exc:

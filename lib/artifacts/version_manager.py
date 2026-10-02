@@ -32,6 +32,7 @@ from lib.project.resource_paths import (
     version_snapshot_dir,
     version_snapshot_relative_path,
 )
+from lib.project.task_project_claim import ensure_task_project_claim
 
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
@@ -156,8 +157,10 @@ class VersionManager:
         """确保版本目录结构存在。
 
         由写路径按需调用，不在 ``__init__`` 里建：只读用法（含改名的 ``dry_run`` 预演）
-        构造本类时不应在项目下留下空的 ``versions/`` 目录树。
+        构造本类时不应在项目下留下空的 ``versions/`` 目录树。项目已在执行中的任务期间删除时，
+        写路径在这里以 ``ProjectDeletedDuringTaskError`` 中止，不写进同名的新项目。
         """
+        ensure_task_project_claim(self.project_path.name)
         self.versions_dir.mkdir(parents=True, exist_ok=True)
         for resource_type in self.RESOURCE_TYPES:
             # 快照桶目录取自路径真相源：多段 id 的类型（角色衍生）落在嵌套子目录下。
