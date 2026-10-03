@@ -246,7 +246,6 @@ updates:
         patterns:
           - "wouter"
           - "zustand"
-          - "@headlessui/react"
           - "eventsource-parser"
         update-types:
           - "minor"

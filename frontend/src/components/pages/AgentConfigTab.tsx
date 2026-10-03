@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { AlertTriangle, ChevronRight, Loader2, RotateCw } from "lucide-react";
+import { Trans, useTranslation } from "react-i18next";
+import { Link } from "wouter";
 
 import { API } from "@/api";
-import { AgentLanguageRuleSection } from "@/components/agent/AgentLanguageRuleSection";
-import { AgentPageIntro } from "@/components/agent/AgentPageIntro";
+import { settingsSectionPath } from "@/app-routes";
 import { CredentialsSection } from "@/components/agent/CredentialsSection";
-import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
-import { FieldLabel } from "@/components/shared/FieldLabel";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
-import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
-import { SectionShell } from "@/components/shared/SectionShell";
+import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 
+/** Agent 会话启动时拼进系统提示的语言规范模版，正文在「提示词模版」中查看。 */
+const AGENT_LANGUAGE_RULE_ID = "text/agent_language_rule";
 
 /** 运行参数编辑单元：输入框里的原始字符串，保存时再转成数字。 */
 interface AgentRuntimeFields {
@@ -45,11 +48,67 @@ function buildPatch(fields: AgentRuntimeFields, saved: AgentRuntimeFields): Syst
   return patch;
 }
 
-interface AgentConfigTabProps {
-  visible: boolean;
+/**
+ * 全局设置「ArcReel Agent」：页头说明 → Agent 供应商列表 → 默认折叠的「高级」运行参数 → 语言规范说明。
+ * Agent 供应商的增改删与切换生效是即时动作；只有运行参数进入编辑单元，由外壳底行的保存栏提交。
+ */
+export function AgentConfigTab() {
+  const { t } = useTranslation("dashboard");
+
+  return (
+    <section aria-labelledby="arcreel-agent-title" className="flex flex-col gap-8">
+      <header className="flex flex-col gap-1">
+        <h2 id="arcreel-agent-title" className="text-lg font-medium">
+          {t("settings_arcreel_agent")}
+        </h2>
+        <p className="text-sm text-muted-foreground">{t("arcreel_agent_section_desc")}</p>
+        <p className="text-sm text-muted-foreground">
+          <Trans
+            t={t}
+            i18nKey="arcreel_agent_external_hint"
+            components={{
+              guide: <Link href={settingsSectionPath("external-agent")} className="text-primary underline-offset-4 hover:underline" />,
+            }}
+          />
+        </p>
+      </header>
+      <EmbeddedAgentNotice />
+      <CredentialsSection />
+      <RuntimeSettings />
+      <p className="text-sm text-muted-foreground">
+        <Trans
+          t={t}
+          i18nKey="arcreel_agent_language_rule_hint"
+          components={{
+            templates: (
+              <Link
+                href={settingsSectionPath("prompt-templates", { template: AGENT_LANGUAGE_RULE_ID })}
+                className="text-primary underline-offset-4 hover:underline"
+              />
+            ),
+          }}
+        />
+      </p>
+    </section>
+  );
 }
 
-export function AgentConfigTab({ visible }: AgentConfigTabProps) {
+/** 「内嵌 Agent 未配置」的就地提示：没有生效的 Agent 供应商时，工作台里的 Agent 无法对话。 */
+function EmbeddedAgentNotice() {
+  const { t } = useTranslation("dashboard");
+  const initialized = useConfigStatusStore((s) => s.initialized);
+  const configured = useConfigStatusStore((s) => s.isEmbeddedAgentConfigured);
+  if (!initialized || configured) return null;
+  return (
+    <Alert>
+      <AlertTriangle aria-hidden />
+      <AlertTitle>{t("embedded_agent_not_configured")}</AlertTitle>
+      <AlertDescription>{t("embedded_agent_not_configured_desc")}</AlertDescription>
+    </Alert>
+  );
+}
+
+function RuntimeSettings() {
   const { t } = useTranslation("dashboard");
   const [remoteData, setRemoteData] = useState<GetSystemConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -76,101 +135,107 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     return fieldsFrom(res);
   }, []);
   const unit = useEditUnit({ source, save: saveFields });
-  const saving = unit.status === "saving";
+  const disabled = !remoteData || unit.status === "saving";
   const updateField = (key: keyof AgentRuntimeFields, value: string) =>
     unit.setValue((prev) => ({ ...prev, [key]: value }));
 
-  if (loadError) {
-    return (
-      <div className={visible ? "px-1 py-8" : "hidden"}>
-        <div
-          role="alert"
-          className="flex items-start gap-1.5 rounded-md border px-4 py-3 text-[12.5px]"
-          style={{
-            borderColor: "color-mix(in oklab, var(--warn) 30%, transparent)",
-            background: "color-mix(in oklab, var(--warn) 15%, transparent)",
-            color: "var(--warn)",
-          }}
-        >
-          <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{t("load_failed", { message: loadError })}</span>
-        </div>
-        <button type="button" onClick={() => void load()} className={`${GHOST_BTN_CLS} mt-3`}>
-          <Loader2 className="h-3.5 w-3.5" aria-hidden />
-          {t("common:retry")}
-        </button>
-      </div>
-    );
-  }
-
-  if (!remoteData) {
-    return (
-      <div
-        className={
-          visible
-            ? "flex items-center gap-2 px-1 py-12 text-muted-foreground"
-            : "hidden"
-        }
-      >
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
-        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
-          {t("common:loading")}
-        </span>
-      </div>
-    );
-  }
-
   return (
-    <div className={visible ? undefined : "hidden"}>
-      <div className="space-y-7 pb-0 pt-1">
-        <AgentPageIntro />
-        <CredentialsSection />
-        <SectionShell kicker="Runtime Tuning" title={t("advanced_settings")}>
-          <div className="space-y-4">
-            <div>
-              <FieldLabel htmlFor="agent-cleanup-delay" className="">
-                {t("session_cleanup_delay_label")}
-              </FieldLabel>
-              <p className="mt-0.5 text-[11.5px] text-muted-foreground">
-                {t("session_cleanup_delay_desc")}
-              </p>
-              <input
-                id="agent-cleanup-delay"
-                type="number"
-                min={10}
-                max={3600}
-                value={unit.value.cleanupDelaySeconds}
-                onChange={(e) => updateField("cleanupDelaySeconds", e.target.value)}
-                className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
-                disabled={saving}
-              />
-            </div>
-            <div>
-              <FieldLabel htmlFor="agent-max-sessions" className="">
-                {t("max_concurrent_sessions_label")}
-              </FieldLabel>
-              <p className="mt-0.5 text-[11.5px] text-muted-foreground">
-                {t("max_concurrent_sessions_desc")}
-              </p>
-              <input
-                id="agent-max-sessions"
-                type="number"
-                min={1}
-                max={20}
-                value={unit.value.maxConcurrentSessions}
-                onChange={(e) => updateField("maxConcurrentSessions", e.target.value)}
-                className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
-                disabled={saving}
-              />
-            </div>
+    <div className="rounded-lg border border-border p-1">
+      <Collapsible>
+        <CollapsibleTrigger render={<Button variant="ghost" className="w-full justify-start" />}>
+          <ChevronRight
+            aria-hidden
+            data-icon="inline-start"
+            className="text-muted-foreground transition-transform duration-fast in-data-panel-open:rotate-90"
+          />
+          {t("arcreel_agent_advanced")}
+          {unit.dirty && <span className="sr-only">{t("common:unsaved_changes")}</span>}
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="flex flex-col gap-5 px-3 pt-2 pb-3">
+            {loadError ? (
+              <div className="flex flex-col items-start gap-3">
+                <p role="alert" className="text-sm text-destructive">
+                  {t("load_failed", { message: loadError })}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => void load()}>
+                  <RotateCw aria-hidden data-icon="inline-start" />
+                  {t("common:retry")}
+                </Button>
+              </div>
+            ) : (
+              <>
+                {!remoteData && <Loader2 aria-hidden className="size-4 animate-spin text-muted-foreground" />}
+                <NumberField
+                  id="agent-cleanup-delay"
+                  label={t("session_cleanup_delay_label")}
+                  description={t("session_cleanup_delay_desc")}
+                  min={10}
+                  max={3600}
+                  value={unit.value.cleanupDelaySeconds}
+                  onChange={(v) => updateField("cleanupDelaySeconds", v)}
+                  disabled={disabled}
+                />
+                <NumberField
+                  id="agent-max-sessions"
+                  label={t("max_concurrent_sessions_label")}
+                  description={t("max_concurrent_sessions_desc")}
+                  min={1}
+                  max={20}
+                  value={unit.value.maxConcurrentSessions}
+                  onChange={(v) => updateField("maxConcurrentSessions", v)}
+                  disabled={disabled}
+                />
+              </>
+            )}
           </div>
-        </SectionShell>
-        <AgentLanguageRuleSection />
-      </div>
-
+        </CollapsibleContent>
+      </Collapsible>
       <PageShellFooter>
         <SaveBar unit={unit} />
       </PageShellFooter>
+    </div>
+  );
+}
+
+function NumberField({
+  id,
+  label,
+  description,
+  min,
+  max,
+  value,
+  onChange,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  description: string;
+  min: number;
+  max: number;
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-medium">
+        {label}
+      </label>
+      <p id={`${id}-desc`} className="text-sm text-muted-foreground">
+        {description}
+      </p>
+      <Input
+        id={id}
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-describedby={`${id}-desc`}
+        disabled={disabled}
+        className="w-36"
+      />
     </div>
   );
 }

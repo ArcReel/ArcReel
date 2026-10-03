@@ -151,7 +151,7 @@ function SectionContent({ section }: { section: SettingsSection }) {
     case "endpoints":
       return <EndpointsSection />;
     case "arcreel-agent":
-      return <AgentConfigTab visible />;
+      return <AgentConfigTab />;
     case "agent-memory":
       // 记忆编辑器重做前先整体放进一栏滚动；全出血档不提供内边距。
       return (

@@ -1,8 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
 import { API } from "@/api";
+import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { AgentConfigTab } from "@/components/pages/AgentConfigTab";
@@ -89,98 +92,116 @@ function setupBaseMocks(opts?: { credentials?: AgentCredential[] }) {
     providers: [makePreset()],
     custom_sentinel_id: "__custom__",
   });
-  vi.spyOn(API, "getPromptTemplate").mockResolvedValue({
-    source: "始终使用 {{ language }} 回复用户。",
-  } as unknown as Awaited<ReturnType<typeof API.getPromptTemplate>>);
+  vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+}
+
+function renderSection() {
+  const location = memoryLocation({ path: "/app/settings", searchPath: "section=arcreel-agent", record: true });
+  render(
+    <Router hook={location.hook}>
+      <LeaveGuardProvider>
+        <AgentConfigTab />
+      </LeaveGuardProvider>
+    </Router>,
+  );
+  return location;
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("AgentConfigTab — credentials directory", () => {
+describe("AgentConfigTab", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
-  it("renders empty hint when no credentials are present", async () => {
+  it("没有生效的 Agent 供应商时，在本分区就地提示内嵌 Agent 未配置", async () => {
     setupBaseMocks();
-    render(<AgentConfigTab visible />);
+    useConfigStatusStore.setState({ initialized: true, isEmbeddedAgentConfigured: false });
+    renderSection();
 
-    expect(
-      await screen.findByTestId("credential-list-empty"),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("ArcReel Agent 尚未配置");
+    expect(screen.getByText(/还没有 Agent 供应商/)).toBeInTheDocument();
   });
 
-  it('shows the "+ Add credential" button in Section 1', async () => {
-    setupBaseMocks();
-    render(<AgentConfigTab visible />);
+  it("每个 Agent 供应商列出默认模型与单独设置过的模型路由", async () => {
+    setupBaseMocks({
+      credentials: [makeCredential({ opus_model: "claude-opus-4", subagent_model: "claude-haiku-4-5" })],
+    });
+    useConfigStatusStore.setState({ initialized: true, isEmbeddedAgentConfigured: true });
+    renderSection();
 
-    // Use translated text + leading "+"
-    const btn = await screen.findByRole("button", { name: /\+ 添加供应商/ });
-    expect(btn).toBeInTheDocument();
+    const item = await screen.findByRole("listitem", { name: "Anthropic 主号" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    const terms = within(item).getAllByRole("term").map((el) => el.textContent);
+    const values = within(item).getAllByRole("definition").map((el) => el.textContent);
+    expect(Object.fromEntries(terms.map((term, i) => [term, values[i]]))).toEqual({
+      默认模型: "claude-sonnet-4",
+      密钥: "sk-ant-***",
+      "Opus 模型": "claude-opus-4",
+      子智能体模型: "claude-haiku-4-5",
+    });
   });
 
-  it("offers embedded and external agent paths from the page intro", async () => {
+  it("删除 Agent 供应商先经确认，确认后从列表移除", async () => {
+    const backup = makeCredential({ id: 2, display_name: "备用网关", is_active: false });
+    setupBaseMocks({ credentials: [makeCredential(), backup] });
+    vi.spyOn(API, "deleteAgentCredential").mockImplementation(async () => {
+      vi.mocked(API.listAgentCredentials).mockResolvedValue({ credentials: [makeCredential()] });
+    });
+    renderSection();
+    const user = userEvent.setup();
+
+    const item = await screen.findByRole("listitem", { name: "备用网关" });
+    await user.click(within(item).getByRole("button", { name: "删除" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "删除 Agent 供应商" });
+    expect(dialog).toHaveTextContent("备用网关");
+    await user.click(within(dialog).getByRole("button", { name: "删除供应商" }));
+
+    expect(API.deleteAgentCredential).toHaveBeenCalledWith(2);
+    await waitFor(() => expect(screen.queryByRole("listitem", { name: "备用网关" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("生效中的 Agent 供应商不能删除", async () => {
+    setupBaseMocks({ credentials: [makeCredential()] });
+    renderSection();
+
+    const item = await screen.findByRole("listitem", { name: "Anthropic 主号" });
+    expect(within(item).getByRole("button", { name: "删除" })).toBeDisabled();
+  });
+
+  it("外部 Agent 与语言规范以链接指向对应分区", async () => {
     setupBaseMocks();
-    render(<AgentConfigTab visible />);
+    renderSection();
 
-    expect(await screen.findByText("内嵌智能体")).toBeInTheDocument();
-    expect(screen.getByText("外部 agent")).toBeInTheDocument();
-
-    // 接入指引是全局设置里的独立分区，入口只做跳转
-    expect(screen.getByRole("link", { name: "外部 Agent 接入" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "外部 Agent 接入" })).toHaveAttribute(
       "href",
       "/app/settings?section=external-agent",
     );
+    expect(screen.getByRole("link", { name: "提示词模版" })).toHaveAttribute(
+      "href",
+      "/app/settings?section=prompt-templates&template=text%2Fagent_language_rule",
+    );
   });
 
-  it("renders existing credentials in the list", async () => {
-    setupBaseMocks({ credentials: [makeCredential()] });
-    render(<AgentConfigTab visible />);
-
-    expect(await screen.findByText("Anthropic 主号")).toBeInTheDocument();
-    expect(
-      screen.getByText(/sk-ant-\*\*\*/),
-    ).toBeInTheDocument();
-  });
-
-  it("opens edit modal when edit button clicked", async () => {
-    setupBaseMocks({ credentials: [makeCredential()] });
-    render(<AgentConfigTab visible />);
-
-    // 等待列表渲染
-    await screen.findByText("Anthropic 主号");
-
-    const user = userEvent.setup();
-    const editBtn = screen.getByRole("button", {
-      name: /edit|编辑|Chỉnh sửa/i,
-    });
-    await user.click(editBtn);
-
-    // edit modal 出现，标题应为 edit_credential 翻译
-    expect(
-      await screen.findByRole("heading", {
-        name: /edit[_ ]credential|编辑凭证|Chỉnh sửa xác thực/i,
-      }),
-    ).toBeInTheDocument();
-  });
-});
-
-describe("AgentConfigTab — 语言规范", () => {
-  beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true);
-    useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
-    vi.restoreAllMocks();
-  });
-
-  it("Agent 分区展示 Agent 语言规范的模版正文", async () => {
+  it("运行参数默认折叠，修改后离开分区会被拦截", async () => {
     setupBaseMocks();
-    render(<AgentConfigTab visible />);
+    const { history } = renderSection();
+    const user = userEvent.setup();
 
-    expect(await screen.findByText("始终使用 {{ language }} 回复用户。")).toBeInTheDocument();
-    expect(API.getPromptTemplate).toHaveBeenCalledWith("text/agent_language_rule", expect.anything());
+    expect(screen.queryByRole("spinbutton", { name: "最大并发会话数" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "高级" }));
+    const field = await screen.findByRole("spinbutton", { name: "最大并发会话数" });
+    await waitFor(() => expect(field).toBeEnabled());
+    await user.clear(field);
+    await user.type(field, "8");
+
+    await user.click(screen.getByRole("link", { name: "外部 Agent 接入" }));
+    expect(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).toBeInTheDocument();
+    expect(history.at(-1)).toBe("/app/settings?section=arcreel-agent");
   });
 });
