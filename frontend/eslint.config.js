@@ -94,6 +94,8 @@ const REWORKED_FILES = [
   "src/components/pages/ProviderSection.tsx",
   "src/components/pages/ProviderDetail.tsx",
   "src/components/pages/CredentialList.tsx",
+  // 使用记录（设置页分区与顶栏弹层）
+  "src/components/usage/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

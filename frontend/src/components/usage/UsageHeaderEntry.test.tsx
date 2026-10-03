@@ -67,12 +67,11 @@ describe("UsageHeaderEntry", () => {
     expect(screen.getByText("$0.00")).toBeInTheDocument();
   });
 
-  it("adds the running badge and breathing glow only while tasks are active", () => {
+  it("adds the running badge only while tasks are active", () => {
     stubUsageApi(null);
-    const { container } = renderUsageHeaderEntry();
+    renderUsageHeaderEntry();
 
     expect(screen.queryByText("3")).not.toBeInTheDocument();
-    expect(container.querySelector(".animate-breathe")).toBeNull();
 
     act(() => {
       useTasksStore.setState({
@@ -88,7 +87,6 @@ describe("UsageHeaderEntry", () => {
     });
 
     expect(screen.getByText("3")).toBeInTheDocument();
-    expect(container.querySelector(".animate-breathe")).not.toBeNull();
     expect(screen.getByRole("button")).toHaveAccessibleName(
       "使用记录 · 参考费用 $0.00 · 3 个任务进行中",
     );

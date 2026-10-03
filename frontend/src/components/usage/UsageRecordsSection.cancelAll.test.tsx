@@ -84,7 +84,7 @@ describe("UsageRecordsSection cancel-all", () => {
 
     renderUsageRecordsSection(PROJECT_QUERY);
 
-    expect(await screen.findByText("分镜 未命名集 · S10")).toBeInTheDocument();
+    expect(await screen.findByText("S10")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "全部取消" })).not.toBeInTheDocument();
   });
 
@@ -93,7 +93,7 @@ describe("UsageRecordsSection cancel-all", () => {
 
     renderUsageRecordsSection("section=usage");
 
-    expect(await screen.findByText("分镜 未命名集 · S10")).toBeInTheDocument();
+    expect(await screen.findByText("S10")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "全部取消" })).not.toBeInTheDocument();
   });
 

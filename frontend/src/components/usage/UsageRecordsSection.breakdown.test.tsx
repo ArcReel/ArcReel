@@ -106,7 +106,7 @@ describe("UsageRecordsSection breakdown", () => {
     renderUsageRecordsSection();
 
     const row = await screen.findByRole("button", { name: /MiniMax/ });
-    expect(row.querySelector('[aria-hidden="true"]')).toHaveStyle({ width: "30%" });
+    expect(row.querySelector('[aria-hidden="true"]')).toHaveStyle({ "--share": "30%" });
   });
 
   it("clears the provider when the pressed row is clicked again", async () => {
@@ -173,14 +173,12 @@ describe("UsageRecordsSection attention", () => {
     );
   }
 
-  it("stays hidden and lets the breakdown span the full row when nothing is wrong", async () => {
+  it("stays hidden when nothing is wrong", async () => {
     mockAttention([]);
     renderUsageRecordsSection();
 
-    const heading = await screen.findByRole("heading", { name: "构成" });
+    await screen.findByRole("heading", { name: "构成" });
     expect(screen.queryByRole("heading", { name: "需要关注" })).not.toBeInTheDocument();
-    expect(heading.closest("section")).toHaveClass("col-span-12");
-    expect(heading.closest("section")).not.toHaveClass("lg:col-span-7");
   });
 
   it("filters to the failing provider and model with the status switched to failed", async () => {

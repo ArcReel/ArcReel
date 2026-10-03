@@ -46,6 +46,12 @@
     --chart-4: var(--destructive);
     --chart-5: var(--muted-foreground);
 
+    /* 媒体类型色：使用记录的媒体图标、费用趋势与构成共用，四色在暗底上明度相近、色相分开 */
+    --media-image: oklch(0.62 0.13 240);
+    --media-video: oklch(0.58 0.15 305);
+    --media-text: oklch(0.62 0.12 160);
+    --media-audio: oklch(0.66 0.13 70);
+
     /* sidebar 取页面底色渐变的第二色 */
     --sidebar: oklch(0.148 0.009 260);
     --sidebar-foreground: var(--foreground);
@@ -126,6 +132,10 @@
     --color-chart-3: var(--chart-3);
     --color-chart-4: var(--chart-4);
     --color-chart-5: var(--chart-5);
+    --color-media-image: var(--media-image);
+    --color-media-video: var(--media-video);
+    --color-media-text: var(--media-text);
+    --color-media-audio: var(--media-audio);
     --color-sidebar: var(--sidebar);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar-primary: var(--sidebar-primary);

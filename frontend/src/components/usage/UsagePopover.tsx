@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { RefObject } from "react";
-import { Activity, AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "wouter";
+import { Link } from "wouter";
+import { cn } from "cn";
 
 import { settingsSectionPath } from "@/app-routes";
 import { useShallow } from "zustand/react/shallow";
 
 import { API } from "@/api";
-import { GlassPopover } from "@/components/legacy/GlassPopover";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
 import { isOccupyingStatus, useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
@@ -19,7 +21,13 @@ import { CancelConfirmDialog } from "./CancelConfirmDialog";
 import { RecordRow } from "./RecordRow";
 import { UsageActiveRow } from "./UsageActiveRow";
 import { UsageRecordDetailModal } from "./UsageRecordDetailModal";
-import { formatCount, formatRatio, providerLabelResolver } from "./usage-record-format";
+import {
+  formatCount,
+  formatRatio,
+  projectTitleResolver,
+  providerLabelResolver,
+  usageProjectLabel,
+} from "./usage-record-format";
 import {
   sortByStartedDesc,
   taskToUsageRecordView,
@@ -30,36 +38,17 @@ import { useTaskCancellation } from "./use-task-cancellation";
 
 interface UsagePopoverProps {
   projectName: string;
-  anchorRef: RefObject<HTMLElement | null>;
-  /** 与入口按钮的 `aria-controls` 对应。 */
-  panelId: string;
 }
-
-/** 双栏与两栏各自的滚动高度：面板不吃满视口，短屏下让位给顶栏与页边。 */
-const COLUMNS_MAX_HEIGHT = "min(32rem, 100vh - 14rem)";
 
 /** 下载失败的调用可以就地重试；其余失败码没有可就地补救的动作。 */
 const DOWNLOAD_FAILED_CODE = "download_failed";
 
-const SECTION_HEAD_CLS =
-  "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground";
-
-function KpiCell({
-  label,
-  value,
-  sub,
-  first,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  first?: boolean;
-}) {
+function KpiCell({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div className={"px-3 py-2" + (first ? "" : " border-l border-border/50")}>
-      <div className={SECTION_HEAD_CLS}>{label}</div>
-      <div className="font-editorial mt-0.5 text-[15px] leading-tight text-foreground">{value}</div>
-      <div className="mt-0.5 text-[9.5px] text-muted-foreground">{sub}</div>
+    <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="num text-base text-foreground">{value}</dd>
+      <dd className="truncate text-xs text-muted-foreground">{sub}</dd>
     </div>
   );
 }
@@ -73,9 +62,8 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
     ([currency, amount]) => currency !== primary && amount > 0,
   );
   return (
-    <div className="grid grid-cols-4 border-b border-border/50">
+    <dl className="grid grid-cols-4 divide-x divide-border rounded-lg border border-border">
       <KpiCell
-        first
         label={t("usage_kpi_calls")}
         value={kpi ? formatCount(kpi.calls, i18n.language) : "—"}
         sub={kpi ? t("usage_kpi_project_all") : "—"}
@@ -107,7 +95,7 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
             : "—"
         }
       />
-    </div>
+    </dl>
   );
 }
 
@@ -115,9 +103,8 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
  * 顶栏用量入口的悬浮层：左栏本项目进行中的调用、右栏最近已结束的调用，顶部是与入口
  * 按钮同口径的 KPI，底部通往设置页的全量记录。
  */
-export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverProps) {
-  const { t } = useTranslation("dashboard");
-  const [, navigate] = useLocation();
+export function UsagePopover({ projectName }: UsagePopoverProps) {
+  const { t, i18n } = useTranslation("dashboard");
   const open = useAppStore((s) => s.usagePanelOpen);
   const setOpen = useAppStore((s) => s.setUsagePanelOpen);
 
@@ -162,6 +149,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
   }, [open, dismissCancellation]);
 
   const providerLabel = providerLabelResolver(summary);
+  const projectLabel = usageProjectLabel(projectName, t, i18n.language, projectTitleResolver(summary)(projectName));
 
   const activeRows = useMemo(() => {
     const byKey = new Map<string, TaskItem>();
@@ -216,169 +204,130 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
     [markRetrying, refresh, t],
   );
 
-  const viewAllRecords = () => {
-    setOpen(false);
-    navigate(`~${settingsSectionPath("usage", { u_project: projectName })}`);
-  };
-
+  // 跳到设置页是导航，渲染为链接而不是 button；工作台在嵌套路由里，`~` 取绝对路径。
   const viewAllButton = (
-    <button
-      type="button"
-      onClick={viewAllRecords}
-      className="focus-ring w-full border-t border-border/50 px-4 py-2.5 text-[11.5px] text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.03)] hover:text-primary"
+    <Link
+      href={`~${settingsSectionPath("usage", { u_project: projectName })}`}
+      className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "w-full")}
+      onClick={() => setOpen(false)}
     >
       {t("usage_view_all_records")}
-    </button>
+    </Link>
   );
 
   return (
-    <GlassPopover
-      open={open}
-      onClose={() => setOpen(false)}
-      anchorRef={anchorRef}
-      sideOffset={6}
-      width="w-[40rem]"
-    >
-      <div id={panelId}>
-        <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
-          <span
-            aria-hidden="true"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-primary/22 bg-primary/12 text-primary"
-          >
-            <Activity className="h-3.5 w-3.5" />
-          </span>
-          <div className="min-w-0">
-            <div className="text-[14px] font-semibold tracking-tight text-foreground">
-              {t("usage_records_title")}
-            </div>
-            <div className="num truncate text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              Usage · {projectName}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label={t("usage_close_panel")}
-            className="focus-ring ml-auto shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <X aria-hidden="true" className="h-3.5 w-3.5" />
-          </button>
-        </header>
-
-        {loadFailed && (
-          <div
-            role="status"
-            className="flex items-center gap-2 border-b border-border/50 px-4 py-2 text-[11.5px] text-destructive"
-          >
-            <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 flex-1">{t("usage_popover_load_failed")}</span>
-            <button
-              type="button"
-              onClick={voidPromise(() => refresh())}
-              className="focus-ring shrink-0 rounded-sm px-1 text-primary transition-colors hover:text-primary"
-            >
-              {t("usage_refresh")}
-            </button>
-          </div>
-        )}
-
-        {empty ? (
-          <>
-            <p className="px-4 py-5 text-[12px] leading-[1.6] text-muted-foreground">
-              {t("usage_popover_empty")}
-            </p>
-            {viewAllButton}
-          </>
-        ) : (
-          <>
-            <KpiStrip summary={summary} />
-            <div className="flex" style={{ maxHeight: COLUMNS_MAX_HEIGHT }}>
-              <section className="flex w-[18rem] shrink-0 flex-col border-r border-border/50">
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <h4 className={SECTION_HEAD_CLS}>{t("usage_in_progress")}</h4>
-                  <span className="num text-[10px] text-muted-foreground">{activeRows.length}</span>
-                  {queuedCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={voidPromise(() => cancellation.requestAll(projectName))}
-                      className="focus-ring ml-auto rounded-sm px-1 text-[10.5px] text-muted-foreground transition-colors hover:text-destructive"
-                      aria-label={t("cancel_all_queued_aria")}
-                    >
-                      {t("cancel_all")}
-                    </button>
-                  )}
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  {activeRows.length === 0 ? (
-                    <p className="px-3 pb-3 text-[11px] leading-[1.6] text-muted-foreground">
-                      {t("usage_no_in_progress")}
-                    </p>
-                  ) : (
-                    activeRows.map(({ view, task }) => (
-                      <UsageActiveRow
-                        key={view.key}
-                        view={view}
-                        task={task}
-                        providerLabel={providerLabel}
-                        onCancel={voidPromise(cancellation.requestSingle)}
-                        cancelling={
-                          task !== null && cancellation.cancellingTaskIds.has(task.task_id)
-                        }
-                      />
-                    ))
-                  )}
-                </div>
-              </section>
-
-              <section className="flex min-w-0 flex-1 flex-col">
-                <div className="px-3 py-2">
-                  <h4 className={SECTION_HEAD_CLS}>{t("usage_recently_finished")}</h4>
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  {finishedRows.length === 0 ? (
-                    <p className="px-3 pb-3 text-[11px] leading-[1.6] text-muted-foreground">
-                      {t("usage_no_finished")}
-                    </p>
-                  ) : (
-                    finishedRows.map((record) => (
-                      <RecordRow
-                        key={record.key}
-                        record={record}
-                        layout="compact"
-                        providerLabel={providerLabel}
-                        onOpenDetail={voidPromise(openDetail)}
-                        trailing={
-                          record.status === "failed" &&
-                          record.errorCode === DOWNLOAD_FAILED_CODE &&
-                          record.taskId !== null ? (
-                            <RetryDownloadButton
-                              taskId={record.taskId}
-                              retrying={retryingIds.has(record.taskId)}
-                              onRetry={handleRetryDownload}
-                            />
-                          ) : undefined
-                        }
-                      />
-                    ))
-                  )}
-                </div>
-              </section>
-            </div>
-            {viewAllButton}
-          </>
-        )}
-
-        {cancellation.request && (
-          <CancelConfirmDialog
-            request={cancellation.request}
-            cancelling={cancellation.cancelling}
-            failed={cancellation.failed}
-            failureDetail={cancellation.failureDetail}
-            onConfirm={cancellation.confirm}
-            onDismiss={cancellation.dismiss}
-          />
-        )}
+    // 宽面板贴着顶栏向下展开；空间不够时不翻到侧面盖住顶栏，而是收矮、两栏内部滚动。
+    <PopoverContent align="end" sideOffset={6} collisionAvoidance={{ side: "none" }} className="w-160">
+      <div className="flex items-center gap-2">
+        <PopoverHeader className="min-w-0 flex-1">
+          <PopoverTitle>{t("usage_records_title")}</PopoverTitle>
+          <PopoverDescription>
+            <TruncatedText text={projectLabel} />
+          </PopoverDescription>
+        </PopoverHeader>
+        <Button variant="ghost" size="icon-xs" aria-label={t("usage_close_panel")} onClick={() => setOpen(false)}>
+          <X aria-hidden="true" />
+        </Button>
       </div>
+
+      {loadFailed && (
+        <div role="status" className="flex items-center gap-2 text-sm text-destructive">
+          <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">{t("usage_popover_load_failed")}</span>
+          <Button variant="link" size="xs" onClick={voidPromise(() => refresh())}>
+            {t("usage_refresh")}
+          </Button>
+        </div>
+      )}
+
+      {empty ? (
+        <p className="py-3 text-sm text-muted-foreground">{t("usage_popover_empty")}</p>
+      ) : (
+        <>
+          <KpiStrip summary={summary} />
+          {/* 两栏各自滚动；高度上限让短窗口下的面板仍落在视口内 */}
+          <div className="flex max-h-96 min-h-0">
+            <section aria-label={t("usage_in_progress")} className="flex w-72 shrink-0 flex-col border-r border-border">
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <h4 className="text-xs font-medium text-muted-foreground">{t("usage_in_progress")}</h4>
+                <span className="num text-xs text-muted-foreground">{activeRows.length}</span>
+                {queuedCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="ml-auto"
+                    onClick={voidPromise(() => cancellation.requestAll(projectName))}
+                    aria-label={t("cancel_all_queued_aria")}
+                  >
+                    {t("cancel_all")}
+                  </Button>
+                )}
+              </div>
+              <div className="relative min-h-0 flex-1 overflow-y-auto">
+                {activeRows.length === 0 ? (
+                  <p className="px-2 pb-2 text-xs text-muted-foreground">{t("usage_no_in_progress")}</p>
+                ) : (
+                  activeRows.map(({ view, task }) => (
+                    <UsageActiveRow
+                      key={view.key}
+                      view={view}
+                      task={task}
+                      providerLabel={providerLabel}
+                      onCancel={voidPromise(cancellation.requestSingle)}
+                      cancelling={task !== null && cancellation.cancellingTaskIds.has(task.task_id)}
+                    />
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section aria-label={t("usage_recently_finished")} className="flex min-w-0 flex-1 flex-col">
+              <div className="px-2 py-1.5">
+                <h4 className="text-xs font-medium text-muted-foreground">{t("usage_recently_finished")}</h4>
+              </div>
+              <div className="relative min-h-0 flex-1 overflow-y-auto">
+                {finishedRows.length === 0 ? (
+                  <p className="px-2 pb-2 text-xs text-muted-foreground">{t("usage_no_finished")}</p>
+                ) : (
+                  finishedRows.map((record) => (
+                    <RecordRow
+                      key={record.key}
+                      record={record}
+                      layout="compact"
+                      providerLabel={providerLabel}
+                      onOpenDetail={voidPromise(openDetail)}
+                      trailing={
+                        record.status === "failed" &&
+                        record.errorCode === DOWNLOAD_FAILED_CODE &&
+                        record.taskId !== null ? (
+                          <RetryDownloadButton
+                            taskId={record.taskId}
+                            retrying={retryingIds.has(record.taskId)}
+                            onRetry={handleRetryDownload}
+                          />
+                        ) : undefined
+                      }
+                    />
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+        </>
+      )}
+
+      {cancellation.request && (
+        <CancelConfirmDialog
+          request={cancellation.request}
+          cancelling={cancellation.cancelling}
+          failed={cancellation.failed}
+          failureDetail={cancellation.failureDetail}
+          onConfirm={cancellation.confirm}
+          onDismiss={cancellation.dismiss}
+        />
+      )}
+
+      <div className="border-t border-border pt-1.5">{viewAllButton}</div>
 
       {detailId !== null && (
         <UsageRecordDetailModal
@@ -390,7 +339,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
           onClose={closeDetail}
         />
       )}
-    </GlassPopover>
+    </PopoverContent>
   );
 }
 
@@ -405,14 +354,9 @@ function RetryDownloadButton({
 }) {
   const { t } = useTranslation("dashboard");
   return (
-    <button
-      type="button"
-      disabled={retrying}
-      onClick={voidPromise(() => onRetry(taskId))}
-      className="focus-ring inline-flex items-center gap-1 rounded-sm px-1 text-[10.5px] text-primary disabled:opacity-60"
-    >
-      {retrying && <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />}
+    <Button variant="link" size="xs" disabled={retrying} onClick={voidPromise(() => onRetry(taskId))}>
+      {retrying && <Loader2 aria-hidden="true" data-icon="inline-start" className="animate-spin" />}
       {retrying ? t("retrying_download") : t("retry_download")}
-    </button>
+    </Button>
   );
 }

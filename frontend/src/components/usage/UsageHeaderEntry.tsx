@@ -1,7 +1,9 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect } from "react";
 import { Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
@@ -17,8 +19,6 @@ const FALLBACK_CURRENCY = "USD";
  */
 export function UsageHeaderEntry({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
-  const anchorRef = useRef<HTMLDivElement>(null);
-  const panelId = useId();
 
   const open = useAppStore((s) => s.usagePanelOpen);
   const setOpen = useAppStore((s) => s.setUsagePanelOpen);
@@ -53,44 +53,33 @@ export function UsageHeaderEntry({ projectName }: { projectName: string }) {
       : t("usage_entry_aria", { cost: fullCost });
 
   return (
-    <div className="relative" ref={anchorRef}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-controls={panelId}
-        aria-label={label}
-        title={label}
-        className="focus-ring relative inline-flex h-[30px] items-center gap-1.5 rounded-md px-2 text-[11.5px] transition-colors"
-        style={{
-          background: open ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.22 0.011 265 / 0.5)",
-          border: `1px solid ${
-            activeCount > 0 ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "color-mix(in oklab, var(--border) 50%, transparent)"
-          }`,
-          color: "var(--subtle-foreground)",
-        }}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button variant="outline" size="sm" aria-label={label} className="relative" />
+        }
       >
         <Activity
           aria-hidden="true"
-          className={"h-3.5 w-3.5" + (activeCount > 0 ? " animate-breathe" : "")}
-          style={{ color: activeCount > 0 ? "var(--primary)" : "var(--muted-foreground)" }}
+          data-icon="inline-start"
+          className={activeCount > 0 ? "animate-breath text-primary" : "text-muted-foreground"}
         />
-        <span className="num font-medium">{primaryText}</span>
+        <span className="num">{primaryText}</span>
         {others.map(([currency, amount]) => (
-          <span key={currency} className="num text-[10.5px] text-muted-foreground">
+          <span key={currency} className="num text-xs font-normal text-muted-foreground">
             {formatCurrencyAmount(currency, amount)}
           </span>
         ))}
         {activeCount > 0 && (
           <span
-            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
-            style={{ background: "var(--primary)", color: "oklch(0.14 0 0)" }}
+            aria-hidden="true"
+            className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium text-primary-foreground"
           >
             {activeCount > 9 ? "9+" : activeCount}
           </span>
         )}
-      </button>
-      <UsagePopover projectName={projectName} anchorRef={anchorRef} panelId={panelId} />
-    </div>
+      </PopoverTrigger>
+      <UsagePopover projectName={projectName} />
+    </Popover>
   );
 }

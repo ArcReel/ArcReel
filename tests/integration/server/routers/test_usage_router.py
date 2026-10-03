@@ -243,6 +243,50 @@ class TestUsageRecordEpisodeItemRefs:
         assert detail["segment_ref"] == {"episode_title": "山门", "episode_position": 1, "item_id": "S02"}
 
 
+class TestUsageRecordProjectTitles:
+    """项目列显示标题；项目读不到或没有标题时不给标题，由界面回退显示项目名。"""
+
+    @pytest.fixture
+    async def client(self, db_factory, monkeypatch, tmp_path):
+        projects = ProjectManager(tmp_path / "projects")
+        projects.create_project("demo")
+        projects.create_project_metadata("demo", "雨夜行舟")
+        projects.create_project("untitled")
+        projects.create_project_metadata("untitled", "")
+        monkeypatch.setattr(usage, "get_project_manager", lambda: projects)
+        async with db_factory() as session:
+            session.add_all(
+                [
+                    make_call(started_at=BASE_TIME, segment_id="a", project_name="demo"),
+                    make_call(started_at=BASE_TIME + timedelta(minutes=1), segment_id="b", project_name="untitled"),
+                    make_call(
+                        started_at=BASE_TIME + timedelta(minutes=2),
+                        segment_id="c",
+                        project_name="demo#deleted-20260301T120000Z",
+                    ),
+                    make_call(started_at=BASE_TIME + timedelta(minutes=3), segment_id="d", project_name=""),
+                ]
+            )
+            await session.commit()
+        return build_client(db_factory, monkeypatch)
+
+    def test_records_carry_the_title_only_when_the_project_has_one(self, client):
+        items = client.get("/api/v1/usage/records").json()["items"]
+
+        assert {item["segment_id"]: item["project_title"] for item in items} == {
+            "a": "雨夜行舟",
+            "b": None,
+            "c": None,
+            "d": None,
+        }
+
+    def test_detail_and_summary_use_the_same_titles(self, client):
+        record_id = client.get("/api/v1/usage/records?segment_id=a").json()["items"][0]["id"]
+
+        assert client.get(f"/api/v1/usage/records/{record_id}").json()["project_title"] == "雨夜行舟"
+        assert client.get("/api/v1/usage/summary").json()["filter_options"]["project_titles"] == {"demo": "雨夜行舟"}
+
+
 class TestUsageRecordDetail:
     def test_detail_adds_prompt_inputs_and_provider_response(self, records_client):
         record_id = records_client.get("/api/v1/usage/records?segment_id=S5").json()["items"][0]["id"]

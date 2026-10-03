@@ -22,7 +22,7 @@ describe("RecordRow compact layout", () => {
     );
 
     const row = screen.getByRole("button");
-    expect(row).toHaveTextContent("分镜 未命名集 · S10");
+    expect(row).toHaveTextContent(/S10\s*未命名集/);
     expect(row).toHaveTextContent("Google · imagen-4");
     // 项目名不占位置：悬浮层里整栏都属于同一个项目。
     expect(row).not.toHaveTextContent("星海列车");
@@ -31,7 +31,7 @@ describe("RecordRow compact layout", () => {
     expect(onOpenDetail).toHaveBeenCalledWith(42);
   });
 
-  it("names the target by episode title or position and the in-episode id", () => {
+  it("keeps the in-episode id apart from the episode name it is shown with", () => {
     const { rerender } = render(
       <RecordRow
         record={usageRecordToView(
@@ -44,7 +44,9 @@ describe("RecordRow compact layout", () => {
         providerLabel={providerLabel}
       />,
     );
-    expect(screen.getByText("分镜 山门 · S02")).toBeInTheDocument();
+    // 分镜号与集名分开渲染：集名放不下时只截断集名，分镜号始终完整。
+    expect(screen.getByText("S02")).toBeInTheDocument();
+    expect(screen.getByText("山门")).toBeInTheDocument();
 
     rerender(
       <RecordRow
@@ -58,7 +60,8 @@ describe("RecordRow compact layout", () => {
         providerLabel={providerLabel}
       />,
     );
-    expect(screen.getByText("分镜 第 2 集 · U01")).toBeInTheDocument();
+    expect(screen.getByText("U01")).toBeInTheDocument();
+    expect(screen.getByText("第 2 集")).toBeInTheDocument();
   });
 
   it("puts a trailing action beside the row instead of nesting it in the button", async () => {

@@ -9,6 +9,8 @@ export interface UsageRecord {
   id: number;
   /** 端点试跑记录为空串。 */
   project_name: string;
+  /** 项目标题；项目已删除、读不到或未设标题时为 null，界面回退到项目名。 */
+  project_title?: string | null;
   purpose: string | null;
   task_id: string | null;
   task_type: string | null;
@@ -149,6 +151,8 @@ export type UsageAttention =
 /** 筛选候选值取全表 distinct，不随筛选变化。 */
 export interface UsageFilterOptions {
   projects: string[];
+  /** 候选项目里读得到标题的那部分：项目名 → 标题。 */
+  project_titles?: Record<string, string>;
   providers: { provider: string; label: string }[];
   models: { provider: string; model: string }[];
 }

@@ -33,9 +33,8 @@ describe("UsageRecordsSection detail", () => {
 
     renderUsageRecordsSection("section=usage&record=42");
 
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: /S10\s*未命名集/ })).toBeInTheDocument();
     expect(detail).toHaveBeenCalledWith(42, { signal: expect.any(AbortSignal) });
-    expect(screen.getByText("Record · #42")).toBeInTheDocument();
   });
 
   it("renders every group of a finished text call", async () => {

@@ -113,15 +113,12 @@ export function trendTicks(metric: TrendMetric, max: number): number[] {
   return metric === "calls" ? countTicks(max) : amountTicks(max);
 }
 
-/** 已取消段的斜纹描边色；图例与 pattern 共用，故导出。 */
-export const HATCH_STROKE = "oklch(0.75 0.01 265)";
-
-/** 一条堆叠序列。`hatched` 的序列由图表换成斜纹填充，图例同步。 */
+/** 一条堆叠序列：`color` 用于图形填充，`swatchClass` 用于图例与提示里的色块，两者是同一个 token。 */
 export interface TrendSeries {
   key: string;
   labelKey: string;
   color: string;
-  hatched?: boolean;
+  swatchClass: string;
   value: (bucket: TrendBucket) => number;
 }
 
@@ -129,20 +126,22 @@ const CALL_SERIES: readonly TrendSeries[] = [
   {
     key: "success",
     labelKey: "usage_status_success",
-    color: "oklch(0.62 0.10 295)",
+    color: "var(--primary)",
+    swatchClass: "bg-primary",
     value: (bucket) => bucket.success,
   },
   {
     key: "failed",
     labelKey: "usage_status_failed",
     color: "var(--destructive)",
+    swatchClass: "bg-destructive",
     value: (bucket) => bucket.failed,
   },
   {
     key: "cancelled",
     labelKey: "usage_status_cancelled",
-    color: "oklch(0.55 0.01 265)",
-    hatched: true,
+    color: "var(--muted-foreground)",
+    swatchClass: "bg-muted-foreground",
     value: (bucket) => bucket.cancelled,
   },
 ];
@@ -151,6 +150,7 @@ const COST_SERIES: readonly TrendSeries[] = MEDIA_ORDER.map((media) => ({
   key: media,
   labelKey: MEDIA_META[media].labelKey,
   color: MEDIA_META[media].color,
+  swatchClass: MEDIA_META[media].swatchClass,
   value: (bucket: TrendBucket) => bucket.cost[media],
 }));
 
@@ -160,12 +160,6 @@ export function seriesFor(metric: TrendMetric): readonly TrendSeries[] {
 
 export function bucketTotal(metric: TrendMetric, bucket: TrendBucket): number {
   return metric === "calls" ? bucketCalls(bucket) : bucketCost(bucket);
-}
-
-/** 柱与柱之间最多列几个日期刻度，超出的省略——刻度密到叠字就不再是刻度。 */
-export function tickEvery(bucketCount: number, plotWidth: number): number {
-  const slots = Math.max(1, Math.floor(plotWidth / 56));
-  return Math.max(1, Math.ceil(bucketCount / slots));
 }
 
 /** 轴与 tooltip 的日期：只留月/日，年份在这个尺度上没有信息量；月日次序按语言。 */
