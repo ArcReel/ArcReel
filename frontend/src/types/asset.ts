@@ -20,6 +20,13 @@ export interface Asset {
   derivatives: AssetDerivative[];
 }
 
+/** 资产库列表的一页。`total` 是当前类型与搜索词下的匹配总数；`counts` 只跟随搜索词，三个类型各自的匹配数。 */
+export interface AssetListPage {
+  items: Asset[];
+  total: number;
+  counts: Record<AssetType, number>;
+}
+
 export interface AssetCreatePayload {
   type: AssetType;
   name: string;

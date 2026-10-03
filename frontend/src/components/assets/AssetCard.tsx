@@ -1,92 +1,96 @@
-import { memo } from "react";
+import { memo, useId } from "react";
 import { useTranslation } from "react-i18next";
-import { Edit2, Layers, Trash2, User as UserIcon, Landmark, Package } from "lucide-react";
+import { FolderInput, Layers, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { API } from "@/api";
-import { formatDate } from "@/utils/date-format";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Asset } from "@/types/asset";
+import { ASSET_TYPE_ICON } from "./asset-type-icons";
 import { AssetThumb } from "./AssetThumb";
 
-interface Props {
+export type AssetCardAction = "open" | "edit" | "apply" | "delete";
+
+/**
+ * 资产库卡片：整张卡片可点，打开详情；「更多」菜单常驻，不依赖悬停，提供编辑、应用到项目与删除。
+ */
+export const AssetCard = memo(function AssetCard({
+  asset,
+  onAction,
+}: {
   asset: Asset;
-  onEdit: (asset: Asset) => void;
-  onDelete: (asset: Asset) => void;
-}
-
-const TYPE_ICON = { character: UserIcon, scene: Landmark, prop: Package };
-
-const SHORT_DATE_OPTS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-
-export const AssetCard = memo(AssetCardImpl);
-
-function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
-  const { t, i18n } = useTranslation("assets");
-  const Icon = TYPE_ICON[asset.type];
-  const imageUrl = API.getGlobalAssetUrl(asset.image_path, asset.updated_at);
-  const formattedDate = asset.updated_at
-    ? formatDate(asset.updated_at, i18n.language, SHORT_DATE_OPTS, "")
-    : "";
+  /** 需传稳定引用。 */
+  onAction: (action: AssetCardAction, asset: Asset) => void;
+}) {
+  const { t } = useTranslation("assets");
+  const titleId = useId();
+  const Icon = ASSET_TYPE_ICON[asset.type];
   const derivativeCount = asset.derivatives.length;
 
   return (
-    <div className="group relative overflow-hidden rounded-lg border border-border/50 bg-card/55 transition-[transform,border-color] motion-safe:hover:-translate-y-0.5 hover:border-border">
-      <div className="relative">
-        <AssetThumb
-          imageUrl={imageUrl}
-          alt={asset.name}
-          fallback={<Icon className="h-10 w-10 text-muted-foreground" />}
-          variant="display"
-        />
-        <span className="pointer-events-none absolute right-2 top-2 rounded-sm border border-border bg-sidebar/70 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground backdrop-blur-sm">
-          {t(`type.${asset.type}`)}
-        </span>
-      </div>
-      <div className="p-3">
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[13.5px] font-semibold text-foreground">{asset.name}</div>
-            {asset.description && (
-              <div className="mt-1 line-clamp-2 text-[12px] leading-[1.55] text-muted-foreground">
-                {asset.description}
-              </div>
-            )}
-            {formattedDate || derivativeCount > 0 ? (
-              <div className="mt-2 flex items-center gap-2 font-mono text-[10.5px] text-muted-foreground">
-                {formattedDate ? (
-                  <span className="tabular-nums">{t("meta_updated_at", { date: formattedDate })}</span>
-                ) : null}
-                {derivativeCount > 0 ? (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full bg-sidebar/70 px-1.5 py-0.5 text-primary"
-                    title={t("derivatives_with_count", { n: derivativeCount })}
-                  >
-                    <Layers aria-hidden className="h-3 w-3" />
-                    <span className="sr-only">{t("derivatives")}</span>
-                    <span className="tabular-nums font-semibold">{derivativeCount}</span>
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-          <div className="flex flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+    <article
+      aria-labelledby={titleId}
+      className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card transition-colors duration-fast hover:border-input"
+    >
+      <AssetThumb
+        imageUrl={API.getGlobalAssetUrl(asset.image_path, asset.updated_at)}
+        alt=""
+        fallback={<Icon aria-hidden className="size-8" />}
+      />
+      <div className="flex min-w-0 flex-1 flex-col gap-1 p-3 pt-2.5">
+        <div className="flex min-w-0 items-center gap-1">
+          <h3 id={titleId} className="min-w-0 flex-1 text-sm font-medium">
+            {/* 名称按钮的伪元素铺满整张卡片，点卡片任意处都打开详情；「更多」在 DOM 中靠后、自身定位，盖在它上面。 */}
             <button
               type="button"
-              onClick={() => onEdit(asset)}
-              aria-label={t("edit")}
-              className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onAction("open", asset)}
+              className="block w-full truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-3 focus-visible:after:ring-ring/50"
             >
-              <Edit2 className="h-3.5 w-3.5" />
+              {asset.name}
             </button>
-            <button
-              type="button"
-              onClick={() => onDelete(asset)}
-              aria-label={t("delete")}
-              className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-warn focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/30"
+          </h3>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon-sm" className="relative -mr-1.5 shrink-0" />}
+              aria-label={t("asset_menu_label", { name: asset.name })}
             >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
+              <MoreHorizontal aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuGroup>
+                <DropdownMenuItem onClick={() => onAction("edit", asset)}>
+                  <Pencil aria-hidden />
+                  {t("edit")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onAction("apply", asset)}>
+                  <FolderInput aria-hidden />
+                  {t("apply_to_project")}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={() => onAction("delete", asset)}>
+                <Trash2 aria-hidden />
+                {t("delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+        <p className="line-clamp-2 text-sm text-subtle-foreground">
+          {asset.description || <span className="text-muted-foreground">{t("no_description")}</span>}
+        </p>
+        {derivativeCount > 0 && (
+          <p className="mt-auto flex items-center gap-1 pt-1 text-xs text-muted-foreground">
+            <Layers aria-hidden className="size-3.5" />
+            {t("derivatives_count", { count: derivativeCount })}
+          </p>
+        )}
       </div>
-    </div>
+    </article>
   );
-}
+});

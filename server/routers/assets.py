@@ -10,8 +10,9 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
@@ -143,14 +144,25 @@ async def list_assets(
     _t: Translator,
     type: str | None = None,
     q: str | None = None,
-    limit: int = 100,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
+    """按 offset 分页列出资产。
+
+    ``total`` 是当前类型与搜索词下的匹配总数，用于判断是否还有下一页；``counts`` 只跟随搜索词、
+    不跟随类型筛选，各类型标签据此显示当前搜索下的匹配数，没打开过的标签也不例外。
+    """
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         items = await repo.list(type=type, q=q, limit=limit, offset=offset)
         by_asset = await repo.list_derivatives_by_asset_ids([a.id for a in items])
-        return {"items": [_serialize(a, by_asset.get(a.id, ())) for a in items]}
+        matched = await repo.count_by_type(q=q)
+    counts = {asset_type: matched.get(asset_type, 0) for asset_type in sorted(GLOBAL_LIBRARY_ASSET_TYPES)}
+    return {
+        "items": [_serialize(a, by_asset.get(a.id, ())) for a in items],
+        "total": matched.get(type, 0) if type else sum(counts.values()),
+        "counts": counts,
+    }
 
 
 @router.get("/{asset_id}")

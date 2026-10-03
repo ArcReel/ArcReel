@@ -1889,7 +1889,6 @@ export default {
   'shot_detail_next': 'Next',
   'shot_detail_count': '{{current}} / {{total}}',
   'eyebrow_segment_refs': 'References · Scope',
-  'eyebrow_library': 'Library · {{type}}',
   'context_clear': 'Clear context',
   'context_label_character': 'Character',
   'context_label_scene': 'Scene',

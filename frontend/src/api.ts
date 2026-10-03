@@ -118,7 +118,7 @@ import type {
   PresentationRequestOptions,
   PresentationResourceType,
 } from "@/types/presentation";
-import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
+import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
 import type {
@@ -3630,7 +3630,7 @@ class API {
     if (params.q) usp.set("q", params.q);
     if (params.limit) usp.set("limit", String(params.limit));
     if (params.offset) usp.set("offset", String(params.offset));
-    return this.request<{ items: Asset[] }>(`/assets?${usp.toString()}`, options);
+    return this.request<AssetListPage>(`/assets?${usp.toString()}`, options);
   }
 
   static async getAsset(id: string) {

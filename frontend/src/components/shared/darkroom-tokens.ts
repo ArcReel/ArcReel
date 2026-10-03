@@ -35,9 +35,6 @@ export const ACCENT_BTN_SM_CLS = `${ACCENT_BTN_BASE_CLS} gap-1.5 px-3 py-1.5 tex
 export const ICON_BTN_CLS =
   "rounded-sm p-1 text-muted-foreground transition-colors enabled:hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40";
 
-export const ICON_BTN_FILLED_CLS =
-  "rounded-sm p-1.5 text-muted-foreground transition-colors enabled:hover:bg-card enabled:hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40";
-
 const RADIO_CARD_BASE_CLS =
   "relative flex-1 cursor-pointer rounded-md border px-3.5 py-2.5 text-center text-[12.5px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring";
 

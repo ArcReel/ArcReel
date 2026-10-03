@@ -429,11 +429,14 @@ export function CharacterCard({
             resourceType="character"
             resourceId={name}
             projectName={projectName}
-            initialDescription={character.description}
-            initialVoiceStyle={character.voice_style ?? ""}
-            sheetPath={character.character_sheet}
+            preview={{
+              description: character.description,
+              voiceStyle: character.voice_style ?? "",
+              hasReferenceAudio: Boolean(character.reference_audio),
+              sheetPath: character.character_sheet,
+              derivativeCount: Object.keys(character.derivatives ?? {}).length,
+            }}
             busy={generating || uploadingSheet}
-            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
           />
           <VersionTimeMachine
             projectName={projectName}

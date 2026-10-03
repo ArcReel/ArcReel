@@ -85,6 +85,41 @@ class TestAssetsCRUD:
         assert r.status_code == 200
         assert len(r.json()["items"]) == 1
 
+    def test_list_counts_follow_search_but_not_type_filter(self, assets_env):
+        client = assets_env["client"]
+        for asset_type, name in [
+            ("character", "王小明"),
+            ("character", "李小红"),
+            ("character", "张三"),
+            ("scene", "小院"),
+            ("scene", "庙宇"),
+            ("prop", "玉佩"),
+        ]:
+            client.post("/api/v1/assets", data={"type": asset_type, "name": name})
+
+        unfiltered = client.get("/api/v1/assets?type=character").json()
+        assert unfiltered["counts"] == {"character": 3, "scene": 2, "prop": 1}
+
+        by_character = client.get("/api/v1/assets?type=character&q=小").json()
+        by_scene = client.get("/api/v1/assets?type=scene&q=小").json()
+        assert by_character["counts"] == {"character": 2, "scene": 1, "prop": 0}
+        assert by_scene["counts"] == by_character["counts"]
+        assert by_character["total"] == 2
+        assert by_scene["total"] == 1
+        assert {item["name"] for item in by_scene["items"]} == {"小院"}
+
+    def test_list_total_is_stable_across_offset_pages(self, assets_env):
+        client = assets_env["client"]
+        for i in range(5):
+            client.post("/api/v1/assets", data={"type": "prop", "name": f"道具{i}"})
+        client.post("/api/v1/assets", data={"type": "scene", "name": "场景"})
+
+        pages = [client.get(f"/api/v1/assets?type=prop&limit=2&offset={offset}").json() for offset in (0, 2, 4)]
+        assert [page["total"] for page in pages] == [5, 5, 5]
+        assert [len(page["items"]) for page in pages] == [2, 2, 1]
+        names = [item["name"] for page in pages for item in page["items"]]
+        assert sorted(names) == [f"道具{i}" for i in range(5)]
+
     def test_create_conflict_does_not_leave_orphan_file(self, assets_env):
         client = assets_env["client"]
         pm = assets_env["pm"]
