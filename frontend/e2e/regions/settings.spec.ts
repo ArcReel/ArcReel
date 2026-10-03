@@ -204,7 +204,7 @@ defineRegionScenarios("全局设置", [
       const main = page.getByRole("main");
       await expect(main.getByRole("button", { name: /按用途指定模型/ }).first()).toHaveAttribute("aria-expanded", "true");
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
-      await expect(main.getByRole("textbox", { name: "GitHub raw 代理前缀" })).toBeInViewport();
+      await expect(main.getByRole("spinbutton", { name: "配音语速（可选）" })).toBeInViewport();
     },
     screenshot: { name: "settings-default-models", target: (page) => page.getByRole("main") },
   },

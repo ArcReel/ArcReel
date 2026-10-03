@@ -1026,7 +1026,7 @@ describe("EndpointsSection", () => {
       await screen.findByRole("button", { name: "更新" });
       await userEvent.type(screen.getByDisplayValue("Example Video API"), "!");
       await userEvent.click(screen.getByRole("button", { name: "更新" }));
-      expect(await screen.findByText("Update endpoint")).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "更新到 v1.1.0" })).toBeInTheDocument();
       expect(API.getMarketEntry).toHaveBeenCalledWith(1, "kling-master", expect.anything());
       expect(await screen.findByText("你的本地修改会被覆盖")).toBeInTheDocument();
       const downloads = captureDownloads();

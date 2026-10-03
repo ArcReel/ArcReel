@@ -80,14 +80,15 @@ export function PageShell({ header, sidebar, tier, children }: PageShellProps) {
 
 /**
  * 把保存栏渲染进外壳的固定底行：不随主体滚动，内层与内容列同宽、同起点。
+ * 铺满档里的表单若自己限宽到 760px，传 `constrained`，保存栏与表单列同宽。
  * 不在外壳里（如单测直接渲染区段）或处于全出血档时，原地渲染。
  */
-export function PageShellFooter({ children }: { children: ReactNode }) {
+export function PageShellFooter({ children, constrained = false }: { children: ReactNode; constrained?: boolean }) {
   const slot = useContext(FooterSlotContext);
   if (!slot) return children;
   if (!slot.element) return null;
   return createPortal(
-    <div className={cn("min-w-0", slot.tier === "constrained" && "max-w-190")}>{children}</div>,
+    <div className={cn("min-w-0", (constrained || slot.tier === "constrained") && "max-w-190")}>{children}</div>,
     slot.element,
   );
 }

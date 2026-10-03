@@ -9,7 +9,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { formatDate } from "@/utils/date-format";
 import { downloadBlob } from "@/utils/download";
 import type { GetSystemVersionResponse } from "@/types";
-import { OfficialServiceCard } from "./OfficialServiceCard";
 
 const ABOUT_DATE_OPTS: Intl.DateTimeFormatOptions = {
   year: "numeric",
@@ -169,9 +168,6 @@ export function AboutSection() {
           </Collapsible>
         </div>
       </section>
-
-      {/* 官方服务卡片暂留在「关于」，由后续分区调整迁走。 */}
-      <OfficialServiceCard />
 
       <section className="flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-4">
         <div className="flex flex-col gap-1">

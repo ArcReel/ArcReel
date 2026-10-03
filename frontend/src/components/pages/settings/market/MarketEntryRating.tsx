@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { Star } from "lucide-react";
+import { cn } from "cn";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
@@ -51,7 +52,7 @@ export function MarketEntryRating({
   const lit = installed ? (hovered ?? stars ?? 0) : 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px]">
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
       <span id={labelId} className="text-muted-foreground">
         {t("market_rate_label")}
       </span>
@@ -72,10 +73,10 @@ export function MarketEntryRating({
             onMouseEnter={() => setHovered(value)}
             onMouseLeave={() => setHovered(null)}
             onClick={() => void submit(value)}
-            className="rounded-sm p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-sm p-1 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Star
-              className={`h-4 w-4 transition-colors ${value <= lit ? "fill-amber-300 text-amber-300" : "text-muted-foreground"}`}
+              className={cn("size-4 transition-colors", value <= lit ? "fill-primary text-primary" : "text-muted-foreground")}
               aria-hidden
             />
           </button>
@@ -87,7 +88,7 @@ export function MarketEntryRating({
         </span>
       )}
       {result && (
-        <span role={result.ok ? "status" : "alert"} className={result.ok ? "text-good" : "text-warn"}>
+        <span role={result.ok ? "status" : "alert"} className={result.ok ? "text-good" : "text-destructive"}>
           {result.text}
         </span>
       )}

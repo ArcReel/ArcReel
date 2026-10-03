@@ -98,6 +98,9 @@ const RECORDINGS: Recording[] = [
   // 全局设置「调用端点」：自定义端点列表（录制环境为空，多条目由场景替换）与各端点的分享提交（决定是否提供分享入口）；官方服务开关见上。
   { file: "custom-endpoints", method: "GET", path: "/api/v1/custom-endpoints" },
   { file: "market-submissions", method: "GET", path: "/api/v1/market/submissions" },
+  // 全局设置「市场」：市场源（录制环境只有内置的官方源，从未刷新）与条目快照（为空）；刷新、聚合与条目详情访问外网，由场景替换。
+  { file: "market-sources", method: "GET", path: "/api/v1/market/sources" },
+  { file: "market-entries", method: "GET", path: "/api/v1/market/entries?type=endpoint" },
 ];
 
 // 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。

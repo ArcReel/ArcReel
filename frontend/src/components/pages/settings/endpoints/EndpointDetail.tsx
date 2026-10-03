@@ -3,7 +3,7 @@ import { Copy, Download, ExternalLink, Loader2, Plus, RefreshCw, Share2, Store, 
 import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { settingsSectionPath } from "@/app-routes";
+import { marketSettingsPath } from "@/app-routes";
 import { errMsg, voidCall } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
@@ -547,7 +547,7 @@ export function EndpointDetail({
             <Alert>
               <AlertDescription>
                 {t("ce_new_desc")}{" "}
-                <Link href={settingsSectionPath("market")} className={buttonVariants({ variant: "link", size: "sm" })}>
+                <Link href={marketSettingsPath()} className={buttonVariants({ variant: "link", size: "sm" })}>
                   <Store aria-hidden data-icon="inline-start" />
                   {t("ce_get_from_market")}
                 </Link>

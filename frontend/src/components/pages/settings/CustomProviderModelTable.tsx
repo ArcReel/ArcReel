@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronRight, ExternalLink, Link2, Search, Store, T
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Link } from "wouter";
-import { endpointSettingsPath, settingsSectionPath } from "@/app-routes";
+import { endpointSettingsPath, marketSettingsPath } from "@/app-routes";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -396,7 +396,7 @@ function ModelFields({ row, protocol, providerId, onUpdate, onRemove }: ModelFie
               {t("cp_open_endpoint")}
             </Link>
           )}
-          <Link href={settingsSectionPath("market")} className={buttonVariants({ variant: "link", size: "sm" })}>
+          <Link href={marketSettingsPath()} className={buttonVariants({ variant: "link", size: "sm" })}>
             <Store aria-hidden data-icon="inline-start" />
             {t("cp_endpoint_from_market")}
           </Link>

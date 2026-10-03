@@ -19,12 +19,6 @@ const VERSION_RESPONSE: GetSystemVersionResponse = {
 describe("AboutSection diagnostics download", () => {
   beforeEach(() => {
     vi.spyOn(API, "getSystemVersion").mockResolvedValue(VERSION_RESPONSE);
-    vi.spyOn(API, "getOfficialService").mockResolvedValue({
-      available: true,
-      enabled: true,
-      notice_seen: true,
-      instance_id: null,
-    });
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-diagnostics");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   });
@@ -93,15 +87,6 @@ describe("AboutSection diagnostics download", () => {
 });
 
 describe("AboutSection release notes", () => {
-  beforeEach(() => {
-    vi.spyOn(API, "getOfficialService").mockResolvedValue({
-      available: true,
-      enabled: true,
-      notice_seen: true,
-      instance_id: null,
-    });
-  });
-
   it("收起最新一条发布说明，展开后显示正文与 Release 链接", async () => {
     vi.spyOn(API, "getSystemVersion").mockResolvedValue({
       ...VERSION_RESPONSE,

@@ -104,6 +104,9 @@ const REWORKED_FILES = [
   "src/components/pages/settings/endpoints/**",
   // 自定义供应商详情：表单、模型表格、调用端点选择与尾帧能力覆盖
   "src/components/pages/settings/{CustomProviderDetail,CustomProviderForm,CustomProviderFieldRow,CustomProviderModelTable,EndpointSelect,CapabilityOverrideRow}.tsx",
+  // 市场分区（浏览、我的分享、设置）与全仓共用的可排序列表
+  "src/components/pages/settings/market/**",
+  "src/components/shared/sortable/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

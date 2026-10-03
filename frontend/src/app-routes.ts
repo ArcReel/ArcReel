@@ -30,6 +30,14 @@ export function settingsSectionPath(section: SettingsSection, params: Record<str
   return `${ROUTE_APP_SETTINGS}?${new URLSearchParams({ section, ...params }).toString()}`;
 }
 
+/** 市场分区的 Tab；「浏览」是默认 Tab，地址里不写。 */
+export type MarketTab = "browse" | "shared" | "settings";
+
+/** 全局设置「市场」分区某个 Tab 的地址（`tab=`）。 */
+export function marketSettingsPath(tab: MarketTab = "browse"): string {
+  return settingsSectionPath("market", tab === "browse" ? {} : { tab });
+}
+
 /**
  * 「供应商」分区里要定位的对象，对应的地址参数：
  * - `{ preset }` → `provider=<预置供应商 id>`；
