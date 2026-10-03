@@ -6,9 +6,13 @@ import asyncio
 import io
 import logging
 import os
-from collections.abc import Callable
+import shutil
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Buffer, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from PIL import Image
 
@@ -21,6 +25,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.backend_runtime import (
+    ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
     ProviderJobIdPersistenceMixin,
     is_retryable_http_status,
     poll_with_retry,
@@ -32,10 +37,15 @@ from lib.backends.providers import PROVIDER_GEMINI
 from lib.config.registry import model_info_for
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
+
+#: 成片下载单次网络读写的 I/O 超时，与 ``download_video`` 的缺省一致：连接或读取停滞超过它即抛错，交给重试预算。
+_DOWNLOAD_IO_TIMEOUT_SECONDS = 120.0
+_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 # 约束的单一真相源是 registry 的 ModelInfo（reference_image_durations /
 # duration_resolution_constraints），下面两个常量只在 registry 查不到该型号时兜底——中转站、
@@ -377,41 +387,100 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
         SDK 取件抛的不是 ``HTTPStatusError``，故退到按 ``retryable_errors`` 判定。
         """
+        # 线程里写 .part 再替换成片：取消须等这次写盘结束、结果确定后再传播，否则调用方清理后线程才落盘。
+        # 外层 asyncio.timeout 结束不了线程，线程按同一份预算的墙钟期限自行收尾。
+        deadline = time.monotonic() + ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS
         await with_artifact_retry(
-            lambda: asyncio.to_thread(self._download_video, video_ref, output_path),
+            lambda: run_sync_transaction(self._download_video, video_ref, output_path, deadline=deadline),
             label="Gemini",
             retry_if=None,
+            max_wait=ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
         )
 
-    def _download_video(self, video_ref, output_path: Path) -> None:
+    def _download_video(self, video_ref, output_path: Path, *, deadline: float) -> None:
         """下载视频到本地文件 — 提取自 GeminiClient。
 
         三条落盘路径都经 ``_write_atomically``：先写同目录 ``.part``，成功后原子改名，
         失败时 output_path 上不会出现被当作成品的残片（已有的旧成片也保持原样）。
+        两条网络路径都设 I/O 超时并逐块比对 ``deadline``（``time.monotonic()`` 时刻），
+        到期抛 ``TimeoutError``，线程不会比取件预算活得更久。
         """
         if self._backend_type == "vertex":
             if video_ref and hasattr(video_ref, "video_bytes") and video_ref.video_bytes:
                 video_bytes = video_ref.video_bytes
                 _write_atomically(output_path, lambda target: target.write_bytes(video_bytes))
             elif video_ref and hasattr(video_ref, "uri") and video_ref.uri:
-                import urllib.request
-
                 uri = video_ref.uri
-                _write_atomically(output_path, lambda target: urllib.request.urlretrieve(uri, str(target)))
+                _write_atomically(output_path, lambda target: _fetch_uri(uri, target, deadline))
             else:
                 raise RuntimeError("视频生成成功但无法获取视频数据")
         else:
-            # AI Studio 模式：files.download 带 destination 时分块直写磁盘，不把整段视频读进内存。
-            _write_atomically(
-                output_path,
-                lambda target: self._client.files.download(file=video_ref, destination=target),
+            # AI Studio 模式：files.download 带 destination 时分块直写，不把整段视频读进内存。
+            def write(target: Path) -> None:
+                timeout_ms = int(_io_timeout(deadline) * 1000)
+                with open(target, "wb") as handle:
+                    self._client.files.download(
+                        file=video_ref,
+                        destination=_DeadlineWriter(handle, deadline),
+                        config={"http_options": {"timeout": timeout_ms}},
+                    )
+
+            _write_atomically(output_path, write)
+
+
+class _DeadlineWriter(io.RawIOBase):
+    """写入前比对墙钟期限的文件包装，期限已过即抛 ``TimeoutError``。
+
+    I/O 超时只约束单次读取停滞，持续慢速出数据的下载由逐块比对期限结束。
+    继承 ``RawIOBase`` 以满足 SDK ``destination`` 的 ``IOBase`` 类型。
+    """
+
+    def __init__(self, handle: BinaryIO, deadline: float) -> None:
+        super().__init__()
+        self._handle = handle
+        self._deadline = deadline
+        self.written = 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, b: Buffer, /) -> int:
+        if time.monotonic() >= self._deadline:
+            raise TimeoutError("Gemini 成片下载超出取件预算")
+        written = self._handle.write(b)
+        self.written += written
+        return written
+
+
+def _io_timeout(deadline: float) -> float:
+    """单次网络读写的超时：不超过 I/O 超时上限，也不越过期限；期限已过则直接抛 ``TimeoutError``。"""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Gemini 成片下载超出取件预算")
+    return min(_DOWNLOAD_IO_TIMEOUT_SECONDS, remaining)
+
+
+def _fetch_uri(uri: str, target: Path, deadline: float) -> None:
+    """带 I/O 超时与期限检查，流式下载 ``uri`` 到 ``target``。
+
+    HTTP 错误由 ``urlopen`` 抛 ``HTTPError``；正文短于 Content-Length 时抛
+    ``ContentTooShortError``，截断文件不会被当成成片。
+    """
+    with urllib.request.urlopen(uri, timeout=_io_timeout(deadline)) as response, open(target, "wb") as handle:
+        sink = _DeadlineWriter(handle, deadline)
+        shutil.copyfileobj(response, sink, _DOWNLOAD_CHUNK_BYTES)
+        expected = response.headers.get("Content-Length")
+        if expected is not None and sink.written < int(expected):
+            raise urllib.error.ContentTooShortError(
+                f"retrieval incomplete: got only {sink.written} out of {expected} bytes",
+                (str(target), response.headers),
             )
 
 
 def _write_atomically(output_path: Path, write: Callable[[Path], object]) -> None:
     """让 ``write`` 把内容写进同目录 ``<name>.part``，成功后 ``os.replace`` 改名为 output_path。
 
-    SDK 与 ``urlretrieve`` 都以 "wb" 直开目标路径，中途失败会留下截断文件；写 ``.part``
+    各写入方都以 "wb" 直开目标路径，中途失败会留下截断文件；写 ``.part``
     可保证失败时 output_path 不被覆盖，``BaseException`` 时清掉残片。
     """
     partial_path = output_path.with_name(f"{output_path.name}.part")

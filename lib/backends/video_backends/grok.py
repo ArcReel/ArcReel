@@ -24,6 +24,7 @@ from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
 
+_MODEL_CLASSIC = "grok-imagine-video"
 _MODEL_1_5 = "grok-imagine-video-1.5"
 
 # 全系参考生视频（带参考图，或带尾帧）的分辨率上限：「Reference-to-video is capped at 720p」，且首帧与
@@ -63,11 +64,12 @@ class GrokVideoBackend:
         https://docs.x.ai/developers/model-capabilities/video/reference-to-video.md）：
 
         - 全系支持参考生视频，该路径分辨率上限 720p，由 ``generate`` 请求期校验。参考图上限 7
-          取自第三方来源，官方文档未明确列出，1.5 与 1.5-lite 沿用同一值。
+          取自参考生视频页「A maximum of 7 reference images can be provided per request」，不分模型。
         - ``grok-imagine-video-1.5``：另支持 ``last_frame`` 钉住尾帧。参考音频只收预置
           ``voice_id``，自备音频仅向受信合作方开放，表达不了项目的参考音频文件，不声明。
         - ``grok-imagine-video-1.5-lite``：首尾帧官方只写在 1.5 上，不声明尾帧。
-        - ``grok-imagine-video``：官方写明拒收 ``last_frame``。
+        - ``grok-imagine-video``：官方写明拒收 ``last_frame``，也拒收首帧与参考图并存，后者由 ``generate``
+          请求期校验。
 
         音轨可开关：请求把音轨意图下发为 SDK 的 ``generate_audio``（缺省有声，``False`` 出无声
         视频），``generate`` 结算按同一下发值记录。
@@ -87,6 +89,7 @@ class GrokVideoBackend:
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频；黑盒生成不重试，只有已取得 URL 后的下载可以独立重试。"""
         self._check_reference_route_resolution(request)
+        self._check_classic_first_frame_with_references(request)
         # The SDK combines submit and provider-side waiting in one opaque call. Once it starts, an exception
         # cannot prove the provider rejected the request before accepting a paid job, so close MediaGenerator's
         # reference-payload compression retry window before entering it.
@@ -138,6 +141,12 @@ class GrokVideoBackend:
                 resolution=resolution,
                 max_resolution=_REFERENCE_ROUTE_MAX_RESOLUTION,
             )
+
+    def _check_classic_first_frame_with_references(self, request: VideoGenerationRequest) -> None:
+        """classic 模型拒收首帧与参考图并存（参考生视频页「Classic grok-imagine-video ... rejects combining
+        ``image`` with reference inputs」），在付费调用前拒绝，而不是两者一并下发后由供应商判失败。"""
+        if self._model == _MODEL_CLASSIC and request.start_image and request.reference_images:
+            raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
 
     async def _create_video(self, request: VideoGenerationRequest):
         """通过不可判定收单边界的 SDK 调用生成视频。"""

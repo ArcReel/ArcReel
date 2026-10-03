@@ -408,7 +408,10 @@ class TestTrialRun:
             rows = (await session.execute(select(ApiCall))).scalars().all()
         assert rows[0].aspect_ratio == PARAMETERS.aspect_ratio
 
-    @pytest.mark.parametrize(("resolution", "expected"), [("1080p", "failed"), ("720p", "succeeded")])
+    @pytest.mark.parametrize(
+        ("resolution", "expected", "error_code"),
+        [("1080p", "failed", "video_last_frame_unsupported"), ("720p", "succeeded", None)],
+    )
     async def test_the_gate_reads_the_capabilities_narrowed_to_the_requested_resolution(
         self,
         tmp_path: Path,
@@ -416,6 +419,7 @@ class TestTrialRun:
         db_factory: async_sessionmaker,
         resolution: str,
         expected: str,
+        error_code: str | None,
     ):
         """档位感知的端点按请求分辨率收窄能力：生产在收窄后的能力上拒绝的请求，测试连接同样拒绝。"""
         parameters = replace(PARAMETERS, resolution=resolution)
@@ -432,6 +436,8 @@ class TestTrialRun:
             run = await _await_terminal(trial_runs, started.id)
 
         assert run.status is TrialRunStatus(expected), run.error
+        if error_code is not None:
+            assert (run.error or "").startswith(f"[{error_code}]")
         async with db_factory() as session:
             rows = (await session.execute(select(ApiCall))).scalars().all()
         assert len(rows) == (1 if expected == "succeeded" else 0)

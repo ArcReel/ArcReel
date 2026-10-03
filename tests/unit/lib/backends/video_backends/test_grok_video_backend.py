@@ -421,6 +421,53 @@ class TestGrokVideo15Models:
         generate.assert_not_awaited()
         resubmit_unsafe.assert_not_called()
 
+    async def test_classic_rejects_first_frame_with_reference_images_before_provider_call(
+        self, video_output_path: Path, tmp_path: Path
+    ):
+        """classic 官方拒收首帧与参考图并存：付费调用前拒绝，不两者一并下发。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        resubmit_unsafe = MagicMock()
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video")
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="The model from <IMAGE_1> walks in",
+                        output_path=video_output_path,
+                        start_image=_png(tmp_path / "start.png"),
+                        reference_images=[_png(tmp_path / "ref.png")],
+                        duration_seconds=8,
+                        resolution="720p",
+                        on_provider_resubmit_unsafe=resubmit_unsafe,
+                    )
+                )
+
+        assert exc.value.code == "video_reference_images_with_frames_unsupported"
+        generate.assert_not_awaited()
+        resubmit_unsafe.assert_not_called()
+
+    async def test_1_5_sends_first_frame_with_reference_images(self, video_output_path: Path, tmp_path: Path):
+        """1.5 上首帧加参考图即钉住首帧的参考生视频，两者一并下发。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-1.5")
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="The model from <IMAGE_1> walks in",
+                    output_path=video_output_path,
+                    start_image=_png(tmp_path / "start.png"),
+                    reference_images=[_png(tmp_path / "ref.png")],
+                    duration_seconds=8,
+                    resolution="720p",
+                )
+            )
+
+        kwargs = generate.call_args[1]
+        assert kwargs["image_url"].startswith("data:image/png;base64,")
+        assert len(kwargs["reference_image_urls"]) == 1
+
     @pytest.mark.parametrize("model", ["grok-imagine-video-1.5", "grok-imagine-video-1.5-lite"])
     async def test_reference_route_at_720p_reaches_sdk(self, video_output_path: Path, tmp_path: Path, model: str):
         from lib.backends.video_backends.grok import GrokVideoBackend
