@@ -109,6 +109,18 @@ export default tseslint.config(
     },
   },
 
+  // 页面级套件与录制脚本：类型信息取自 e2e/tsconfig.json
+  {
+    files: ["e2e/**/*.ts"],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+
   // 测试文件：关闭 typed linting
   {
     files: ["**/*.test.{ts,tsx}"],

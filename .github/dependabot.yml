@@ -152,9 +152,12 @@ updates:
     # jsdom 上限是 30.0.x：vitest 4 的 jsdom 环境把 jsdom Blob 转成 Node Blob 时读取内部字段
     # `_buffer`，jsdom 30.1 已将其改名，URL.createObjectURL / FormData 传 File 的测试随之报错。
     # 解锁条件：frontend 升级到 vitest >= 5.0.3（该版本起改读新字段）。
+    # @types/node 跟随 package.json engines 的 Node 主版本（24），主版本随 Node 升级手动调整。
     ignore:
       - dependency-name: "jsdom"
         versions: [">=30.1"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       react:
         patterns:
@@ -201,6 +204,16 @@ updates:
           - "@vitest/*"
           - "@testing-library/*"
           - "jsdom"
+        update-types:
+          - "minor"
+          - "patch"
+      # @playwright/test 升级时，.github/workflows/test.yml 中 frontend-e2e 的镜像版本要在同一 PR 里改成一致，
+      # 否则 CI 找不到浏览器。
+      e2e:
+        patterns:
+          - "@playwright/test"
+          - "@axe-core/*"
+          - "@types/node"
         update-types:
           - "minor"
           - "patch"

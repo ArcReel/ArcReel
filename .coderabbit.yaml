@@ -22,7 +22,7 @@ knowledge_base:
       - files: "docs/standards/providers.md"
         applyTo: "lib/backends/**,lib/custom_provider/**,lib/config/**,lib/billing/**,lib/agent/agent_provider_catalog.py,lib/prompts/prompt_builders*.py,agent_runtime_profile/**,docs/api-docs/**"
       - files: "docs/standards/testing.md"
-        applyTo: "tests/**,packages/*/tests/**,frontend/src/**/*.test.*,frontend/src/test/**,frontend/src/__mocks__/**"
+        applyTo: "tests/**,packages/*/tests/**,frontend/src/**/*.test.*,frontend/src/test/**,frontend/src/__mocks__/**,frontend/e2e/**"
       - files: "docs/standards/windows.md"
         applyTo: "lib/**,server/**,packages/*/src/**"
       # standards:end

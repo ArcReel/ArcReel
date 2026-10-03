@@ -20,6 +20,7 @@ const ANCHORS = new Map([
   ["## 本地开发环境", "local-development"],
   ["### 文档站", "docs-site"],
   ["## 测试", "testing"],
+  ["### 前端页面级测试", "frontend-page-tests"],
   ["## 代码质量", "code-quality"],
   ["### 依赖管理", "dependency-management"],
   ["## 文档维护", "docs-maintenance"],
