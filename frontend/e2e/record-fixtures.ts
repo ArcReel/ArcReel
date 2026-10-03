@@ -101,6 +101,8 @@ const RECORDINGS: Recording[] = [
   // 全局设置「市场」：市场源（录制环境只有内置的官方源，从未刷新）与条目快照（为空）；刷新、聚合与条目详情访问外网，由场景替换。
   { file: "market-sources", method: "GET", path: "/api/v1/market/sources" },
   { file: "market-entries", method: "GET", path: "/api/v1/market/entries?type=endpoint" },
+  // 新建项目向导：TTS 配音的预填值（全局默认）。
+  { file: "narration-defaults", method: "GET", path: "/api/v1/system/narration-defaults" },
 ];
 
 // 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。

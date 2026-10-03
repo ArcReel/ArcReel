@@ -32,7 +32,7 @@ import {
   EpisodeTargetDurationField,
   isValidEpisodeTargetDuration,
 } from "@/components/shared/EpisodeTargetDurationField";
-import { AdTargetDurationField } from "@/components/shared/AdTargetDurationField";
+import { DurationTierPicker } from "@/components/shared/DurationTierPicker";
 import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/shared/darkroom-tokens";
 import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
@@ -996,7 +996,7 @@ export function ProjectSettingsPage() {
                 {/* ad 项目的整集体量由目标总时长表达，不呈现单集目标时长（服务端亦拒写） */}
                 {contentMode === "ad" && (
                   <div className="mt-4">
-                    <AdTargetDurationField
+                    <DurationTierPicker
                       key={adTargetLoadCount}
                       value={adTargetDuration}
                       onChange={setAdTargetDuration}

@@ -105,6 +105,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 弹层内容由原语限高，不超过视口高度减去 2rem。`DialogHeader`、`DialogFooter` 固定在两端，`DialogBody`（Sheet、AlertDialog 中对应 `SheetBody`、`AlertDialogBody`）是唯一的滚动区。主操作放在 Footer，窗口再矮也不会被滚出视野。Body 预留滚动条槽位，内容变长出现滚动条时不会横向跳动。
 
 - 宽度用 `size` 选择：Dialog 有 `sm`、`default`、`lg`、`xl`，AlertDialog 有 `sm`、`default`、`lg`。调用处不写 `max-w-*`。
+- 多步向导用 Dialog 的 `size="wizard"`：宽 720px，高度固定为 `min(760px, 100dvh - 48px)`，各步骤同高，切换步骤时外框与底部按钮不移动。各步骤共用一个 `DialogBody`，进入新步骤时把它的 `scrollTop` 置 0。
 - Body 自带内边距。内部的纵向间距写在 Body 里的一层 `flex flex-col gap-*` 包裹元素上，不写在 Body 上；后者会被 `@shadcn/lint` 的 `no-restyle` 报告。
 - 每个弹层都要有 Title。没有可见标题时，给 Title 加 `sr-only`。
 - 关闭按钮由 Content 的 `showCloseButton` 渲染；Footer 已有「关闭」按钮时，传 `showCloseButton={false}` 去掉右上角的那个。

@@ -110,6 +110,10 @@ const REWORKED_FILES = [
   // 登录页、404 页与导出范围对话框
   "src/components/pages/{LoginPage,NotFoundPage}.tsx",
   "src/components/layout/ExportScopeDialog.tsx",
+  // 新建项目向导、共用的时长档位选择器、风格选择器与生成方式等字段
+  "src/components/pages/CreateProjectModal.tsx",
+  "src/components/pages/create-project/**",
+  "src/components/shared/{DurationTierPicker,StylePicker,GenerationRouteCards,GridStoryboardBar,OptionalNumberField,EpisodeTargetDurationField,SpeechRateField}.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
