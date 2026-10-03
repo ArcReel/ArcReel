@@ -1,5 +1,7 @@
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
+import { Badge } from "@/components/ui/badge";
 import type { KeyboardEvent, ReactNode } from "react";
 
 // ---------------------------------------------------------------------------
@@ -98,13 +100,10 @@ export function CapabilityOverrideRow({
         title={title}
         onClick={() => select(target)}
         onKeyDown={onKeyDown}
-        className="px-2 py-1 text-[10.5px] font-semibold transition-colors first:rounded-l-sm last:rounded-r-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45"
-        style={{
-          color: active ? "var(--primary)" : "var(--muted-foreground)",
-          background: active ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "var(--card)",
-          border: `1px solid ${active ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "var(--border)"}`,
-          marginLeft: -1,
-        }}
+        className={cn(
+          "-ml-px h-8 border px-2.5 text-sm transition-colors first:ml-0 first:rounded-l-lg last:rounded-r-lg focus-visible:relative focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+          active ? "relative border-primary/40 bg-primary/15 text-foreground" : "border-input text-muted-foreground hover:text-foreground",
+        )}
       >
         {label}
       </button>
@@ -112,23 +111,14 @@ export function CapabilityOverrideRow({
   };
 
   return (
-    <div className="mt-2 flex flex-col gap-1 pl-6">
+    <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">
-          {t("cap_override_last_frame_label")}
-        </span>
-
-        <div
-          ref={groupRef}
-          className="flex items-center"
-          role="radiogroup"
-          aria-label={t("cap_override_group_label")}
-        >
+        <div ref={groupRef} className="flex items-center" role="radiogroup" aria-label={t("cap_override_group_label")}>
           {segment(
             "follow",
             <span>
               {t("cap_override_follow")}
-              <span className="ml-1 opacity-70">·{detectedLabel}</span>
+              <span className="text-muted-foreground"> · {detectedLabel}</span>
             </span>,
             // 可访问名带上判定值，读屏用户与视觉用户听到／看到的是同一句
             `${t("cap_override_follow")}·${detectedLabel}`,
@@ -139,20 +129,13 @@ export function CapabilityOverrideRow({
         </div>
 
         {overridden && (
-          <span
-            className="rounded-sm px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.05em]"
-            style={{
-              color: "var(--warn)",
-              background: "color-mix(in oklab, var(--warn) 15%, transparent)",
-              border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
-            }}
-          >
+          <Badge variant="secondary">
             {t("cap_override_badge")}
-          </span>
+          </Badge>
         )}
 
         {overridden && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {t("cap_override_effective", {
               effective: valueLabel(state === "on"),
               detected: detectedLabel,
@@ -162,7 +145,7 @@ export function CapabilityOverrideRow({
       </div>
 
       {/* title 对键盘与触屏不可达，禁用原因必须有一行可见说明 */}
-      {!endImageCapable && <p className="text-[11px] text-muted-foreground">{t("cap_override_on_unavailable")}</p>}
+      {!endImageCapable && <p className="text-xs text-muted-foreground">{t("cap_override_on_unavailable")}</p>}
     </div>
   );
 }

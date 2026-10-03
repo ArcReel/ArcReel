@@ -102,6 +102,8 @@ const REWORKED_FILES = [
   "src/components/pages/settings/{Prompt*,promptTemplate*}.tsx",
   // 调用端点分区：端点列表、详情、定义表单、端点测试与导入、分享对话框
   "src/components/pages/settings/endpoints/**",
+  // 自定义供应商详情：表单、模型表格、调用端点选择与尾帧能力覆盖
+  "src/components/pages/settings/{CustomProviderDetail,CustomProviderForm,CustomProviderFieldRow,CustomProviderModelTable,EndpointSelect,CapabilityOverrideRow}.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

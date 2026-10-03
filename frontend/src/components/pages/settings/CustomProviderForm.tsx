@@ -1,68 +1,57 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search, Link2 } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { CheckCircle2, Eye, EyeOff, Loader2, MoreHorizontal, Plus, Trash2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { DetailPane } from "@/components/shared/master-detail/DetailPane";
+import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
+import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import { uid } from "@/utils/id";
+import type { CustomProviderInfo, EndpointKey } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
-import type {
-  CapabilityOverrides,
-  CustomProviderInfo,
-  CustomProviderModelInput,
-  DiscoveredModel,
-  EndpointKey,
-  VideoCapabilityFlags,
-} from "@/types";
+import { DurationParseError } from "@/utils/duration_format";
+import { formatNameList } from "@/utils/list-format";
+import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
+import { DURATION_ERROR_KEY, ModelTable } from "./CustomProviderModelTable";
 import {
-  priceLabel,
-  urlPreviewFor,
-  toggleDefaultReducer,
-  mergeDiscoveredModels,
-  withLastFrameOverride,
-  capabilityFieldsFor,
-  globalBucketRefsFor,
   isComfyuiEndpoint,
   isComfyuiProtocol,
+  mergeDiscoveredModels,
+  toggleDefaultReducer,
+  urlPreviewFor,
   type DiscoveryFormat,
 } from "./customProviderHelpers";
-import { EndpointSelect } from "./EndpointSelect";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
-import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
-import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import {
-  IMAGE_STANDARD_RESOLUTIONS,
-  VIDEO_STANDARD_RESOLUTIONS,
-  resolutionPlaceholder,
-} from "@/utils/provider-models";
-import {
-  compactRangeFormat,
-  parseDurationInput,
-  DurationParseError,
-  type DurationParseErrorCode,
-} from "@/utils/duration_format";
-
-import {
-  ACCENT_BTN_CLS,
-  ACCENT_BUTTON_STYLE,
-  CARD_STYLE,
-  GHOST_BTN_CLS,
-  INPUT_CLS,
-} from "@/components/shared/darkroom-tokens";
-import { FieldLabel } from "@/components/shared/FieldLabel";
-import { formatNameList } from "@/utils/list-format";
-
-// ---------------------------------------------------------------------------
-// Style constants
-// ---------------------------------------------------------------------------
-
-const COMPACT_INPUT_CLS =
-  "min-w-0 rounded-sm border border-border bg-card/55 px-2 py-1 text-[12.5px] text-foreground placeholder:text-muted-foreground transition-colors hover:border-input focus:border-primary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-// ---------------------------------------------------------------------------
-// Types & constants
-// ---------------------------------------------------------------------------
+  discoveredToRow,
+  effectiveModelRows,
+  formFromProvider,
+  newModelRow,
+  newProviderForm,
+  parsePositiveInt,
+  rowToInput,
+  type CustomProviderFormValue,
+  type ModelRow,
+} from "./customProviderFormState";
 
 const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] = [
   { value: "openai", labelKey: "discovery_format_openai" },
@@ -70,306 +59,38 @@ const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] =
   { value: "comfyui", labelKey: "discovery_format_comfyui" },
 ];
 
-interface ModelRow {
-  key: string; // unique key for React
-  model_id: string;
-  display_name: string;
-  endpoint: EndpointKey;
-  is_default: boolean;
-  is_enabled: boolean;
-  price_unit: string;
-  price_input: string;
-  price_output: string;
-  currency: string;
-  resolution: string; // 空串 = null
-  supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
-  max_output_tokens_text: string; // 仅文本模型；空串 = 未登记
-  capability_overrides: CapabilityOverrides | null;
-  // 系统按 (endpoint, model_id) 判定的能力，只读展示用；null = 非视频模型，或该行尚未落库
-  // （新增/改过 model_id 的行判定要后端算，前端不猜），此时控件只显示「待判定」。
-  system_capabilities: VideoCapabilityFlags | null;
-  // 正在引用该模型的全局 system_settings 键名，只读展示用；新增/未落库的行恒为空数组。
-  global_bucket_refs: string[];
-  // 行创建时的快照，之后不再变化：model_id/endpoint 的清除判断须对齐这份原始值而非上一次
-  // 的中间态——逐字符编辑 model_id 时若拿"上一次的值"作基准，第一次改动即清空覆盖，之后就
-  // 算把输入改回原值也已丢失、无法通过继续编辑恢复；改回原值时应从这份快照原样取回覆盖。
-  original_model_id: string;
-  original_endpoint: EndpointKey;
-  original_capability_overrides: CapabilityOverrides | null;
-  original_system_capabilities: VideoCapabilityFlags | null;
-  original_global_bucket_refs: string[];
-}
-
-//: 新模型行默认挂的端点；协议从 ComfyUI 切走时，挂不住的行也退回它。
-const DEFAULT_ENDPOINT = "openai-chat" as EndpointKey;
-
-//: 「这一行还没有端点」。切进 ComfyUI 协议而一个 ComfyUI 端点都还没有时，挂不住的行停在这里：
-//: 选择器显示未选择，保存被拦下，直到用户导入端点并为它选一个。
-const UNSET_ENDPOINT = "" as EndpointKey;
-
-function newModelRow(partial?: Partial<ModelRow>): ModelRow {
-  const base = {
-    key: uid(),
-    model_id: "",
-    display_name: "",
-    endpoint: DEFAULT_ENDPOINT,
-    is_default: false,
-    is_enabled: true,
-    price_unit: "",
-    price_input: "",
-    price_output: "",
-    currency: "USD",
-    resolution: "",
-    supported_durations_text: "",
-    max_output_tokens_text: "",
-    capability_overrides: null,
-    system_capabilities: null,
-    global_bucket_refs: [],
-    ...partial,
-  };
-  return {
-    ...base,
-    original_model_id: base.model_id,
-    original_endpoint: base.endpoint,
-    original_capability_overrides: base.capability_overrides,
-    original_system_capabilities: base.system_capabilities,
-    original_global_bucket_refs: base.global_bucket_refs,
-  };
-}
-
-function discoveredToRow(m: DiscoveredModel): ModelRow {
-  return newModelRow({
-    model_id: m.model_id,
-    display_name: m.display_name,
-    endpoint: m.endpoint,
-    is_default: m.is_default,
-    is_enabled: m.is_enabled,
-    max_output_tokens_text: m.max_output_tokens != null ? String(m.max_output_tokens) : "",
-  });
-}
-
-function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
-  return newModelRow({
-    model_id: m.model_id,
-    display_name: m.display_name,
-    endpoint: m.endpoint,
-    is_default: m.is_default,
-    is_enabled: m.is_enabled,
-    price_unit: m.price_unit ?? "",
-    price_input: m.price_input != null ? String(m.price_input) : "",
-    price_output: m.price_output != null ? String(m.price_output) : "",
-    currency: m.currency ?? "",
-    resolution: m.resolution ?? "",
-    supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
-    max_output_tokens_text: m.max_output_tokens != null ? String(m.max_output_tokens) : "",
-    capability_overrides: m.capability_overrides,
-    system_capabilities: m.system_capabilities,
-    global_bucket_refs: m.global_bucket_refs ?? [],
-  });
-}
-
-function rowToInput(r: ModelRow): CustomProviderModelInput {
-  const trimmed = r.supported_durations_text.trim();
-  // 失败时直接抛 DurationParseError；handleSave 在调用前应已通过 validateModelDurations 拦截，
-  // 故此处只负责诚实地把字符串转成 list[int] 而不静默降级（避免无效输入被改成 null
-  // 后被后端 preset 自动推断覆盖，造成静默数据偏移）
-  const supported_durations = trimmed ? parseDurationInput(trimmed) : null;
-  return {
-    model_id: r.model_id,
-    display_name: r.display_name || r.model_id,
-    endpoint: r.endpoint,
-    is_default: r.is_default,
-    is_enabled: r.is_enabled,
-    ...(r.price_unit ? { price_unit: r.price_unit } : {}),
-    ...(r.price_input ? { price_input: parseFloat(r.price_input) } : {}),
-    ...(r.price_output ? { price_output: parseFloat(r.price_output) } : {}),
-    ...(r.currency ? { currency: r.currency } : {}),
-    ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
-    ...(supported_durations ? { supported_durations } : { supported_durations: null }),
-    max_output_tokens: parsePositiveInt(r.max_output_tokens_text) ?? null,
-    capability_overrides: r.capability_overrides,
-  };
-}
-
-// 并发上限：number 输入用受控字符串存储；空串 = 未设置（null，走全局默认）。
-function workersToStr(n?: number | null): string {
-  return n != null ? String(n) : "";
-}
-
-// 空串 = 未设置（null）；否则必须是正整数（≥1）。返回 undefined 表示非法
-// 输入（0、小数、科学计数、负号、含非数字字符），由 handleSave 拦截并提示——不再用 parseInt
-// 静默截断（"1.5"→1、"1e3"→1）把非法值写成错误配置。0 不是合法用户输入。
-function parsePositiveInt(s: string): number | null | undefined {
-  const trimmed = s.trim();
-  if (!trimmed) return null;
-  if (!/^\d+$/.test(trimmed)) return undefined;
-  const n = Number(trimmed);
-  return Number.isSafeInteger(n) && n >= 1 ? n : undefined;
-}
-
-function WorkersInput({
-  id,
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="min-w-[110px]">
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <input
-        id={id}
-        type="number"
-        min={1}
-        step={1}
-        inputMode="numeric"
-        autoComplete="off"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={`${INPUT_CLS} max-w-[120px]`}
-      />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// DurationsInputRow — 视频模型行内的 supported_durations 输入
-// ---------------------------------------------------------------------------
-
-const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
-  empty_after_split: "supported_durations_err_empty_after_split",
-  non_positive: "supported_durations_err_non_positive",
-  exceeds_max: "supported_durations_err_exceeds_max",
-  range_too_large: "supported_durations_err_range_too_large",
-  range_inverted: "supported_durations_err_range_inverted",
-  unparseable: "supported_durations_err_unparseable",
-};
-
-// 档位为空的三支各说一句：三支互斥，两个文案位都为假即「帧率读得到、只是换算不出整秒时长」。
-const EMPTY_TIER_COPY = {
-  fixed: {
-    placeholder: "supported_durations_fixed_placeholder",
-    hint: "supported_durations_fixed_hint",
-  },
-  frameRateMissing: {
-    placeholder: "supported_durations_no_fps_placeholder",
-    hint: "supported_durations_no_fps_hint",
-  },
-  notDerivable: {
-    placeholder: "supported_durations_not_derivable_placeholder",
-    hint: "supported_durations_not_derivable_hint",
-  },
-} as const;
-
-function DurationsInputRow({
-  value,
-  onChange,
-  tierEmpty = false,
-  fixed = false,
-  frameRateMissing = false,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  /** 这份 workflow 给不出任何档位：输入框只读，改了也无处生效。 */
-  tierEmpty?: boolean;
-  /** 档位为空的成因是「时长天生固定」（frames 未绑定）：决定说哪一句。 */
-  fixed?: boolean;
-  /** 档位为空的成因是「读不到帧率来源」：同上，只挑文案。 */
-  frameRateMissing?: boolean;
-}) {
-  const { t } = useTranslation("dashboard");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  const handleChange = (next: string) => {
-    onChange(next);
-    if (!next.trim()) {
-      setErrorMsg(null);
-      return;
-    }
-    try {
-      parseDurationInput(next);
-      setErrorMsg(null);
-    } catch (e) {
-      if (e instanceof DurationParseError) {
-        setErrorMsg(t(DURATION_ERROR_KEY[e.code], e.params));
-      } else {
-        setErrorMsg(t(DURATION_ERROR_KEY.unparseable, { seg: "" }));
-      }
-    }
-  };
-
-  const emptyCopy = EMPTY_TIER_COPY[fixed ? "fixed" : frameRateMissing ? "frameRateMissing" : "notDerivable"];
-
-  return (
-    <div className="mt-2 flex flex-col gap-1 pl-6">
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">
-          {t("supported_durations_label")}
-        </span>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => handleChange(e.target.value)}
-          placeholder={t(tierEmpty ? emptyCopy.placeholder : "supported_durations_placeholder")}
-          aria-label={t("supported_durations_label")}
-          disabled={tierEmpty}
-          className={`${COMPACT_INPUT_CLS} flex-1 disabled:cursor-not-allowed disabled:opacity-45`}
-        />
-      </div>
-      {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。缺帧率来源那一支是可修的定义，
-          文案指向补哪里；换算不出整秒时长那一支补不出帧率来，不说成「补一处就能恢复」。 */}
-      {tierEmpty ? (
-        <p className="text-[11px] text-muted-foreground">{t(emptyCopy.hint)}</p>
-      ) : errorMsg ? (
-        <p className="text-[11px] text-warn">
-          {t("supported_durations_invalid", { message: errorMsg })}
-        </p>
-      ) : (
-        <p className="text-[11px] text-muted-foreground">{t("supported_durations_help")}</p>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 interface CustomProviderFormProps {
+  /** 已保存的供应商；不传时是新建表单。 */
   existing?: CustomProviderInfo | null;
-  /** 从「调用端点」小节接线过来的预填接口地址（定义里的 meta.hints.base_url）。 */
+  /** 从「调用端点」接线过来的预填接口地址（定义里的 meta.hints.base_url）。 */
   initialBaseUrl?: string;
   /** 接线时预选的调用端点：新建表单据此起一行模型。 */
   initialEndpoint?: EndpointKey;
+  /** 深链里的模型 ID：打开时展开并定位到这一行。 */
   focusModelId?: string;
-  /** 保存成功。新建时带回刚创建的供应商，调用方据此选中它，不必等目录重取。 */
-  onSaved: (created?: CustomProviderInfo) => void;
-  onCancel: () => void;
+  /** 保存成功后调用，带回保存后的供应商（新建时是刚创建的供应商，调用方据此选中它）。 */
+  onSaved: (provider?: CustomProviderInfo) => void;
+  /** 删除成功后调用。 */
+  onDeleted?: () => void;
 }
 
+/**
+ * 自定义供应商详情：打开即是表单，没有只读态。页头显示协议与接口地址，「删除供应商」在更多操作菜单；
+ * 名称、接口地址、密钥、模型与并发上限是一个编辑单元，由详情栏底部的保存栏统一提交。
+ */
 export function CustomProviderForm({
   existing,
   initialBaseUrl,
   initialEndpoint,
   focusModelId,
   onSaved,
-  onCancel,
+  onDeleted,
 }: CustomProviderFormProps) {
-  const { t, i18n } = useTranslation("dashboard");
-  const isEdit = !!existing;
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
 
-  // Endpoint catalog（后端单一真相源）：mediaType 推断、price/default 互斥分组都从这里读。
+  // 端点目录（后端单一真相源）：媒体类型、默认互斥分组与协议配对都从这里读。
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const endpointToImageCapabilities = useEndpointCatalogStore((s) => s.endpointToImageCapabilities);
-  const endpointToEndImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable);
-  const endpointConstraints = useEndpointCatalogStore((s) => s.endpointConstraints);
   const catalogEndpoints = useEndpointCatalogStore((s) => s.endpoints);
   const catalogInitialized = useEndpointCatalogStore((s) => s.initialized);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
@@ -377,130 +98,250 @@ export function CustomProviderForm({
     void fetchEndpointCatalog();
   }, [fetchEndpointCatalog]);
 
-  // --- Form state ---
-  const [displayName, setDisplayName] = useState(existing?.display_name ?? "");
-  // 「用户还没选过协议」与「他选了 openai」不是一回事：只有前者才让接线过来的端点定协议。
-  const [pickedFormat, setDiscoveryFormat] = useState<DiscoveryFormat | null>(existing?.discovery_format ?? null);
-  const [baseUrl, setBaseUrl] = useState(existing?.base_url ?? initialBaseUrl ?? "");
-  const [apiKey, setApiKey] = useState("");
-  const [showApiKey, setShowApiKey] = useState(false);
-  // 「该供应商无需密钥」：本地部署等无凭证接口保存空密钥，同时解除新建时的必填校验。
-  const [noApiKey, setNoApiKey] = useState(false);
-  const [models, setModels] = useState<ModelRow[]>(() =>
-    existing
-      ? existing.models.map(existingToRow)
-      : initialEndpoint
-        ? [newModelRow({ endpoint: initialEndpoint })]
-        : [],
-  );
+  // 已保存的内容：新建表单在挂载时定下，此后保持同一个引用
+  const [newForm] = useState(() => newProviderForm(initialBaseUrl, initialEndpoint));
+  const source = useMemo(() => (existing ? formFromProvider(existing) : newForm), [existing, newForm]);
+
   // 接线过来的端点定协议：ComfyUI 端点只挂得上 ComfyUI 供应商（docs/adr/0081 的双向配对），
-  // 让用户自己去把协议改过来就是先让他撞一次保存失败——那一行在端点选择器里还是隐着的。端点
-  // 目录是异步取的，因此这里取派生值而不是初始值：目录到齐后协议随之落定。
+  // 让用户自己去把协议改过来就是先让他撞一次保存失败。端点目录是异步取的，因此这里取派生值：
+  // 目录到齐后协议随之落定。
   const wiredFormat: DiscoveryFormat | null = useMemo(() => {
     const descriptor = catalogEndpoints.find((item) => item.key === initialEndpoint);
     return descriptor && isComfyuiEndpoint(descriptor) ? "comfyui" : null;
   }, [catalogEndpoints, initialEndpoint]);
-  const discoveryFormat = pickedFormat ?? wiredFormat ?? "openai";
-  // ComfyUI 协议：凭证可留空、没有模型发现、能力不接受覆盖、端点选择器只列 ComfyUI 端点。
-  const isComfyui = isComfyuiProtocol(discoveryFormat);
-  const [imageMaxWorkers, setImageMaxWorkers] = useState(workersToStr(existing?.image_max_workers));
-  const [videoMaxWorkers, setVideoMaxWorkers] = useState(workersToStr(existing?.video_max_workers));
-  const [audioMaxWorkers, setAudioMaxWorkers] = useState(workersToStr(existing?.audio_max_workers));
-
-  // 未保存改动判定：全部表单 state 的序列化快照与首帧对比。表单 state 只存于本组件，
-  // 「管理端点」跳转会卸载组件、丢掉未保存的输入，跳转前有改动须经确认。
-  const formSnapshot = JSON.stringify({
-    displayName,
-    discoveryFormat,
-    baseUrl,
-    apiKey,
-    noApiKey,
-    models,
-    imageMaxWorkers,
-    videoMaxWorkers,
-    audioMaxWorkers,
-  });
-  const [initialSnapshot] = useState(formSnapshot);
-  const formDirty = formSnapshot !== initialSnapshot;
-  const [manageNavProceed, setManageNavProceed] = useState<(() => void) | null>(null);
-  const handleManageNavigate = useCallback(
-    (proceed: () => void) => {
-      if (!formDirty) {
-        proceed();
-        return;
-      }
-      setManageNavProceed(() => proceed);
-    },
-    [formDirty],
+  const formatOf = useCallback(
+    (value: CustomProviderFormValue): DiscoveryFormat => value.pickedFormat ?? wiredFormat ?? "openai",
+    [wiredFormat],
+  );
+  const deriveModels = useCallback(
+    (value: CustomProviderFormValue) =>
+      effectiveModelRows(
+        value.models,
+        catalogInitialized ? catalogEndpoints : null,
+        isComfyuiProtocol(formatOf(value)),
+      ),
+    [catalogInitialized, catalogEndpoints, formatOf],
   );
 
-  // --- Loading / status ---
-  const [discovering, setDiscovering] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
-  const [modelFilter, setModelFilter] = useState("");
-  const focusedModelRef = useRef<HTMLDivElement>(null);
+  // 删除后离开：供应商已不存在，未保存的修改无处可存，这次跳转不经离开拦截询问。
+  // （新建后跳到新供应商不需要放行：跳转发生在保存在途时，拦截会等保存落定、修改清空后放行。）
+  const deletedRef = useRef(false);
+  const allowNavigation = useCallback(() => deletedRef.current, []);
 
+  const save = useCallback(
+    async (value: CustomProviderFormValue): Promise<CustomProviderFormValue | void> => {
+      const discoveryFormat = formatOf(value);
+      const keyOptional = value.noApiKey || isComfyuiProtocol(discoveryFormat);
+      const models = deriveModels(value);
+      const enabledModels = models.filter((m) => m.is_enabled);
+      // 保存失败的原因显示在保存栏上：先说用户自己填漏的字段，再说要等的端点目录
+      const fail = (message: string): never => {
+        throw new Error(message);
+      };
+      if (!value.displayName.trim()) fail(t("fill_provider_name"));
+      if (!value.baseUrl.trim()) fail(t("fill_base_url"));
+      if (!existing && !keyOptional && !value.apiKey.trim()) fail(t("fill_api_key"));
+      if (enabledModels.length === 0) fail(t("enable_one_model"));
+      if (enabledModels.some((m) => !m.model_id.trim())) fail(t("enabled_model_needs_id"));
+      // 目录没取回来时行挂不挂得住当前协议判不了：接线端点还没解析出来，协议就回退成了 openai，
+      // 那一行照样吃 422。两种情形都没有时表单停在默认协议与默认端点上，本来就不用查目录。
+      const catalogPending =
+        !catalogInitialized &&
+        value.models.length > 0 &&
+        (initialEndpoint !== undefined || value.pickedFormat !== null);
+      if (catalogPending) fail(t("cp_endpoint_catalog_pending"));
+      // 停在未选择端点上的行：服务端按行校验协议配对，一行没有端点整份配置都落不了库
+      if (models.some((m) => !m.endpoint)) fail(t("cp_model_endpoint_unselected"));
+      if (
+        models.some(
+          (m) => endpointToMediaType[m.endpoint] === "text" && parsePositiveInt(m.max_output_tokens_text) === undefined,
+        )
+      ) {
+        fail(t("max_output_tokens_invalid"));
+      }
+      let payloadModels;
+      try {
+        payloadModels = models.map(rowToInput);
+      } catch (e) {
+        if (e instanceof DurationParseError) {
+          fail(t("supported_durations_invalid", { message: t(DURATION_ERROR_KEY[e.code], e.params) }));
+        }
+        throw e;
+      }
+      const imageMax = parsePositiveInt(value.imageMaxWorkers);
+      const videoMax = parsePositiveInt(value.videoMaxWorkers);
+      const audioMax = parsePositiveInt(value.audioMaxWorkers);
+      if (imageMax === undefined || videoMax === undefined || audioMax === undefined) fail(t("max_workers_invalid"));
+
+      const workers = { image_max_workers: imageMax ?? null, video_max_workers: videoMax ?? null, audio_max_workers: audioMax ?? null };
+      if (existing) {
+        // 单个事务原子更新 provider + models
+        await API.fullUpdateCustomProvider(existing.id, {
+          display_name: value.displayName,
+          base_url: value.baseUrl,
+          ...(value.noApiKey ? { api_key: "" } : value.apiKey ? { api_key: value.apiKey } : {}),
+          models: payloadModels,
+          ...workers,
+        });
+        // 能力覆盖随本次保存落库，但它不落任何项目字段，在用的能力查询不会因 props 变化而重取；
+        // 显式作废，让常驻的能力警告无需重新挂载组件即随新覆盖增减。
+        useCapabilitiesStore.getState().invalidate();
+        // 入库内容以重取结果为准（能力判定、全局引用由后端算出）；重取失败不算保存失败
+        let updated: CustomProviderInfo | undefined;
+        try {
+          updated = await API.getCustomProvider(existing.id);
+        } catch {
+          updated = undefined;
+        }
+        onSaved(updated);
+        return updated ? formFromProvider(updated) : { ...value, apiKey: "", models };
+      }
+      const created = await API.createCustomProvider({
+        display_name: value.displayName,
+        discovery_format: discoveryFormat,
+        base_url: value.baseUrl,
+        api_key: value.noApiKey ? "" : value.apiKey,
+        models: payloadModels,
+        ...workers,
+      });
+      useCapabilitiesStore.getState().invalidate();
+      onSaved(created);
+    },
+    [formatOf, deriveModels, t, existing, catalogInitialized, initialEndpoint, endpointToMediaType, onSaved],
+  );
+
+  const unit = useEditUnit({ source, save, allowNavigation });
+  const value = unit.value;
+  const setValue = unit.setValue;
+  const discoveryFormat = formatOf(value);
+  const isComfyui = isComfyuiProtocol(discoveryFormat);
+  const models = useMemo(() => deriveModels(value), [deriveModels, value]);
+
+  const setField = useCallback(
+    <K extends keyof CustomProviderFormValue>(key: K, next: CustomProviderFormValue[K]) =>
+      setValue((prev) => ({ ...prev, [key]: next })),
+    [setValue],
+  );
+
+  // 用户改动以派生后的行为基准写回，派生结果就此坐实。否则那些由派生兜底改写的字段（改挂的端点、
+  // 随之作废的默认标记）会在下一次派生里被同一条规则再改一遍，用户的改动看不见效果。
+  const updateModels = useCallback(
+    (change: (rows: ModelRow[]) => ModelRow[]) =>
+      setValue((prev) => ({ ...prev, models: change(deriveModels(prev)) })),
+    [setValue, deriveModels],
+  );
+
+  // 展开的模型行：深链定位的模型默认展开；新建表单接线带来的行还没填模型 ID，也展开
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => {
+    if (!existing) return new Set(source.models.map((m) => m.key));
+    const focused = source.models.find((m) => m.model_id === focusModelId);
+    return new Set(focused ? [focused.key] : []);
+  });
+  const toggleExpanded = useCallback((key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  const tableRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    focusedModelRef.current?.scrollIntoView({ block: "center" });
+    if (!focusModelId) return;
+    tableRef.current?.querySelector("[aria-expanded=true]")?.scrollIntoView({ block: "center" });
   }, [focusModelId]);
 
-  // 新建的模型行默认挂哪个端点：ComfyUI 协议下只有 ComfyUI 端点挂得上去。
-  const comfyuiEndpoints = useMemo(
-    () => catalogEndpoints.filter(isComfyuiEndpoint),
-    [catalogEndpoints],
-  );
+  const comfyuiEndpoints = useMemo(() => catalogEndpoints.filter(isComfyuiEndpoint), [catalogEndpoints]);
+  // ComfyUI 协议下新行必须挂 ComfyUI 端点：没有可挂的端点时按钮禁用并给出去处
+  const noComfyuiEndpointYet = isComfyui && comfyuiEndpoints.length === 0;
+  const addModel = () => {
+    const endpoint = isComfyui ? comfyuiEndpoints[0]?.key : undefined;
+    const row = endpoint ? newModelRow({ endpoint }) : newModelRow();
+    updateModels((rows) => [...rows, row]);
+    setExpanded((prev) => new Set(prev).add(row.key));
+  };
 
-  // 行挂不挂得住当前协议是一路派生下来的，不是切协议那一刻改写一遍行就算数：ComfyUI 端点只挂得上
-  // ComfyUI 供应商，反之亦然（docs/adr/0081 的双向配对），而这份判断要查端点目录——目录是异步取的，
-  // 切协议那一刻它可能还没回来，回来之后也不会有人再重算一遍。留着挂不住的旧值，那一行在端点选择器
-  // 里是隐着的（选择器按协议过滤），用户看不见它，保存时才吃一个 422。
-  //
-  // 改挂的去处：切进 ComfyUI 取第一个 ComfyUI 端点，切走退回新行的默认端点；一个 ComfyUI 端点都
-  // 还没有时没有去处，行落在 UNSET_ENDPOINT 上——用户看得见、保存拦得住，比留个隐形的旧端点强。
-  // 派生而非改写还带来一点：切走再切回来，原先手选的那个端点自己回来了，models 里存的始终是用户
-  // 最后一次显式选择。
-  const effectiveModels = useMemo(() => {
-    // 目录还没回来时一行都判不了：不动它们，由下面的保存门控把这段时间拦住。
-    if (!catalogInitialized) return models;
-    return models.map((row) => {
-      const descriptor = catalogEndpoints.find((item) => item.key === row.endpoint);
-      if (descriptor !== undefined && isComfyuiEndpoint(descriptor) === isComfyui) return row;
-      const endpoint = (isComfyui ? comfyuiEndpoints[0]?.key : DEFAULT_ENDPOINT) ?? UNSET_ENDPOINT;
-      // 换了一路，默认标记与能力覆盖随之作废：覆盖的合法性本就绑在 (endpoint, model_id) 上，
-      // 而 ComfyUI 协议整个关闭覆盖（服务端 _check_protocol_constraints），留着必被拒。
-      return { ...row, endpoint, is_default: false, ...capabilityFieldsFor(row, row.model_id, endpoint) };
-    });
-  }, [models, catalogInitialized, catalogEndpoints, comfyuiEndpoints, isComfyui]);
+  // --- 测试连接与获取模型列表：用表单当前内容，不经保存 ---
+  const [discovering, setDiscovering] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
 
-  // 停在 UNSET_ENDPOINT 的行保存不了：服务端按行校验协议配对，一行没有端点整份配置都落不了库。
-  // 禁用态不分是否启用——停用的行同样随 payload 提交。
-  const hasUnsetEndpoint = effectiveModels.some((m) => !m.endpoint);
-  // 协议要么由接线过来的端点定，要么由用户自己选；这两种情形下判定都要查端点目录，目录没取回来
-  // 时判不了：接线端点还没解析出来，协议就回退成了 openai，那一行照样吃 422。有模型行要提交就先
-  // 拦住。两种情形都没有时表单停在默认协议与默认端点上，本来就不用查目录。
-  const catalogPending =
-    !catalogInitialized && models.length > 0 && (initialEndpoint !== undefined || pickedFormat !== null);
+  // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新密钥走明文路径，
+  // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
+  const baseUrlChanged = !!existing && value.baseUrl.trim() !== existing.base_url.trim();
+  // 编辑时未输入新密钥且接口地址未变，用已存储凭证（by-id 端点）；新建或接口地址变更时必须明文
+  // 密钥。勾选「无需密钥」后保存写入的是空密钥，测试与发现须同样走明文空密钥路径。
+  const useStoredCredential = !!existing && !value.apiKey && !baseUrlChanged && !value.noApiKey;
+  // ComfyUI 本体零鉴权，反向代理的凭据模板写在端点定义的 auth 节（docs/adr/0081），密钥留空是常态。
+  const keyOptional = value.noApiKey || isComfyui;
 
-  const filteredModels = useMemo(() => {
-    if (!modelFilter.trim()) return effectiveModels;
-    const q = modelFilter.toLowerCase();
-    return effectiveModels.filter((m) => m.model_id.toLowerCase().includes(q));
-  }, [effectiveModels, modelFilter]);
+  /** 测试连接与获取模型列表的前置检查；不满足时提示并返回 false。 */
+  const checkConnectionInputs = () => {
+    if (!value.baseUrl) {
+      showError(t("fill_base_url_first"));
+      return false;
+    }
+    if (!useStoredCredential && !keyOptional && !value.apiKey) {
+      showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
+      return false;
+    }
+    return true;
+  };
 
-  const allFilteredEnabled = useMemo(
-    () => filteredModels.length > 0 && filteredModels.every((m) => m.is_enabled),
-    [filteredModels],
-  );
+  const handleDiscover = async () => {
+    if (!checkConnectionInputs()) return;
+    setDiscovering(true);
+    try {
+      const res =
+        useStoredCredential && existing
+          ? await API.discoverModelsForProvider(existing.id)
+          : await API.discoverModels({ discovery_format: discoveryFormat, base_url: value.baseUrl, api_key: value.apiKey });
+      if (res.not_applicable) {
+        showError(res.reason ?? t("discovery_not_applicable"));
+        return;
+      }
+      const discovered = res.models.map(discoveredToRow);
+      // 用 getState 读最新目录映射：目录在挂载时异步拉取，就绪前点「获取模型列表」时闭包里仍是空表，
+      // 合并会跳过默认消解，保存时可能 default_model_conflict。
+      const { endpointToMediaType: mediaMap, endpointToImageCapabilities: capsMap } =
+        useEndpointCatalogStore.getState();
+      updateModels((rows) => mergeDiscoveredModels(rows, discovered, mediaMap, capsMap));
+    } catch (e) {
+      showError(errMsg(e, t("fetch_models_failed")));
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const handleTest = async () => {
+    // 先清空上一次结果：校验失败直接返回时也不残留旧的成功或失败提示
+    setTestResult(null);
+    if (!checkConnectionInputs()) return;
+    setTesting(true);
+    try {
+      const res =
+        useStoredCredential && existing
+          ? await API.checkCustomConnectivityById(existing.id)
+          : await API.checkCustomConnectivity({
+              discovery_format: discoveryFormat,
+              base_url: value.baseUrl,
+              api_key: value.apiKey,
+            });
+      setTestResult(res);
+    } catch (e) {
+      setTestResult({ success: false, message: errMsg(e, t("connectivity_check_failed")) });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   // 勾选「无需密钥」后才需要知道哪些端点其实要密钥，因而只在那时拉一次自定义端点列表。
   // 内置端点一律按需要密钥处理：它们的定义都带 auth 节，无凭证接口只可能是用户自建的。
   // null 表示尚未成功拉到列表：此时不计算冲突提示——空 Set 会把全部模型行误报成需要密钥。
   const [authFreeEndpoints, setAuthFreeEndpoints] = useState<Set<string> | null>(null);
   useEffect(() => {
-    if (!noApiKey) return;
+    if (!value.noApiKey) return;
     const controller = new AbortController();
     voidCall(
       API.listCustomEndpoints({ signal: controller.signal })
@@ -511,10 +352,7 @@ export function CustomProviderForm({
               res.endpoints
                 .filter((e) => {
                   const auth = e.definition?.auth;
-                  return (
-                    Object.keys(auth?.headers ?? {}).length === 0 &&
-                    Object.keys(auth?.query ?? {}).length === 0
-                  );
+                  return Object.keys(auth?.headers ?? {}).length === 0 && Object.keys(auth?.query ?? {}).length === 0;
                 })
                 .map((e) => e.key),
             ),
@@ -525,813 +363,332 @@ export function CustomProviderForm({
         }),
     );
     return () => controller.abort();
-  }, [noApiKey]);
+  }, [value.noApiKey]);
+  const keyRequiringModels =
+    authFreeEndpoints === null
+      ? []
+      : models
+          .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
+          .map((m) => m.model_id);
 
-  /** 标了无需密钥、却仍引用需要密钥的端点的模型行。 */
-  const keyRequiringModels = useMemo(
-    () =>
-      authFreeEndpoints === null
-        ? []
-        : effectiveModels
-            .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
-            .map((m) => m.model_id),
-    [effectiveModels, authFreeEndpoints],
-  );
-
-  // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
-  // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
-  const baseUrlChanged = !!existing && baseUrl.trim() !== existing.base_url.trim();
-  // 编辑模式下若用户未输入新 key 且 base_url 未变更，则用已存储凭证（by-id 端点）；
-  // 创建模式或 base_url 变更时必须明文 api_key。勾选「无需密钥」后保存写入的是空密钥，
-  // 测试与发现须同样走明文空密钥路径，否则测试结果代表不了待保存的配置。
-  const useStoredCredential = !!existing && !apiKey && !baseUrlChanged && !noApiKey;
-  // 凭证是否可以为空。ComfyUI 本体零鉴权，反向代理的凭据模板写在端点定义的 auth 节
-  // （docs/adr/0081），供应商行的 api_key 留空是常态，不该被必填校验堵住。
-  const keyOptional = noApiKey || isComfyui;
-
-  // --- Discover models ---
-  const handleDiscover = useCallback(async () => {
-    if (!baseUrl) {
-      showError(t("fill_base_url_first"));
-      return;
-    }
-    if (!useStoredCredential && !keyOptional && !apiKey) {
-      showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
-      return;
-    }
-    setDiscovering(true);
+  // --- 删除供应商 ---
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const handleDelete = async () => {
+    if (!existing) return;
+    setDeleting(true);
+    setDeleteError(null);
     try {
-      const res = useStoredCredential
-        ? await API.discoverModelsForProvider(existing.id)
-        : await API.discoverModels({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
-      if (res.not_applicable) {
-        // 该协议本就没有模型发现。按钮在 comfyui 下已被说明取代，走到这里只可能是协议
-        // 刚被切换而按钮尚未重渲染；照样按说明提示，不把空列表合进模型表。
-        showError(res.reason ?? t("discovery_not_applicable"));
-        return;
-      }
-      const discovered = res.models.map(discoveredToRow);
-      // 用 getState 读最新 catalog 映射，而非 handleDiscover 闭包捕获的渲染期值：catalog 在
-      // mount 时异步拉取，若用户在其就绪前点「获取模型」，闭包里仍是空 map，合并会跳过默认
-      // 消解，保存时可能 default_model_conflict。
-      const { endpointToMediaType: mediaMap, endpointToImageCapabilities: capsMap } =
-        useEndpointCatalogStore.getState();
-      setModels((prev) => mergeDiscoveredModels(prev, discovered, mediaMap, capsMap));
-      setModelFilter("");
-    } catch (e) {
-      showError(errMsg(e, t("fetch_models_failed")));
-    } finally {
-      setDiscovering(false);
-    }
-  }, [discoveryFormat, baseUrl, apiKey, keyOptional, useStoredCredential, baseUrlChanged, existing, showError, t]);
-
-  // --- Test connection ---
-  const handleTest = useCallback(async () => {
-    // 清空上一次结果放在所有校验之前：校验失败直接 return 时也不残留旧的成功/失败提示。
-    setTestResult(null);
-    if (!baseUrl) {
-      showError(t("fill_base_url_first"));
-      return;
-    }
-    if (!useStoredCredential && !keyOptional && !apiKey) {
-      showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
-      return;
-    }
-    setTesting(true);
-    try {
-      const res = useStoredCredential
-        ? await API.checkCustomConnectivityById(existing.id)
-        : await API.checkCustomConnectivity({ discovery_format: discoveryFormat, base_url: baseUrl, api_key: apiKey });
-      setTestResult(res);
-    } catch (e) {
-      setTestResult({ success: false, message: errMsg(e, t("connectivity_check_failed")) });
-    } finally {
-      setTesting(false);
-    }
-  }, [discoveryFormat, baseUrl, apiKey, keyOptional, useStoredCredential, baseUrlChanged, existing, showError, t]);
-
-  // --- Save ---
-  const handleSave = useCallback(async () => {
-    // Validation
-    if (!displayName.trim()) {
-      showError(t("fill_provider_name"));
-      return;
-    }
-    if (!baseUrl.trim()) {
-      showError(t("fill_base_url"));
-      return;
-    }
-    if (!isEdit && !keyOptional && !apiKey.trim()) {
-      showError(t("fill_api_key"));
-      return;
-    }
-    const enabledModels = effectiveModels.filter((m) => m.is_enabled);
-    if (enabledModels.length === 0) {
-      showError(t("enable_one_model"));
-      return;
-    }
-    const emptyId = enabledModels.find((m) => !m.model_id.trim());
-    if (emptyId) {
-      showError(t("enabled_model_needs_id"));
-      return;
-    }
-    // 目录没取回来时行挂不挂得住当前协议判不了，这一版 payload 不该送出去。排在自有输入校验
-    // 之后：用户自己填漏的字段先说，不拿一条「稍候再试」盖住它。
-    if (catalogPending) {
-      showError(t("cp_endpoint_catalog_pending"));
-      return;
-    }
-    if (
-      effectiveModels.some(
-        (m) => endpointToMediaType[m.endpoint] === "text" && parsePositiveInt(m.max_output_tokens_text) === undefined,
-      )
-    ) {
-      showError(t("max_output_tokens_invalid"));
-      return;
-    }
-    // 在拼装 payload 前显式校验所有行的 supported_durations 格式：失败则阻断保存，
-    // 让用户回去修正标红字段；不再让 rowToInput 静默把非法降级为 null
-    let payloadModels: CustomProviderModelInput[];
-    try {
-      payloadModels = effectiveModels.map(rowToInput);
-    } catch (e) {
-      if (e instanceof DurationParseError) {
-        const msg = t(DURATION_ERROR_KEY[e.code], e.params);
-        showError(t("supported_durations_invalid", { message: msg }));
-      } else {
-        showError(t("save_failed", { message: errMsg(e) }));
-      }
-      return;
-    }
-    // 并发上限严格解析：非法（小数/科学计数/负号/非数字）→ undefined，阻断保存并提示
-    const imageMax = parsePositiveInt(imageMaxWorkers);
-    const videoMax = parsePositiveInt(videoMaxWorkers);
-    const audioMax = parsePositiveInt(audioMaxWorkers);
-    if (imageMax === undefined || videoMax === undefined || audioMax === undefined) {
-      showError(t("max_workers_invalid"));
-      return;
-    }
-    setSaving(true);
-    try {
-      let created: CustomProviderInfo | undefined;
-      if (isEdit && existing) {
-        // 单个事务原子更新 provider + models
-        await API.fullUpdateCustomProvider(existing.id, {
-          display_name: displayName,
-          base_url: baseUrl,
-          ...(noApiKey ? { api_key: "" } : apiKey ? { api_key: apiKey } : {}),
-          models: payloadModels,
-          image_max_workers: imageMax,
-          video_max_workers: videoMax,
-          audio_max_workers: audioMax,
-        });
-      } else {
-        created = await API.createCustomProvider({
-          display_name: displayName,
-          discovery_format: discoveryFormat,
-          base_url: baseUrl,
-          api_key: noApiKey ? "" : apiKey,
-          models: payloadModels,
-          image_max_workers: imageMax,
-          video_max_workers: videoMax,
-          audio_max_workers: audioMax,
-        });
-      }
-      // 能力覆盖随本次保存落库，但它不落任何项目字段，在用的能力查询不会因 props 变化而重取；
-      // 显式作废，让常驻的能力警告无需重新挂载组件即随新覆盖增减。
+      await API.deleteCustomProvider(existing.id);
+      // 该供应商上的模型与能力覆盖随之消失，项目会退回解析别的模型；这同样不落任何项目字段。
       useCapabilitiesStore.getState().invalidate();
-      onSaved(created);
+      deletedRef.current = true;
+      setConfirmDelete(false);
+      onDeleted?.();
     } catch (e) {
-      showError(t("save_failed", { message: errMsg(e) }));
+      setDeleteError(errMsg(e));
     } finally {
-      setSaving(false);
+      setDeleting(false);
     }
-  }, [
-    displayName,
-    discoveryFormat,
-    noApiKey,
-    keyOptional,
-    baseUrl,
-    apiKey,
-    effectiveModels,
-    endpointToMediaType,
-    catalogPending,
-    imageMaxWorkers,
-    videoMaxWorkers,
-    audioMaxWorkers,
-    isEdit,
-    existing,
-    onSaved,
-    showError,
-    t,
-  ]);
-
-  // --- Model row helpers ---
-  // 用户改动以派生后的行为基准写回，派生结果就此坐实。否则那些由派生兜底改写的字段（改挂的端点、
-  // 随之作废的默认标记）会在下一次派生里被同一条规则再改一遍，用户的改动看不见效果。
-  const updateModel = (key: string, patch: Partial<ModelRow>) => {
-    setModels(effectiveModels.map((m) => (m.key === key ? { ...m, ...patch } : m)));
   };
 
-  const removeModel = (key: string) => {
-    setModels((prev) => prev.filter((m) => m.key !== key));
-  };
+  const [showApiKey, setShowApiKey] = useState(false);
+  const nameId = useId();
+  const urlId = useId();
+  const keyId = useId();
+  const formatId = useId();
+  const modelsHeadingId = useId();
+  const connectionHeadingId = useId();
+  const concurrencyHeadingId = useId();
+  const urlPreview = urlPreviewFor(discoveryFormat, value.baseUrl);
+  const hasUnsetEndpoint = models.some((m) => !m.endpoint);
+  const workersPlaceholder = isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder");
+  const protocolName = t(DISCOVERY_FORMAT_OPTIONS.find((o) => o.value === discoveryFormat)?.labelKey ?? "");
 
-  // ComfyUI 协议下新行必须挂 ComfyUI 端点：默认的 openai-chat 挂不上去，保存时会被服务端
-  // 双向校验拒掉。没有可挂的端点时按钮禁用并给出去处，不放一行注定保存失败的草稿。
-  const noComfyuiEndpointYet = isComfyui && comfyuiEndpoints.length === 0;
-  const addManualModel = () => {
-    const endpoint = isComfyui ? comfyuiEndpoints[0]?.key : undefined;
-    setModels((prev) => [...prev, endpoint ? newModelRow({ endpoint }) : newModelRow()]);
-  };
-
-  // --- Base URL preview (effective models endpoint) ---
-  const urlPreview = urlPreviewFor(discoveryFormat, baseUrl);
-
-  return (
-    <div>
-      {/* Form content */}
-      <div className="p-6 pb-24">
-      <div className="max-w-2xl">
-      <div className="mb-6">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-          {isEdit ? "EDIT PROVIDER" : "NEW PROVIDER"}
-        </div>
-        <h3
-          className="font-editorial mt-1"
-          style={{
-            fontWeight: 400,
-            fontSize: 22,
-            lineHeight: 1.1,
-            letterSpacing: "-0.012em",
-            color: "var(--foreground)",
-          }}
-        >
-          {isEdit ? t("edit_custom_provider") : t("add_custom_provider_title")}
-        </h3>
-      </div>
-
-      <div className="space-y-4">
-        {/* Display name */}
-        <div>
-          <FieldLabel htmlFor="cp-name" required>
-            {t("cp_name_label")}
-          </FieldLabel>
-          <input
-            id="cp-name"
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder={t("cp_name_placeholder")}
-            className={INPUT_CLS}
-          />
-        </div>
-
-        {/* Base URL */}
-        <div>
-          <FieldLabel htmlFor="cp-url" required>
-            {t("base_url")}
-          </FieldLabel>
-          <input
-            id="cp-url"
-            type="url"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://api.example.com"
-            className={INPUT_CLS}
-          />
-          {urlPreview && (
-            <div className="mt-1.5 truncate font-mono text-[10.5px] text-muted-foreground">
-              {t("preview_url")}
-              {urlPreview}
-            </div>
-          )}
-        </div>
-
-        {/* API Key */}
-        <div>
-          <FieldLabel htmlFor="cp-key" required={!isEdit && !keyOptional}>
-            {t("api_key_label")}
-          </FieldLabel>
-          {!noApiKey && (
-            <div className="relative">
-              <input
-                id="cp-key"
-                type={showApiKey ? "text" : "password"}
-                autoComplete="off"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={isEdit ? existing?.api_key_masked ?? t("keep_existing_key_hint") : t("enter_api_key_placeholder")}
-                className={`${INPUT_CLS} pr-10`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground transition-colors hover:text-subtle-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={showApiKey ? t("common:hide") : t("common:show")}
-              >
-                {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </button>
-            </div>
-          )}
-          <label className="mt-2 flex items-center gap-2 text-[12.5px] text-subtle-foreground">
-            <input
-              type="checkbox"
-              checked={noApiKey}
-              onChange={(e) => {
-                setNoApiKey(e.target.checked);
-                if (e.target.checked) setApiKey("");
-              }}
-              className="h-3.5 w-3.5 accent-primary"
-            />
-            {t("cp_no_api_key")}
-          </label>
-          {noApiKey && keyRequiringModels.length > 0 && (
-            <p className="mt-1.5 text-[12px] leading-[1.55] text-warn">
-              {t("cp_no_api_key_conflict", { models: formatNameList(keyRequiringModels, i18n.language) })}
-            </p>
-          )}
-        </div>
-
-        {/* Discovery format (de-emphasized) */}
-        <div className="flex flex-wrap items-center gap-2">
-          <label
-            htmlFor="cp-discovery"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
-          >
-            {t("discovery_format_label")}
-          </label>
-          <select
-            id="cp-discovery"
-            value={discoveryFormat}
-            onChange={(e) => setDiscoveryFormat(e.target.value as DiscoveryFormat)}
-            disabled={isEdit}
-            className="rounded-sm border border-border bg-card/55 px-2 py-1 text-[11.5px] text-subtle-foreground hover:border-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          >
-            {DISCOVERY_FORMAT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
-            ))}
-          </select>
-          <span className="font-mono text-[10.5px] text-muted-foreground">{t("discovery_format_help")}</span>
-        </div>
-
-        {/* ComfyUI 协议下探针可能被反向代理的自定义头鉴权挡住，据此提前说明判据。 */}
-        {isComfyui && (
-          <p className="text-[12px] leading-[1.55] text-muted-foreground">{t("cp_comfyui_connectivity_hint")}</p>
-        )}
-
-        {/* Discover models —— comfyui 没有这一步，用说明替代按钮 */}
-        {isComfyui ? (
-          <p className="text-[12px] leading-[1.55] text-muted-foreground">{t("discovery_not_applicable")}</p>
-        ) : (
-          <div>
-            <button
-              type="button"
-              onClick={() => void handleDiscover()}
-              disabled={discovering}
-              className={GHOST_BTN_CLS}
-            >
-              {discovering ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                  {t("discovering_models")}
-                </>
-              ) : (
-                t("discover_models")
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* Model list */}
-        {models.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center gap-3">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-                {t("model_list")}
-              </span>
-              {models.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetKeys = new Set(filteredModels.map((m) => m.key));
-                    setModels((prev) =>
-                      prev.map((m) => (targetKeys.has(m.key) ? { ...m, is_enabled: !allFilteredEnabled } : m)),
-                    );
-                  }}
-                  className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {allFilteredEnabled ? t("deselect_all") : t("select_all")}
-                </button>
-              )}
-            </div>
-            {models.length > 5 && (
-              <div className="relative mb-2">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={modelFilter}
-                  onChange={(e) => setModelFilter(e.target.value)}
-                  placeholder={t("search_models")}
-                  className={`${INPUT_CLS} py-1.5 pl-8 pr-3 text-[12px]`}
-                />
-              </div>
-            )}
-            <div className="space-y-2">
-              {filteredModels.map((m) => {
-                const pl = priceLabel(m.endpoint, endpointToMediaType, t);
-                const media = endpointToMediaType[m.endpoint];
-                const constraints = endpointConstraints[m.endpoint];
-                return (
-                  <div
-                    key={m.key}
-                    ref={m.model_id === focusModelId ? focusedModelRef : undefined}
-                    className="rounded-lg border border-border p-3"
-                    style={CARD_STYLE}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* Enable toggle */}
-                      <label className="flex cursor-pointer items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          checked={m.is_enabled}
-                          onChange={(e) => updateModel(m.key, { is_enabled: e.target.checked })}
-                          className="h-3.5 w-3.5 cursor-pointer rounded-sm border-border bg-card accent-primary"
-                          aria-label={t("enable_model")}
-                        />
-                      </label>
-
-                      {/* Model ID */}
-                      <input
-                        type="text"
-                        value={m.model_id}
-                        onChange={(e) => {
-                          const nextId = e.target.value;
-                          updateModel(m.key, {
-                            model_id: nextId,
-                            // 覆盖与判定都随 (endpoint, model_id) 作废/恢复，见 capabilityFieldsFor
-                            ...capabilityFieldsFor(m, nextId, m.endpoint),
-                            // 引用事实只绑 model_id，见 globalBucketRefsFor
-                            global_bucket_refs: globalBucketRefsFor(m, nextId),
-                          });
-                        }}
-                        placeholder="model-id…"
-                        aria-label={t("model_id_label")}
-                        className={`${COMPACT_INPUT_CLS} flex-1`}
-                      />
-
-                      {/* Endpoint select (custom dropdown showing real API path) */}
-                      <EndpointSelect
-                        value={m.endpoint}
-                        onChange={(next) =>
-                          updateModel(m.key, {
-                            endpoint: next,
-                            is_default: false,
-                            // 覆盖的合法性本身随 endpoint 变化（last_frame 要求目标 endpoint 支持
-                            // 尾帧），切走即作废；切回原 endpoint 且 model_id 未变则原样取回。
-                            // 用户改动后控件会可见地弹回「跟随判定」，作废行为在界面上有反馈。
-                            ...capabilityFieldsFor(m, m.model_id, next),
-                          })
-                        }
-                        protocol={discoveryFormat}
-                        ariaLabel={t("endpoint_label")}
-                        onManageNavigate={handleManageNavigate}
-                      />
-
-                      {/* Default toggle */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setModels(
-                            toggleDefaultReducer(
-                              effectiveModels,
-                              m.key,
-                              endpointToMediaType,
-                              endpointToImageCapabilities,
-                            ),
-                          )
-                        }
-                        className="rounded-sm px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        style={
-                          m.is_default
-                            ? {
-                                background: "color-mix(in oklab, var(--primary) 12%, transparent)",
-                                color: "var(--primary)",
-                                border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-                                boxShadow: "0 0 12px -6px color-mix(in oklab, var(--primary) 35%, transparent)",
-                              }
-                            : {
-                                background: "var(--card)",
-                                color: "var(--muted-foreground)",
-                                border: "1px solid var(--border)",
-                              }
-                        }
-                      >
-                        {t("default_label")}
-                      </button>
-
-                      {/* Remove */}
-                      <button
-                        type="button"
-                        onClick={() => removeModel(m.key)}
-                        className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-warn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label={t("delete_model")}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
-                    {/* 全局桶引用提示（非阻塞展示，不影响保存） */}
-                    {m.global_bucket_refs.length > 0 && (
-                      <p className="mt-2 flex items-center gap-1.5 pl-6 text-[11px] text-muted-foreground">
-                        <Link2 className="h-3 w-3 shrink-0" />
-                        {t("global_bucket_ref_hint", {
-                          buckets: m.global_bucket_refs.map((key) => t(`global_bucket_label_${key}`)).join(t("global_bucket_ref_separator")),
-                        })}
-                      </p>
-                    )}
-
-                    {/* Pricing row */}
-                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-[11px] text-muted-foreground">
-                      <select
-                        value={m.currency}
-                        onChange={(e) => updateModel(m.key, { currency: e.target.value })}
-                        aria-label={t("currency_label")}
-                        className="rounded-sm border border-border bg-card/55 px-1 py-0.5 text-[11px] text-subtle-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <option value="USD">$</option>
-                        <option value="CNY">&yen;</option>
-                      </select>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={m.price_input}
-                        onChange={(e) => updateModel(m.key, { price_input: e.target.value })}
-                        placeholder="0.00"
-                        aria-label={t("input_price")}
-                        className={`${COMPACT_INPUT_CLS} w-16`}
-                      />
-                      <span>{pl.input}</span>
-                      {pl.output && (
-                        <>
-                          <span className="text-muted-foreground">|</span>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={m.price_output}
-                            onChange={(e) => updateModel(m.key, { price_output: e.target.value })}
-                            placeholder="0.00"
-                            aria-label={t("output_price")}
-                            className={`${COMPACT_INPUT_CLS} w-16`}
-                          />
-                          <span>{pl.output}</span>
-                        </>
-                      )}
-                    </div>
-
-                    {/* 最大输出长度（仅 text endpoint）：分集规划按它决定每批规划几集 */}
-                    {media === "text" && (
-                      <div className="mt-2 flex flex-col gap-1 pl-6">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">
-                            {t("max_output_tokens_label")}
-                          </span>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={m.max_output_tokens_text}
-                            onChange={(e) => updateModel(m.key, { max_output_tokens_text: e.target.value })}
-                            placeholder={t("max_output_tokens_placeholder")}
-                            aria-label={t("max_output_tokens_label")}
-                            aria-invalid={parsePositiveInt(m.max_output_tokens_text) === undefined}
-                            className={`${COMPACT_INPUT_CLS} w-40`}
-                          />
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">{t("max_output_tokens_help")}</p>
-                      </div>
-                    )}
-
-                    {/* Resolution row（仅 image/video，audio 无分辨率维度） */}
-                    {(media === "image" || media === "video") && (
-                      <div className="mt-2 flex flex-col gap-1 pl-6">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">
-                            {t("resolution_label")}
-                          </span>
-                          <ResolutionPicker
-                            mode="combobox"
-                            options={media === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
-                            value={m.resolution || null}
-                            onChange={(v) => updateModel(m.key, { resolution: v ?? "" })}
-                            placeholder={resolutionPlaceholder(constraints, t)}
-                            aria-label={t("resolution_label")}
-                            disabled={constraints?.sizeFixed ?? false}
-                          />
-                        </div>
-                        {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
-                        {constraints?.sizeFixed && (
-                          <p className="text-[11px] text-muted-foreground">{t("resolution_fixed_hint")}</p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Supported durations row（仅 video endpoint） */}
-                    {media === "video" && (
-                      <DurationsInputRow
-                        value={m.supported_durations_text}
-                        onChange={(v) => updateModel(m.key, { supported_durations_text: v })}
-                        tierEmpty={constraints?.durationTierEmpty ?? false}
-                        fixed={constraints?.durationFixed ?? false}
-                        frameRateMissing={constraints?.durationFrameRateMissing ?? false}
-                      />
-                    )}
-
-                    {/* 能力覆盖行（仅 video endpoint；首批只开放 last_frame）。ComfyUI 端点的
-                        能力只从节点绑定推导，服务端对该协议的覆盖写入一律 422，故不给入口。 */}
-                    {media === "video" && !isComfyui && (
-                      <CapabilityOverrideRow
-                        override={m.capability_overrides?.last_frame}
-                        systemValue={m.system_capabilities?.last_frame ?? null}
-                        endImageCapable={endpointToEndImageCapable[m.endpoint] ?? false}
-                        onChange={(next) =>
-                          updateModel(m.key, {
-                            capability_overrides: withLastFrameOverride(m.capability_overrides, next),
-                          })
-                        }
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Add manual model */}
-            <button
-              type="button"
-              onClick={addManualModel}
-              disabled={noComfyuiEndpointYet}
-              className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {t("add_model_manually")}
-            </button>
-          </div>
-        )}
-
-        {/* Empty model hint */}
-        {models.length === 0 && (
-          <div className="rounded-lg border border-dashed border-input bg-card/45 p-4 text-center text-[12.5px] text-muted-foreground">
-            {noComfyuiEndpointYet ? (
-              t("cp_comfyui_no_endpoint_hint")
-            ) : (
-              <>
-                {isComfyui ? t("cp_comfyui_add_model_hint") : t("discover_or_add_hint")}
-                <button
-                  type="button"
-                  onClick={addManualModel}
-                  className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {t("add_model_manually")}
-                </button>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Concurrency limits */}
-        <div>
-          <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-            {t("cp_concurrency_label")}
-          </div>
-          <p className="mb-3 text-[11px] text-muted-foreground">
-            {isComfyui ? t("cp_concurrency_help_comfyui") : t("cp_concurrency_help")}
-          </p>
-          <div className="flex flex-wrap gap-4">
-            <WorkersInput
-              id="cp-image-workers"
-              label={t("cp_image_max_workers_label")}
-              value={imageMaxWorkers}
-              onChange={setImageMaxWorkers}
-              placeholder={isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder")}
-            />
-            <WorkersInput
-              id="cp-video-workers"
-              label={t("cp_video_max_workers_label")}
-              value={videoMaxWorkers}
-              onChange={setVideoMaxWorkers}
-              placeholder={isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder")}
-            />
-            <WorkersInput
-              id="cp-audio-workers"
-              label={t("cp_audio_max_workers_label")}
-              value={audioMaxWorkers}
-              onChange={setAudioMaxWorkers}
-              placeholder={isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder")}
-            />
-          </div>
-        </div>
-
-        {/* Test result */}
-        {testResult && (
-          <div
-            aria-live="polite"
-            className="flex items-start gap-2 rounded-md px-3 py-2 text-[12.5px]"
-            style={
-              testResult.success
-                ? {
-                    background: "oklch(0.30 0.10 155 / 0.15)",
-                    color: "var(--good)",
-                    border: "1px solid oklch(0.45 0.10 155 / 0.30)",
-                  }
-                : {
-                    background: "color-mix(in oklab, var(--warn) 15%, transparent)",
-                    color: "var(--warn)",
-                    border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
-                  }
-            }
-          >
-            {testResult.success ? (
-              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            ) : (
-              <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            )}
-            <span>{testResult.message}</span>
-          </div>
-        )}
-
-      </div>
-      </div>{/* end max-w-2xl */}
-      </div>{/* end form content */}
-
-      {/* Sticky actions bar */}
-      <div
-        className="sticky bottom-0 z-10 border-t border-border px-6 py-3 backdrop-blur"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.65), oklch(0.15 0.010 265 / 0.85))",
-        }}
+  const header = (
+    <div className="flex items-start gap-3">
+      {/* 自定义供应商不按名称猜品牌图标：中转站与协议无关，统一用名称首字 */}
+      <span
+        aria-hidden
+        className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-sm text-subtle-foreground"
       >
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving || hasUnsetEndpoint}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                {t("common:saving")}
-              </>
-            ) : (
-              t("common:save")
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void handleTest()}
-            disabled={testing}
-            className={GHOST_BTN_CLS}
-          >
-            {testing ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                {t("connectivity_checking")}
-              </>
-            ) : (
-              t("connectivity_check")
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {t("common:cancel")}
-          </button>
-        </div>
-        {hasUnsetEndpoint && (
-          <p className="mt-2 text-[11.5px] text-warn/90">
-            {t("cp_model_endpoint_unselected")}
+        {existing ? (Array.from(existing.display_name)[0] ?? "?") : <Plus className="size-4" />}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <h2 className="min-w-0 text-lg font-medium">
+          {existing ? <TruncatedText text={existing.display_name} /> : t("add_custom_provider_title")}
+        </h2>
+        {existing && (
+          <p className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <span className="shrink-0">{protocolName}</span>
+            <span aria-hidden>·</span>
+            <TruncatedText text={existing.base_url} className="font-mono" />
           </p>
         )}
       </div>
-
-      <ConfirmDialog
-        open={manageNavProceed !== null}
-        title={t("cp_unsaved_leave_title")}
-        description={t("cp_unsaved_leave_desc")}
-        confirmLabel={t("cp_unsaved_leave_confirm")}
-        tone="danger"
-        onConfirm={() => {
-          manageNavProceed?.();
-          setManageNavProceed(null);
-        }}
-        onCancel={() => setManageNavProceed(null)}
-      />
+      <Button variant="outline" size="sm" disabled={testing} onClick={() => void handleTest()}>
+        {testing && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+        {testing ? t("connectivity_checking") : t("connectivity_check")}
+      </Button>
+      {existing && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="icon-sm" aria-label={t("cp_more_actions")} />}
+          >
+            <MoreHorizontal />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => {
+                setDeleteError(null);
+                setConfirmDelete(true);
+              }}
+            >
+              <Trash2 />
+              {t("cp_delete_provider")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
+
+  return (
+    <DetailPane header={header} footer={<SaveBar unit={unit} className="max-w-6xl" />}>
+      <div className="flex flex-col gap-10 px-6 py-6">
+        <section aria-labelledby={connectionHeadingId} className="flex max-w-178 flex-col gap-4">
+          <h3 id={connectionHeadingId} className="text-base font-medium">
+            {t("cp_connection_heading")}
+          </h3>
+          <FieldRow label={t("cp_name_label")} htmlFor={nameId}>
+            <Input
+              id={nameId}
+              autoComplete="off"
+              value={value.displayName}
+              onChange={(e) => setField("displayName", e.target.value)}
+              placeholder={t("cp_name_placeholder")}
+            />
+          </FieldRow>
+          <FieldRow
+            label={t("discovery_format_label")}
+            htmlFor={formatId}
+            hint={<FieldHint>{existing ? t("cp_protocol_locked_hint") : t("discovery_format_help")}</FieldHint>}
+          >
+            <Select<DiscoveryFormat>
+              value={discoveryFormat}
+              onValueChange={(next) => next && setField("pickedFormat", next)}
+              disabled={!!existing}
+              items={DISCOVERY_FORMAT_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+            >
+              <SelectTrigger id={formatId} className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DISCOVERY_FORMAT_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {t(o.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FieldRow>
+          <FieldRow
+            label={t("cp_base_url_label")}
+            htmlFor={urlId}
+            hint={
+              urlPreview ? (
+                <FieldHint>
+                  {t("preview_url")}
+                  <span className="font-mono break-all">{urlPreview}</span>
+                </FieldHint>
+              ) : undefined
+            }
+          >
+            <Input
+              id={urlId}
+              type="url"
+              autoComplete="off"
+              value={value.baseUrl}
+              onChange={(e) => setField("baseUrl", e.target.value)}
+              placeholder="https://api.example.com"
+            />
+          </FieldRow>
+          <FieldRow
+            label={t("credential_secret_label")}
+            htmlFor={value.noApiKey ? undefined : keyId}
+            hint={
+              value.noApiKey && keyRequiringModels.length > 0 ? (
+                <FieldHint tone="warn">
+                  {t("cp_no_api_key_conflict", { models: formatNameList(keyRequiringModels, i18n.language) })}
+                </FieldHint>
+              ) : undefined
+            }
+          >
+            {!value.noApiKey && (
+              <InputGroup>
+                <InputGroupInput
+                  id={keyId}
+                  type={showApiKey ? "text" : "password"}
+                  autoComplete="off"
+                  value={value.apiKey}
+                  onChange={(e) => setField("apiKey", e.target.value)}
+                  placeholder={
+                    existing ? existing.api_key_masked || t("keep_existing_key_hint") : t("enter_api_key_placeholder")
+                  }
+                />
+                <InputGroupAddon align="inline-end">
+                  <InputGroupButton
+                    size="icon-xs"
+                    aria-label={showApiKey ? t("common:hide") : t("common:show")}
+                    onClick={() => setShowApiKey((v) => !v)}
+                  >
+                    {showApiKey ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+                  </InputGroupButton>
+                </InputGroupAddon>
+              </InputGroup>
+            )}
+            <label className="flex items-center gap-2 text-sm text-subtle-foreground">
+              <Checkbox
+                checked={value.noApiKey}
+                onCheckedChange={(checked) =>
+                  setValue((prev) => ({ ...prev, noApiKey: checked, apiKey: checked ? "" : prev.apiKey }))
+                }
+              />
+              {t("cp_no_api_key")}
+            </label>
+          </FieldRow>
+          {/* ComfyUI 协议下探针可能被反向代理的自定义头鉴权挡住，据此提前说明判据。 */}
+          {isComfyui && <p className="text-sm text-muted-foreground">{t("cp_comfyui_connectivity_hint")}</p>}
+          {testResult && (
+            <Alert variant={testResult.success ? "default" : "destructive"}>
+              {testResult.success ? <CheckCircle2 aria-hidden /> : <XCircle aria-hidden />}
+              <AlertDescription>{testResult.message}</AlertDescription>
+            </Alert>
+          )}
+        </section>
+
+        <section aria-labelledby={modelsHeadingId} className="flex max-w-6xl flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 id={modelsHeadingId} className="mr-auto text-base font-medium">
+              {t("model_list")}
+              {models.length > 0 && <span className="ml-2 text-muted-foreground tabular-nums">{models.length}</span>}
+            </h3>
+            {!isComfyui && (
+              <Button variant="outline" size="sm" disabled={discovering} onClick={() => void handleDiscover()}>
+                {discovering && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+                {discovering ? t("discovering_models") : t("discover_models")}
+              </Button>
+            )}
+            <Button variant="outline" size="sm" disabled={noComfyuiEndpointYet} onClick={addModel}>
+              <Plus aria-hidden data-icon="inline-start" />
+              {t("add_model_manually")}
+            </Button>
+          </div>
+          {/* comfyui 没有模型发现，用说明替代按钮 */}
+          {isComfyui && <p className="text-sm text-muted-foreground">{t("discovery_not_applicable")}</p>}
+          {hasUnsetEndpoint && <p className="text-sm text-warn">{t("cp_model_endpoint_unselected")}</p>}
+          {models.length > 0 ? (
+            <div ref={tableRef}>
+              <ModelTable
+                rows={models}
+                protocol={discoveryFormat}
+                providerId={existing?.id}
+                expanded={expanded}
+                onToggleExpanded={toggleExpanded}
+                onUpdate={(key, patch) =>
+                  updateModels((rows) => rows.map((m) => (m.key === key ? { ...m, ...patch } : m)))
+                }
+                onRemove={(key) => updateModels((rows) => rows.filter((m) => m.key !== key))}
+                onToggleDefault={(key) =>
+                  updateModels((rows) => toggleDefaultReducer(rows, key, endpointToMediaType, endpointToImageCapabilities))
+                }
+                onSetEnabled={(keys, enabled) =>
+                  updateModels((rows) => rows.map((m) => (keys.includes(m.key) ? { ...m, is_enabled: enabled } : m)))
+                }
+              />
+            </div>
+          ) : (
+            <p className="rounded-lg border border-dashed border-input px-4 py-6 text-center text-sm text-muted-foreground">
+              {noComfyuiEndpointYet
+                ? t("cp_comfyui_no_endpoint_hint")
+                : isComfyui
+                  ? t("cp_comfyui_add_model_hint")
+                  : t("cp_models_empty_hint")}
+            </p>
+          )}
+        </section>
+
+        <section aria-labelledby={concurrencyHeadingId} className="flex max-w-178 flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h3 id={concurrencyHeadingId} className="text-base font-medium">
+              {t("cp_concurrency_label")}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {isComfyui ? t("cp_concurrency_help_comfyui") : t("cp_concurrency_help")}
+            </p>
+          </div>
+          {(
+            [
+              ["imageMaxWorkers", "cp_image_max_workers_label"],
+              ["videoMaxWorkers", "cp_video_max_workers_label"],
+              ["audioMaxWorkers", "cp_audio_max_workers_label"],
+            ] as const
+          ).map(([field, labelKey]) => (
+            <FieldRow key={field} label={t(labelKey)} htmlFor={`${concurrencyHeadingId}-${field}`}>
+              <Input
+                id={`${concurrencyHeadingId}-${field}`}
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                autoComplete="off"
+                className="w-32"
+                value={value[field]}
+                onChange={(e) => setField(field, e.target.value)}
+                placeholder={workersPlaceholder}
+              />
+            </FieldRow>
+          ))}
+        </section>
+      </div>
+
+      {existing && (
+        <AlertDialog
+          open={confirmDelete}
+          onOpenChange={(open) => {
+            // 删除请求在途时不响应 Esc
+            if (!open && !deleting) setConfirmDelete(false);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("cp_delete_provider_title", { name: existing.display_name })}</AlertDialogTitle>
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <div className="flex flex-col gap-2">
+                <AlertDialogDescription>
+                  {t("cp_delete_provider_description", { count: existing.models.length })}
+                </AlertDialogDescription>
+                {deleteError && (
+                  <p role="alert" className="text-sm wrap-break-word text-destructive">
+                    {t("delete_failed", { message: deleteError })}
+                  </p>
+                )}
+              </div>
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>{t("common:cancel")}</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" disabled={deleting} onClick={() => void handleDelete()}>
+                {deleting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+                {t("cp_delete_provider")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </DetailPane>
+  );
 }
+
