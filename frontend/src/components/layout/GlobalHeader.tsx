@@ -18,7 +18,6 @@ import { ProjectStatusBar } from "./ProjectStatusBar";
 
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
-import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { ROUTE_APP_PROJECTS, episodeEditViewPath } from "@/app-routes";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
@@ -295,10 +294,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           {/* Asset library */}
           <button
             type="button"
-            onClick={() => {
-              rememberAssetLibraryReturnTo(window.location.pathname);
-              setLocation("~/app/assets");
-            }}
+            onClick={() => setLocation("~/app/assets")}
             className="grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
             style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) => {

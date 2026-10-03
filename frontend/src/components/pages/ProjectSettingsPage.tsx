@@ -751,8 +751,9 @@ export function ProjectSettingsPage() {
         </div>
       </header>
 
-      {/* ─── Scrollable body ─── */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* ─── Scrollable body ───
+          滚动容器必须是定位元素：sr-only 的 legend 与单选框是绝对定位，没有定位祖先时会逃出滚动容器撑高文档 */}
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-6 py-7 pb-24 space-y-5">
           <div>
             <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">

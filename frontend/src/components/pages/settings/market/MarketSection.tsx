@@ -290,7 +290,8 @@ export function MarketSection() {
 
   return (
     <div className="relative">
-      <div className="relative mx-auto max-w-6xl px-8 pb-16 pt-10">
+      {/* 铺满档：内边距由页面外壳提供，内容靠左 */}
+      <div className="relative">
         <header className="mb-6 flex flex-wrap items-end gap-4">
           <div className="min-w-[16rem] flex-1">
             <div className={KICKER_ACCENT_CLS}>

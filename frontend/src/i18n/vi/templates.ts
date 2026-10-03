@@ -83,7 +83,7 @@ export default {
     anim_itojunji: "Kinh dị · Đường nét sắc",
     anim_90s_retro: "Watanabe · Kamiyama",
   },
-  default_hint: "Có thể đổi mô hình mặc định trong Bảng điều khiển → Cài đặt → Lựa chọn mô hình",
+  default_hint: "Có thể đổi mô hình mặc định trong Bảng điều khiển → Cài đặt → Mô hình mặc định",
   current_global_default: "Mặc định toàn cục hiện tại: {{value}}",
   use_global_default: "Dùng mặc định toàn cục",
   model_video: "Mô hình video",

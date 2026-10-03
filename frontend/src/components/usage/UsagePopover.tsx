@@ -3,6 +3,8 @@ import type { RefObject } from "react";
 import { Activity, AlertTriangle, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
+
+import { settingsSectionPath } from "@/app-routes";
 import { useShallow } from "zustand/react/shallow";
 
 import { API } from "@/api";
@@ -216,7 +218,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
 
   const viewAllRecords = () => {
     setOpen(false);
-    navigate(`~/app/settings?section=usage&u_project=${encodeURIComponent(projectName)}`);
+    navigate(`~${settingsSectionPath("usage", { u_project: projectName })}`);
   };
 
   const viewAllButton = (

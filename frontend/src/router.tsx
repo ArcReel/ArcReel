@@ -14,6 +14,7 @@ import { LoginPage } from "@/components/pages/LoginPage";
 import { NotFoundPage } from "@/components/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
+import { useTrackReturnTo } from "@/components/shared/page-shell/return-to";
 import { OnboardingTour } from "@/onboarding/OnboardingTour";
 import {
   buildDemoProjectData,
@@ -35,6 +36,12 @@ import {
   ROUTE_APP_SETTINGS,
   WORKSPACE_ROUTE_SETTINGS,
 } from "@/app-routes";
+
+/** 记录最近停留的应用页面，全局设置与资产库的「返回」据此回到进入之前的位置。 */
+function ReturnToTracker() {
+  useTrackReturnTo();
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // ConfigStatusLoader — 登录后集中拉取一次配置完整性状态
@@ -198,6 +205,7 @@ export function AppRoutes() {
   return (
     <LeaveGuardProvider>
       <ConfigStatusLoader />
+      <ReturnToTracker />
       <OnboardingTour />
       <Switch>
         {/* Login page */}

@@ -89,11 +89,6 @@ function setupBaseMocks(opts?: { credentials?: AgentCredential[] }) {
     providers: [makePreset()],
     custom_sentinel_id: "__custom__",
   });
-  vi.spyOn(API, "getAgentMemory").mockResolvedValue({
-    path: "/data/users/default/memory",
-    index: { exists: false, line_count: 0, byte_size: 0, over_limit: false },
-    files: [],
-  });
   vi.spyOn(API, "getPromptTemplate").mockResolvedValue({
     source: "始终使用 {{ language }} 回复用户。",
   } as unknown as Awaited<ReturnType<typeof API.getPromptTemplate>>);
@@ -172,20 +167,11 @@ describe("AgentConfigTab — credentials directory", () => {
   });
 });
 
-describe("AgentConfigTab — 用户记忆", () => {
+describe("AgentConfigTab — 语言规范", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
-  });
-
-  it("Agent 分区挂出用户记忆文件柜，并按用户级路径拉取", async () => {
-    setupBaseMocks();
-    render(<AgentConfigTab visible />);
-
-    expect(await screen.findByText(/用户记忆|User memory/)).toBeInTheDocument();
-    expect(await screen.findByText("/data/users/default/memory")).toBeInTheDocument();
-    expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "user" }, expect.anything());
   });
 
   it("Agent 分区展示 Agent 语言规范的模版正文", async () => {

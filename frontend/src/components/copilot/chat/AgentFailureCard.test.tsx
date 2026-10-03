@@ -56,7 +56,7 @@ describe("AgentFailureCard", () => {
     });
 
     expect(screen.getByRole("link", { name: "打开 Agent 设置" }))
-      .toHaveAttribute("href", "/app/settings?section=agent");
+      .toHaveAttribute("href", "/app/settings?section=arcreel-agent");
     expect(screen.queryByText(/下载.*日志/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
   });

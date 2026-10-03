@@ -80,7 +80,7 @@ export default {
     anim_itojunji: "Horror · Sharp lines",
     anim_90s_retro: "Watanabe · Kamiyama",
   },
-  default_hint: "Default models can be changed in Dashboard → Settings → Model Selection",
+  default_hint: "Default models can be changed in Dashboard → Settings → Default models",
   current_global_default: "Current global default: {{value}}",
   use_global_default: "Use global default",
   model_video: "Video model",

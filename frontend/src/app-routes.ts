@@ -8,6 +8,28 @@ export const ROUTE_APP_PROJECTS = "/app/projects";
 export const ROUTE_APP_SETTINGS = "/app/settings";
 export const ROUTE_APP_ASSETS = "/app/assets";
 
+/** 全局设置的分区，即地址参数 `section` 的取值，顺序同侧栏；缺省或无法识别时落在 `providers`。 */
+export const SETTINGS_SECTIONS = [
+  "providers",
+  "default-models",
+  "endpoints",
+  "arcreel-agent",
+  "agent-memory",
+  "external-agent",
+  "access-tokens",
+  "market",
+  "usage",
+  "general",
+  "prompt-templates",
+  "about",
+] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
+/** 全局设置某个分区的地址；`params` 是该分区自己的定位参数，如使用记录的 `record`。 */
+export function settingsSectionPath(section: SettingsSection, params: Record<string, string> = {}): string {
+  return `${ROUTE_APP_SETTINGS}?${new URLSearchParams({ section, ...params }).toString()}`;
+}
+
 /** 无子路由的单页顶层路由——精确匹配，前缀不算数。 */
 export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, ROUTE_APP_ASSETS] as const;
 

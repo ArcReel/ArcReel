@@ -83,7 +83,7 @@ export default {
     anim_itojunji: "惊悚诡异 · 线条锐利",
     anim_90s_retro: "渡边信一郎 · 神山健治",
   },
-  default_hint: "默认模型可在「项目大厅 → 设置 → 模型选择」中调整",
+  default_hint: "默认模型可在「项目大厅 → 设置 → 默认模型」中调整",
   current_global_default: "当前全局默认：{{value}}",
   use_global_default: "使用全局默认",
   model_video: "视频模型",

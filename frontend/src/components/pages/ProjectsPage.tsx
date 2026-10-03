@@ -27,7 +27,6 @@ import { WARM_TONE } from "@/utils/severity-tone";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { ExternalAgentModal } from "./ExternalAgentModal";
-import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
 import { ACCENT_BUTTON_STYLE, ICON_BTN_FILLED_CLS } from "@/components/shared/darkroom-tokens";
 import {
   ProjectCard,
@@ -970,10 +969,7 @@ export function ProjectsPage() {
         onImport={() => importInputRef.current?.click()}
         onCreate={() => setShowCreateModal(true)}
         onSettings={() => navigate("/app/settings")}
-        onAssets={() => {
-          rememberAssetLibraryReturnTo(window.location.pathname);
-          navigate("/app/assets");
-        }}
+        onAssets={() => navigate("/app/assets")}
         onOpenExternalAgent={() => setShowExternalAgent(true)}
         importing={importingProject}
         configIncomplete={!isConfigComplete}

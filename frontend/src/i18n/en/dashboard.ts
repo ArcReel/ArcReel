@@ -84,11 +84,19 @@ export default {
   'lorebook': 'Lorebook',
   'no_episodes_yet': 'No episodes yet',
   'confirm_delete_file': 'Are you sure you want to delete "{{name}}"?',
-  'agents': 'Agents',
+  // 全局设置侧栏
+  'settings_group_generation': 'Generation',
+  'settings_group_agent': 'Agent',
+  'settings_group_system': 'System',
+  'settings_default_models': 'Default models',
+  'settings_arcreel_agent': '[[brand]] Agent',
+  'settings_agent_memory': 'Agent memory',
+  'settings_external_agent': 'External agent access',
+  'settings_access_tokens': 'Access tokens',
+  'settings_general': 'General',
+  'settings_interface_language': 'Interface language',
   'providers': 'Providers',
-  'models': 'Models',
   'usage': 'Usage records',
-  'api_keys': 'API Keys',
   'about': 'About',
   'prompt_templates': 'Prompt Templates',
   'prompt_templates_desc': 'The complete prompts each generation step sends to the model. Built into this version and read-only; marked expressions are filled with project data at generation time.',
@@ -157,7 +165,6 @@ export default {
   'prompt_templates_schema_type': 'Type or enum',
   'prompt_templates_schema_description': 'Description',
   'prompt_templates_schema_nullable': 'nullable',
-  'system_config_title': 'System configuration and API access management',
   'about_loading': 'Loading version info…',
   'about_current_version': 'Current Version',
   'about_check_update': 'Check for Updates',
@@ -1742,9 +1749,6 @@ export default {
   'confirm_delete_project': 'Are you sure you want to delete project "{{title}}"? This action cannot be undone.',
   'delete_project_failed': 'Failed to delete project "{{title}}": {{message}}',
   'deleting_project': 'Deleting...',
-
-  // SystemConfigPage - language
-  'language_setting': 'Language',
 
   // ---- Workbench v3 ----
   'project_switcher_current': 'Current project',

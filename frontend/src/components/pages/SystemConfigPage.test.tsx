@@ -83,13 +83,14 @@ function makeVersionResponse(overrides?: Partial<GetSystemVersionResponse>): Get
 
 function renderPage(path = "/app/settings", searchPath?: string) {
   const location = memoryLocation({ path, searchPath, record: true });
-  return render(
+  render(
     <Router hook={location.hook}>
       <LeaveGuardProvider>
         <SystemConfigPage />
       </LeaveGuardProvider>
     </Router>,
   );
+  return location;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,54 +119,54 @@ describe("SystemConfigPage", () => {
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
   });
 
-  it("renders the page header", () => {
-    renderPage();
-    expect(screen.getByText("设置")).toBeInTheDocument();
-    expect(screen.getByText("系统配置与 API 访问管理")).toBeInTheDocument();
+  it("按生成、Agent、市场与使用记录、系统分组列出分区，无法识别的分区落在供应商", () => {
+    renderPage("/app/settings", "section=media");
+    const nav = screen.getByRole("navigation", { name: "设置" });
+
+    const groups = within(nav)
+      .getAllByRole("list")
+      .map((list) => [
+        list.getAttribute("aria-labelledby")
+          ? document.getElementById(list.getAttribute("aria-labelledby")!)?.textContent
+          : null,
+        within(list).getAllByRole("link").map((link) => link.textContent),
+      ]);
+    expect(groups).toEqual([
+      ["生成", ["供应商", "默认模型", "调用端点"]],
+      ["Agent", ["ArcReel Agent", "Agent 记忆", "外部 Agent 接入", "访问令牌"]],
+      [null, ["市场", "使用记录"]],
+      ["系统", ["通用", "提示词模版", "关于"]],
+    ]);
+    expect(within(nav).getByRole("link", { name: "供应商" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("renders all 6 sidebar sections", () => {
-    renderPage();
-    expect(screen.getByRole("button", { name: /Agent/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /使用记录/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /API 令牌/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /关于/ })).toBeInTheDocument();
+  it("从侧栏切换分区时把分区写进地址，不保留上一个分区的定位参数", async () => {
+    const user = userEvent.setup();
+    const { history } = renderPage("/app/settings", "section=usage&u_project=demo");
+
+    await user.click(screen.getByRole("link", { name: "通用" }));
+
+    expect(await screen.findByRole("heading", { name: "通用", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "通用" })).toHaveAttribute("aria-current", "page");
+    expect(history.at(-1)).toBe("/app/settings?section=general");
   });
 
-  it("defaults to the 供应商 section", () => {
-    renderPage();
-    const providersButton = screen.getByRole("button", { name: /供应商/ });
-    // Active sidebar item carries aria-current="page" (Darkroom redesign)
-    expect(providersButton).toHaveAttribute("aria-current", "page");
-  });
+  it("切换设置分区前拦截未保存的修改，放弃修改后才切换", async () => {
+    const user = userEvent.setup();
+    renderPage("/app/settings", "section=default-models");
+    const models = screen.getByRole("link", { name: "默认模型" });
+    const usage = screen.getByRole("link", { name: "使用记录" });
 
-  it("clicking 供应商 makes it the active section", async () => {
-    renderPage();
-    const providersButton = screen.getByRole("button", { name: /供应商/ });
-    fireEvent.click(providersButton);
-    await waitFor(() => {
-      expect(providersButton).toHaveAttribute("aria-current", "page");
-    });
-  });
+    const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
+    await user.clear(timeout);
+    await user.type(timeout, "7200");
+    await user.click(usage);
 
-  it("clicking 模型选择 makes it the active section", async () => {
-    renderPage();
-    const mediaButton = screen.getByRole("button", { name: /模型选择/ });
-    fireEvent.click(mediaButton);
-    await waitFor(() => {
-      expect(mediaButton).toHaveAttribute("aria-current", "page");
-    });
-  });
+    const dialog = await screen.findByRole("alertdialog", { name: "有未保存的修改" });
+    expect(models).toHaveAttribute("aria-current", "page");
 
-  it("clicking 使用记录 makes it the active section", async () => {
-    renderPage();
-    const usageButton = screen.getByRole("button", { name: /使用记录/ });
-    fireEvent.click(usageButton);
-    await waitFor(() => {
-      expect(usageButton).toHaveAttribute("aria-current", "page");
-    });
+    await user.click(within(dialog).getByRole("button", { name: "放弃修改" }));
+    await waitFor(() => expect(usage).toHaveAttribute("aria-current", "page"));
   });
 
   it("does not show warnings when only the embedded-agent credential is missing", async () => {
@@ -174,9 +175,7 @@ describe("SystemConfigPage", () => {
     );
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders({ status: "ready" }));
 
-    // Banner renders inside non-providers content panes (providers section has its own UI),
-    // so land on agent to assert it.
-    renderPage("/app/settings?section=agent");
+    renderPage("/app/settings", "section=arcreel-agent");
 
     await screen.findByText("内嵌智能体");
 
@@ -184,73 +183,34 @@ describe("SystemConfigPage", () => {
     expect(screen.queryByLabelText("配置未完成")).not.toBeInTheDocument();
   });
 
-  it("does not show warning banner when config is complete", async () => {
-    renderPage();
-
-    // Give time for config status to load
-    await waitFor(() => {
-      expect(API.getProviders).toHaveBeenCalled();
-    });
-
-    expect(screen.queryByText("当前配置存在以下问题，可能会影响部分功能：")).not.toBeInTheDocument();
-  });
-
-  it("hides the config issues banner on the prompt templates section only", async () => {
+  it("hides the config issues banner on the prompt templates section", async () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders({ status: "unconfigured" }));
     vi.spyOn(API, "listPromptTemplates").mockResolvedValue({ templates: [] });
 
-    renderPage("/app/settings?section=prompt-templates");
+    renderPage("/app/settings", "section=prompt-templates");
     await screen.findByText("暂无提示词模版。");
     await waitFor(() => expect(useConfigStatusStore.getState().issues).not.toHaveLength(0));
     expect(screen.queryByText("当前配置存在以下问题，可能会影响部分功能：")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /使用记录/ }));
+    fireEvent.click(screen.getByRole("link", { name: "使用记录" }));
     expect(await screen.findByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
   });
 
-  it("切换设置分区前拦截未保存的修改，放弃修改后才切换", async () => {
-    const user = userEvent.setup();
-    renderPage("/app/settings", "section=media");
-    const media = screen.getByRole("button", { name: /模型选择/ });
-    const usage = screen.getByRole("button", { name: /使用记录/ });
+  it("Agent 记忆分区按用户级路径加载记忆文件", async () => {
+    vi.spyOn(API, "getAgentMemory").mockResolvedValue({
+      path: "/data/users/default/memory",
+      index: { exists: false, line_count: 0, byte_size: 0, over_limit: false },
+      files: [],
+    });
 
-    const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
-    await user.clear(timeout);
-    await user.type(timeout, "7200");
-    await user.click(usage);
+    renderPage("/app/settings", "section=agent-memory");
 
-    const dialog = await screen.findByRole("alertdialog", { name: "有未保存的修改" });
-    expect(media).toHaveAttribute("aria-current", "page");
-
-    await user.click(within(dialog).getByRole("button", { name: "放弃修改" }));
-    await waitFor(() => expect(usage).toHaveAttribute("aria-current", "page"));
-  });
-
-  it("renders the back link that navigates to projects", () => {
-    renderPage();
-    const link = screen.getByRole("link", { name: "返回" });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/app/projects");
-  });
-
-  it("places the market section right after endpoints and opens it full width", async () => {
-    vi.spyOn(API, "listMarketSources").mockResolvedValue({ sources: [] });
-    vi.spyOn(API, "refreshMarketSources").mockResolvedValue({ sources: [] });
-    vi.spyOn(API, "listMarketEntries").mockResolvedValue({ entries: [], app_version: "0.9.0" });
-    renderPage("/app/settings?section=market");
-
-    const labels = within(screen.getByRole("navigation", { name: "设置" }))
-      .getAllByRole("button")
-      .map((button) => button.textContent?.trim())
-      .filter((label) => label === "调用端点" || label === "市场");
-    expect(labels).toEqual(["调用端点", "市场"]);
-    expect(screen.getByRole("button", { name: "市场" })).toHaveAttribute("aria-current", "page");
-    expect(await screen.findByRole("heading", { name: "市场", level: 2 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "管理市场源" })).toBeInTheDocument();
+    expect(await screen.findByText("/data/users/default/memory")).toBeInTheDocument();
+    expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "user" }, expect.anything());
   });
 
   it("loads version info when entering the about section", async () => {
-    renderPage("/app/settings?section=about");
+    renderPage("/app/settings", "section=about");
 
     expect(await screen.findByText("0.9.0")).toBeInTheDocument();
     expect(await screen.findByText(/最新版本：0.9.1/)).toBeInTheDocument();
@@ -264,7 +224,7 @@ describe("SystemConfigPage", () => {
       makeVersionResponse({ latest: null, has_update: false, update_check_error: "boom" }),
     );
 
-    renderPage("/app/settings?section=about");
+    renderPage("/app/settings", "section=about");
 
     const button = await screen.findByRole("button", { name: /检查更新/ });
     fireEvent.click(button);

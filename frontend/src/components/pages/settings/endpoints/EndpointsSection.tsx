@@ -532,10 +532,11 @@ export function EndpointsSection() {
   }
 
   return (
-    <div className="flex">
+    // 全出血档：二级栏与详情栏各自滚动
+    <div className="flex min-h-0 flex-1">
       <nav
         aria-label={t("ce_section_title")}
-        className="sticky top-0 max-h-screen w-60 shrink-0 self-start overflow-y-auto border-r border-border/50 px-3 py-5"
+        className="relative w-60 shrink-0 overflow-y-auto border-r border-border/50 px-3 py-5"
         style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
       >
         <div className="mb-3 flex items-center gap-1.5 px-1">
@@ -629,7 +630,7 @@ export function EndpointsSection() {
         )}
       </nav>
 
-      <div className="min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {selection ? (
           <EndpointDetail
             key={detailInstanceKey(selectedKey, selection)}

@@ -3,6 +3,7 @@ import { Loader2, Play } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { settingsSectionPath } from "@/app-routes";
 import { errMsg } from "@/utils/async";
 import {
   ACCENT_BTN_SM_CLS,
@@ -434,7 +435,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                   ) : null}
                   {run.api_call_id !== null && (
                     <a
-                      href={`/app/settings?section=usage&record=${run.api_call_id}`}
+                      href={settingsSectionPath("usage", { record: String(run.api_call_id) })}
                       className="inline-flex text-[11.5px] text-primary underline decoration-primary/40 underline-offset-2 hover:text-foreground"
                     >
                       {t("ce_trial_record", { id: run.api_call_id })}

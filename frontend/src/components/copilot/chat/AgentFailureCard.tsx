@@ -2,6 +2,8 @@ import { useId, useState } from "react";
 import { Check, ChevronRight, Copy, RotateCcw, Settings, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
+
+import { settingsSectionPath } from "@/app-routes";
 import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import type { FailureObservation } from "@/types";
 import { copyText } from "@/utils/clipboard";
@@ -89,7 +91,7 @@ export function AgentFailureCard({ failure, onRetry }: Readonly<AgentFailureCard
           {copied ? <Check aria-hidden className="h-3.5 w-3.5" /> : <Copy aria-hidden className="h-3.5 w-3.5" />}
           {t(copied ? "agent_failure_copied" : "agent_failure_copy")}
         </button>
-        <Link href="/app/settings?section=agent" className={GHOST_BTN_CLS}>
+        <Link href={`~${settingsSectionPath("arcreel-agent")}`} className={GHOST_BTN_CLS}>
           <Settings aria-hidden className="h-3.5 w-3.5" />
           {t("agent_failure_open_settings")}
         </Link>
