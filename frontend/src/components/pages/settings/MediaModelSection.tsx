@@ -58,7 +58,6 @@ const MEDIA_MODEL_KEYS = [
   "narration_speed",
   "video_generate_audio",
   "video_poll_timeout_seconds",
-  "market_github_proxy_prefix",
 ] as const satisfies readonly (keyof SystemConfigPatch & keyof SystemConfigSettings)[];
 
 type MediaModelFields = Pick<SystemConfigPatch, (typeof MEDIA_MODEL_KEYS)[number]>;
@@ -218,8 +217,6 @@ export function MediaModelSection() {
   const currentAudio = fields.video_generate_audio ?? false;
   const currentPollTimeout =
     fields.video_poll_timeout_seconds;
-  const currentMarketProxyPrefix =
-    fields.market_github_proxy_prefix ?? "";
 
   // 全局层是解析链的基准，细分项留空即回退全局默认模型；默认模型也留空时是自动推断，
   // 前端算不出具体模型，故不显示生效值（下拉里显示「自动选择」）。
@@ -518,20 +515,6 @@ export function MediaModelSection() {
           />
           <FieldHint id="narration-speed-hint">{t("narration_speed_hint")}</FieldHint>
         </div>
-      </ChannelCard>
-
-      {/* GitHub raw 代理前缀暂留在这里，等市场的「设置」区接手。 */}
-      <ChannelCard title={t("market_proxy_label")} description={t("market_proxy_hint")}>
-        <Input
-          id="market-github-proxy-prefix"
-          type="url"
-          aria-label={t("market_proxy_label")}
-          value={currentMarketProxyPrefix}
-          placeholder="https://proxy.example.com/"
-          onChange={(event) =>
-            setFields((prev) => ({ ...prev, market_github_proxy_prefix: event.target.value }))
-          }
-        />
       </ChannelCard>
 
       <PageShellFooter>

@@ -37,7 +37,7 @@ describe("MarketEntryCard", () => {
   it("shows the capitalised initial without requesting an icon when the entry has none", () => {
     const getIcon = vi.spyOn(API, "getMarketEntryIcon");
     const { container } = render(
-      <MarketEntryCard entry={makeEntry()} sourceName="团队市场" sourceKind="custom" appVersion="0.30.0" />,
+      <MarketEntryCard entry={makeEntry()} sourceName="团队市场" sourceKind="custom" onOpen={vi.fn()} onInstalledOpen={vi.fn()} />,
     );
 
     expect(container.querySelector("img")).toBeNull();
@@ -53,7 +53,8 @@ describe("MarketEntryCard", () => {
         entry={makeEntry({ icon: "endpoints/kling-master/icon.png" })}
         sourceName="团队市场"
         sourceKind="custom"
-        appVersion="0.30.0"
+        onOpen={vi.fn()}
+        onInstalledOpen={vi.fn()}
       />,
     );
 
@@ -74,7 +75,8 @@ describe("MarketEntryCard", () => {
         entry={makeEntry({ icon: "endpoints/kling-master/icon.svg" })}
         sourceName="团队市场"
         sourceKind="custom"
-        appVersion="0.30.0"
+        onOpen={vi.fn()}
+        onInstalledOpen={vi.fn()}
       />,
     );
 
@@ -83,20 +85,23 @@ describe("MarketEntryCard", () => {
     expect(screen.getByText("K")).toBeInTheDocument();
   });
 
-  it("dims the card and states the required app version when the current one is too old", () => {
+  it("disables installing and states the required app version when the current one is too old, keeping details open", async () => {
+    const onOpen = vi.fn();
     render(
       <MarketEntryCard
         entry={makeEntry({ min_app_version: "0.32.0", min_app_version_satisfied: false })}
         sourceName="团队市场"
         sourceKind="custom"
-        appVersion="0.30.0"
+        onOpen={onOpen}
+        onInstalledOpen={vi.fn()}
       />,
     );
 
     const card = screen.getByRole("article", { name: "kling Master" });
-    expect(card).toHaveClass("opacity-60");
-    expect(screen.getByText("需要 ArcReel ≥ 0.32.0")).toHaveAttribute("title", "当前版本 0.30.0");
-    expect(screen.queryByRole("button", { name: "kling Master" })).not.toBeInTheDocument();
+    expect(within(card).getByText("需要 ArcReel ≥ 0.32.0")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "安装" })).toBeDisabled();
+    await userEvent.click(within(card).getByRole("button", { name: "kling Master" }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
   it("shows no version requirement when it is satisfied", () => {
@@ -105,18 +110,19 @@ describe("MarketEntryCard", () => {
         entry={makeEntry({ min_app_version: "0.29.0" })}
         sourceName="团队市场"
         sourceKind="custom"
-        appVersion="0.30.0"
+        onOpen={vi.fn()}
+        onInstalledOpen={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole("article", { name: "kling Master" })).not.toHaveClass("opacity-60");
+    expect(screen.getByRole("button", { name: "安装" })).toBeEnabled();
     expect(screen.queryByText(/需要 ArcReel/)).not.toBeInTheDocument();
   });
 
   it.each([
-    { state: "update_available", modified: true, badges: ["可更新", "已修改"], action: "更新", opens: "dialog" },
-    { state: "current", modified: true, badges: ["已安装", "已修改"], action: "已安装", opens: "endpoint" },
-    { state: "current", modified: false, badges: ["已安装"], action: "已安装", opens: "endpoint" },
+    { state: "update_available", modified: true, badges: ["视频", "可更新", "已修改"], action: "更新", opens: "dialog" },
+    { state: "current", modified: true, badges: ["视频", "已安装", "已修改"], action: "打开端点", opens: "endpoint" },
+    { state: "current", modified: false, badges: ["视频", "已安装"], action: "打开端点", opens: "endpoint" },
   ] as const)("shows $badges badges and routes the $action action", async ({ state, modified, badges, action, opens }) => {
     const installation: MarketEntryInstallation = {
       endpoint_id: 7,
@@ -133,17 +139,13 @@ describe("MarketEntryCard", () => {
         entry={makeEntry({ installation })}
         sourceName="团队市场"
         sourceKind="custom"
-        appVersion="0.30.0"
         onOpen={onOpen}
         onInstalledOpen={onInstalledOpen}
       />,
     );
 
     const card = screen.getByRole("article", { name: "kling Master" });
-    const badgeTexts = within(card)
-      .queryAllByText(/.+/, { selector: "span" })
-      .filter((el) => el.className.includes("tracking-[0.1em]"))
-      .map((el) => el.textContent);
+    const badgeTexts = Array.from(card.querySelectorAll('[data-slot="badge"]'), (el) => el.textContent);
     expect(badgeTexts).toEqual(badges);
     await userEvent.click(within(card).getByRole("button", { name: action }));
     expect(onOpen).toHaveBeenCalledTimes(opens === "dialog" ? 1 : 0);

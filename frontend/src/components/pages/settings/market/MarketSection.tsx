@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { ExternalLink, Loader2, RefreshCw, Search, Settings2 } from "lucide-react";
-import { useLocation } from "wouter";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { endpointSettingsPath, marketSettingsPath, type MarketTab } from "@/app-routes";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
-import { formatRelativeTime } from "@/utils/date-format";
-import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
-import { PillSwitch } from "@/components/legacy/PillSwitch";
 import type {
   MarketEntry,
   MarketEntryAggregate,
@@ -15,36 +13,20 @@ import type {
   MarketSubmission,
   OfficialServiceState,
 } from "@/types";
-import { MarketEntryCard } from "./MarketEntryCard";
+import { MarketBrowseTab } from "./MarketBrowseTab";
+import { aggregateKey } from "./market-keys";
 import { MarketInstallDialog } from "./MarketInstallDialog";
-import { MARKET_CONTRIBUTING_URL } from "./market-links";
-import { KICKER_ACCENT_CLS, KICKER_CLS, SourceStatusDot } from "./market-source-status";
-import { MarketSourcesDialog } from "./MarketSourcesDialog";
-import { MarketSubmissionList } from "./MarketSubmissionList";
+import { MarketSettingsTab } from "./MarketSettingsTab";
+import { MarketSharedTab } from "./MarketSharedTab";
 import { OfficialServiceNotice } from "./OfficialServiceNotice";
 
-const ENTRY_TYPES = [
-  { id: "endpoint", labelKey: "market_type_endpoint", available: true },
-  { id: "prompt", labelKey: "market_type_prompt", available: false },
-  { id: "style", labelKey: "market_type_style", available: false },
-] as const;
-
-const MEDIA_FILTERS = [
-  { id: "all", labelKey: "market_media_all" },
-  { id: "image", labelKey: "media_type_image" },
-  { id: "video", labelKey: "media_type_video" },
-] as const;
-
-type MediaFilter = (typeof MEDIA_FILTERS)[number]["id"];
+const TABS: readonly MarketTab[] = ["browse", "shared", "settings"];
 
 /**
  * 按 id 合并刷新结果，只改写刷新产出的字段、保持原顺序；显示名与启停以本地为准，
  * 迟到的刷新响应不会覆盖期间完成的修改。
  */
-function mergeRefreshed(
-  current: MarketSourceInfo[],
-  updated: MarketSourceInfo[],
-): MarketSourceInfo[] {
+function mergeRefreshed(current: MarketSourceInfo[], updated: MarketSourceInfo[]): MarketSourceInfo[] {
   const byId = new Map(updated.map((source) => [source.id, source]));
   return current.map((source) => {
     const refreshed = byId.get(source.id);
@@ -64,59 +46,37 @@ function mergeRefreshed(
 /** 影响条目列表的源字段：顺序、启停、显示名与快照时间。任一变化即重新拉取条目。 */
 function entriesKey(sources: MarketSourceInfo[]): string {
   return sources
-    .map((source) =>
-      [source.id, source.is_enabled, source.display_name, source.fetched_at, source.updated_at].join(":"),
-    )
+    .map((source) => [source.id, source.is_enabled, source.display_name, source.fetched_at, source.updated_at].join(":"))
     .join("|");
-}
-
-/** Darkroom kicker 固定英文，不进 i18n；只按数量切换单复数。 */
-function marketKicker(entryCount: number, sourceCount: number): string {
-  const endpoints = entryCount === 1 ? "endpoint" : "endpoints";
-  const sources = sourceCount === 1 ? "source" : "sources";
-  return `Market · ${entryCount} ${endpoints} from ${sourceCount} ${sources}`;
 }
 
 const NO_AGGREGATES: ReadonlyMap<string, MarketEntryAggregate> = new Map();
 
-function aggregateKey(sourceId: number, slug: string): string {
-  return `${sourceId}/${slug}`;
-}
-
-function matchesQuery(entry: MarketEntry, query: string): boolean {
-  if (!query) return true;
-  const haystack = `${entry.name}\n${entry.author}\n${entry.description ?? ""}`.toLocaleLowerCase();
-  return haystack.includes(query.toLocaleLowerCase());
-}
-
 /**
- * 市场小节：hero 头部、失败横幅、筛选行、条目网格与市场源管理弹窗。打开时先渲染缓存的
- * 源列表与条目，再在后台刷新距上次成功刷新超过 1 小时的启用源；源有变化时重新拉取条目。
- * 官方服务开启时另拉官方市场源条目的安装量与评分，首次进入显示一次说明；关闭或读不到状态时不展示任何官方服务元素。
+ * 市场分区：顶部 Tabs 分「浏览」「我的分享」「设置」，当前 Tab 记在地址的 `tab` 参数里。
+ * 打开时先渲染缓存的源列表与条目，再在后台刷新距上次成功刷新超过 1 小时的启用源；源有变化时重新拉取条目。
+ * 官方服务开启时另拉官方市场源条目的安装量与评分和我的分享，首次进入显示一次说明；
+ * 关闭或读不到状态时「浏览」不展示任何官方服务元素，开关本身常驻在「设置」。
  */
 export function MarketSection() {
-  const { t, i18n } = useTranslation(["dashboard", "common"]);
+  const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
+  const [, navigate] = useLocation();
+  const search = useSearch();
+  const tabParam = new URLSearchParams(search).get("tab");
+  const tab = TABS.find((item) => item === tabParam) ?? "browse";
   const [sources, setSources] = useState<MarketSourceInfo[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [entries, setEntries] = useState<MarketEntry[] | null>(null);
-  const [appVersion, setAppVersion] = useState<string | null>(null);
   const [refreshingIds, setRefreshingIds] = useState<ReadonlySet<number>>(new Set());
   const [refreshingAll, setRefreshingAll] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [hiddenSourceIds, setHiddenSourceIds] = useState<ReadonlySet<number>>(new Set());
-  const [onlyInstalled, setOnlyInstalled] = useState(false);
-  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [installationRevision, setInstallationRevision] = useState(0);
   const [selected, setSelected] = useState<MarketEntry | null>(null);
   const [official, setOfficial] = useState<OfficialServiceState | null>(null);
   const [officialBusy, setOfficialBusy] = useState(false);
   const [aggregates, setAggregates] = useState<ReadonlyMap<string, MarketEntryAggregate>>(new Map());
   const [aggregatesRevision, setAggregatesRevision] = useState(0);
-  const [submissions, setSubmissions] = useState<MarketSubmission[]>([]);
-  const [location, navigate] = useLocation();
-  const onlyInstalledId = useId();
+  const [submissions, setSubmissions] = useState<MarketSubmission[] | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -128,10 +88,7 @@ export function MarketSection() {
         if (!mounted.current) return;
         setSources(cached);
         setSourcesLoaded(true);
-        const { sources: refreshed } = await API.refreshMarketSources({
-          staleOnly: true,
-          signal: controller.signal,
-        });
+        const { sources: refreshed } = await API.refreshMarketSources({ staleOnly: true, signal: controller.signal });
         if (mounted.current && refreshed.length > 0) {
           setSources((current) => mergeRefreshed(current, refreshed));
         }
@@ -153,9 +110,7 @@ export function MarketSection() {
     const controller = new AbortController();
     API.listMarketEntries({ signal: controller.signal })
       .then((response) => {
-        if (controller.signal.aborted) return;
-        setEntries(response.entries);
-        setAppVersion(response.app_version);
+        if (!controller.signal.aborted) setEntries(response.entries);
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) {
@@ -206,10 +161,7 @@ export function MarketSection() {
     return () => controller.abort();
   }, [officialEnabled]);
 
-  const openEndpoint = (endpointKey: string) => {
-    const params = new URLSearchParams({ section: "endpoints", endpoint: endpointKey });
-    navigate(`${location}?${params}`);
-  };
+  const openEndpoint = (endpointKey: string) => navigate(endpointSettingsPath(endpointKey));
 
   const updateOfficial = async (patch: { enabled?: boolean; notice_seen?: boolean }) => {
     setOfficialBusy(true);
@@ -229,9 +181,7 @@ export function MarketSection() {
     setRefreshingIds((current) => new Set([...current, ...targets]));
     try {
       const { sources: refreshed } = await API.refreshMarketSources();
-      if (!mounted.current) return;
-      setSources((current) => mergeRefreshed(current, refreshed));
-      pushToast(t("market_refresh_all_done", { count: refreshed.length }), "success");
+      if (mounted.current) setSources((current) => mergeRefreshed(current, refreshed));
     } catch (err) {
       if (mounted.current) pushToast(t("market_action_failed", { message: errMsg(err) }), "error");
     } finally {
@@ -263,241 +213,64 @@ export function MarketSection() {
     [pushToast, t],
   );
 
-  const toggleSourceFilter = (id: number) => {
-    setHiddenSourceIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const enabled = sources.filter((source) => source.is_enabled);
-  const failing = enabled.filter((source) => source.status !== "ok" && source.status !== "never_fetched");
   const sourcesById = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources]);
-  const allEntries = entries ?? [];
   // 关闭后不再展示上一轮取到的数字；重新开启时由拉取 effect 覆盖。
   const shownAggregates = officialEnabled ? aggregates : NO_AGGREGATES;
-  const trimmedQuery = query.trim();
-  const visible = allEntries.filter(
-    (entry) =>
-      sourcesById.get(entry.source_id)?.is_enabled === true &&
-      !hiddenSourceIds.has(entry.source_id) &&
-      matchesQuery(entry, trimmedQuery) &&
-      (mediaFilter === "all" || entry.media_type === mediaFilter) &&
-      (!onlyInstalled || !!entry.installation),
-  );
+  const shownSubmissions = officialEnabled ? submissions : null;
 
   return (
-    <div className="relative">
-      {/* 铺满档：内边距由页面外壳提供，内容靠左 */}
-      <div className="relative">
-        <header className="mb-6 flex flex-wrap items-end gap-4">
-          <div className="min-w-[16rem] flex-1">
-            <div className={KICKER_ACCENT_CLS}>
-              {marketKicker(allEntries.length, enabled.length)}
-            </div>
-            <h2 className="mt-1 font-editorial text-[32px] leading-none text-foreground">
-              {t("market_section_title")}
-            </h2>
-          </div>
-          <label className="relative w-full sm:w-72">
-            <span className="sr-only">{t("market_search_label")}</span>
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <input
-              type="search"
-              className={`${INPUT_CLS} pl-8`}
-              placeholder={t("market_search_placeholder")}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className={GHOST_BTN_CLS}
-            disabled={refreshingAll || enabled.length === 0}
-            onClick={() => void refreshAll()}
-          >
-            {refreshingAll ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-            )}
-            {t("market_refresh_all")}
-          </button>
-          <button type="button" className={GHOST_BTN_CLS} onClick={() => setManageOpen(true)}>
-            <Settings2 className="h-3.5 w-3.5" aria-hidden />
-            {t("market_manage_sources")}
-          </button>
-        </header>
+    <div className="flex flex-col gap-6">
+      <h2 className="text-lg font-medium">{t("market_section_title")}</h2>
 
-        {officialEnabled && official?.notice_seen === false && (
-          <OfficialServiceNotice
-            busy={officialBusy}
-            onAcknowledge={() => void updateOfficial({ notice_seen: true })}
-            onTurnOff={() => void updateOfficial({ enabled: false, notice_seen: true })}
+      {officialEnabled && official?.notice_seen === false && (
+        <OfficialServiceNotice
+          busy={officialBusy}
+          onAcknowledge={() => void updateOfficial({ notice_seen: true })}
+          onTurnOff={() => void updateOfficial({ enabled: false, notice_seen: true })}
+        />
+      )}
+
+      <Tabs value={tab} onValueChange={(next: MarketTab) => navigate(marketSettingsPath(next), { replace: true })}>
+        <div className="border-b border-border">
+          <TabsList variant="line">
+            <TabsTrigger value="browse">{t("market_tab_browse")}</TabsTrigger>
+            <TabsTrigger value="shared">
+              {t("market_tab_shared")}
+              {shownSubmissions && shownSubmissions.length > 0 && (
+                <span className="text-muted-foreground tabular-nums">{shownSubmissions.length}</span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="settings">{t("market_tab_settings")}</TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="browse" className="mt-2">
+          <MarketBrowseTab
+            sources={sources}
+            entries={entries}
+            aggregates={shownAggregates}
+            refreshingIds={refreshingIds}
+            onOpen={setSelected}
+            onOpenEndpoint={openEndpoint}
           />
-        )}
-
-        {failing.length > 0 && (
-          <div
-            role="status"
-            className="mb-5 rounded-md border border-warn/30 bg-warn/8 px-3 py-2 text-[12px] text-subtle-foreground"
-          >
-            {failing.map((source) => {
-              const snapshotTime = formatRelativeTime(source.fetched_at, i18n.language);
-              const status = t(`market_status_${source.status}`);
-              return (
-                <div key={source.id}>
-                  <strong className="text-foreground">{source.display_name}</strong>
-                  {source.last_error
-                    ? t("market_banner_detail", { status, error: source.last_error })
-                    : t("market_banner_detail_no_error", { status })}
-                  {snapshotTime !== null && t("market_banner_snapshot", { time: snapshotTime })}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-          <div role="group" aria-label={t("market_type_filter_label")} className="flex items-center gap-2">
-            {ENTRY_TYPES.map((type) => (
-              <button
-                key={type.id}
-                type="button"
-                disabled={!type.available}
-                aria-pressed={type.available}
-                className={`rounded-full border px-3 py-1 text-[12px] ${
-                  type.available
-                    ? "border-primary/45 bg-primary/12 text-foreground"
-                    : "cursor-not-allowed border-border/50 text-muted-foreground"
-                }`}
-              >
-                {t(type.labelKey)}
-                {!type.available && (
-                  <span className="ml-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em]">
-                    {t("market_type_soon")}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          <span className="hidden h-4 w-px bg-border sm:block" aria-hidden />
-          <div
-            role="group"
-            aria-label={t("market_media_filter_label")}
-            className="flex flex-wrap items-center gap-1.5"
-          >
-            <span className={`${KICKER_CLS} mr-1`} aria-hidden>
-              Media
-            </span>
-            {MEDIA_FILTERS.map((filter) => {
-              const on = mediaFilter === filter.id;
-              return (
-                <button
-                  key={filter.id}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => setMediaFilter(filter.id)}
-                  className={`rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
-                    on
-                      ? "border-primary/45 bg-primary/12 text-foreground"
-                      : "border-border/50 text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {t(filter.labelKey)}
-                </button>
-              );
-            })}
-          </div>
-          <span className="hidden h-4 w-px bg-border sm:block" aria-hidden />
-          <div
-            role="group"
-            aria-label={t("market_source_filter_label")}
-            className="flex flex-wrap items-center gap-1.5"
-          >
-            <span className={`${KICKER_CLS} mr-1`} aria-hidden>
-              Source
-            </span>
-            {enabled.map((source) => {
-              const on = !hiddenSourceIds.has(source.id);
-              return (
-                <button
-                  key={source.id}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => toggleSourceFilter(source.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
-                    on
-                      ? "border-primary/45 bg-primary/12 text-foreground"
-                      : "border-border/50 text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <SourceStatusDot source={source} refreshing={refreshingIds.has(source.id)} />
-                  {source.display_name}
-                </button>
-              );
-            })}
-          </div>
-          <div className="ml-auto flex items-center gap-2 text-[12px] text-muted-foreground">
-            <span id={onlyInstalledId}>{t("market_only_installed")}</span>
-            <PillSwitch
-              checked={onlyInstalled}
-              onToggle={() => setOnlyInstalled((value) => !value)}
-              labelledBy={onlyInstalledId}
-            />
-          </div>
-        </div>
-
-        {entries !== null &&
-          (visible.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border/50 px-4 py-12 text-center text-[12.5px] text-muted-foreground">
-              {allEntries.length === 0 ? t("market_no_entries") : t("market_no_matching_entries")}
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-              {visible.map((entry) => {
-                const source = sourcesById.get(entry.source_id);
-                return (
-                  <MarketEntryCard
-                    key={`${entry.source_id}/${entry.slug}`}
-                    entry={entry}
-                    sourceName={source?.display_name ?? entry.source_display_name}
-                    sourceKind={source?.kind ?? null}
-                    appVersion={appVersion}
-                    aggregate={shownAggregates.get(aggregateKey(entry.source_id, entry.slug)) ?? null}
-                    onOpen={() => setSelected(entry)}
-                    onInstalledOpen={() => {
-                      if (entry.installation) openEndpoint(entry.installation.endpoint_key);
-                    }}
-                  />
-                );
-              })}
-            </div>
-          ))}
-
-        {officialEnabled && submissions.length > 0 && (
-          <MarketSubmissionList submissions={submissions} onOpenEndpoint={openEndpoint} />
-        )}
-
-        <div className="mt-14 rounded-xl border border-dashed border-border px-6 py-5 text-center">
-          <div className={KICKER_CLS}>Contribute</div>
-          <p className="mt-1.5 text-[13px] text-subtle-foreground">{t("market_contribute_body")}</p>
-          <a
-            href={MARKET_CONTRIBUTING_URL}
-            target="_blank"
-            rel="noreferrer"
-            className={`${GHOST_BTN_CLS} mt-3`}
-          >
-            {t("market_contribute_link")}
-            <ExternalLink className="h-3 w-3" aria-hidden />
-          </a>
-        </div>
-      </div>
+        </TabsContent>
+        <TabsContent value="shared" className="mt-2">
+          <MarketSharedTab officialEnabled={officialEnabled} submissions={shownSubmissions} />
+        </TabsContent>
+        <TabsContent value="settings" className="mt-2">
+          <MarketSettingsTab
+            sources={sources}
+            onSourcesChange={setSources}
+            refreshingIds={refreshingIds}
+            refreshingAll={refreshingAll}
+            onRefresh={(id) => void refreshOne(id)}
+            onRefreshAll={() => void refreshAll()}
+            official={official}
+            officialBusy={officialBusy}
+            onOfficialChange={setOfficial}
+            onOfficialUpdate={(patch) => void updateOfficial(patch)}
+          />
+        </TabsContent>
+      </Tabs>
 
       {selected && (
         <MarketInstallDialog
@@ -523,16 +296,6 @@ export function MarketSection() {
           }}
         />
       )}
-      <MarketSourcesDialog
-        open={manageOpen}
-        onClose={() => setManageOpen(false)}
-        sources={sources}
-        onSourcesChange={setSources}
-        refreshingIds={refreshingIds}
-        refreshingAll={refreshingAll}
-        onRefresh={(id) => void refreshOne(id)}
-        onRefreshAll={() => void refreshAll()}
-      />
     </div>
   );
 }

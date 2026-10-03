@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/v1/market/entries?type=endpoint",
+  "status": 200,
+  "body": {
+    "entries": [],
+    "app_version": "0.32.0"
+  }
+}

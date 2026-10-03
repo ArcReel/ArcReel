@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -109,6 +109,12 @@ function show(selected = entry, official?: { aggregate: MarketEntryAggregate | n
   return { onClose, onInstallationChange, location };
 }
 
+async function confirmUninstall() {
+  await userEvent.click(screen.getByRole("button", { name: "卸载" }));
+  const confirm = await screen.findByRole("alertdialog", { name: "卸载「Demo」？" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "卸载" }));
+}
+
 describe("MarketInstallDialog", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -159,7 +165,7 @@ describe("MarketInstallDialog", () => {
     });
     show(stale);
     expect(await screen.findByRole("heading", { name: "Demo Pro" })).toBeInTheDocument();
-    expect(screen.getByText("New Author")).toBeInTheDocument();
+    expect(screen.getByText("New Author，v1.0.0")).toBeInTheDocument();
     expect(screen.getByText("Refreshed")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /主页/ })).toHaveAttribute("href", "https://new.example.com");
     expect(screen.queryByText("Stale")).not.toBeInTheDocument();
@@ -300,7 +306,7 @@ describe("MarketInstallDialog", () => {
       ),
     );
     const { location, onClose } = show({ ...entry, installation });
-    await userEvent.click(screen.getByRole("button", { name: "卸载" }));
+    await confirmUninstall();
     const reference = await screen.findByRole("button", {
       name: /Provider · Video/,
     });
@@ -315,7 +321,7 @@ describe("MarketInstallDialog", () => {
       entry: { ...entry, installation },
     });
     const { onClose, onInstallationChange } = show({ ...entry, installation });
-    await userEvent.click(screen.getByRole("button", { name: "卸载" }));
+    await confirmUninstall();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
     expect(API.deleteCustomEndpoint).toHaveBeenCalledWith(7);
     expect(onInstallationChange).toHaveBeenCalledWith(null);
@@ -354,7 +360,6 @@ describe("MarketInstallDialog", () => {
       const { onInstallationChange } = showUpdate(outdated);
 
       const confirm = await screen.findByRole("button", { name: "更新到 v1.0.0" });
-      expect(screen.getByText("Update endpoint")).toBeInTheDocument();
       expect(screen.getByText("已安装 v0.9.0 → 市场 v1.0.0")).toBeInTheDocument();
       expect(screen.getByText("可更新")).toBeInTheDocument();
       expect(screen.getByText("已修改")).toBeInTheDocument();
@@ -386,8 +391,7 @@ describe("MarketInstallDialog", () => {
     it("keeps the current installed entry in install mode with the endpoint shortcut", async () => {
       const { location, onClose } = showUpdate({ ...installation, modified: true });
 
-      expect(await screen.findByText("Install endpoint")).toBeInTheDocument();
-      expect(screen.getByText("v1.0.0")).toBeInTheDocument();
+      expect(await screen.findByText(/，v1\.0\.0$/)).toBeInTheDocument();
       expect(screen.getByText("已修改")).toBeInTheDocument();
       expect(screen.queryByText("你的本地修改会被覆盖")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /更新到/ })).not.toBeInTheDocument();
@@ -455,11 +459,9 @@ describe("MarketInstallDialog", () => {
       vi.mocked(API.deleteCustomEndpoint).mockReturnValue(pending.promise);
       const rate = vi.spyOn(API, "rateMarketEntry").mockResolvedValue(undefined);
       show({ ...entry, installation }, { aggregate: null });
-      await screen.findByText("凭证发往");
-      await userEvent.click(screen.getByRole("button", { name: "卸载" }));
-      const star = screen.getByRole("radio", { name: "评 4 星（满分 5 星）" });
+      const star = await screen.findByRole("radio", { name: "评 4 星（满分 5 星）" });
+      await confirmUninstall();
       expect(star).toBeDisabled();
-      await userEvent.click(star);
       expect(rate).not.toHaveBeenCalled();
       await act(async () => pending.reject(new Error("Cannot uninstall")));
       expect(await screen.findByRole("alert")).toHaveTextContent("Cannot uninstall");

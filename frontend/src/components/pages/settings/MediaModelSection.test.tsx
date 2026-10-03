@@ -85,23 +85,6 @@ describe("MediaModelSection", () => {
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 7200 }));
   });
 
-  it("reads and saves the GitHub raw proxy prefix with the other system settings", async () => {
-    const user = userEvent.setup();
-    mockConfig({ market_github_proxy_prefix: "https://old.example.com/" });
-    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
-    render(<MediaModelSection />);
-
-    const input = await screen.findByRole("textbox", { name: "GitHub raw 代理前缀" });
-    expect(input).toHaveValue("https://old.example.com/");
-    await user.clear(input);
-    await user.type(input, "https://proxy.example.com/");
-    await user.click(screen.getByRole("button", { name: "保存" }));
-
-    await waitFor(() =>
-      expect(patch).toHaveBeenCalledWith({ market_github_proxy_prefix: "https://proxy.example.com/" }),
-    );
-  });
-
   it("rounds a fractional polling timeout to an integer on blur before saving", async () => {
     const user = userEvent.setup();
     const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
