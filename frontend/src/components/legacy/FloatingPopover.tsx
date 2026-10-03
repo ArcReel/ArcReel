@@ -15,11 +15,11 @@ import { UI_LAYERS } from "@/utils/ui-layers";
 import type { RefObject, ReactNode, CSSProperties } from "react";
 
 // ---------------------------------------------------------------------------
-// Popover — 统一弹出面板原语
+// Popover — 旧版弹出面板原语（待替换为 components/ui 的 shadcn Popover）
 // ---------------------------------------------------------------------------
-// 所有弹出面板必须使用此组件，而非手动组合 FloatingPortal + useFloating 或
-// createPortal + 手写定位。它通过 floating-ui + FloatingPortal 脱离父级层叠
-// 上下文，统一 flip/shift/外部点击/Esc 处理，保持 z-index 和背景不透明。
+// 新写的弹出面板使用 shadcn Popover；存量调用方迁移完成后删除本文件。
+// 它通过 floating-ui + FloatingPortal 脱离父级层叠上下文，统一
+// flip/shift/外部点击/Esc 处理，保持 z-index 和背景不透明。
 
 /** 面板默认背景色（Darkroom oklch panel tone，与 bg-bg-grad-a 同源） */
 const POPOVER_BG = "oklch(0.182 0.011 270)";

@@ -3,14 +3,14 @@ import { useTranslation } from "react-i18next";
 import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import {
   ACCENT_BTN_SM_CLS,
   ACCENT_BUTTON_STYLE,
   CARD_STYLE,
   GHOST_BTN_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import { useAgentMemory } from "@/hooks/useAgentMemory";
 import { useAppStore } from "@/stores/app-store";
 import type { AgentMemoryFile, AgentMemoryScope, AgentMemoryType } from "@/types/agent-memory";

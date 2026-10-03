@@ -25,7 +25,7 @@ import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { AdScriptButton, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
 import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";

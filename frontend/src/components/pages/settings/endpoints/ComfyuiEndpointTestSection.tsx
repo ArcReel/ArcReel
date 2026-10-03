@@ -8,7 +8,7 @@ import {
   ACCENT_BUTTON_STYLE,
   GHOST_BTN_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import type {
   ComfyuiEndpointDefinition,
   ComfyuiMediaType,

@@ -6,7 +6,7 @@ import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
 import { prefillAssistant } from "@/components/shared/DraftStatus";
 import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import { StepActButton } from "@/components/workflow/StepActButton";
 import type { StepAct } from "@/components/workflow/step-list";
 import { withInstruction } from "@/components/layout/project-guide";

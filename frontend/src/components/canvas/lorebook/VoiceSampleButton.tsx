@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Mic, Pause, Play } from "lucide-react";
 import { enqueueCharacterVoiceSample } from "@/actions/generation";
 import { API } from "@/api";
-import { GlassModal } from "@/components/ui/GlassModal";
+import { GlassModal } from "@/components/legacy/GlassModal";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";

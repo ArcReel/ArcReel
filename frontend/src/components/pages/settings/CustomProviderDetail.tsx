@@ -9,7 +9,7 @@ import type { CustomProviderInfo } from "@/types";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { formatDurationsLabel } from "@/utils/duration_format";
 import { formatDate } from "@/utils/date-format";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import { CustomProviderForm } from "./CustomProviderForm";
 import { isComfyuiProtocol } from "./customProviderHelpers";
 

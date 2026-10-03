@@ -1,8 +1,8 @@
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-import { radioCardClass } from "@/components/ui/darkroom-tokens";
+import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
+import { radioCardClass } from "@/components/shared/darkroom-tokens";
 import type { NarrationDelivery } from "@/types";
 import { voidCall } from "@/utils/async";
 

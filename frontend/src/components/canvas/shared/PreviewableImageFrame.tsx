@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { ZoomIn } from "lucide-react";
-import { ImageLightbox } from "./ImageLightbox";
+import { ImageLightbox } from "@/components/shared/ImageLightbox";
 
 interface PreviewableImageFrameProps {
   src: string | null;

@@ -6,7 +6,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 import { NarrationAudioCard } from "@/components/canvas/timeline/NarrationAudioCard";
-import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIconButton";
+import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/canvas/shared/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";

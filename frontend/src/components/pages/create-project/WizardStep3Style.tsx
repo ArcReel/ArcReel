@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/shared/darkroom-tokens";
 
 export type WizardStep3Value = StylePickerValue;
 

@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { ChevronDown, FileQuestion, Trash2 } from "lucide-react";
 
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GHOST_BTN_CLS, ICON_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { GHOST_BTN_CLS, ICON_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeMeta, UnregisteredSourceFile } from "@/types";

@@ -1,6 +1,6 @@
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
-import { GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_LG_CLS } from "@/components/shared/darkroom-tokens";
 
 export function NotFoundPage() {
   const [, navigate] = useLocation();

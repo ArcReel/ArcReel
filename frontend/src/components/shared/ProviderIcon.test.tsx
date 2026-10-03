@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ProviderIcon } from "@/components/ui/ProviderIcon";
+import { ProviderIcon } from "./ProviderIcon";
 
 describe("ProviderIcon", () => {
   it("renders the Volcengine icon for the bare ark provider", () => {

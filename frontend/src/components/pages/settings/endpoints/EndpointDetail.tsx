@@ -4,14 +4,14 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import {
   ACCENT_BTN_SM_CLS,
   ACCENT_BUTTON_STYLE,
   CARD_STYLE,
   GHOST_BTN_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import type {
   CustomEndpointInfo,
   CustomProviderInfo,

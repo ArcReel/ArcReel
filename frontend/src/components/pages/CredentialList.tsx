@@ -21,8 +21,8 @@ import {
   GHOST_BTN_CLS,
   ICON_BTN_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
-import { FieldLabel } from "@/components/ui/FieldLabel";
+} from "@/components/shared/darkroom-tokens";
+import { FieldLabel } from "@/components/shared/FieldLabel";
 import type { CredentialSecretField, ProviderCredential, ConnectivityCheckResult } from "@/types";
 
 // 单 secret provider 的默认凭证字段，供未显式传 secretFields 的调用方兜底（行为同旧版 api_key 表单）。

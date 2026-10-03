@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { NewAssetDecision, NewAssetType, PlanNewAsset, ProjectData } from "@/types";
 import { useProjectsStore } from "@/stores/projects-store";
-import { SectionShell } from "@/components/ui/SectionShell";
-import { AutoTextarea } from "@/components/ui/AutoTextarea";
+import { SectionShell } from "@/components/shared/SectionShell";
+import { AutoTextarea } from "@/components/legacy/AutoTextarea";
 import { normalizeAssetName } from "@/utils/reference-mentions";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 

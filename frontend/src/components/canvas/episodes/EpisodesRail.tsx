@@ -5,9 +5,9 @@ import { ArrowUpRight, Combine, FilePlus, FileText, ListX, Plus, RefreshCw, Tras
 
 import { EPISODE_PLANNING_SLOTS } from "@/actions/generation";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
-import { ProgressBar } from "@/components/ui/ProgressBar";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { ProgressBar } from "@/components/shared/ProgressBar";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import { useAppStore } from "@/stores/app-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode } from "@/types";

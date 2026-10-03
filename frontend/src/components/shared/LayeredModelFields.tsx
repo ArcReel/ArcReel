@@ -13,8 +13,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronRight } from "lucide-react";
-import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-import { InlineWarning } from "@/components/ui/InlineWarning";
+import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
+import { InlineWarning } from "@/components/shared/InlineWarning";
 import type { GenerationTypeBucket } from "@/types/system";
 
 /**

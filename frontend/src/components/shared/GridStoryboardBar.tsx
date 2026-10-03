@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { LayoutGrid } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { PillSwitch } from "@/components/ui/PillSwitch";
+import { PillSwitch } from "@/components/legacy/PillSwitch";
 
 export interface GridStoryboardBarProps {
   checked: boolean;

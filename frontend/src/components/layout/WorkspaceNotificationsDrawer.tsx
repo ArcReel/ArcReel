@@ -10,8 +10,8 @@ import {
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useNowTick } from "@/hooks/useNowTick";
-import { GlassPopover } from "@/components/ui/GlassPopover";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
+import { GlassPopover } from "@/components/legacy/GlassPopover";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
 import type { WorkspaceNotification } from "@/types";
 
 interface WorkspaceNotificationsDrawerProps {

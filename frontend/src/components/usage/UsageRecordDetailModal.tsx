@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
 import type { UsageRecordDetail } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatShortDateTime } from "@/utils/date-format";

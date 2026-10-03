@@ -5,9 +5,9 @@ import { Bot, CheckCircle2, Loader2, RotateCcw, Sparkles, X } from "lucide-react
 import { ApiRequestError } from "@/api";
 import { enqueueAdScript, promptAuthoringResourceId } from "@/actions/generation";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
 import { isAdScriptTask, useAdScriptEntry } from "@/hooks/useAdScriptEntry";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useAdScriptStore, type AdScriptOpenRequest } from "@/stores/ad-script-store";

@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { InlineWarning } from "@/components/ui/InlineWarning";
+import { InlineWarning } from "@/components/shared/InlineWarning";
 import {
   durationOutOfRangeReason,
   useModelCapabilities,
@@ -27,7 +27,7 @@ import {
 import { TextTierFields } from "./TextTierFields";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import type { ProviderInfo, VoiceConsistencyTier } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import type { ModelCandidatesResponse } from "@/types/system";

@@ -1,5 +1,5 @@
 import { Package, History, PackageCheck, Scissors } from "lucide-react";
-import { GlassPopover } from "@/components/ui/GlassPopover";
+import { GlassPopover } from "@/components/legacy/GlassPopover";
 import { useTranslation } from "react-i18next";
 import type { RefObject, ReactNode } from "react";
 

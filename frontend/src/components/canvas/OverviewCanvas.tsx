@@ -15,7 +15,7 @@ import { itemCountKey, normalizeRoute } from "@/utils/generation-mode";
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { AdInitCanvas } from "./AdInitCanvas";
 import { AdBriefCard } from "./AdBriefCard";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";

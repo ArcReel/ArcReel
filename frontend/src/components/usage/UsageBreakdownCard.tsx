@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import type { UsageStatsBlock, UsageSummary } from "@/types";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";

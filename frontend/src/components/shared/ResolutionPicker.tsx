@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
 
 export interface ResolutionPickerProps {
   mode: "select" | "combobox";

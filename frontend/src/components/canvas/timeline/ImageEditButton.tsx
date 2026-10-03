@@ -2,7 +2,7 @@ import { useId, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Wand2 } from "lucide-react";
 import { enqueueImageEdit } from "@/actions/generation";
-import { GlassModal } from "@/components/ui/GlassModal";
+import { GlassModal } from "@/components/legacy/GlassModal";
 import { useAppStore } from "@/stores/app-store";
 import {
   isResourceBusy,

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { enqueueStoryboardBatch } from "@/actions/generation";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { BatchAdmissionSummary } from "@/components/workflow/BatchAdmissionSummary";
 import { UnitTag } from "@/components/workflow/UnitTag";
 import { useAppStore } from "@/stores/app-store";

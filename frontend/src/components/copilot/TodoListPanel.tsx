@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Check, Circle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { ProgressBar } from "@/components/ui/ProgressBar";
+import { ProgressBar } from "@/components/shared/ProgressBar";
 import type { Turn, TodoItem } from "@/types";
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import type { PromptTemplateMeta, PromptTemplateTrigger } from "@/types";
 import { errMsg } from "@/utils/async";
 import { categoryLabel, ErrorCard, LoadingCard, type Load } from "./promptTemplateShared";

@@ -11,10 +11,10 @@ import {
   GHOST_BTN_CLS,
   ICON_BTN_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
-import { PillSwitch } from "@/components/ui/PillSwitch";
+} from "@/components/shared/darkroom-tokens";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
+import { PillSwitch } from "@/components/legacy/PillSwitch";
 import type { MarketSourceInfo } from "@/types";
 import { KICKER_ACCENT_CLS, SourceStatusDot } from "./market-source-status";
 

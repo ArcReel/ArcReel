@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { OptionalNumberField } from "@/components/ui/OptionalNumberField";
+import { OptionalNumberField } from "@/components/shared/OptionalNumberField";
 
 /**
  * 口播语速估算（阅读单位 / 秒）的项目级可选输入。

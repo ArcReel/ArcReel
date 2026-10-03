@@ -3,7 +3,7 @@ import { AlertTriangle, ExternalLink, Info, Loader2, Play, RefreshCcw } from "lu
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
-import { CARD_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE, GHOST_BTN_LG_CLS } from "@/components/shared/darkroom-tokens";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { formatDate } from "@/utils/date-format";
 import { downloadBlob } from "@/utils/download";

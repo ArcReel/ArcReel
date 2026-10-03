@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -49,10 +51,11 @@
     --color-danger-ring: oklch(0.45 0.18 25 / 0.40);
     --color-danger-glow: oklch(0.45 0.18 25 / 0.45);
 
-    /* 字体 — 设计稿统一使用 Inter，display 仅在字号/字重上做区分 */
-    --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
-    --font-display: "Inter", "Noto Sans SC", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", "Fira Code", "Noto Sans Mono", ui-monospace, monospace;
+    /* 字体 — 设计稿统一使用 Inter，display 仅在字号/字重上做区分。
+       西文字体由 main.tsx 引入 @fontsource 包自托管；中文不加载网络字体，回退系统字体。 */
+    --font-sans: "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-display: "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     /* 衬线 — 仅项目大厅 (Darkroom) 用于编辑式电影感大标题 */
     --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
 
@@ -78,6 +81,19 @@
     --color-studio-border: var(--color-hairline);
     --color-accent-start: var(--color-accent);
     --color-accent-end: var(--color-accent-2);
+}
+
+/* shadcn 语义色：只接上已安装原语用到的变量，指向现有 token。
+   完整映射与旧 token 改名（含让出 accent）见「token 语义化改名」。 */
+@theme inline {
+    --color-background: var(--color-bg);
+    --color-foreground: var(--color-text);
+}
+
+/* Portal 出去的弹层挂在 body 下、与 #app-root 同级；隔离出独立层叠上下文后，
+   应用内任何 z-index 都不会盖过弹层。 */
+#app-root {
+    isolation: isolate;
 }
 
 /* 全局 body 背景 — radial+linear 复合梯度 */

@@ -2,7 +2,7 @@ import { useRef, useState, type ComponentType, type RefObject } from "react";
 import { MapPin, Puzzle, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/legacy/FloatingPopover";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { Character, CharacterDerivative, Prop, Scene } from "@/types";
 import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";

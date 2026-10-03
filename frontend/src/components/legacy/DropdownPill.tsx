@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "./FloatingPopover";
 
 // ---------------------------------------------------------------------------
 // DropdownPill

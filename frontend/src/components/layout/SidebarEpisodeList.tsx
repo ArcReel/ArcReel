@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowDown, ArrowUp, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 
-import { ActionMenu } from "@/components/ui/ActionMenu";
+import { ActionMenu } from "@/components/legacy/ActionMenu";
 import type { EpisodeMeta } from "@/types";
 import type { GenerationRoute } from "@/utils/generation-mode";
 import { episodeMoveCheck } from "@/utils/episode-order";

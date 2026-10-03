@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 import { useShallow } from "zustand/react/shallow";
 
 import { API } from "@/api";
-import { GlassPopover } from "@/components/ui/GlassPopover";
+import { GlassPopover } from "@/components/legacy/GlassPopover";
 import { useAppStore } from "@/stores/app-store";
 import { isOccupyingStatus, useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";

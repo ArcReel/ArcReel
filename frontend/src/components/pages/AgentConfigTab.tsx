@@ -7,9 +7,9 @@ import { AgentLanguageRuleSection } from "@/components/agent/AgentLanguageRuleSe
 import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
 import { AgentPageIntro } from "@/components/agent/AgentPageIntro";
 import { CredentialsSection } from "@/components/agent/CredentialsSection";
-import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
-import { FieldLabel } from "@/components/ui/FieldLabel";
-import { SectionShell } from "@/components/ui/SectionShell";
+import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
+import { FieldLabel } from "@/components/shared/FieldLabel";
+import { SectionShell } from "@/components/shared/SectionShell";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";

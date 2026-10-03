@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Bot, Loader2, Plus, Scissors } from "lucide-react";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";

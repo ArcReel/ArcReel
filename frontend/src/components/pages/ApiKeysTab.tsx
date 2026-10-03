@@ -9,7 +9,7 @@ import { AlertTriangle, KeyRound, Loader2, Plus, Trash2, X } from "lucide-react"
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { CopyButton } from "@/components/ui/CopyButton";
+import { CopyButton } from "@/components/shared/CopyButton";
 import { errMsg } from "@/utils/async";
 import { formatDate } from "@/utils/date-format";
 import {
@@ -18,7 +18,7 @@ import {
   CARD_STYLE,
   ICON_BTN_FILLED_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import type { ApiKeyInfo, CreateApiKeyResponse } from "@/types";
 
 const MODAL_STYLE: CSSProperties = {

@@ -3,15 +3,15 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { usePlaybackStart } from "@/hooks/usePlaybackStart";
 import { useProjectsStore } from "@/stores/projects-store";
-import { AspectFrame } from "@/components/ui/AspectFrame";
-import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
-import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { AspectFrame } from "@/components/canvas/shared/AspectFrame";
+import { ImageFlipReveal } from "@/components/canvas/shared/ImageFlipReveal";
+import { PreviewableImageFrame } from "@/components/canvas/shared/PreviewableImageFrame";
 import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 import {
   UPLOAD_IMAGE_ACCEPT,
   UPLOAD_VIDEO_ACCEPT,
   UploadIconButton,
-} from "@/components/ui/UploadIconButton";
+} from "@/components/canvas/shared/UploadIconButton";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";

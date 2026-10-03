@@ -1,6 +1,6 @@
 import { AlertTriangle, Loader2, Lock, RefreshCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
 export type Load<T> =
   | { status: "loading" }

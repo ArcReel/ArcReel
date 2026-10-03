@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodeReplan } from "@/actions/generation";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy } from "@/stores/tasks-store";

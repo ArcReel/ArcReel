@@ -10,7 +10,7 @@
  * object-cover 裁切，只有居中的构图能在各比例下都完整。
  */
 
-import { hashHue } from "@/components/ui/darkroom-tokens";
+import { hashHue } from "@/components/shared/darkroom-tokens";
 
 export type DemoPlaceholderMotif = "character" | "scene" | "prop" | "storyboard";
 

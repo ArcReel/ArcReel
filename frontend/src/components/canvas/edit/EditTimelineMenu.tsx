@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { MoreHorizontal } from "lucide-react";
 
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GlassPopover } from "@/components/ui/GlassPopover";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { GlassPopover } from "@/components/legacy/GlassPopover";
 import { useAppStore } from "@/stores/app-store";
 import type { EditTimelineSummary } from "@/types/edit-timeline";
 import { errMsg } from "@/utils/async";

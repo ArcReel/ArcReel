@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { useAppStore } from "@/stores/app-store";
 import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { errMsg } from "@/utils/async";

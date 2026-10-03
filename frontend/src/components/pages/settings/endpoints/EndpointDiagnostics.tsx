@@ -1,6 +1,6 @@
 import { CircleAlert, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import type { EndpointDefinitionIssue } from "@/types";
 import { sectionOfIssuePath, type EndpointFormSection } from "./endpoint-definition-draft";
 

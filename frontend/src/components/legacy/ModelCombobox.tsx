@@ -8,7 +8,7 @@ import {
 } from "@headlessui/react";
 import { ChevronDown, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { DROPDOWN_PANEL_STYLE, ICON_BTN_CLS, INPUT_CLS } from "./darkroom-tokens";
+import { DROPDOWN_PANEL_STYLE, ICON_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 
 export interface ModelComboboxProps {
   id?: string;

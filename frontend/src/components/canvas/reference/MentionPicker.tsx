@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { assetColor } from "./asset-colors";
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/legacy/FloatingPopover";
 import { API } from "@/api";
 import { formatReferenceName, normalizeAssetName, splitDerivativeReference } from "@/utils/reference-mentions";
 import type { AssetKind } from "@/types/reference-video";

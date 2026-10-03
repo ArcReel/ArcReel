@@ -6,8 +6,8 @@ import { useAppStore } from "@/stores/app-store";
 import { useDraftEditor } from "@/hooks/useDraftEditor";
 import { voidPromise } from "@/utils/async";
 import { groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
-import { AutoTextarea } from "@/components/ui/AutoTextarea";
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import {
   AgentDraftBar,
   DiscardDraftDialog,

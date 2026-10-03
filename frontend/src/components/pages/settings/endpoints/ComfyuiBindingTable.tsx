@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from "react";
 import { Loader2, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import type {
   ComfyuiBindingCandidate,
   ComfyuiBindingKey,

@@ -6,8 +6,8 @@ import {
   narrationDeliveryProblem,
   type NarrationDeliveryValue,
 } from "@/components/shared/NarrationDeliveryFields";
-import { SectionShell } from "@/components/ui/SectionShell";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { SectionShell } from "@/components/shared/SectionShell";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/shared/darkroom-tokens";
 import type { ProviderInfo } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 

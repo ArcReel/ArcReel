@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
 /**
  * 内容确认页的「视频模型未解析」提示：确认转出要按视频模型能力给分镜定时长档位，

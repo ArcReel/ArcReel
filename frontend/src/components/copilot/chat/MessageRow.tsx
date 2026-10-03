@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Paperclip, Pencil, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ImagePayload, Turn } from "@/types";
-import { CopyButton } from "@/components/ui/CopyButton";
+import { CopyButton } from "@/components/shared/CopyButton";
 import { formatClockTime } from "@/utils/date-format";
 import { ChatMessage } from "./ChatMessage";
 import {

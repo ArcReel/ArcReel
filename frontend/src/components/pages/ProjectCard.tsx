@@ -11,7 +11,7 @@ import { Link } from "wouter";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getProjectDisplayName } from "@/utils/project-display";
-import { hashHue, posterGridStyle } from "@/components/ui/darkroom-tokens";
+import { hashHue, posterGridStyle } from "@/components/shared/darkroom-tokens";
 import type { ArtifactCount, ProjectStatus, ProjectSummary } from "@/types";
 
 interface ProgressTone {

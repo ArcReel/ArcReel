@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Eye, RefreshCw } from "lucide-react";
-import { CopyButton } from "@/components/ui/CopyButton";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
+import { CopyButton } from "@/components/shared/CopyButton";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
 import { errMsg } from "@/utils/async";
 import type { RenderedPromptPreview } from "@/types";
 

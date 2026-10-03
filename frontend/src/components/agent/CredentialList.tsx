@@ -2,7 +2,7 @@ import { CheckCircle, Edit2, Loader2, PlayCircle, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { AgentCredential, TestConnectionResponse } from "@/types/agent-credential";
-import { CARD_STYLE, GHOST_BTN_CLS, ICON_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE, GHOST_BTN_CLS, ICON_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
 import { PresetIcon } from "./PresetIcon";
 import { TestResultPanel } from "./TestResultPanel";

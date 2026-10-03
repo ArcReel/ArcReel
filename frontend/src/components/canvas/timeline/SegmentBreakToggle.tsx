@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PillSwitch } from "@/components/ui/PillSwitch";
+import { PillSwitch } from "@/components/legacy/PillSwitch";
 
 interface SegmentBreakToggleProps {
   checked: boolean;

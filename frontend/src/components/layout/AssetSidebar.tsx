@@ -21,7 +21,7 @@ import { useCostStore } from "@/stores/cost-store";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { normalizeRoute } from "@/utils/generation-mode";
-import { ActionMenu } from "@/components/ui/ActionMenu";
+import { ActionMenu } from "@/components/legacy/ActionMenu";
 import { CreateEpisodeDialog } from "@/components/canvas/episodes/CreateEpisodeDialog";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import { useDeleteEpisode } from "@/components/canvas/episodes/useDeleteEpisode";

@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Clapperboard } from "lucide-react";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
 import type { EditTimelineIssueRef } from "@/types";
 import { RenderDialog } from "./RenderDialog";
 import { useBlockedReason } from "./useBlockedReason";

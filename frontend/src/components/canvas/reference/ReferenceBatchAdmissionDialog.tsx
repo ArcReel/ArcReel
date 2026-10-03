@@ -1,9 +1,9 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "lucide-react";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
 import { BatchAdmissionSummary } from "@/components/workflow/BatchAdmissionSummary";
 import { ProblemList } from "@/components/workflow/ProblemList";
 import { enqueueFailureViews } from "@/components/workflow/problem-views";

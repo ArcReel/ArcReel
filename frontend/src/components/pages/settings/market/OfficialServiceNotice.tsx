@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
 /** 官方服务开启后首次进入市场页的说明：上报了什么、在哪里关闭；确认或关闭后不再出现。 */
 export function OfficialServiceNotice({

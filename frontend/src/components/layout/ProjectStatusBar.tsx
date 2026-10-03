@@ -8,8 +8,8 @@ import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/genera
 import { ApiRequestError } from "@/api/errors";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import { prefillAssistant } from "@/components/shared/DraftStatus";
-import { Popover } from "@/components/ui/Popover";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { Popover } from "@/components/legacy/FloatingPopover";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import { StepActButton } from "@/components/workflow/StepActButton";
 import type { StepAct } from "@/components/workflow/step-list";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";

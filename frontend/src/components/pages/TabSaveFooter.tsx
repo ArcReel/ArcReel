@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/shared/darkroom-tokens";
 
 interface TabSaveFooterProps {
   isDirty: boolean;
