@@ -22,6 +22,40 @@ import { MessageRow } from "./chat/MessageRow";
 import { AgentFailureCard } from "./chat/AgentFailureCard";
 import { canEditUserTurn, composeAllTurns } from "./chat/utils";
 import { formatShortDateTime } from "@/utils/date-format";
+// PROTOTYPE（#2980）：消息区原型的轴与新部件
+import { useMsgProto } from "@/prototype/agent-messages/store";
+import { ProtoMessage, FailureCompact, hasVisibleContent, mergeAssistantRuns } from "@/prototype/agent-messages/ProtoMessage";
+import {
+  ComposerAttachments,
+  HistoryTitle,
+  HistoryToggle,
+  HistoryView,
+  NewSessionButton,
+  ProtoQuestionnaire,
+  SessionSwitcher,
+  TodoDockCompact,
+} from "@/prototype/agent-messages/ProtoPanels";
+import { answerProtoQuestion } from "@/prototype/agent-messages/scenarios";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
+import type { Turn } from "@/types";
+
+function latestTodoBlockId(turns: Turn[]): string | undefined {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const blocks = turns[i].content ?? [];
+    for (let j = blocks.length - 1; j >= 0; j--) {
+      const b = blocks[j];
+      if (b.type === "tool_use" && b.name === "TodoWrite" && !b.is_error) return b.id;
+    }
+  }
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -177,6 +211,8 @@ export function AgentCopilot() {
 
   const { currentProjectName } = useProjectsStore();
   const composerMode = useShellProto().axes.composer;
+  const msgAxes = useMsgProto().axes;
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
   const { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
@@ -201,6 +237,12 @@ export function AgentCopilot() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const allTurns = composeAllTurns(turns, draftTurn);
+  const latestTodoId = latestTodoBlockId(allTurns);
+  const submitProtoAnswers = (answers: Record<string, string>) => {
+    if (!pendingQuestion) return;
+    if (pendingQuestion.question_id.startsWith("proto-")) answerProtoQuestion(answers);
+    else voidCall(answerQuestion(pendingQuestion.question_id, answers));
+  };
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
   const attachDisabled = inputDisabled || isReadingImages || attachedImages.length >= MAX_ATTACHED_IMAGES;
@@ -424,7 +466,11 @@ export function AgentCopilot() {
           >
             <Bot className="h-3.5 w-3.5" />
           </div>
-          {isRunning || sending ? (
+          {msgAxes.session === "switcher" ? (
+            <SessionSwitcher onSwitch={(id) => voidCall(switchSession(id))} onNew={createNewSession} />
+          ) : msgAxes.session === "history" ? (
+            <HistoryTitle />
+          ) : isRunning || sending ? (
             <span
               className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px]"
               style={{ color: "var(--color-primary-2)" }}
@@ -441,10 +487,25 @@ export function AgentCopilot() {
               {t("arcreel_agent")}
             </span>
           )}
+          {msgAxes.session !== "current" && (isRunning || sending) && (
+            <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+              <span className="proto-breath inline-block size-1.5 rounded-full bg-primary" />
+              运行中
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <SessionSelector onSwitch={voidPromise(switchSession)} onDelete={voidPromise(deleteSession)} />
-          <button
+          {msgAxes.session === "history" && <HistoryToggle active={historyOpen} onToggle={() => setHistoryOpen((v) => !v)} />}
+          {msgAxes.session !== "current" ? (
+            <NewSessionButton
+              onNew={() => {
+                setHistoryOpen(false);
+                createNewSession();
+              }}
+            />
+          ) : null}
+          {msgAxes.session === "current" && <SessionSelector onSwitch={voidPromise(switchSession)} onDelete={voidPromise(deleteSession)} />}
+          {msgAxes.session === "current" && <button
             type="button"
             onClick={createNewSession}
             className="rounded p-1 transition-colors focus-ring"
@@ -461,14 +522,93 @@ export function AgentCopilot() {
             aria-label={t("new_session")}
           >
             <Plus aria-hidden className="h-4 w-4" />
-          </button>
+          </button>}
         </div>
       </div>
 
       {/* Context banner */}
-      <ContextBanner />
+      {msgAxes.composer === "current" && <ContextBanner />}
 
-      {/* Messages */}
+      {/* PROTOTYPE（#2980）：历史视图替换消息区 */}
+      {historyOpen && msgAxes.session === "history" ? (
+        <HistoryView
+          onPick={(id) => {
+            setHistoryOpen(false);
+            if (!id.startsWith("proto-")) voidCall(switchSession(id));
+          }}
+        />
+      ) : msgAxes.scroll !== "current" ? (
+        <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+          <MessageScroller className="min-h-0 flex-1">
+            <MessageScrollerViewport aria-label="对话记录">
+              <MessageScrollerContent className="gap-4 px-3 py-3">
+                {allTurns.length === 0 && !messagesLoading && !startupFailure && (
+                  <MessageScrollerItem messageId="empty" className="my-auto text-center">
+                    <p className="text-[13px] text-text-2">{t("start_chat_hint")}</p>
+                    <p className="mt-1 text-[12px] text-muted-foreground">{t("quick_skill_hint")}</p>
+                  </MessageScrollerItem>
+                )}
+                {(msgAxes.layout === "current"
+                  ? allTurns.map((t, i) => ({ turn: t, streaming: t === draftTurn, key: t.uuid || `turn-${i}` }))
+                  : mergeAssistantRuns(allTurns, draftTurn)
+                ).map(({ turn, streaming, key }) => {
+                  if (msgAxes.layout !== "current" && !hasVisibleContent(turn, streaming)) return null;
+                  const editing = Boolean(turn.uuid) && turn.uuid === editingTurnUuid;
+                  const editable = canEditUserTurn(turn, {
+                    sessionStatus,
+                    hasPendingQuestion: Boolean(pendingQuestion),
+                    isSending: sending,
+                  });
+                  return (
+                    <MessageScrollerItem
+                      key={key}
+                      messageId={key}
+                      scrollAnchor={msgAxes.scroll === "anchor" && turn.type === "user"}
+                    >
+                      {msgAxes.layout === "current" || editing ? (
+                        <MessageRow
+                          turn={turn}
+                          streaming={streaming}
+                          editable={editable}
+                          editing={editing}
+                          submitting={sending}
+                          onStartEdit={setEditingTurnUuid}
+                          onCancelEdit={() => setEditingTurnUuid(null)}
+                          onSubmitEdit={handleSubmitEdit}
+                        />
+                      ) : (
+                        <ProtoMessage
+                          turn={turn}
+                          axes={msgAxes}
+                          streaming={streaming}
+                          editable={editable}
+                          latestTodoId={latestTodoId}
+                          onStartEdit={(uuid) => setEditingTurnUuid(uuid)}
+                        />
+                      )}
+                    </MessageScrollerItem>
+                  );
+                })}
+                {startupFailure && (
+                  <MessageScrollerItem messageId="startup-failure">
+                    {msgAxes.failure === "compact" ? (
+                      <FailureCompact failure={startupFailure} onRetry={startupFailureOrigin === "rewrite" ? undefined : handleSend} />
+                    ) : (
+                      <AgentFailureCard failure={startupFailure} onRetry={startupFailureOrigin === "rewrite" ? undefined : handleSend} />
+                    )}
+                  </MessageScrollerItem>
+                )}
+                {pendingQuestion && msgAxes.question === "inline" && (
+                  <MessageScrollerItem messageId="pending-question">
+                    <ProtoQuestionnaire pending={pendingQuestion} busy={answeringQuestion} error={error} onSubmit={submitProtoAnswers} placement="inline" />
+                  </MessageScrollerItem>
+                )}
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+            <MessageScrollerButton aria-label="跳到最新" className="bottom-3" />
+          </MessageScroller>
+        </MessageScrollerProvider>
+      ) : (
       <div ref={scrollRef} className="flex-1 min-w-0 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3">
         {allTurns.length === 0 && !messagesLoading && !startupFailure && (
           <div className="flex h-full flex-col items-center justify-center text-center">
@@ -526,17 +666,21 @@ export function AgentCopilot() {
           />
         )}
       </div>
+      )}
 
-      {pendingQuestion && (
+      {pendingQuestion && msgAxes.question === "current" && (
         <PendingQuestionWizard
           pendingQuestion={pendingQuestion}
           answeringQuestion={answeringQuestion}
           error={error}
-          onSubmitAnswers={voidPromise(answerQuestion)}
+          onSubmitAnswers={(id, answers) =>
+            id.startsWith("proto-") ? answerProtoQuestion(answers) : voidCall(answerQuestion(id, answers))
+          }
         />
       )}
 
-      <TodoListPanel turns={turns} draftTurn={draftTurn} />
+      {msgAxes.todo === "dock" && <TodoListPanel turns={turns} draftTurn={draftTurn} />}
+      {msgAxes.todo === "dockCompact" && <TodoDockCompact turns={turns} draftTurn={draftTurn} />}
 
       {!pendingQuestion && (error || attachError) && (
         <div
@@ -553,13 +697,18 @@ export function AgentCopilot() {
         </div>
       )}
 
-      {/* Input area */}
+      {/* PROTOTYPE（#2980）：提问占用输入框位置 */}
+      {pendingQuestion && msgAxes.question === "composer" ? (
+        <div className="flex max-h-[70cqh] min-h-0 shrink-0 flex-col border-t border-border p-3">
+          <ProtoQuestionnaire pending={pendingQuestion} busy={answeringQuestion} error={error} onSubmit={submitProtoAnswers} placement="composer" />
+        </div>
+      ) : (
       <div
         className="p-3"
         style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
       >
         {/* Thumbnail strip */}
-        {attachedImages.length > 0 && (
+        {msgAxes.composer === "current" && attachedImages.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachedImages.map((img) => (
               <div key={img.id} className="relative">
@@ -605,7 +754,7 @@ export function AgentCopilot() {
         )}
 
         <div
-          className="relative flex items-end gap-2 rounded-lg px-3 py-2 transition-colors"
+          className="relative flex flex-wrap items-end gap-2 rounded-lg px-3 py-2 transition-colors"
           style={{
             border: `1px solid ${isDragOver ? "var(--color-primary)" : "var(--color-hairline)"}`,
             background: isDragOver
@@ -627,6 +776,11 @@ export function AgentCopilot() {
               filter={slashFilter}
               onSelect={handleSlashSelect}
             />
+          )}
+          {msgAxes.composer === "inside" && (
+            <div className="basis-full">
+              <ComposerAttachments images={attachedImages} onRemoveImage={removeImage} onPreview={setLightboxSrc} />
+            </div>
           )}
           <textarea
             ref={textareaRef}
@@ -750,6 +904,7 @@ export function AgentCopilot() {
           onChange={handleFileSelect}
         />
       </div>
+      )}
 
       {lightboxSrc && (
         <ImageLightbox

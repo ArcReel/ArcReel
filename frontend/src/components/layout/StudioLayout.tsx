@@ -22,7 +22,8 @@ import {
 } from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
 import { EPISODE_VIEW_EDIT } from "@/app-routes";
-import { ShellProtoBar } from "@/prototype/shell/ShellProtoBar";
+import { MsgProtoBar } from "@/prototype/agent-messages/MsgProtoBar";
+import { useRequestedAgentWidth } from "@/prototype/agent-messages/store";
 import { publishMetrics, useShellProto } from "@/prototype/shell/store";
 import { AgentRail, DragHandle, useElementWidth, useViewportWidth } from "@/prototype/shell/ShellParts";
 import {
@@ -231,6 +232,12 @@ function PrototypeShell({
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [agentWidth, setAgentWidth] = useState<number>(limits.agentDefault);
   const [dragging, setDragging] = useState(false);
+  // #2980：切换栏的宽度按钮直接设定 Agent 面板宽度
+  const requestedAgentWidth = useRequestedAgentWidth();
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 原型
+    if (requestedAgentWidth) setAgentWidth(requestedAgentWidth.width);
+  }, [requestedAgentWidth]);
   useEffect(() => {
     // 切换调宽轴时回到该轴的默认宽度
     /* eslint-disable react-hooks/set-state-in-effect -- 原型 */
@@ -432,7 +439,7 @@ function PrototypeShell({
           <Bot className="h-5 w-5" />
         </button>
       ) : null}
-      <ShellProtoBar />
+      <MsgProtoBar />
     </div>
   );
 }

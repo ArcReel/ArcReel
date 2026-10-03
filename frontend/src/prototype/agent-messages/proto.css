@@ -1,0 +1,11 @@
+/* PROTOTYPE — #2980 运行中的呼吸点：只变透明度（「视觉方向」结论：不做位移与缩放） */
+@keyframes proto-breath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.proto-breath {
+  animation: proto-breath 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .proto-breath { animation: none; }
+}
