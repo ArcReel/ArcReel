@@ -1,14 +1,17 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Router } from "wouter";
+import { Router, useSearch } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
 import { API, ApiRequestError } from "@/api";
+import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type {
   ComfyuiBindingTarget,
+  CustomProviderInfo,
+  CustomProviderModelInfo,
   ComfyuiEndpointDefinition,
   ComfyuiInferResponse,
   ComfyuiMatchOrigin,
@@ -138,29 +141,100 @@ function validation(overrides?: Partial<EndpointValidateResponse>): EndpointVali
   };
 }
 
-function renderSection(search = "section=endpoints") {
+/** 与设置页一样，只在 section=endpoints 时渲染本分区；跳去别的分区后它随之卸载。 */
+function SectionHost() {
+  const search = useSearch();
+  return new URLSearchParams(search).get("section") === "endpoints" ? <EndpointsSection /> : null;
+}
+
+function renderSection(search = "section=endpoints", { guarded = false } = {}) {
   const location = memoryLocation({ path: "/app/settings", searchPath: search, record: true });
+  const host = guarded ? (
+    <LeaveGuardProvider>
+      <SectionHost />
+    </LeaveGuardProvider>
+  ) : (
+    <SectionHost />
+  );
+  return { ...render(<Router hook={location.hook}>{host}</Router>), location };
+}
+
+function model(overrides: Partial<CustomProviderModelInfo>): CustomProviderModelInfo {
   return {
-    ...render(
-      <Router hook={location.hook}>
-        <EndpointsSection />
-      </Router>,
-    ),
-    location,
+    id: 11,
+    model_id: "example-video",
+    display_name: "example-video",
+    endpoint: "ce-7",
+    is_default: true,
+    is_enabled: true,
+    price_unit: null,
+    price_input: null,
+    price_output: null,
+    currency: null,
+    supported_durations: null,
+    resolution: null,
+    max_output_tokens: null,
+    system_capabilities: null,
+    capability_overrides: null,
+    global_bucket_refs: null,
+    ...overrides,
   };
+}
+
+function provider(overrides: Partial<CustomProviderInfo>): CustomProviderInfo {
+  return {
+    id: 1,
+    display_name: "Relay",
+    discovery_format: "openai",
+    base_url: "https://api.example.com",
+    api_key_masked: "sk-***",
+    created_at: "2026-08-01T00:00:00Z",
+    image_max_workers: null,
+    video_max_workers: null,
+    audio_max_workers: null,
+    models: [model({})],
+    ...overrides,
+  };
+}
+
+/** 点二级栏里的条目。标准档与图标栏各渲染一份（jsdom 不跑容器查询），取第一份。 */
+async function clickRail(name: string | RegExp) {
+  await userEvent.click((await screen.findAllByRole("link", { name }))[0]);
+}
+
+/** 打开页头「更多操作」菜单里的一项。 */
+async function chooseMenu(name: string) {
+  await userEvent.click(await screen.findByRole("button", { name: "更多操作" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
+/**
+ * 从「新建端点」页打开导入对话框。新建页会先校验一次空白定义，等它发出后清掉调用记录，
+ * 后面的断言只看导入这一路的校验。
+ */
+async function openImport() {
+  await clickRail("新建端点");
+  await waitFor(() => expect(API.validateCustomEndpoint).toHaveBeenCalled());
+  vi.mocked(API.validateCustomEndpoint).mockClear();
+  await userEvent.click(await screen.findByRole("button", { name: "导入定义" }));
+}
+
+/** 导入对话框里的文件选择框；新建页的端点测试区也有上传框，只在对话框里找。 */
+function importFileInput(): HTMLInputElement {
+  const picker = screen.getByRole("dialog").querySelector<HTMLInputElement>('input[type="file"]');
+  if (picker === null) throw new Error("no file input");
+  return picker;
 }
 
 /** 在导入弹窗里选一份文件。隐藏的 file input 在 jsdom 里只能这样驱动。 */
 async function pickFile(file: File) {
-  await userEvent.click(screen.getByRole("button", { name: "导入" }));
-  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
-  if (picker === null) throw new Error("no file input");
-  fireEvent.change(picker, { target: { files: [file] } });
+  await openImport();
+  fireEvent.change(importFileInput(), { target: { files: [file] } });
 }
 
 /** 在导入弹窗里粘贴一份载荷，与上传走同一条分流。 */
 async function pasteSource(text: string) {
-  await userEvent.click(screen.getByRole("button", { name: "导入" }));
+  await openImport();
   await userEvent.click(screen.getByLabelText("粘贴端点定义或 workflow"));
   await userEvent.paste(text);
   await userEvent.click(screen.getByRole("button", { name: "识别" }));
@@ -226,12 +300,20 @@ describe("EndpointsSection", () => {
     expect(screen.getByText(/workflow_api\.json · ComfyUI workflow · v1\.0\.0/)).toBeInTheDocument();
   });
 
-  it("groups endpoints by whether they are mine, built-in, or implemented in code", async () => {
+  it("splits the rail into my endpoints and built-in ones, code-implemented endpoints included", async () => {
     renderSection();
     const list = await screen.findByRole("navigation");
-    expect(within(list).getByText("我的端点")).toBeInTheDocument();
-    expect(within(list).getByText("内置")).toBeInTheDocument();
-    expect(within(list).getByText("内置 · Python")).toBeInTheDocument();
+    expect(within(list).getByRole("tab", { name: /我的端点/ })).toBeInTheDocument();
+    await userEvent.click(within(list).getByRole("tab", { name: /内置/ }));
+    const builtin = within(list).getByRole("tabpanel");
+    expect(within(builtin).getByRole("link", { name: /NewAPI Video/ })).toBeInTheDocument();
+    expect(within(builtin).getByRole("link", { name: /OpenAI 视频|OpenAI Video/ })).toBeInTheDocument();
+  });
+
+  it("selects the first of my endpoints when the address names none", async () => {
+    const { location } = renderSection();
+    expect(await screen.findByDisplayValue("Example Video API")).toBeInTheDocument();
+    expect(location.history.at(-1)).toBe("/app/settings?section=endpoints&endpoint=ce-7");
   });
 
   it("leaves built-in image endpoints out", async () => {
@@ -250,7 +332,7 @@ describe("EndpointsSection", () => {
   it("shows an editable lifecycle form for one of my endpoints", async () => {
     renderSection("section=endpoints&endpoint=ce-7");
     expect(await screen.findByDisplayValue("Example Video API")).toBeEnabled();
-    expect(screen.getByRole("button", { name: "保存更改" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
     expect(screen.getByText("提交生成任务")).toBeInTheDocument();
   });
 
@@ -263,14 +345,14 @@ describe("EndpointsSection", () => {
 
   it("prefills a new endpoint from the image example template and saves it as an image definition", async () => {
     const create = vi.spyOn(API, "createCustomEndpoint").mockResolvedValue(MINE);
-    renderSection();
-    await userEvent.click(await screen.findByRole("button", { name: "新建" }));
+    renderSection("section=endpoints&endpoint=new");
 
-    await userEvent.selectOptions(screen.getByLabelText("示例模板"), "图片：提交 + 轮询");
+    await userEvent.click(await screen.findByRole("combobox", { name: "示例模板" }));
+    await userEvent.click(await screen.findByRole("option", { name: "图片：提交 + 轮询" }));
 
     expect(screen.getByRole("checkbox", { name: "图生图" })).toBeChecked();
     expect(screen.queryByText("视频地址")).not.toBeInTheDocument();
-    const save = screen.getByRole("button", { name: "保存更改" });
+    const save = screen.getByRole("button", { name: "保存" });
     await waitFor(() => expect(save).toBeEnabled());
     await userEvent.click(save);
     await waitFor(() => expect(create).toHaveBeenCalledOnce());
@@ -278,6 +360,7 @@ describe("EndpointsSection", () => {
   });
 
   it("surfaces validation errors on the diagnostics card and blocks saving", async () => {
+    const update = vi.spyOn(API, "updateCustomEndpoint");
     vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
       validation({
         errors: [
@@ -294,9 +377,10 @@ describe("EndpointsSection", () => {
     expect(
       await screen.findByText("不支持递归下降语法", undefined, { timeout: 4000 }),
     ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "保存更改" })).toBeDisabled(),
-    );
+    await userEvent.type(screen.getByDisplayValue("Example Video API"), "!");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByText(/存在错误，修正后才能保存。/)).toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("saves an edited definition through the update endpoint", async () => {
@@ -306,7 +390,7 @@ describe("EndpointsSection", () => {
     renderSection("section=endpoints&endpoint=ce-7");
     const nameField = await screen.findByDisplayValue("Example Video API");
     await userEvent.type(nameField, "!");
-    const save = screen.getByRole("button", { name: "保存更改" });
+    const save = screen.getByRole("button", { name: "保存" });
     await waitFor(() => expect(save).toBeEnabled());
     await userEvent.click(save);
     await waitFor(() => expect(update).toHaveBeenCalledOnce());
@@ -317,41 +401,7 @@ describe("EndpointsSection", () => {
   });
 
   it("shows server references when deletion conflicts and offers a model-row jump", async () => {
-    vi.spyOn(API, "listCustomProviders").mockResolvedValue({
-      providers: [
-        {
-          id: 1,
-          display_name: "Relay",
-          discovery_format: "openai",
-          base_url: "https://api.example.com",
-          api_key_masked: "sk-***",
-          created_at: "2026-08-01T00:00:00Z",
-          image_max_workers: null,
-          video_max_workers: null,
-          audio_max_workers: null,
-          models: [
-            {
-              id: 11,
-              model_id: "example-video",
-              display_name: "example-video",
-              endpoint: "ce-7",
-              is_default: true,
-              is_enabled: true,
-              price_unit: null,
-              price_input: null,
-              price_output: null,
-              currency: null,
-              supported_durations: null,
-              resolution: null,
-              max_output_tokens: null,
-              system_capabilities: null,
-              capability_overrides: null,
-              global_bucket_refs: null,
-            },
-          ],
-        },
-      ],
-    });
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [provider({})] });
     vi.spyOn(API, "deleteCustomEndpoint").mockRejectedValue(
       new ApiRequestError(
         "Models are using this endpoint.",
@@ -369,14 +419,12 @@ describe("EndpointsSection", () => {
       ),
     );
     const { location } = renderSection("section=endpoints&endpoint=ce-7");
-    expect(await screen.findByText("1 个模型正在使用")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "删除" }));
-    await userEvent.click(screen.getAllByRole("button", { name: "删除" }).at(-1)!);
+    await screen.findByDisplayValue("Example Video API");
+    await chooseMenu("删除端点");
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "删除" }));
     const jump = await screen.findByRole("button", { name: "Relay · Example Video — 前往模型行" });
     await userEvent.click(jump);
-    expect(location.history.at(-1)).toBe(
-      "/app/settings?section=providers&custom=1&model=example-video",
-    );
+    expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=1&model=example-video");
   });
 
   it("leaves the dialog standing when the pasted text is not JSON, so it can be fixed in place", async () => {
@@ -420,14 +468,10 @@ describe("EndpointsSection", () => {
     renderSection("section=endpoints&endpoint=newapi-video");
 
     expect(await screen.findByDisplayValue("NewAPI Video")).toHaveAttribute("readonly");
-    expect(screen.queryByRole("button", { name: "保存更改" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "JSON" }));
-    expect(screen.getByRole("textbox", { name: "JSON" })).toHaveClass(
-      "read-only:border-primary/25",
-      "read-only:bg-sidebar/65",
-      "read-only:text-subtle-foreground",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "复制为我的" }));
+    expect(screen.getByRole("textbox", { name: "JSON" })).toHaveAttribute("readonly");
+    await userEvent.click(screen.getByRole("button", { name: "复制为我的端点" }));
     await waitFor(() => expect(create).toHaveBeenCalledOnce());
   });
 
@@ -482,6 +526,63 @@ describe("EndpointsSection", () => {
     expect(screen.getByText("先为新增的这一行填写名称，再添加下一行。")).toBeInTheDocument();
   });
 
+  it("lists the models using the endpoint and opens each one in its provider", async () => {
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({
+      providers: [
+        provider({}),
+        provider({
+          id: 2,
+          display_name: "Backup relay",
+          models: [model({ id: 21, model_id: "backup-video" }), model({ id: 22, model_id: "other", endpoint: "newapi-video" })],
+        }),
+      ],
+    });
+    const { location } = renderSection("section=endpoints&endpoint=ce-7");
+
+    const usage = await screen.findByRole("region", { name: "使用这个端点的模型" });
+    const rows = within(usage).getAllByRole("listitem");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("example-video"),
+      expect.stringContaining("backup-video"),
+    ]);
+    expect(within(rows[1]).getByText("Backup relay")).toBeInTheDocument();
+    // 二级栏第二行写的是同一份数据
+    expect(screen.getAllByRole("link", { name: /Example Video API.*2 个模型使用/ })[0]).toBeInTheDocument();
+
+    await userEvent.click(within(rows[1]).getByRole("link", { name: "打开「Backup relay」中的模型 backup-video" }));
+    expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=2&model=backup-video");
+  });
+
+  it("says so when no model uses the endpoint", async () => {
+    renderSection("section=endpoints&endpoint=ce-7");
+    const usage = await screen.findByRole("region", { name: "使用这个端点的模型" });
+    expect(within(usage).getByText("还没有模型使用这个端点。")).toBeInTheDocument();
+  });
+
+  it("leads back to the provider it was opened from, across endpoint switches", async () => {
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [provider({})] });
+    const { location } = renderSection("section=endpoints&endpoint=ce-7&from=1");
+
+    expect(await screen.findByRole("link", { name: "返回「Relay」" })).toHaveAttribute(
+      "href",
+      "/app/settings?section=providers&custom=1",
+    );
+    await clickRail(/NewAPI Video/);
+    expect(location.history.at(-1)).toBe("/app/settings?section=endpoints&endpoint=newapi-video&from=1");
+    await userEvent.click(await screen.findByRole("link", { name: "返回「Relay」" }));
+    expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=1");
+  });
+
+  it("asks before switching away from an endpoint with unsaved edits", async () => {
+    const { location } = renderSection("section=endpoints&endpoint=ce-7", { guarded: true });
+    await userEvent.type(await screen.findByDisplayValue("Example Video API"), "!");
+
+    await clickRail(/NewAPI Video/);
+
+    expect(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).toBeInTheDocument();
+    expect(location.history.at(-1)).toBe("/app/settings?section=endpoints&endpoint=ce-7");
+  });
+
   describe("ComfyUI endpoints", () => {
     const PROMPT_TARGET = { node: "6", input: "text", class_type: "CLIPTextEncode" };
     const OUTPUT_TARGET = { node: "9", class_type: "SaveVideo" };
@@ -528,17 +629,13 @@ describe("EndpointsSection", () => {
       vi.spyOn(API, "inferComfyuiBindings").mockResolvedValue(inference());
     });
 
-    it("gives workflow endpoints a group of their own and mixes both media types into it", async () => {
+    it("lists workflow endpoints of both media types among my endpoints", async () => {
       renderSection();
-      const list = await screen.findByRole("navigation");
+      const mine = within(await screen.findByRole("navigation")).getByRole("tabpanel");
 
-      expect(within(list).getByText("ComfyUI workflow")).toBeInTheDocument();
-      const video = within(list).getByRole("button", { name: /我的 ComfyUI/ });
-      const image = within(list).getByRole("button", { name: /我的画图 workflow/ });
-      expect(within(video).getByText("视频")).toBeInTheDocument();
-      expect(within(image).getByText("图片")).toBeInTheDocument();
-      // 声明式端点留在「我的端点」里，不跟着 workflow 走。
-      expect(within(list).getByRole("button", { name: /Example Video API/ })).toBeInTheDocument();
+      expect(within(mine).getByRole("link", { name: /我的 ComfyUI/ })).toBeInTheDocument();
+      expect(within(mine).getByRole("link", { name: /我的画图 workflow/ })).toBeInTheDocument();
+      expect(within(mine).getByRole("link", { name: /Example Video API/ })).toBeInTheDocument();
     });
 
     it("opens a saved workflow endpoint in the binding editor", async () => {
@@ -557,8 +654,9 @@ describe("EndpointsSection", () => {
       const remove = vi.spyOn(API, "deleteCustomEndpoint").mockResolvedValue(undefined);
       renderSection("section=endpoints&endpoint=ce-8");
 
-      await userEvent.click(await screen.findByRole("button", { name: "删除" }));
-      await userEvent.click(screen.getAllByRole("button", { name: "删除" }).at(-1)!);
+      await screen.findByLabelText("端点名称");
+      await chooseMenu("删除端点");
+      await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "删除" }));
 
       await waitFor(() => expect(remove).toHaveBeenCalledWith(8));
     });
@@ -570,7 +668,7 @@ describe("EndpointsSection", () => {
       renderSection("section=endpoints&endpoint=ce-8");
       await screen.findByLabelText("端点名称");
 
-      await userEvent.click(screen.getByRole("button", { name: "导出定义" }));
+      await chooseMenu("导出 JSON");
 
       expect(downloads).toHaveLength(1);
       expect(downloads[0].name).toBe("comfyui.json");
@@ -606,7 +704,6 @@ describe("EndpointsSection", () => {
       expect(screen.queryByRole("button", { name: "去绑定节点" })).not.toBeInTheDocument();
       expect(create).not.toHaveBeenCalled();
       // 占位名要先改掉：同作者同名的两份 workflow 会被判成同一份。
-      expect(screen.getByRole("button", { name: "保存端点" })).toBeDisabled();
       expect(screen.getByText(/先给这份 workflow 起个名字/)).toBeInTheDocument();
     });
 
@@ -709,9 +806,7 @@ describe("EndpointsSection", () => {
       await screen.findByLabelText("端点名称");
 
       await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
-      const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
-      if (picker === null) throw new Error("no file input");
-      fireEvent.change(picker, {
+      fireEvent.change(importFileInput(), {
         target: { files: [new File([JSON.stringify(workflow)], "v2_api.json", { type: "application/json" })] },
       });
       await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
@@ -750,9 +845,7 @@ describe("EndpointsSection", () => {
       expect(screen.getByText(/SaveVideo/, { selector: "span" })).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
-      const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
-      if (picker === null) throw new Error("no file input");
-      fireEvent.change(picker, {
+      fireEvent.change(importFileInput(), {
         target: { files: [new File([JSON.stringify(workflow)], "v2_api.json", { type: "application/json" })] },
       });
       await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
@@ -779,9 +872,7 @@ describe("EndpointsSection", () => {
         }),
       );
       const pickFile = async (name: string) => {
-        const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
-        if (picker === null) throw new Error("no file input");
-        fireEvent.change(picker, {
+        fireEvent.change(importFileInput(), {
           target: { files: [new File([JSON.stringify(workflow)], name, { type: "application/json" })] },
         });
         await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
@@ -794,14 +885,24 @@ describe("EndpointsSection", () => {
       await screen.findByText("来自 v2_api.json");
 
       // 不保存这份草稿，直接走到另一个 workflow 端点上再点重新导入。
-      const list = await screen.findByRole("navigation");
-      await userEvent.click(within(list).getByRole("button", { name: /我的画图 workflow/ }));
+      await clickRail(/我的画图 workflow/);
       await screen.findByLabelText("端点名称");
       await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
       await pickFile("v3_api.json");
 
       // excludeId 取的就是这份草稿背着的 record.id，它也是保存时会被写回的那一行。
       expect(validate.mock.calls.at(-1)?.[1]).toMatchObject({ excludeId: 9 });
+    });
+
+    it("asks before switching away from a workflow endpoint with unsaved edits", async () => {
+      const { location } = renderSection("section=endpoints&endpoint=ce-8", { guarded: true });
+      await screen.findByText("1 个节点");
+      await userEvent.type(screen.getByLabelText("端点名称"), "!");
+
+      await clickRail(/Example Video API/);
+
+      expect(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).toBeInTheDocument();
+      expect(location.history.at(-1)).toBe("/app/settings?section=endpoints&endpoint=ce-8");
     });
 
     it("still shows the declarative form for my declarative endpoint", async () => {
@@ -816,7 +917,7 @@ describe("EndpointsSection", () => {
     renderSection("section=endpoints&endpoint=openai_video");
     expect(await screen.findByText("该端点由代码实现，仅展示接口信息。")).toBeInTheDocument();
     expect(screen.getByText("/v1/videos")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "复制为我的" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "复制为我的端点" })).not.toBeInTheDocument();
   });
 
   describe("market integration", () => {
@@ -838,10 +939,10 @@ describe("EndpointsSection", () => {
       });
     }
 
-    it("links from the endpoint list to the market section", async () => {
-      const { location } = renderSection("section=endpoints&endpoint=ce-7");
-      await userEvent.click(await screen.findByRole("button", { name: "从市场获取" }));
-      expect(location.history).toEqual(["/app/settings?section=market&endpoint=ce-7"]);
+    it("links from the new-endpoint page to the market section", async () => {
+      const { location } = renderSection("section=endpoints&endpoint=new");
+      await userEvent.click(await screen.findByRole("link", { name: "从市场获取" }));
+      expect(location.history.at(-1)).toBe("/app/settings?section=market");
     });
 
     it("shows both status axes and the source of an installed endpoint without an update action", async () => {
@@ -856,7 +957,7 @@ describe("EndpointsSection", () => {
 
     it("leaves a hand-made endpoint without market badges", async () => {
       renderSection("section=endpoints&endpoint=ce-7");
-      expect(await screen.findByRole("button", { name: "导出" })).toBeInTheDocument();
+      expect(await screen.findByDisplayValue("Example Video API")).toBeInTheDocument();
       expect(screen.queryByText(/来自市场/)).not.toBeInTheDocument();
       expect(screen.queryByText("已安装")).not.toBeInTheDocument();
     });
@@ -922,13 +1023,7 @@ describe("EndpointsSection", () => {
       });
       renderSection("section=endpoints&endpoint=ce-7");
 
-      const actions = (await screen.findByRole("button", { name: "更新" })).parentElement!;
-      const labels = within(actions)
-        .getAllByRole("button")
-        .map((button) => button.textContent);
-      expect(labels.indexOf("更新")).toBe(labels.indexOf("新建供应商并使用此端点") + 1);
-      expect(labels.indexOf("导出")).toBe(labels.indexOf("更新") + 1);
-
+      await screen.findByRole("button", { name: "更新" });
       await userEvent.type(screen.getByDisplayValue("Example Video API"), "!");
       await userEvent.click(screen.getByRole("button", { name: "更新" }));
       expect(await screen.findByText("Update endpoint")).toBeInTheDocument();
@@ -947,12 +1042,9 @@ describe("EndpointsSection", () => {
 
       const nameField = await screen.findByDisplayValue("Example Video API");
       await userEvent.type(nameField, "!");
-      const save = screen.getByRole("button", { name: "保存更改" });
-      await waitFor(() => expect(save).toBeEnabled());
       await userEvent.click(screen.getByRole("button", { name: "更新" }));
 
       expect(nameField).toHaveAttribute("readonly");
-      expect(save).toBeDisabled();
     });
 
     it("aborts an entry request when the selected endpoint changes", async () => {
@@ -966,7 +1058,7 @@ describe("EndpointsSection", () => {
 
       await userEvent.click(await screen.findByRole("button", { name: "更新" }));
       await waitFor(() => expect(signal).toBeDefined());
-      await userEvent.click(screen.getByRole("button", { name: "新建" }));
+      await clickRail("新建端点");
       expect(signal?.aborted).toBe(true);
       expect(screen.queryByText("Update endpoint")).not.toBeInTheDocument();
     });
@@ -983,19 +1075,20 @@ describe("EndpointsSection", () => {
       expect(update).toBeEnabled();
     });
 
-    it("links to the official contribution guide next to export", async () => {
+    it("opens the official contribution guide from the more-actions menu", async () => {
+      const open = vi.spyOn(window, "open").mockReturnValue(null);
       renderSection("section=endpoints&endpoint=ce-7");
-      const link = await screen.findByRole("link", { name: "投稿到市场" });
-      expect(link).toHaveAttribute("href", MARKET_CONTRIBUTING_URL);
-      expect(link).toHaveAttribute("target", "_blank");
-      expect(link).toHaveAttribute("rel", "noreferrer");
+      await screen.findByDisplayValue("Example Video API");
+      await chooseMenu("投稿到市场");
+      expect(open).toHaveBeenCalledWith(MARKET_CONTRIBUTING_URL, "_blank", "noopener,noreferrer");
     });
 
     it("exports an installed endpoint under its market slug with unchanged content", async () => {
       withInstallation({});
       const downloads = captureDownloads();
       renderSection("section=endpoints&endpoint=ce-7");
-      await userEvent.click(await screen.findByRole("button", { name: "导出" }));
+      await screen.findByDisplayValue("Example Video API");
+      await chooseMenu("导出 JSON");
       expect(downloads).toHaveLength(1);
       expect(downloads[0].name).toBe("kling-master.json");
       expect(await downloads[0].blob.text()).toBe(JSON.stringify(makeDefinition(), null, 2));
@@ -1067,7 +1160,7 @@ describe("EndpointsSection · share to official market", () => {
     });
     renderSection(`section=endpoints&endpoint=${endpoint.key}`);
 
-    await userEvent.click(await screen.findByRole("button", { name: "分享到官方市场" }));
+    await chooseMenu("分享到官方市场");
     const dialog = await screen.findByRole("dialog");
     // slug 默认由端点名称派生；诊断未清零前不可提交。
     expect(within(dialog).getByLabelText("slug 建议")).toHaveValue("example-video-api");
@@ -1116,7 +1209,7 @@ describe("EndpointsSection · share to official market", () => {
     latest.arrayBuffer = () => new Promise((resolve) => { finishLatest = resolve; });
     renderSection(`section=endpoints&endpoint=${MINE.key}`);
 
-    await userEvent.click(await screen.findByRole("button", { name: "分享到官方市场" }));
+    await chooseMenu("分享到官方市场");
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("本地校验通过，可以提交")).toBeInTheDocument();
     const input = within(dialog).getByTestId("market-share-icon-input");
@@ -1164,8 +1257,9 @@ describe("EndpointsSection · share to official market", () => {
     vi.spyOn(API, "getOfficialService").mockResolvedValue({ ...OFFICIAL_ON, enabled: false });
     const list = vi.spyOn(API, "listMarketSubmissions");
     renderSection(`section=endpoints&endpoint=${endpoint.key}`);
-    expect(await screen.findByRole("button", { name: "删除" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "分享到官方市场" })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "更多操作" }));
+    expect(await screen.findByRole("menuitem", { name: "删除端点" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "分享到官方市场" })).not.toBeInTheDocument();
     expect(list).not.toHaveBeenCalled();
   });
 
@@ -1173,10 +1267,9 @@ describe("EndpointsSection · share to official market", () => {
     vi.spyOn(API, "getOfficialService").mockResolvedValue(OFFICIAL_ON);
     vi.spyOn(API, "listMarketSubmissions").mockResolvedValue({ submissions: [] });
     renderSection("section=endpoints&endpoint=ce-8");
-    const share = await screen.findByRole("button", { name: "分享到官方市场" });
-    await waitFor(() => expect(share).toBeEnabled());
+    await screen.findByText("1 个节点");
     await userEvent.type(screen.getByLabelText("端点名称"), " changed");
-    expect(share).toBeDisabled();
-    expect(share).toHaveAttribute("title", "先保存修改，再分享");
+    await userEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(await screen.findByRole("menuitem", { name: "先保存修改，再分享" })).toHaveAttribute("aria-disabled", "true");
   });
 });

@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/custom-endpoints",
+  "status": 200,
+  "body": {
+    "endpoints": []
+  }
+}

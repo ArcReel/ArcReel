@@ -95,6 +95,9 @@ const RECORDINGS: Recording[] = [
     method: "GET",
     path: "/api/v1/prompt-templates/partials/shared/additional_instructions",
   },
+  // 全局设置「调用端点」：自定义端点列表（录制环境为空，多条目由场景替换）与各端点的分享提交（决定是否提供分享入口）；官方服务开关见上。
+  { file: "custom-endpoints", method: "GET", path: "/api/v1/custom-endpoints" },
+  { file: "market-submissions", method: "GET", path: "/api/v1/market/submissions" },
 ];
 
 // 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。

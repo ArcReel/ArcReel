@@ -91,6 +91,7 @@ function renderDetail(
     fileName?: string | null;
     onSaved?: (record: CustomEndpointInfo) => void;
     onReimport?: (current: ComfyuiEndpointDefinition) => void;
+    onDiscard?: () => void;
   } = {},
 ) {
   return render(
@@ -99,11 +100,13 @@ function renderDetail(
       definition={options.definition ?? definition()}
       sourceFileName={options.fileName ?? "wan22_i2v_api.json"}
       initialInference={options.inference === undefined ? inference() : options.inference}
-      referenceCount={0}
+      usages={[]}
+      back={null}
       providers={[]}
       onSaved={options.onSaved ?? vi.fn()}
       onReimport={options.onReimport ?? vi.fn()}
-      deleteButton={null}
+      onDiscard={options.onDiscard ?? vi.fn()}
+      menuItems={() => null}
     />,
   );
 }
@@ -125,7 +128,7 @@ describe("ComfyuiEndpointDetail", () => {
     renderDetail({ record: savedRecord(definition()) });
 
     expect(await screen.findByLabelText("端点名称")).toHaveValue("Wan 2.2 i2v");
-    expect(screen.getByText("comfyui")).toBeInTheDocument();
+    expect(screen.getByText("ComfyUI workflow")).toBeInTheDocument();
     expect(screen.getByText("ce-8")).toBeInTheDocument();
     expect(screen.getByText("来自 wan22_i2v_api.json")).toBeInTheDocument();
     expect(screen.getByText("4 个节点")).toBeInTheDocument();
@@ -270,7 +273,6 @@ describe("ComfyuiEndpointDetail", () => {
 
     expect(within(row("negative_prompt")).getByText("原来的绑定已失效，请重新指定")).toBeInTheDocument();
     expect(screen.getByText("「负向提示词」原来的绑定已失效，需要手选落点或标为不支持")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存端点" })).toBeDisabled();
   });
 
   it("says so when re-running recognition for one semantic fails", async () => {
@@ -409,7 +411,8 @@ describe("ComfyuiEndpointDetail", () => {
     expect(within(row("prompt")).getByText(/#7/)).toBeInTheDocument();
   });
 
-  it("holds the save back and says why, one line per reason", () => {
+  it("holds the save back and says why, one line per reason", async () => {
+    const create = vi.spyOn(API, "createCustomEndpoint");
     renderDetail({
       definition: definition({ meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" } }),
       inference: inference({
@@ -421,26 +424,30 @@ describe("ComfyuiEndpointDetail", () => {
       }),
     });
 
-    expect(screen.getByRole("button", { name: "保存端点" })).toBeDisabled();
     expect(screen.getByText(/先给这份 workflow 起个名字/)).toBeInTheDocument();
     expect(screen.getByText("「正向提示词」是必填项，尚未绑定")).toBeInTheDocument();
     expect(screen.getByText("「种子」有并列候选，需要选一个或标为不支持")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByText(/节点绑定还有问题，处理后才能保存。/)).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
   });
 
-  it("saves the definition with the confirmed bindings, then settles into a saved button", async () => {
+  it("saves the definition with the confirmed bindings, then has nothing left to save", async () => {
     const created = savedRecord(definition({ bindings: { prompt: [PROMPT], output: [OUTPUT] } }));
     const create = vi.spyOn(API, "createCustomEndpoint").mockResolvedValue(created);
     const onSaved = vi.fn();
     renderDetail({ onSaved });
 
-    await userEvent.click(screen.getByRole("button", { name: "保存端点" }));
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(created));
     expect(create.mock.calls[0][0]).toMatchObject({ bindings: { prompt: [PROMPT], output: [OUTPUT] } });
-    expect(await screen.findByRole("button", { name: "已保存" })).toBeDisabled();
+    expect(await screen.findByText("已保存")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
-  it("opens an already saved endpoint on the saved button", async () => {
+  it("opens an already saved endpoint with nothing to save", async () => {
     // 服务端重匹配对无标题节点一律回填 title: ""，落盘的那一份省略这个键：同一份绑定，两种写法。
     const defn = definition({ bindings: { prompt: [PROMPT], output: [OUTPUT] } });
     renderDetail({
@@ -451,17 +458,17 @@ describe("ComfyuiEndpointDetail", () => {
       }),
     });
 
-    expect(screen.getByRole("button", { name: "已保存" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("goes back to an enabled save as soon as anything changes again", async () => {
     const defn = definition({ bindings: { prompt: [PROMPT], output: [OUTPUT] } });
     renderDetail({ record: savedRecord(defn), definition: defn });
 
-    expect(screen.getByRole("button", { name: "已保存" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
     await userEvent.type(screen.getByLabelText("端点名称"), "!");
 
-    expect(screen.getByRole("button", { name: "保存端点" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
   });
 
   it("shows an image endpoint only the seven semantics it can use", () => {

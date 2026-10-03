@@ -93,6 +93,12 @@ test.describe("豁免", () => {
     expect(report.clipped).toEqual([]);
   });
 
+  test("单行输入框里放不下的长值不报告", async ({ page }) => {
+    const report = await render(page, `<input style="width:120px" value="${"很长的接口地址".repeat(10)}">`);
+
+    expect(report.clipped).toEqual([]);
+  });
+
   test("line-clamp 截断的多行文本不报告", async ({ page }) => {
     const report = await render(
       page,
