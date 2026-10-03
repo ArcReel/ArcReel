@@ -1,0 +1,45 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/cost-estimate",
+  "status": 200,
+  "body": {
+    "project_name": "demo",
+    "models": {
+      "image": {
+        "provider": "unknown",
+        "model": "unknown"
+      },
+      "video": {
+        "provider": "unknown",
+        "model": "unknown"
+      },
+      "audio": {
+        "provider": "unknown",
+        "model": "unknown"
+      }
+    },
+    "episodes": [
+      {
+        "episode": 1,
+        "title": "第一集",
+        "segments": [],
+        "totals": {
+          "estimate": {},
+          "actual": {}
+        }
+      }
+    ],
+    "project_totals": {
+      "estimate": {
+        "image": {},
+        "video": {},
+        "audio": {}
+      },
+      "actual": {
+        "image": {},
+        "video": {},
+        "audio": {}
+      }
+    }
+  }
+}

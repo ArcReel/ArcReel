@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
-import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { Textarea } from "@/components/ui/textarea";
 import { CompactInput } from "@/components/canvas/timeline/CompactInput";
 import { DropdownPill } from "@/components/legacy/DropdownPill";
 import { CAMERA_MOTIONS, CAMERA_MOTION_I18N_KEYS } from "@/types";
@@ -25,9 +25,9 @@ export function VideoPromptEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <AutoTextarea
+      <Textarea
         value={prompt.action}
-        onChange={(v) => onUpdate({ action: v })}
+        onChange={(e) => onUpdate({ action: e.target.value })}
         readOnly={readOnly}
         placeholder={t("video_prompt_placeholder")}
       />

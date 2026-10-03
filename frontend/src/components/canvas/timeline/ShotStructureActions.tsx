@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash2 } from "lucide-react";
-import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 
@@ -88,7 +88,7 @@ export function InsertShotButton({
               <label htmlFor={textareaId} className="text-[11px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
                 {t("shot_insert_narration_label")}
               </label>
-              <AutoTextarea id={textareaId} value={novelText} onChange={setNovelText} disabled={submitting} />
+              <Textarea id={textareaId} value={novelText} onChange={(e) => setNovelText(e.target.value)} disabled={submitting} />
             </div>
           }
           confirmLabel={t("shot_insert_narration_confirm")}

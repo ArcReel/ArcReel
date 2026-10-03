@@ -6,7 +6,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useDraftEditor } from "@/hooks/useDraftEditor";
 import { voidPromise } from "@/utils/async";
 import { groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
-import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { Textarea } from "@/components/ui/textarea";
 import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import {
   AgentDraftBar,
@@ -176,9 +176,9 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
             <span className="mb-2 inline-block rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-[11px] text-subtle-foreground">
               {itemIdWithinEpisode(unitIds[i])}
             </span>
-            <AutoTextarea
+            <Textarea
               value={unit.text}
-              onChange={(text) => updateText(i, text)}
+              onChange={(e) => updateText(i, e.target.value)}
               disabled={busy}
               aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unitIds[i]) })}
               className="text-muted-foreground"

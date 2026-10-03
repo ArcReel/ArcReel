@@ -27,6 +27,9 @@ interface Recording {
   /** 不带令牌请求。 */
   anonymous?: boolean;
   form?: Record<string, string>;
+  json?: unknown;
+  /** 按录制环境（没有配置供应商）应当返回的非 2xx 状态，照实录下。 */
+  status?: number;
 }
 
 const LOGIN: Recording = {
@@ -46,6 +49,17 @@ const RECORDINGS: Recording[] = [
   { file: "onboarding-status", method: "GET", path: "/api/v1/onboarding/status" },
   { file: "projects", method: "GET", path: "/api/v1/projects" },
   { file: "project-demo", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}` },
+  // 工作区与集页的启动请求（项目事件流是 SSE，不录制，场景里按需替换）。
+  { file: "tasks", method: "GET", path: "/api/v1/tasks" },
+  { file: "tasks-stats", method: "GET", path: "/api/v1/tasks/stats" },
+  { file: "usage-summary", method: "GET", path: "/api/v1/usage/summary" },
+  { file: "usage-records", method: "GET", path: "/api/v1/usage/records" },
+  { file: "project-demo-video-capabilities", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/video-capabilities`, status: 422 },
+  { file: "project-demo-assistant-skills", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/assistant/skills` },
+  { file: "project-demo-assistant-sessions", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/assistant/sessions` },
+  { file: "project-demo-workflow-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workflow-status` },
+  { file: "project-demo-workflow-plan", method: "POST", path: `/api/v1/projects/${DEMO_PROJECT}/workflow-plan`, json: { episode_id: 1 } },
+  { file: "project-demo-cost-estimate", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/cost-estimate` },
 ];
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
@@ -99,13 +113,15 @@ async function waitForHealth(baseUrl: string, backendExited: () => boolean) {
 async function request(baseUrl: string, token: string | null, recording: Omit<Recording, "file">) {
   const headers: Record<string, string> = { "Accept-Language": "zh" };
   if (token && !recording.anonymous) headers.Authorization = `Bearer ${token}`;
-  const resp = await fetch(`${baseUrl}${recording.path}`, {
-    method: recording.method,
-    headers,
-    body: recording.form ? new URLSearchParams(recording.form) : undefined,
-  });
+  let payload: BodyInit | undefined;
+  if (recording.form) payload = new URLSearchParams(recording.form);
+  else if (recording.json !== undefined) {
+    headers["Content-Type"] = "application/json";
+    payload = JSON.stringify(recording.json);
+  }
+  const resp = await fetch(`${baseUrl}${recording.path}`, { method: recording.method, headers, body: payload });
   const body: unknown = await resp.json();
-  if (!resp.ok) {
+  if (!resp.ok && resp.status !== recording.status) {
     throw new Error(`${recording.method} ${recording.path} 返回 ${resp.status}：${JSON.stringify(body)}`);
   }
   return { status: resp.status, body };
@@ -156,6 +172,9 @@ async function main() {
 
     await postJson(baseUrl, token, "/api/v1/onboarding/seen", {});
     await postJson(baseUrl, token, "/api/v1/projects", { name: DEMO_PROJECT, title: "演示项目", generation_mode: "storyboard" });
+    // 一集还没有分镜的空正式脚本，集页显示「新增第一个分镜」。
+    await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes`, { title: "第一集" });
+    await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes/1/blank-script`, {});
 
     rmSync(RECORDED_DIR, { recursive: true, force: true });
     mkdirSync(RECORDED_DIR, { recursive: true });

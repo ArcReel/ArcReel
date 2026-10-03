@@ -40,7 +40,7 @@ import { PlanDurationSelect, durationIncompatibleLabel } from "@/components/canv
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
 import { speakerCandidates } from "@/utils/plan-new-assets";
 import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ACCENT_BUTTON_STYLE,
   ACCENT_BTN_CLS,
@@ -328,10 +328,10 @@ function DramaSceneCard({
       {readOnly ? (
         <ReadOnlyText text={scene.source_text} className="text-muted-foreground" />
       ) : (
-        <AutoTextarea
+        <Textarea
           value={scene.source_text}
           disabled={disabled}
-          onChange={(source_text) => onChange({ source_text })}
+          onChange={(e) => onChange({ source_text: e.target.value })}
           placeholder={t("review_source_text_placeholder")}
           aria-label={t("review_source_text_label")}
           className="text-muted-foreground"
@@ -389,9 +389,9 @@ function NarrationSegmentCard({
       {readOnly ? (
         <ReadOnlyText text={segment.novel_text} className="text-foreground" />
       ) : (
-        <AutoTextarea
+        <Textarea
           value={segment.novel_text}
-          onChange={(novel_text) => onChange({ novel_text })}
+          onChange={(e) => onChange({ novel_text: e.target.value })}
           placeholder={t("review_novel_text_placeholder")}
           aria-label={t("review_novel_text_label")}
           disabled={disabled}

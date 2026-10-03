@@ -9,7 +9,28 @@
       "content_mode": "narration",
       "aspect_ratio": "9:16",
       "style": "",
-      "episodes": [],
+      "episodes": [
+        {
+          "episode": 1,
+          "title": "第一集",
+          "script_file": "scripts/episode_1.json",
+          "source_origin": "none",
+          "script_status": "generated",
+          "status": "scripted",
+          "item_count": 0,
+          "duration_seconds": 0,
+          "storyboards": {
+            "total": 0,
+            "available": 0,
+            "stale": 0
+          },
+          "videos": {
+            "total": 0,
+            "available": 0,
+            "stale": 0
+          }
+        }
+      ],
       "whole_source_files": [],
       "characters": {},
       "scenes": {},
@@ -21,6 +42,8 @@
       },
       "generation_mode": "storyboard",
       "grid_storyboard": false,
+      "episode_id_high_water": 1,
+      "source_remaining": false,
       "status": {
         "schema_version": 2,
         "needs_repair": false,
@@ -48,15 +71,34 @@
           }
         },
         "episodes_summary": {
-          "total": 0,
-          "scripted": 0,
+          "total": 1,
+          "scripted": 1,
           "in_production": 0,
           "completed": 0
         },
         "source_remaining": false
       }
     },
-    "scripts": {},
+    "scripts": {
+      "episode_1.json": {
+        "title": "第一集",
+        "segments": [],
+        "episode": 1,
+        "content_mode": "narration",
+        "hook": null,
+        "next_episode_teaser": null,
+        "novel": {
+          "title": "演示项目",
+          "chapter": "第一集"
+        },
+        "metadata": {
+          "created_at": "2026-01-01T08:00:00.000Z",
+          "updated_at": "2026-01-01T08:00:00.000Z",
+          "generator": "blank",
+          "status": "draft"
+        }
+      }
+    },
     "asset_fingerprints": {}
   }
 }

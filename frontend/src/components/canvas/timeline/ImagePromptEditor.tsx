@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
-import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { Textarea } from "@/components/ui/textarea";
 import { CompactInput } from "@/components/canvas/timeline/CompactInput";
 import { DropdownPill } from "@/components/legacy/DropdownPill";
 import { SHOT_TYPES, SHOT_TYPE_I18N_KEYS } from "@/types";
@@ -25,9 +25,9 @@ export function ImagePromptEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <AutoTextarea
+      <Textarea
         value={prompt.scene}
-        onChange={(v) => onUpdate({ scene: v })}
+        onChange={(e) => onUpdate({ scene: e.target.value })}
         readOnly={readOnly}
         placeholder={t("image_prompt_placeholder")}
       />
