@@ -109,4 +109,12 @@ describe("usageProjectLabel", () => {
     expect(usageProjectLabel("", t, "en")).toBe("Untitled");
     expect(usageProjectLabel("demo#deleted-20261002T120000Z", t, "en")).toBe("demo (deleted Oct 2, 2026)");
   });
+
+  it("shows the project title when there is one and falls back to the stored name otherwise", () => {
+    const t = dashboardT();
+    expect(usageProjectLabel("rain-detective", t, "zh", "雨夜侦探")).toBe("雨夜侦探");
+    expect(usageProjectLabel("rain-detective", t, "zh", null)).toBe("rain-detective");
+    // 已删除的项目读不到标题，回退到原名与删除日期。
+    expect(usageProjectLabel("demo#deleted-20261002T120000Z", t, "zh", null)).toBe("demo（2026年10月2日删除）");
+  });
 });

@@ -21,6 +21,8 @@ export interface UsageRecordView {
   taskId: string | null;
   /** 端点试跑记录为空串。 */
   projectName: string;
+  /** 项目标题；没有时界面回退到项目名。进行中的任务行没有标题。 */
+  projectTitle: string | null;
   mediaType: CallType;
   provider: string | null;
   /** 排队中的任务模型尚未解析时为 null，界面显示「待解析」。 */
@@ -46,6 +48,7 @@ export function usageRecordToView(record: UsageRecord): UsageRecordView {
     recordId: record.id,
     taskId: record.task_id,
     projectName: record.project_name,
+    projectTitle: record.project_title ?? null,
     mediaType: record.media_type,
     provider: record.provider,
     model: record.model || null,
@@ -121,6 +124,7 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView | null {
     recordId: null,
     taskId: task.task_id,
     projectName: task.project_name,
+    projectTitle: null,
     mediaType: task.media_type,
     provider: task.provider_id,
     model: null,

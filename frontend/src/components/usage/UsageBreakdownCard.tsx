@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 
-import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button } from "@/components/ui/button";
 import type { UsageStatsBlock, UsageSummary } from "@/types";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
-import { formatRatio, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
+import { formatRatio, projectTitleResolver, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 
 /** 构成表的三个维度；模型行按 (provider, model) 分组。 */
 type BreakdownDim = "project" | "provider" | "model";
@@ -25,9 +27,8 @@ const NAME_COL_KEYS: Record<BreakdownDim, string> = {
 /** 成功率低于这条线的行用警示色，扫一眼就能挑出问题行。 */
 const LOW_SUCCESS_RATE = 0.85;
 
-const GRID = "minmax(0,1fr) 52px 56px 84px";
-
-const HEAD_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground";
+/** 名称列吃掉剩余宽度，三列数字固定宽度。 */
+const GRID_CLS = "grid grid-cols-[minmax(0,1fr)_3.5rem_4rem_6rem] items-center gap-x-2";
 
 /** 一行的展示数据；三个维度投影到同一形状后共用渲染。 */
 interface BreakdownRowView {
@@ -45,76 +46,57 @@ interface UsageBreakdownCardProps {
   summary: UsageSummary | null;
   filters: UsageRecordsFilters;
   onChange: (patch: Partial<UsageRecordsFilters>) => void;
-  /** 需要关注隐藏时构成表铺满整行。 */
-  wide: boolean;
 }
 
 export function UsageBreakdownCard({
   summary,
   filters,
   onChange,
-  wide,
 }: UsageBreakdownCardProps) {
   const { t, i18n } = useTranslation("dashboard");
   const [dim, setDim] = useState<BreakdownDim>("provider");
   const providerLabel = providerLabelResolver(summary);
+  const titleOf = projectTitleResolver(summary);
   const primary = summary?.primary_currency ?? null;
 
   const rows = buildRows(dim, summary, filters, {
     providerLabel,
-    projectLabel: (name: string) => usageProjectLabel(name, t, i18n.language),
+    projectLabel: (name: string) => usageProjectLabel(name, t, i18n.language, titleOf(name)),
     other: (count: number) => t("usage_breakdown_other", { count }),
   });
   const totalCalls = Math.max(1, summary?.kpi.calls ?? 0);
 
   return (
-    <section
-      className={
-        "rounded-lg border border-border p-4 " + (wide ? "col-span-12" : "col-span-12 lg:col-span-7")
-      }
-      style={CARD_STYLE}
-    >
-      <div className="mb-2.5 flex items-center justify-between gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-          {t("usage_breakdown_title")}
-        </h4>
-        <div
-          role="group"
-          aria-label={t("usage_breakdown_dim_label")}
-          className="flex items-center gap-1"
-        >
+    <section aria-label={t("usage_breakdown_title")} className="flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">{t("usage_breakdown_title")}</h3>
+        <div role="group" aria-label={t("usage_breakdown_dim_label")} className="flex items-center gap-1">
           {DIMS.map((option) => {
             const active = dim === option.value;
             return (
-              <button
+              <Button
                 key={option.value}
-                type="button"
+                size="xs"
+                variant={active ? "secondary" : "ghost"}
                 aria-pressed={active}
                 onClick={() => setDim(option.value)}
-                className={
-                  "focus-ring rounded-full px-2 py-0.5 text-[11px] transition-colors " +
-                  (active ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground")
-                }
               >
                 {t(option.labelKey)}
-              </button>
+              </Button>
             );
           })}
         </div>
       </div>
 
       {rows.length === 0 ? (
-        <p className="py-6 text-center text-[12px] text-muted-foreground">{t("usage_breakdown_empty")}</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">{t("usage_breakdown_empty")}</p>
       ) : (
-        <>
-          <div
-            className="grid gap-x-2 border-b border-border pb-1.5"
-            style={{ gridTemplateColumns: GRID }}
-          >
-            <span className={HEAD_CLS}>{t(NAME_COL_KEYS[dim])}</span>
-            <span className={`${HEAD_CLS} text-right`}>{t("usage_breakdown_col_calls")}</span>
-            <span className={`${HEAD_CLS} text-right`}>{t("usage_kpi_success_rate")}</span>
-            <span className={`${HEAD_CLS} text-right`}>{t("usage_col_cost")}</span>
+        <div className="flex flex-col">
+          <div className={cn(GRID_CLS, "border-b border-border px-2 pb-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground")}>
+            <span>{t(NAME_COL_KEYS[dim])}</span>
+            <span className="text-right">{t("usage_breakdown_col_calls")}</span>
+            <span className="text-right">{t("usage_kpi_success_rate")}</span>
+            <span className="text-right">{t("usage_col_cost")}</span>
           </div>
           {rows.map((row) => (
             <BreakdownRow
@@ -125,7 +107,7 @@ export function UsageBreakdownCard({
               onChange={onChange}
             />
           ))}
-        </>
+        </div>
       )}
     </section>
   );
@@ -145,23 +127,22 @@ function BreakdownRow({
   const { i18n } = useTranslation("dashboard");
   const content = (
     <>
+      {/* 占比条：宽度是该行调用数占总调用数的比例，经 CSS 变量传入 */}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-1 left-0 rounded-r-xs bg-primary/10"
-        style={{ width: `${share * 100}%` }}
+        className="pointer-events-none absolute inset-y-1 left-0 w-(--share) rounded-r-xs bg-primary/10"
+        style={{ "--share": `${share * 100}%` } as CSSProperties}
       />
-      <span className="relative min-w-0 truncate text-left text-[12.5px]">
-        {row.name}
-        {row.sub && <span className="ml-1.5 text-[11px] text-muted-foreground">{row.sub}</span>}
+      <span className="relative flex min-w-0 items-baseline gap-1.5 text-left">
+        <TruncatedText text={row.name} focusable={row.filters === null} />
+        {row.sub && <span className="shrink-0 text-xs text-muted-foreground">{row.sub}</span>}
       </span>
-      <span className="num relative text-right text-[12px]">{row.stats.calls}</span>
+      <span className="num relative text-right">{row.stats.calls}</span>
       <span
-        className={
-          "num relative text-right text-[12px] " +
-          (row.stats.success_rate !== null && row.stats.success_rate < LOW_SUCCESS_RATE
-            ? "text-destructive"
-            : "")
-        }
+        className={cn(
+          "num relative text-right",
+          row.stats.success_rate !== null && row.stats.success_rate < LOW_SUCCESS_RATE && "text-destructive",
+        )}
       >
         {formatRatio(row.stats.success_rate, i18n.language)}
       </span>
@@ -169,16 +150,11 @@ function BreakdownRow({
     </>
   );
 
-  const shared =
-    "relative grid w-full items-center gap-x-2 border-b border-border/50 py-1.5 last:border-b-0";
+  const shared = cn(GRID_CLS, "relative w-full border-b border-border px-2 py-1.5 text-sm last:border-b-0");
 
   const patch = row.filters;
   if (patch === null) {
-    return (
-      <div className={`${shared} text-muted-foreground`} style={{ gridTemplateColumns: GRID }}>
-        {content}
-      </div>
-    );
+    return <div className={cn(shared, "text-muted-foreground")}>{content}</div>;
   }
 
   return (
@@ -186,11 +162,11 @@ function BreakdownRow({
       type="button"
       aria-pressed={row.active}
       onClick={() => onChange(patch)}
-      className={
-        `${shared} focus-ring transition-colors hover:bg-card/60 ` +
-        (row.active ? "text-foreground" : "text-subtle-foreground")
-      }
-      style={{ gridTemplateColumns: GRID }}
+      className={cn(
+        shared,
+        "rounded-md transition-colors outline-none hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50",
+        row.active ? "text-foreground" : "text-subtle-foreground",
+      )}
     >
       {content}
     </button>
@@ -206,11 +182,11 @@ function CostCell({ cost, primary }: { cost: Record<string, number>; primary: st
     .map(([currency, amount]) => formatCurrencyAmount(currency, amount))
     .join(" + ");
   return (
-    <span className="num relative text-right text-[12px]">
+    <span className="num relative text-right">
       {main}
       {others.length > 0 && (
         <>
-          <span aria-hidden="true" className="ml-1 text-[10px] text-muted-foreground">
+          <span aria-hidden="true" className="ml-1 text-xs text-muted-foreground">
             +{others.length}
           </span>
           <span className="sr-only">

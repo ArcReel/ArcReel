@@ -1,23 +1,25 @@
 import { ChevronRight } from "lucide-react";
-import { useId, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 
 import { API } from "@/api";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { UsageRecordDetail } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatShortDateTime } from "@/utils/date-format";
-import { episodeItemRefLabel, itemIdsInEpisodeText } from "@/utils/episode-display";
+import { itemIdsInEpisodeText } from "@/utils/episode-display";
 import {
   MEDIA_META,
-  STATUS_COLORS,
   STATUS_LABEL_KEYS,
+  STATUS_TEXT_CLASSES,
   failurePhraseKey,
   formatDurationMs,
   providerLabelResolver,
   purposeKey,
+  targetParts,
   usageProjectLabel,
 } from "./usage-record-format";
 
@@ -30,25 +32,20 @@ interface UsageRecordDetailModalProps {
   onClose: () => void;
 }
 
-const GROUP_CLS =
-  "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground";
-
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-t border-border/50 px-6 py-4 first:border-t-0">
-      <h3 className={GROUP_CLS}>{title}</h3>
-      <div className="mt-2">{children}</div>
+    <section className="flex flex-col gap-2 border-t border-border pt-4 first:border-t-0 first:pt-0">
+      <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
+      {children}
     </section>
   );
 }
 
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex gap-3 py-[3px] text-[11.5px]">
-      <span className="w-20 shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 flex-1 break-words font-mono text-[11px] text-subtle-foreground">
-        {value}
-      </span>
+    <div className="flex gap-3 py-0.5 text-sm">
+      <span className="w-24 shrink-0 text-muted-foreground">{label}</span>
+      <span className="num min-w-0 flex-1 text-xs break-words whitespace-pre-wrap text-subtle-foreground">{value}</span>
     </div>
   );
 }
@@ -66,9 +63,9 @@ function Thumbnail({
   const { t } = useTranslation("dashboard");
   const [broken, setBroken] = useState(false);
   return (
-    <figure className="w-[92px]">
+    <figure className="flex w-24 flex-col gap-1">
       {broken ? (
-        <div className="grid h-[92px] w-[92px] place-items-center rounded-md border border-border/50 text-[10px] text-muted-foreground">
+        <div className="grid size-24 place-items-center rounded-md border border-border text-xs text-muted-foreground">
           {t("usage_image_missing")}
         </div>
       ) : (
@@ -76,12 +73,10 @@ function Thumbnail({
           src={API.getFileUrl(projectName, path)}
           alt={itemIdsInEpisodeText(caption ?? path)}
           onError={() => setBroken(true)}
-          className="h-[92px] w-[92px] rounded-md border border-border/50 object-cover"
+          className="size-24 rounded-md border border-border object-cover"
         />
       )}
-      {caption && (
-        <figcaption className="mt-1 truncate text-[10px] text-muted-foreground">{itemIdsInEpisodeText(caption)}</figcaption>
-      )}
+      {caption && <figcaption className="truncate text-xs text-muted-foreground">{itemIdsInEpisodeText(caption)}</figcaption>}
     </figure>
   );
 }
@@ -105,13 +100,13 @@ function InputsGroup({ detail }: { detail: UsageRecordDetail }) {
     detail.duration_seconds !== null;
 
   if (!hasAny) {
-    return <p className="text-[11.5px] text-muted-foreground">{t("usage_detail_empty")}</p>;
+    return <p className="text-sm text-muted-foreground">{t("usage_detail_empty")}</p>;
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       {detail.prompt && (
-        <p className="whitespace-pre-wrap rounded-md border border-border/50 p-3 text-[11.5px] leading-[1.6] text-subtle-foreground">
+        <p className="max-w-[40em] rounded-md border border-border p-3 text-sm leading-relaxed whitespace-pre-wrap text-subtle-foreground">
           {detail.prompt}
         </p>
       )}
@@ -180,7 +175,7 @@ function UsageGroup({ detail }: { detail: UsageRecordDetail }) {
     [t("usage_field_total_tokens"), detail.usage_tokens],
   ].filter(([, value]) => value !== null) as [string, number][];
   if (rows.length === 0) {
-    return <p className="text-[11.5px] text-muted-foreground">{t("usage_detail_empty")}</p>;
+    return <p className="text-sm text-muted-foreground">{t("usage_detail_empty")}</p>;
   }
   return (
     <div>
@@ -200,7 +195,6 @@ export function UsageRecordDetailModal({
   onClose,
 }: UsageRecordDetailModalProps) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
-  const titleId = useId();
   const [rawOpen, setRawOpen] = useState(false);
 
   const media = detail ? MEDIA_META[detail.media_type] : null;
@@ -208,189 +202,155 @@ export function UsageRecordDetailModal({
   const retryAfter = detail?.error_params?.retry_after_seconds;
   const failureStatus = detail?.error_params?.status;
   const purpose = purposeKey(detail?.purpose ?? null);
-  const target = detail?.segment_id
-    ? t("dashboard:usage_target_segment", { id: episodeItemRefLabel(detail.segment_id, detail.segment_ref, t) })
-    : purpose
-      ? t(`dashboard:${purpose}`)
-      : "—";
+  const target = detail ? targetParts(detail.segment_id, detail.segment_ref ?? null, detail.purpose, t) : null;
 
   return (
-    <GlassModal
+    <Dialog
       open
-      onClose={onClose}
-      labelledBy={titleId}
-      widthClassName="w-[36rem] max-w-[96vw]"
-      panelClassName="max-h-[85vh] overflow-y-auto"
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
     >
-      <header className="flex items-start gap-3 px-6 pb-3 pt-5">
-        <div className="min-w-0 flex-1">
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-            Record · #{recordId}
-          </div>
-          <h2 id={titleId} className="mt-1 truncate text-[15px] font-medium text-foreground">
-            {target}
-          </h2>
-          {detail && media && (
-            <div className="mt-1.5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
-              <media.Icon
-                aria-hidden="true"
-                className="h-3.5 w-3.5"
-                style={{ color: media.color }}
-              />
-              <span>{t(`dashboard:${media.labelKey}`)}</span>
-              <span aria-hidden="true">·</span>
-              <span>{usageProjectLabel(detail.project_name, t, i18n.language)}</span>
-              <span aria-hidden="true">·</span>
-              <span style={{ color: STATUS_COLORS[detail.status] }}>
-                {t(`dashboard:${STATUS_LABEL_KEYS[detail.status]}`)}
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>
+            {target ? (
+              <span className="flex min-w-0 items-baseline gap-2">
+                {target.prefix && <span className="num shrink-0">{target.prefix}</span>}
+                <span className="min-w-0 break-words">{target.name}</span>
               </span>
-            </div>
-          )}
-        </div>
-        <ModalCloseButton
-          onClick={onClose}
-          ariaLabel={t("dashboard:usage_detail_close")}
-        />
-      </header>
-
-      {loading && (
-        <p className="px-6 pb-6 text-[12px] text-muted-foreground">{t("common:loading")}</p>
-      )}
-      {failed && (
-        <p className="px-6 pb-6 text-[12px] text-destructive">
-          {t("dashboard:usage_load_failed")}
-        </p>
-      )}
-
-      {detail && (
-        <>
-          {detail.status === "failed" && (
-            <Group title={t("dashboard:usage_detail_group_failure")}>
-              <div className="rounded-md border border-destructive/18 bg-destructive/10 p-3">
-                <p className="text-[12px] text-destructive">
-                  {phraseKey
-                    ? t(`dashboard:${phraseKey}`)
-                    : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
-                </p>
-                {phraseKey && detail.error_message && (
-                  <p className="mt-1 break-words font-mono text-[11px] text-muted-foreground">
-                    {detail.error_message}
-                  </p>
-                )}
-                {typeof retryAfter === "number" && (
-                  <Field
-                    label={t("dashboard:usage_field_retry_after")}
-                    value={`${retryAfter} s`}
-                  />
-                )}
-                {typeof failureStatus === "number" && (
-                  <Field
-                    label={t("dashboard:usage_field_http_status")}
-                    value={failureStatus}
-                  />
-                )}
-              </div>
-            </Group>
-          )}
-
-          <Group title={t("dashboard:usage_detail_group_inputs")}>
-            <InputsGroup detail={detail} />
-          </Group>
-
-          <Group title={t("dashboard:usage_detail_group_call")}>
-            <div>
-              <Field
-                label={t("dashboard:usage_col_provider")}
-                value={providerLabel(detail.provider)}
-              />
-              <Field label={t("dashboard:usage_col_model")} value={detail.model || "—"} />
-              <Field
-                label={t("dashboard:usage_field_purpose")}
-                value={purpose ? t(`dashboard:${purpose}`) : "—"}
-              />
-              <Field
-                label={t("dashboard:usage_field_task")}
-                value={detail.task_type ?? "—"}
-              />
-              <Field
-                label={t("dashboard:usage_field_started")}
-                value={formatShortDateTime(detail.started_at) ?? "—"}
-              />
-              <Field
-                label={t("dashboard:usage_field_finished")}
-                value={formatShortDateTime(detail.finished_at) ?? "—"}
-              />
-              <Field
-                label={t("dashboard:usage_col_duration")}
-                value={formatDurationMs(detail.duration_ms, t)}
-              />
-            </div>
-          </Group>
-
-          <Group title={t("dashboard:usage_detail_group_output")}>
-            {detail.output_path ? (
-              <div className="flex items-start gap-3">
-                {detail.media_type === "image" && (
-                  <Thumbnail
-                    projectName={detail.project_name}
-                    path={detail.output_path}
-                  />
-                )}
-                <Field
-                  label={t("dashboard:usage_field_file")}
-                  value={itemIdsInEpisodeText(detail.output_path)}
-                />
-              </div>
             ) : (
-              <p className="text-[11.5px] text-muted-foreground">
-                {t("dashboard:usage_detail_empty")}
-              </p>
+              t("dashboard:usage_detail_title", { id: recordId })
             )}
-          </Group>
-
-          {detail.media_type === "text" && (
-            <Group title={t("dashboard:usage_detail_group_usage")}>
-              <UsageGroup detail={detail} />
-            </Group>
-          )}
-
-          <Group title={t("dashboard:usage_col_cost")}>
-            <p className="font-editorial text-[20px] leading-none text-foreground">
-              {formatCurrencyAmount(detail.currency, detail.cost_amount, {
-                maximumFractionDigits: 4,
-              })}
-              <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
-                {detail.currency}
+          </DialogTitle>
+          {detail && media ? (
+            <DialogDescription>
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="inline-flex items-center gap-1.5">
+                  <media.Icon aria-hidden="true" className={cn("size-3.5", media.iconClass)} />
+                  {t(`dashboard:${media.labelKey}`)}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>{usageProjectLabel(detail.project_name, t, i18n.language, detail.project_title)}</span>
+                <span aria-hidden="true">·</span>
+                <span className={STATUS_TEXT_CLASSES[detail.status]}>
+                  {t(`dashboard:${STATUS_LABEL_KEYS[detail.status]}`)}
+                </span>
               </span>
-            </p>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              {t("dashboard:usage_detail_cost_hint")}
-            </p>
-          </Group>
+            </DialogDescription>
+          ) : (
+            <DialogDescription className="sr-only">{t("dashboard:usage_detail_title", { id: recordId })}</DialogDescription>
+          )}
+        </DialogHeader>
 
-          <section className="border-t border-border/50 px-6 py-3">
-            <button
-              type="button"
-              aria-expanded={rawOpen}
-              onClick={() => setRawOpen((prev) => !prev)}
-              className="focus-ring inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ChevronRight
-                aria-hidden="true"
-                className={"h-3.5 w-3.5 transition-transform" + (rawOpen ? " rotate-90" : "")}
-              />
-              {t("dashboard:usage_detail_group_raw")}
-            </button>
-            {rawOpen && (
-              <pre className="mt-2 max-h-[16rem] overflow-auto rounded-md border border-border/50 p-3 font-mono text-[10.5px] leading-[1.5] text-muted-foreground">
-                {detail.last_provider_response
-                  ? JSON.stringify(detail.last_provider_response, null, 2)
-                  : t("dashboard:usage_detail_empty")}
-              </pre>
+        <DialogBody>
+          <div className="flex flex-col gap-4">
+            {loading && <p className="text-sm text-muted-foreground">{t("common:loading")}</p>}
+            {failed && <p className="text-sm text-destructive">{t("dashboard:usage_load_failed")}</p>}
+
+            {detail && (
+              <>
+                {detail.status === "failed" && (
+                  <Group title={t("dashboard:usage_detail_group_failure")}>
+                    <div className="flex flex-col gap-1 rounded-md border border-destructive/20 bg-destructive/10 p-3">
+                      <p className="text-sm text-destructive">
+                        {phraseKey
+                          ? t(`dashboard:${phraseKey}`)
+                          : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
+                      </p>
+                      {phraseKey && detail.error_message && (
+                        <p className="num text-xs break-words text-muted-foreground">{detail.error_message}</p>
+                      )}
+                      {typeof retryAfter === "number" && (
+                        <Field label={t("dashboard:usage_field_retry_after")} value={`${retryAfter} s`} />
+                      )}
+                      {typeof failureStatus === "number" && (
+                        <Field label={t("dashboard:usage_field_http_status")} value={failureStatus} />
+                      )}
+                    </div>
+                  </Group>
+                )}
+
+                <Group title={t("dashboard:usage_detail_group_inputs")}>
+                  <InputsGroup detail={detail} />
+                </Group>
+
+                <Group title={t("dashboard:usage_detail_group_call")}>
+                  <div>
+                    <Field label={t("dashboard:usage_col_provider")} value={providerLabel(detail.provider)} />
+                    <Field label={t("dashboard:usage_col_model")} value={detail.model || "—"} />
+                    <Field
+                      label={t("dashboard:usage_field_purpose")}
+                      value={purpose ? t(`dashboard:${purpose}`) : "—"}
+                    />
+                    <Field label={t("dashboard:usage_field_task")} value={detail.task_type ?? "—"} />
+                    <Field
+                      label={t("dashboard:usage_field_started")}
+                      value={formatShortDateTime(detail.started_at) ?? "—"}
+                    />
+                    <Field
+                      label={t("dashboard:usage_field_finished")}
+                      value={formatShortDateTime(detail.finished_at) ?? "—"}
+                    />
+                    <Field label={t("dashboard:usage_col_duration")} value={formatDurationMs(detail.duration_ms, t)} />
+                  </div>
+                </Group>
+
+                <Group title={t("dashboard:usage_detail_group_output")}>
+                  {detail.output_path ? (
+                    <div className="flex items-start gap-3">
+                      {detail.media_type === "image" && (
+                        <Thumbnail projectName={detail.project_name} path={detail.output_path} />
+                      )}
+                      <Field label={t("dashboard:usage_field_file")} value={itemIdsInEpisodeText(detail.output_path)} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">{t("dashboard:usage_detail_empty")}</p>
+                  )}
+                </Group>
+
+                {detail.media_type === "text" && (
+                  <Group title={t("dashboard:usage_detail_group_usage")}>
+                    <UsageGroup detail={detail} />
+                  </Group>
+                )}
+
+                <Group title={t("dashboard:usage_col_cost")}>
+                  <p className="num text-xl text-foreground">
+                    {formatCurrencyAmount(detail.currency, detail.cost_amount, { maximumFractionDigits: 4 })}
+                    <span className="ml-1.5 text-xs text-muted-foreground">{detail.currency}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t("dashboard:usage_detail_cost_hint")}</p>
+                </Group>
+
+                <section className="flex flex-col gap-2 border-t border-border pt-3">
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="self-start"
+                    aria-expanded={rawOpen}
+                    onClick={() => setRawOpen((prev) => !prev)}
+                  >
+                    <ChevronRight
+                      aria-hidden="true"
+                      data-icon="inline-start"
+                      className={cn("transition-transform", rawOpen && "rotate-90")}
+                    />
+                    {t("dashboard:usage_detail_group_raw")}
+                  </Button>
+                  {rawOpen && (
+                    <pre className="relative max-h-64 overflow-auto rounded-md border border-border p-3 text-xs leading-normal text-muted-foreground">
+                      {detail.last_provider_response
+                        ? JSON.stringify(detail.last_provider_response, null, 2)
+                        : t("dashboard:usage_detail_empty")}
+                    </pre>
+                  )}
+                </section>
+              </>
             )}
-          </section>
-        </>
-      )}
-    </GlassModal>
+          </div>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }

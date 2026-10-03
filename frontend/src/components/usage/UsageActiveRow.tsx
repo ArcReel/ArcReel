@@ -1,10 +1,13 @@
 import { Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 
 import type { TaskItem } from "@/types";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button } from "@/components/ui/button";
 import { useNowTick } from "@/hooks/useNowTick";
-import { episodeItemRefLabel } from "@/utils/episode-display";
-import { MEDIA_META, elapsedSince, purposeKey } from "./usage-record-format";
+import { TargetLabel } from "./RecordRow";
+import { MEDIA_META, elapsedSince } from "./usage-record-format";
 import type { UsageRecordView } from "./usage-record-view";
 
 interface UsageActiveRowProps {
@@ -25,19 +28,6 @@ const TASK_STATUS_KEYS: Record<TaskItem["status"], string> = {
   cancelled: "cancelled_status",
 };
 
-/** 运行中的不确定进度条：没有真实百分比，只标「还在动」。 */
-function ProgressPulse() {
-  return (
-    <div
-      aria-hidden="true"
-      className="mt-1 h-0.5 w-full overflow-hidden rounded-full"
-      style={{ background: "oklch(0.16 0.010 265 / 0.7)" }}
-    >
-      <div className="animate-progress-pulse h-full w-1/3 rounded-full bg-primary" />
-    </div>
-  );
-}
-
 /**
  * 进行中区的一行。左栏同时容纳两种来源：任务 store 里项目内进行中的任务，以及没有
  * 任务代表的 pending 调用（剧本生成、助手会话一类）。只有排队中的任务可取消：
@@ -57,61 +47,36 @@ export function UsageActiveRow({
   const MediaIcon = media.Icon;
   const running = task?.status === "running";
   const cancellable = task?.status === "queued";
-  const purpose = purposeKey(view.purpose);
-  const target = view.segmentId
-    ? t("usage_target_segment", { id: episodeItemRefLabel(view.segmentId, view.segmentRef, t) })
-    : purpose
-      ? t(purpose)
-      : "—";
   const statusText = task
     ? (task.error_message ?? t(TASK_STATUS_KEYS[task.status]))
     : t("usage_status_pending");
 
   return (
-    <div className="px-2 py-1.5">
-      <div className="flex items-start gap-2">
-        <MediaIcon
-          aria-label={t(media.labelKey)}
-          className="mt-[3px] h-3.5 w-3.5 shrink-0"
-          style={{ color: media.color }}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-[11.5px] text-subtle-foreground">
-            <span className="truncate">{target}</span>
-            <span
-              aria-hidden="true"
-              className={
-                "ml-auto h-[5px] w-[5px] shrink-0 rounded-full bg-primary" +
-                (running ? " animate-breathe" : "")
-              }
-            />
-            <span className="num shrink-0 text-[11px] text-muted-foreground">
-              {elapsedSince(view.startedAt, now, t)}
-            </span>
-            {task && cancellable && onCancel && (
-              <button
-                type="button"
-                disabled={cancelling}
-                onClick={() => onCancel(task.task_id)}
-                className="focus-ring shrink-0 rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60"
-                aria-label={t(cancelling ? "cancelling_status" : "cancel_this_task")}
-                title={cancelling ? t("cancelling_status") : t("cancel_task")}
-              >
-                {cancelling ? (
-                  <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
-                ) : (
-                  <X aria-hidden="true" className="h-3 w-3" />
-                )}
-              </button>
-            )}
-          </div>
-          <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-muted-foreground">
-            <span className="truncate">
-              {providerLabel(view.provider)} · {view.model ?? t("usage_model_unresolved")}
-            </span>
-            <span className="ml-auto shrink-0 truncate">{statusText}</span>
-          </div>
-          {running && <ProgressPulse />}
+    <div className="flex items-start gap-2 px-2 py-1.5">
+      <MediaIcon role="img" aria-label={t(media.labelKey)} className={cn("mt-0.5 size-3.5 shrink-0", media.iconClass)} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex items-center gap-1.5 text-sm">
+          <TargetLabel record={view} />
+          <span
+            aria-hidden="true"
+            className={cn("ml-auto size-1.5 shrink-0 rounded-full bg-primary", running && "animate-breath")}
+          />
+          <span className="num shrink-0 text-xs text-muted-foreground">{elapsedSince(view.startedAt, now, t)}</span>
+          {task && cancellable && onCancel && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              disabled={cancelling}
+              onClick={() => onCancel(task.task_id)}
+              aria-label={t(cancelling ? "cancelling_status" : "cancel_this_task")}
+            >
+              {cancelling ? <Loader2 aria-hidden="true" className="animate-spin" /> : <X aria-hidden="true" />}
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <TruncatedText text={`${providerLabel(view.provider)} · ${view.model ?? t("usage_model_unresolved")}`} />
+          <span className="ml-auto max-w-1/2 shrink-0 truncate">{statusText}</span>
         </div>
       </div>
     </div>

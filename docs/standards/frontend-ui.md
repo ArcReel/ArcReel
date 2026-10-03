@@ -139,6 +139,12 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 `components/legacy/` 的 `PrimaryButton`、`SecondaryButton`、`ModalCloseButton`，以及 `.arc-btn-primary`、`.arc-btn-secondary` 与 `ACCENT_BUTTON_STYLE`，已改为与 `Button` 外观一致的过渡封装，只供未重做的区域使用，新代码不再引用。
 
+## 图表
+
+### 图表使用 `components/ui/chart` 的 shadcn Chart（Recharts），并提供表格替代
+
+图表外层包一层 `role="img"` 并以图表名称作 `aria-label`，紧随其后放一张 `sr-only` 的表格，列出同样的数据。系列颜色引用 `index.css` 的 token（如 `var(--primary)`、`var(--media-image)`），图例与提示里的色块用对应的 `bg-*` 类，不写十六进制色值。提示内容自己渲染，表面与弹层一致（`bg-popover`、`shadow-overlay`）。
+
 ## 动效
 
 ### 动效时长不超过 300ms，时长与缓动只用 token
@@ -203,7 +209,8 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 - **可横向滚动的条目**（标签、缩略图带）：容器写 `overflow-x-auto scroll-fade-x`，被裁掉的一侧显示渐隐，提示还有内容。
 - **表格**：用 `table-fixed` 和 `<colgroup>` 给状态、时间、操作这类短列固定宽度，短列内容加 `whitespace-nowrap`；剩余宽度留给主文字列，主文字列的单元格用 `TruncatedText`。使用 `components/ui/table` 时，`TableHead`、`TableCell` 不接受颜色、字体与内边距 class（`@shadcn/lint` 的 `no-restyle`），这些写在单元格内的包裹元素或 `TruncatedText` 的 `className` 上。
-- **单行文字**（名称、路径、模型 ID）：用 `components/shared/TruncatedText`。被截断时可以用键盘聚焦，悬停或聚焦时显示全文；没有截断时不进入 Tab 顺序。放进 flex 或表格单元格时，父级需要允许收缩（`min-w-0`）。不用 `title` 属性代替，键盘用户看不到它。
+- **单行文字**（名称、路径、模型 ID）：用 `components/shared/TruncatedText`。被截断时可以用键盘聚焦，悬停或聚焦时显示全文；没有截断时不进入 Tab 顺序。放进 flex 或表格单元格时，父级需要允许收缩（`min-w-0`）。不用 `title` 属性代替，键盘用户看不到它。放在按钮等可聚焦元素里时传 `focusable={false}`，避免出现嵌套的可聚焦元素；全文由外层元素的可访问名称提供。
+- **带编号的名称**（分镜号加集名）：编号作为不截断的前缀单独渲染，只截断后面的名称。
 
 ## 滚动条
 

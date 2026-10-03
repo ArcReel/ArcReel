@@ -1,7 +1,6 @@
 import { AlertOctagon, Repeat2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import type { UsageAttention, UsageSummary } from "@/types";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { formatShortDateTime } from "@/utils/date-format";
@@ -9,6 +8,7 @@ import { episodeItemRefLabel } from "@/utils/episode-display";
 import {
   MEDIA_META,
   formatRatio,
+  projectTitleResolver,
   providerLabelResolver,
   usageProjectLabel,
 } from "./usage-record-format";
@@ -25,22 +25,21 @@ interface UsageAttentionCardProps {
 export function UsageAttentionCard({ summary, onChange }: UsageAttentionCardProps) {
   const { t } = useTranslation("dashboard");
   const providerLabel = providerLabelResolver(summary);
+  const titleOf = projectTitleResolver(summary);
 
   return (
     <section
-      className="col-span-12 rounded-lg border border-destructive/20 p-4 lg:col-span-5"
-      style={CARD_STYLE}
+      aria-label={t("usage_attention_title")}
+      className="flex min-w-0 flex-col gap-3 rounded-xl border border-destructive/30 bg-card p-4"
     >
-      <div className="mb-2.5 flex items-center justify-between gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-          {t("usage_attention_title")}
-        </h4>
-        <span className="num text-[11px] text-muted-foreground">{summary.attention.length}</span>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">{t("usage_attention_title")}</h3>
+        <span className="num text-xs text-muted-foreground">{summary.attention.length}</span>
       </div>
       <ul className="flex flex-col gap-2">
         {summary.attention.map((item) => (
           <li key={attentionKey(item)}>
-            <AttentionItem item={item} providerLabel={providerLabel} onChange={onChange} />
+            <AttentionItem item={item} providerLabel={providerLabel} titleOf={titleOf} onChange={onChange} />
           </li>
         ))}
       </ul>
@@ -57,10 +56,12 @@ function attentionKey(item: UsageAttention): string {
 function AttentionItem({
   item,
   providerLabel,
+  titleOf,
   onChange,
 }: {
   item: UsageAttention;
   providerLabel: (provider: string | null) => string;
+  titleOf: (name: string) => string | null;
   onChange: (patch: Partial<UsageRecordsFilters>) => void;
 }) {
   const { t, i18n } = useTranslation("dashboard");
@@ -74,7 +75,7 @@ function AttentionItem({
           : providerLabel(item.provider),
       })
     : t("usage_attention_consecutive_title", {
-        project: usageProjectLabel(item.project_name, t, i18n.language),
+        project: usageProjectLabel(item.project_name, t, i18n.language, titleOf(item.project_name)),
         segment: episodeItemRefLabel(item.segment_id, item.segment_ref, t),
       });
 
@@ -105,14 +106,14 @@ function AttentionItem({
     <button
       type="button"
       onClick={() => onChange(patch)}
-      className="focus-ring group flex w-full items-start gap-2.5 rounded-md border border-border bg-sidebar/40 px-3 py-2.5 text-left transition-colors hover:border-destructive/40"
+      className="group flex w-full items-start gap-2.5 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-left transition-colors outline-none hover:border-destructive/40 focus-visible:ring-3 focus-visible:ring-ring/50"
     >
-      <Icon aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
-      <span className="min-w-0 flex-1">
-        <span className="block text-[12.5px] text-foreground">{title}</span>
-        <span className="mt-0.5 block text-[11.5px] text-muted-foreground">{detail}</span>
+      <Icon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-sm text-foreground">{title}</span>
+        <span className="text-xs text-muted-foreground">{detail}</span>
       </span>
-      <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground transition-colors group-hover:text-primary">
+      <span className="shrink-0 pt-0.5 text-xs text-muted-foreground transition-colors group-hover:text-primary">
         {t(isRate ? "usage_attention_failure_rate_action" : "usage_attention_consecutive_action")}
       </span>
     </button>

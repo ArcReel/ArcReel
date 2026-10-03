@@ -1,19 +1,22 @@
 import { AudioLines, FileText, Image, Video } from "lucide-react";
 
-import type { CallType, UsageRecordStatus, UsageSummary } from "@/types";
+import type { TFunction } from "i18next";
+
+import type { CallType, EpisodeItemRef, UsageRecordStatus, UsageSummary } from "@/types";
 import { parseIsoTimestamp } from "@/utils/date-format";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { formatElapsedMs } from "@/utils/task-elapsed";
 import type { ElapsedTranslate } from "@/utils/task-elapsed";
 
-/** 媒体类型的字形与色调，与 Darkroom 的媒体色板一致。 */
+/** 媒体类型的字形与色调：`iconClass` 给图标着色，`swatchClass` 给色块，`color` 供图表填充，三者是同一个 `--media-*` token。 */
 export const MEDIA_META: Record<
   CallType,
-  { Icon: typeof Image; color: string; labelKey: string }
+  { Icon: typeof Image; iconClass: string; swatchClass: string; color: string; labelKey: string }
 > = {
-  image: { Icon: Image, color: "#248fcc", labelKey: "usage_media_image" },
-  video: { Icon: Video, color: "#9565c7", labelKey: "usage_media_video" },
-  text: { Icon: FileText, color: "#339c6d", labelKey: "usage_media_text" },
-  audio: { Icon: AudioLines, color: "#c48225", labelKey: "usage_media_audio" },
+  image: { Icon: Image, iconClass: "text-media-image", swatchClass: "bg-media-image", color: "var(--media-image)", labelKey: "usage_media_image" },
+  video: { Icon: Video, iconClass: "text-media-video", swatchClass: "bg-media-video", color: "var(--media-video)", labelKey: "usage_media_video" },
+  text: { Icon: FileText, iconClass: "text-media-text", swatchClass: "bg-media-text", color: "var(--media-text)", labelKey: "usage_media_text" },
+  audio: { Icon: AudioLines, iconClass: "text-media-audio", swatchClass: "bg-media-audio", color: "var(--media-audio)", labelKey: "usage_media_audio" },
 };
 
 /** 无值时的占位。 */
@@ -26,14 +29,22 @@ export const STATUS_LABEL_KEYS: Record<UsageRecordStatus, string> = {
   cancelled: "usage_status_cancelled",
 };
 
-export const STATUS_COLORS: Record<UsageRecordStatus, string> = {
-  pending: "var(--primary)",
-  success: "var(--good)",
-  failed: "var(--destructive)",
-  cancelled: "var(--muted-foreground)",
+/** 状态文字与状态点的颜色。 */
+export const STATUS_TEXT_CLASSES: Record<UsageRecordStatus, string> = {
+  pending: "text-primary",
+  success: "text-good",
+  failed: "text-destructive",
+  cancelled: "text-muted-foreground",
 };
 
-/** 有翻译的失败短语；这之外的错误码退回原文。 */
+export const STATUS_DOT_CLASSES: Record<UsageRecordStatus, string> = {
+  pending: "bg-primary",
+  success: "bg-good",
+  failed: "bg-destructive",
+  cancelled: "bg-muted-foreground",
+};
+
+/** 有翻译的失败短语。列表只显示短语，原始报错只在详情里显示。 */
 const FAILURE_PHRASE_KEYS: Record<string, string> = {
   rate_limited: "usage_error_rate_limited",
   content_policy: "usage_error_content_policy",
@@ -62,10 +73,36 @@ export function purposeKey(purpose: string | null): string | null {
   return PURPOSE_KEYS[purpose] ?? null;
 }
 
-/** 无错误码时表格里只放得下一小段原文，其余截断。 */
-export function truncateReason(message: string, max = 40): string {
-  const trimmed = message.trim();
-  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+/**
+ * 目标列拆成两段：分镜号（集内 ID）作为不截断的前缀，集名在后、放不下时截断。
+ * 没有分镜的调用按用途显示，前缀为空。
+ */
+export interface TargetParts {
+  prefix: string | null;
+  name: string;
+}
+
+export function targetParts(
+  segmentId: string | null,
+  segmentRef: EpisodeItemRef | null,
+  purpose: string | null,
+  t: TFunction,
+): TargetParts {
+  if (segmentId) {
+    if (segmentRef) {
+      const name =
+        segmentRef.episode_title.trim() ||
+        t("common:episode_position_name", { position: segmentRef.episode_position });
+      return { prefix: segmentRef.item_id, name };
+    }
+    const itemId = itemIdWithinEpisode(segmentId);
+    // 带集前缀却没有指称：集已移出账本，集名用「未命名集」，仍不显示集 ID。
+    return itemId === segmentId
+      ? { prefix: segmentId, name: "" }
+      : { prefix: itemId, name: t("common:episode_unlisted_name") };
+  }
+  const key = purposeKey(purpose);
+  return { prefix: null, name: key ? t(`dashboard:${key}`) : DASH };
 }
 
 /** 供应商显示名优先取筛选候选值里的 label，查不到回退 id。 */
@@ -79,6 +116,12 @@ export function providerLabelResolver(
     ]),
   );
   return (provider) => (provider ? (labels.get(provider) ?? provider) : DASH);
+}
+
+/** 汇总里只有项目名，标题从 `filter_options.project_titles` 查。 */
+export function projectTitleResolver(summary: UsageSummary | null): (name: string) => string | null {
+  const titles = summary?.filter_options.project_titles ?? {};
+  return (name) => titles[name] ?? null;
 }
 
 /** i18n 语言码 → Intl locale；两者不同名，故显式映射，未知语言回落英文。 */
@@ -161,12 +204,17 @@ export function formatCalendarDay(
  */
 const DELETED_PROJECT = /^(.+)#deleted-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/;
 
-/** 用量页的项目名；端点试跑的记录没有项目，给「未命名」。 */
+/**
+ * 用量页的项目显示名：有标题显示标题；没有标题（项目已删除、读不到或未设标题）时回退到项目名，
+ * 已删除的项目显示原名与删除日期；端点试跑的记录没有项目，给「未命名」。
+ */
 export function usageProjectLabel(
   name: string,
   t: (key: string, params?: Record<string, string>) => string,
   language: string,
+  title?: string | null,
 ): string {
+  if (title) return title;
   if (!name) return t("usage_project_untitled");
   const match = DELETED_PROJECT.exec(name);
   if (!match) return name;

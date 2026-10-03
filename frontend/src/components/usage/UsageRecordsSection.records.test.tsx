@@ -56,7 +56,8 @@ describe("UsageRecordsSection records", () => {
       items: [
         makeUsageRecord({
           id: 7,
-          project_name: "雨夜侦探",
+          project_name: "rain-detective",
+          project_title: "雨夜侦探",
           media_type: "video",
           provider: "minimax",
           model: "hailuo-02",
@@ -74,10 +75,12 @@ describe("UsageRecordsSection records", () => {
     };
     renderUsageRecordsSection();
 
-    const row = (await screen.findByText("分镜 未命名集 · S07")).closest("tr");
+    const row = (await screen.findByText("S07")).closest("tr");
     expect(row).not.toBeNull();
     const cells = within(row as HTMLTableRowElement);
+    // 项目列显示标题，不显示目录名。
     expect(cells.getByText("雨夜侦探")).toBeInTheDocument();
+    expect(cells.queryByText("rain-detective")).not.toBeInTheDocument();
     expect(cells.getByText("MiniMax")).toBeInTheDocument();
     expect(cells.getByText("hailuo-02")).toBeInTheDocument();
     expect(cells.getByText("失败")).toBeInTheDocument();
@@ -86,7 +89,7 @@ describe("UsageRecordsSection records", () => {
     expect(cells.getByText(/3\.60/)).toBeInTheDocument();
   });
 
-  it("falls back to the raw message when the failure has no error code", async () => {
+  it("keeps the raw failure message out of the row when there is no phrase for it", async () => {
     recordsPage = {
       items: [
         makeUsageRecord({
@@ -100,7 +103,10 @@ describe("UsageRecordsSection records", () => {
     };
     renderUsageRecordsSection();
 
-    expect(await screen.findByText("provider exploded")).toBeInTheDocument();
+    // 状态列只放状态与失败短语；原始报错只在详情里显示。
+    const row = (await screen.findByText("S10")).closest("tr");
+    expect(row).toHaveTextContent("失败");
+    expect(row).not.toHaveTextContent("provider exploded");
   });
 
   it("shows a dash as the target when the record has neither segment nor purpose", async () => {
@@ -181,17 +187,17 @@ describe("UsageRecordsSection records", () => {
     };
     renderUsageRecordsSection();
 
-    await screen.findByText("分镜 未命名集 · S13");
+    await screen.findByText("S13");
     const targets = screen
       .getAllByRole("row")
       .slice(1)
       .map((row) => row.textContent ?? "");
     // 进行中的两行排在最前，任务行按开始时刻在无任务的 pending 调用之前。
-    expect(targets.findIndex((text) => text.includes("分镜 未命名集 · S13"))).toBeLessThan(
+    expect(targets.findIndex((text) => text.includes("S13"))).toBeLessThan(
       targets.findIndex((text) => text.includes("剧本生成")),
     );
     expect(targets.findIndex((text) => text.includes("剧本生成"))).toBeLessThan(
-      targets.findIndex((text) => text.includes("分镜 未命名集 · S01")),
+      targets.findIndex((text) => text.includes("S01")),
     );
     // 排队中的任务还没有解析出模型。
     expect(screen.getByText("待解析")).toBeInTheDocument();
@@ -212,7 +218,7 @@ describe("UsageRecordsSection records", () => {
     renderUsageRecordsSection("section=usage&u_range=7d");
 
     // 任务排队于七天窗口之外，但进行中区照样列出它。
-    expect(await screen.findByText("分镜 未命名集 · S99")).toBeInTheDocument();
+    expect(await screen.findByText("S99")).toBeInTheDocument();
   });
 
   it("leaves local render tasks out of the in-progress block", async () => {
@@ -231,7 +237,7 @@ describe("UsageRecordsSection records", () => {
     });
     renderUsageRecordsSection();
 
-    expect(await screen.findByText("分镜 未命名集 · S01")).toBeInTheDocument();
+    expect(await screen.findByText("S01")).toBeInTheDocument();
     expect(screen.queryByText(/tl-0000abcd/)).not.toBeInTheDocument();
     expect(screen.getAllByText("待解析")).toHaveLength(1);
   });

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import { Button } from "@/components/ui/button";
 import { voidPromise } from "@/utils/async";
 import { episodeItemRefLabel } from "@/utils/episode-display";
 import type { CancelRequest } from "./use-task-cancellation";
@@ -33,10 +34,9 @@ export function CancelConfirmDialog({
     <div
       role="alertdialog"
       aria-label={t("cancel_confirm_aria")}
-      className="border-t border-border/50 px-4 py-3"
-      style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
+      className="flex flex-col gap-2 border-t border-border bg-muted/40 px-4 py-3"
     >
-      <p className="text-[12px] text-subtle-foreground">
+      <p className="text-sm text-subtle-foreground">
         {request.kind === "all"
           ? t("cancel_all_confirm", { count: request.queuedCount })
           : cascaded.length > 0
@@ -44,7 +44,7 @@ export function CancelConfirmDialog({
             : t("cancel_single_confirm")}
       </p>
       {cascaded.length > 0 && (
-        <ul className="num mt-1.5 max-h-20 overflow-y-auto text-[10.5px] text-muted-foreground">
+        <ul className="num relative max-h-20 overflow-y-auto text-xs text-muted-foreground">
           {cascaded.map((task) => (
             <li key={task.task_id}>
               {t(`task_type_${task.task_type}`, { defaultValue: task.task_type })} /{" "}
@@ -54,32 +54,17 @@ export function CancelConfirmDialog({
         </ul>
       )}
       {failed && (
-        <p role="alert" className="mt-1.5 text-[11px] text-destructive">
+        <p role="alert" className="text-xs text-destructive">
           {failureDetail ?? t("cancel_failed")}
         </p>
       )}
-      <div className="mt-2.5 flex gap-2">
-        <button
-          type="button"
-          onClick={voidPromise(onConfirm)}
-          disabled={cancelling}
-          className="focus-ring rounded-sm px-2.5 py-1 text-[11px] font-medium transition-transform disabled:opacity-50"
-          style={{
-            color: "oklch(0.98 0 0)",
-            background: "linear-gradient(135deg, oklch(0.55 0.20 25), oklch(0.45 0.18 25))",
-            boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.18), 0 4px 14px -4px oklch(0.40 0.18 25 / 0.5)",
-          }}
-        >
+      <div className="flex gap-2">
+        <Button size="sm" variant="destructive" onClick={voidPromise(onConfirm)} disabled={cancelling}>
           {cancelling ? t("cancelling") : t("confirm_cancel")}
-        </button>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="focus-ring rounded-sm border border-border bg-card/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-        >
+        </Button>
+        <Button size="sm" variant="outline" onClick={onDismiss}>
           {t("go_back")}
-        </button>
+        </Button>
       </div>
     </div>
   );

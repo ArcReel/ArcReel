@@ -1,21 +1,22 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button } from "@/components/ui/button";
 import { useNowTick } from "@/hooks/useNowTick";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatShortDateTime } from "@/utils/date-format";
 import {
   MEDIA_META,
-  STATUS_COLORS,
+  STATUS_DOT_CLASSES,
   STATUS_LABEL_KEYS,
+  STATUS_TEXT_CLASSES,
   elapsedSince,
   failurePhraseKey,
   formatDurationMs,
-  purposeKey,
-  truncateReason,
-  usageProjectLabel,
+  targetParts,
 } from "./usage-record-format";
-import { episodeItemRefLabel } from "@/utils/episode-display";
 import type { UsageRecordView } from "./usage-record-view";
 
 export interface RecordRowProps {
@@ -24,6 +25,8 @@ export interface RecordRowProps {
   layout: "table" | "compact";
   /** 供应商 id → 显示名，查不到回退 id。 */
   providerLabel: (provider: string | null) => string;
+  /** 记录的项目显示名；只有表格布局在显示项目列时用到。 */
+  projectLabel?: (record: UsageRecordView) => string;
   /** 筛选已固定某个项目时隐藏项目列，避免整列重复同一个值。 */
   showProject?: boolean;
   onOpenDetail?: (recordId: number) => void;
@@ -31,38 +34,43 @@ export interface RecordRowProps {
   trailing?: ReactNode;
 }
 
-const CELL_CLS = "px-2 py-1.5 align-middle text-[11.5px] text-subtle-foreground";
-
-/** 目标列：有分镜显示分镜，否则显示来源；两者都没有显示破折号。 */
-function useTargetLabel(record: UsageRecordView): string {
+/** 目标：分镜号是不截断的前缀，只有后面的集名或用途在放不下时截断。 */
+export function TargetLabel({ record, focusable = true }: { record: UsageRecordView; focusable?: boolean }) {
   const { t } = useTranslation("dashboard");
-  if (record.segmentId) {
-    return t("usage_target_segment", { id: episodeItemRefLabel(record.segmentId, record.segmentRef, t) });
-  }
-  const key = purposeKey(record.purpose);
-  if (key) return t(key);
-  return "—";
+  const { prefix, name } = targetParts(record.segmentId, record.segmentRef, record.purpose, t);
+  return (
+    <span className="flex min-w-0 items-baseline gap-1.5">
+      {prefix && <span className="num shrink-0 text-foreground">{prefix}</span>}
+      {name && (
+        <TruncatedText
+          text={name}
+          focusable={focusable}
+          className={prefix ? "text-subtle-foreground" : "text-foreground"}
+        />
+      )}
+    </span>
+  );
 }
 
-function StatusCell({
+/** 状态只放状态与失败短语；没有短语的失败只写「失败」，原始报错在详情里看。 */
+function StatusLabel({
   record,
-  reason,
+  showPhrase,
+  focusable = true,
 }: {
   record: UsageRecordView;
-  reason: string | null;
+  showPhrase: boolean;
+  focusable?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
+  const phraseKey = record.status === "failed" && showPhrase ? failurePhraseKey(record.errorCode) : null;
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        aria-hidden="true"
-        className="h-[5px] w-[5px] shrink-0 rounded-full"
-        style={{ background: STATUS_COLORS[record.status] }}
-      />
-      <span style={{ color: STATUS_COLORS[record.status] }}>
+    <span className="flex min-w-0 items-center gap-1.5">
+      <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT_CLASSES[record.status])} />
+      <span className={cn("shrink-0 whitespace-nowrap", STATUS_TEXT_CLASSES[record.status])}>
         {t(STATUS_LABEL_KEYS[record.status])}
       </span>
-      {reason && <span className="text-muted-foreground">{reason}</span>}
+      {phraseKey && <TruncatedText text={t(phraseKey)} focusable={focusable} className="text-muted-foreground" />}
     </span>
   );
 }
@@ -74,10 +82,21 @@ function ElapsedCell({ record }: { record: UsageRecordView }) {
   return <>{elapsedSince(record.startedAt, now, t)}</>;
 }
 
-function CostCell({ record }: { record: UsageRecordView }) {
-  if (record.status === "pending" || record.costAmount <= 0) return <>—</>;
+function DurationLabel({ record }: { record: UsageRecordView }) {
+  const { t } = useTranslation("dashboard");
+  return record.status === "pending" ? <ElapsedCell record={record} /> : <>{formatDurationMs(record.durationMs, t)}</>;
+}
+
+function costText(record: UsageRecordView): string {
+  if (record.status === "pending" || record.costAmount <= 0) return "—";
+  return formatCurrencyAmount(record.currency, record.costAmount, { maximumFractionDigits: 4 });
+}
+
+function MediaIcon({ record, className }: { record: UsageRecordView; className?: string }) {
+  const { t } = useTranslation("dashboard");
+  const media = MEDIA_META[record.mediaType];
   return (
-    <>{formatCurrencyAmount(record.currency, record.costAmount, { maximumFractionDigits: 4 })}</>
+    <media.Icon role="img" aria-label={t(media.labelKey)} className={cn("size-3.5 shrink-0", media.iconClass, className)} />
   );
 }
 
@@ -85,128 +104,91 @@ export function RecordRow({
   record,
   layout,
   providerLabel,
+  projectLabel,
   showProject = true,
   onOpenDetail,
   trailing,
 }: RecordRowProps) {
-  const { t, i18n } = useTranslation("dashboard");
-  const target = useTargetLabel(record);
-  const media = MEDIA_META[record.mediaType];
-  const MediaIcon = media.Icon;
+  const { t } = useTranslation("dashboard");
   const model = record.model ?? t("usage_model_unresolved");
-  const projectLabel = usageProjectLabel(record.projectName, t, i18n.language);
-  const phraseKey = failurePhraseKey(record.errorCode);
-  const failureReason =
-    record.status === "failed"
-      ? phraseKey
-        ? t(phraseKey)
-        : record.errorMessage
-          ? truncateReason(record.errorMessage)
-          : null
-      : null;
-  const detailButton =
-    trailing ??
-    (record.recordId !== null && onOpenDetail ? (
-      <button
-        type="button"
-        onClick={() => onOpenDetail(record.recordId as number)}
-        className="focus-ring rounded-sm px-1 text-[11px] text-muted-foreground transition-colors hover:text-primary"
-      >
-        {t("usage_row_detail")}
-      </button>
-    ) : null);
+  const recordId = record.recordId;
+  const canOpen = recordId !== null && onOpenDetail !== undefined;
 
   if (layout === "compact") {
+    // 可打开详情时整行是按钮，行内截断的文字不再单独进入 Tab 顺序。
+    const focusable = !canOpen;
     const body = (
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[11.5px] text-subtle-foreground">
-          <span className="truncate">{target}</span>
-          {!trailing && failureReason && (
-            <span className="shrink-0 text-muted-foreground">{failureReason}</span>
-          )}
-          <span className="num ml-auto shrink-0 text-[11px] text-muted-foreground">
-            {record.status === "pending" ? (
-              <ElapsedCell record={record} />
-            ) : (
-              formatDurationMs(record.durationMs, t)
-            )}
+      <>
+        <MediaIcon record={record} className="mt-0.5" />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-center gap-2 text-sm">
+            <TargetLabel record={record} focusable={focusable} />
+            <span className="num ml-auto shrink-0 text-xs text-muted-foreground">
+              <DurationLabel record={record} />
+            </span>
           </span>
-        </div>
-        <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-muted-foreground">
-          <span className="truncate">
-            {providerLabel(record.provider)} · {model}
+          <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <TruncatedText text={`${providerLabel(record.provider)} · ${model}`} focusable={focusable} />
+            <span className="ml-auto shrink-0">
+              <StatusLabel record={record} showPhrase={!trailing} focusable={focusable} />
+            </span>
           </span>
-          <span className="ml-auto shrink-0">
-            <StatusCell record={record} reason={null} />
-          </span>
-        </div>
-      </div>
-    );
-    const icon = (
-      <MediaIcon
-        aria-label={t(media.labelKey)}
-        className="mt-[3px] h-3.5 w-3.5 shrink-0"
-        style={{ color: media.color }}
-      />
+        </span>
+      </>
     );
     return (
       <div className="flex items-start gap-1">
-        {record.recordId !== null && onOpenDetail ? (
+        {canOpen ? (
           <button
             type="button"
-            onClick={() => onOpenDetail(record.recordId as number)}
-            className="focus-ring flex min-w-0 flex-1 items-start gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-[oklch(1_0_0_/_0.03)]"
+            onClick={() => onOpenDetail(recordId)}
+            className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            {icon}
             {body}
           </button>
         ) : (
-          <div className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5">
-            {icon}
-            {body}
-          </div>
+          <div className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5">{body}</div>
         )}
-        {trailing && <div className="shrink-0 py-1.5 pr-2">{trailing}</div>}
+        {trailing && <div className="shrink-0 py-1 pr-1">{trailing}</div>}
       </div>
     );
   }
 
   return (
-    <tr className="border-t border-border/50 transition-colors hover:bg-[oklch(1_0_0_/_0.02)]">
-      <td className={CELL_CLS}>
-        <MediaIcon
-          aria-label={t(media.labelKey)}
-          className="h-3.5 w-3.5"
-          style={{ color: media.color }}
-        />
+    <tr className="border-t border-border transition-colors hover:bg-muted/30">
+      <td className="py-2 pl-3">
+        <MediaIcon record={record} />
       </td>
       {showProject && (
-        <td className={`${CELL_CLS} max-w-[9rem] truncate`}>{projectLabel}</td>
+        <td className="px-2 py-2">
+          <TruncatedText text={projectLabel?.(record) ?? record.projectName} />
+        </td>
       )}
-      <td className={`${CELL_CLS} max-w-[10rem] truncate text-foreground`}>{target}</td>
-      <td className={`${CELL_CLS} max-w-[8rem] truncate`}>
-        {providerLabel(record.provider)}
+      <td className="px-2 py-2">
+        <TargetLabel record={record} />
       </td>
-      <td className={`${CELL_CLS} max-w-[10rem] truncate font-mono text-[11px]`}>
-        {model}
+      <td className="px-2 py-2">
+        <TruncatedText text={model} className="num text-xs text-subtle-foreground" />
+        <TruncatedText text={providerLabel(record.provider)} className="text-xs text-muted-foreground" />
       </td>
-      <td className={CELL_CLS}>
-        <StatusCell record={record} reason={failureReason} />
+      <td className="px-2 py-2">
+        <StatusLabel record={record} showPhrase />
       </td>
-      <td className={`${CELL_CLS} num whitespace-nowrap text-muted-foreground`}>
-        {record.status === "pending" ? (
-          <ElapsedCell record={record} />
-        ) : (
-          formatDurationMs(record.durationMs, t)
-        )}
+      <td className="num px-2 py-2 text-right text-xs whitespace-nowrap text-muted-foreground">
+        <DurationLabel record={record} />
       </td>
-      <td className={`${CELL_CLS} num whitespace-nowrap text-muted-foreground`}>
+      <td className="num px-2 py-2 text-xs whitespace-nowrap text-muted-foreground">
         {formatShortDateTime(record.startedAt) ?? "—"}
       </td>
-      <td className={`${CELL_CLS} num whitespace-nowrap`}>
-        <CostCell record={record} />
+      <td className="num px-2 py-2 text-right text-xs whitespace-nowrap">{costText(record)}</td>
+      <td className="py-2 pr-3 text-right">
+        {trailing ??
+          (canOpen && (
+            <Button variant="ghost" size="xs" onClick={() => onOpenDetail(recordId)}>
+              {t("usage_row_detail")}
+            </Button>
+          ))}
       </td>
-      <td className={`${CELL_CLS} whitespace-nowrap text-right`}>{detailButton}</td>
     </tr>
   );
 }

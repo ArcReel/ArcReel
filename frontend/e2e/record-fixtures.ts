@@ -78,6 +78,14 @@ const RECORDINGS: Recording[] = [
   // 全局设置「ArcReel Agent」：Agent 供应商列表（录制环境为空）与添加对话框的预设供应商目录。
   { file: "agent-credentials", method: "GET", path: "/api/v1/agent/credentials" },
   { file: "agent-preset-providers", method: "GET", path: "/api/v1/agent/preset-providers" },
+  // 全局设置「使用记录」：默认最近 30 天（起点由固定时间与 Asia/Shanghai 推出）与进行中的调用。
+  { file: "usage-summary-30d", method: "GET", path: "/api/v1/usage/summary?since=2025-12-02T16:00:00.000Z&tz=Asia/Shanghai" },
+  {
+    file: "usage-records-30d",
+    method: "GET",
+    path: "/api/v1/usage/records?limit=20&since=2025-12-02T16:00:00.000Z&status=success,failed,cancelled",
+  },
+  { file: "usage-records-pending", method: "GET", path: "/api/v1/usage/records?limit=20&status=pending" },
 ];
 
 // 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。
