@@ -28,7 +28,7 @@ import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { ExternalAgentModal } from "./ExternalAgentModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
-import { ICON_BTN_FILLED_CLS } from "@/components/shared/darkroom-tokens";
+import { ACCENT_BUTTON_STYLE, ICON_BTN_FILLED_CLS } from "@/components/shared/darkroom-tokens";
 import {
   ProjectCard,
   Poster,
@@ -77,13 +77,6 @@ type GreetingKey =
   | "lobby_hero_greeting_evening"
   | "lobby_hero_greeting_late";
 
-const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
-  background:
-    "var(--primary)",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--primary)",
-};
 
 /**
  * 「接着上一次」卡的候选分：已有集进入制作的项目优先，其次是只有脚本的项目；

@@ -10,6 +10,16 @@
 
 /* 遮罩色不在这里 —— driver 把它写进 SVG 的 fill，取值见 tour.ts 的 OVERLAY_INK。 */
 
+/* 层级取 index.css 的 --z-onboarding，遮罩与气泡都高于弹层与 Toast。
+   driver 把遮罩层级写在内联样式里（10000），气泡写在默认皮肤里，只能用 !important 覆盖。 */
+.driver-overlay {
+    z-index: var(--z-onboarding) !important;
+}
+
+.driver-popover {
+    z-index: calc(var(--z-onboarding) + 1) !important;
+}
+
 /* ── 气泡本体 ─────────────────────────────────────────────── */
 
 .driver-popover.arc-tour {

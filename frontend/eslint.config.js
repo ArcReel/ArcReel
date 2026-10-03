@@ -71,6 +71,13 @@ const RESTRICT_MODULE_MOCK = {
 const REWORKED_FILES = [
   // 自动撑高输入框（#2996）
   "src/components/ui/textarea.tsx",
+  // 弹层、反馈与动效原语，及首批迁移的共享弹层与全局提示（#2995）
+  "src/components/ui/**",
+  "src/components/shared/ArchiveDiagnosticsDialog.tsx",
+  "src/components/shared/PromptPreviewButton.tsx",
+  "src/components/shared/ScriptOverwriteConfirmDialog.tsx",
+  "src/components/shared/TruncatedText.tsx",
+  "src/components/layout/ToastOverlay.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [];

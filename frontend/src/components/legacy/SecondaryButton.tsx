@@ -1,4 +1,5 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 
 interface SecondaryButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: "sm" | "md";
@@ -6,27 +7,16 @@ interface SecondaryButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children?: ReactNode;
 }
 
-const SIZE_CLS: Record<NonNullable<SecondaryButtonProps["size"]>, string> = {
-  sm: "px-3 py-1.5 text-[12px]",
-  md: "px-4 py-2 text-[13px]",
-};
+const SIZE = { sm: "sm", md: "default" } as const;
 
-// 玻璃次按钮 — Cancel / 普通操作。背景 oklch(0.22) + hairline，hover 用 CSS :hover（不用 inline JS）
+/** 旧次按钮：Button outline 变体的薄封装。新代码直接用 `components/ui/button`，调用处由各区域逐步替换。 */
 export const SecondaryButton = forwardRef<HTMLButtonElement, SecondaryButtonProps>(
-  function SecondaryButton(
-    { size = "md", leadingIcon, className = "", children, type = "button", ...rest },
-    ref,
-  ) {
+  function SecondaryButton({ size = "md", leadingIcon, children, type = "button", ...rest }, ref) {
     return (
-      <button
-        ref={ref}
-        type={type}
-        className={`arc-btn-secondary focus-ring inline-flex items-center justify-center gap-1.5 rounded-md ${SIZE_CLS[size]} ${className}`.trim()}
-        {...rest}
-      >
+      <Button ref={ref} type={type} variant="outline" size={SIZE[size]} {...rest}>
         {leadingIcon}
         {children}
-      </button>
+      </Button>
     );
   },
 );

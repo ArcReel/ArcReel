@@ -125,8 +125,9 @@ describe("SourceFileActions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "「中卷.txt」的操作" }));
 
-    expect(screen.getByRole("menuitem", { name: "上移" })).toBeDisabled();
-    expect(screen.getByRole("menuitem", { name: "下移" })).toBeDisabled();
+    // 菜单项禁用后仍可聚焦（读屏能读到它），禁用态经 aria-disabled 暴露
+    expect(screen.getByRole("menuitem", { name: "上移" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("menuitem", { name: "下移" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("saves edited text through the same confirmation", async () => {
@@ -175,8 +176,8 @@ describe("SourceFileActions", () => {
     fireEvent.click(screen.getByRole("button", { name: "「中卷.txt」的操作" }));
 
     for (const name of ["上移", "下移", "编辑原文", "替换为新文件"]) {
-      expect(screen.getByRole("menuitem", { name })).toBeDisabled();
+      expect(screen.getByRole("menuitem", { name })).toHaveAttribute("aria-disabled", "true");
     }
-    expect(screen.getByRole("menuitem", { name: "删除文件" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "删除文件" })).not.toHaveAttribute("aria-disabled", "true");
   });
 });

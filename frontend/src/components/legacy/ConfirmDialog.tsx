@@ -104,7 +104,7 @@ export function ConfirmDialog({
           </SecondaryButton>
           <PrimaryButton
             size="sm"
-            tone={isDanger ? "warm" : "accent"}
+            tone={isDanger ? "danger" : "accent"}
             onClick={() => void onConfirm()}
             disabled={loading || confirmDisabled}
             leadingIcon={
