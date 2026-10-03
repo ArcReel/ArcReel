@@ -1,5 +1,5 @@
 import { ApiRequestError } from "@/api/errors";
-import { settingsSectionPath } from "@/app-routes";
+import { providerSettingsPath } from "@/app-routes";
 import type { TaskItem } from "@/types";
 
 const CUSTOM_PROVIDER_PREFIX = "custom-";
@@ -39,5 +39,5 @@ export function customModelSettingsPath(providerId: string, model: string): stri
   if (!providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) return null;
   const id = providerId.slice(CUSTOM_PROVIDER_PREFIX.length);
   if (!/^\d+$/.test(id)) return null;
-  return settingsSectionPath("providers", { custom: id, model });
+  return providerSettingsPath({ custom: Number(id), model });
 }

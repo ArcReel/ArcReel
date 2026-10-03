@@ -39,7 +39,7 @@ describe("ProviderDetail", () => {
     vi.restoreAllMocks();
   });
 
-  it("refetches once on language change without discarding the draft", async () => {
+  it("refetches once on language change without discarding unsaved edits", async () => {
     const getDetail = vi
       .spyOn(API, "getProviderConfig")
       .mockImplementation(() => Promise.resolve(detailFor(i18n.language)));
@@ -48,7 +48,6 @@ describe("ProviderDetail", () => {
     await screen.findByText("Gemini AI Studio（中文）");
     expect(getDetail).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
     const workers = screen.getByRole("spinbutton", { name: "Max Workers" });
     fireEvent.change(workers, { target: { value: "7" } });
 
@@ -101,7 +100,6 @@ describe("ProviderDetail", () => {
 
     render(<ProviderDetail providerId="gemini-aistudio" />);
     await screen.findByText("Gemini AI Studio（中文）");
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
     fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
       target: { value: "7" },
     });
@@ -113,200 +111,6 @@ describe("ProviderDetail", () => {
     // 语言重取最后才返回，带的是保存前的旧值——它已被保存后的重取接管，不得回写。
     await act(async () => resolveLanguage(detailFor("en")));
     expect(screen.getByRole("spinbutton", { name: "Max Workers" })).toHaveValue(7);
-  });
-
-  it("does not refetch the old provider after the panel switched to another one", async () => {
-    const patch = createDeferred<void>();
-    vi.spyOn(API, "patchProviderConfig").mockReturnValue(patch.promise);
-    const getDetail = vi
-      .spyOn(API, "getProviderConfig")
-      .mockImplementation((id) => Promise.resolve({ ...detailFor(i18n.language), id }));
-
-    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" />);
-    await screen.findByText("Gemini AI Studio（中文）");
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
-      target: { value: "7" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    rerender(<ProviderDetail providerId="openai-compatible" />);
-    await waitFor(() => expect(getDetail).toHaveBeenLastCalledWith("openai-compatible", expect.anything()));
-    const callsBeforePatchLands = getDetail.mock.calls.length;
-
-    // 保存的后续重取属于已经离场的供应商：既不该再打请求，也不该作废新供应商的加载。
-    await act(async () => {
-      patch.resolve();
-      await patch.promise;
-    });
-    expect(getDetail.mock.calls.length).toBe(callsBeforePatchLands);
-  });
-
-  it("leaves the new provider's draft and errors untouched when an old save settles", async () => {
-    const patch = createDeferred<void>();
-    vi.spyOn(API, "patchProviderConfig").mockReturnValue(patch.promise);
-    vi.spyOn(API, "getProviderConfig").mockImplementation((id) =>
-      Promise.resolve({ ...detailFor(i18n.language), id }),
-    );
-
-    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" />);
-    await screen.findByText("Gemini AI Studio（中文）");
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
-      target: { value: "7" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    rerender(<ProviderDetail providerId="openai-compatible" />);
-    // 高级区保持展开：切换供应商只重置详情与草稿，不重置本地展开态
-    const workers = await screen.findByRole("spinbutton", { name: "Max Workers" });
-    fireEvent.change(workers, { target: { value: "9" } });
-
-    // 旧供应商的保存失败：错误属于它，不该出现在当前供应商的表单上，草稿也不该被清掉
-    await act(async () => {
-      patch.reject(new Error("A 保存失败"));
-      await patch.promise.catch(() => {});
-    });
-
-    expect(screen.queryByText(/A 保存失败/)).not.toBeInTheDocument();
-    expect(workers).toHaveValue(9);
-  });
-
-  it("keeps the new provider's draft when an old save succeeds", async () => {
-    const patch = createDeferred<void>();
-    vi.spyOn(API, "patchProviderConfig").mockReturnValue(patch.promise);
-    vi.spyOn(API, "getProviderConfig").mockImplementation((id) =>
-      Promise.resolve({ ...detailFor(i18n.language), id }),
-    );
-    const onSaved = vi.fn();
-
-    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" onSaved={onSaved} />);
-    await screen.findByText("Gemini AI Studio（中文）");
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
-      target: { value: "7" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    rerender(<ProviderDetail providerId="openai-compatible" onSaved={onSaved} />);
-    const workers = await screen.findByRole("spinbutton", { name: "Max Workers" });
-    fireEvent.change(workers, { target: { value: "9" } });
-
-    await act(async () => {
-      patch.resolve();
-      await patch.promise;
-    });
-
-    // 旧供应商保存成功：目录照常刷新，但当前供应商上没保存的编辑不能被它清掉
-    expect(workers).toHaveValue(9);
-    expect(onSaved).toHaveBeenCalledTimes(1);
-  });
-
-  it("re-enables the save button on the new provider while an old save is still in flight", async () => {
-    const patch = createDeferred<void>();
-    vi.spyOn(API, "patchProviderConfig").mockReturnValue(patch.promise);
-    vi.spyOn(API, "getProviderConfig").mockImplementation((id) =>
-      Promise.resolve({ ...detailFor(i18n.language), id }),
-    );
-
-    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" />);
-    await screen.findByText("Gemini AI Studio（中文）");
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
-      target: { value: "7" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    expect(screen.getByRole("button", { name: /保存中/ })).toBeDisabled();
-
-    // 切到别的供应商就是新的一次面板停留：上一次保存的进行态属于上一次停留，
-    // 不能让新面板的保存按钮跟着一起禁用。
-    rerender(<ProviderDetail providerId="openai-compatible" />);
-    const workers = await screen.findByRole("spinbutton", { name: "Max Workers" });
-    fireEvent.change(workers, { target: { value: "9" } });
-    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
-
-    // 旧保存随后结算：收尾按代次判定，不把新面板重新推回保存中
-    await act(async () => {
-      patch.resolve();
-      await patch.promise;
-    });
-
-    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
-    expect(workers).toHaveValue(9);
-  });
-
-  it("keeps the new provider's own save in progress when an older save settles first", async () => {
-    const first = createDeferred<void>();
-    const second = createDeferred<void>();
-    vi.spyOn(API, "patchProviderConfig")
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
-    vi.spyOn(API, "getProviderConfig").mockImplementation((id) =>
-      Promise.resolve({ ...detailFor(i18n.language), id }),
-    );
-
-    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" />);
-    await screen.findByText("Gemini AI Studio（中文）");
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
-      target: { value: "7" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    rerender(<ProviderDetail providerId="openai-compatible" />);
-    fireEvent.change(await screen.findByRole("spinbutton", { name: "Max Workers" }), {
-      target: { value: "9" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    expect(screen.getByRole("button", { name: /保存中/ })).toBeDisabled();
-
-    // 旧供应商的 PATCH 后到：它的收尾不能把新面板从自己的保存中态里放出来，
-    // 否则同一份草稿会被重复提交。
-    await act(async () => {
-      first.resolve();
-      await first.promise;
-    });
-    expect(screen.getByRole("button", { name: /保存中/ })).toBeDisabled();
-
-    // 新面板自己的 PATCH 结算后才收尾：草稿清空，保存按钮随之收起。
-    await act(async () => {
-      second.resolve();
-      await second.promise;
-    });
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /保存/ })).not.toBeInTheDocument(),
-    );
-  });
-
-  it("does not clear the draft when a save from an earlier visit to the same provider settles", async () => {
-    const patch = createDeferred<void>();
-    vi.spyOn(API, "patchProviderConfig").mockReturnValue(patch.promise);
-    vi.spyOn(API, "getProviderConfig").mockImplementation((id) =>
-      Promise.resolve({ ...detailFor(i18n.language), id }),
-    );
-
-    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" />);
-    await screen.findByText("Gemini AI Studio（中文）");
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
-      target: { value: "7" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    // 离开又切回同一个供应商：providerId 相同，但这已经是新的一次停留，旧保存的收尾
-    // 不能再认领它——否则新输入的草稿会被清掉。
-    rerender(<ProviderDetail providerId="openai-compatible" />);
-    await screen.findByRole("spinbutton", { name: "Max Workers" });
-    rerender(<ProviderDetail providerId="gemini-aistudio" />);
-    const workers = await screen.findByRole("spinbutton", { name: "Max Workers" });
-    fireEvent.change(workers, { target: { value: "9" } });
-
-    await act(async () => {
-      patch.resolve();
-      await patch.promise;
-    });
-
-    expect(workers).toHaveValue(9);
   });
 
   it("refreshes the catalog after a credential change even if the detail refetch is aborted", async () => {
@@ -340,15 +144,26 @@ describe("ProviderDetail", () => {
     vi.spyOn(API, "activateCredential").mockResolvedValue(undefined);
     const onSaved = vi.fn();
 
-    const { rerender } = render(<ProviderDetail providerId="gemini-aistudio" onSaved={onSaved} />);
+    render(<ProviderDetail providerId="gemini-aistudio" onSaved={onSaved} />);
     fireEvent.click(await screen.findByRole("button", { name: "激活 主号" }));
     await waitFor(() => expect(API.activateCredential).toHaveBeenCalled());
 
-    // 凭证已经改完：切换供应商作废了随后的详情重取，侧栏状态仍须刷新
-    rerender(<ProviderDetail providerId="openai-compatible" onSaved={onSaved} />);
+    // 密钥已经改完：随后的详情重取被语言重取作废，二级栏的数量与状态仍须刷新
+    await act(async () => i18n.changeLanguage("en"));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    // 新供应商的凭证列表也要在替身还在时拉完，否则它落在用例之外打真实请求
-    await act(async () => {});
+  });
+
+  it("patches only the changed fields and clears emptied ones", async () => {
+    const detail = detailFor("zh");
+    detail.fields.push({ key: "gcs_bucket", label: "GCS Bucket", type: "text", required: false, is_set: true, value: "old" });
+    vi.spyOn(API, "getProviderConfig").mockResolvedValue(detail);
+    const patch = vi.spyOn(API, "patchProviderConfig").mockResolvedValue(undefined);
+
+    render(<ProviderDetail providerId="gemini-aistudio" />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "GCS 存储桶" }), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith("gemini-aistudio", { gcs_bucket: null }));
   });
 
   it("completes the save bookkeeping when the post-save refetch is superseded", async () => {
@@ -369,7 +184,6 @@ describe("ProviderDetail", () => {
 
     render(<ProviderDetail providerId="gemini-aistudio" onSaved={onSaved} />);
     await screen.findByText("Gemini AI Studio（中文）");
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
     fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
       target: { value: "7" },
     });
@@ -380,8 +194,7 @@ describe("ProviderDetail", () => {
 
     // PATCH 已经成功：草稿要清、目录要刷新，否则已入库的值仍标着未保存、还能被重复提交。
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(screen.getByRole("spinbutton", { name: "Max Workers" })).toHaveValue(2),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+    expect(screen.getByRole("spinbutton", { name: "Max Workers" })).toHaveValue(7);
   });
 });

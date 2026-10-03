@@ -44,8 +44,8 @@ export interface ProviderInfo {
   status: "ready" | "unconfigured" | "error";
   media_types: string[];
   capabilities: string[];
-  configured_keys: string[];
-  missing_keys: string[];
+  /** 凭证（界面称「密钥」）条数；没有凭证时为 0。 */
+  credential_count: number;
   models: Record<string, ModelInfoResponse>;
 }
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from lib.config.url_utils import normalize_base_url
 from lib.db.models.credential import ProviderCredential
@@ -75,6 +75,12 @@ class CredentialRepository(BaseRepository):
         )
         result = await self.session.execute(stmt)
         return {c.provider: c for c in result.scalars()}
+
+    async def count_by_provider_bulk(self) -> dict[str, int]:
+        """批量统计每个供应商的凭证数量；没有凭证的供应商不出现在结果里。"""
+        stmt = select(ProviderCredential.provider, func.count()).group_by(ProviderCredential.provider)
+        result = await self.session.execute(stmt)
+        return dict(result.tuples().all())
 
     async def activate(self, cred_id: int, provider: str) -> None:
         """激活指定凭证，同时取消同供应商的其他生效标记。"""

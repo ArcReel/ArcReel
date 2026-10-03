@@ -14,8 +14,7 @@ function preset(id: string): ProviderInfo {
     status: "ready",
     media_types: ["video"],
     capabilities: [],
-    configured_keys: [],
-    missing_keys: [],
+    credential_count: 0,
     models: {},
   };
 }

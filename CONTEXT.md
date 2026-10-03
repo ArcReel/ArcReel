@@ -19,7 +19,7 @@ _Avoid_: client、adapter、后端——「后端」在中文里已被 frontend/
 _Avoid_: 把供应商与模型当作同一层概念。
 
 **凭证（credential）**：
-ArcReel 访问某个供应商所需的认证信息。
+ArcReel 访问某个供应商所需的认证信息。媒体供应商的设置界面称「密钥」（英文界面为 Key），如「已配置 2 个密钥」「添加密钥」。
 _Avoid_: 模型、供应商、连接。
 
 **内置供应商（built-in provider）**：

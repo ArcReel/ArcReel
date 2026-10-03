@@ -30,6 +30,44 @@ export function settingsSectionPath(section: SettingsSection, params: Record<str
   return `${ROUTE_APP_SETTINGS}?${new URLSearchParams({ section, ...params }).toString()}`;
 }
 
+/**
+ * 「供应商」分区里要定位的对象，对应的地址参数：
+ * - `{ preset }` → `provider=<预置供应商 id>`；
+ * - `{ custom, model? }` → `custom=<自定义供应商 id>`，带 `model=<模型 ID>` 时展开并定位到这个模型；
+ * - `{ newCustom }` → `custom=new`，可带 `endpoint=<端点 key>` 与 `base_url=<接口地址>` 预填新建表单
+ *   （调用端点的「新建供应商并使用」）。
+ */
+export type ProviderTarget =
+  | { preset: string }
+  | { custom: number; model?: string }
+  | { newCustom: { endpoint?: string; baseUrl?: string } };
+
+/** 全局设置「供应商」分区中某个供应商（或某个自定义模型）的地址。 */
+export function providerSettingsPath(target: ProviderTarget): string {
+  if ("preset" in target) return settingsSectionPath("providers", { provider: target.preset });
+  if ("custom" in target) {
+    const params: Record<string, string> = { custom: String(target.custom) };
+    if (target.model) params.model = target.model;
+    return settingsSectionPath("providers", params);
+  }
+  const params: Record<string, string> = { custom: "new" };
+  if (target.newCustom.endpoint) params.endpoint = target.newCustom.endpoint;
+  if (target.newCustom.baseUrl) params.base_url = target.newCustom.baseUrl;
+  return settingsSectionPath("providers", params);
+}
+
+/**
+ * 全局设置「调用端点」分区中某个端点的地址：`endpoint=<端点 key>`。
+ * 从自定义供应商跳来时传 `fromCustomProvider`，写成 `from=<自定义供应商 id>`：端点页据此在顶部显示
+ * 「返回『供应商名』」，返回地址是 `providerSettingsPath({ custom: from })`。
+ */
+export function endpointSettingsPath(endpointKey?: string, options: { fromCustomProvider?: number } = {}): string {
+  const params: Record<string, string> = {};
+  if (endpointKey) params.endpoint = endpointKey;
+  if (options.fromCustomProvider !== undefined) params.from = String(options.fromCustomProvider);
+  return settingsSectionPath("endpoints", params);
+}
+
 /** 无子路由的单页顶层路由——精确匹配，前缀不算数。 */
 export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, ROUTE_APP_ASSETS] as const;
 

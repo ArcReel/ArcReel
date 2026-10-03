@@ -677,7 +677,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
       ...["gemini", "ark"].map((id) => ({
         id, display_name: id, description: "", status: "ready", media_types: ["video"],
-        capabilities: [], configured_keys: [], missing_keys: [],
+        capabilities: [], credential_count: 0,
         models: { [id === "gemini" ? "veo-3" : "seedance"]: {
           display_name: id, media_type: "video", capabilities: [], default: true,
           supported_durations: [8], resolutions: ["720p", "1080p"],
@@ -730,8 +730,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
         status: "ready",
         media_types: ["video", "image"],
         capabilities: [],
-        configured_keys: [],
-        missing_keys: [],
+        credential_count: 0,
         models: {
           "veo-3": {
             display_name: "Veo 3",

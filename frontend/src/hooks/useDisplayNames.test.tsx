@@ -13,8 +13,7 @@ function provider(id: string, displayName: string, modelName: string): ProviderI
     status: "error",
     media_types: ["video"],
     capabilities: [],
-    configured_keys: [],
-    missing_keys: [],
+    credential_count: 0,
     models: { "m-1": { display_name: modelName, media_type: "video" } },
   } as unknown as ProviderInfo;
 }

@@ -71,8 +71,7 @@ describe("ProjectsPage", () => {
         status: "ready",
         media_types: ["image", "video", "text"],
         capabilities: [],
-        configured_keys: ["api_key"],
-        missing_keys: [],
+        credential_count: 1,
         models: {},
       }],
     });

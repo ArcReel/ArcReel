@@ -20,8 +20,7 @@ const mockData = {
       status: "ready" as const,
       media_types: ["video", "image", "text"],
       capabilities: [],
-      configured_keys: [],
-      missing_keys: [],
+      credential_count: 0,
       models: {
         "veo-3": {
           display_name: "veo-3",

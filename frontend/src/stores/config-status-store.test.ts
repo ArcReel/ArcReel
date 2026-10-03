@@ -42,8 +42,7 @@ function makeProviders(overrides?: Partial<ProviderInfo>[]): { providers: Provid
       status: "unconfigured",
       media_types: ["image", "video"],
       capabilities: [],
-      configured_keys: [],
-      missing_keys: ["api_key"],
+      credential_count: 0,
       models: {},
     },
   ];
@@ -79,7 +78,7 @@ describe("config-status-store", () => {
 
   it("reports no issues when all configured", async () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(
-      makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video", "text"], capabilities: [], configured_keys: ["api_key"], missing_keys: [], models: {} }]),
+      makeProviders([{ id: "gemini", display_name: "Google Gemini", status: "ready", media_types: ["image", "video", "text"], capabilities: [], credential_count: 1, models: {} }]),
     );
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(
@@ -120,8 +119,7 @@ describe("config-status-store", () => {
             status: "ready",
             media_types: ["image", "video", "text", "audio"],
             capabilities: [],
-            configured_keys: ["api_key"],
-            missing_keys: [],
+            credential_count: 1,
             models: {},
           },
         ]),
@@ -150,8 +148,7 @@ describe("config-status-store", () => {
           status: "ready",
           media_types: ["image", "video", "text"],
           capabilities: [],
-          configured_keys: ["api_key"],
-          missing_keys: [],
+          credential_count: 1,
           models: {},
         },
       ]),
@@ -213,8 +210,7 @@ describe("config-status-store", () => {
           status: "ready",
           media_types: ["image", "video", "text", "audio"],
           capabilities: [],
-          configured_keys: ["api_key"],
-          missing_keys: [],
+          credential_count: 1,
           models: {},
         },
       ]),
@@ -236,8 +232,7 @@ describe("config-status-store", () => {
           status: "ready",
           media_types: ["image", "video", "text"],
           capabilities: [],
-          configured_keys: ["api_key"],
-          missing_keys: [],
+          credential_count: 1,
           models: {},
         },
       ]),
@@ -270,8 +265,7 @@ describe("config-status-store", () => {
           status: "ready",
           media_types: ["image", "video", "text"],
           capabilities: [],
-          configured_keys: ["api_key"],
-          missing_keys: [],
+          credential_count: 1,
           models: {},
         },
       ]); // 新数据:全就绪 → 无 issues

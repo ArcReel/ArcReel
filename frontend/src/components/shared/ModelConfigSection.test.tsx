@@ -22,8 +22,7 @@ const PROVIDERS: ProviderInfo[] = [
     status: "ready",
     media_types: ["video", "image", "text"],
     capabilities: [],
-    configured_keys: [],
-    missing_keys: [],
+    credential_count: 0,
     models: {
       "veo-3": {
         display_name: "veo-3",
@@ -45,8 +44,7 @@ const PROVIDERS: ProviderInfo[] = [
     status: "ready",
     media_types: ["video"],
     capabilities: [],
-    configured_keys: [],
-    missing_keys: [],
+    credential_count: 0,
     models: {
       seedance: {
         display_name: "seedance",
@@ -697,8 +695,7 @@ describe("ModelConfigSection", () => {
         status: "ready",
         media_types: ["video"],
         capabilities: [],
-        configured_keys: [],
-        missing_keys: [],
+        credential_count: 0,
         models: {
           seedance: {
             display_name: "seedance",
@@ -849,8 +846,7 @@ describe("ModelConfigSection", () => {
         status: "ready",
         media_types: ["video"],
         capabilities: [],
-        configured_keys: [],
-        missing_keys: [],
+        credential_count: 0,
         models: {
           seedance: {
             display_name: "seedance",
@@ -900,8 +896,7 @@ describe("ModelConfigSection", () => {
       status: "ready",
       media_types: ["video"],
       capabilities: [],
-      configured_keys: [],
-      missing_keys: [],
+      credential_count: 0,
       models: {
         veo: {
           display_name: "Veo 3.1",
@@ -1062,8 +1057,7 @@ describe("音频开关的模型可控性", () => {
       status: "ready",
       media_types: ["video"],
       capabilities: [],
-      configured_keys: [],
-      missing_keys: [],
+      credential_count: 0,
       models: {
         seedance: {
           display_name: "seedance",
@@ -1086,8 +1080,7 @@ describe("音频开关的模型可控性", () => {
       status: "ready",
       media_types: ["video"],
       capabilities: [],
-      configured_keys: [],
-      missing_keys: [],
+      credential_count: 0,
       models: {
         "v3-omni": {
           display_name: "v3-omni",
@@ -1109,8 +1102,7 @@ describe("音频开关的模型可控性", () => {
       status: "ready",
       media_types: ["video"],
       capabilities: [],
-      configured_keys: [],
-      missing_keys: [],
+      credential_count: 0,
       models: {
         wan: {
           display_name: "wan",
@@ -1132,8 +1124,7 @@ describe("音频开关的模型可控性", () => {
       status: "ready",
       media_types: ["video"],
       capabilities: [],
-      configured_keys: [],
-      missing_keys: [],
+      credential_count: 0,
       models: {
         "hailuo-02": {
           display_name: "hailuo-02",
