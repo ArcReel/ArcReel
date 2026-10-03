@@ -7,11 +7,11 @@ export function NotFoundPage() {
   const { t } = useTranslation("common");
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 text-text animate-[fadeIn_0.5s_ease-out]">
-      <h1 className="font-editorial text-[8rem] font-extralight leading-none tracking-tighter text-text-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 text-foreground animate-[fadeIn_0.5s_ease-out]">
+      <h1 className="font-editorial text-[8rem] font-extralight leading-none tracking-tighter text-muted-foreground">
         404
       </h1>
-      <p className="mt-4 text-[15px] text-text-3">{t("not_found_title")}</p>
+      <p className="mt-4 text-[15px] text-muted-foreground">{t("not_found_title")}</p>
       <button
         type="button"
         onClick={() => navigate("/app/projects", { replace: true })}

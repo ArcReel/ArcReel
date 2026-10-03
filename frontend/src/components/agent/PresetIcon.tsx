@@ -88,7 +88,7 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
         alt={iconKey ?? ""}
         width={size}
         height={size}
-        className={`rounded-[3px] object-cover ${className ?? ""}`}
+        className={`rounded-xs object-cover ${className ?? ""}`}
       />
     );
 
@@ -104,7 +104,7 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
   return (
     <span
       data-testid="preset-icon-monogram"
-      className={`inline-flex items-center justify-center rounded-md bg-bg-grad-a text-[11px] font-bold text-text-3 ${className ?? ""}`}
+      className={`inline-flex items-center justify-center rounded-md bg-card text-[11px] font-bold text-muted-foreground ${className ?? ""}`}
       style={{ width: size, height: size }}
     >
       {letter}

@@ -131,17 +131,17 @@ export function EndFramePicker({
       {/* Header */}
       <div
         className="flex items-center gap-3 px-5 py-4"
-        style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
       >
         <span
           aria-hidden
           className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
-            boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+              "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
+            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+            color: "var(--primary)",
+            boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
           }}
         >
           <ImagePlus className="h-4 w-4" />
@@ -150,13 +150,13 @@ export function EndFramePicker({
           <h3
             id={titleId}
             className="display-serif truncate text-[15px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {t("end_frame_picker_title")}
           </h3>
           <div
             className="num text-[10px] uppercase"
-            style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+            style={{ color: "var(--muted-foreground)", letterSpacing: "1.0px" }}
           >
             {t("end_frame_picker_eyebrow")}
           </div>
@@ -187,7 +187,7 @@ export function EndFramePicker({
       {/* Grouped grid */}
       <div className="flex-1 overflow-y-auto overscroll-contain p-4">
         {groups.length === 0 ? (
-          <p className="px-1 py-6 text-center text-[12px]" style={{ color: "var(--color-text-4)" }}>
+          <p className="px-1 py-6 text-center text-[12px]" style={{ color: "var(--muted-foreground)" }}>
             {t("end_frame_picker_empty")}
           </p>
         ) : (
@@ -195,10 +195,10 @@ export function EndFramePicker({
             <div key={grp.title} className="mb-4 last:mb-0">
               <h4
                 className="num mb-2 text-[10px] font-bold uppercase"
-                style={{ color: "var(--color-text-3)", letterSpacing: "1.2px" }}
+                style={{ color: "var(--muted-foreground)", letterSpacing: "1.2px" }}
               >
                 {grp.title}
-                <span className="ml-1.5" style={{ color: "var(--color-text-4)" }}>
+                <span className="ml-1.5" style={{ color: "var(--muted-foreground)" }}>
                   {grp.images.length}
                 </span>
               </h4>
@@ -225,11 +225,11 @@ export function EndFramePicker({
       <div
         className="flex items-center gap-2 px-5 py-3"
         style={{
-          borderTop: "1px solid var(--color-hairline-soft)",
+          borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
           background: "oklch(0.17 0.010 250 / 0.5)",
         }}
       >
-        <span className="flex-1 truncate text-[11px]" style={{ color: "var(--color-text-4)" }}>
+        <span className="flex-1 truncate text-[11px]" style={{ color: "var(--muted-foreground)" }}>
           {selected
             ? t("end_frame_picker_selected", { label: selected.label })
             : t("end_frame_picker_hint")}
@@ -268,10 +268,10 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
       className="focus-ring relative overflow-hidden rounded-lg text-left transition-transform hover:-translate-y-px"
       style={{
         border: selected
-          ? "1px solid var(--color-accent-soft)"
-          : "1px solid var(--color-hairline)",
+          ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)"
+          : "1px solid var(--border)",
         boxShadow: selected
-          ? "0 6px 18px -6px var(--color-accent-glow)"
+          ? "0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent)"
           : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
       }}
     >
@@ -285,7 +285,7 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
       </AspectFrame>
       <div
         className="truncate px-1.5 py-1 text-[10.5px] font-medium"
-        style={{ color: "var(--color-text-2)", background: "oklch(0.16 0.010 265 / 0.85)" }}
+        style={{ color: "var(--subtle-foreground)", background: "oklch(0.16 0.010 265 / 0.85)" }}
       >
         {image.label}
       </div>
@@ -295,9 +295,9 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
           className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
           style={{
             color: "oklch(0.14 0 0)",
-            background: "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            background: "var(--primary)",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-accent-soft)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
           }}
         >
           <Check className="h-3 w-3" strokeWidth={3} />

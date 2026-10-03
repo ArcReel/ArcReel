@@ -6,14 +6,14 @@ const AD_TARGET_DURATION_TIERS = [15, 30, 60, 90] as const;
 
 const FIELD_STYLE: CSSProperties = {
   background: "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 const CHIP_BASE =
-  "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ";
-const CHIP_ACTIVE = "border-accent/45 bg-accent-dim text-accent-2";
-const CHIP_IDLE = "border-hairline-soft bg-bg-grad-a/55 text-text-3 hover:border-hairline hover:text-text";
+  "cursor-pointer rounded-md border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ";
+const CHIP_ACTIVE = "border-primary/45 bg-primary/12 text-primary";
+const CHIP_IDLE = "border-border/50 bg-card/55 text-muted-foreground hover:border-border hover:text-foreground";
 
 function parseSeconds(text: string): number | null {
   if (!/^\d+$/.test(text.trim())) return null;
@@ -46,7 +46,7 @@ export function AdTargetDurationField({ value, onChange, disabled = false }: Pro
 
   return (
     <div>
-      <p className="mb-1.5 text-[12px] font-medium" style={{ color: "var(--color-text-2)" }}>
+      <p className="mb-1.5 text-[12px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
         {t("target_duration_label")}
       </p>
       <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label={t("target_duration_label")}>

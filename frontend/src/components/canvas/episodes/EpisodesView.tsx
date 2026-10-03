@@ -179,7 +179,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
 
   if (view === null) {
     return (
-      <div className="grid h-full place-items-center px-6 text-center text-[12.5px] text-text-4" aria-busy={!error}>
+      <div className="grid h-full place-items-center px-6 text-center text-[12.5px] text-muted-foreground" aria-busy={!error}>
         {error ? t("episodes_view_load_failed", { message: error }) : t("episodes_view_loading")}
       </div>
     );
@@ -215,7 +215,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
         </div>
       </main>
       <aside
-        className="min-h-0 shrink-0 overflow-y-auto border-hairline max-lg:max-h-[45%] max-lg:border-t lg:w-[360px] lg:border-l"
+        className="min-h-0 shrink-0 overflow-y-auto border-border max-lg:max-h-[45%] max-lg:border-t lg:w-[360px] lg:border-l"
         style={{ background: "oklch(0.18 0.01 265 / 0.5)" }}
         aria-label={t("episodes_view_rail_label")}
       >
@@ -262,11 +262,11 @@ function EmptySource({ hasEpisodes, onUpload }: { hasEpisodes: boolean; onUpload
   const { t } = useTranslation("dashboard");
   return (
     <div className="mx-auto mt-24 max-w-md text-center">
-      <BookOpen className="mx-auto h-6 w-6 text-text-4" aria-hidden />
-      <h2 className="display-serif mt-4 text-[17px] font-semibold tracking-tight text-text">
+      <BookOpen className="mx-auto h-6 w-6 text-muted-foreground" aria-hidden />
+      <h2 className="display-serif mt-4 text-[17px] font-semibold tracking-tight text-foreground">
         {t("episodes_view_empty_title")}
       </h2>
-      <p className="mt-2 text-[12.5px] leading-[1.7] text-text-3">
+      <p className="mt-2 text-[12.5px] leading-[1.7] text-muted-foreground">
         {hasEpisodes ? t("episodes_view_empty_has_episodes") : t("episodes_view_empty_hint")}
       </p>
       <PrimaryButton className="mt-5" onClick={onUpload} leadingIcon={<Upload className="h-4 w-4" aria-hidden />}>

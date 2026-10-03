@@ -85,7 +85,7 @@ export function WizardStep1Basics({
             aria-required="true"
             aria-invalid={titleError ? "true" : undefined}
             aria-describedby={titleError ? titleErrorId : undefined}
-            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2.5 text-[14px] text-text placeholder:text-text-4 transition-colors focus:border-accent/55 focus:bg-bg-grad-a/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-md border border-border bg-card/55 px-3 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground transition-colors focus:border-primary/55 focus:bg-card/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
         {titleError ? (
@@ -93,13 +93,13 @@ export function WizardStep1Basics({
             id={titleErrorId}
             role="alert"
             aria-live="polite"
-            className="mt-1.5 inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-warm"
+            className="mt-1.5 inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-warn"
           >
             <AlertTriangle aria-hidden className="h-3 w-3" />
             {titleError}
           </p>
         ) : null}
-        <p className="mt-1.5 text-[11.5px] text-text-4">{t("dashboard:project_id_auto_gen_hint")}</p>
+        <p className="mt-1.5 text-[11.5px] text-muted-foreground">{t("dashboard:project_id_auto_gen_hint")}</p>
       </div>
 
       {/* Content Mode */}
@@ -143,7 +143,7 @@ export function WizardStep1Basics({
             {t("dashboard:ad_short_video")}
           </label>
         </div>
-        <p className="mt-2 text-[11.5px] leading-[1.55] text-text-3">
+        <p className="mt-2 text-[11.5px] leading-[1.55] text-muted-foreground">
           {value.contentMode === "narration"
             ? t("dashboard:content_mode_narration_desc")
             : value.contentMode === "drama"
@@ -167,12 +167,12 @@ export function WizardStep1Basics({
                 <label
                   key={tier}
                   className={
-                    "cursor-pointer rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent " +
+                    "cursor-pointer rounded-md border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring " +
                     (active
-                      ? "border-accent/45 bg-accent-dim text-accent-2"
-                      : "border-hairline-soft bg-bg-grad-a/55 text-text-3 hover:border-hairline hover:text-text")
+                      ? "border-primary/45 bg-primary/12 text-primary"
+                      : "border-border/50 bg-card/55 text-muted-foreground hover:border-border hover:text-foreground")
                   }
-                  style={active ? { boxShadow: "0 0 18px -8px var(--color-accent-glow)" } : undefined}
+                  style={active ? { boxShadow: "0 0 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)" } : undefined}
                 >
                   <input
                     type="radio"
@@ -221,10 +221,10 @@ export function WizardStep1Basics({
             <span className="inline-flex items-center gap-2">
               <span
                 aria-hidden
-                className="block h-3 w-[7.5px] rounded-[1.5px] border border-hairline"
+                className="block h-3 w-[7.5px] rounded-xs border border-border"
                 style={{
                   background:
-                    value.aspectRatio === "9:16" ? "var(--color-accent-soft)" : "transparent",
+                    value.aspectRatio === "9:16" ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "transparent",
                 }}
               />
               {t("dashboard:portrait_9_16")}
@@ -242,10 +242,10 @@ export function WizardStep1Basics({
             <span className="inline-flex items-center gap-2">
               <span
                 aria-hidden
-                className="block h-[7.5px] w-3 rounded-[1.5px] border border-hairline"
+                className="block h-[7.5px] w-3 rounded-xs border border-border"
                 style={{
                   background:
-                    value.aspectRatio === "16:9" ? "var(--color-accent-soft)" : "transparent",
+                    value.aspectRatio === "16:9" ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "transparent",
                 }}
               />
               {t("dashboard:landscape_16_9")}
@@ -277,11 +277,11 @@ export function WizardStep1Basics({
       </GenerationRouteCards>
 
       {/* Footer */}
-      <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
+      <div className="mt-7 flex items-center justify-between border-t border-border/50 pt-5">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-md px-2.5 py-1.5 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("common:cancel")}
         </button>

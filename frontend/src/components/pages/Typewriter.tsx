@@ -174,8 +174,8 @@ function TypewriterCaret({ finite }: { finite: boolean }) {
         marginLeft: "0.2ch",
         height: "1em",
         verticalAlign: "-0.12em",
-        background: "var(--color-accent-2)",
-        boxShadow: "0 0 10px var(--color-accent-glow)",
+        background: "var(--primary)",
+        boxShadow: "0 0 10px color-mix(in oklab, var(--primary) 35%, transparent)",
         borderRadius: 1.5,
         animation: finite
           ? `tw-blink ${CARET_BLINK_PERIOD_MS}ms steps(2, end) ${CARET_BLINK_AFTER_DONE} forwards`

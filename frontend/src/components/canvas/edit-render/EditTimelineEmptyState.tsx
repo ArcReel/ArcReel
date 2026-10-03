@@ -70,18 +70,18 @@ export function EditTimelineEmptyState({
           aria-hidden="true"
           className="grid h-11 w-11 place-items-center rounded-xl"
           style={{
-            background: "var(--color-accent-dim)",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
+            background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+            color: "var(--primary)",
           }}
         >
           <Scissors className="h-5 w-5" />
         </span>
         <div>
-          <h2 className="display-serif text-[16px] font-semibold" style={{ color: "var(--color-text)" }}>
+          <h2 className="display-serif text-[16px] font-semibold" style={{ color: "var(--foreground)" }}>
             {t("edit_view_empty_title")}
           </h2>
-          <p className="mt-1.5 text-[12.5px] leading-[1.6]" style={{ color: "var(--color-text-3)" }}>
+          <p className="mt-1.5 text-[12.5px] leading-[1.6]" style={{ color: "var(--muted-foreground)" }}>
             {t("edit_view_empty_description")}
           </p>
         </div>
@@ -112,7 +112,7 @@ export function EditTimelineEmptyState({
           </SecondaryButton>
         </div>
         {blocked && (
-          <p className="text-[12px]" style={{ color: "var(--color-text-4)" }}>
+          <p className="text-[12px]" style={{ color: "var(--muted-foreground)" }}>
             {blockedReason}
           </p>
         )}

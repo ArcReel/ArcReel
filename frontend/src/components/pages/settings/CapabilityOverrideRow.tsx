@@ -98,11 +98,11 @@ export function CapabilityOverrideRow({
         title={title}
         onClick={() => select(target)}
         onKeyDown={onKeyDown}
-        className="px-2 py-1 text-[10.5px] font-semibold transition-colors first:rounded-l-[6px] last:rounded-r-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45"
+        className="px-2 py-1 text-[10.5px] font-semibold transition-colors first:rounded-l-sm last:rounded-r-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45"
         style={{
-          color: active ? "var(--color-accent-2)" : "var(--color-text-4)",
-          background: active ? "var(--color-accent-dim)" : "var(--color-bg-grad-a)",
-          border: `1px solid ${active ? "var(--color-accent-soft)" : "var(--color-hairline)"}`,
+          color: active ? "var(--primary)" : "var(--muted-foreground)",
+          background: active ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "var(--card)",
+          border: `1px solid ${active ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "var(--border)"}`,
           marginLeft: -1,
         }}
       >
@@ -114,7 +114,7 @@ export function CapabilityOverrideRow({
   return (
     <div className="mt-2 flex flex-col gap-1 pl-6">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">
           {t("cap_override_last_frame_label")}
         </span>
 
@@ -140,11 +140,11 @@ export function CapabilityOverrideRow({
 
         {overridden && (
           <span
-            className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.05em]"
+            className="rounded-sm px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.05em]"
             style={{
-              color: "var(--color-warm-bright)",
-              background: "var(--color-warm-tint)",
-              border: "1px solid var(--color-warm-ring)",
+              color: "var(--warn)",
+              background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+              border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
             }}
           >
             {t("cap_override_badge")}
@@ -152,7 +152,7 @@ export function CapabilityOverrideRow({
         )}
 
         {overridden && (
-          <span className="text-[10px] text-text-4">
+          <span className="text-[10px] text-muted-foreground">
             {t("cap_override_effective", {
               effective: valueLabel(state === "on"),
               detected: detectedLabel,
@@ -162,7 +162,7 @@ export function CapabilityOverrideRow({
       </div>
 
       {/* title 对键盘与触屏不可达，禁用原因必须有一行可见说明 */}
-      {!endImageCapable && <p className="text-[11px] text-text-4">{t("cap_override_on_unavailable")}</p>}
+      {!endImageCapable && <p className="text-[11px] text-muted-foreground">{t("cap_override_on_unavailable")}</p>}
     </div>
   );
 }

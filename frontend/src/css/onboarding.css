@@ -1,7 +1,7 @@
 /* === 首次使用引导 — driver.js 皮肤 ===
  *
  * driver.js 的 popover 用 `all: unset` 起手，所有观感都要在这里显式给出。皮肤刻意
- * 复用工作台既有 token（玻璃面板、紫色 accent、文字四档、编辑体大标题），让引导读起来
+ * 复用工作台既有 token（玻璃面板、品牌紫 primary、文字三档、编辑体大标题），让引导读起来
  * 是产品本身的一部分，而不是嵌进来的第三方控件。
  *
  * 作用域全部挂在 `.arc-tour` 上（driver 的 popoverClass），不改 driver 默认皮肤，
@@ -15,28 +15,28 @@
 .driver-popover.arc-tour {
     /* 与 .arc-glass-panel 同源 */
     background: linear-gradient(180deg, oklch(0.21 0.012 265 / 0.97), oklch(0.18 0.010 265 / 0.97));
-    border: 1px solid var(--color-hairline);
+    border: 1px solid var(--border);
     border-radius: 16px;
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     box-shadow:
         0 24px 60px -12px oklch(0 0 0 / 0.6),
         inset 0 1px 0 oklch(1 0 0 / 0.05);
-    color: var(--color-text);
+    color: var(--foreground);
     font-family: var(--font-sans);
     min-width: 0;
     max-width: min(92vw, 420px);
     padding: 26px 26px 20px;
 }
 
-/* 顶部 accent hairline — 与 .arc-glass-hairline 一致 */
+/* 顶部品牌紫渐变线 — 与 .arc-glass-hairline 一致 */
 .driver-popover.arc-tour::before {
     content: "";
     position: absolute;
     inset-inline: 0;
     top: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--color-accent-soft), transparent);
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent);
     pointer-events: none;
 }
 
@@ -53,7 +53,7 @@
     font-weight: 400;
     letter-spacing: -0.01em;
     line-height: 1.2;
-    color: var(--color-text);
+    color: var(--foreground);
     padding-right: 28px; /* 让开右上角的关闭按钮 */
 }
 
@@ -61,7 +61,7 @@
     margin-top: 10px;
     font-size: 13.5px;
     line-height: 1.75;
-    color: var(--color-text-2);
+    color: var(--subtle-foreground);
 }
 
 /* ── 关闭按钮 ─────────────────────────────────────────────── */
@@ -74,12 +74,12 @@
     border-radius: 6px;
     font-size: 17px;
     line-height: 26px;
-    color: var(--color-text-4);
+    color: var(--muted-foreground);
     transition: color 150ms, background 150ms;
 }
 
 .driver-popover.arc-tour .driver-popover-close-btn:hover {
-    color: var(--color-text);
+    color: var(--foreground);
     background: oklch(1 0 0 / 0.05);
 }
 
@@ -112,13 +112,13 @@
     flex: 1;
     height: 4px;
     border-radius: 1px;
-    background: var(--color-hairline);
+    background: var(--border);
     transition: background 220ms;
 }
 
 .arc-tour-filmstrip span[data-on="1"] {
-    background: var(--color-accent);
-    box-shadow: 0 0 10px -2px var(--color-accent-glow);
+    background: var(--primary);
+    box-shadow: 0 0 10px -2px color-mix(in oklab, var(--primary) 35%, transparent);
 }
 
 .arc-tour-sr-only {
@@ -145,24 +145,24 @@
 }
 
 .driver-popover.arc-tour .driver-popover-footer-btn:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
 /* 次按钮：上一步 / 跳过 —— 与 .arc-btn-secondary 一致 */
 .driver-popover.arc-tour .driver-popover-prev-btn,
 .driver-popover.arc-tour .arc-tour-skip-btn {
-    color: var(--color-text-3);
-    border: 1px solid var(--color-hairline);
+    color: var(--muted-foreground);
+    border: 1px solid var(--border);
     background: oklch(0.22 0.011 265 / 0.5);
     transition: color 150ms, background 150ms, border-color 150ms;
 }
 
 .driver-popover.arc-tour .driver-popover-prev-btn:hover,
 .driver-popover.arc-tour .arc-tour-skip-btn:hover {
-    color: var(--color-text);
+    color: var(--foreground);
     background: oklch(0.26 0.013 265 / 0.7);
-    border-color: var(--color-hairline-strong);
+    border-color: var(--input);
 }
 
 /* 跳过按钮无边框，压得比"上一步"更轻——它是退出路径，不是导航 */
@@ -178,11 +178,11 @@
     color: oklch(0.14 0 0);
     border: none;
     font-weight: 600;
-    background: linear-gradient(135deg, var(--color-accent-2), var(--color-accent));
+    background: var(--primary);
     box-shadow:
         inset 0 1px 0 oklch(1 0 0 / 0.35),
-        0 6px 18px -6px var(--color-accent-glow),
-        0 0 0 1px var(--color-accent-soft);
+        0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent),
+        0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent);
     transition: transform 150ms;
 }
 

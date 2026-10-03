@@ -68,7 +68,7 @@ export function useReplanEpisode(projectName: string, onStarted: (episode: numbe
         description={
           <>
             {preview.from_beginning ? (
-              <span className="mb-2 block text-[var(--color-warm)]">{t("dashboard:replan_start_from_beginning")}</span>
+              <span className="mb-2 block text-warn">{t("dashboard:replan_start_from_beginning")}</span>
             ) : null}
             <span className="block">{t("dashboard:replan_start_detail", { count: preview.replaced.length })}</span>
             {preview.started.length > 0 ? (
@@ -79,16 +79,16 @@ export function useReplanEpisode(projectName: string, onStarted: (episode: numbe
               </span>
             ) : null}
             <label className="mt-3 block">
-              <span className="mb-0.5 block text-[11px] text-text-3">{t("dashboard:guide_instruction_label")}</span>
+              <span className="mb-0.5 block text-[11px] text-muted-foreground">{t("dashboard:guide_instruction_label")}</span>
               <input
                 value={pending.instruction}
                 onChange={(e) => setPending({ ...pending, instruction: e.target.value })}
                 placeholder={t("dashboard:guide_instruction_placeholder")}
                 className="focus-ring w-full rounded-md px-2 py-1 text-[12px]"
                 style={{
-                  background: "var(--color-surface-2)",
-                  border: "1px solid var(--color-hairline)",
-                  color: "var(--color-text)",
+                  background: "var(--muted)",
+                  border: "1px solid var(--border)",
+                  color: "var(--foreground)",
                 }}
               />
             </label>

@@ -33,7 +33,7 @@ export function TaskChips({ tasks }: Props) {
 
   return (
     <section aria-labelledby={headingId} className="space-y-1">
-      <h4 id={headingId} className="text-[11.5px]" style={{ color: "var(--color-text-4)" }}>
+      <h4 id={headingId} className="text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
         {t("tasks_title", { count: activeCount })}
       </h4>
       <ul className="flex flex-col gap-1">
@@ -56,7 +56,7 @@ export function TaskChips({ tasks }: Props) {
                   <TaskElapsedReadout
                     task={row}
                     className="text-[11px]"
-                    style={{ color: "var(--color-text-4)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   />
                 )}
               </span>

@@ -74,7 +74,7 @@ export function AddToLibraryButton({
 
   const defaultClass = showLabel
     ? "focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-    : "focus-ring inline-flex items-center justify-center h-6 w-6 rounded transition-colors hover:bg-[oklch(1_0_0_/_0.05)]";
+    : "focus-ring inline-flex items-center justify-center h-6 w-6 rounded-sm transition-colors hover:bg-[oklch(1_0_0_/_0.05)]";
 
   return (
     <>
@@ -83,7 +83,7 @@ export function AddToLibraryButton({
         aria-label={t("add_to_library")}
         title={busy ? t("add_to_library_busy_hint") : t("add_to_library")}
         className={className ?? defaultClass}
-        style={className ? undefined : { color: "var(--color-text-3)" }}>
+        style={className ? undefined : { color: "var(--muted-foreground)" }}>
         <Package className="h-3 w-3" />
         {showLabel && <span>{t("add_to_library_short")}</span>}
       </button>

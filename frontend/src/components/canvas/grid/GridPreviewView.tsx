@@ -130,7 +130,7 @@ export function GridPreviewView({
     return (
       <div
         className="flex h-full items-center justify-center text-sm"
-        style={{ color: "var(--color-text-4)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         {t("grid_preview_empty_episode")}
       </div>
@@ -144,13 +144,13 @@ export function GridPreviewView({
       <div
         className="mb-4 flex flex-wrap items-center gap-2 rounded-md border px-3.5 py-2.5"
         style={{
-          borderColor: "var(--color-hairline-soft)",
+          borderColor: "color-mix(in oklab, var(--border) 50%, transparent)",
           background: "oklch(0.18 0.010 265 / 0.5)",
         }}
       >
         <span
           className="num text-[11.5px] tabular-nums"
-          style={{ color: "var(--color-text-3)", fontFamily: "var(--font-mono)" }}
+          style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-mono)" }}
         >
           {t("grid_preview_summary", stats)}
         </span>
@@ -170,18 +170,18 @@ export function GridPreviewView({
               key={groupKey || idx}
               className="overflow-hidden rounded-md border"
               style={{
-                borderColor: "var(--color-hairline-soft)",
+                borderColor: "color-mix(in oklab, var(--border) 50%, transparent)",
                 background: "oklch(0.20 0.011 265 / 0.35)",
               }}
             >
               <div
                 className="flex items-center gap-2 px-4 py-2"
-                style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+                style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
               >
                 <span
                   className="num text-[11px] font-semibold uppercase tracking-wider"
                   style={{
-                    color: "var(--color-text-3)",
+                    color: "var(--muted-foreground)",
                     fontFamily: "var(--font-mono)",
                     letterSpacing: "0.6px",
                   }}

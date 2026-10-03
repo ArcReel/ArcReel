@@ -38,7 +38,7 @@ export function EndpointDiagnostics({
     return (
       <div
         aria-live="polite"
-        className="mb-5 rounded-[10px] border border-hairline px-4 py-2.5 text-[12.5px] text-text-2"
+        className="mb-5 rounded-lg border border-border px-4 py-2.5 text-[12.5px] text-subtle-foreground"
         style={CARD_STYLE}
       >
         {t("ce_diagnostics_clean")}
@@ -47,10 +47,10 @@ export function EndpointDiagnostics({
   }
 
   return (
-    <div className="mb-5 overflow-hidden rounded-[10px] border border-hairline" style={CARD_STYLE}>
+    <div className="mb-5 overflow-hidden rounded-lg border border-border" style={CARD_STYLE}>
       <div
         aria-live="polite"
-        className="border-b border-hairline-soft px-4 py-2.5 text-[12.5px] font-medium text-text"
+        className="border-b border-border/50 px-4 py-2.5 text-[12.5px] font-medium text-foreground"
       >
         {t("ce_diagnostics_summary", { errors: errors.length, warnings: warnings.length })}
       </div>
@@ -61,15 +61,15 @@ export function EndpointDiagnostics({
             key={`${level}-${issue.path}-${issue.code}`}
             type="button"
             onClick={() => onLocate(section)}
-            className="flex w-full items-start gap-2.5 border-b border-hairline-soft px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-bg-grad-a/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex w-full items-start gap-2.5 border-b border-border/50 px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-card/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {level === "error" ? (
-              <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warm-bright" aria-hidden />
+              <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
             ) : (
-              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden />
+              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
             )}
-            <span className="min-w-0 flex-1 text-[12.5px] leading-[1.55] text-text-2">
-              <span className="mr-2 text-text-3">
+            <span className="min-w-0 flex-1 text-[12.5px] leading-[1.55] text-subtle-foreground">
+              <span className="mr-2 text-muted-foreground">
                 {section === null ? t("ce_view_json") : t(SECTION_TITLE_KEY[section])}
               </span>
               {issue.message}

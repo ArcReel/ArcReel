@@ -17,9 +17,9 @@ export function OfficialServiceNotice({
   return (
     <section
       aria-labelledby={titleId}
-      className="mb-5 rounded-[10px] border border-accent/30 bg-accent-dim px-4 py-3 text-[12.5px] leading-[1.6] text-text-2"
+      className="mb-5 rounded-lg border border-primary/30 bg-primary/12 px-4 py-3 text-[12.5px] leading-[1.6] text-subtle-foreground"
     >
-      <h3 id={titleId} className="font-medium text-text">
+      <h3 id={titleId} className="font-medium text-foreground">
         {t("official_notice_title")}
       </h3>
       <p className="mt-1 max-w-[72ch]">{t("official_notice_body")}</p>
@@ -31,7 +31,7 @@ export function OfficialServiceNotice({
           type="button"
           disabled={busy}
           onClick={onTurnOff}
-          className="text-[12px] text-text-3 underline-offset-2 hover:text-text hover:underline disabled:opacity-40"
+          className="text-[12px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-40"
         >
           {t("official_notice_turn_off")}
         </button>

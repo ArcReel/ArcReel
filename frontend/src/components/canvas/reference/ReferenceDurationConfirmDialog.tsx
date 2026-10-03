@@ -32,20 +32,20 @@ function DurationRow({
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
       {label && (
-        <span className="font-mono text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+        <span className="font-mono text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
           {label}
         </span>
       )}
-      <span className="tabular-nums" style={{ color: "var(--color-text-2)" }}>
+      <span className="tabular-nums" style={{ color: "var(--subtle-foreground)" }}>
         {seconds(item.precheck.script_duration)}
       </span>
-      <span aria-hidden style={{ color: "var(--color-text-4)" }}>
+      <span aria-hidden style={{ color: "var(--muted-foreground)" }}>
         →
       </span>
-      <span className="tabular-nums font-medium" style={{ color: "var(--color-text)" }}>
+      <span className="tabular-nums font-medium" style={{ color: "var(--foreground)" }}>
         {seconds(item.precheck.request_duration)}
       </span>
-      <span style={{ color: "var(--color-text-3)" }}>{diffText}</span>
+      <span style={{ color: "var(--muted-foreground)" }}>{diffText}</span>
     </li>
   );
 }
@@ -129,12 +129,12 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
                 {items.length > 1 && (
                   <span
                     className="font-mono text-[11.5px]"
-                    style={{ color: "var(--color-text-3)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   >
                     {itemIdWithinEpisode(unitId)}
                   </span>
                 )}
-                <span style={{ color: "var(--color-text-2)" }}>{problem.message}</span>
+                <span style={{ color: "var(--subtle-foreground)" }}>{problem.message}</span>
               </li>
             )),
           )}

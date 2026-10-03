@@ -76,8 +76,8 @@ export function UnregisteredFilesPanel({ projectName, files, episodes, onChanged
 
   return (
     <section
-      className="rounded-[10px] border px-3.5 py-3"
-      style={{ borderColor: "var(--color-warm-ring)", background: "var(--color-warm-tint-faint)" }}
+      className="rounded-lg border px-3.5 py-3"
+      style={{ borderColor: "color-mix(in oklab, var(--warn) 30%, transparent)", background: "color-mix(in oklab, var(--warn) 5%, transparent)" }}
     >
       <button
         type="button"
@@ -86,17 +86,17 @@ export function UnregisteredFilesPanel({ projectName, files, episodes, onChanged
         aria-controls={panelId}
         className="focus-ring flex w-full items-center gap-2 rounded-md text-left"
       >
-        <FileQuestion className="h-4 w-4 shrink-0 text-[var(--color-warm)]" aria-hidden />
-        <span className="flex-1 text-[12.5px] font-medium text-text">
+        <FileQuestion className="h-4 w-4 shrink-0 text-warn" aria-hidden />
+        <span className="flex-1 text-[12.5px] font-medium text-foreground">
           {t("dashboard:unregistered_title", { count: files.length })}
         </span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-text-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
           aria-hidden
         />
       </button>
       <div id={panelId} hidden={!expanded}>
-        <p className="mt-2 text-[11.5px] leading-[1.6] text-text-3">{t("dashboard:unregistered_hint")}</p>
+        <p className="mt-2 text-[11.5px] leading-[1.6] text-muted-foreground">{t("dashboard:unregistered_hint")}</p>
         <ul className="mt-2.5 space-y-2">
           {files.map((file) => {
             const isBusy = busy === file.name;
@@ -104,11 +104,11 @@ export function UnregisteredFilesPanel({ projectName, files, episodes, onChanged
             return (
               <li
                 key={file.name}
-                className="rounded-md border border-hairline-soft px-2.5 py-2"
+                className="rounded-md border border-border/50 px-2.5 py-2"
                 style={{ background: "oklch(0.19 0.010 265 / 0.6)" }}
               >
                 <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-text" title={file.name}>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground" title={file.name}>
                     {file.name}
                   </span>
                   <button
@@ -150,7 +150,7 @@ export function UnregisteredFilesPanel({ projectName, files, episodes, onChanged
                     </button>
                     <button
                       type="button"
-                      className="focus-ring rounded-md px-2 py-1 text-[12px] text-text-3 hover:text-text"
+                      className="focus-ring rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
                       disabled={isBusy}
                       onClick={() => setAssigning(null)}
                     >
@@ -179,7 +179,7 @@ export function UnregisteredFilesPanel({ projectName, files, episodes, onChanged
                   </div>
                 )}
                 {!file.can_join_whole_source && !picking ? (
-                  <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{t("dashboard:unregistered_cannot_join")}</p>
+                  <p className="mt-1.5 text-[11px] leading-[1.5] text-muted-foreground">{t("dashboard:unregistered_cannot_join")}</p>
                 ) : null}
               </li>
             );

@@ -58,7 +58,7 @@ import { formatNameList } from "@/utils/list-format";
 // ---------------------------------------------------------------------------
 
 const COMPACT_INPUT_CLS =
-  "min-w-0 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[12.5px] text-text placeholder:text-text-4 transition-colors hover:border-hairline-strong focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  "min-w-0 rounded-sm border border-border bg-card/55 px-2 py-1 text-[12.5px] text-foreground placeholder:text-muted-foreground transition-colors hover:border-input focus:border-primary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -310,7 +310,7 @@ function DurationsInputRow({
   return (
     <div className="mt-2 flex flex-col gap-1 pl-6">
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">
           {t("supported_durations_label")}
         </span>
         <input
@@ -326,13 +326,13 @@ function DurationsInputRow({
       {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。缺帧率来源那一支是可修的定义，
           文案指向补哪里；换算不出整秒时长那一支补不出帧率来，不说成「补一处就能恢复」。 */}
       {tierEmpty ? (
-        <p className="text-[11px] text-text-4">{t(emptyCopy.hint)}</p>
+        <p className="text-[11px] text-muted-foreground">{t(emptyCopy.hint)}</p>
       ) : errorMsg ? (
-        <p className="text-[11px] text-warm-bright">
+        <p className="text-[11px] text-warn">
           {t("supported_durations_invalid", { message: errorMsg })}
         </p>
       ) : (
-        <p className="text-[11px] text-text-4">{t("supported_durations_help")}</p>
+        <p className="text-[11px] text-muted-foreground">{t("supported_durations_help")}</p>
       )}
     </div>
   );
@@ -754,7 +754,7 @@ export function CustomProviderForm({
       <div className="p-6 pb-24">
       <div className="max-w-2xl">
       <div className="mb-6">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
           {isEdit ? "EDIT PROVIDER" : "NEW PROVIDER"}
         </div>
         <h3
@@ -764,7 +764,7 @@ export function CustomProviderForm({
             fontSize: 22,
             lineHeight: 1.1,
             letterSpacing: "-0.012em",
-            color: "var(--color-text)",
+            color: "var(--foreground)",
           }}
         >
           {isEdit ? t("edit_custom_provider") : t("add_custom_provider_title")}
@@ -801,7 +801,7 @@ export function CustomProviderForm({
             className={INPUT_CLS}
           />
           {urlPreview && (
-            <div className="mt-1.5 truncate font-mono text-[10.5px] text-text-4">
+            <div className="mt-1.5 truncate font-mono text-[10.5px] text-muted-foreground">
               {t("preview_url")}
               {urlPreview}
             </div>
@@ -827,14 +827,14 @@ export function CustomProviderForm({
               <button
                 type="button"
                 onClick={() => setShowApiKey((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground transition-colors hover:text-subtle-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={showApiKey ? t("common:hide") : t("common:show")}
               >
                 {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
             </div>
           )}
-          <label className="mt-2 flex items-center gap-2 text-[12.5px] text-text-2">
+          <label className="mt-2 flex items-center gap-2 text-[12.5px] text-subtle-foreground">
             <input
               type="checkbox"
               checked={noApiKey}
@@ -842,12 +842,12 @@ export function CustomProviderForm({
                 setNoApiKey(e.target.checked);
                 if (e.target.checked) setApiKey("");
               }}
-              className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+              className="h-3.5 w-3.5 accent-primary"
             />
             {t("cp_no_api_key")}
           </label>
           {noApiKey && keyRequiringModels.length > 0 && (
-            <p className="mt-1.5 text-[12px] leading-[1.55] text-warm-bright">
+            <p className="mt-1.5 text-[12px] leading-[1.55] text-warn">
               {t("cp_no_api_key_conflict", { models: formatNameList(keyRequiringModels, i18n.language) })}
             </p>
           )}
@@ -857,7 +857,7 @@ export function CustomProviderForm({
         <div className="flex flex-wrap items-center gap-2">
           <label
             htmlFor="cp-discovery"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
           >
             {t("discovery_format_label")}
           </label>
@@ -866,23 +866,23 @@ export function CustomProviderForm({
             value={discoveryFormat}
             onChange={(e) => setDiscoveryFormat(e.target.value as DiscoveryFormat)}
             disabled={isEdit}
-            className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[11.5px] text-text-2 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            className="rounded-sm border border-border bg-card/55 px-2 py-1 text-[11.5px] text-subtle-foreground hover:border-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             {DISCOVERY_FORMAT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
             ))}
           </select>
-          <span className="font-mono text-[10.5px] text-text-4">{t("discovery_format_help")}</span>
+          <span className="font-mono text-[10.5px] text-muted-foreground">{t("discovery_format_help")}</span>
         </div>
 
         {/* ComfyUI 协议下探针可能被反向代理的自定义头鉴权挡住，据此提前说明判据。 */}
         {isComfyui && (
-          <p className="text-[12px] leading-[1.55] text-text-4">{t("cp_comfyui_connectivity_hint")}</p>
+          <p className="text-[12px] leading-[1.55] text-muted-foreground">{t("cp_comfyui_connectivity_hint")}</p>
         )}
 
         {/* Discover models —— comfyui 没有这一步，用说明替代按钮 */}
         {isComfyui ? (
-          <p className="text-[12px] leading-[1.55] text-text-3">{t("discovery_not_applicable")}</p>
+          <p className="text-[12px] leading-[1.55] text-muted-foreground">{t("discovery_not_applicable")}</p>
         ) : (
           <div>
             <button
@@ -907,7 +907,7 @@ export function CustomProviderForm({
         {models.length > 0 && (
           <div>
             <div className="mb-2 flex items-center gap-3">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
                 {t("model_list")}
               </span>
               {models.length > 1 && (
@@ -919,7 +919,7 @@ export function CustomProviderForm({
                       prev.map((m) => (targetKeys.has(m.key) ? { ...m, is_enabled: !allFilteredEnabled } : m)),
                     );
                   }}
-                  className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {allFilteredEnabled ? t("deselect_all") : t("select_all")}
                 </button>
@@ -927,7 +927,7 @@ export function CustomProviderForm({
             </div>
             {models.length > 5 && (
               <div className="relative mb-2">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={modelFilter}
@@ -946,7 +946,7 @@ export function CustomProviderForm({
                   <div
                     key={m.key}
                     ref={m.model_id === focusModelId ? focusedModelRef : undefined}
-                    className="rounded-[10px] border border-hairline p-3"
+                    className="rounded-lg border border-border p-3"
                     style={CARD_STYLE}
                   >
                     <div className="flex flex-wrap items-center gap-2">
@@ -956,7 +956,7 @@ export function CustomProviderForm({
                           type="checkbox"
                           checked={m.is_enabled}
                           onChange={(e) => updateModel(m.key, { is_enabled: e.target.checked })}
-                          className="h-3.5 w-3.5 cursor-pointer rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)]"
+                          className="h-3.5 w-3.5 cursor-pointer rounded-sm border-border bg-card accent-primary"
                           aria-label={t("enable_model")}
                         />
                       </label>
@@ -1011,19 +1011,19 @@ export function CustomProviderForm({
                             ),
                           )
                         }
-                        className="rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="rounded-sm px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         style={
                           m.is_default
                             ? {
-                                background: "var(--color-accent-dim)",
-                                color: "var(--color-accent-2)",
-                                border: "1px solid var(--color-accent-soft)",
-                                boxShadow: "0 0 12px -6px var(--color-accent-glow)",
+                                background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                                color: "var(--primary)",
+                                border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                                boxShadow: "0 0 12px -6px color-mix(in oklab, var(--primary) 35%, transparent)",
                               }
                             : {
-                                background: "var(--color-bg-grad-a)",
-                                color: "var(--color-text-3)",
-                                border: "1px solid var(--color-hairline)",
+                                background: "var(--card)",
+                                color: "var(--muted-foreground)",
+                                border: "1px solid var(--border)",
                               }
                         }
                       >
@@ -1034,7 +1034,7 @@ export function CustomProviderForm({
                       <button
                         type="button"
                         onClick={() => removeModel(m.key)}
-                        className="rounded p-1 text-text-4 transition-colors hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-warn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         aria-label={t("delete_model")}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1043,7 +1043,7 @@ export function CustomProviderForm({
 
                     {/* 全局桶引用提示（非阻塞展示，不影响保存） */}
                     {m.global_bucket_refs.length > 0 && (
-                      <p className="mt-2 flex items-center gap-1.5 pl-6 text-[11px] text-text-4">
+                      <p className="mt-2 flex items-center gap-1.5 pl-6 text-[11px] text-muted-foreground">
                         <Link2 className="h-3 w-3 shrink-0" />
                         {t("global_bucket_ref_hint", {
                           buckets: m.global_bucket_refs.map((key) => t(`global_bucket_label_${key}`)).join(t("global_bucket_ref_separator")),
@@ -1052,12 +1052,12 @@ export function CustomProviderForm({
                     )}
 
                     {/* Pricing row */}
-                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-[11px] text-text-4">
+                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-[11px] text-muted-foreground">
                       <select
                         value={m.currency}
                         onChange={(e) => updateModel(m.key, { currency: e.target.value })}
                         aria-label={t("currency_label")}
-                        className="rounded-[5px] border border-hairline bg-bg-grad-a/55 px-1 py-0.5 text-[11px] text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="rounded-sm border border-border bg-card/55 px-1 py-0.5 text-[11px] text-subtle-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         <option value="USD">$</option>
                         <option value="CNY">&yen;</option>
@@ -1074,7 +1074,7 @@ export function CustomProviderForm({
                       <span>{pl.input}</span>
                       {pl.output && (
                         <>
-                          <span className="text-text-4">|</span>
+                          <span className="text-muted-foreground">|</span>
                           <input
                             type="text"
                             inputMode="decimal"
@@ -1093,7 +1093,7 @@ export function CustomProviderForm({
                     {media === "text" && (
                       <div className="mt-2 flex flex-col gap-1 pl-6">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
+                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">
                             {t("max_output_tokens_label")}
                           </span>
                           <input
@@ -1107,7 +1107,7 @@ export function CustomProviderForm({
                             className={`${COMPACT_INPUT_CLS} w-40`}
                           />
                         </div>
-                        <p className="text-[11px] text-text-4">{t("max_output_tokens_help")}</p>
+                        <p className="text-[11px] text-muted-foreground">{t("max_output_tokens_help")}</p>
                       </div>
                     )}
 
@@ -1115,7 +1115,7 @@ export function CustomProviderForm({
                     {(media === "image" || media === "video") && (
                       <div className="mt-2 flex flex-col gap-1 pl-6">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
+                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">
                             {t("resolution_label")}
                           </span>
                           <ResolutionPicker
@@ -1130,7 +1130,7 @@ export function CustomProviderForm({
                         </div>
                         {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
                         {constraints?.sizeFixed && (
-                          <p className="text-[11px] text-text-4">{t("resolution_fixed_hint")}</p>
+                          <p className="text-[11px] text-muted-foreground">{t("resolution_fixed_hint")}</p>
                         )}
                       </div>
                     )}
@@ -1170,7 +1170,7 @@ export function CustomProviderForm({
               type="button"
               onClick={addManualModel}
               disabled={noComfyuiEndpointYet}
-              className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" />
               {t("add_model_manually")}
@@ -1180,7 +1180,7 @@ export function CustomProviderForm({
 
         {/* Empty model hint */}
         {models.length === 0 && (
-          <div className="rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 p-4 text-center text-[12.5px] text-text-3">
+          <div className="rounded-lg border border-dashed border-input bg-card/45 p-4 text-center text-[12.5px] text-muted-foreground">
             {noComfyuiEndpointYet ? (
               t("cp_comfyui_no_endpoint_hint")
             ) : (
@@ -1189,7 +1189,7 @@ export function CustomProviderForm({
                 <button
                   type="button"
                   onClick={addManualModel}
-                  className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {t("add_model_manually")}
                 </button>
@@ -1200,10 +1200,10 @@ export function CustomProviderForm({
 
         {/* Concurrency limits */}
         <div>
-          <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+          <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
             {t("cp_concurrency_label")}
           </div>
-          <p className="mb-3 text-[11px] text-text-4">
+          <p className="mb-3 text-[11px] text-muted-foreground">
             {isComfyui ? t("cp_concurrency_help_comfyui") : t("cp_concurrency_help")}
           </p>
           <div className="flex flex-wrap gap-4">
@@ -1235,18 +1235,18 @@ export function CustomProviderForm({
         {testResult && (
           <div
             aria-live="polite"
-            className="flex items-start gap-2 rounded-[8px] px-3 py-2 text-[12.5px]"
+            className="flex items-start gap-2 rounded-md px-3 py-2 text-[12.5px]"
             style={
               testResult.success
                 ? {
                     background: "oklch(0.30 0.10 155 / 0.15)",
-                    color: "var(--color-good)",
+                    color: "var(--good)",
                     border: "1px solid oklch(0.45 0.10 155 / 0.30)",
                   }
                 : {
-                    background: "var(--color-warm-tint)",
-                    color: "var(--color-warm-bright)",
-                    border: "1px solid var(--color-warm-ring)",
+                    background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+                    color: "var(--warn)",
+                    border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
                   }
             }
           >
@@ -1265,7 +1265,7 @@ export function CustomProviderForm({
 
       {/* Sticky actions bar */}
       <div
-        className="sticky bottom-0 z-10 border-t border-hairline px-6 py-3 backdrop-blur"
+        className="sticky bottom-0 z-10 border-t border-border px-6 py-3 backdrop-blur"
         style={{
           background:
             "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.65), oklch(0.15 0.010 265 / 0.85))",
@@ -1308,13 +1308,13 @@ export function CustomProviderForm({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-[8px] px-3 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded-md px-3 py-1.5 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("common:cancel")}
           </button>
         </div>
         {hasUnsetEndpoint && (
-          <p className="mt-2 text-[11.5px] text-warm-bright/90">
+          <p className="mt-2 text-[11.5px] text-warn/90">
             {t("cp_model_endpoint_unselected")}
           </p>
         )}

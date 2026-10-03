@@ -47,13 +47,13 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
   const name = t(NAME_KEYS[metric][weekly ? "weekly" : "daily"]);
 
   return (
-    <section className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
+    <section className="rounded-lg border border-border p-4" style={CARD_STYLE}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
           {t("usage_trend_title")}
         </h4>
         {weekly && (
-          <span className="rounded-full border border-hairline-soft px-1.5 py-px font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-4">
+          <span className="rounded-full border border-border/50 px-1.5 py-px font-mono text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">
             {t("usage_trend_weekly_chip")}
           </span>
         )}
@@ -72,7 +72,7 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
                 onClick={() => setMetric(option.value)}
                 className={
                   "focus-ring rounded-full px-2 py-0.5 text-[11px] transition-colors " +
-                  (active ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text")
+                  (active ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground")
                 }
               >
                 {t(option.labelKey)}
@@ -83,7 +83,7 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
       </div>
 
       {buckets.length === 0 ? (
-        <p className="py-8 text-center text-[12px] text-text-3">{t("usage_trend_empty")}</p>
+        <p className="py-8 text-center text-[12px] text-muted-foreground">{t("usage_trend_empty")}</p>
       ) : (
         <UsageTrendChart
           buckets={buckets}
@@ -95,7 +95,7 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
       )}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-3">
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           {seriesFor(metric).map((entry) => (
             <li key={entry.key} className="inline-flex items-center gap-1.5">
               <SeriesSwatch series={entry} />
@@ -104,7 +104,7 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
           ))}
         </ul>
         {metric === "cost" && primary && (
-          <p className="text-[11px] text-text-4">
+          <p className="text-[11px] text-muted-foreground">
             {excluded.length > 0
               ? t("usage_trend_cost_footnote_excluded", {
                   currency: primary,

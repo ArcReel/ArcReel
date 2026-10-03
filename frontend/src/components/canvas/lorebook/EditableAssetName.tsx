@@ -58,7 +58,7 @@ export function EditableAssetName({
   const heading = (
     <h3
       className="display-serif min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight"
-      style={{ color: "var(--color-text)" }}
+      style={{ color: "var(--foreground)" }}
     >
       {name}
     </h3>
@@ -147,7 +147,7 @@ export function EditableAssetName({
           disabled={busy || renaming}
           title={t("assets:rename_asset")}
           aria-label={t("assets:rename_asset")}
-          className={`${ICON_BTN_CLS} text-[var(--color-text-3)] opacity-0 hover:text-[var(--color-text)] focus-visible:opacity-100 group-hover:opacity-100`}
+          className={`${ICON_BTN_CLS} text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100`}
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
@@ -166,7 +166,7 @@ export function EditableAssetName({
             })
           : t("assets:rename_impact_none")}
       </p>
-      <p className="tabular-nums" style={{ color: "var(--color-text-2)" }}>
+      <p className="tabular-nums" style={{ color: "var(--subtle-foreground)" }}>
         {name} → {trimmed}
       </p>
     </div>
@@ -191,8 +191,8 @@ export function EditableAssetName({
         }}
         disabled={submitting}
         aria-label={t("assets:rename_asset")}
-        className="display-serif focus-ring min-w-0 flex-1 rounded border-b bg-transparent text-[16px] font-semibold tracking-tight outline-none"
-        style={{ color: "var(--color-text)", borderColor: "var(--color-accent-soft)" }}
+        className="display-serif focus-ring min-w-0 flex-1 rounded-sm border-b bg-transparent text-[16px] font-semibold tracking-tight outline-none"
+        style={{ color: "var(--foreground)", borderColor: "color-mix(in oklab, var(--primary) 22%, transparent)" }}
       />
       <button
         type="button"
@@ -201,7 +201,7 @@ export function EditableAssetName({
         title={t("common:save")}
         aria-label={t("common:save")}
         className={ICON_BTN_CLS}
-        style={{ color: "var(--color-accent-2)" }}
+        style={{ color: "var(--primary)" }}
       >
         {previewLoading ? (
           <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
@@ -216,7 +216,7 @@ export function EditableAssetName({
         title={t("common:cancel")}
         aria-label={t("common:cancel")}
         className={ICON_BTN_CLS}
-        style={{ color: "var(--color-text-3)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         <X className="h-4 w-4" />
       </button>

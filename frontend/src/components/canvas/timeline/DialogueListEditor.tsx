@@ -59,7 +59,7 @@ function DialogueRow({ value, onUpdate, onRemove, readOnly }: DialogueRowProps) 
           aria-label={t("dialogue_remove")}
           title={t("dialogue_remove")}
           className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-          style={{ color: "var(--color-text-4)" }}
+          style={{ color: "var(--muted-foreground)" }}
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -131,7 +131,7 @@ export function DialogueListEditor({
           type="button"
           onClick={add}
           className="focus-ring inline-flex items-center gap-1 self-start rounded-md px-2 py-1 text-[11.5px] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-          style={{ color: "var(--color-text-3)" }}
+          style={{ color: "var(--muted-foreground)" }}
         >
           <Plus className="h-3 w-3" />
           {t("add_dialogue")}

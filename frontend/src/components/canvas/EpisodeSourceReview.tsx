@@ -63,10 +63,10 @@ function EpisodeHeader({
       <div
         className="num grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[13px] font-bold"
         style={{
-          background: "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.45 0.12 285) 100%)",
+          background: "linear-gradient(135deg, var(--primary) 0%, oklch(0.45 0.12 285) 100%)",
           color: "oklch(0.14 0 0)",
           boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 4px 12px -4px var(--color-accent-glow)",
+            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 4px 12px -4px color-mix(in oklab, var(--primary) 35%, transparent)",
         }}
       >
         {position ?? "—"}
@@ -79,21 +79,21 @@ function EpisodeHeader({
             canEdit={meta !== undefined}
             onSave={onSaveTitle}
             headingClassName="truncate text-[17px] font-semibold leading-tight"
-            headingStyle={{ color: "var(--color-text)" }}
+            headingStyle={{ color: "var(--foreground)" }}
           />
           <span
             className="shrink-0 rounded-full px-2.5 py-0.5 text-[10.5px]"
             style={{
-              color: "var(--color-warm)",
-              background: "var(--color-warm-soft)",
-              border: "1px solid var(--color-warm-ring)",
+              color: "var(--warn)",
+              background: "color-mix(in oklab, var(--warn) 10%, transparent)",
+              border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
             }}
           >
             {t("episode_workspace_script_pending")}
           </span>
           <EpisodeDeleteButton episode={episode} />
         </div>
-        <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--color-text-4)" }}>
+        <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
           {sourceName ? <span className="truncate">{sourceName}</span> : null}
           {!crossesFiles && r?.start != null && r?.end != null ? (
             <>
@@ -130,13 +130,13 @@ function ScriptPlanProgress({ projectName, episode }: { projectName: string; epi
     <div
       role="status"
       className="mt-4 flex items-center gap-2.5 rounded-xl px-4 py-3 text-[12.5px]"
-      style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)", color: "var(--color-text-2)" }}
+      style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)", color: "var(--subtle-foreground)" }}
     >
-      <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--color-accent-2)" }} aria-hidden />
+      <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--primary)" }} aria-hidden />
       <span>
         {latestTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}
         {" "}
-        <span style={{ color: "var(--color-text-4)" }}>{t("script_plan_progress_hint")}</span>
+        <span style={{ color: "var(--muted-foreground)" }}>{t("script_plan_progress_hint")}</span>
       </span>
     </div>
   );
@@ -165,7 +165,7 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
   return (
     <section
       className="mt-4 overflow-hidden rounded-xl"
-      style={{ background: "oklch(0.21 0.012 265 / 0.35)", border: "1px solid var(--color-hairline)" }}
+      style={{ background: "oklch(0.21 0.012 265 / 0.35)", border: "1px solid var(--border)" }}
     >
       <button
         type="button"
@@ -173,8 +173,8 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
         aria-expanded={!collapsed}
         className="focus-ring flex w-full items-center gap-2 px-4 py-2.5 text-left text-[11.5px] font-semibold tracking-wide transition-colors hover:bg-[oklch(1_0_0_/_0.03)]"
         style={{
-          color: "var(--color-text-3)",
-          borderBottom: collapsed ? "none" : "1px solid var(--color-hairline-soft)",
+          color: "var(--muted-foreground)",
+          borderBottom: collapsed ? "none" : "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         }}
       >
         <ChevronDown
@@ -182,10 +182,10 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
           aria-hidden
         />
         {t("episode_workspace_guide_title")}
-        <span className="font-normal" style={{ color: "var(--color-text-4)" }}>
+        <span className="font-normal" style={{ color: "var(--muted-foreground)" }}>
           {summary}
         </span>
-        <span className="ml-auto shrink-0 font-normal" style={{ color: "var(--color-text-4)" }}>
+        <span className="ml-auto shrink-0 font-normal" style={{ color: "var(--muted-foreground)" }}>
           {collapsed ? t("episode_workspace_guide_expand") : t("episode_workspace_guide_collapse")}
         </span>
       </button>
@@ -201,12 +201,12 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
                 <div
                   key={i}
                   className="rounded-lg px-3.5 py-3"
-                  style={{ background: "oklch(0.24 0.012 265 / 0.55)", border: "1px solid var(--color-hairline-soft)" }}
+                  style={{ background: "oklch(0.24 0.012 265 / 0.55)", border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
                 >
-                  <span className="num text-[15px] font-bold" style={{ color: "var(--color-accent-2)" }}>
+                  <span className="num text-[15px] font-bold" style={{ color: "var(--primary)" }}>
                     {i + 1}
                   </span>
-                  <p className="mt-1 text-[12px] leading-[1.6]" style={{ color: "var(--color-text-2)" }}>
+                  <p className="mt-1 text-[12px] leading-[1.6]" style={{ color: "var(--subtle-foreground)" }}>
                     {b}
                   </p>
                 </div>
@@ -217,11 +217,11 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
           {hook ? (
             <div
               className="flex items-start gap-2.5 rounded-lg px-3.5 py-3"
-              style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)" }}
+              style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)" }}
             >
-              <Anchor className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-accent-2)" }} aria-hidden />
-              <p className="text-[12.5px] leading-[1.7]" style={{ color: "var(--color-text-2)" }}>
-                <span className="mr-2 font-semibold" style={{ color: "var(--color-accent-2)" }}>
+              <Anchor className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--primary)" }} aria-hidden />
+              <p className="text-[12.5px] leading-[1.7]" style={{ color: "var(--subtle-foreground)" }}>
+                <span className="mr-2 font-semibold" style={{ color: "var(--primary)" }}>
                   {t("episode_workspace_guide_hook")}
                 </span>
                 {hook}
@@ -269,7 +269,7 @@ function SourceEditor({
   return (
     <div className="mx-auto flex h-full max-w-[66ch] flex-col gap-3">
       {onCancel ? null : (
-        <p className="text-[13px] leading-[1.7]" style={{ color: "var(--color-text-3)" }}>
+        <p className="text-[13px] leading-[1.7]" style={{ color: "var(--muted-foreground)" }}>
           {t("episode_workspace_source_empty_hint")}
         </p>
       )}
@@ -282,14 +282,14 @@ function SourceEditor({
         disabled={saving}
         className="focus-ring min-h-[280px] flex-1 resize-none rounded-lg px-4 py-3 text-[14px] leading-[1.9]"
         style={{
-          color: "var(--color-text-2)",
+          color: "var(--subtle-foreground)",
           background: "oklch(0.18 0.010 265 / 0.6)",
-          border: "1px solid var(--color-hairline)",
+          border: "1px solid var(--border)",
         }}
       />
       <div className="flex items-center justify-end gap-2">
         {kind !== null ? (
-          <label className="mr-auto flex items-center gap-2 text-[12px]" style={{ color: "var(--color-text-3)" }}>
+          <label className="mr-auto flex items-center gap-2 text-[12px]" style={{ color: "var(--muted-foreground)" }}>
             {t("dashboard:source_kind")}
             <SourceKindSelect
               value={kind}
@@ -305,7 +305,7 @@ function SourceEditor({
             onClick={onCancel}
             disabled={saving}
             className="focus-ring rounded-lg px-3.5 py-1.5 text-[12.5px]"
-            style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline)" }}
+            style={{ color: "var(--muted-foreground)", border: "1px solid var(--border)" }}
           >
             {t("common:cancel")}
           </button>
@@ -434,7 +434,7 @@ export function EpisodeSourceReview({
                 projectName={projectName}
                 episode={episode}
                 discardsPlan={false}
-                className="focus-ring rounded-lg border border-[var(--color-hairline)] px-4 py-2 text-[12.5px] font-medium text-[var(--color-text-2)] transition-colors hover:text-[var(--color-text)]"
+                className="focus-ring rounded-lg border border-border px-4 py-2 text-[12.5px] font-medium text-subtle-foreground transition-colors hover:text-foreground"
               />
               <ScriptPlanButton
                 projectName={projectName}
@@ -453,12 +453,12 @@ export function EpisodeSourceReview({
             className="min-h-0 flex-1 overflow-y-auto rounded-2xl px-12 py-9"
             style={{
               background: "linear-gradient(180deg, oklch(0.215 0.011 265 / 0.75), oklch(0.195 0.010 265 / 0.75))",
-              border: "1px solid var(--color-hairline)",
+              border: "1px solid var(--border)",
               boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
             }}
           >
             {loading ? (
-              <p className="text-center text-[13px]" style={{ color: "var(--color-text-4)" }}>
+              <p className="text-center text-[13px]" style={{ color: "var(--muted-foreground)" }}>
                 {t("episode_workspace_source_loading")}
               </p>
             ) : editing ? (
@@ -479,7 +479,7 @@ export function EpisodeSourceReview({
                       type="button"
                       onClick={() => setEditingKey(fetchKey)}
                       className="focus-ring inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[12px]"
-                      style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline)" }}
+                      style={{ color: "var(--muted-foreground)", border: "1px solid var(--border)" }}
                     >
                       <PencilLine className="h-3.5 w-3.5" aria-hidden />
                       {t("episode_workspace_source_edit")}
@@ -488,13 +488,13 @@ export function EpisodeSourceReview({
                 ) : null}
                 <p
                   className="whitespace-pre-wrap text-[14px] leading-[2]"
-                  style={{ color: "var(--color-text-2)", textAlign: "justify" }}
+                  style={{ color: "var(--subtle-foreground)", textAlign: "justify" }}
                 >
                   {text}
                 </p>
               </div>
             ) : (
-              <p className="text-center text-[13px]" style={{ color: "var(--color-text-4)" }}>
+              <p className="text-center text-[13px]" style={{ color: "var(--muted-foreground)" }}>
                 {t("episode_workspace_source_missing")}
               </p>
             )}

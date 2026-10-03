@@ -101,20 +101,20 @@ export function WelcomeCanvas({
               "linear-gradient(135deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
             color: "oklch(0.14 0 0)",
             boxShadow:
-              "0 10px 32px -10px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
+              "0 10px 32px -10px color-mix(in oklab, var(--primary) 35%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.4)",
           }}
         >
           <Sparkles className="h-5 w-5" strokeWidth={2.2} />
         </span>
         <h1
           className="display-serif text-[28px] font-semibold leading-tight tracking-tight"
-          style={{ color: "var(--color-text)" }}
+          style={{ color: "var(--foreground)" }}
         >
           {t("welcome_to_project", { title: displayProjectTitle })}
         </h1>
         <p
           className="mt-2 text-[13px] leading-relaxed"
-          style={{ color: "var(--color-text-3)" }}
+          style={{ color: "var(--muted-foreground)" }}
         >
           {phase === "idle" && t("welcome_idle_desc")}
           {phase === "has_sources" && t("welcome_has_sources_desc")}
@@ -138,13 +138,13 @@ export function WelcomeCanvas({
             className="focus-ring relative w-full overflow-hidden rounded-2xl px-8 py-14 text-center transition-all"
             style={{
               border: isDragging
-                ? "1px dashed var(--color-accent-soft)"
-                : "1px dashed var(--color-hairline)",
+                ? "1px dashed color-mix(in oklab, var(--primary) 22%, transparent)"
+                : "1px dashed var(--border)",
               background: isDragging
                 ? "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.12), oklch(0.76 0.09 295 / 0.04))"
                 : CARD_BG,
               boxShadow: isDragging
-                ? "0 0 0 4px var(--color-accent-dim), inset 0 1px 0 oklch(1 0 0 / 0.04)"
+                ? "0 0 0 4px color-mix(in oklab, var(--primary) 12%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.04)"
                 : CARD_SHADOW,
             }}
           >
@@ -153,7 +153,7 @@ export function WelcomeCanvas({
               className="pointer-events-none absolute inset-x-0 top-0 h-px"
               style={{
                 background:
-                  "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+                  "linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent)",
                 opacity: isDragging ? 0.9 : 0.4,
               }}
             />
@@ -162,33 +162,33 @@ export function WelcomeCanvas({
               className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl transition-colors"
               style={{
                 background: isDragging
-                  ? "var(--color-accent-dim)"
+                  ? "color-mix(in oklab, var(--primary) 12%, transparent)"
                   : "oklch(0.20 0.011 265 / 0.6)",
                 border: isDragging
-                  ? "1px solid var(--color-accent-soft)"
-                  : "1px solid var(--color-hairline-soft)",
+                  ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)"
+                  : "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                 color: isDragging
-                  ? "var(--color-accent-2)"
-                  : "var(--color-text-3)",
+                  ? "var(--primary)"
+                  : "var(--muted-foreground)",
               }}
             >
               <Upload className="h-5 w-5" strokeWidth={2} />
             </span>
             <p
               className="display-serif text-[16px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {t("drop_files_here")}
             </p>
             <p
               className="mt-1 text-[11.5px]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("click_to_select_files")}
             </p>
             <p
               className="num mt-1.5 text-[10.5px] uppercase tracking-[0.18em]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {SOURCE_FILE_FORMATS_LABEL}
             </p>
@@ -202,13 +202,13 @@ export function WelcomeCanvas({
                 className="h-3 w-[3px] rounded-full"
                 style={{
                   background:
-                    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                    "var(--primary)",
                 }}
               />
               <span
                 className="text-[10.5px] font-bold uppercase"
                 style={{
-                  color: "var(--color-text-4)",
+                  color: "var(--muted-foreground)",
                   letterSpacing: "1.0px",
                 }}
               >
@@ -224,7 +224,7 @@ export function WelcomeCanvas({
                   key={id}
                   className="flex items-start gap-3 rounded-xl px-3.5 py-2.5"
                   style={{
-                    border: "1px solid var(--color-hairline-soft)",
+                    border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                     background:
                       "linear-gradient(180deg, oklch(0.21 0.011 265 / 0.5), oklch(0.18 0.010 265 / 0.35))",
                     boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
@@ -234,16 +234,16 @@ export function WelcomeCanvas({
                     aria-hidden
                     className="mt-0.5 grid h-5 w-5 place-items-center rounded-md"
                     style={{
-                      background: "var(--color-accent-dim)",
-                      border: "1px solid var(--color-accent-soft)",
-                      color: "var(--color-accent-2)",
+                      background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                      border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                      color: "var(--primary)",
                     }}
                   >
                     <Icon className="h-2.5 w-2.5" />
                   </span>
                   <span
                     className="text-[12px] leading-relaxed"
-                    style={{ color: "var(--color-text-2)" }}
+                    style={{ color: "var(--subtle-foreground)" }}
                   >
                     {t(textKey)}
                   </span>
@@ -260,7 +260,7 @@ export function WelcomeCanvas({
           <section
             className="relative overflow-hidden rounded-2xl p-5 text-left"
             style={{
-              border: "1px solid var(--color-hairline-soft)",
+              border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
               background: CARD_BG,
               boxShadow: CARD_SHADOW,
             }}
@@ -270,18 +270,18 @@ export function WelcomeCanvas({
               className="pointer-events-none absolute inset-x-0 top-0 h-px"
               style={{
                 background:
-                  "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+                  "linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent)",
               }}
             />
             <div className="mb-3 flex items-center gap-2.5">
               <FileText
                 className="h-3.5 w-3.5"
-                style={{ color: "var(--color-accent-2)" }}
+                style={{ color: "var(--primary)" }}
               />
               <span
                 className="text-[10.5px] font-bold uppercase"
                 style={{
-                  color: "var(--color-text-4)",
+                  color: "var(--muted-foreground)",
                   letterSpacing: "1.0px",
                 }}
               >
@@ -290,7 +290,7 @@ export function WelcomeCanvas({
               <div className="flex-1" />
               <span
                 className="num text-[11px]"
-                style={{ color: "var(--color-text-4)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {sourceFiles.length}
               </span>
@@ -302,13 +302,13 @@ export function WelcomeCanvas({
                   className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]"
                   style={{
                     background: "oklch(0.18 0.010 265 / 0.45)",
-                    border: "1px solid var(--color-hairline-soft)",
-                    color: "var(--color-text-2)",
+                    border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+                    color: "var(--subtle-foreground)",
                   }}
                 >
                   <FileText
                     className="h-3.5 w-3.5 shrink-0"
-                    style={{ color: "var(--color-text-4)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   />
                   <span className="truncate">
                     {f.replace(/^source\//, "")}
@@ -320,7 +320,7 @@ export function WelcomeCanvas({
               type="button"
               onClick={() => onUploadFilesChange([])}
               className="focus-ring mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-              style={{ color: "var(--color-text-3)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               <Plus className="h-3 w-3" />
               {t("add_more_files")}
@@ -339,14 +339,14 @@ export function WelcomeCanvas({
             className="focus-ring w-full rounded-xl px-4 py-3 text-[11.5px] transition-all"
             style={{
               border: isDragging
-                ? "1px dashed var(--color-accent-soft)"
-                : "1px dashed var(--color-hairline-soft)",
+                ? "1px dashed color-mix(in oklab, var(--primary) 22%, transparent)"
+                : "1px dashed color-mix(in oklab, var(--border) 50%, transparent)",
               background: isDragging
-                ? "var(--color-accent-dim)"
+                ? "color-mix(in oklab, var(--primary) 12%, transparent)"
                 : "transparent",
               color: isDragging
-                ? "var(--color-accent-2)"
-                : "var(--color-text-4)",
+                ? "var(--primary)"
+                : "var(--muted-foreground)",
             }}
           >
             {t("drop_more_files_here")}
@@ -362,7 +362,7 @@ export function WelcomeCanvas({
                 "linear-gradient(180deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
               color: "oklch(0.14 0 0)",
               boxShadow:
-                "0 12px 32px -10px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
+                "0 12px 32px -10px color-mix(in oklab, var(--primary) 35%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.4)",
             }}
           >
             <span className="relative inline-flex items-center gap-2">
@@ -380,11 +380,11 @@ export function WelcomeCanvas({
           aria-live="polite"
           className="relative overflow-hidden rounded-2xl p-12 text-center"
           style={{
-            border: "1px solid var(--color-accent-soft)",
+            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
             background:
               "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.10), oklch(0.76 0.09 295 / 0.04))",
             boxShadow:
-              "0 0 0 1px var(--color-accent-dim), inset 0 1px 0 oklch(1 0 0 / 0.05)",
+              "0 0 0 1px color-mix(in oklab, var(--primary) 12%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.05)",
           }}
         >
           <span
@@ -392,23 +392,23 @@ export function WelcomeCanvas({
             className="pointer-events-none absolute inset-x-0 top-0 h-px"
             style={{
               background:
-                "linear-gradient(90deg, transparent, var(--color-accent-2), transparent)",
+                "linear-gradient(90deg, transparent, var(--primary), transparent)",
             }}
           />
           <Sparkles
             className="mx-auto h-9 w-9 animate-pulse"
-            style={{ color: "var(--color-accent-2)" }}
+            style={{ color: "var(--primary)" }}
             strokeWidth={2}
           />
           <p
             className="display-serif mt-3 text-[15px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {t("ai_analyzing")}
           </p>
           <p
             className="mt-1 text-[12px]"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {t("extracting_metadata_desc")}
           </p>
@@ -420,8 +420,8 @@ export function WelcomeCanvas({
               className="absolute inset-y-0 w-1/3 rounded-full animate-progress-pulse"
               style={{
                 background:
-                  "linear-gradient(90deg, transparent, var(--color-accent-2), transparent)",
-                boxShadow: "0 0 8px var(--color-accent-glow)",
+                  "linear-gradient(90deg, transparent, var(--primary), transparent)",
+                boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
               }}
             />
           </div>
@@ -443,12 +443,12 @@ export function WelcomeCanvas({
         >
           <CheckCircle2
             className="mx-auto h-8 w-8"
-            style={{ color: "var(--color-good)" }}
+            style={{ color: "var(--good)" }}
             strokeWidth={2}
           />
           <p
             className="display-serif mt-3 text-[15px] font-semibold tracking-tight"
-            style={{ color: "var(--color-good)" }}
+            style={{ color: "var(--good)" }}
           >
             {t("analysis_complete")}
           </p>

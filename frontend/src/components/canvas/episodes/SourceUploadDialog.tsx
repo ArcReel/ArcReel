@@ -286,7 +286,7 @@ export function SourceUploadDialog({
         }}
       >
         <header className="flex items-start justify-between gap-3 px-6 pt-5">
-          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-text">
+          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-foreground">
             {t("dashboard:source_upload_title")}
           </h2>
           <ModalCloseButton onClick={onClose} disabled={busy} />
@@ -304,10 +304,10 @@ export function SourceUploadDialog({
                 onChange={() => setMode(value)}
                 className="sr-only"
               />
-              <span className="block text-[13px] font-medium text-text">
+              <span className="block text-[13px] font-medium text-foreground">
                 {t(value === "whole_source" ? "dashboard:source_upload_mode_whole" : "dashboard:source_upload_mode_episode")}
               </span>
-              <span className="mt-0.5 block text-[11.5px] leading-[1.5] text-text-3">
+              <span className="mt-0.5 block text-[11.5px] leading-[1.5] text-muted-foreground">
                 {t(
                   value === "whole_source"
                     ? "dashboard:source_upload_mode_whole_hint"
@@ -318,11 +318,11 @@ export function SourceUploadDialog({
           ))}
         </fieldset>
 
-        <p className="mt-4 px-6 text-[12px] leading-[1.6] text-text-3">
+        <p className="mt-4 px-6 text-[12px] leading-[1.6] text-muted-foreground">
           {mode === "whole_source" ? t("dashboard:source_upload_order_whole") : t("dashboard:source_upload_order_episode")}
         </p>
         {withSourceKind && mode === "episode" ? (
-          <div className="mt-2 flex items-center gap-2 px-6 text-[12px] text-text-3">
+          <div className="mt-2 flex items-center gap-2 px-6 text-[12px] text-muted-foreground">
             <span>{t("dashboard:source_upload_batch_kind")}</span>
             <SourceKindSelect
               value={batchKind}
@@ -334,15 +334,15 @@ export function SourceUploadDialog({
         ) : null}
 
         <div
-          className="mx-6 mt-2 min-h-[140px] flex-1 overflow-y-auto rounded-[10px] border transition-colors"
+          className="mx-6 mt-2 min-h-[140px] flex-1 overflow-y-auto rounded-lg border transition-colors"
           style={{
-            borderColor: fileDragOver ? "var(--color-accent)" : "var(--color-hairline)",
+            borderColor: fileDragOver ? "var(--primary)" : "var(--border)",
             borderStyle: fileDragOver ? "dashed" : "solid",
             background: "oklch(0.17 0.010 265 / 0.55)",
           }}
         >
           {visibleRows.length === 0 ? (
-            <div className="grid h-full min-h-[140px] place-items-center px-6 text-center text-[12px] text-text-4">
+            <div className="grid h-full min-h-[140px] place-items-center px-6 text-center text-[12px] text-muted-foreground">
               {t("dashboard:source_upload_empty")}
             </div>
           ) : (
@@ -364,34 +364,34 @@ export function SourceUploadDialog({
                     onDragEnd={() => setDragKey(null)}
                     className="flex items-center gap-2.5 px-3 py-2 text-[12.5px]"
                     style={{
-                      borderTop: index === 0 ? "none" : "1px solid var(--color-hairline-soft)",
+                      borderTop: index === 0 ? "none" : "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                       opacity: dragKey === row.key ? 0.45 : 1,
                     }}
                   >
-                    <span className="num w-6 shrink-0 text-right text-[10.5px] text-text-4">{index + 1}</span>
+                    <span className="num w-6 shrink-0 text-right text-[10.5px] text-muted-foreground">{index + 1}</span>
                     {isNew ? (
                       <GripVertical
-                        className="h-3.5 w-3.5 shrink-0 cursor-grab text-text-4"
+                        className="h-3.5 w-3.5 shrink-0 cursor-grab text-muted-foreground"
                         aria-hidden
                       />
                     ) : (
-                      <Lock className="h-3.5 w-3.5 shrink-0 text-text-4" aria-hidden />
+                      <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                     )}
-                    <FileText className={`h-3.5 w-3.5 shrink-0 ${isNew ? "text-accent-2" : "text-text-4"}`} aria-hidden />
+                    <FileText className={`h-3.5 w-3.5 shrink-0 ${isNew ? "text-primary" : "text-muted-foreground"}`} aria-hidden />
                     <div className="min-w-0 flex-1">
-                      <div className={`truncate ${isNew ? "text-text" : "text-text-3"}`} title={name}>
+                      <div className={`truncate ${isNew ? "text-foreground" : "text-muted-foreground"}`} title={name}>
                         {name}
                       </div>
                       {rowReserved ? (
-                        <div className="mt-0.5 text-[11px] text-[var(--color-warm)]">
+                        <div className="mt-0.5 text-[11px] text-warn">
                           {t("dashboard:source_upload_reserved_name")}
                         </div>
                       ) : null}
                     </div>
                     {isNew ? (
-                      <span className="num shrink-0 text-[10.5px] text-text-4">{fileSizeLabel(row.file.size)}</span>
+                      <span className="num shrink-0 text-[10.5px] text-muted-foreground">{fileSizeLabel(row.file.size)}</span>
                     ) : (
-                      <span className="shrink-0 text-[11px] text-text-4">
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
                         {withSourceKind
                           ? t("dashboard:source_upload_existing_kind", {
                               kind: t(
@@ -412,7 +412,7 @@ export function SourceUploadDialog({
                       />
                     ) : null}
                     {isNew && mode === "episode" ? (
-                      <span className="shrink-0 text-[11.5px] text-accent-2">
+                      <span className="shrink-0 text-[11.5px] text-primary">
                         {t("dashboard:source_upload_becomes", { position: episodeCount + index + 1 })}
                       </span>
                     ) : null}
@@ -475,19 +475,19 @@ export function SourceUploadDialog({
           >
             {t("dashboard:source_upload_pick")}
           </SecondaryButton>
-          <span className="text-[11.5px] text-text-4">
+          <span className="text-[11.5px] text-muted-foreground">
             {t("dashboard:source_upload_pick_hint", { formats: SOURCE_FILE_FORMATS_LABEL })}
           </span>
         </div>
         {skipped.length > 0 ? (
-          <p role="status" className="mt-2 px-6 text-[11.5px] text-[var(--color-warm)]">
+          <p role="status" className="mt-2 px-6 text-[11.5px] text-warn">
             {t("dashboard:source_upload_skipped", { names: formatNameList(skipped, i18n.language) })}
           </p>
         ) : null}
 
-        <footer className="mt-5 flex items-center justify-end gap-2 border-t border-hairline-soft px-6 py-4">
+        <footer className="mt-5 flex items-center justify-end gap-2 border-t border-border/50 px-6 py-4">
           {progress ? (
-            <span role="status" className="mr-auto flex min-w-0 items-center gap-2 text-[12px] text-text-3">
+            <span role="status" className="mr-auto flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 shrink-0 motion-safe:animate-spin" aria-hidden />
               <span className="truncate">{t("dashboard:source_upload_progress", progress)}</span>
             </span>

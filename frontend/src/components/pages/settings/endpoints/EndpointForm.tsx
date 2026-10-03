@@ -137,7 +137,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
     <div
       className={
         readOnly
-          ? "[&_input:read-only]:border-accent/25 [&_input:read-only]:bg-bg-grad-b/65 [&_input:read-only]:text-text-2 [&_select:disabled]:border-accent/20 [&_select:disabled]:bg-bg-grad-b/55 [&_select:disabled]:text-text-2 [&_textarea:read-only]:border-accent/25 [&_textarea:read-only]:bg-bg-grad-b/65 [&_textarea:read-only]:text-text-2"
+          ? "[&_input:read-only]:border-primary/25 [&_input:read-only]:bg-sidebar/65 [&_input:read-only]:text-subtle-foreground [&_select:disabled]:border-primary/20 [&_select:disabled]:bg-sidebar/55 [&_select:disabled]:text-subtle-foreground [&_textarea:read-only]:border-primary/25 [&_textarea:read-only]:bg-sidebar/65 [&_textarea:read-only]:text-subtle-foreground"
           : undefined
       }
     >
@@ -266,7 +266,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
       {/* 3 输入素材 */}
       <FormSection id="inputs" step={3} title={t("ce_section_inputs")} desc={t("ce_section_inputs_desc")}>
         <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_180px_150px_110px_32px] gap-3 text-[11.5px] text-text-3">
+          <div className="grid grid-cols-[1fr_180px_150px_110px_32px] gap-3 text-[11.5px] text-muted-foreground">
             <span className="px-1">{t("ce_input_variable")}</span>
             <span className="px-1">{t("ce_input_source")}</span>
             <span className="px-1">{t("ce_input_encoding")}</span>
@@ -471,7 +471,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             />
           )}
         </div>
-        <div className="mt-4 border-t border-hairline-soft pt-3.5">
+        <div className="mt-4 border-t border-border/50 pt-3.5">
           <CheckboxField
             label={t("ce_result_enabled")}
             checked={definition.result !== undefined}
@@ -486,7 +486,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
           />
           <span className={HINT_CLS}>{mediaCopy("ce_result_hint")}</span>
           {definition.result && (
-            <div className="mt-3 space-y-3 rounded-[8px] border border-hairline-soft bg-bg-grad-a/30 p-3.5">
+            <div className="mt-3 space-y-3 rounded-md border border-border/50 bg-card/30 p-3.5">
               <TextField
                 label={t("ce_result_url")}
                 value={definition.result.url}
@@ -533,7 +533,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
       {/* 6 状态对照 */}
       <FormSection id="status" step={6} title={t("ce_section_status")} desc={t("ce_section_status_desc")}>
         <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_16px_180px_32px] gap-3 text-[11.5px] text-text-3">
+          <div className="grid grid-cols-[1fr_16px_180px_32px] gap-3 text-[11.5px] text-muted-foreground">
             <span className="px-1">{t("ce_status_provider_value")}</span>
             <span />
             <span className="px-1">{t("ce_status_standard")}</span>
@@ -549,7 +549,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                 onChange={(e) => patch({ status_map: rename(statusMap, from, e.target.value, to) })}
                 className={`${INPUT_CLS} ${MONO_INPUT_CLS}`}
               />
-              <span aria-hidden className="text-center text-text-3">
+              <span aria-hidden className="text-center text-muted-foreground">
                 →
               </span>
               <select

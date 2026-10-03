@@ -57,20 +57,20 @@ export function ExternalChangeNotice({ projectName, changes, onLocate }: Externa
             key={item.source_file}
             aria-label={t("episodes_view_external_title", { name })}
             className="rounded-md border px-4 py-3"
-            style={{ borderColor: "var(--color-warm)", background: "oklch(0.24 0.03 60 / 0.35)" }}
+            style={{ borderColor: "var(--warn)", background: "oklch(0.24 0.03 60 / 0.35)" }}
           >
-            <h2 className="flex items-center gap-2 text-[13px] font-semibold text-text">
-              <TriangleAlert className="h-4 w-4 shrink-0 text-[var(--color-warm)]" aria-hidden />
+            <h2 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+              <TriangleAlert className="h-4 w-4 shrink-0 text-warn" aria-hidden />
               {t("episodes_view_external_title", { name })}
             </h2>
             {item.problem !== null ? (
-              <p role="alert" className="mt-2 text-[12.5px] leading-[1.7] text-[var(--color-warm)]">
+              <p role="alert" className="mt-2 text-[12.5px] leading-[1.7] text-warn">
                 {item.problem}
               </p>
             ) : (
               <>
-                <p className="mt-2 text-[12px] leading-[1.7] text-text-3">{t("episodes_view_external_hint")}</p>
-                <p className="mt-2 whitespace-pre-line text-[12.5px] leading-[1.7] text-text-2">
+                <p className="mt-2 text-[12px] leading-[1.7] text-muted-foreground">{t("episodes_view_external_hint")}</p>
+                <p className="mt-2 whitespace-pre-line text-[12.5px] leading-[1.7] text-subtle-foreground">
                   {item.impact?.text || t("episodes_view_external_none")}
                 </p>
               </>

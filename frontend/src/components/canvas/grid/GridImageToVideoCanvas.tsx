@@ -201,7 +201,7 @@ export function GridImageToVideoCanvas({
     return (
       <div
         className="flex h-full items-center justify-center"
-        style={{ color: "var(--color-text-4)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         {t("select_episode_hint")}
       </div>
@@ -255,18 +255,18 @@ export function GridImageToVideoCanvas({
       style={{
         color:
           activeTab === key
-            ? "var(--color-text)"
+            ? "var(--foreground)"
             : disabled
-              ? "var(--color-text-4)"
-              : "var(--color-text-3)",
+              ? "var(--muted-foreground)"
+              : "var(--muted-foreground)",
       }}
     >
       {label}
       {activeTab === key && (
         <span
           aria-hidden="true"
-          className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
-          style={{ background: "var(--color-accent)" }}
+          className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm"
+          style={{ background: "var(--primary)" }}
         />
       )}
     </button>
@@ -288,7 +288,7 @@ export function GridImageToVideoCanvas({
         aria-label={t("grid_canvas_tab_aria")}
         className="flex items-center gap-0.5 px-5"
         style={{
-          borderBottom: "1px solid var(--color-hairline)",
+          borderBottom: "1px solid var(--border)",
           background: "oklch(0.19 0.012 250 / 0.5)",
         }}
       >

@@ -85,7 +85,7 @@ export function InsertShotButton({
           description={
             <div className="flex flex-col gap-2">
               <p className="m-0">{t("shot_insert_narration_desc")}</p>
-              <label htmlFor={textareaId} className="text-[11px] font-medium" style={{ color: "var(--color-text-2)" }}>
+              <label htmlFor={textareaId} className="text-[11px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
                 {t("shot_insert_narration_label")}
               </label>
               <AutoTextarea id={textareaId} value={novelText} onChange={setNovelText} disabled={submitting} />

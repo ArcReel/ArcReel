@@ -48,18 +48,18 @@ interface CardProps {
 function SectionCard({ kicker, title, description, children }: CardProps) {
   return (
     <div
-      className="rounded-[10px] border border-hairline p-5"
+      className="rounded-lg border border-border p-5"
       style={CARD_STYLE}
     >
       <div className="mb-4">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
           {kicker}
         </div>
         {title && (
-          <h4 className="mt-1.5 text-[14px] font-medium text-text">{title}</h4>
+          <h4 className="mt-1.5 text-[14px] font-medium text-foreground">{title}</h4>
         )}
         {description && (
-          <p className="mt-1 text-[12px] leading-[1.55] text-text-3">{description}</p>
+          <p className="mt-1 text-[12px] leading-[1.55] text-muted-foreground">{description}</p>
         )}
       </div>
       {children}
@@ -155,8 +155,8 @@ export function MediaModelSection() {
 
   if (!settings || !options) {
     return (
-      <div className="flex items-center gap-2 px-1 py-12 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+      <div className="flex items-center gap-2 px-1 py-12 text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -278,7 +278,7 @@ export function MediaModelSection() {
     : undefined;
 
   const emptyHint = (msg: string) => (
-    <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2.5 text-[12px] text-text-3">
+    <div className="rounded-md border border-border/50 bg-card/45 px-3 py-2.5 text-[12px] text-muted-foreground">
       {msg}
     </div>
   );
@@ -287,7 +287,7 @@ export function MediaModelSection() {
     <div className="space-y-7">
       {/* Heading */}
       <div>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
           Default Routing
         </div>
         <h3
@@ -297,12 +297,12 @@ export function MediaModelSection() {
             fontSize: 22,
             lineHeight: 1.1,
             letterSpacing: "-0.012em",
-            color: "var(--color-text)",
+            color: "var(--foreground)",
           }}
         >
           {t("model_selection")}
         </h3>
-        <p className="mt-1.5 text-[12.5px] leading-[1.6] text-text-3">
+        <p className="mt-1.5 text-[12.5px] leading-[1.6] text-muted-foreground">
           {t("model_selection_desc")}
         </p>
       </div>
@@ -337,7 +337,7 @@ export function MediaModelSection() {
 
         <div
           className={`mt-4 flex items-start gap-2.5 text-[12.5px] ${
-            audioLocked ? "text-text-4" : "text-text-2"
+            audioLocked ? "text-muted-foreground" : "text-subtle-foreground"
           }`}
         >
           <input
@@ -348,14 +348,14 @@ export function MediaModelSection() {
             onChange={(e) =>
               setDraft((prev) => ({ ...prev, video_generate_audio: e.target.checked }))
             }
-            className="mt-0.5 h-3.5 w-3.5 rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)] disabled:cursor-not-allowed enabled:cursor-pointer"
+            className="mt-0.5 h-3.5 w-3.5 rounded-sm border-border bg-card accent-primary disabled:cursor-not-allowed enabled:cursor-pointer"
           />
           <label
             htmlFor="media-generate-audio"
             className={`flex flex-col ${audioLocked ? "cursor-not-allowed" : "cursor-pointer"}`}
           >
             <span>{t("generate_audio")}</span>
-            <span className="text-[11px] text-text-4">
+            <span className="text-[11px] text-muted-foreground">
               {audioLocked
                 ? t(
                     audioLockedControl === "always_on"
@@ -379,7 +379,7 @@ export function MediaModelSection() {
         <div className="mt-4">
           <label
             htmlFor="video-poll-timeout-input"
-            className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+            className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
           >
             {t("video_poll_timeout_label")}
           </label>
@@ -414,9 +414,9 @@ export function MediaModelSection() {
               }
               setPollTimeoutInput(null);
             }}
-            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
-          <p className="mt-1 text-[11px] text-text-4">{t("video_poll_timeout_hint")}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">{t("video_poll_timeout_hint")}</p>
         </div>
       </SectionCard>
 
@@ -486,13 +486,13 @@ export function MediaModelSection() {
         ) : (
           emptyHint(t("no_audio_providers_hint"))
         )}
-        <p className="mt-2 text-[11px] leading-relaxed text-text-4">{t("global_tts_defaults_prefill_hint")}</p>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{t("global_tts_defaults_prefill_hint")}</p>
 
         <div className="mt-4 space-y-3.5">
           <div>
             <label
               htmlFor="narration-voice-input"
-              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
             >
               {t("narration_voice_label")}
             </label>
@@ -501,14 +501,14 @@ export function MediaModelSection() {
               type="text"
               value={currentNarrationVoice}
               onChange={(e) => setDraft((prev) => ({ ...prev, narration_voice: e.target.value }))}
-              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="w-full rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <p className="mt-1 text-[11px] text-text-4">{t("narration_voice_hint")}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{t("narration_voice_hint")}</p>
           </div>
           <div>
             <label
               htmlFor="narration-speed-input"
-              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
             >
               {t("narration_speed_label")}
             </label>
@@ -529,9 +529,9 @@ export function MediaModelSection() {
                   return { ...prev, narration_speed: next };
                 });
               }}
-              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="w-full rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <p className="mt-1 text-[11px] text-text-4">{t("narration_speed_hint")}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{t("narration_speed_hint")}</p>
           </div>
         </div>
       </SectionCard>
@@ -552,7 +552,7 @@ export function MediaModelSection() {
           onChange={(event) =>
             setDraft((prev) => ({ ...prev, market_github_proxy_prefix: event.target.value }))
           }
-          className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 font-mono text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="w-full rounded-md border border-border bg-card/55 px-3 py-2 font-mono text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </SectionCard>
 
@@ -574,7 +574,7 @@ export function MediaModelSection() {
           <button
             type="button"
             onClick={() => setDraft({})}
-            className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded-md border border-border bg-card/55 px-4 py-2 text-[12.5px] text-subtle-foreground transition-colors hover:border-input hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("common:reset")}
           </button>

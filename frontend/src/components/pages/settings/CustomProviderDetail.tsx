@@ -33,15 +33,15 @@ const MEDIA_LABELS: Record<string, string> = {
 
 const READY_BADGE_STYLE: CSSProperties = {
   background: "oklch(0.30 0.10 155 / 0.18)",
-  color: "var(--color-good)",
+  color: "var(--good)",
   border: "1px solid oklch(0.45 0.10 155 / 0.40)",
   boxShadow: "0 0 14px -6px oklch(0.55 0.10 155 / 0.50)",
 };
 
 const UNCONFIGURED_BADGE_STYLE: CSSProperties = {
-  background: "var(--color-bg-grad-a)",
-  color: "var(--color-text-3)",
-  border: "1px solid var(--color-hairline)",
+  background: "var(--card)",
+  color: "var(--muted-foreground)",
+  border: "1px solid var(--border)",
 };
 
 interface CustomProviderDetailProps {
@@ -122,8 +122,8 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
 
   if (loading || !provider) {
     return (
-      <div className="flex items-center gap-2 px-1 py-12 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+      <div className="flex items-center gap-2 px-1 py-12 text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -152,10 +152,10 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
           <div className="flex items-start gap-3">
             {/* 自定义 provider 恒用字母徽章，不按名字猜品牌（理由见 CustomProviderSection） */}
             <span
-              className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-[6px] font-mono text-[11px] font-bold uppercase text-text-2"
+              className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-sm font-mono text-[11px] font-bold uppercase text-subtle-foreground"
               style={{
-                background: "var(--color-bg-grad-a)",
-                border: "1px solid var(--color-hairline-strong)",
+                background: "var(--card)",
+                border: "1px solid var(--input)",
               }}
             >
               {Array.from(provider.display_name)[0] ?? "?"}
@@ -169,7 +169,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
                     fontWeight: 400,
                     lineHeight: 1.1,
                     letterSpacing: "-0.012em",
-                    color: "var(--color-text)",
+                    color: "var(--foreground)",
                   }}
                 >
                   {provider.display_name}
@@ -181,7 +181,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
                   {ready ? t("status_connected") : t("status_unconfigured")}
                 </span>
               </div>
-              <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-text-4">
+              <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted-foreground">
                 {protocolLabel(provider.discovery_format).toUpperCase()} ·{" "}
                 <span className="normal-case tracking-normal">{provider.base_url}</span>
               </p>
@@ -189,28 +189,28 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
           </div>
 
           {/* Info card */}
-          <div className="rounded-[10px] border border-hairline p-5" style={CARD_STYLE}>
-            <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+          <div className="rounded-lg border border-border p-5" style={CARD_STYLE}>
+            <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
               Connection
             </div>
             <div className="space-y-2 text-[12.5px]">
               <div className="flex justify-between gap-4">
-                <span className="text-text-3">{t("discovery_format_label")}</span>
-                <span className="text-text">{protocolLabel(provider.discovery_format)}</span>
+                <span className="text-muted-foreground">{t("discovery_format_label")}</span>
+                <span className="text-foreground">{protocolLabel(provider.discovery_format)}</span>
               </div>
               <div className="flex justify-between gap-4">
-                <span className="text-text-3">{t("base_url")}</span>
-                <span className="truncate font-mono text-[11.5px] text-text">{provider.base_url}</span>
+                <span className="text-muted-foreground">{t("base_url")}</span>
+                <span className="truncate font-mono text-[11.5px] text-foreground">{provider.base_url}</span>
               </div>
               <div className="flex justify-between gap-4">
-                <span className="text-text-3">{t("api_key_label")}</span>
-                <span className="font-mono text-[11.5px] text-text">
+                <span className="text-muted-foreground">{t("api_key_label")}</span>
+                <span className="font-mono text-[11.5px] text-foreground">
                   {provider.api_key_masked || t("api_key_not_set")}
                 </span>
               </div>
               <div className="flex justify-between gap-4">
-                <span className="text-text-3">{t("created_at")}</span>
-                <span className="text-text">
+                <span className="text-muted-foreground">{t("created_at")}</span>
+                <span className="text-foreground">
                   {formatDate(provider.created_at, i18n.language, { year: "numeric", month: "2-digit", day: "2-digit" })}
                 </span>
               </div>
@@ -220,22 +220,22 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
           {/* Models */}
           {provider.models.length > 0 && (
             <div>
-              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
                 {t("model_list")}
               </div>
               <div className="space-y-1.5">
                 {provider.models.map((m) => (
                   <div
                     key={m.id}
-                    className={`flex items-center gap-2 rounded-[8px] border border-hairline px-3 py-2 text-[12.5px] ${
-                      m.is_enabled ? "text-text" : "text-text-4 opacity-60"
+                    className={`flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[12.5px] ${
+                      m.is_enabled ? "text-foreground" : "text-muted-foreground"
                     }`}
                     style={CARD_STYLE}
                   >
                     <span className="min-w-0 flex-1 truncate font-mono text-[11.5px]">
                       {m.model_id}
                     </span>
-                    <span className="rounded-full border border-hairline-soft bg-bg-grad-a/55 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                    <span className="rounded-full border border-border/50 bg-card/55 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                       {(() => {
                         const media = endpointToMediaType[m.endpoint];
                         return MEDIA_LABELS[media] ? t(MEDIA_LABELS[media]) : media;
@@ -245,23 +245,23 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
                       <span
                         className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em]"
                         style={{
-                          background: "var(--color-accent-dim)",
-                          color: "var(--color-accent-2)",
-                          border: "1px solid var(--color-accent-soft)",
+                          background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                          color: "var(--primary)",
+                          border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
                         }}
                       >
                         {t("default_label")}
                       </span>
                     )}
                     {m.supported_durations && m.supported_durations.length > 0 && (
-                      <span className="font-mono text-[10.5px] text-text-4">
+                      <span className="font-mono text-[10.5px] text-muted-foreground">
                         {t("supported_durations_summary", {
                           value: formatDurationsLabel(m.supported_durations),
                         })}
                       </span>
                     )}
                     {!m.is_enabled && (
-                      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-4">
+                      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                         {t("model_disabled")}
                       </span>
                     )}
@@ -273,25 +273,25 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
 
           {/* ComfyUI：反向代理用自定义头鉴权时探针本就打不通，提前说明以什么为准 */}
           {isComfyuiProtocol(provider.discovery_format) && (
-            <p className="text-[12px] leading-[1.55] text-text-4">{t("cp_comfyui_connectivity_hint")}</p>
+            <p className="text-[12px] leading-[1.55] text-muted-foreground">{t("cp_comfyui_connectivity_hint")}</p>
           )}
 
           {/* Test result */}
           {testResult && (
             <div
               aria-live="polite"
-              className="flex items-start gap-2 rounded-[8px] px-3 py-2 text-[12px]"
+              className="flex items-start gap-2 rounded-md px-3 py-2 text-[12px]"
               style={
                 testResult.success
                   ? {
                       background: "oklch(0.30 0.10 155 / 0.15)",
-                      color: "var(--color-good)",
+                      color: "var(--good)",
                       border: "1px solid oklch(0.45 0.10 155 / 0.30)",
                     }
                   : {
-                      background: "var(--color-warm-tint)",
-                      color: "var(--color-warm-bright)",
-                      border: "1px solid var(--color-warm-ring)",
+                      background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+                      color: "var(--warn)",
+                      border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
                     }
               }
             >
@@ -308,7 +308,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
 
       {/* Sticky actions bar */}
       <div
-        className="sticky bottom-0 z-10 border-t border-hairline px-6 py-3 backdrop-blur"
+        className="sticky bottom-0 z-10 border-t border-border px-6 py-3 backdrop-blur"
         style={{
           background:
             "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.65), oklch(0.15 0.010 265 / 0.85))",
@@ -345,7 +345,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12.5px] text-text-3 transition-colors hover:border-warm-ring hover:text-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card/55 px-3 py-1.5 text-[12.5px] text-muted-foreground transition-colors hover:border-warn/30 hover:text-warn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Trash2 className="h-3.5 w-3.5" />
               {t("common:delete")}
@@ -356,11 +356,11 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
                 type="button"
                 onClick={() => void handleDelete()}
                 disabled={deleting}
-                className="inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12.5px] font-semibold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 style={{
-                  background: "var(--color-warm-tint)",
-                  color: "var(--color-warm-bright)",
-                  border: "1px solid var(--color-warm-ring)",
+                  background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+                  color: "var(--warn)",
+                  border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
                 }}
               >
                 {deleting ? (

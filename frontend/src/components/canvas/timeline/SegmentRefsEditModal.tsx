@@ -243,17 +243,17 @@ export function SegmentRefsEditModal({
         {/* Header */}
         <div
           className="flex items-center gap-3 px-5 py-4"
-          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           <span
             aria-hidden
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+                "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+              color: "var(--primary)",
+              boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
             }}
           >
             <Link2 className="h-4 w-4" />
@@ -262,14 +262,14 @@ export function SegmentRefsEditModal({
             <h3
               id={titleId}
               className="display-serif truncate text-[15px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {t("segment_refs_edit_title")}
             </h3>
             <div
               className="num text-[10px] uppercase"
               style={{
-                color: "var(--color-text-4)",
+                color: "var(--muted-foreground)",
                 letterSpacing: "1.0px",
               }}
             >
@@ -281,12 +281,12 @@ export function SegmentRefsEditModal({
             className="flex w-44 items-center gap-2 rounded-md px-2.5 py-1.5 sm:w-52"
             style={{
               background: "oklch(0.16 0.010 265 / 0.6)",
-              border: "1px solid var(--color-hairline)",
+              border: "1px solid var(--border)",
             }}
           >
             <Search
               className="h-3.5 w-3.5 shrink-0"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
               aria-hidden="true"
             />
             <input
@@ -298,7 +298,7 @@ export function SegmentRefsEditModal({
               autoComplete="off"
               spellCheck={false}
               className="focus-ring min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             />
           </div>
 
@@ -361,7 +361,7 @@ export function SegmentRefsEditModal({
         <div
           className="flex items-center gap-2 px-5 py-3"
           style={{
-            borderTop: "1px solid var(--color-hairline-soft)",
+            borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
             background: "oklch(0.17 0.010 250 / 0.5)",
           }}
         >
@@ -369,7 +369,7 @@ export function SegmentRefsEditModal({
             className="num flex-1 text-[11px] uppercase"
             style={{
               letterSpacing: "0.8px",
-              color: hasChanges ? WARM_TONE.color : "var(--color-text-4)",
+              color: hasChanges ? WARM_TONE.color : "var(--muted-foreground)",
             }}
           >
             {hasChanges
@@ -433,11 +433,11 @@ function Section({
   return (
     <section>
       <div className="mb-2 flex items-center gap-2">
-        <span style={{ color: "var(--color-text-3)" }}>{icon}</span>
+        <span style={{ color: "var(--muted-foreground)" }}>{icon}</span>
         <h4
           className="num text-[10.5px] font-bold uppercase"
           style={{
-            color: "var(--color-text-3)",
+            color: "var(--muted-foreground)",
             letterSpacing: "1.0px",
           }}
         >
@@ -446,7 +446,7 @@ function Section({
         {rows.length > 0 && (
           <span
             className="num text-[10.5px]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {selectedCount}/{rows.length}
           </span>
@@ -469,7 +469,7 @@ function Section({
       {rows.length === 0 && hasQuery && (
         <p
           className="px-2 py-1 text-[11.5px]"
-          style={{ color: "var(--color-text-4)" }}
+          style={{ color: "var(--muted-foreground)" }}
         >
           {searchEmptyText}
         </p>
@@ -478,8 +478,8 @@ function Section({
         <div
           className="flex items-center gap-2 rounded-md px-3 py-2 text-[12px]"
           style={{
-            border: "1px dashed var(--color-hairline)",
-            color: "var(--color-text-4)",
+            border: "1px dashed var(--border)",
+            color: "var(--muted-foreground)",
           }}
         >
           <span className="flex-1">{emptyText}</span>
@@ -487,13 +487,13 @@ function Section({
             <button
               type="button"
               onClick={() => onManageClick(kind)}
-              className="focus-ring inline-flex items-center gap-1 rounded transition-colors"
-              style={{ color: "var(--color-accent-2)" }}
+              className="focus-ring inline-flex items-center gap-1 rounded-sm transition-colors"
+              style={{ color: "var(--primary)" }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--color-text)";
+                e.currentTarget.style.color = "var(--foreground)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--color-accent-2)";
+                e.currentTarget.style.color = "var(--primary)";
               }}
             >
               <span>{manageText}</span>
@@ -540,7 +540,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
   const baseStyle = row.isSkipped
     ? {
         background: "transparent",
-        border: "1px dashed var(--color-hairline)",
+        border: "1px dashed var(--border)",
       }
     : row.isStale
     ? {
@@ -550,14 +550,14 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
     : selected
       ? {
           background:
-            "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)",
-          border: "1px solid var(--color-accent-soft)",
+            "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent) 0%, oklch(0.20 0.011 265 / 0.5) 60%)",
+          border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
           boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 4px 14px -6px var(--color-accent-glow)",
+            "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 4px 14px -6px color-mix(in oklab, var(--primary) 35%, transparent)",
         }
       : {
           background: "oklch(0.20 0.011 265 / 0.4)",
-          border: "1px solid var(--color-hairline)",
+          border: "1px solid var(--border)",
         };
 
   return (
@@ -577,9 +577,9 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
       onMouseEnter={(e) => {
         if (row.isStale || row.isSkipped) return;
         if (selected) {
-          e.currentTarget.style.borderColor = "var(--color-accent)";
+          e.currentTarget.style.borderColor = "var(--primary)";
         } else {
-          e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
+          e.currentTarget.style.borderColor = "var(--input)";
           e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.7)";
         }
       }}
@@ -590,9 +590,9 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
           return;
         }
         if (selected) {
-          e.currentTarget.style.borderColor = "var(--color-accent-soft)";
+          e.currentTarget.style.borderColor = "color-mix(in oklab, var(--primary) 22%, transparent)";
         } else {
-          e.currentTarget.style.borderColor = "var(--color-hairline)";
+          e.currentTarget.style.borderColor = "var(--border)";
           e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.4)";
         }
       }}
@@ -623,14 +623,14 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
             selected ? "font-semibold" : "font-medium"
           }`}
           style={{
-            color: row.isStale ? WARM_TONE.color : "var(--color-text)",
+            color: row.isStale ? WARM_TONE.color : "var(--foreground)",
           }}
         >
           {formatReferenceName(row.name)}
           {row.isNew && (
             <span
-              className="ml-1.5 rounded px-1 py-px align-middle text-[10px] font-normal"
-              style={{ border: "1px solid var(--color-hairline)", color: "var(--color-text-3)" }}
+              className="ml-1.5 rounded-sm px-1 py-px align-middle text-[10px] font-normal"
+              style={{ border: "1px solid var(--border)", color: "var(--muted-foreground)" }}
             >
               {t("segment_refs_new_tag")}
             </span>
@@ -639,7 +639,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
         {row.isSkipped ? (
           <p
             className="truncate text-[11px]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {t("segment_refs_skipped_hint")}
           </p>
@@ -654,7 +654,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
           row.description && (
             <p
               className="truncate text-[11px]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {row.description.split("\n")[0]}
             </p>
@@ -669,14 +669,14 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
             ? {
                 color: "oklch(0.14 0 0)",
                 background:
-                  "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
-                border: "1px solid var(--color-accent-soft)",
+                  "var(--primary)",
+                border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
                 boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.35)",
               }
             : {
-                color: "var(--color-text-4)",
+                color: "var(--muted-foreground)",
                 background: "transparent",
-                border: "1px solid var(--color-hairline)",
+                border: "1px solid var(--border)",
               }
         }
       >

@@ -150,11 +150,11 @@ export function SystemConfigPage() {
 
   return (
     <div
-      className="relative flex h-screen flex-col text-text"
+      className="relative flex h-screen flex-col text-foreground"
       style={
         {
           background:
-            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
+            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--card), var(--sidebar))",
         }
       }
     >
@@ -166,7 +166,7 @@ export function SystemConfigPage() {
             "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
           backdropFilter: "blur(28px) saturate(1.5)",
           WebkitBackdropFilter: "blur(28px) saturate(1.5)",
-          borderBottom: "1px solid var(--color-hairline)",
+          borderBottom: "1px solid var(--border)",
           boxShadow:
             "inset 0 1px 0 oklch(1 0 0 / 0.05), 0 6px 24px -12px oklch(0 0 0 / 0.45)",
         }}
@@ -174,15 +174,15 @@ export function SystemConfigPage() {
         <div className="mx-auto flex max-w-[1320px] items-center gap-5 px-6 py-4">
           <Link
             href="/app/projects"
-            className="inline-flex items-center gap-1.5 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-card/45 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("common:back")}
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             <span>{t("common:back")}</span>
           </Link>
-          <span aria-hidden className="h-5 w-px bg-hairline-soft" />
+          <span aria-hidden className="h-5 w-px bg-border/50" />
           <div className="min-w-0 flex-1">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
               Control Booth — {currentLang.toUpperCase()}
             </div>
             <h1
@@ -192,11 +192,11 @@ export function SystemConfigPage() {
                 fontSize: 26,
                 lineHeight: 1.05,
                 letterSpacing: "-0.012em",
-                color: "var(--color-text)",
+                color: "var(--foreground)",
               }}
             >
               {t("common:settings")}
-              <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-text-3">
+              <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                 {t("dashboard:system_config_title")}
               </span>
             </h1>
@@ -204,7 +204,7 @@ export function SystemConfigPage() {
           <button
             type="button"
             onClick={cycleLang}
-            className="inline-flex items-center gap-2 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-2 rounded-md border border-border/50 bg-card/45 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title={langDisplay}
             aria-label={t("dashboard:language_setting")}
           >
@@ -221,12 +221,12 @@ export function SystemConfigPage() {
         {/* Sidebar */}
         <nav
           aria-label={t("common:settings")}
-          className="w-[220px] shrink-0 overflow-y-auto border-r border-hairline-soft px-3 py-5"
+          className="w-[220px] shrink-0 overflow-y-auto border-r border-border/50 px-3 py-5"
           style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
         >
           {SECTION_GROUPS.map((group, gi) => (
             <div key={group.kicker} className={gi > 0 ? "mt-5" : undefined}>
-              <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4">
+              <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
                 {group.kicker}
               </div>
               {group.items.map(({ id, labelKey, Icon }) => {
@@ -244,26 +244,26 @@ export function SystemConfigPage() {
                     aria-current={isActive ? "page" : undefined}
                     aria-pressed={isActive}
                     className={
-                      "group relative mb-0.5 flex w-full items-center gap-2.5 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                      "group relative mb-0.5 flex w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
                       (isActive
-                        ? "border-accent/35 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-accent-glow)]"
-                        : "border-transparent text-text-3 hover:border-hairline-soft hover:bg-bg-grad-a/55 hover:text-text")
+                        ? "border-primary/35 bg-primary/12 text-foreground shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
+                        : "border-transparent text-muted-foreground hover:border-border/50 hover:bg-card/55 hover:text-foreground")
                     }
                   >
                     {/* Active rail — thin accent bar on the left edge */}
                     <span
                       aria-hidden
-                      className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-[2px] transition-opacity"
+                      className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-xs transition-opacity"
                       style={{
                         background:
-                          "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                          "var(--primary)",
                         opacity: isActive ? 1 : 0,
                       }}
                     />
                     <Icon
                       className={
                         "h-3.5 w-3.5 shrink-0 " +
-                        (isActive ? "text-accent-2" : "text-text-3 group-hover:text-text-2")
+                        (isActive ? "text-primary" : "text-muted-foreground group-hover:text-subtle-foreground")
                       }
                     />
                     <span className="flex-1 truncate">{t(labelKey)}</span>
@@ -273,7 +273,7 @@ export function SystemConfigPage() {
                         className="grid h-4 w-4 place-items-center rounded-full"
                         style={{
                           background: "oklch(0.30 0.10 25 / 0.22)",
-                          color: "var(--color-warm-bright)",
+                          color: "var(--warn)",
                         }}
                       >
                         <AlertTriangle className="h-2.5 w-2.5" />
@@ -301,29 +301,29 @@ export function SystemConfigPage() {
               {/* Quick alert for config issues (hidden on the read-only prompt-templates section) */}
               {configIssues.length > 0 && activeSection !== "prompt-templates" && (
                 <div
-                  className="mb-7 rounded-[10px] border p-4"
+                  className="mb-7 rounded-lg border p-4"
                   style={{
-                    borderColor: "var(--color-warm-ring)",
-                    background: "var(--color-warm-tint)",
+                    borderColor: "color-mix(in oklab, var(--warn) 30%, transparent)",
+                    background: "color-mix(in oklab, var(--warn) 15%, transparent)",
                   }}
                 >
-                  <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm-bright">
+                  <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warn">
                     <AlertTriangle className="h-3.5 w-3.5" />
                     {t("dashboard:config_issues")}
                   </div>
-                  <p className="mb-2.5 text-[12px] leading-[1.55] text-text-2">
+                  <p className="mb-2.5 text-[12px] leading-[1.55] text-subtle-foreground">
                     {t("dashboard:config_issues_hint")}
                   </p>
                   <ul className="space-y-1.5">
                     {configIssues.map((issue, idx) => (
                       <li
                         key={idx}
-                        className="flex items-start gap-2 text-[12px] text-text-3"
+                        className="flex items-start gap-2 text-[12px] text-muted-foreground"
                       >
                         <span
                           aria-hidden
                           className="mt-1.5 h-[5px] w-[5px] shrink-0 rounded-full"
-                          style={{ background: "var(--color-warm)" }}
+                          style={{ background: "var(--warn)" }}
                         />
                         {t(`dashboard:${issue.label}`)}
                       </li>

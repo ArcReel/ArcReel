@@ -212,12 +212,12 @@ export function MarketInstallDialog({
             <EntryIcon entry={shown} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 id={titleId} className="font-editorial text-[24px] leading-tight text-text">
+                <h2 id={titleId} className="font-editorial text-[24px] leading-tight text-foreground">
                   {header.name}
                 </h2>
                 {installed && <MarketInstallBadges state={installed.state} modified={installed.modified} />}
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-text-3">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-muted-foreground">
                 <span>{header.author}</span>
                 <span aria-hidden>·</span>
                 <span>
@@ -235,14 +235,14 @@ export function MarketInstallDialog({
                     href={header.homepage}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-accent-2 hover:underline"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
                   >
                     {t("market_homepage")}
                     <ExternalLink className="h-3 w-3" aria-hidden />
                   </a>
                 )}
               </div>
-              {header.description && <p className="mt-2 text-[12.5px] text-text-2">{header.description}</p>}
+              {header.description && <p className="mt-2 text-[12.5px] text-subtle-foreground">{header.description}</p>}
               {official && (
                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                   {official.aggregate && <MarketEntryStats aggregate={official.aggregate} />}
@@ -257,14 +257,14 @@ export function MarketInstallDialog({
                 </div>
               )}
               {source?.kind === "custom" && (
-                <p className="mt-3 rounded-[8px] border border-warn/30 bg-warn/8 p-3 text-[12px] text-text-2">
+                <p className="mt-3 rounded-md border border-warn/30 bg-warn/8 p-3 text-[12px] text-subtle-foreground">
                   {t("market_unreviewed")}
                 </p>
               )}
             </div>
           </header>
           {!preview && !error && (
-            <p role="status" className="flex items-center gap-2 text-text-3">
+            <p role="status" className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
               {t("common:loading")}
             </p>
@@ -272,7 +272,7 @@ export function MarketInstallDialog({
           {preview && (
             <>
               <div className="grid gap-4 sm:grid-cols-2">
-                <section className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-3 text-[12px] text-text-2">
+                <section className="rounded-md border border-border/50 bg-card/35 p-3 text-[12px] text-subtle-foreground">
                   <h3 className={`${KICKER_CLS} mb-2`}>Validation</h3>
                   {!preview.matches && <p className="text-warn">{t("market_definition_mismatch")}</p>}
                   {validation?.errors.map((issue) => (
@@ -294,7 +294,7 @@ export function MarketInstallDialog({
                     </p>
                   )}
                 </section>
-                <section className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-3 text-[12px] text-text-2">
+                <section className="rounded-md border border-border/50 bg-card/35 p-3 text-[12px] text-subtle-foreground">
                   <h3 className={`${KICKER_CLS} mb-2`}>Hints</h3>
                   {validation?.hints?.base_url && (
                     <p className="break-all">
@@ -309,21 +309,21 @@ export function MarketInstallDialog({
                 </section>
               </div>
               {definition && (
-                <section className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-3 text-[12px] text-text-2">
+                <section className="rounded-md border border-border/50 bg-card/35 p-3 text-[12px] text-subtle-foreground">
                   <h3 className={`${KICKER_CLS} mb-2`}>Trust</h3>
                   <dl className="space-y-2 [&>div]:sm:grid [&>div]:sm:grid-cols-[auto_1fr] [&>div]:sm:gap-3">
                     <div>
                       <dt>{t("market_submit_url")}</dt>
-                      <dd className="break-all font-mono text-text">{displayValue(definition.submit.url)}</dd>
+                      <dd className="break-all font-mono text-foreground">{displayValue(definition.submit.url)}</dd>
                     </div>
                     <div>
                       <dt>{t("market_poll_url")}</dt>
-                      <dd className="break-all font-mono text-text">{displayValue(definition.poll.url)}</dd>
+                      <dd className="break-all font-mono text-foreground">{displayValue(definition.poll.url)}</dd>
                     </div>
                   </dl>
                   <details open className="mt-3">
                     <summary className="cursor-pointer">{t("market_auth")}</summary>
-                    <pre className="mt-2 overflow-x-auto rounded-[6px] bg-bg-grad-a p-3 text-[11px]">
+                    <pre className="mt-2 overflow-x-auto rounded-sm bg-card p-3 text-[11px]">
                       {JSON.stringify(definition.auth, null, 2)}
                     </pre>
                   </details>
@@ -340,8 +340,8 @@ export function MarketInstallDialog({
             </>
           )}
           {updating && (installed.modified || hasUnsavedEndpointChanges) && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-warn/35 bg-warn/8 px-3 py-2">
-              <p className="flex items-center gap-1.5 text-[12px] text-text-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-warn/35 bg-warn/8 px-3 py-2">
+              <p className="flex items-center gap-1.5 text-[12px] text-subtle-foreground">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
                 {t("market_modified_overwrite_warning")}
               </p>
@@ -359,9 +359,9 @@ export function MarketInstallDialog({
           {success && (
             <div
               role="status"
-              className="rounded-[8px] border border-good/30 bg-good/8 p-3 text-[12.5px] text-text-2"
+              className="rounded-md border border-good/30 bg-good/8 p-3 text-[12.5px] text-subtle-foreground"
             >
-              <p className="flex items-center gap-1.5 text-text">
+              <p className="flex items-center gap-1.5 text-foreground">
                 <Check className="h-3.5 w-3.5 text-good" aria-hidden />
                 {updatedTo === null ? t("market_install_success") : t("market_update_success", { version: updatedTo })}
               </p>
@@ -389,7 +389,7 @@ export function MarketInstallDialog({
             </div>
           )}
           {references && (
-            <div role="alert" className="text-[12px] text-text-2">
+            <div role="alert" className="text-[12px] text-subtle-foreground">
               <EndpointReferenceList references={references} onNavigateToModel={goToModel} />
             </div>
           )}
@@ -399,12 +399,12 @@ export function MarketInstallDialog({
             </p>
           )}
         </div>
-        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-hairline-soft px-6 py-3">
+        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 px-6 py-3">
           {installed ? (
             <button
               type="button"
               disabled={busy}
-              className={`${GHOST_BTN_CLS} text-danger`}
+              className={`${GHOST_BTN_CLS} text-destructive`}
               onClick={() => void uninstall()}
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden />

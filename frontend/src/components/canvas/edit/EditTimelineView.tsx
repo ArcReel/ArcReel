@@ -248,7 +248,7 @@ export function EditTimelineView({
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto px-6 py-5">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center rounded-[9px] border border-hairline bg-bg-grad-a/55 p-0.5">
+        <div className="flex items-center rounded-lg border border-border bg-card/55 p-0.5">
           <div role="tablist" aria-label={t("edit_view_timelines_aria")} className="flex flex-wrap">
             {timelines.map((item) => (
               <button
@@ -265,8 +265,8 @@ export function EditTimelineView({
                 tabIndex={item.id === selected.id ? 0 : -1}
                 onClick={() => choose(item.id)}
                 onKeyDown={onTabKeyDown}
-                className={`focus-ring rounded-[7px] px-3 py-1.5 text-[12.5px] transition-colors ${
-                  item.id === selected.id ? "bg-accent-dim text-text" : "text-text-3 hover:text-text"
+                className={`focus-ring rounded-md px-3 py-1.5 text-[12.5px] transition-colors ${
+                  item.id === selected.id ? "bg-primary/12 text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {item.name}
@@ -280,7 +280,7 @@ export function EditTimelineView({
             onDeleted={handleDeleted}
           />
         </div>
-        <span className="text-[12px] text-text-4">
+        <span className="text-[12px] text-muted-foreground">
           {updatedJustNow
             ? t("edit_view_updated_just_now", { author: authorName })
             : t("edit_view_updated", { author: authorName, time: updatedAt })}
@@ -448,7 +448,7 @@ function TimelinePreview({
         onSeek={playback.seek}
       />
       <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
-        <div className="rounded-[10px] border border-hairline bg-bg-grad-a p-4">
+        <div className="rounded-lg border border-border bg-card p-4">
           <ClipInspector
             projectName={projectName}
             clip={selectedClip}
@@ -456,7 +456,7 @@ function TimelinePreview({
             thumbnail={selectedClip ? thumbnails.get(selectedClip.unit_id) : undefined}
           />
         </div>
-        <div className="rounded-[10px] border border-hairline bg-bg-grad-a p-4">
+        <div className="rounded-lg border border-border bg-card p-4">
           <IssueList issues={readout.issues} clipIds={clipIds} onSelectClip={setSelectedClipId} />
         </div>
       </div>
@@ -466,7 +466,7 @@ function TimelinePreview({
 
 function Centered({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-[200px] flex-col items-center justify-center px-6 text-center text-[12.5px] text-text-3">
+    <div className="flex h-full min-h-[200px] flex-col items-center justify-center px-6 text-center text-[12.5px] text-muted-foreground">
       {children}
     </div>
   );
@@ -476,7 +476,7 @@ function LoadFailed({ message, onRetry }: { message: string; onRetry: () => void
   const { t } = useTranslation("dashboard");
   return (
     <Centered>
-      <p role="alert" className="text-danger-2">
+      <p role="alert" className="text-destructive">
         {t("edit_view_load_failed", { message })}
       </p>
       <button type="button" onClick={onRetry} className="sv-navbtn mt-3">

@@ -40,19 +40,19 @@ export function DropdownPill<T extends string>({
         className="focus-ring inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs transition-colors disabled:cursor-default"
         style={{
           background: "oklch(0.225 0.003 285 / 0.55)",
-          border: "1px solid var(--color-hairline-soft)",
-          color: "var(--color-text-2)",
+          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+          color: "var(--subtle-foreground)",
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "oklch(0.26 0.004 285 / 0.7)";
-          e.currentTarget.style.color = "var(--color-text)";
+          e.currentTarget.style.color = "var(--foreground)";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = "oklch(0.225 0.003 285 / 0.55)";
-          e.currentTarget.style.color = "var(--color-text-2)";
+          e.currentTarget.style.color = "var(--subtle-foreground)";
         }}
       >
-        {label && <span style={{ color: "var(--color-text-4)" }}>{label}</span>}
+        {label && <span style={{ color: "var(--muted-foreground)" }}>{label}</span>}
         <span>{display(value)}</span>
         {/* 只读态不画展开箭头：留着会暗示一个点不开的下拉 */}
         {!disabled && (
@@ -72,7 +72,7 @@ export function DropdownPill<T extends string>({
         style={{
           background:
             "linear-gradient(180deg, oklch(0.21 0.005 285 / 0.96), oklch(0.18 0.004 285 / 0.96))",
-          border: "1px solid var(--color-hairline)",
+          border: "1px solid var(--border)",
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",
         }}
@@ -90,19 +90,19 @@ export function DropdownPill<T extends string>({
               }}
               className="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors disabled:cursor-default"
               style={{
-                background: isActive ? "var(--color-accent-dim)" : "transparent",
-                color: isActive ? "var(--color-accent-2)" : "var(--color-text-2)",
+                background: isActive ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
+                color: isActive ? "var(--primary)" : "var(--subtle-foreground)",
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
                   e.currentTarget.style.background = "oklch(1 0 0 / 0.04)";
-                  e.currentTarget.style.color = "var(--color-text)";
+                  e.currentTarget.style.color = "var(--foreground)";
                 }
               }}
               onMouseLeave={(e) => {
                 if (!isActive) {
                   e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.color = "var(--color-text-2)";
+                  e.currentTarget.style.color = "var(--subtle-foreground)";
                 }
               }}
             >

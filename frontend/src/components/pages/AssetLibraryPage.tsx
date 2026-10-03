@@ -16,7 +16,6 @@ import {
   ACCENT_BUTTON_STYLE,
   ICON_BTN_FILLED_CLS,
   INPUT_CLS,
-  ambientGlowStyle,
 } from "@/components/shared/darkroom-tokens";
 import type { Asset, AssetType } from "@/types/asset";
 
@@ -45,8 +44,6 @@ const EMPTY_KEY: Record<AssetType, string> = {
   scene: "library_empty_scene",
   prop: "library_empty_prop",
 };
-
-const HEADER_GLOW_STYLE = ambientGlowStyle({ at: "30% 0%", intensity: 0.08 });
 
 export function AssetLibraryPage() {
   const { t } = useTranslation("assets");
@@ -184,11 +181,8 @@ export function AssetLibraryPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-bg text-text">
-      {/* Decorative ambient glow */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-72" style={HEADER_GLOW_STYLE} />
-
-      <header className="sticky top-0 z-30 border-b border-hairline bg-bg/85 backdrop-blur-[28px]">
+    <div className="relative flex min-h-screen flex-col bg-background text-foreground">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur-[28px]">
         <div className="mx-auto flex max-w-6xl items-start justify-between gap-6 px-6 py-6">
           <div className="flex items-start gap-4">
             <button
@@ -205,19 +199,19 @@ export function AssetLibraryPage() {
               <ChevronLeft className="h-4 w-4" />
             </button>
             <div>
-              <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-text-4">
+              <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                 library · assets
               </div>
-              <h1 className="font-editorial mt-0.5 text-[34px] leading-[1.05] tracking-tight text-text">
+              <h1 className="font-editorial mt-0.5 text-[34px] leading-[1.05] tracking-tight text-foreground">
                 {t("library_title")}
               </h1>
-              <p className="mt-1.5 text-[13px] text-text-3">{t("library_subtitle")}</p>
+              <p className="mt-1.5 text-[13px] text-muted-foreground">{t("library_subtitle")}</p>
             </div>
           </div>
 
           <div className="flex shrink-0 items-center gap-2 pt-2">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
                 aria-label={t("search_placeholder")}
@@ -249,8 +243,8 @@ export function AssetLibraryPage() {
             const active = activeTab === type;
             const count = byType[type].length;
             const cls = active
-              ? "border-accent/45 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-accent-glow)]"
-              : "border-hairline-soft bg-bg-grad-a/40 text-text-2 hover:border-hairline hover:text-text";
+              ? "border-primary/45 bg-primary/12 text-foreground shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
+              : "border-border/50 bg-card/40 text-subtle-foreground hover:border-border hover:text-foreground";
             return (
               <button
                 key={type}
@@ -266,13 +260,13 @@ export function AssetLibraryPage() {
                 tabIndex={active ? 0 : -1}
                 onClick={() => setActiveTab(type)}
                 onKeyDown={(e) => handleTabKeyDown(e, type)}
-                className={`inline-flex items-center gap-2 rounded-[8px] border px-3.5 py-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${cls}`}
+                className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${cls}`}
               >
-                <Icon className={`h-4 w-4 ${active ? "text-accent-2" : "text-text-4"}`} />
+                <Icon className={`h-4 w-4 ${active ? "text-primary" : "text-muted-foreground"}`} />
                 <span className="font-medium">{t(`type.${type}`)}</span>
                 <span
                   className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ${
-                    active ? "bg-accent-soft text-accent-2" : "bg-bg-grad-b/70 text-text-4"
+                    active ? "bg-primary/22 text-primary" : "bg-sidebar/70 text-muted-foreground"
                   }`}
                 >
                   {count}
@@ -289,15 +283,15 @@ export function AssetLibraryPage() {
           id="asset-panel"
           aria-labelledby={`asset-tab-${activeTab}`}
           tabIndex={0}
-          className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
         {assets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-hairline bg-bg-grad-a/30 py-24 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-dim text-accent-2">
+          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-card/30 py-24 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/12 text-primary">
               <ActiveIcon className="h-5 w-5" />
             </div>
-            <p className="font-editorial text-[20px] leading-tight text-text">{t(EMPTY_KEY[activeTab])}</p>
-            <p className="max-w-sm text-[12px] leading-5 text-text-4">{t("library_empty_hint")}</p>
+            <p className="font-editorial text-[20px] leading-tight text-foreground">{t(EMPTY_KEY[activeTab])}</p>
+            <p className="max-w-sm text-[12px] leading-5 text-muted-foreground">{t("library_empty_hint")}</p>
             <button
               type="button"
               onClick={() => setFormModal({ mode: "create" })}

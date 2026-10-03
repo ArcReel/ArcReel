@@ -7,7 +7,7 @@ export function newLaneColor(index: number): string {
   return index % 2 === 0 ? "oklch(0.8 0.09 295)" : "oklch(0.6 0.08 295)";
 }
 
-const PENDING_LANE = "repeating-linear-gradient(to bottom, var(--color-hairline-strong) 0 4px, transparent 4px 8px)";
+const PENDING_LANE = "repeating-linear-gradient(to bottom, var(--input) 0 4px, transparent 4px 8px)";
 
 function laneBackground(lane: CompareLane): string {
   return lane.kind === "pending" ? PENDING_LANE : newLaneColor(lane.index);
@@ -60,7 +60,7 @@ export function BoundaryRule() {
       data-no-caret
       data-replan-diff
       className="pointer-events-none absolute -right-6 left-0 border-t border-dashed"
-      style={{ top: `calc(${PARAGRAPH_GAP} / -2)`, borderColor: "var(--color-warm)" }}
+      style={{ top: `calc(${PARAGRAPH_GAP} / -2)`, borderColor: "var(--warn)" }}
     >
       <span className="sr-only">{t("replan_boundary_differs")}</span>
     </span>
@@ -80,7 +80,7 @@ export function BoundaryTick() {
       <span
         aria-hidden
         className="absolute -left-px top-0 h-full border-l-2 border-dashed"
-        style={{ borderColor: "var(--color-warm)" }}
+        style={{ borderColor: "var(--warn)" }}
       />
       <span className="sr-only">{t("replan_boundary_differs")}</span>
     </span>
@@ -92,8 +92,8 @@ export function WaitingBadge() {
   const { t } = useTranslation("dashboard");
   return (
     <span
-      className="inline-flex items-center rounded px-1.5 py-px text-[10.5px] leading-[1.6] text-text-3"
-      style={{ border: "1px dashed var(--color-hairline-strong)" }}
+      className="inline-flex items-center rounded-sm px-1.5 py-px text-[10.5px] leading-[1.6] text-muted-foreground"
+      style={{ border: "1px dashed var(--input)" }}
     >
       {t("replan_waiting")}
     </span>

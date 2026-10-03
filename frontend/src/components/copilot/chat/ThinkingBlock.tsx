@@ -31,7 +31,7 @@ export function ThinkingBlock({ thinking, streaming }: ThinkingBlockProps) {
     return (
       <div
         className="my-1 flex items-center gap-1.5 text-[11.5px] motion-safe:animate-pulse"
-        style={{ color: "var(--color-text-4)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         <span aria-hidden="true">{"✳"}</span>
         <span>{t("thinking_streaming")}</span>
@@ -51,7 +51,7 @@ export function ThinkingBlock({ thinking, streaming }: ThinkingBlockProps) {
         aria-expanded={isExpanded}
         aria-controls={detailsId}
         aria-label={t("thinking_process_label")}
-        className="flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors"
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-sm px-1 py-0.5 text-left transition-colors"
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "oklch(1 0 0 / 0.04)";
         }}
@@ -59,13 +59,13 @@ export function ThinkingBlock({ thinking, streaming }: ThinkingBlockProps) {
           e.currentTarget.style.background = "transparent";
         }}
       >
-        <span aria-hidden="true" className="shrink-0 text-[11.5px]" style={{ color: "var(--color-text-4)" }}>
+        <span aria-hidden="true" className="shrink-0 text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
           {"✳"}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11.5px] italic" style={{ color: "var(--color-text-3)" }}>
+        <span className="min-w-0 flex-1 truncate text-[11.5px] italic" style={{ color: "var(--muted-foreground)" }}>
           {firstLine(thinking)}
         </span>
-        <span className="shrink-0 text-[10px]" style={{ color: "var(--color-text-4)" }}>
+        <span className="shrink-0 text-[10px]" style={{ color: "var(--muted-foreground)" }}>
           {isExpanded ? "▼" : "▶"}
         </span>
       </button>
@@ -73,9 +73,9 @@ export function ThinkingBlock({ thinking, streaming }: ThinkingBlockProps) {
         <div
           id={detailsId}
           className="ml-1.5 mt-1 pl-2.5"
-          style={{ borderLeft: "2px solid var(--color-accent-soft)" }}
+          style={{ borderLeft: "2px solid color-mix(in oklab, var(--primary) 22%, transparent)" }}
         >
-          <p className="whitespace-pre-wrap text-[11.5px] italic leading-[1.55]" style={{ color: "var(--color-text-3)" }}>
+          <p className="whitespace-pre-wrap text-[11.5px] italic leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
             {thinking}
           </p>
         </div>

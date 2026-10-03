@@ -72,8 +72,8 @@ function ReferenceAudioSection({
   if (!collapsed) return <>{children}</>;
   return (
     <details className="mt-1.5">
-      <summary className="cursor-pointer text-[11px] text-[var(--color-text-4)]">{summary}</summary>
-      <p className="mt-1 text-[10px] leading-[1.5]" style={{ color: "var(--color-text-4)" }}>
+      <summary className="cursor-pointer text-[11px] text-muted-foreground">{summary}</summary>
+      <p className="mt-1 text-[10px] leading-[1.5]" style={{ color: "var(--muted-foreground)" }}>
         {hint}
       </p>
       {children}
@@ -84,8 +84,8 @@ function ReferenceAudioSection({
 const FIELD_STYLE: React.CSSProperties = {
   background:
     "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -352,7 +352,7 @@ export function CharacterCard({
       style={{
         background:
           "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))",
-        border: "1px solid var(--color-hairline-soft)",
+        border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         boxShadow:
           "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 12px 30px -12px oklch(0 0 0 / 0.4)",
       }}
@@ -363,7 +363,7 @@ export function CharacterCard({
         className="pointer-events-none absolute inset-x-5 top-0 h-px"
         style={{
           background:
-            "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+            "linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent)",
         }}
       />
 
@@ -373,9 +373,9 @@ export function CharacterCard({
           aria-hidden
           className="grid h-7 w-7 shrink-0 place-items-center rounded-md"
           style={{
-            background: "var(--color-accent-dim)",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
+            background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+            color: "var(--primary)",
           }}
         >
           <User className="h-3.5 w-3.5" />
@@ -398,7 +398,7 @@ export function CharacterCard({
             title={t("assets:upload_sheet")}
             aria-label={t("assets:upload_sheet")}
             className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             <Upload className="h-3.5 w-3.5" />
           </button>
@@ -433,7 +433,7 @@ export function CharacterCard({
             initialVoiceStyle={character.voice_style ?? ""}
             sheetPath={character.character_sheet}
             busy={generating || uploadingSheet}
-            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
+            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
           />
           <VersionTimeMachine
             projectName={projectName}
@@ -460,7 +460,7 @@ export function CharacterCard({
           <CapsLabel>{t("character_design")}</CapsLabel>
           <div
             className="relative mt-1.5 overflow-hidden rounded-lg"
-            style={{ border: "1px solid var(--color-hairline-soft)" }}
+            style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
           >
             <PreviewableImageFrame
               src={sheetUrl && !imgError ? sheetUrl : null}
@@ -475,7 +475,7 @@ export function CharacterCard({
                   fallback={
                     <div
                       className="flex h-full w-full flex-col items-center justify-center gap-2"
-                      style={{ color: "var(--color-text-4)" }}
+                      style={{ color: "var(--muted-foreground)" }}
                     >
                       <User className="h-10 w-10" />
                       <span className="text-xs">{t("click_to_generate")}</span>
@@ -501,7 +501,7 @@ export function CharacterCard({
                     ? clearPendingReference()
                     : fileInputRef.current?.click()
                 }
-                className="focus-ring text-[11px] text-[var(--color-text-3)] transition-colors hover:text-[var(--color-text)]"
+                className="focus-ring text-[11px] text-muted-foreground transition-colors hover:text-foreground"
               >
                 {referenceFile ? t("cancel_pending") : t("replace")}
               </button>
@@ -516,7 +516,7 @@ export function CharacterCard({
             >
               <div
                 className="relative mt-1.5 overflow-hidden rounded-lg"
-                style={{ border: "1px solid var(--color-hairline-soft)" }}
+                style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
               >
                 <img
                   src={displayedReferenceUrl}
@@ -532,7 +532,7 @@ export function CharacterCard({
                 >
                   <span
                     className="flex items-center gap-1.5 text-[11px]"
-                    style={{ color: "var(--color-text)" }}
+                    style={{ color: "var(--foreground)" }}
                   >
                     <ImagePlus className="h-3.5 w-3.5" />
                     {referenceFile ? t("unsaved_reference") : t("saved_reference")}
@@ -541,10 +541,10 @@ export function CharacterCard({
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="focus-ring rounded px-2 py-0.5 text-[11px] transition-colors"
+                    className="focus-ring rounded-sm px-2 py-0.5 text-[11px] transition-colors"
                     style={{
                       background: "oklch(0 0 0 / 0.5)",
-                      color: "var(--color-text)",
+                      color: "var(--foreground)",
                       border: "1px solid oklch(1 0 0 / 0.1)",
                     }}
                   >
@@ -558,7 +558,7 @@ export function CharacterCard({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-4 text-sm text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
+              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground transition-colors hover:border-primary/22 hover:text-subtle-foreground"
               style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
             >
               <Upload className="h-4 w-4" />
@@ -647,9 +647,9 @@ export function CharacterCard({
                 aria-label={isAudioPlaying ? t("pause_audio_sample") : t("play_audio_sample")}
                 className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors"
                 style={{
-                  background: "var(--color-accent-dim)",
-                  border: "1px solid var(--color-accent-soft)",
-                  color: "var(--color-accent-2)",
+                  background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                  border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                  color: "var(--primary)",
                 }}
               >
                 {isAudioPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 translate-x-px" />}
@@ -657,23 +657,23 @@ export function CharacterCard({
 
               <div
                 className="relative h-1 flex-1 overflow-hidden rounded-full"
-                style={{ background: "var(--color-hairline)" }}
+                style={{ background: "var(--border)" }}
               >
                 <div
                   className="absolute inset-y-0 left-0 rounded-full"
                   style={{
                     width: `${Math.round(audioProgress * 100)}%`,
                     background:
-                      "linear-gradient(90deg, var(--color-accent-2), var(--color-accent))",
+                      "var(--primary)",
                   }}
                 />
               </div>
 
-              <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-text-4)" }}>
+              <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--muted-foreground)" }}>
                 {formatAudioDuration(audioDuration)}
               </span>
 
-              <span className="shrink-0 text-[11px]" style={{ color: "var(--color-text-3)" }}>
+              <span className="shrink-0 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
                 {audioFile ? t("unsaved_audio") : t("saved_audio")}
               </span>
 
@@ -691,7 +691,7 @@ export function CharacterCard({
                   title={t("change")}
                   aria-label={t("upload_character_audio_ref_aria")}
                   className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-                  style={{ color: "var(--color-text-3)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   <Upload className="h-3 w-3" />
                 </button>
@@ -702,7 +702,7 @@ export function CharacterCard({
                   title={audioFile ? t("cancel_pending") : t("delete_audio_sample")}
                   aria-label={audioFile ? t("cancel_pending") : t("delete_audio_sample")}
                   className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ color: "var(--color-text-3)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -734,7 +734,7 @@ export function CharacterCard({
               <button
                 type="button"
                 onClick={() => audioInputRef.current?.click()}
-                className="focus-ring flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-2.5 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
+                className="focus-ring flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-[13px] text-muted-foreground transition-colors hover:border-primary/22 hover:text-subtle-foreground"
                 style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
               >
                 <Upload className="h-3.5 w-3.5" />
@@ -751,7 +751,7 @@ export function CharacterCard({
             </div>
           )}
           {!displayedAudioUrl && (
-            <p className="mt-1 text-[10px]" style={{ color: "var(--color-text-4)" }}>
+            <p className="mt-1 text-[10px]" style={{ color: "var(--muted-foreground)" }}>
               {t("reference_audio_hint")}
             </p>
           )}
@@ -777,9 +777,9 @@ export function CharacterCard({
           style={{
             color: "oklch(0.14 0 0)",
             background:
-              "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+              "var(--primary)",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
           }}
         >
           {saving ? t("common:saving") : t("common:save")}
@@ -817,7 +817,7 @@ function CapsLabel({
     <label
       htmlFor={htmlFor}
       className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-      style={{ color: "var(--color-text-4)" }}
+      style={{ color: "var(--muted-foreground)" }}
     >
       {children}
     </label>

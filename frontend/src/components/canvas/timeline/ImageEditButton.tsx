@@ -29,8 +29,8 @@ interface ImageEditButtonProps {
 const FIELD_STYLE: CSSProperties = {
   background:
     "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -117,7 +117,7 @@ export function ImageEditButton({
         title={triggerTitle}
         aria-label={t("image_edit_action")}
         className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-        style={{ color: "var(--color-text-3)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         <Wand2 className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
@@ -134,14 +134,14 @@ export function ImageEditButton({
           <h2
             id={titleId}
             className="display-serif text-[17px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {t("image_edit_modal_title")}
           </h2>
           <p
             id={descId}
             className="mt-1.5 text-[12.5px] leading-[1.55]"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {t("image_edit_modal_desc", { name: resourceId })}
           </p>
@@ -149,7 +149,7 @@ export function ImageEditButton({
           <label
             htmlFor={fieldId}
             className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {t("image_edit_instruction_label")}
           </label>
@@ -177,7 +177,7 @@ export function ImageEditButton({
               onClick={close}
               disabled={submitting}
               className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ color: "var(--color-text-2)" }}
+              style={{ color: "var(--subtle-foreground)" }}
             >
               {t("common:cancel")}
             </button>
@@ -189,9 +189,9 @@ export function ImageEditButton({
               style={{
                 color: "oklch(0.14 0 0)",
                 background:
-                  "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                  "var(--primary)",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
               }}
             >
               <Wand2 className="h-3.5 w-3.5" aria-hidden="true" />

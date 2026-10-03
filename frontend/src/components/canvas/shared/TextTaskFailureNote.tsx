@@ -56,7 +56,7 @@ export function TextTaskFailureNote({
         type="button"
         aria-label={t("common:close")}
         onClick={() => setDismissedTaskId(failure.task.task_id)}
-        className="focus-ring shrink-0 rounded p-0.5 text-text-4 hover:text-text-2"
+        className="focus-ring shrink-0 rounded-sm p-0.5 text-muted-foreground hover:text-subtle-foreground"
       >
         <X className="h-3.5 w-3.5" aria-hidden />
       </button>

@@ -105,7 +105,7 @@ export function MessageRow({
             title={t("message_edit")}
             aria-label={t("message_edit")}
             className="focus-ring grid h-6 w-6 place-items-center rounded-md transition-colors hover:bg-white/10"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             <Pencil aria-hidden className="h-3.5 w-3.5" />
           </button>
@@ -118,7 +118,7 @@ export function MessageRow({
 
 function TimeStamp({ time, className }: { time: string; className: string }) {
   return (
-    <span className={`${className} text-[10.5px] tabular-nums`} style={{ color: "var(--color-text-4)" }}>
+    <span className={`${className} text-[10.5px] tabular-nums`} style={{ color: "var(--muted-foreground)" }}>
       {time}
     </span>
   );
@@ -203,7 +203,7 @@ function MessageEditor({
     <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
       <div
         className={BUBBLE_LABEL_CLASS}
-        style={{ ...BUBBLE_LABEL_STYLE, color: "var(--color-accent-2)" }}
+        style={{ ...BUBBLE_LABEL_STYLE, color: "var(--primary)" }}
       >
         {t("message_edit_title")}
       </div>
@@ -215,17 +215,17 @@ function MessageEditor({
                 src={dataUrl}
                 alt={t("message_edit_attachment", { index: index + 1, total: images.length })}
                 className="h-14 w-14 rounded-md object-cover"
-                style={{ border: "1px solid var(--color-hairline)" }}
+                style={{ border: "1px solid var(--border)" }}
               />
               <button
                 type="button"
                 disabled={submitting}
                 onClick={() => removeImage(id)}
-                className="focus-ring absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full transition-colors hover:bg-[var(--color-danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="focus-ring absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full transition-colors hover:bg-destructive disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   background: "oklch(0.14 0.008 265)",
-                  color: "var(--color-text-2)",
-                  border: "1px solid var(--color-hairline)",
+                  color: "var(--subtle-foreground)",
+                  border: "1px solid var(--border)",
                 }}
                 aria-label={t("message_edit_remove_attachment", { index: index + 1, total: images.length })}
               >
@@ -241,7 +241,7 @@ function MessageEditor({
           disabled={attachDisabled}
           onClick={() => fileInputRef.current?.click()}
           className="focus-ring flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline-soft)" }}
+          style={{ color: "var(--muted-foreground)", border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
           title={images.length >= MAX_ATTACHED_IMAGES
             ? t("max_images_hint", { count: MAX_ATTACHED_IMAGES })
             : t("attach_image")}
@@ -249,7 +249,7 @@ function MessageEditor({
           <Paperclip aria-hidden className="h-3 w-3" />
           {t("attach_image")}
         </button>
-        {attachError && <span role="alert" className="text-[10.5px] text-[var(--color-danger)]">{attachError}</span>}
+        {attachError && <span role="alert" className="text-[10.5px] text-destructive">{attachError}</span>}
         <input
           ref={fileInputRef}
           type="file"
@@ -297,8 +297,8 @@ function MessageEditor({
         className="focus-ring w-full resize-none rounded-md px-2 py-1.5 text-[12.5px] leading-[1.55] disabled:opacity-60"
         style={{
           background: "oklch(0.17 0.01 260 / 0.6)",
-          border: "1px solid var(--color-hairline-soft)",
-          color: "var(--color-text)",
+          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+          color: "var(--foreground)",
         }}
       />
       <p className="mt-1.5 flex items-start gap-1 text-[10.5px] leading-[1.5]" style={{ color: AMBER }}>
@@ -312,7 +312,7 @@ function MessageEditor({
           disabled={submitting}
           onClick={onCancel}
           className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline-soft)" }}
+          style={{ color: "var(--muted-foreground)", border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           {t("message_edit_cancel")}
         </button>
@@ -322,7 +322,7 @@ function MessageEditor({
           onClick={submit}
           title={t("message_edit_resend_hint")}
           className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ background: "var(--color-accent)", color: "oklch(0.12 0 0)" }}
+          style={{ background: "var(--primary)", color: "oklch(0.12 0 0)" }}
         >
           {submitting ? t("message_edit_resending") : t("message_edit_resend")}
         </button>

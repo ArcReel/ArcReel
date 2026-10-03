@@ -45,7 +45,7 @@ export function JsonBodyEditor({
         className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.6]`}
       />
       {invalid && (
-        <span role="alert" className="mt-1.5 block text-[12px] text-warm-bright">
+        <span role="alert" className="mt-1.5 block text-[12px] text-warn">
           {t("ce_json_parse_error")}
         </span>
       )}

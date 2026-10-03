@@ -297,12 +297,12 @@ export function MentionPicker({
                             alt=""
                             aria-hidden="true"
                             loading="lazy"
-                            className={`h-7 w-7 shrink-0 rounded object-cover ${palette.borderClass} border`}
+                            className={`h-7 w-7 shrink-0 rounded-sm object-cover ${palette.borderClass} border`}
                           />
                         ) : (
                           <span
                             aria-hidden="true"
-                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded ${palette.bgClass} ${palette.borderClass} border`}
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-sm ${palette.bgClass} ${palette.borderClass} border`}
                           >
                             <span className={`h-2 w-2 rounded-full ${palette.bgClass} ${palette.borderClass} border`} />
                           </span>
@@ -311,7 +311,7 @@ export function MentionPicker({
                           {formatReferenceName(item.name)}
                         </span>
                         {splitDerivativeReference(item.name)[1] && (
-                          <span className="shrink-0 rounded bg-indigo-800/60 px-1 py-0.5 text-[10px] font-semibold text-indigo-300">
+                          <span className="shrink-0 rounded-sm bg-indigo-800/60 px-1 py-0.5 text-[10px] font-semibold text-indigo-300">
                             {t("reference_picker_derivative_tag")}
                           </span>
                         )}

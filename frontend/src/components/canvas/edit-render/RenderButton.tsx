@@ -44,8 +44,8 @@ export function RenderButton({
           <button
             type="button"
             onClick={onShowIssues}
-            className="focus-ring rounded text-[12px] underline decoration-dotted underline-offset-2"
-            style={{ color: "var(--color-danger)" }}
+            className="focus-ring rounded-sm text-[12px] underline decoration-dotted underline-offset-2"
+            style={{ color: "var(--destructive)" }}
             title={reason}
           >
             {t("edit_render_blocked_view_issues", { count })}

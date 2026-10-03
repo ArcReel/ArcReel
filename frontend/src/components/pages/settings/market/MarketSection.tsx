@@ -6,12 +6,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { formatRelativeTime } from "@/utils/date-format";
-import {
-  GHOST_BTN_CLS,
-  INPUT_CLS,
-  ambientGlowStyle,
-  posterGridStyle,
-} from "@/components/shared/darkroom-tokens";
+import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { PillSwitch } from "@/components/legacy/PillSwitch";
 import type {
   MarketEntry,
@@ -295,30 +290,20 @@ export function MarketSection() {
 
   return (
     <div className="relative">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-56"
-        style={ambientGlowStyle({ at: "30% 0%", intensity: 0.14 })}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-56 opacity-[0.05]"
-        style={posterGridStyle({ size: 36, maskShape: "80% 100% at 50% 0%" })}
-      />
       <div className="relative mx-auto max-w-6xl px-8 pb-16 pt-10">
         <header className="mb-6 flex flex-wrap items-end gap-4">
           <div className="min-w-[16rem] flex-1">
             <div className={KICKER_ACCENT_CLS}>
               {marketKicker(allEntries.length, enabled.length)}
             </div>
-            <h2 className="mt-1 font-editorial text-[32px] leading-none text-text">
+            <h2 className="mt-1 font-editorial text-[32px] leading-none text-foreground">
               {t("market_section_title")}
             </h2>
           </div>
           <label className="relative w-full sm:w-72">
             <span className="sr-only">{t("market_search_label")}</span>
             <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4"
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
               aria-hidden
             />
             <input
@@ -359,14 +344,14 @@ export function MarketSection() {
         {failing.length > 0 && (
           <div
             role="status"
-            className="mb-5 rounded-[8px] border border-warn/30 bg-warn/8 px-3 py-2 text-[12px] text-text-2"
+            className="mb-5 rounded-md border border-warn/30 bg-warn/8 px-3 py-2 text-[12px] text-subtle-foreground"
           >
             {failing.map((source) => {
               const snapshotTime = formatRelativeTime(source.fetched_at, i18n.language);
               const status = t(`market_status_${source.status}`);
               return (
                 <div key={source.id}>
-                  <strong className="text-text">{source.display_name}</strong>
+                  <strong className="text-foreground">{source.display_name}</strong>
                   {source.last_error
                     ? t("market_banner_detail", { status, error: source.last_error })
                     : t("market_banner_detail_no_error", { status })}
@@ -387,8 +372,8 @@ export function MarketSection() {
                 aria-pressed={type.available}
                 className={`rounded-full border px-3 py-1 text-[12px] ${
                   type.available
-                    ? "border-accent/45 bg-accent-dim text-text"
-                    : "cursor-not-allowed border-hairline-soft text-text-4"
+                    ? "border-primary/45 bg-primary/12 text-foreground"
+                    : "cursor-not-allowed border-border/50 text-muted-foreground"
                 }`}
               >
                 {t(type.labelKey)}
@@ -400,7 +385,7 @@ export function MarketSection() {
               </button>
             ))}
           </div>
-          <span className="hidden h-4 w-px bg-hairline sm:block" aria-hidden />
+          <span className="hidden h-4 w-px bg-border sm:block" aria-hidden />
           <div
             role="group"
             aria-label={t("market_media_filter_label")}
@@ -419,8 +404,8 @@ export function MarketSection() {
                   onClick={() => setMediaFilter(filter.id)}
                   className={`rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
                     on
-                      ? "border-accent/45 bg-accent-dim text-text"
-                      : "border-hairline-soft text-text-3 hover:text-text"
+                      ? "border-primary/45 bg-primary/12 text-foreground"
+                      : "border-border/50 text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {t(filter.labelKey)}
@@ -428,7 +413,7 @@ export function MarketSection() {
               );
             })}
           </div>
-          <span className="hidden h-4 w-px bg-hairline sm:block" aria-hidden />
+          <span className="hidden h-4 w-px bg-border sm:block" aria-hidden />
           <div
             role="group"
             aria-label={t("market_source_filter_label")}
@@ -447,8 +432,8 @@ export function MarketSection() {
                   onClick={() => toggleSourceFilter(source.id)}
                   className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
                     on
-                      ? "border-accent/45 bg-accent-dim text-text"
-                      : "border-hairline-soft text-text-3 hover:text-text"
+                      ? "border-primary/45 bg-primary/12 text-foreground"
+                      : "border-border/50 text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   <SourceStatusDot source={source} refreshing={refreshingIds.has(source.id)} />
@@ -457,7 +442,7 @@ export function MarketSection() {
               );
             })}
           </div>
-          <div className="ml-auto flex items-center gap-2 text-[12px] text-text-3">
+          <div className="ml-auto flex items-center gap-2 text-[12px] text-muted-foreground">
             <span id={onlyInstalledId}>{t("market_only_installed")}</span>
             <PillSwitch
               checked={onlyInstalled}
@@ -469,7 +454,7 @@ export function MarketSection() {
 
         {entries !== null &&
           (visible.length === 0 ? (
-            <p className="rounded-[10px] border border-dashed border-hairline-soft px-4 py-12 text-center text-[12.5px] text-text-4">
+            <p className="rounded-lg border border-dashed border-border/50 px-4 py-12 text-center text-[12.5px] text-muted-foreground">
               {allEntries.length === 0 ? t("market_no_entries") : t("market_no_matching_entries")}
             </p>
           ) : (
@@ -498,9 +483,9 @@ export function MarketSection() {
           <MarketSubmissionList submissions={submissions} onOpenEndpoint={openEndpoint} />
         )}
 
-        <div className="mt-14 rounded-[12px] border border-dashed border-hairline px-6 py-5 text-center">
+        <div className="mt-14 rounded-xl border border-dashed border-border px-6 py-5 text-center">
           <div className={KICKER_CLS}>Contribute</div>
-          <p className="mt-1.5 text-[13px] text-text-2">{t("market_contribute_body")}</p>
+          <p className="mt-1.5 text-[13px] text-subtle-foreground">{t("market_contribute_body")}</p>
           <a
             href={MARKET_CONTRIBUTING_URL}
             target="_blank"

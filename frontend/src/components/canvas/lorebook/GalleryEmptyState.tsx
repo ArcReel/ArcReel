@@ -19,21 +19,21 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
       disabled={!onClick}
       className="focus-ring group relative w-full overflow-hidden rounded-2xl px-8 py-16 text-center transition-colors disabled:cursor-default"
       style={{
-        border: "1px dashed var(--color-hairline)",
+        border: "1px dashed var(--border)",
         background:
-          "radial-gradient(600px 280px at 50% -10%, var(--color-accent-dim), transparent 60%), oklch(0.18 0.010 265 / 0.35)",
+          "radial-gradient(600px 280px at 50% -10%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 60%), oklch(0.18 0.010 265 / 0.35)",
       }}
       onMouseEnter={
         onClick
           ? (e) => {
-              e.currentTarget.style.borderColor = "var(--color-accent-soft)";
+              e.currentTarget.style.borderColor = "color-mix(in oklab, var(--primary) 22%, transparent)";
             }
           : undefined
       }
       onMouseLeave={
         onClick
           ? (e) => {
-              e.currentTarget.style.borderColor = "var(--color-hairline)";
+              e.currentTarget.style.borderColor = "var(--border)";
             }
           : undefined
       }
@@ -44,7 +44,7 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
         className="pointer-events-none absolute inset-x-0 top-0 h-px"
         style={{
           background:
-            "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+            "linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent)",
         }}
       />
 
@@ -54,10 +54,10 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
           className="grid h-14 w-14 place-items-center rounded-2xl"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.04))",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
-            boxShadow: "0 12px 30px -10px var(--color-accent-glow)",
+              "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.04))",
+            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+            color: "var(--primary)",
+            boxShadow: "0 12px 30px -10px color-mix(in oklab, var(--primary) 35%, transparent)",
           }}
         >
           {icon}
@@ -65,13 +65,13 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
         <div className="space-y-1">
           <div
             className="display-serif text-[18px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {label}
           </div>
           <p
             className="text-[12.5px] leading-[1.6]"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {hint}
           </p>
@@ -82,9 +82,9 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
             style={{
               color: "oklch(0.14 0 0)",
               background:
-                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                "var(--primary)",
               boxShadow:
-                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
             }}
           >
             <Plus className="h-3.5 w-3.5" />

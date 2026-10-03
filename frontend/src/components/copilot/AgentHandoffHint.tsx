@@ -104,7 +104,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
           width: 340,
           borderRadius: 14,
           padding: "16px 18px 14px",
-          border: "1px solid var(--color-hairline)",
+          border: "1px solid var(--border)",
           background:
             "linear-gradient(180deg, oklch(0.22 0.014 285 / 0.96), oklch(0.18 0.011 270 / 0.94))",
           boxShadow:
@@ -120,7 +120,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
           className="pointer-events-none absolute inset-x-0 top-0 h-px"
           style={{
             background:
-              "linear-gradient(90deg, transparent 6%, var(--color-accent-2) 50%, transparent 94%)",
+              "linear-gradient(90deg, transparent 6%, var(--primary) 50%, transparent 94%)",
             opacity: 0.7,
             borderTopLeftRadius: 14,
             borderTopRightRadius: 14,
@@ -151,8 +151,8 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
             height: 1.5,
             borderRadius: 999,
             background:
-              "linear-gradient(90deg, var(--color-accent-2) 0%, oklch(0.76 0.09 295 / 0.4) 100%)",
-            boxShadow: "0 0 8px var(--color-accent-glow)",
+              "linear-gradient(90deg, var(--primary) 0%, oklch(0.76 0.09 295 / 0.4) 100%)",
+            boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
           }}
         />
         <span
@@ -165,8 +165,8 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
             height: 0,
             borderTop: "6px solid transparent",
             borderBottom: "6px solid transparent",
-            borderLeft: "8px solid var(--color-accent-2)",
-            filter: "drop-shadow(0 0 6px var(--color-accent-glow))",
+            borderLeft: "8px solid var(--primary)",
+            filter: "drop-shadow(0 0 6px color-mix(in oklab, var(--primary) 35%, transparent))",
           }}
         />
 
@@ -181,7 +181,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
                   "linear-gradient(135deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
                 color: "oklch(0.14 0 0)",
                 boxShadow:
-                  "0 6px 18px -6px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
+                  "0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.4)",
               }}
             >
               <Sparkles className="h-[18px] w-[18px]" strokeWidth={2.2} />
@@ -191,13 +191,13 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
           <div className="min-w-0 flex-1">
             <p
               className="agent-handoff-headline display-serif text-[18px] font-semibold leading-tight tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {t("agent_handoff_headline")}
             </p>
             <p
               className="agent-handoff-subtitle mt-1 text-[12.5px] leading-relaxed"
-              style={{ color: "var(--color-text-2)" }}
+              style={{ color: "var(--subtle-foreground)" }}
             >
               {t("agent_handoff_subtitle")}
             </p>
@@ -210,7 +210,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
             aria-label={t("agent_handoff_dismiss")}
             title={t("agent_handoff_dismiss")}
             className="focus-ring pointer-events-auto -mr-1.5 -mt-1.5 shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.06)]"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             <X className="h-3.5 w-3.5" />
           </button>

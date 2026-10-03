@@ -65,7 +65,7 @@ export function EditTimelineMenu({ projectName, timeline, onRenamed, onDeleted }
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((value) => !value)}
-        className="focus-ring ml-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-text-3 transition-colors hover:bg-[oklch(1_0_0_/_0.06)] hover:text-text"
+        className="focus-ring ml-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.06)] hover:text-foreground"
       >
         <MoreHorizontal className="h-4 w-4" aria-hidden />
       </button>
@@ -89,10 +89,10 @@ export function EditTimelineMenu({ projectName, timeline, onRenamed, onDeleted }
             else onMenuKeyDown(event);
           }}
         >
-          <button type="button" role="menuitem" className={`${ITEM_CLS} text-text-2`} onClick={() => choose("rename")}>
+          <button type="button" role="menuitem" className={`${ITEM_CLS} text-subtle-foreground`} onClick={() => choose("rename")}>
             {t("edit_view_menu_rename")}
           </button>
-          <button type="button" role="menuitem" className={`${ITEM_CLS} text-danger-2`} onClick={() => choose("delete")}>
+          <button type="button" role="menuitem" className={`${ITEM_CLS} text-destructive`} onClick={() => choose("delete")}>
             {t("edit_view_menu_delete")}
           </button>
         </div>
@@ -163,7 +163,7 @@ function RenameDialog({ projectName, timeline, onClose, onRenamed }: DialogProps
       title={t("edit_view_rename_title")}
       description={
         <div className="flex flex-col gap-2">
-          <label htmlFor={inputId} className="text-text-2">
+          <label htmlFor={inputId} className="text-subtle-foreground">
             {t("edit_view_rename_label")}
           </label>
           <input
@@ -176,11 +176,11 @@ function RenameDialog({ projectName, timeline, onClose, onRenamed }: DialogProps
             onKeyDown={(event) => {
               if (event.key === "Enter") void submit();
             }}
-            className="focus-ring w-full rounded-md border border-hairline bg-bg-grad-a px-3 py-2 text-[13px] text-text"
+            className="focus-ring w-full rounded-md border border-border bg-card px-3 py-2 text-[13px] text-foreground"
           />
           <p>{t("edit_view_rename_hint")}</p>
           {error && (
-            <p role="alert" className="text-danger-2">
+            <p role="alert" className="text-destructive">
               {error}
             </p>
           )}

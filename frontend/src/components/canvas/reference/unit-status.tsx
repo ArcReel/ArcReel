@@ -13,9 +13,9 @@ export interface UnitStatusConf {
 export const STATUS_CONF: Record<UnitStatus, UnitStatusConf> = {
   pending: {
     i18nKey: "reference_status_pending",
-    textClass: "text-[var(--color-text-4)]",
+    textClass: "text-muted-foreground",
     bgClass: "bg-[oklch(0.30_0.01_250_/_0.4)]",
-    dotClass: "bg-[var(--color-text-4)]",
+    dotClass: "bg-muted-foreground",
     pulse: false,
   },
   running: {
@@ -105,7 +105,7 @@ export function StatusBadge({ status, size = "sm" }: StatusBadgeProps) {
   const fontSize = size === "sm" ? "text-[10px]" : "text-[10.5px]";
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 font-medium ${fontSize} ${conf.textClass} ${conf.bgClass}`}
+      className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 font-medium ${fontSize} ${conf.textClass} ${conf.bgClass}`}
     >
       <span
         aria-hidden="true"

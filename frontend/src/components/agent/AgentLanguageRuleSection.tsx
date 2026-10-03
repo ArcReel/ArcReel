@@ -31,13 +31,13 @@ export function AgentLanguageRuleSection() {
       description={t("agent_language_rule_desc")}
     >
       {error ? (
-        <p role="alert" className="text-[12px] text-danger-2">
+        <p role="alert" className="text-[12px] text-destructive">
           {t("agent_language_rule_load_failed", { message: error })}
         </p>
       ) : source === null ? (
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
       ) : (
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.6] text-text-2">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.6] text-subtle-foreground">
           {source}
         </pre>
       )}

@@ -28,35 +28,35 @@ export function ProblemList({ problems, labelledBy, className }: Props) {
             {problem.field && (
               <code
                 translate="no"
-                className="rounded px-1 font-mono text-[11px]"
-                style={{ background: "var(--color-surface-2)", color: "var(--color-text-3)" }}
+                className="rounded-sm px-1 font-mono text-[11px]"
+                style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
               >
                 {problem.field}
               </code>
             )}
-            <span style={{ color: "var(--color-text-2)" }}>{problem.summary}</span>
+            <span style={{ color: "var(--subtle-foreground)" }}>{problem.summary}</span>
           </span>
           {problem.meta && (
-            <span className="tabular-nums text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+            <span className="tabular-nums text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
               {problem.meta}
             </span>
           )}
           {problem.nextStep && (
-            <span className="text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+            <span className="text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
               {problem.nextStep}
             </span>
           )}
           {problem.detail && problem.detail !== problem.summary && (
             <details className="text-[11.5px]">
               <summary
-                className="focus-ring cursor-pointer select-none rounded"
-                style={{ color: "var(--color-text-4)" }}
+                className="focus-ring cursor-pointer select-none rounded-sm"
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {t("technical_detail")}
               </summary>
               <p
                 className="mt-1 break-words font-mono text-[11px]"
-                style={{ color: "var(--color-text-3)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {problem.detail}
               </p>

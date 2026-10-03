@@ -14,15 +14,15 @@ export function DemoReadOnlyBanner() {
   return (
     <div
       role="status"
-      className="flex shrink-0 items-baseline gap-2.5 border-b border-hairline bg-accent-dim px-4 py-2 text-[12.5px]"
+      className="flex shrink-0 items-baseline gap-2.5 border-b border-border bg-primary/12 px-4 py-2 text-[12.5px]"
       style={{
-        boxShadow: "inset 3px 0 0 var(--color-accent)",
+        boxShadow: "inset 3px 0 0 var(--primary)",
       }}
     >
-      <span className="font-semibold tracking-wide text-text">
+      <span className="font-semibold tracking-wide text-foreground">
         {t("demo_banner_title")}
       </span>
-      <span className="text-text-3">{t("demo_banner_body")}</span>
+      <span className="text-muted-foreground">{t("demo_banner_body")}</span>
     </div>
   );
 }

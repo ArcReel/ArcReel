@@ -10,7 +10,7 @@ interface FieldLabelProps {
 }
 
 const LABEL_CLS =
-  "font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2";
+  "font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-subtle-foreground";
 
 export function FieldLabel({
   htmlFor,
@@ -25,7 +25,7 @@ export function FieldLabel({
     <>
       {children}
       {required ? (
-        <span aria-label={t("required")} className="ml-1 text-warm-bright">
+        <span aria-label={t("required")} className="ml-1 text-warn">
           *
         </span>
       ) : null}

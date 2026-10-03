@@ -144,13 +144,13 @@ const CredentialRow = memo(function CredentialRow({
 
   return (
     <div
-      className="relative rounded-[8px] border border-hairline px-3 py-2.5 transition-colors hover:border-hairline-strong"
+      className="relative rounded-md border border-border px-3 py-2.5 transition-colors hover:border-input"
       style={
         cred.is_active
           ? {
               ...CARD_STYLE,
               boxShadow:
-                "inset 2px 0 0 var(--color-accent), 0 0 18px -10px var(--color-accent-glow)",
+                "inset 2px 0 0 var(--primary), 0 0 18px -10px color-mix(in oklab, var(--primary) 35%, transparent)",
             }
           : undefined
       }
@@ -161,16 +161,16 @@ const CredentialRow = memo(function CredentialRow({
           onClick={cred.is_active ? undefined : voidPromise(handleActivate)}
           disabled={cred.is_active}
           aria-label={cred.is_active ? t("currently_active") : t("activate_credential", { name: cred.name })}
-          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+          className={`h-2.5 w-2.5 flex-shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             cred.is_active
               ? ""
-              : "border border-hairline-strong hover:border-accent-2 cursor-pointer"
+              : "border border-input hover:border-primary cursor-pointer"
           }`}
           style={
             cred.is_active
               ? {
-                  background: "var(--color-accent)",
-                  boxShadow: "0 0 8px var(--color-accent-glow)",
+                  background: "var(--primary)",
+                  boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
                 }
               : undefined
           }
@@ -178,14 +178,14 @@ const CredentialRow = memo(function CredentialRow({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-[13px] font-medium text-text">{cred.name}</span>
+            <span className="text-[13px] font-medium text-foreground">{cred.name}</span>
             {cred.is_active && (
               <span
                 className="rounded-full px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.14em]"
                 style={{
-                  background: "var(--color-accent-dim)",
-                  color: "var(--color-accent-2)",
-                  border: "1px solid var(--color-accent-soft)",
+                  background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                  color: "var(--primary)",
+                  border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
                 }}
               >
                 {t("active_label")}
@@ -197,17 +197,17 @@ const CredentialRow = memo(function CredentialRow({
               const masked = maskedForKey(cred, field.key);
               if (!masked) return null;
               return (
-                <span key={field.key} className="font-mono text-[11px] text-text-4">
+                <span key={field.key} className="font-mono text-[11px] text-muted-foreground">
                   {secretFields.length > 1 ? `${labelFor(field)}: ${masked}` : masked}
                 </span>
               );
             })}
             {cred.credentials_filename && (
-              <span className="text-[11px] text-text-4">{cred.credentials_filename}</span>
+              <span className="text-[11px] text-muted-foreground">{cred.credentials_filename}</span>
             )}
           </div>
           {cred.base_url && (
-            <div className="mt-0.5 truncate font-mono text-[10.5px] text-text-4">{cred.base_url}</div>
+            <div className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{cred.base_url}</div>
           )}
         </div>
 
@@ -245,7 +245,7 @@ const CredentialRow = memo(function CredentialRow({
               onClick={voidPromise(handleDelete)}
               disabled={deleting}
               aria-label={t("delete_credential", { name: cred.name })}
-              className={`${ICON_BTN_CLS} hover:text-warm-bright`}
+              className={`${ICON_BTN_CLS} hover:text-warn`}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -255,11 +255,11 @@ const CredentialRow = memo(function CredentialRow({
                 type="button"
                 onClick={voidPromise(handleDelete)}
                 disabled={deleting}
-                className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex items-center gap-1 rounded-sm px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 style={{
-                  background: "var(--color-warm-tint)",
-                  color: "var(--color-warm-bright)",
-                  border: "1px solid var(--color-warm-ring)",
+                  background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+                  color: "var(--warn)",
+                  border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
                 }}
               >
                 {deleting ? (
@@ -271,7 +271,7 @@ const CredentialRow = memo(function CredentialRow({
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="rounded-sm border border-border bg-card/55 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {t("common:cancel")}
               </button>
@@ -284,18 +284,18 @@ const CredentialRow = memo(function CredentialRow({
       {testResult && (
         <div
           aria-live="polite"
-          className="mt-2 ml-5.5 rounded-[8px] px-3 py-2 text-[12px]"
+          className="mt-2 ml-5.5 rounded-md px-3 py-2 text-[12px]"
           style={
             testResult.success
               ? {
                   background: "oklch(0.30 0.10 155 / 0.15)",
-                  color: "var(--color-good)",
+                  color: "var(--good)",
                   border: "1px solid oklch(0.45 0.10 155 / 0.30)",
                 }
               : {
-                  background: "var(--color-warm-tint)",
-                  color: "var(--color-warm-bright)",
-                  border: "1px solid var(--color-warm-ring)",
+                  background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+                  color: "var(--warn)",
+                  border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
                 }
           }
         >
@@ -311,7 +311,7 @@ const CredentialRow = memo(function CredentialRow({
       {/* Inline edit */}
       {editing && (
         <div
-          className="mt-2.5 ml-5.5 space-y-2.5 rounded-[8px] border border-hairline p-3"
+          className="mt-2.5 ml-5.5 space-y-2.5 rounded-md border border-border p-3"
           style={CARD_STYLE}
         >
           <div>
@@ -464,7 +464,7 @@ function AddCredentialForm({
 
   return (
     <div
-      className="space-y-2.5 rounded-[8px] border border-hairline p-3"
+      className="space-y-2.5 rounded-md border border-border p-3"
       style={CARD_STYLE}
     >
       <div>
@@ -510,7 +510,7 @@ function AddCredentialForm({
         </div>
       ) : (
         <>
-          {orHint && <p className="text-[11px] text-text-4">{orHint}</p>}
+          {orHint && <p className="text-[11px] text-muted-foreground">{orHint}</p>}
           {secretFields.map((field) => (
             <div key={field.key}>
               <FieldLabel htmlFor={`cred-add-${field.key}`} required={fieldsUnconditionallyRequired}>
@@ -545,12 +545,12 @@ function AddCredentialForm({
       )}
       {error && (
         <p
-          className="rounded-[6px] px-2.5 py-1.5 text-[11.5px]"
+          className="rounded-sm px-2.5 py-1.5 text-[11.5px]"
           aria-live="polite"
           style={{
-            background: "var(--color-warm-tint)",
-            color: "var(--color-warm-bright)",
-            border: "1px solid var(--color-warm-ring)",
+            background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+            color: "var(--warn)",
+            border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
           }}
         >
           {error}
@@ -630,8 +630,8 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 py-4 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+      <div className="flex items-center gap-2 py-4 text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -642,14 +642,14 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
   return (
     <div>
       <div className="mb-2.5 flex items-center justify-between">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
           {t("credential_mgmt")}
         </div>
         {!showAdd && (
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className="inline-flex items-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:bg-accent-dim hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1 rounded-sm px-2 py-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary transition-colors hover:bg-primary/12 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Plus className="h-3 w-3" /> {t("add_credential")}
           </button>
@@ -657,12 +657,12 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
       </div>
 
       {credentials.length === 0 && !showAdd && (
-        <div className="rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 px-4 py-7 text-center">
-          <p className="text-[12.5px] text-text-3">{t("no_credentials")}</p>
+        <div className="rounded-lg border border-dashed border-input bg-card/45 px-4 py-7 text-center">
+          <p className="text-[12.5px] text-muted-foreground">{t("no_credentials")}</p>
           <button
             type="button"
             onClick={() => setShowAdd(true)}
-            className="mt-2 inline-flex items-center gap-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="mt-2 inline-flex items-center gap-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Plus className="h-3 w-3" /> {t("add_first_credential")}
           </button>

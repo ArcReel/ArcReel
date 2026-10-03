@@ -31,7 +31,7 @@ export interface RecordRowProps {
   trailing?: ReactNode;
 }
 
-const CELL_CLS = "px-2 py-1.5 align-middle text-[11.5px] text-text-2";
+const CELL_CLS = "px-2 py-1.5 align-middle text-[11.5px] text-subtle-foreground";
 
 /** 目标列：有分镜显示分镜，否则显示来源；两者都没有显示破折号。 */
 function useTargetLabel(record: UsageRecordView): string {
@@ -62,7 +62,7 @@ function StatusCell({
       <span style={{ color: STATUS_COLORS[record.status] }}>
         {t(STATUS_LABEL_KEYS[record.status])}
       </span>
-      {reason && <span className="text-text-3">{reason}</span>}
+      {reason && <span className="text-muted-foreground">{reason}</span>}
     </span>
   );
 }
@@ -110,7 +110,7 @@ export function RecordRow({
       <button
         type="button"
         onClick={() => onOpenDetail(record.recordId as number)}
-        className="focus-ring rounded px-1 text-[11px] text-text-3 transition-colors hover:text-accent-2"
+        className="focus-ring rounded-sm px-1 text-[11px] text-muted-foreground transition-colors hover:text-primary"
       >
         {t("usage_row_detail")}
       </button>
@@ -119,12 +119,12 @@ export function RecordRow({
   if (layout === "compact") {
     const body = (
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[11.5px] text-text-2">
+        <div className="flex items-center gap-2 text-[11.5px] text-subtle-foreground">
           <span className="truncate">{target}</span>
           {!trailing && failureReason && (
-            <span className="shrink-0 text-text-3">{failureReason}</span>
+            <span className="shrink-0 text-muted-foreground">{failureReason}</span>
           )}
-          <span className="num ml-auto shrink-0 text-[11px] text-text-3">
+          <span className="num ml-auto shrink-0 text-[11px] text-muted-foreground">
             {record.status === "pending" ? (
               <ElapsedCell record={record} />
             ) : (
@@ -132,7 +132,7 @@ export function RecordRow({
             )}
           </span>
         </div>
-        <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-text-3">
+        <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-muted-foreground">
           <span className="truncate">
             {providerLabel(record.provider)} · {model}
           </span>
@@ -155,7 +155,7 @@ export function RecordRow({
           <button
             type="button"
             onClick={() => onOpenDetail(record.recordId as number)}
-            className="focus-ring flex min-w-0 flex-1 items-start gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-[oklch(1_0_0_/_0.03)]"
+            className="focus-ring flex min-w-0 flex-1 items-start gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-[oklch(1_0_0_/_0.03)]"
           >
             {icon}
             {body}
@@ -172,7 +172,7 @@ export function RecordRow({
   }
 
   return (
-    <tr className="border-t border-hairline-soft transition-colors hover:bg-[oklch(1_0_0_/_0.02)]">
+    <tr className="border-t border-border/50 transition-colors hover:bg-[oklch(1_0_0_/_0.02)]">
       <td className={CELL_CLS}>
         <MediaIcon
           aria-label={t(media.labelKey)}
@@ -183,7 +183,7 @@ export function RecordRow({
       {showProject && (
         <td className={`${CELL_CLS} max-w-[9rem] truncate`}>{projectLabel}</td>
       )}
-      <td className={`${CELL_CLS} max-w-[10rem] truncate text-text`}>{target}</td>
+      <td className={`${CELL_CLS} max-w-[10rem] truncate text-foreground`}>{target}</td>
       <td className={`${CELL_CLS} max-w-[8rem] truncate`}>
         {providerLabel(record.provider)}
       </td>
@@ -193,14 +193,14 @@ export function RecordRow({
       <td className={CELL_CLS}>
         <StatusCell record={record} reason={failureReason} />
       </td>
-      <td className={`${CELL_CLS} num whitespace-nowrap text-text-3`}>
+      <td className={`${CELL_CLS} num whitespace-nowrap text-muted-foreground`}>
         {record.status === "pending" ? (
           <ElapsedCell record={record} />
         ) : (
           formatDurationMs(record.durationMs, t)
         )}
       </td>
-      <td className={`${CELL_CLS} num whitespace-nowrap text-text-3`}>
+      <td className={`${CELL_CLS} num whitespace-nowrap text-muted-foreground`}>
         {formatShortDateTime(record.startedAt) ?? "—"}
       </td>
       <td className={`${CELL_CLS} num whitespace-nowrap`}>

@@ -163,9 +163,9 @@ export function EndFrameRow({
 
   return (
     <div
-      className="mb-2.5 rounded-[10px]"
+      className="mb-2.5 rounded-lg"
       style={{
-        border: "1px solid var(--color-hairline)",
+        border: "1px solid var(--border)",
         background: "oklch(0.18 0.010 265 / 0.4)",
       }}
     >
@@ -180,11 +180,11 @@ export function EndFrameRow({
           aria-hidden
           className="h-3.5 w-3.5 transition-transform"
           style={{
-            color: "var(--color-text-3)",
+            color: "var(--muted-foreground)",
             transform: expanded ? "rotate(90deg)" : undefined,
           }}
         />
-        <span className="text-[12px] font-semibold" style={{ color: "var(--color-text-2)" }}>
+        <span className="text-[12px] font-semibold" style={{ color: "var(--subtle-foreground)" }}>
           {t("end_frame_title")}
         </span>
         <span className="flex-1" />
@@ -193,8 +193,8 @@ export function EndFrameRow({
             src={previewUrl}
             alt=""
             aria-hidden
-            className="h-4 w-2.5 rounded-[3px] object-cover"
-            style={{ border: "1px solid var(--color-accent-soft)" }}
+            className="h-4 w-2.5 rounded-xs object-cover"
+            style={{ border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)" }}
           />
         )}
         <span
@@ -202,7 +202,7 @@ export function EndFrameRow({
           // 摘要随能力查询异步变化（检查中 → 已设置 / 未设置），朗读器需要跟上
           aria-live="polite"
           style={{
-            color: endFramePath ? "var(--color-accent-2)" : "var(--color-text-4)",
+            color: endFramePath ? "var(--primary)" : "var(--muted-foreground)",
           }}
         >
           {summary}
@@ -233,14 +233,14 @@ export function EndFrameRow({
         <div
           id={panelId}
           className="flex items-start gap-3 px-3 pb-3 pt-1"
-          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           <div
-            className="w-16 shrink-0 overflow-hidden rounded-[6px]"
+            className="w-16 shrink-0 overflow-hidden rounded-sm"
             style={{
               border: previewUrl
-                ? "1px solid var(--color-accent-soft)"
-                : "1px dashed var(--color-hairline-strong)",
+                ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)"
+                : "1px dashed var(--input)",
               background: previewUrl ? undefined : "oklch(0.20 0.011 265 / 0.5)",
             }}
           >
@@ -254,7 +254,7 @@ export function EndFrameRow({
               ) : (
                 <div
                   className="grid h-full w-full place-items-center text-[9.5px]"
-                  style={{ color: "var(--color-text-4)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   {t("end_frame_summary_unset")}
                 </div>
@@ -262,13 +262,13 @@ export function EndFrameRow({
             </AspectFrame>
           </div>
           <div className="flex flex-1 flex-col gap-2 pt-1">
-            <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-3)" }}>
+            <p className="text-[11px] leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
               {t("end_frame_description")}
             </p>
             {/* 展开面板讲恢复路径（改模型 / 调能力覆盖），与警告条的「后果 + 清除」互补；
                 未设尾帧时也给，让用户在动手设之前就知道这个模型设了也白设。 */}
             {unsupported && (
-              <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-4)" }}>
+              <p className="text-[11px] leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
                 {t("end_frame_unsupported_hint")}
               </p>
             )}
@@ -284,9 +284,9 @@ export function EndFrameRow({
                   title={disabledHint}
                   className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                   style={{
-                    border: "1px solid var(--color-hairline)",
+                    border: "1px solid var(--border)",
                     background: "oklch(0.22 0.011 265 / 0.5)",
-                    color: "var(--color-text-2)",
+                    color: "var(--subtle-foreground)",
                   }}
                 >
                   {endFramePath ? t("end_frame_replace") : t("end_frame_choose")}
@@ -298,7 +298,7 @@ export function EndFrameRow({
                     disabled={controlsDisabled}
                     title={disabledHint}
                     className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ color: "var(--color-text-3)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   >
                     {t("end_frame_clear")}
                   </button>

@@ -32,7 +32,7 @@ const TYPE_TONE: Record<AgentMemoryType, string> = {
   reference: "#339c6d",
 };
 
-const DANGER_GHOST_BTN_CLS = `${GHOST_BTN_CLS} enabled:hover:border-danger/50 enabled:hover:text-danger-2`;
+const DANGER_GHOST_BTN_CLS = `${GHOST_BTN_CLS} enabled:hover:border-destructive/50 enabled:hover:text-destructive`;
 
 function buildTemplate(filename: string, level: AgentMemoryScope["level"], description: string, body: string): string {
   const name = filename.replace(/\.md$/, "");
@@ -181,49 +181,49 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
       {frame === "section" ? (
         <div className="mb-3.5 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
               Agent Memory
             </div>
-            <h3 className="mt-1 text-[14.5px] font-medium text-text">{title}</h3>
-            <p className="mt-1 max-w-[560px] text-[12px] leading-[1.55] text-text-3">
+            <h3 className="mt-1 text-[14.5px] font-medium text-foreground">{title}</h3>
+            <p className="mt-1 max-w-[560px] text-[12px] leading-[1.55] text-muted-foreground">
               {level === "user" ? t("agent_memory_user_desc") : t("agent_memory_project_desc")}
             </p>
-            {path && <p className="mt-1 break-all font-mono text-[10.5px] text-text-4">{path}</p>}
+            {path && <p className="mt-1 break-all font-mono text-[10.5px] text-muted-foreground">{path}</p>}
           </div>
           {clearButton}
         </div>
       ) : (
         <div className="mb-3 flex items-start justify-between gap-3">
-          <p className="min-w-0 break-all font-mono text-[10.5px] text-text-4">{path}</p>
+          <p className="min-w-0 break-all font-mono text-[10.5px] text-muted-foreground">{path}</p>
           {clearButton}
         </div>
       )}
 
       {error !== null ? (
         <div
-          className="flex flex-col items-start gap-2 rounded-[10px] border border-hairline p-4"
+          className="flex flex-col items-start gap-2 rounded-lg border border-border p-4"
           style={CARD_STYLE}
         >
-          <p className="text-[12px] text-danger-2">{t("agent_memory_load_failed", { message: error })}</p>
+          <p className="text-[12px] text-destructive">{t("agent_memory_load_failed", { message: error })}</p>
           <button type="button" className={GHOST_BTN_CLS} onClick={() => void reload()}>
             {t("common:retry")}
           </button>
         </div>
       ) : (
         <div
-          className="grid overflow-hidden rounded-[10px] border border-hairline"
+          className="grid overflow-hidden rounded-lg border border-border"
           style={{ ...CARD_STYLE, gridTemplateColumns: "220px minmax(0,1fr)", minHeight: 380 }}
         >
-          <aside className="flex min-h-0 flex-col border-r border-hairline-soft">
+          <aside className="flex min-h-0 flex-col border-r border-border/50">
             {loading && overview === null ? (
-              <div className="flex flex-1 items-center justify-center gap-2 px-4 py-10 text-text-3">
-                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+              <div className="flex flex-1 items-center justify-center gap-2 px-4 py-10 text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
                 <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("common:loading")}</span>
               </div>
             ) : names.length === 0 ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-                <FileText className="h-5 w-5 text-text-4" aria-hidden />
-                <p className="text-[11.5px] leading-[1.55] text-text-4">{t("agent_memory_files_empty")}</p>
+                <FileText className="h-5 w-5 text-muted-foreground" aria-hidden />
+                <p className="text-[11.5px] leading-[1.55] text-muted-foreground">{t("agent_memory_files_empty")}</p>
               </div>
             ) : (
               <ul className="flex-1 overflow-y-auto py-1.5">
@@ -237,7 +237,7 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
                 )}
                 {topics.length > 0 && (
                   <li className="px-3 pb-1 pt-2.5">
-                    <span className="text-[10.5px] text-text-4">
+                    <span className="text-[10.5px] text-muted-foreground">
                       {t("agent_memory_topics", { count: topics.length })}
                     </span>
                   </li>
@@ -252,7 +252,7 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
                 ))}
               </ul>
             )}
-            <div className="border-t border-hairline-soft p-2">
+            <div className="border-t border-border/50 p-2">
               {creating ? (
                 <div className="space-y-1.5">
                   <input
@@ -272,7 +272,7 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
                     className={`${INPUT_CLS} px-2 py-1 font-mono text-[11.5px]`}
                   />
                   {newNameError !== null && (
-                    <p className="text-[10.5px] leading-[1.5] text-danger-2">{newNameError}</p>
+                    <p className="text-[10.5px] leading-[1.5] text-destructive">{newNameError}</p>
                   )}
                   <div className="flex items-center gap-1.5">
                     <button
@@ -293,7 +293,7 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
                 <button
                   type="button"
                   onClick={startCreating}
-                  className="flex w-full items-center gap-1.5 rounded-[6px] px-2 py-1.5 text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Plus className="h-3.5 w-3.5" aria-hidden />
                   {t("agent_memory_new_file")}
@@ -315,7 +315,7 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
             />
           ) : (
             <div className="flex flex-col items-center justify-center gap-3 px-10 py-12 text-center">
-              <p className="max-w-[380px] text-[12.5px] leading-[1.65] text-text-3">
+              <p className="max-w-[380px] text-[12.5px] leading-[1.65] text-muted-foreground">
                 {t("agent_memory_empty_hint")}
               </p>
               <button type="button" onClick={startCreating} className={GHOST_BTN_CLS}>
@@ -370,12 +370,12 @@ export function AgentMemoryCabinet({ scope, frame }: AgentMemoryCabinetProps) {
 }
 
 function rowClass(selected: boolean): string {
-  return `flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-    selected ? "bg-accent-dim" : "hover:bg-bg-grad-a"
+  return `flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+    selected ? "bg-primary/12" : "hover:bg-card"
   }`;
 }
 
-const SELECTED_ROW_STYLE = { boxShadow: "inset 2px 0 0 var(--color-accent)" };
+const SELECTED_ROW_STYLE = { boxShadow: "inset 2px 0 0 var(--primary)" };
 
 function IndexRow({
   lineCount,
@@ -399,12 +399,12 @@ function IndexRow({
         style={selected ? SELECTED_ROW_STYLE : undefined}
       >
         <span className="flex w-full items-center gap-1.5">
-          <FileText className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-accent-2" : "text-text-4"}`} aria-hidden />
-          <span className={`min-w-0 flex-1 truncate font-mono text-[11.5px] ${selected ? "text-text" : "text-text-2"}`}>
+          <FileText className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-primary" : "text-muted-foreground"}`} aria-hidden />
+          <span className={`min-w-0 flex-1 truncate font-mono text-[11.5px] ${selected ? "text-foreground" : "text-subtle-foreground"}`}>
             {INDEX_FILENAME}
           </span>
         </span>
-        <span className={`pl-5 text-[10.5px] ${overLimit ? "text-danger-2" : "text-text-4"}`}>
+        <span className={`pl-5 text-[10.5px] ${overLimit ? "text-destructive" : "text-muted-foreground"}`}>
           {t("agent_memory_index_stats", { count: lineCount, limit: INDEX_LINE_LIMIT })}
         </span>
       </button>
@@ -425,16 +425,16 @@ function TopicRow({ file, selected, onSelect }: { file: AgentMemoryFile; selecte
         style={selected ? SELECTED_ROW_STYLE : undefined}
       >
         <span className="flex w-full items-center gap-1.5">
-          <FileText className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-accent-2" : "text-text-4"}`} aria-hidden />
-          <span className={`min-w-0 flex-1 truncate font-mono text-[11.5px] ${selected ? "text-text" : "text-text-2"}`}>
+          <FileText className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-primary" : "text-muted-foreground"}`} aria-hidden />
+          <span className={`min-w-0 flex-1 truncate font-mono text-[11.5px] ${selected ? "text-foreground" : "text-subtle-foreground"}`}>
             {file.name}
           </span>
           {type !== null && <TypeBadge type={type} />}
         </span>
-        <span className="w-full truncate pl-5 text-left text-[10.5px] text-text-4">
+        <span className="w-full truncate pl-5 text-left text-[10.5px] text-muted-foreground">
           {file.frontmatter?.description ?? t("agent_memory_no_description")}
         </span>
-        <span className="pl-5 text-[10px] text-text-4">{formatShortDateTime(file.modified_at) ?? ""}</span>
+        <span className="pl-5 text-[10px] text-muted-foreground">{formatShortDateTime(file.modified_at) ?? ""}</span>
       </button>
     </li>
   );
@@ -444,7 +444,7 @@ function TypeBadge({ type }: { type: AgentMemoryType }) {
   const { t } = useTranslation("dashboard");
   return (
     <span
-      className="inline-flex shrink-0 items-center rounded-[4px] px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.12em]"
+      className="inline-flex shrink-0 items-center rounded-sm px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.12em]"
       style={{ background: `${TYPE_TONE[type]}26`, color: TYPE_TONE[type] }}
     >
       {t(`agent_memory_type_${type}`)}
@@ -514,10 +514,10 @@ function MemoryEditor({ scope, filename, lineCount, overLimit, onSaved, onDelete
 
   return (
     <div className="flex min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-hairline-soft px-3 py-2">
-        <span className="font-mono text-[12px] text-text">{filename}</span>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/50 px-3 py-2">
+        <span className="font-mono text-[12px] text-foreground">{filename}</span>
         {lineCount !== null && (
-          <span className={`font-mono text-[10px] ${overLimit ? "text-danger-2" : "text-text-4"}`}>
+          <span className={`font-mono text-[10px] ${overLimit ? "text-destructive" : "text-muted-foreground"}`}>
             {t("agent_memory_index_stats", { count: lineCount, limit: INDEX_LINE_LIMIT })}
           </span>
         )}
@@ -548,7 +548,7 @@ function MemoryEditor({ scope, filename, lineCount, overLimit, onSaved, onDelete
 
       {loadError !== null ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-          <p className="text-[12px] text-danger-2">{t("agent_memory_load_failed", { message: loadError })}</p>
+          <p className="text-[12px] text-destructive">{t("agent_memory_load_failed", { message: loadError })}</p>
           <button
             type="button"
             className={GHOST_BTN_CLS}
@@ -561,8 +561,8 @@ function MemoryEditor({ scope, filename, lineCount, overLimit, onSaved, onDelete
           </button>
         </div>
       ) : content === null ? (
-        <div className="flex flex-1 items-center justify-center gap-2 px-4 py-10 text-text-3">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <div className="flex flex-1 items-center justify-center gap-2 px-4 py-10 text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
           <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("common:loading")}</span>
         </div>
       ) : (

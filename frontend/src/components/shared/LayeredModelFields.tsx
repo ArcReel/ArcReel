@@ -133,7 +133,7 @@ export interface LayeredModelFieldsProps {
   footnote?: React.ReactNode;
 }
 
-const SUB_LABEL_CLS = "mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
+const SUB_LABEL_CLS = "mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground";
 
 export function LayeredModelFields({
   defaultLabel,
@@ -191,24 +191,24 @@ export function LayeredModelFields({
 
       {(fields.length > 0 || hasError) && (
         <details
-          className="group border-t border-hairline-soft pt-3"
+          className="group border-t border-border/50 pt-3"
           open={open}
           onToggle={(e) => setOpen(e.currentTarget.open)}
         >
-          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-[7px] font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-subtle-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
             <ChevronRight
               aria-hidden
               className="h-3.5 w-3.5 shrink-0 motion-safe:transition-transform group-open:rotate-90"
             />
             <span>{t("model_bucket_section")}</span>
             {configuredCount > 0 && (
-              <span className="shrink-0 rounded-full border border-accent/45 bg-accent-dim px-2 py-0.5 text-[9.5px] tracking-[0.1em] text-accent-2">
+              <span className="shrink-0 rounded-full border border-primary/45 bg-primary/12 px-2 py-0.5 text-[9.5px] tracking-[0.1em] text-primary">
                 {t("model_bucket_configured_count", { n: configuredCount })}
               </span>
             )}
           </summary>
 
-          <div className="mt-3 space-y-3.5 border-l border-hairline-soft pl-3">
+          <div className="mt-3 space-y-3.5 border-l border-border/50 pl-3">
             {subFieldsError ? (
               <InlineWarning
                 message={t("model_bucket_candidates_error")}
@@ -219,7 +219,7 @@ export function LayeredModelFields({
                 }}
               />
             ) : (
-              <p className="text-[11px] leading-[1.5] text-text-4">{t("model_bucket_section_hint")}</p>
+              <p className="text-[11px] leading-[1.5] text-muted-foreground">{t("model_bucket_section_hint")}</p>
             )}
             {fields.map((field) => (
               <div key={field.key}>
@@ -241,7 +241,7 @@ export function LayeredModelFields({
                   }
                 />
                 {field.caption && (
-                  <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{field.caption}</p>
+                  <p className="mt-1.5 text-[11px] leading-[1.5] text-muted-foreground">{field.caption}</p>
                 )}
               </div>
             ))}

@@ -40,7 +40,7 @@ function SpeechToken({ token }: { token: Extract<Token, { kind: "speech" }> }) {
   // 那一行对得上，改写会让「这段被认成台词了吗」难以核对。
   return (
     <span
-      className={`rounded-sm bg-[oklch(1_0_0_/_0.06)] ${token.speaker ? palette.textClass : "text-[var(--color-text)]"}`}
+      className={`rounded-sm bg-[oklch(1_0_0_/_0.06)] ${token.speaker ? palette.textClass : "text-foreground"}`}
       title={token.speaker || t("script_highlight_voiceover")}
     >
       {token.text}
@@ -80,24 +80,24 @@ function LineRow({ line, index }: { line: ScriptLine; index: number }) {
         >
           {line.speaker}
         </span>
-        <span className="min-w-0 flex-1 break-words text-[var(--color-text)]">{line.text}</span>
+        <span className="min-w-0 flex-1 break-words text-foreground">{line.text}</span>
       </div>
     );
   }
 
   if (line.kind === "voiceover") {
     return (
-      <div className="flex items-baseline gap-2 border-l-2 border-[var(--color-hairline)] bg-[oklch(1_0_0_/_0.03)] py-0.5 pl-2.5">
-        <span className="shrink-0 rounded-sm bg-[oklch(1_0_0_/_0.06)] px-1 text-[var(--color-text-3)]">
+      <div className="flex items-baseline gap-2 border-l-2 border-border bg-[oklch(1_0_0_/_0.03)] py-0.5 pl-2.5">
+        <span className="shrink-0 rounded-sm bg-[oklch(1_0_0_/_0.06)] px-1 text-muted-foreground">
           {t("script_highlight_voiceover")}
         </span>
-        <span className="min-w-0 flex-1 break-words text-[var(--color-text)]">{line.text}</span>
+        <span className="min-w-0 flex-1 break-words text-foreground">{line.text}</span>
       </div>
     );
   }
 
   return (
-    <div className="break-words text-[var(--color-text-2)]">
+    <div className="break-words text-subtle-foreground">
       {line.tokens.length > 0 ? renderTokens(line.tokens, `t${index}`) : " "}
     </div>
   );

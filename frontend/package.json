@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p e2e",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p e2e && tsc --noEmit -p scripts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip",

@@ -207,7 +207,7 @@ export function VoiceSampleButton({
         title={audioConfigured ? t("voice_sample_action") : t("voice_sample_not_configured_hint")}
         aria-label={audioConfigured ? t("voice_sample_action") : t("voice_sample_not_configured_hint")}
         className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-        style={{ color: "var(--color-text-3)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         <Mic className="h-3 w-3" aria-hidden="true" />
       </button>
@@ -224,18 +224,18 @@ export function VoiceSampleButton({
           <h2
             id={titleId}
             className="display-serif text-[17px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {t("voice_sample_modal_title")}
           </h2>
-          <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--color-text-3)" }}>
+          <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
             {t("voice_sample_modal_desc", { name: characterName })}
           </p>
 
           {!voicesLoading && !voicesConfigured ? (
             <p
               className="mt-4 rounded-lg px-3 py-2 text-[12.5px]"
-              style={{ background: "oklch(0.22 0.012 265 / 0.5)", color: "var(--color-text-3)" }}
+              style={{ background: "oklch(0.22 0.012 265 / 0.5)", color: "var(--muted-foreground)" }}
             >
               {t("voice_sample_not_configured_hint")}
             </p>
@@ -244,7 +244,7 @@ export function VoiceSampleButton({
               <label
                 htmlFor={voiceFieldId}
                 className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em]"
-                style={{ color: "var(--color-text-4)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {t("voice_sample_voice_label")}
               </label>
@@ -256,8 +256,8 @@ export function VoiceSampleButton({
                 className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-[border-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
                   background: "oklch(0.20 0.011 265 / 0.6)",
-                  border: "1px solid var(--color-hairline)",
-                  color: "var(--color-text)",
+                  border: "1px solid var(--border)",
+                  color: "var(--foreground)",
                 }}
               >
                 {voicesLoading ? (
@@ -281,7 +281,7 @@ export function VoiceSampleButton({
               <label
                 htmlFor={textFieldId}
                 className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em]"
-                style={{ color: "var(--color-text-4)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {t("voice_sample_text_label")}
               </label>
@@ -295,16 +295,16 @@ export function VoiceSampleButton({
                 className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
                   background: "oklch(0.20 0.011 265 / 0.6)",
-                  border: "1px solid var(--color-hairline)",
-                  color: "var(--color-text)",
+                  border: "1px solid var(--border)",
+                  color: "var(--foreground)",
                 }}
               />
-              <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-text-4)" }}>
+              <p className="mt-1 text-[10.5px]" style={{ color: "var(--muted-foreground)" }}>
                 {t("voice_sample_text_hint")}
               </p>
 
               {failed && (
-                <p className="mt-3 text-[12px]" style={{ color: "var(--color-danger, #e5484d)" }}>
+                <p className="mt-3 text-[12px]" style={{ color: "var(--destructive, #e5484d)" }}>
                   {task?.error_message ?? t("voice_sample_task_failed")}
                 </p>
               )}
@@ -314,7 +314,7 @@ export function VoiceSampleButton({
                   className="mt-3 flex items-center gap-2 rounded-lg px-2.5 py-1.5"
                   style={{
                     background: "oklch(0.20 0.011 265 / 0.6)",
-                    border: "1px solid var(--color-hairline)",
+                    border: "1px solid var(--border)",
                   }}
                 >
                   {/* eslint-disable-next-line jsx-a11y/media-has-caption -- TTS 试听样本，无对白内容，无字幕源 */}
@@ -337,9 +337,9 @@ export function VoiceSampleButton({
                     aria-label={isPreviewPlaying ? t("pause_audio_sample") : t("play_audio_sample")}
                     className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors"
                     style={{
-                      background: "var(--color-accent-dim)",
-                      border: "1px solid var(--color-accent-soft)",
-                      color: "var(--color-accent-2)",
+                      background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                      border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                      color: "var(--primary)",
                     }}
                   >
                     {isPreviewPlaying ? (
@@ -348,7 +348,7 @@ export function VoiceSampleButton({
                       <Play className="h-3.5 w-3.5 translate-x-px" />
                     )}
                   </button>
-                  <span className="text-[11px]" style={{ color: "var(--color-text-3)" }}>
+                  <span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
                     {t("voice_sample_preview_label")}
                   </span>
                 </div>
@@ -362,7 +362,7 @@ export function VoiceSampleButton({
               onClick={close}
               disabled={generating || confirming}
               className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ color: "var(--color-text-2)" }}
+              style={{ color: "var(--subtle-foreground)" }}
             >
               {t("common:cancel")}
             </button>
@@ -373,9 +373,9 @@ export function VoiceSampleButton({
                 disabled={confirming}
                 className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
-                  color: "var(--color-text)",
+                  color: "var(--foreground)",
                   background: "oklch(1 0 0 / 0.08)",
-                  border: "1px solid var(--color-hairline)",
+                  border: "1px solid var(--border)",
                 }}
               >
                 {confirming ? t("voice_sample_confirming") : t("voice_sample_confirm")}
@@ -394,9 +394,9 @@ export function VoiceSampleButton({
               className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 color: "oklch(0.14 0 0)",
-                background: "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                background: "var(--primary)",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
               }}
             >
               <Mic className="h-3.5 w-3.5" aria-hidden="true" />

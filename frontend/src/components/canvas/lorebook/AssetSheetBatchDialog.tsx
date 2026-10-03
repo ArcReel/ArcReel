@@ -95,12 +95,12 @@ export function AssetSheetBatchDialog({
           <p>{t("sheet_batch_nothing")}</p>
         ) : (
           <div>
-            <p className="font-medium" style={{ color: "var(--color-text-2)" }}>
+            <p className="font-medium" style={{ color: "var(--subtle-foreground)" }}>
               {t("sheet_batch_targets", { count: preview.targets.length })}
             </p>
             {groups.map((group) => (
               <div key={group.type} className="mt-1.5">
-                <p className="text-[11px] uppercase tracking-[0.08em]" style={{ color: "var(--color-text-4)" }}>
+                <p className="text-[11px] uppercase tracking-[0.08em]" style={{ color: "var(--muted-foreground)" }}>
                   {t(`type.${group.type}`)}
                 </p>
                 <ul className="mt-0.5 space-y-0.5">
@@ -108,7 +108,7 @@ export function AssetSheetBatchDialog({
                     <li key={item.unit_id}>
                       {refLabel(item)}
                       {item.depends_on && (
-                        <span style={{ color: "var(--color-text-4)" }}>
+                        <span style={{ color: "var(--muted-foreground)" }}>
                           {" · "}
                           {t("sheet_batch_after_owner", { owner: ownerOf(item.depends_on) })}
                         </span>
@@ -122,14 +122,14 @@ export function AssetSheetBatchDialog({
         )}
         {preview.skipped.length > 0 && (
           <div>
-            <p className="font-medium" style={{ color: "var(--color-text-2)" }}>
+            <p className="font-medium" style={{ color: "var(--subtle-foreground)" }}>
               {t("sheet_batch_skipped", { count: preview.skipped.length })}
             </p>
             <ul className="mt-0.5 space-y-0.5">
               {preview.skipped.map((item) => (
                 <li key={item.unit_id}>
                   {t(`type.${item.asset_type}`)} · {refLabel(item)}
-                  <span style={{ color: "var(--color-text-4)" }}>
+                  <span style={{ color: "var(--muted-foreground)" }}>
                     {" · "}
                     {t(`sheet_batch_skip.${item.reason}`)}
                   </span>

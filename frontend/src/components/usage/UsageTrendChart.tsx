@@ -32,7 +32,7 @@ const BAR_RADIUS = 4;
 /** 段与段之间留出的面色间隙，用留白而不是描边分隔。 */
 const SEGMENT_GAP = 2;
 
-const AXIS_LABEL_FILL = "var(--color-text-4)";
+const AXIS_LABEL_FILL = "var(--muted-foreground)";
 const TICK_LABEL_PROPS = {
   fill: AXIS_LABEL_FILL,
   fontSize: 10,
@@ -101,29 +101,29 @@ export function UsageTrendChart({
           applyPositionStyle
           left={tooltip.tooltipLeft}
           top={tooltip.tooltipTop}
-          className="pointer-events-none z-10 w-[184px] -translate-x-1/2 rounded-[8px] border border-hairline px-2.5 py-2 text-[11px] shadow-xl"
+          className="pointer-events-none z-10 w-[184px] -translate-x-1/2 rounded-md border border-border px-2.5 py-2 text-[11px] shadow-xl"
           style={{ background: "oklch(0.18 0.011 265 / 0.96)" }}
         >
-          <div className="font-mono text-[10px] text-text-4">{tooltip.tooltipData.label}</div>
+          <div className="font-mono text-[10px] text-muted-foreground">{tooltip.tooltipData.label}</div>
           <ul className="mt-1 space-y-px">
             {series.map((entry) => (
               <li key={entry.key} className="flex items-center gap-2">
                 <SeriesSwatch series={entry} />
-                <span className="text-text-3">{t(entry.labelKey)}</span>
-                <span className="num ml-auto text-text">
+                <span className="text-muted-foreground">{t(entry.labelKey)}</span>
+                <span className="num ml-auto text-foreground">
                   {formatValue(entry.value(tooltip.tooltipData!.bucket))}
                 </span>
               </li>
             ))}
           </ul>
-          <div className="mt-1 flex items-center justify-between border-t border-hairline-soft pt-1 text-text-2">
+          <div className="mt-1 flex items-center justify-between border-t border-border/50 pt-1 text-subtle-foreground">
             <span>{t("usage_trend_total")}</span>
             <span className="num">
               {formatValue(bucketTotal(metric, tooltip.tooltipData.bucket))}
             </span>
           </div>
           {metric === "calls" && (
-            <div className="flex items-center justify-between text-text-3">
+            <div className="flex items-center justify-between text-muted-foreground">
               <span>{t("usage_kpi_success_rate")}</span>
               <span className="num">
                 {formatRatio(bucketSuccessRate(tooltip.tooltipData.bucket), i18n.language)}
@@ -166,7 +166,7 @@ export function SeriesSwatch({ series }: { series: TrendSeries }) {
   return (
     <span
       aria-hidden="true"
-      className="h-[9px] w-[9px] shrink-0 rounded-[2px]"
+      className="h-[9px] w-[9px] shrink-0 rounded-xs"
       style={{
         background: series.hatched
           ? `repeating-linear-gradient(45deg, ${HATCH_STROKE} 0 1.5px, transparent 1.5px 4px)`
@@ -268,7 +268,8 @@ function TrendPlot({
           scale={yScale}
           width={innerWidth}
           tickValues={ticks}
-          stroke="var(--color-hairline-soft)"
+          stroke="var(--border)"
+          strokeOpacity={0.5}
           strokeWidth={1}
         />
         <AxisLeft
@@ -358,7 +359,7 @@ function TrendPlot({
           scale={xScale}
           tickValues={buckets.filter((b) => visibleDays.has(b.from)).map((b) => b.from)}
           tickFormat={(value) => shortDay(String(value), i18n.language)}
-          stroke="var(--color-hairline-strong)"
+          stroke="var(--input)"
           hideTicks
           tickLabelProps={() => ({ ...TICK_LABEL_PROPS, dy: 4, textAnchor: "middle" })}
         />

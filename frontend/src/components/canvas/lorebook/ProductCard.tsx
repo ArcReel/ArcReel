@@ -39,8 +39,8 @@ interface ProductCardProps {
 const FIELD_STYLE: React.CSSProperties = {
   background:
     "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -197,7 +197,7 @@ export function ProductCard({
       style={{
         background:
           "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))",
-        border: "1px solid var(--color-hairline-soft)",
+        border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         boxShadow:
           "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 12px 30px -12px oklch(0 0 0 / 0.4)",
       }}
@@ -207,7 +207,7 @@ export function ProductCard({
         className="pointer-events-none absolute inset-x-5 top-0 h-px"
         style={{
           background:
-            "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+            "linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent)",
         }}
       />
 
@@ -217,9 +217,9 @@ export function ProductCard({
           aria-hidden
           className="grid h-7 w-7 shrink-0 place-items-center rounded-md"
           style={{
-            background: "var(--color-accent-dim)",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
+            background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+            color: "var(--primary)",
           }}
         >
           <ShoppingBag className="h-3.5 w-3.5" />
@@ -242,7 +242,7 @@ export function ProductCard({
             title={t("assets:upload_sheet")}
             aria-label={t("assets:upload_sheet")}
             className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             <Upload className="h-3.5 w-3.5" />
           </button>
@@ -288,7 +288,7 @@ export function ProductCard({
             title={t("dashboard:product_upload_refs")}
             aria-label={t("dashboard:product_upload_refs")}
             className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:opacity-40"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             <ImagePlus className="h-3.5 w-3.5" />
           </button>
@@ -313,7 +313,7 @@ export function ProductCard({
                 <div
                   key={ref}
                   className="h-16 w-16 overflow-hidden rounded-md"
-                  style={{ border: "1px solid var(--color-hairline-soft)" }}
+                  style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
                 >
                   <PreviewableImageFrame src={url} alt={ref}>
                     <img src={url} alt={ref} className="h-full w-full object-cover" />
@@ -327,8 +327,8 @@ export function ProductCard({
             type="button"
             onClick={() => refsInputRef.current?.click()}
             disabled={uploadingRefs}
-            className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-3 text-[12px] transition-colors hover:border-[var(--color-accent-soft)]"
-            style={{ color: "var(--color-text-4)" }}
+            className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-3 text-[12px] transition-colors hover:border-primary/22"
+            style={{ color: "var(--muted-foreground)" }}
           >
             <ImagePlus className="h-3.5 w-3.5" />
             {t("dashboard:product_upload_refs")}
@@ -342,7 +342,7 @@ export function ProductCard({
         <CapsLabel>{t("dashboard:product_design")}</CapsLabel>
         <div
           className="relative mt-1.5 overflow-hidden rounded-lg"
-          style={{ border: "1px solid var(--color-hairline-soft)" }}
+          style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           <PreviewableImageFrame
             src={sheetUrl && !imgError ? sheetUrl : null}
@@ -359,7 +359,7 @@ export function ProductCard({
               ) : (
                 <div
                   className="flex h-full w-full flex-col items-center justify-center gap-2"
-                  style={{ color: "var(--color-text-4)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   <ShoppingBag className="h-10 w-10" />
                   <span className="text-xs">{t("dashboard:click_to_generate")}</span>
@@ -432,9 +432,9 @@ export function ProductCard({
           style={{
             color: "oklch(0.14 0 0)",
             background:
-              "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+              "var(--primary)",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
           }}
         >
           {t("common:save")}
@@ -472,7 +472,7 @@ function CapsLabel({
     <label
       htmlFor={htmlFor}
       className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-      style={{ color: "var(--color-text-4)" }}
+      style={{ color: "var(--muted-foreground)" }}
     >
       {children}
     </label>

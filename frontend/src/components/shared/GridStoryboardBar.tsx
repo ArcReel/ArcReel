@@ -25,19 +25,19 @@ export function GridStoryboardBar({ checked, onToggle, animated }: GridStoryboar
   return (
     <div
       className={
-        "flex items-start gap-2.5 rounded-[9px] border border-hairline-soft bg-bg-grad-a/50 px-3.5 py-2.5" +
+        "flex items-start gap-2.5 rounded-lg border border-border/50 bg-card/50 px-3.5 py-2.5" +
         (animated ? " arc-slide-in" : "")
       }
     >
       <LayoutGrid
         aria-hidden
-        className={`mt-[2px] h-3.5 w-3.5 shrink-0 ${checked ? "text-accent-2" : "text-text-4"}`}
+        className={`mt-[2px] h-3.5 w-3.5 shrink-0 ${checked ? "text-primary" : "text-muted-foreground"}`}
       />
       <div className="min-w-0 flex-1">
-        <div id={labelId} className="text-[11.5px] font-medium text-text-2">
+        <div id={labelId} className="text-[11.5px] font-medium text-subtle-foreground">
           {t("grid_storyboard_label")}
         </div>
-        <div id={descId} className="mt-0.5 text-[10.5px] leading-[1.5] text-text-4">
+        <div id={descId} className="mt-0.5 text-[10.5px] leading-[1.5] text-muted-foreground">
           {t("grid_storyboard_desc")}
         </div>
       </div>

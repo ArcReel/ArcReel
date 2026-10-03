@@ -80,7 +80,7 @@ export function StoryboardBatchDialog({
           <p>{t("storyboard_batch_nothing")}</p>
         ) : (
           <div className="space-y-1">
-            <p className="font-medium" style={{ color: "var(--color-text-2)" }}>
+            <p className="font-medium" style={{ color: "var(--subtle-foreground)" }}>
               {t("storyboard_batch_targets", { count: preview.targets.length })}
             </p>
             <div className="flex flex-wrap gap-1">
@@ -92,14 +92,14 @@ export function StoryboardBatchDialog({
         )}
         {preview.skipped.length > 0 && (
           <div>
-            <p className="font-medium" style={{ color: "var(--color-text-2)" }}>
+            <p className="font-medium" style={{ color: "var(--subtle-foreground)" }}>
               {t("storyboard_batch_skipped", { count: preview.skipped.length })}
             </p>
             <ul className="mt-0.5 max-h-40 space-y-0.5 overflow-y-auto">
               {preview.skipped.map((item) => (
                 <li key={item.unit_id}>
                   <span className="font-mono">{item.unit_id}</span>
-                  <span style={{ color: "var(--color-text-4)" }}>
+                  <span style={{ color: "var(--muted-foreground)" }}>
                     {" · "}
                     {t(`storyboard_batch_skip.${item.reason}`)}
                   </span>
@@ -115,7 +115,7 @@ export function StoryboardBatchDialog({
             <p>{cost ? t("storyboard_batch_cost", { cost }) : t("storyboard_batch_cost_unknown")}</p>
           )
         )}
-        <p style={{ color: "var(--color-text-4)" }}>{t(`storyboard_batch_stale_note.${kind}`)}</p>
+        <p style={{ color: "var(--muted-foreground)" }}>{t(`storyboard_batch_stale_note.${kind}`)}</p>
       </div>
     );
   }

@@ -105,7 +105,7 @@ export function SidebarEpisodeList({
             {edge !== null ? (
               <span
                 aria-hidden
-                className={`pointer-events-none absolute inset-x-1 h-0.5 rounded bg-accent ${edge === "top" ? "-top-px" : "bottom-0.5"}`}
+                className={`pointer-events-none absolute inset-x-1 h-0.5 rounded-sm bg-primary ${edge === "top" ? "-top-px" : "bottom-0.5"}`}
               />
             ) : null}
             <EpisodeCard
@@ -118,7 +118,7 @@ export function SidebarEpisodeList({
             <div className="absolute right-1.5 top-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
               <ActionMenu
                 label={t("dashboard:episode_menu_label", { name })}
-                triggerClassName="focus-ring grid h-6 w-6 place-items-center rounded-md text-text-3 hover:text-text"
+                triggerClassName="focus-ring grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:text-foreground"
                 triggerStyle={{ background: "oklch(0.22 0.012 265 / 0.9)" }}
                 items={[
                   {

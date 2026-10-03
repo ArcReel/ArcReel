@@ -359,11 +359,11 @@ export function ProviderModelSelect({
           setOpen(!open);
         }}
         onKeyDown={handleTriggerKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[13px] text-text transition-colors hover:border-hairline-strong hover:bg-bg-grad-a/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-card/55 px-3 py-2 text-[13px] text-foreground transition-colors hover:border-input hover:bg-card/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className={`truncate ${showFallback ? "text-text-3" : ""}`}>{displayText}</span>
+        <span className={`truncate ${showFallback ? "text-muted-foreground" : ""}`}>{displayText}</span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-text-4 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -375,12 +375,12 @@ export function ProviderModelSelect({
           <div
             // eslint-disable-next-line react-hooks/refs, @typescript-eslint/unbound-method -- setFloating 是 floating-ui 的稳定回调 ref，不读 ref.current；它是不访问 this 的属性型函数，无需绑定
             ref={refs.setFloating}
-            className={`isolate overflow-hidden rounded-[8px] border border-hairline shadow-xl ${UI_LAYERS.modal}`}
+            className={`isolate overflow-hidden rounded-md border border-border shadow-xl ${UI_LAYERS.modal}`}
             style={{ ...floatingStyles, ...DROPDOWN_PANEL_STYLE }}
           >
             {showSearch && (
-            <div className="relative border-b border-hairline-soft p-2">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
+            <div className="relative border-b border-border/50 p-2">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input
                 ref={inputRef}
                 type="text"
@@ -396,7 +396,7 @@ export function ProviderModelSelect({
                 aria-activedescendant={activeDescendantId}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-[6px] border border-hairline bg-bg-grad-a/65 py-1.5 pl-8 pr-2 text-[12.5px] text-text placeholder:text-text-4 focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full rounded-sm border border-border bg-card/65 py-1.5 pl-8 pr-2 text-[12.5px] text-foreground placeholder:text-muted-foreground focus:border-primary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
           )}
@@ -420,12 +420,12 @@ export function ProviderModelSelect({
                 onClick={() => selectOption("")}
                 onMouseEnter={() => setActiveIndex(0)}
                 className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] transition-colors ${
-                  activeIndex === 0 ? "bg-accent-dim text-text" : "text-text-2 hover:bg-bg-grad-a/45"
+                  activeIndex === 0 ? "bg-primary/12 text-foreground" : "text-subtle-foreground hover:bg-card/45"
                 }`}
               >
                 <span>{defaultLabel ?? t("follow_global_default")}</span>
                 {defaultHint && (
-                  <span className="ml-auto font-mono text-[10.5px] text-text-4">{defaultHint}</span>
+                  <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">{defaultHint}</span>
                 )}
               </button>
             )}
@@ -435,7 +435,7 @@ export function ProviderModelSelect({
                 {/* Group header */}
                 <div
                   role="presentation"
-                  className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4 bg-bg-grad-a/35"
+                  className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground bg-card/35"
                 >
                   <ProviderIcon providerId={providerId} className="h-3.5 w-3.5" />
                   {providerNames[providerId] || providerId}
@@ -463,12 +463,12 @@ export function ProviderModelSelect({
                       onMouseEnter={() => setActiveIndex(currentFlatIdx)}
                       className={`flex w-full items-start gap-1.5 px-3 py-2 pl-6 text-left text-[12.5px] transition-colors ${
                         isActive
-                          ? "bg-accent-dim text-text"
-                          : "text-text-2 hover:bg-bg-grad-a/45"
+                          ? "bg-primary/12 text-foreground"
+                          : "text-subtle-foreground hover:bg-card/45"
                       }`}
                     >
                       {isSelected ? (
-                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-2" />
+                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                       ) : (
                         <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       )}
@@ -476,12 +476,12 @@ export function ProviderModelSelect({
                         <span className="block truncate">{label}</span>
                         {/* 译名与 id 不同才补 id 行：品牌名类模型（译名 = id）补一行等于重复。 */}
                         {label !== model && (
-                          <span className="mt-0.5 block truncate font-mono text-[10px] text-text-4">
+                          <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
                             {model}
                           </span>
                         )}
                         {meta && (
-                          <span className="mt-0.5 block truncate font-mono text-[10px] tabular-nums text-text-4">
+                          <span className="mt-0.5 block truncate font-mono text-[10px] tabular-nums text-muted-foreground">
                             {meta}
                           </span>
                         )}
@@ -493,7 +493,7 @@ export function ProviderModelSelect({
             ))}
 
             {flatOptions.length === 0 && (
-              <div role="status" className="px-3 py-3 text-center text-[12.5px] text-text-3">
+              <div role="status" className="px-3 py-3 text-center text-[12.5px] text-muted-foreground">
                 {t("no_models_match")}
               </div>
             )}

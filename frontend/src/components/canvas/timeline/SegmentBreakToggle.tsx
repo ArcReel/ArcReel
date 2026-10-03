@@ -28,7 +28,7 @@ export function SegmentBreakToggle({ checked, onChange, disabled = false }: Segm
 
   return (
     <span className="inline-flex items-center gap-1.5" title={t("segment_break_hint")}>
-      <span id={labelId} className="text-[11px]" style={{ color: "var(--color-text-3)" }}>
+      <span id={labelId} className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
         {t("segment_break_toggle")}
       </span>
       <span id={hintId} hidden>

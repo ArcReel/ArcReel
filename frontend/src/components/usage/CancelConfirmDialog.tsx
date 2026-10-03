@@ -33,10 +33,10 @@ export function CancelConfirmDialog({
     <div
       role="alertdialog"
       aria-label={t("cancel_confirm_aria")}
-      className="border-t border-hairline-soft px-4 py-3"
+      className="border-t border-border/50 px-4 py-3"
       style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
     >
-      <p className="text-[12px] text-text-2">
+      <p className="text-[12px] text-subtle-foreground">
         {request.kind === "all"
           ? t("cancel_all_confirm", { count: request.queuedCount })
           : cascaded.length > 0
@@ -44,7 +44,7 @@ export function CancelConfirmDialog({
             : t("cancel_single_confirm")}
       </p>
       {cascaded.length > 0 && (
-        <ul className="num mt-1.5 max-h-20 overflow-y-auto text-[10.5px] text-text-4">
+        <ul className="num mt-1.5 max-h-20 overflow-y-auto text-[10.5px] text-muted-foreground">
           {cascaded.map((task) => (
             <li key={task.task_id}>
               {t(`task_type_${task.task_type}`, { defaultValue: task.task_type })} /{" "}
@@ -54,7 +54,7 @@ export function CancelConfirmDialog({
         </ul>
       )}
       {failed && (
-        <p role="alert" className="mt-1.5 text-[11px] text-danger-2">
+        <p role="alert" className="mt-1.5 text-[11px] text-destructive">
           {failureDetail ?? t("cancel_failed")}
         </p>
       )}
@@ -63,7 +63,7 @@ export function CancelConfirmDialog({
           type="button"
           onClick={voidPromise(onConfirm)}
           disabled={cancelling}
-          className="focus-ring rounded px-2.5 py-1 text-[11px] font-medium transition-transform disabled:opacity-50"
+          className="focus-ring rounded-sm px-2.5 py-1 text-[11px] font-medium transition-transform disabled:opacity-50"
           style={{
             color: "oklch(0.98 0 0)",
             background: "linear-gradient(135deg, oklch(0.55 0.20 25), oklch(0.45 0.18 25))",
@@ -76,7 +76,7 @@ export function CancelConfirmDialog({
         <button
           type="button"
           onClick={onDismiss}
-          className="focus-ring rounded border border-hairline bg-bg-grad-a/50 px-2.5 py-1 text-[11px] text-text-3 transition-colors hover:text-text"
+          className="focus-ring rounded-sm border border-border bg-card/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
         >
           {t("go_back")}
         </button>

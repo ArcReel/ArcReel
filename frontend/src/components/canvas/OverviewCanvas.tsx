@@ -34,8 +34,8 @@ const CARD_SHADOW =
 const FIELD_STYLE: React.CSSProperties = {
   background:
     "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -227,21 +227,21 @@ export function OverviewCanvas({
             className="mb-1 h-6 w-[3px] rounded-full"
             style={{
               background:
-                "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-              boxShadow: "0 0 12px var(--color-accent-glow)",
+                "var(--primary)",
+              boxShadow: "0 0 12px color-mix(in oklab, var(--primary) 35%, transparent)",
             }}
           />
           <div>
             <h1
               className="display-serif text-[28px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {projectData.title}
             </h1>
             <p
               className="num mt-0.5 text-[10.5px] uppercase"
               style={{
-                color: "var(--color-text-4)",
+                color: "var(--muted-foreground)",
                 letterSpacing: "1.4px",
               }}
             >
@@ -282,7 +282,7 @@ export function OverviewCanvas({
               data-onboarding={ONBOARDING_ANCHORS.workbenchOverview}
               className="relative overflow-hidden rounded-2xl p-5"
               style={{
-                border: "1px solid var(--color-hairline-soft)",
+                border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                 background: CARD_BG,
                 boxShadow: CARD_SHADOW,
               }}
@@ -292,14 +292,14 @@ export function OverviewCanvas({
                 className="pointer-events-none absolute inset-x-0 top-0 h-px"
                 style={{
                   background:
-                    "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+                    "linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent)",
                 }}
               />
               <div className="mb-3 flex items-center gap-2.5">
-                <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--color-accent-2)" }} />
+                <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--primary)" }} />
                 <span
                   className="text-[10.5px] font-bold uppercase"
-                  style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+                  style={{ color: "var(--muted-foreground)", letterSpacing: "1.0px" }}
                 >
                   {t("project_overview_title")}
                 </span>
@@ -310,7 +310,7 @@ export function OverviewCanvas({
                       type="button"
                       onClick={enterOverviewEdit}
                       title={t("edit_overview")}
-                      className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)]"
+                      className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-foreground"
                     >
                       <Pencil className="h-3 w-3" />
                       <span>{t("edit_overview")}</span>
@@ -321,7 +321,7 @@ export function OverviewCanvas({
                         onClick={() => setConfirmingRegenerate(true)}
                         disabled={regenerating}
                         title={t("regen_overview_title")}
-                        className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-3)]"
+                        className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
                       >
                         <RefreshCw className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`} />
                         <span>{regenerating ? t("regenerating_short") : t("regen_short")}</span>
@@ -399,9 +399,9 @@ export function OverviewCanvas({
                       style={{
                         color: "oklch(0.14 0 0)",
                         background:
-                          "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                          "var(--primary)",
                         boxShadow:
-                          "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                          "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
                       }}
                     >
                       {savingOverview ? t("common:saving") : t("common:save")}
@@ -410,7 +410,7 @@ export function OverviewCanvas({
                       type="button"
                       onClick={() => setEditingOverview(false)}
                       disabled={savingOverview}
-                      className="focus-ring rounded-md px-3 py-1.5 text-[12px] text-[var(--color-text-3)] transition-colors hover:text-[var(--color-text)] disabled:opacity-50"
+                      className="focus-ring rounded-md px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                     >
                       {t("common:cancel")}
                     </button>
@@ -421,25 +421,25 @@ export function OverviewCanvas({
                   {overview.synopsis && (
                     <p
                       className="text-[13px] leading-[1.7]"
-                      style={{ color: "var(--color-text-2)" }}
+                      style={{ color: "var(--subtle-foreground)" }}
                     >
                       {overview.synopsis}
                     </p>
                   )}
                   <div
                     className="mt-3.5 flex flex-wrap gap-2 text-[11px]"
-                    style={{ color: "var(--color-text-4)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   >
                     {overview.genre && (
                       <span
                         className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5"
                         style={{
-                          background: "var(--color-accent-dim)",
-                          border: "1px solid var(--color-accent-soft)",
-                          color: "var(--color-accent-2)",
+                          background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                          border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                          color: "var(--primary)",
                         }}
                       >
-                        <span style={{ color: "var(--color-text-4)" }}>{t("genre_prefix")}</span>
+                        <span style={{ color: "var(--muted-foreground)" }}>{t("genre_prefix")}</span>
                         {overview.genre}
                       </span>
                     )}
@@ -448,11 +448,11 @@ export function OverviewCanvas({
                         className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5"
                         style={{
                           background: "oklch(0.20 0.011 265 / 0.6)",
-                          border: "1px solid var(--color-hairline)",
+                          border: "1px solid var(--border)",
                         }}
                       >
-                        <span style={{ color: "var(--color-text-4)" }}>{t("theme_prefix")}</span>
-                        <span style={{ color: "var(--color-text-2)" }}>{overview.theme}</span>
+                        <span style={{ color: "var(--muted-foreground)" }}>{t("theme_prefix")}</span>
+                        <span style={{ color: "var(--subtle-foreground)" }}>{overview.theme}</span>
                       </span>
                     )}
                   </div>
@@ -460,13 +460,13 @@ export function OverviewCanvas({
                     <div className="mt-3.5">
                       <div
                         className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-                        style={{ color: "var(--color-text-4)" }}
+                        style={{ color: "var(--muted-foreground)" }}
                       >
                         {t("world_setting_label")}
                       </div>
                       <p
                         className="mt-1 text-[13px] leading-[1.7]"
-                        style={{ color: "var(--color-text-2)" }}
+                        style={{ color: "var(--subtle-foreground)" }}
                       >
                         {overview.world_setting}
                       </p>
@@ -477,7 +477,7 @@ export function OverviewCanvas({
                 <button
                   type="button"
                   onClick={enterOverviewEdit}
-                  className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-4 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
+                  className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-[13px] text-muted-foreground transition-colors hover:border-primary/22 hover:text-subtle-foreground"
                   style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
                 >
                   <Pencil className="h-4 w-4" />
@@ -504,7 +504,7 @@ export function OverviewCanvas({
                       key={key}
                       className="rounded-2xl p-4"
                       style={{
-                        border: "1px solid var(--color-hairline-soft)",
+                        border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                         background: CARD_BG,
                         boxShadow: CARD_SHADOW,
                       }}
@@ -514,9 +514,9 @@ export function OverviewCanvas({
                           aria-hidden
                           className="grid h-6 w-6 place-items-center rounded-md"
                           style={{
-                            background: "var(--color-accent-dim)",
-                            border: "1px solid var(--color-accent-soft)",
-                            color: "var(--color-accent-2)",
+                            background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                            color: "var(--primary)",
                           }}
                         >
                           <Icon className="h-3 w-3" />
@@ -524,7 +524,7 @@ export function OverviewCanvas({
                         <span
                           className="text-[10.5px] font-bold uppercase"
                           style={{
-                            color: "var(--color-text-4)",
+                            color: "var(--muted-foreground)",
                             letterSpacing: "0.8px",
                           }}
                         >
@@ -533,10 +533,10 @@ export function OverviewCanvas({
                         <div className="flex-1" />
                         <span
                           className="num text-[11px]"
-                          style={{ color: "var(--color-text-2)" }}
+                          style={{ color: "var(--subtle-foreground)" }}
                         >
                           {cat.available}
-                          <span style={{ color: "var(--color-text-4)" }}>/{cat.total}</span>
+                          <span style={{ color: "var(--muted-foreground)" }}>/{cat.total}</span>
                         </span>
                       </div>
                       <div
@@ -553,14 +553,14 @@ export function OverviewCanvas({
                           style={{
                             width: `${pct}%`,
                             background:
-                              "linear-gradient(90deg, var(--color-accent), var(--color-accent-2))",
-                            boxShadow: "0 0 8px var(--color-accent-glow)",
+                              "var(--primary)",
+                            boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
                           }}
                         />
                       </div>
                       <div
                         className="num mt-1.5 text-right text-[10px]"
-                        style={{ color: "var(--color-text-4)" }}
+                        style={{ color: "var(--muted-foreground)" }}
                       >
                         {pct}%
                       </div>
@@ -577,9 +577,9 @@ export function OverviewCanvas({
                 aria-live="polite"
                 className="rounded-2xl px-5 py-3 text-[12px] animate-pulse"
                 style={{
-                  border: "1px solid var(--color-hairline-soft)",
+                  border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                   background: CARD_BG,
-                  color: "var(--color-text-4)",
+                  color: "var(--muted-foreground)",
                 }}
               >
                 {t("calculating_cost")}
@@ -604,7 +604,7 @@ export function OverviewCanvas({
               <section
                 className="relative overflow-hidden rounded-2xl p-5"
                 style={{
-                  border: "1px solid var(--color-hairline-soft)",
+                  border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                   background: CARD_BG,
                   boxShadow: CARD_SHADOW,
                 }}
@@ -613,7 +613,7 @@ export function OverviewCanvas({
                   <span
                     className="text-[10.5px] font-bold uppercase"
                     style={{
-                      color: "var(--color-text-4)",
+                      color: "var(--muted-foreground)",
                       letterSpacing: "1.0px",
                     }}
                   >
@@ -677,19 +677,19 @@ export function OverviewCanvas({
                   className="h-3 w-[3px] rounded-full"
                   style={{
                     background:
-                      "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                      "var(--primary)",
                   }}
                 />
                 <h3
                   className="display-serif text-[15px] font-semibold tracking-tight"
-                  style={{ color: "var(--color-text)" }}
+                  style={{ color: "var(--foreground)" }}
                 >
                   {isAd ? t("ad_video_section_title") : t("episodes_title")}
                 </h3>
                 {!isAd && (projectData.episodes?.length ?? 0) > 0 && (
                   <span
                     className="num text-[10.5px]"
-                    style={{ color: "var(--color-text-4)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   >
                     {projectData.episodes?.length ?? 0}
                   </span>
@@ -697,7 +697,7 @@ export function OverviewCanvas({
               </div>
 
               {(projectData.episodes?.length ?? 0) === 0 ? (
-                <p className="text-[12px]" style={{ color: "var(--color-text-4)" }}>
+                <p className="text-[12px]" style={{ color: "var(--muted-foreground)" }}>
                   {t("no_episodes_ai_hint")}
                 </p>
               ) : (
@@ -710,7 +710,7 @@ export function OverviewCanvas({
                         key={ep.episode}
                         className="num flex flex-wrap items-center gap-3 rounded-xl px-4 py-2.5 text-[12px]"
                         style={{
-                          border: "1px solid var(--color-hairline-soft)",
+                          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                           background:
                             "linear-gradient(180deg, oklch(0.21 0.011 265 / 0.5), oklch(0.18 0.010 265 / 0.35))",
                           boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
@@ -718,21 +718,21 @@ export function OverviewCanvas({
                       >
                         {!isAd && (
                           <span
-                            className="rounded px-1.5 py-0.5 text-[10.5px] font-bold"
+                            className="rounded-sm px-1.5 py-0.5 text-[10.5px] font-bold"
                             style={{
-                              color: "var(--color-accent-2)",
-                              background: "var(--color-accent-dim)",
-                              border: "1px solid var(--color-accent-soft)",
+                              color: "var(--primary)",
+                              background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                              border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
                             }}
                           >
                             {index + 1}
                           </span>
                         )}
-                        <span style={{ color: "var(--color-text)", fontFamily: "var(--font-sans)" }}>
+                        <span style={{ color: "var(--foreground)", fontFamily: "var(--font-sans)" }}>
                           {ep.title ||
                             (isAd ? projectData.title : t("common:episode_position_name", { position: index + 1 }))}
                         </span>
-                        <span style={{ color: "var(--color-text-4)" }}>
+                        <span style={{ color: "var(--muted-foreground)" }}>
                           {t(itemCountKey(route, { withStatus: true }), {
                             count: ep.item_count ?? "?",
                             status: t(`episode_status_label_${ep.status ?? "draft"}`),
@@ -756,7 +756,7 @@ export function OverviewCanvas({
                               totalLabel={t("total")}
                               accent="warm"
                             />
-                            <span style={{ color: "var(--color-hairline-strong)" }}>|</span>
+                            <span style={{ color: "var(--input)" }}>|</span>
                             <CostInline
                               label={t("actual")}
                               imageLabel={t("storyboard")}
@@ -819,7 +819,7 @@ function FieldLabel({
     <label
       htmlFor={htmlFor}
       className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-      style={{ color: "var(--color-text-4)" }}
+      style={{ color: "var(--muted-foreground)" }}
     >
       {children}
     </label>
@@ -840,12 +840,12 @@ function CostColumn({
   accent: "warm" | "good";
 }) {
   const accentColor =
-    accent === "warm" ? "oklch(0.85 0.13 75)" : "var(--color-good)";
+    accent === "warm" ? "oklch(0.85 0.13 75)" : "var(--good)";
   return (
     <div>
       <div
         className="mb-1.5 text-[10.5px] uppercase"
-        style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+        style={{ color: "var(--muted-foreground)", letterSpacing: "1.0px" }}
       >
         {label}
       </div>
@@ -854,13 +854,13 @@ function CostColumn({
           <div key={row.label} className="flex items-baseline gap-2">
             <dt
               className="shrink-0 text-[11px]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {row.label}
             </dt>
             <dd
               className="flex-1 text-right"
-              style={{ color: "var(--color-text-2)" }}
+              style={{ color: "var(--subtle-foreground)" }}
             >
               {row.value}
             </dd>
@@ -868,12 +868,12 @@ function CostColumn({
         ))}
         <div
           className="mt-2 flex items-baseline gap-2 border-t pt-2"
-          style={{ borderColor: "var(--color-hairline-soft)" }}
+          style={{ borderColor: "color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           <dt
             className="shrink-0 text-[10.5px] uppercase"
             style={{
-              color: "var(--color-text-4)",
+              color: "var(--muted-foreground)",
               letterSpacing: "0.8px",
             }}
           >
@@ -919,33 +919,33 @@ function CostInline({
   accent: "warm" | "good";
 }) {
   const accentColor =
-    accent === "warm" ? "oklch(0.85 0.13 75)" : "var(--color-good)";
+    accent === "warm" ? "oklch(0.85 0.13 75)" : "var(--good)";
   return (
     <span>
-      <span style={{ color: "var(--color-text-4)" }}>{label} </span>
-      <span style={{ color: "var(--color-text-4)" }}>{imageLabel} </span>
-      <span style={{ color: "var(--color-text-2)" }}>{imageValue}</span>
-      <span className="ml-2" style={{ color: "var(--color-text-4)" }}>
+      <span style={{ color: "var(--muted-foreground)" }}>{label} </span>
+      <span style={{ color: "var(--muted-foreground)" }}>{imageLabel} </span>
+      <span style={{ color: "var(--subtle-foreground)" }}>{imageValue}</span>
+      <span className="ml-2" style={{ color: "var(--muted-foreground)" }}>
         {videoLabel}{" "}
       </span>
-      <span style={{ color: "var(--color-text-2)" }}>{videoValue}</span>
+      <span style={{ color: "var(--subtle-foreground)" }}>{videoValue}</span>
       {audioLabel != null && audioValue != null && (
         <>
-          <span className="ml-2" style={{ color: "var(--color-text-4)" }}>
+          <span className="ml-2" style={{ color: "var(--muted-foreground)" }}>
             {audioLabel}{" "}
           </span>
-          <span style={{ color: "var(--color-text-2)" }}>{audioValue}</span>
+          <span style={{ color: "var(--subtle-foreground)" }}>{audioValue}</span>
         </>
       )}
       {unassignedLabel != null && unassignedValue != null && (
         <>
-          <span className="ml-2" style={{ color: "var(--color-text-4)" }}>
+          <span className="ml-2" style={{ color: "var(--muted-foreground)" }}>
             {unassignedLabel}{" "}
           </span>
-          <span style={{ color: "var(--color-text-2)" }}>{unassignedValue}</span>
+          <span style={{ color: "var(--subtle-foreground)" }}>{unassignedValue}</span>
         </>
       )}
-      <span className="ml-2" style={{ color: "var(--color-text-4)" }}>
+      <span className="ml-2" style={{ color: "var(--muted-foreground)" }}>
         {totalLabel}{" "}
       </span>
       <span className="font-semibold" style={{ color: accentColor }}>

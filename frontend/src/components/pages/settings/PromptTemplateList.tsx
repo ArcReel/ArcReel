@@ -126,13 +126,13 @@ export function PromptTemplateList({ onSelect }: { onSelect: (id: string) => voi
   return (
     <section className="space-y-6">
       <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
           Prompt Templates
         </div>
-        <h2 className="font-editorial mt-1 text-[24px] leading-tight text-text">
+        <h2 className="font-editorial mt-1 text-[24px] leading-tight text-foreground">
           {t("prompt_templates")}
         </h2>
-        <p className="mt-1.5 max-w-[62ch] text-[12.5px] leading-[1.6] text-text-3">
+        <p className="mt-1.5 max-w-[62ch] text-[12.5px] leading-[1.6] text-muted-foreground">
           {t("prompt_templates_desc")}
         </p>
       </header>
@@ -183,7 +183,7 @@ function AxisFilterBar({
   const { t } = useTranslation("dashboard");
   return (
     <div
-      className="space-y-2 rounded-[10px] border border-hairline px-4 py-3"
+      className="space-y-2 rounded-lg border border-border px-4 py-3"
       style={CARD_STYLE}
     >
       {axisValues.map(([axis, values]) => {
@@ -202,7 +202,7 @@ function AxisFilterBar({
             aria-label={axisLabel}
             className="flex flex-wrap items-center gap-x-3 gap-y-1.5"
           >
-            <span className="w-24 shrink-0 text-[12px] text-text-3">{axisLabel}</span>
+            <span className="w-24 shrink-0 text-[12px] text-muted-foreground">{axisLabel}</span>
             <div className="flex flex-wrap items-center gap-1">
               {options.map(([value, label]) => {
                 const active = filter[axis] === value;
@@ -215,7 +215,7 @@ function AxisFilterBar({
                     onClick={() => onChange(axis, value)}
                     className={
                       "focus-ring rounded-full px-2.5 py-0.5 text-[12px] transition-colors " +
-                      (active ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text")
+                      (active ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground")
                     }
                   >
                     {label}
@@ -250,18 +250,18 @@ function CategoryGroup({
   return (
     <section aria-labelledby={headingId}>
       <div className="mb-2.5 flex items-baseline justify-between gap-3">
-        <h3 id={headingId} className="text-[14.5px] font-medium text-text">
+        <h3 id={headingId} className="text-[14.5px] font-medium text-foreground">
           {compact ? (
             <button
               type="button"
               aria-expanded={expanded}
               aria-controls={listId}
               onClick={() => setExpanded((open) => !open)}
-              className="group inline-flex items-center gap-1.5 rounded-[5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="group inline-flex items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <ChevronRight
                 aria-hidden
-                className={`h-3.5 w-3.5 text-text-4 motion-safe:transition-transform group-hover:text-text-2 ${expanded ? "rotate-90" : ""}`}
+                className={`h-3.5 w-3.5 text-muted-foreground motion-safe:transition-transform group-hover:text-subtle-foreground ${expanded ? "rotate-90" : ""}`}
               />
               {label}
             </button>
@@ -269,7 +269,7 @@ function CategoryGroup({
             label
           )}
         </h3>
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-4">
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           {t("prompt_templates_count", { count: items.length })}
         </span>
       </div>
@@ -277,7 +277,7 @@ function CategoryGroup({
         expanded && (
           <ul
             id={listId}
-            className="grid grid-cols-2 overflow-hidden rounded-[10px] border border-hairline py-1"
+            className="grid grid-cols-2 overflow-hidden rounded-lg border border-border py-1"
             style={CARD_STYLE}
           >
             {items.map((template) => (
@@ -286,19 +286,19 @@ function CategoryGroup({
                   type="button"
                   onClick={() => onSelect(template.id)}
                   title={template.id}
-                  className="group flex w-full items-center gap-2 px-3.5 py-2 text-left transition-colors hover:bg-bg-grad-a/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                  className="group flex w-full items-center gap-2 px-3.5 py-2 text-left transition-colors hover:bg-card/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12.5px] text-text-2 group-hover:text-text">
+                    <span className="block truncate text-[12.5px] text-subtle-foreground group-hover:text-foreground">
                       {template.title}
                     </span>
-                    <span className="mt-1 block truncate text-[10.5px] text-text-4">
+                    <span className="mt-1 block truncate text-[10.5px] text-muted-foreground">
                       {stageLabel(t, template.stage)} · {triggerLabel(t, template.invoked_by)}
                     </span>
                   </span>
                   <ChevronRight
                     aria-hidden
-                    className="h-3 w-3 shrink-0 text-text-4 transition-colors group-hover:text-text-2"
+                    className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover:text-subtle-foreground"
                   />
                 </button>
               </li>
@@ -307,7 +307,7 @@ function CategoryGroup({
         )
       ) : (
         <ul
-          className="divide-y divide-hairline-soft overflow-hidden rounded-[10px] border border-hairline"
+          className="divide-y divide-border/50 overflow-hidden rounded-lg border border-border"
           style={CARD_STYLE}
         >
           {items.map((template) => (
@@ -315,34 +315,34 @@ function CategoryGroup({
               <button
                 type="button"
                 onClick={() => onSelect(template.id)}
-                className="group flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-bg-grad-a/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                className="group flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-card/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium text-text">{template.title}</span>
-                  <span className="mt-0.5 block text-[12px] leading-[1.55] text-text-3">
+                  <span className="block text-[13px] font-medium text-foreground">{template.title}</span>
+                  <span className="mt-0.5 block text-[12px] leading-[1.55] text-muted-foreground">
                     {template.description}
                   </span>
                   <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] leading-none">
                     <span
                       title={template.stage}
-                      className="rounded-full bg-accent-dim px-2 py-1 text-accent-2"
+                      className="rounded-full bg-primary/12 px-2 py-1 text-primary"
                     >
                       {stageLabel(t, template.stage)}
                     </span>
                     <span
                       title={`${template.invoked_by.kind}:${template.invoked_by.name}`}
-                      className="rounded-full border border-hairline px-2 py-1 text-text-3"
+                      className="rounded-full border border-border px-2 py-1 text-muted-foreground"
                     >
                       {triggerLabel(t, template.invoked_by)}
                     </span>
                   </span>
                 </span>
-                <span className="hidden shrink-0 font-mono text-[10.5px] text-text-4 sm:block">
+                <span className="hidden shrink-0 font-mono text-[10.5px] text-muted-foreground sm:block">
                   {template.id}
                 </span>
                 <ChevronRight
                   aria-hidden
-                  className="h-3.5 w-3.5 shrink-0 text-text-4 transition-colors group-hover:text-text-2"
+                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-subtle-foreground"
                 />
               </button>
             </li>
@@ -356,7 +356,7 @@ function CategoryGroup({
 function EmptyCard({ children }: { children: ReactNode }) {
   return (
     <div
-      className="rounded-[10px] border border-hairline px-5 py-6 text-[12.5px] text-text-3"
+      className="rounded-lg border border-border px-5 py-6 text-[12.5px] text-muted-foreground"
       style={CARD_STYLE}
     >
       {children}

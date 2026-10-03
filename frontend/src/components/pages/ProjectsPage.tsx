@@ -80,9 +80,9 @@ type GreetingKey =
 const ACCENT_BUTTON_STYLE: CSSProperties = {
   color: "oklch(0.14 0 0)",
   background:
-    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+    "var(--primary)",
   boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-accent)",
+    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--primary)",
 };
 
 /**
@@ -152,7 +152,7 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
 
   return (
     <article
-      className="grid overflow-hidden rounded-[14px] border border-hairline bg-bg-grad-a"
+      className="grid overflow-hidden rounded-xl border border-border bg-card"
       style={{
         gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)",
         boxShadow:
@@ -171,7 +171,7 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
           now
         </span>
         <div className="relative flex items-center gap-2.5">
-          <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-accent-2">
+          <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-primary">
             <span
               aria-hidden
               className="motion-safe:animate-pulse"
@@ -179,8 +179,8 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
                 width: 5,
                 height: 5,
                 borderRadius: 3,
-                background: "var(--color-accent)",
-                boxShadow: "0 0 8px var(--color-accent-glow)",
+                background: "var(--primary)",
+                boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
               }}
             />
             {t("dashboard:lobby_continue_editing_chip")}
@@ -193,16 +193,16 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
             fontSize: 36,
             lineHeight: 1,
             letterSpacing: "-0.012em",
-            color: "var(--color-text)",
+            color: "var(--foreground)",
           }}
         >
           {getProjectDisplayName(project.title, t("dashboard:untitled_project"))}
         </h3>
-        <div className="font-editorial relative italic text-text-3" style={{ fontSize: 15 }}>
+        <div className="font-editorial relative italic text-muted-foreground" style={{ fontSize: 15 }}>
           {styleLabel}
         </div>
 
-        <div aria-hidden className="relative my-4 h-px bg-hairline-soft" />
+        <div aria-hidden className="relative my-4 h-px bg-border/50" />
 
         <RepairReasonLine reason={repairReason} />
 
@@ -213,23 +213,23 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
             <ProgressBar
               value={progressPct}
               label={t("dashboard:lobby_now_editing_progress_label")}
-              className="h-[3px] rounded-[2px] bg-transparent"
+              className="h-[3px] rounded-xs bg-transparent"
               style={trackStyle}
               barClassName="rounded-none"
               barStyle={barStyle}
             />
-            <span className="font-mono text-[11px] font-semibold tabular-nums text-accent-2">
+            <span className="font-mono text-[11px] font-semibold tabular-nums text-primary">
               {progressPct}%
             </span>
           </div>
         </div>
 
         <div
-          className="relative grid overflow-hidden rounded-[8px]"
+          className="relative grid overflow-hidden rounded-md"
           style={{
             gridTemplateColumns: "1fr 1fr 1fr",
             gap: 1,
-            background: "var(--color-hairline-soft)",
+            background: "color-mix(in oklab, var(--border) 50%, transparent)",
           }}
         >
           {[
@@ -257,13 +257,13 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
               className="px-3.5 py-3"
               style={{ background: "oklch(0.16 0.010 265 / 0.6)" }}
             >
-              <div className="font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-text-3">
+              <div className="font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
                 {cell.k}
               </div>
-              <div className="mt-1 text-[14px] font-semibold tracking-tight text-text">
+              <div className="mt-1 text-[14px] font-semibold tracking-tight text-foreground">
                 {cell.v}
               </div>
-              <div className="mt-0.5 font-mono text-[10px] text-text-3">{cell.sub}</div>
+              <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{cell.sub}</div>
             </div>
           ))}
         </div>
@@ -272,7 +272,7 @@ function NowEditingCard({ project, styleLabel, t }: NowEditingCardProps) {
         <div className="relative mt-4 flex justify-end">
           <Link
             href={`/app/projects/${project.name}`}
-            className="inline-flex items-center gap-2 rounded-[7px] px-4 py-2.5 text-[12px] font-semibold no-underline transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-2 rounded-md px-4 py-2.5 text-[12px] font-semibold no-underline transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             style={ACCENT_BUTTON_STYLE}
           >
             {t("dashboard:lobby_open_workspace")}
@@ -299,12 +299,12 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
     <button
       type="button"
       onClick={onClick}
-      className="group relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[12px] border border-dashed border-hairline-strong bg-bg-grad-a/55 text-left transition-colors hover:border-accent/55 hover:bg-bg-grad-a/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="group relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-xl border border-dashed border-input bg-card/55 text-left transition-colors hover:border-primary/55 hover:bg-card/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label={ariaLabel ?? title}
     >
       <div className="p-2.5">
         <div
-          className="relative grid place-items-center overflow-hidden rounded-[6px] border border-dashed border-hairline"
+          className="relative grid place-items-center overflow-hidden rounded-sm border border-dashed border-border"
           style={{
             aspectRatio: "2 / 1",
             background:
@@ -314,23 +314,23 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
           <div className="flex flex-col items-center gap-2.5 transition-transform motion-safe:group-hover:-translate-y-0.5">
             <span
               aria-hidden
-              className="grid h-12 w-12 place-items-center rounded-[12px]"
+              className="grid h-12 w-12 place-items-center rounded-xl"
               style={{
                 background:
                   "linear-gradient(180deg, oklch(0.30 0.04 290), oklch(0.22 0.02 280))",
                 border: "1px solid oklch(0.76 0.09 295 / 0.4)",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-accent)",
-                color: "var(--color-accent-2)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--primary)",
+                color: "var(--primary)",
               }}
             >
               {icon}
             </span>
             <div className="text-center">
-              <div className="text-[15px] font-semibold tracking-tight text-text-2 transition-colors group-hover:text-text">
+              <div className="text-[15px] font-semibold tracking-tight text-subtle-foreground transition-colors group-hover:text-foreground">
                 {title}
               </div>
-              <div className="mt-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-text-3">
+              <div className="mt-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 {kicker}
               </div>
             </div>
@@ -340,32 +340,32 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
 
       <div aria-hidden className="space-y-3 px-4 pt-1 pb-3.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="block h-3 w-1/2 rounded-[3px] bg-hairline/85" />
-          <span className="block h-2 w-12 rounded-[3px] bg-hairline/65" />
+          <span className="block h-3 w-1/2 rounded-xs bg-border/85" />
+          <span className="block h-2 w-12 rounded-xs bg-border/65" />
         </div>
-        <span className="inline-block h-[18px] w-16 rounded-full border border-dashed border-hairline" />
+        <span className="inline-block h-[18px] w-16 rounded-full border border-dashed border-border" />
         <div className="flex gap-[3px]">
           {Array.from({ length: 8 }).map((_, i) => (
-            <span key={i} className="h-[3px] flex-1 rounded-[1.5px] bg-hairline/65" />
+            <span key={i} className="h-[3px] flex-1 rounded-xs bg-border/65" />
           ))}
         </div>
         <div
-          className="grid grid-cols-4 overflow-hidden rounded-[7px] border border-dashed border-hairline"
+          className="grid grid-cols-4 overflow-hidden rounded-md border border-dashed border-border"
           style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
         >
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
-              className={"px-1.5 py-2.5" + (i < 3 ? " border-r border-dashed border-hairline" : "")}
+              className={"px-1.5 py-2.5" + (i < 3 ? " border-r border-dashed border-border" : "")}
             >
-              <span className="mx-auto block h-1.5 w-8 rounded-[1.5px] bg-hairline/75" />
-              <span className="mx-auto mt-1.5 block h-2 w-6 rounded-[1.5px] bg-hairline/55" />
+              <span className="mx-auto block h-1.5 w-8 rounded-xs bg-border/75" />
+              <span className="mx-auto mt-1.5 block h-2 w-6 rounded-xs bg-border/55" />
             </div>
           ))}
         </div>
         <div className="flex items-center gap-2.5">
-          <span className="h-[3px] flex-1 rounded-[1.5px] bg-hairline/55" />
-          <span className="h-2 w-7 rounded-[3px] bg-hairline/70" />
+          <span className="h-[3px] flex-1 rounded-xs bg-border/55" />
+          <span className="h-2 w-7 rounded-xs bg-border/70" />
         </div>
       </div>
     </button>
@@ -432,15 +432,15 @@ function TopBar({
             className="h-8 w-8"
           />
           <span
-            className="font-sans text-[17px] font-medium tracking-[-0.012em] text-text"
+            className="font-sans text-[17px] font-medium tracking-[-0.012em] text-foreground"
             aria-hidden
           >
             {BRAND.name}
           </span>
         </div>
 
-        <label className="ml-2 flex w-[min(420px,100%)] items-center gap-2 rounded-lg border border-hairline-soft bg-bg/55 px-3 py-1.5 transition-colors focus-within:border-accent/60">
-            <Search className="h-3.5 w-3.5 text-text-3" />
+        <label className="ml-2 flex w-[min(420px,100%)] items-center gap-2 rounded-lg border border-border/50 bg-background/55 px-3 py-1.5 transition-colors focus-within:border-primary/60">
+            <Search className="h-3.5 w-3.5 text-muted-foreground" />
             <input
               ref={searchInputRef}
               type="search"
@@ -454,11 +454,11 @@ function TopBar({
               inputMode="search"
               aria-keyshortcuts="Meta+K Control+K"
               placeholder={t("dashboard:lobby_search_placeholder")}
-              className="flex-1 bg-transparent text-[12.5px] text-text placeholder:text-text-3 outline-none"
+              className="flex-1 bg-transparent text-[12.5px] text-foreground placeholder:text-muted-foreground outline-none"
             />
             <kbd
               aria-hidden
-              className="rounded border border-hairline-soft px-1.5 py-px font-mono text-[9.5px] text-text-3"
+              className="rounded-sm border border-border/50 px-1.5 py-px font-mono text-[9.5px] text-muted-foreground"
             >
               {t("dashboard:lobby_search_kbd")}
             </kbd>
@@ -468,18 +468,18 @@ function TopBar({
           <button
             type="button"
             onClick={onAssets}
-            className="inline-flex items-center gap-1.5 rounded-[7px] border border-accent/25 bg-accent-dim px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-accent/50 hover:bg-accent-soft hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/25 bg-primary/12 px-3 py-1.5 text-[12px] text-subtle-foreground transition-colors hover:border-primary/50 hover:bg-primary/22 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title={t("assets:library_title")}
           >
             <Library className="h-3.5 w-3.5" />
             {t("assets:library_title")}
           </button>
-          <span aria-hidden className="mx-1 h-5 w-px bg-hairline-soft" />
+          <span aria-hidden className="mx-1 h-5 w-px bg-border/50" />
           <button
             type="button"
             onClick={onImport}
             disabled={importing}
-            className="inline-flex items-center gap-1.5 rounded-[7px] border border-hairline bg-bg-grad-a/50 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card/50 px-3 py-1.5 text-[12px] text-subtle-foreground transition-colors hover:border-input hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             {importing ? (
               <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
@@ -492,17 +492,17 @@ function TopBar({
             type="button"
             onClick={onCreate}
             data-onboarding={ONBOARDING_ANCHORS.lobbyCreateProject}
-            className="inline-flex items-center gap-1.5 rounded-[7px] px-3.5 py-1.5 text-[12px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-[12px] font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             style={ACCENT_BUTTON_STYLE}
           >
             <Plus className="h-3.5 w-3.5" />
             {t("dashboard:create_project")}
           </button>
-          <span aria-hidden className="mx-1 h-5 w-px bg-hairline-soft" />
+          <span aria-hidden className="mx-1 h-5 w-px bg-border/50" />
           <button
             type="button"
             onClick={onOpenExternalAgent}
-            className="rounded-md px-2 py-1.5 text-sm text-text-3 transition-colors hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title={t("dashboard:external_agent_guide")}
             aria-label={t("dashboard:external_agent_guide")}
           >
@@ -520,7 +520,7 @@ function TopBar({
             {configIncomplete ? (
               <span
                 aria-label={t("config_incomplete")}
-                className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-warm-bright"
+                className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-warn"
               />
             ) : null}
           </button>
@@ -580,25 +580,25 @@ function HeroStrip({ totals, t }: HeroStripProps) {
       key: "total",
       label: t("dashboard:lobby_stat_total"),
       value: totals.total,
-      tone: { color: "var(--color-text)" },
+      tone: { color: "var(--foreground)" },
     },
     {
       key: "in_progress",
       label: t("dashboard:lobby_filter_in_progress"),
       value: totals.inProgress,
-      tone: { color: "var(--color-accent-2)" },
+      tone: { color: "var(--primary)" },
     },
     {
       key: "completed",
       label: t("dashboard:lobby_filter_completed"),
       value: totals.completed,
-      tone: { color: "var(--color-good)" },
+      tone: { color: "var(--good)" },
     },
     {
       key: "repair",
       label: t("dashboard:lobby_filter_repair"),
       value: totals.repair,
-      tone: { color: "var(--color-warm)" },
+      tone: { color: "var(--warn)" },
     },
   ];
 
@@ -612,7 +612,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
             fontWeight: 400,
             lineHeight: 1.22,
             letterSpacing: "-0.012em",
-            color: "var(--color-text)",
+            color: "var(--foreground)",
           }}
         >
           <Typewriter
@@ -622,23 +622,23 @@ function HeroStrip({ totals, t }: HeroStripProps) {
                 { text: t(`dashboard:${greetingKey}`), after: <br /> },
                 {
                   text: subtitle,
-                  style: { fontStyle: "italic", color: "var(--color-accent-2)" },
+                  style: { fontStyle: "italic", color: "var(--primary)" },
                 },
               ] satisfies TypewriterSegment[]
             }
           />
         </h1>
-        <p className="m-0 mt-2.5 max-w-[560px] text-[13px] leading-[1.55] text-text-3">
+        <p className="m-0 mt-2.5 max-w-[560px] text-[13px] leading-[1.55] text-muted-foreground">
           {summaryLine}
         </p>
       </div>
       <div className="flex flex-col items-end justify-between gap-2.5">
-        <div className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-2">
+        <div className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
           {t("dashboard:lobby_hero_eyebrow")} — {dateLine}
         </div>
         <div
           data-testid="lobby-hero-stats"
-          className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
+          className="flex items-stretch overflow-hidden rounded-lg border border-border/50"
           style={{ background: "oklch(0.16 0.010 265 / 0.4)" }}
         >
           {stats.map((s, i) => (
@@ -646,10 +646,10 @@ function HeroStrip({ totals, t }: HeroStripProps) {
               key={s.key}
               className={
                 "px-4 py-2.5" +
-                (i < stats.length - 1 ? " border-r border-hairline-soft" : "")
+                (i < stats.length - 1 ? " border-r border-border/50" : "")
               }
             >
-              <div className="font-mono text-[9px] font-bold whitespace-nowrap uppercase tracking-[0.14em] text-text-3">
+              <div className="font-mono text-[9px] font-bold whitespace-nowrap uppercase tracking-[0.14em] text-muted-foreground">
                 {s.label}
               </div>
               <div
@@ -693,14 +693,14 @@ function FilterPills({ active, onChange, counts, t }: FilterPillsProps) {
 
   return (
     <div
-      className="sticky z-20 border-b border-hairline backdrop-blur-md"
+      className="sticky z-20 border-b border-border backdrop-blur-md"
       style={{
         top: "var(--lobby-topbar-h, 57px)",
         background:
           "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
         backdropFilter: "blur(16px) saturate(1.1)",
         borderTopWidth: 1,
-        borderTopColor: "var(--color-hairline-soft)",
+        borderTopColor: "color-mix(in oklab, var(--border) 50%, transparent)",
       }}
     >
       <div className="mx-auto flex max-w-[1320px] items-center gap-1.5 px-6 py-2.5">
@@ -713,17 +713,17 @@ function FilterPills({ active, onChange, counts, t }: FilterPillsProps) {
               onClick={() => onChange(c.key)}
               aria-pressed={isActive}
               className={
-                "inline-flex items-center rounded-full px-3 py-1 text-[11.5px] font-medium backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                "inline-flex items-center rounded-full px-3 py-1 text-[11.5px] font-medium backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
                 (isActive
-                  ? "border border-accent/40 bg-accent/45 text-text"
-                  : "border border-hairline-soft bg-[oklch(0.22_0.012_265_/_0.7)] text-text-3 hover:border-hairline hover:bg-[oklch(0.24_0.012_265_/_0.78)] hover:text-text-2")
+                  ? "border border-primary/40 bg-primary/45 text-foreground"
+                  : "border border-border/50 bg-[oklch(0.22_0.012_265_/_0.7)] text-muted-foreground hover:border-border hover:bg-[oklch(0.24_0.012_265_/_0.78)] hover:text-subtle-foreground")
               }
             >
               {c.label}
               <span
                 className={
                   "ml-1.5 font-mono tabular-nums " +
-                  (isActive ? "text-accent-2" : "text-text-4")
+                  (isActive ? "text-primary" : "text-muted-foreground")
                 }
               >
                 {c.n}
@@ -732,7 +732,7 @@ function FilterPills({ active, onChange, counts, t }: FilterPillsProps) {
           );
         })}
         <div className="flex-1" />
-        <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-text-3">
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted-foreground">
           {t("dashboard:lobby_sort_recent")}
         </span>
       </div>
@@ -961,13 +961,13 @@ export function ProjectsPage() {
 
   return (
     <div
-      className="relative min-h-screen text-text"
+      className="relative min-h-screen text-foreground"
       style={
         {
           // FilterPills 的 sticky top 读这个变量；TopBar = logo h-8 (32) + py-3 (24) + 1px border
           "--lobby-topbar-h": "57px",
           background:
-            "radial-gradient(1100px 540px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%), radial-gradient(900px 500px at 100% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
+            "radial-gradient(1100px 540px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%), radial-gradient(900px 500px at 100% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%), linear-gradient(180deg, var(--card), var(--sidebar))",
         } as CSSProperties
       }
     >
@@ -1012,8 +1012,8 @@ export function ProjectsPage() {
         {tourActive ? <OnboardingDemoCard /> : null}
         {projectsLoading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 motion-safe:animate-spin text-accent" />
-            <span className="ml-2 text-text-3">{t("dashboard:loading_projects")}</span>
+            <Loader2 className="h-6 w-6 motion-safe:animate-spin text-primary" />
+            <span className="ml-2 text-muted-foreground">{t("dashboard:loading_projects")}</span>
           </div>
         ) : projects.length === 0 ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1026,7 +1026,7 @@ export function ProjectsPage() {
                 <div className="mb-3 flex items-baseline justify-between">
                   <h2
                     id="lobby-now-editing-heading"
-                    className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-text-2"
+                    className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-subtle-foreground"
                   >
                     {t("dashboard:lobby_now_editing_eyebrow")}
                   </h2>
@@ -1040,8 +1040,8 @@ export function ProjectsPage() {
             ) : null}
 
             {filteredProjects.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-text-3">
-                <p className="text-lg text-text">{t("dashboard:lobby_no_filter_match")}</p>
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <p className="text-lg text-foreground">{t("dashboard:lobby_no_filter_match")}</p>
                 <p className="mt-1 text-sm">{t("dashboard:lobby_no_filter_match_hint")}</p>
                 <button
                   type="button"
@@ -1049,7 +1049,7 @@ export function ProjectsPage() {
                     setLobbyFilter("all");
                     setSearchQuery("");
                   }}
-                  className="mt-4 rounded-md border border-hairline px-3 py-1.5 text-[12px] text-text-2 hover:border-accent/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="mt-4 rounded-md border border-border px-3 py-1.5 text-[12px] text-subtle-foreground hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {t("dashboard:lobby_clear_filters")}
                 </button>
@@ -1059,11 +1059,11 @@ export function ProjectsPage() {
                 <div className="mb-3 flex items-baseline justify-between">
                   <h2
                     id="lobby-library-heading"
-                    className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-text-2"
+                    className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-subtle-foreground"
                   >
                     {t("dashboard:lobby_library_eyebrow")}
                   </h2>
-                  <span className="font-mono text-[10.5px] tabular-nums text-text-3">
+                  <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground">
                     {t("dashboard:lobby_library_count", { count: restProjects.length })}
                   </span>
                 </div>
@@ -1197,7 +1197,7 @@ function ConflictDialog({
             className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-warm-tint), var(--color-warm-tint-faint))",
+                "linear-gradient(135deg, color-mix(in oklab, var(--warn) 15%, transparent), color-mix(in oklab, var(--warn) 5%, transparent))",
               border: `1px solid ${WARM_TONE.ring}`,
               color: WARM_TONE.color,
               boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
@@ -1209,16 +1209,16 @@ function ConflictDialog({
             <h2
               id="lobby-conflict-title"
               className="display-serif text-[17px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {t("dashboard:duplicate_project_id")}
             </h2>
             <p
               className="text-[12.5px] leading-relaxed"
-              style={{ color: "var(--color-text-3)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("dashboard:id_intended_hint")}
-              <span className="mx-1 rounded bg-bg/70 px-1.5 py-0.5 font-mono text-text">
+              <span className="mx-1 rounded-sm bg-background/70 px-1.5 py-0.5 font-mono text-foreground">
                 {projectName}
               </span>
               {t("dashboard:already_exists_conflict_hint")}
@@ -1232,11 +1232,11 @@ function ConflictDialog({
             onClick={() => onConfirm("overwrite")}
             disabled={importing}
             aria-label={t("dashboard:overwrite_existing")}
-            className="flex w-full items-center justify-between rounded-xl border border-warm-ring bg-warm-tint px-4 py-3 text-left text-sm text-warm-bright transition-colors hover:border-warm-bright/60 hover:bg-warm-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-between rounded-xl border border-warn/30 bg-warn/15 px-4 py-3 text-left text-sm text-warn transition-colors hover:border-warn/60 hover:bg-warn/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/30 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span>
               <span className="block font-medium">{t("dashboard:overwrite_existing")}</span>
-              <span className="mt-1 block text-xs text-warm-fade">
+              <span className="mt-1 block text-xs text-warn/80">
                 {t("dashboard:overwrite_hint")}
               </span>
             </span>
@@ -1248,11 +1248,11 @@ function ConflictDialog({
             onClick={() => onConfirm("rename")}
             disabled={importing}
             aria-label={t("dashboard:auto_rename_import")}
-            className="flex w-full items-center justify-between rounded-xl border border-accent/25 bg-accent-dim px-4 py-3 text-left text-sm text-text transition-colors hover:border-accent/40 hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-between rounded-xl border border-primary/25 bg-primary/12 px-4 py-3 text-left text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-primary/22 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span>
               <span className="block font-medium">{t("dashboard:auto_rename_import")}</span>
-              <span className="mt-1 block text-xs text-text-3">
+              <span className="mt-1 block text-xs text-muted-foreground">
                 {t("dashboard:rename_hint")}
               </span>
             </span>

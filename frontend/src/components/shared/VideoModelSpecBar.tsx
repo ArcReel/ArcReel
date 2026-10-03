@@ -25,19 +25,19 @@ const TIER_ICON: Record<VoiceConsistencyTier, typeof Mic> = {
 
 const TIER_COLOR: Record<VoiceConsistencyTier, { fg: string; bg: string; border: string }> = {
   native: {
-    fg: "var(--color-accent-2)",
-    bg: "var(--color-accent-dim)",
-    border: "var(--color-accent-soft)",
+    fg: "var(--primary)",
+    bg: "color-mix(in oklab, var(--primary) 12%, transparent)",
+    border: "color-mix(in oklab, var(--primary) 22%, transparent)",
   },
   soft: {
-    fg: "var(--color-warn)",
+    fg: "var(--warn)",
     bg: "oklch(0.80 0.12 70 / 0.12)",
     border: "oklch(0.80 0.12 70 / 0.35)",
   },
   none: {
-    fg: "var(--color-text-4)",
+    fg: "var(--muted-foreground)",
     bg: "oklch(1 0 0 / 0.04)",
-    border: "var(--color-hairline)",
+    border: "var(--border)",
   },
 };
 
@@ -54,7 +54,7 @@ export function VoiceConsistencyBadge({ tier }: { tier: VoiceConsistencyTier }) 
       role="note"
       title={desc}
       aria-label={`${label}: ${desc}`}
-      className="inline-flex cursor-help items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium"
+      className="inline-flex cursor-help items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10.5px] font-medium"
       style={{ color: color.fg, background: color.bg, border: `1px solid ${color.border}` }}
     >
       <Icon className="h-3 w-3" aria-hidden />
@@ -138,52 +138,52 @@ export function VideoModelSpecBar({ durations, resolutions, tier }: VideoModelSp
       label: t("video_spec_duration_label"),
       content:
         durations && durations.length > 0 ? (
-          <span className="font-mono text-[11.5px] tabular-nums text-text-2">
+          <span className="font-mono text-[11.5px] tabular-nums text-subtle-foreground">
             {formatDurationsLabel(durations)}
           </span>
         ) : (
-          <span className="text-[11.5px] text-text-4">—</span>
+          <span className="text-[11.5px] text-muted-foreground">—</span>
         ),
     },
     {
       label: t("resolution_label"),
       content:
         resolutions.length > 0 ? (
-          <span className="font-mono text-[11.5px] text-text-2">{resolutions.join(" / ")}</span>
+          <span className="font-mono text-[11.5px] text-subtle-foreground">{resolutions.join(" / ")}</span>
         ) : (
-          <span className="text-[11.5px] text-text-4">—</span>
+          <span className="text-[11.5px] text-muted-foreground">—</span>
         ),
     },
     {
       label: t("video_spec_audio_label"),
       content:
         tier !== null ? (
-          <span className="text-[11.5px] text-text-2">
+          <span className="text-[11.5px] text-subtle-foreground">
             {t(tier === "none" ? "video_spec_audio_none" : "video_spec_audio_has")}
           </span>
         ) : (
-          <span className="text-[11.5px] text-text-4">—</span>
+          <span className="text-[11.5px] text-muted-foreground">—</span>
         ),
     },
     {
       label: t("voice_consistency_label"),
-      content: tier !== null ? <VoiceConsistencyBadge tier={tier} /> : <span className="text-[11.5px] text-text-4">—</span>,
+      content: tier !== null ? <VoiceConsistencyBadge tier={tier} /> : <span className="text-[11.5px] text-muted-foreground">—</span>,
     },
   ];
 
   return (
     <div
-      className="mt-3 grid grid-cols-2 gap-y-3 rounded-[8px] border border-hairline-soft px-3 py-2.5 sm:grid-cols-4 sm:gap-y-0"
+      className="mt-3 grid grid-cols-2 gap-y-3 rounded-md border border-border/50 px-3 py-2.5 sm:grid-cols-4 sm:gap-y-0"
       style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
     >
       {cells.map((c, i) => (
         <div
           key={c.label}
           className={`flex flex-col gap-1 pl-3 first:pl-0 ${
-            i > 0 ? "sm:border-l sm:border-[var(--color-hairline-soft)]" : ""
+            i > 0 ? "sm:border-l sm:border-border/50" : ""
           }`}
         >
-          <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.12em] text-text-4">
+          <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
             {c.label}
           </span>
           {c.content}

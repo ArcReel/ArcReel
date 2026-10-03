@@ -431,17 +431,17 @@ export function PresentationPlayer({
       )}
 
       <div className="absolute inset-x-2 top-2 flex flex-wrap items-center gap-1.5">
-        <span className="rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white/85">
+        <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white/85">
           {t(`presentation_selection_${presentation.selection}`)}
         </span>
         {presentation.provenance === "unavailable" && (
-          <span className="rounded bg-amber-950/85 px-1.5 py-0.5 text-[9px] font-semibold text-amber-200">
+          <span className="rounded-sm bg-amber-950/85 px-1.5 py-0.5 text-[9px] font-semibold text-amber-200">
             {t("presentation_provenance_unavailable")}
           </span>
         )}
         {presentation.currency && (
           <span
-            className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+            className={`rounded-sm px-1.5 py-0.5 text-[9px] font-semibold ${
               presentation.currency === "current"
                 ? "bg-emerald-950/80 text-emerald-200"
                 : "bg-amber-950/85 text-amber-200"
@@ -451,7 +451,7 @@ export function PresentationPlayer({
           </span>
         )}
         {presentation.timing === "mechanical" && (
-          <span className="rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-white/70">
+          <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-[9px] text-white/70">
             {t("presentation_mechanical_timing")}
           </span>
         )}
@@ -516,7 +516,7 @@ function VariantButton({ active, label, onClick }: { active: boolean; label: str
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${
+      className={`rounded-sm px-1.5 py-0.5 text-[9px] font-medium ${
         active ? "bg-white/20 text-white" : "text-white/55 hover:text-white"
       }`}
     >

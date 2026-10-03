@@ -93,7 +93,7 @@ export function UnitPreviewPanel({
 
   if (!unit) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-[var(--color-text-4)]">
+      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
         {t("reference_preview_empty")}
       </div>
     );
@@ -123,8 +123,8 @@ export function UnitPreviewPanel({
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-3.5 py-3.5">
       <div className="flex items-center gap-1.5">
-        <Film className="h-4 w-4 text-[var(--color-text-3)]" aria-hidden="true" />
-        <span className="text-xs font-semibold text-[var(--color-text-2)]">
+        <Film className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        <span className="text-xs font-semibold text-subtle-foreground">
           {t("reference_preview_label")}
         </span>
         <span className="flex-1" />
@@ -157,7 +157,7 @@ export function UnitPreviewPanel({
       </div>
 
       <div
-        className={`relative aspect-video w-full overflow-hidden rounded-lg border border-[var(--color-hairline)] shadow-[0_16px_40px_-16px_oklch(0_0_0_/_0.7)] ${
+        className={`relative aspect-video w-full overflow-hidden rounded-lg border border-border shadow-[0_16px_40px_-16px_oklch(0_0_0_/_0.7)] ${
           ready
             ? "bg-[linear-gradient(135deg,oklch(0.32_0.04_240),oklch(0.18_0.02_280))]"
             : "bg-[oklch(0.18_0.010_265_/_0.5)]"
@@ -173,7 +173,7 @@ export function UnitPreviewPanel({
               {...playbackStart}
             />
             <div
-              className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[10px] text-white/85 backdrop-blur"
+              className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-sm border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[10px] text-white/85 backdrop-blur"
               translate="no"
             >
               {clip}
@@ -184,11 +184,11 @@ export function UnitPreviewPanel({
         {inFlight && !ready && (
           <div className="absolute inset-0 grid place-items-center">
             <div className="text-center">
-              <div className="mx-auto mb-2.5 h-9 w-9 animate-spin rounded-full border-2 border-[var(--color-accent-soft)] border-t-[var(--color-accent)]" />
-              <div className="text-[11.5px] text-[var(--color-text-2)]">
+              <div className="mx-auto mb-2.5 h-9 w-9 animate-spin rounded-full border-2 border-primary/22 border-t-primary" />
+              <div className="text-[11.5px] text-subtle-foreground">
                 {t("reference_preview_in_flight")}
               </div>
-              <div className="mt-1 text-[10.5px] text-[var(--color-text-4)]">
+              <div className="mt-1 text-[10.5px] text-muted-foreground">
                 {t("reference_preview_in_flight_meta", { duration: unit.duration_seconds })}
               </div>
             </div>
@@ -204,7 +204,7 @@ export function UnitPreviewPanel({
               <div className="mb-1 text-xs font-semibold text-red-300">
                 {t("reference_preview_failed_title")}
               </div>
-              <div className="text-[11px] leading-relaxed text-[var(--color-text-3)]">
+              <div className="text-[11px] leading-relaxed text-muted-foreground">
                 {errorMessage ?? t("reference_preview_failed_unknown")}
               </div>
             </div>
@@ -215,10 +215,10 @@ export function UnitPreviewPanel({
           <div className="absolute inset-0 grid place-items-center">
             <div className="text-center">
               <Film
-                className="mx-auto mb-2 h-5 w-5 text-[var(--color-text-4)]"
+                className="mx-auto mb-2 h-5 w-5 text-muted-foreground"
                 aria-hidden="true"
               />
-              <div className="text-[11.5px] text-[var(--color-text-4)]">
+              <div className="text-[11.5px] text-muted-foreground">
                 {t("reference_preview_empty_unit")}
               </div>
             </div>
@@ -233,8 +233,8 @@ export function UnitPreviewPanel({
           disabled={inFlight || busy || restoring || generationBlocked}
           className={`focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors ${
             inFlight || busy || restoring || generationBlocked
-              ? "cursor-not-allowed border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
-              : "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_var(--color-accent-glow)]"
+              ? "cursor-not-allowed border border-border bg-[oklch(0.22_0.011_265_/_0.6)] text-muted-foreground"
+              : "text-[oklch(0.14_0_0)] bg-primary shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
           }`}
         >
           {inFlight ? (
@@ -280,29 +280,29 @@ export function UnitPreviewPanel({
         />
       )}
 
-      <div className="rounded-lg border border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] p-3">
-        <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-4)]">
+      <div className="rounded-lg border border-border/50 bg-[oklch(0.18_0.010_265_/_0.5)] p-3">
+        <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           {t("reference_preview_metadata")}
         </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 text-[11.5px]">
-          <dt className="text-[var(--color-text-4)]">{t("reference_meta_unit")}</dt>
-          <dd className="font-mono text-[var(--color-text-2)]" translate="no">
+          <dt className="text-muted-foreground">{t("reference_meta_unit")}</dt>
+          <dd className="font-mono text-subtle-foreground" translate="no">
             {itemIdWithinEpisode(unit.unit_id)}
           </dd>
-          <dt className="text-[var(--color-text-4)]">{t("reference_meta_duration")}</dt>
-          <dd className="font-mono tabular-nums text-[var(--color-text-2)]">
+          <dt className="text-muted-foreground">{t("reference_meta_duration")}</dt>
+          <dd className="font-mono tabular-nums text-subtle-foreground">
             {unit.duration_seconds}s
           </dd>
-          <dt className="text-[var(--color-text-4)]">{t("reference_meta_status")}</dt>
+          <dt className="text-muted-foreground">{t("reference_meta_status")}</dt>
           <dd>
             <StatusBadge status={effectiveStatus} size="md" />
           </dd>
           {hasCost(actualCost) && (
             <>
-              <dt className="text-[var(--color-text-4)]">{t("reference_meta_cost")}</dt>
+              <dt className="text-muted-foreground">{t("reference_meta_cost")}</dt>
               <dd className="font-mono tabular-nums text-emerald-300">
                 {formatCost(actualCost)}
-                <span className="ml-1 text-[var(--color-text-4)]">
+                <span className="ml-1 text-muted-foreground">
                   {t("reference_meta_cost_spent")}
                 </span>
               </dd>

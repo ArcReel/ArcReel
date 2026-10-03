@@ -73,7 +73,7 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
               className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
               style={{
                 background:
-                  "linear-gradient(135deg, var(--color-warm-tint), var(--color-warm-tint-faint))",
+                  "linear-gradient(135deg, color-mix(in oklab, var(--warn) 15%, transparent), color-mix(in oklab, var(--warn) 5%, transparent))",
                 border: `1px solid ${WARM_TONE.ring}`,
                 color: WARM_TONE.color,
                 boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
@@ -86,7 +86,7 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
             <h2
               id={titleId}
               className="display-serif text-[17px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {outcome && outcome !== "queued" && t(TITLE_KEYS[outcome])}
             </h2>
@@ -94,7 +94,7 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
               {admission &&
                 (enqueueGap ? (
                   <div className="space-y-2 text-[12.5px] leading-relaxed">
-                    <p style={{ color: "var(--color-text-3)" }}>
+                    <p style={{ color: "var(--muted-foreground)" }}>
                       {t(
                         outcome === "interrupted"
                           ? "reference_batch_enqueue_interrupted_intro"
@@ -110,7 +110,7 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
                     {/* 另两种形态由 BatchAdmissionSummary 交代已跳过的单元，这一路的正文
                         不走它，同一句话在这里补上，免得「这一批发生了什么」缺一角。 */}
                     {admission.skipped_unit_ids.length > 0 && (
-                      <p style={{ color: "var(--color-text-3)" }}>
+                      <p style={{ color: "var(--muted-foreground)" }}>
                         {tWorkflow("admission_skipped", {
                           count: admission.skipped_unit_ids.length,
                         })}

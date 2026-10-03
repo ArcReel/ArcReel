@@ -40,7 +40,7 @@ const COLUMNS_MAX_HEIGHT = "min(32rem, 100vh - 14rem)";
 const DOWNLOAD_FAILED_CODE = "download_failed";
 
 const SECTION_HEAD_CLS =
-  "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
+  "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground";
 
 function KpiCell({
   label,
@@ -54,10 +54,10 @@ function KpiCell({
   first?: boolean;
 }) {
   return (
-    <div className={"px-3 py-2" + (first ? "" : " border-l border-hairline-soft")}>
+    <div className={"px-3 py-2" + (first ? "" : " border-l border-border/50")}>
       <div className={SECTION_HEAD_CLS}>{label}</div>
-      <div className="font-editorial mt-0.5 text-[15px] leading-tight text-text">{value}</div>
-      <div className="mt-0.5 text-[9.5px] text-text-4">{sub}</div>
+      <div className="font-editorial mt-0.5 text-[15px] leading-tight text-foreground">{value}</div>
+      <div className="mt-0.5 text-[9.5px] text-muted-foreground">{sub}</div>
     </div>
   );
 }
@@ -71,7 +71,7 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
     ([currency, amount]) => currency !== primary && amount > 0,
   );
   return (
-    <div className="grid grid-cols-4 border-b border-hairline-soft">
+    <div className="grid grid-cols-4 border-b border-border/50">
       <KpiCell
         first
         label={t("usage_kpi_calls")}
@@ -223,7 +223,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
     <button
       type="button"
       onClick={viewAllRecords}
-      className="focus-ring w-full border-t border-hairline-soft px-4 py-2.5 text-[11.5px] text-text-3 transition-colors hover:bg-[oklch(1_0_0_/_0.03)] hover:text-accent-2"
+      className="focus-ring w-full border-t border-border/50 px-4 py-2.5 text-[11.5px] text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.03)] hover:text-primary"
     >
       {t("usage_view_all_records")}
     </button>
@@ -238,18 +238,18 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
       width="w-[40rem]"
     >
       <div id={panelId}>
-        <header className="flex items-center gap-2 border-b border-hairline-soft px-4 py-3">
+        <header className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
           <span
             aria-hidden="true"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-accent-soft bg-accent-dim text-accent-2"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-primary/22 bg-primary/12 text-primary"
           >
             <Activity className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0">
-            <div className="text-[14px] font-semibold tracking-tight text-text">
+            <div className="text-[14px] font-semibold tracking-tight text-foreground">
               {t("usage_records_title")}
             </div>
-            <div className="num truncate text-[10px] uppercase tracking-[0.12em] text-text-4">
+            <div className="num truncate text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
               Usage · {projectName}
             </div>
           </div>
@@ -257,7 +257,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
             type="button"
             onClick={() => setOpen(false)}
             aria-label={t("usage_close_panel")}
-            className="focus-ring ml-auto shrink-0 rounded p-1 text-text-4 transition-colors hover:text-text"
+            className="focus-ring ml-auto shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground"
           >
             <X aria-hidden="true" className="h-3.5 w-3.5" />
           </button>
@@ -266,14 +266,14 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
         {loadFailed && (
           <div
             role="status"
-            className="flex items-center gap-2 border-b border-hairline-soft px-4 py-2 text-[11.5px] text-danger-2"
+            className="flex items-center gap-2 border-b border-border/50 px-4 py-2 text-[11.5px] text-destructive"
           >
             <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
             <span className="min-w-0 flex-1">{t("usage_popover_load_failed")}</span>
             <button
               type="button"
               onClick={voidPromise(() => refresh())}
-              className="focus-ring shrink-0 rounded px-1 text-accent-2 transition-colors hover:text-accent"
+              className="focus-ring shrink-0 rounded-sm px-1 text-primary transition-colors hover:text-primary"
             >
               {t("usage_refresh")}
             </button>
@@ -282,7 +282,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
 
         {empty ? (
           <>
-            <p className="px-4 py-5 text-[12px] leading-[1.6] text-text-3">
+            <p className="px-4 py-5 text-[12px] leading-[1.6] text-muted-foreground">
               {t("usage_popover_empty")}
             </p>
             {viewAllButton}
@@ -291,15 +291,15 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
           <>
             <KpiStrip summary={summary} />
             <div className="flex" style={{ maxHeight: COLUMNS_MAX_HEIGHT }}>
-              <section className="flex w-[18rem] shrink-0 flex-col border-r border-hairline-soft">
+              <section className="flex w-[18rem] shrink-0 flex-col border-r border-border/50">
                 <div className="flex items-center gap-2 px-3 py-2">
                   <h4 className={SECTION_HEAD_CLS}>{t("usage_in_progress")}</h4>
-                  <span className="num text-[10px] text-text-4">{activeRows.length}</span>
+                  <span className="num text-[10px] text-muted-foreground">{activeRows.length}</span>
                   {queuedCount > 0 && (
                     <button
                       type="button"
                       onClick={voidPromise(() => cancellation.requestAll(projectName))}
-                      className="focus-ring ml-auto rounded px-1 text-[10.5px] text-text-3 transition-colors hover:text-danger-2"
+                      className="focus-ring ml-auto rounded-sm px-1 text-[10.5px] text-muted-foreground transition-colors hover:text-destructive"
                       aria-label={t("cancel_all_queued_aria")}
                     >
                       {t("cancel_all")}
@@ -308,7 +308,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   {activeRows.length === 0 ? (
-                    <p className="px-3 pb-3 text-[11px] leading-[1.6] text-text-4">
+                    <p className="px-3 pb-3 text-[11px] leading-[1.6] text-muted-foreground">
                       {t("usage_no_in_progress")}
                     </p>
                   ) : (
@@ -334,7 +334,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   {finishedRows.length === 0 ? (
-                    <p className="px-3 pb-3 text-[11px] leading-[1.6] text-text-4">
+                    <p className="px-3 pb-3 text-[11px] leading-[1.6] text-muted-foreground">
                       {t("usage_no_finished")}
                     </p>
                   ) : (
@@ -407,7 +407,7 @@ function RetryDownloadButton({
       type="button"
       disabled={retrying}
       onClick={voidPromise(() => onRetry(taskId))}
-      className="focus-ring inline-flex items-center gap-1 rounded px-1 text-[10.5px] text-accent-2 disabled:opacity-60"
+      className="focus-ring inline-flex items-center gap-1 rounded-sm px-1 text-[10.5px] text-primary disabled:opacity-60"
     >
       {retrying && <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />}
       {retrying ? t("retrying_download") : t("retry_download")}

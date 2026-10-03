@@ -52,7 +52,7 @@ export function MarketEntryRating({
 
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px]">
-      <span id={labelId} className="text-text-3">
+      <span id={labelId} className="text-muted-foreground">
         {t("market_rate_label")}
       </span>
       <div
@@ -72,17 +72,17 @@ export function MarketEntryRating({
             onMouseEnter={() => setHovered(value)}
             onMouseLeave={() => setHovered(null)}
             onClick={() => void submit(value)}
-            className="rounded-[4px] p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-sm p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Star
-              className={`h-4 w-4 transition-colors ${value <= lit ? "fill-amber-300 text-amber-300" : "text-text-4"}`}
+              className={`h-4 w-4 transition-colors ${value <= lit ? "fill-amber-300 text-amber-300" : "text-muted-foreground"}`}
               aria-hidden
             />
           </button>
         ))}
       </div>
       {!installed && (
-        <span id={hintId} className="text-text-4">
+        <span id={hintId} className="text-muted-foreground">
           {t("market_rate_install_first")}
         </span>
       )}

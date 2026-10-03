@@ -60,7 +60,7 @@ export function AssetAliasesField({ projectName, name, assetType, aliases, readO
       <label
         htmlFor={inputId}
         className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-        style={{ color: "var(--color-text-4)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         {t("aliases_label")}
       </label>
@@ -68,7 +68,7 @@ export function AssetAliasesField({ projectName, name, assetType, aliases, readO
         {aliases.map((alias) => (
           <span
             key={alias}
-            className="inline-flex items-center gap-1 rounded-md border border-hairline px-2 py-0.5 text-[12px] text-text-2"
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[12px] text-subtle-foreground"
           >
             {alias}
             {!readOnly && (
@@ -77,7 +77,7 @@ export function AssetAliasesField({ projectName, name, assetType, aliases, readO
                 onClick={() => void save(aliases.filter((item) => item !== alias))}
                 disabled={saving}
                 aria-label={t("aliases_remove", { alias })}
-                className="focus-ring rounded text-text-4 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+                className="focus-ring rounded-sm text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -98,11 +98,11 @@ export function AssetAliasesField({ projectName, name, assetType, aliases, readO
             }}
             disabled={saving}
             placeholder={t("aliases_placeholder")}
-            className="focus-ring min-w-[8rem] flex-1 rounded-md border border-hairline bg-transparent px-2 py-0.5 text-[12px] text-text-2 outline-none disabled:opacity-60"
+            className="focus-ring min-w-[8rem] flex-1 rounded-md border border-border bg-transparent px-2 py-0.5 text-[12px] text-subtle-foreground outline-none disabled:opacity-60"
           />
         )}
       </div>
-      {!readOnly && <p className="mt-1 text-[11px] text-text-4">{t("aliases_hint")}</p>}
+      {!readOnly && <p className="mt-1 text-[11px] text-muted-foreground">{t("aliases_hint")}</p>}
     </div>
   );
 }

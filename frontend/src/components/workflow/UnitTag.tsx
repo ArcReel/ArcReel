@@ -9,7 +9,7 @@ export function UnitTag({ unitId }: { unitId: string }) {
     <span
       translate="no"
       className="rounded-md px-1.5 py-0.5 font-mono text-[11.5px]"
-      style={{ background: "var(--color-surface-2)", color: "var(--color-text-2)" }}
+      style={{ background: "var(--muted)", color: "var(--subtle-foreground)" }}
     >
       {itemIdWithinEpisode(unitId)}
     </span>

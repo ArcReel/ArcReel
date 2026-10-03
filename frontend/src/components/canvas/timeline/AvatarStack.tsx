@@ -33,7 +33,7 @@ export function AvatarStack({
         />
       ))}
       {overflow > 0 && (
-        <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-bg bg-bg-grad-b text-[10px] font-semibold text-text-2">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-sidebar text-[10px] font-semibold text-subtle-foreground">
           +{overflow}
         </span>
       )}

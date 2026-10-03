@@ -117,8 +117,8 @@ export function ProductsPage({
 const FIELD_STYLE: React.CSSProperties = {
   background:
     "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -157,11 +157,11 @@ function ProductFormModal({
     <GlassModal open onClose={onClose} labelledBy={titleId}>
       <div className="p-5">
         <div className="mb-4 flex items-center gap-2.5">
-          <ShoppingBag className="h-4 w-4" style={{ color: "var(--color-accent-2)" }} />
+          <ShoppingBag className="h-4 w-4" style={{ color: "var(--primary)" }} />
           <h2
             id={titleId}
             className="display-serif flex-1 text-[16px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {t("dashboard:add_product")}
           </h2>
@@ -173,7 +173,7 @@ function ProductFormModal({
             <label
               htmlFor={nameId}
               className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("dashboard:ad_init_product_name_label")}
             </label>
@@ -191,7 +191,7 @@ function ProductFormModal({
             <label
               htmlFor={descId}
               className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("dashboard:description")}
             </label>
@@ -210,7 +210,7 @@ function ProductFormModal({
             <label
               htmlFor={brandId}
               className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("dashboard:product_brand_label")}
             </label>

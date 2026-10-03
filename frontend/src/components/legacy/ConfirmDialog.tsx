@@ -65,7 +65,7 @@ export function ConfirmDialog({
               className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
               style={{
                 background:
-                  "linear-gradient(135deg, var(--color-warm-tint), var(--color-warm-tint-faint))",
+                  "linear-gradient(135deg, color-mix(in oklab, var(--warn) 15%, transparent), color-mix(in oklab, var(--warn) 5%, transparent))",
                 border: `1px solid ${WARM_TONE.ring}`,
                 color: WARM_TONE.color,
                 boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
@@ -78,7 +78,7 @@ export function ConfirmDialog({
             <h2
               id={titleId}
               className="display-serif text-[17px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {title}
             </h2>
@@ -86,7 +86,7 @@ export function ConfirmDialog({
               <div
                 id={descId}
                 className="mt-1 text-[12.5px] leading-relaxed"
-                style={{ color: "var(--color-text-3)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {description}
               </div>

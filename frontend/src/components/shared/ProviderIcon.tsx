@@ -54,7 +54,7 @@ export function ProviderIcon({ providerId, className }: { providerId: string; cl
   // Fallback: 字母徽章。providerId 类型即 string（resolveIconKey 已直接 .toLowerCase()），
   // 这里同样信任契约不再 ?? ""；Array.from 取首字符避免星平面字符被截成半个代理对。
   return (
-    <span className={`inline-flex items-center justify-center rounded border border-hairline-soft bg-bg-grad-b/70 text-xs font-bold uppercase text-text-2 ${cls}`}>
+    <span className={`inline-flex items-center justify-center rounded-sm border border-border/50 bg-sidebar/70 text-xs font-bold uppercase text-subtle-foreground ${cls}`}>
       {Array.from(providerId)[0] ?? "?"}
     </span>
   );

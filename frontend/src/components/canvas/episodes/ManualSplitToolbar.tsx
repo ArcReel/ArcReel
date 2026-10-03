@@ -21,7 +21,7 @@ interface ManualSplitToolbarProps {
 
 /** 插入光标的颜色：拆分取这一集的集色，切分与移动分界取强调色。 */
 export function caretColor(action: PointAction): string {
-  return action.kind === "split" ? episodeColor(action.episode) : "var(--color-accent)";
+  return action.kind === "split" ? episodeColor(action.episode) : "var(--primary)";
 }
 
 /**
@@ -60,11 +60,11 @@ export function ManualSplitToolbar({
     summary = (
       <>
         <Scissors className="h-3.5 w-3.5 shrink-0" style={{ color }} aria-hidden />
-        <span className="text-text-3">{t("dashboard:manual_split_cut_summary", { volume: volume(action.start, action.end) })}</span>
+        <span className="text-muted-foreground">{t("dashboard:manual_split_cut_summary", { volume: volume(action.start, action.end) })}</span>
         <input
           aria-label={t("dashboard:manual_split_title_label")}
           placeholder={t("dashboard:manual_split_title_placeholder")}
-          className="w-32 border-b border-hairline-strong bg-transparent px-1 text-text outline-none placeholder:text-text-4 focus:border-accent"
+          className="w-32 border-b border-input bg-transparent px-1 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
           value={title}
           onChange={(event) => onTitleChange(event.target.value)}
         />
@@ -75,7 +75,7 @@ export function ManualSplitToolbar({
     summary = (
       <>
         <Scissors className="h-3.5 w-3.5 shrink-0" style={{ color }} aria-hidden />
-        <span className="text-text-3">
+        <span className="text-muted-foreground">
           {t("dashboard:manual_split_split_summary", {
             name: episodeDisplayName(episodes, action.episode, t),
             front: volume(action.start, action.at),
@@ -90,14 +90,14 @@ export function ManualSplitToolbar({
     summary = (
       <>
         <MoveHorizontal className="h-3.5 w-3.5 shrink-0" style={{ color }} aria-hidden />
-        <span className="text-text-3">
+        <span className="text-muted-foreground">
           {t("dashboard:manual_split_move_summary", {
             left: episodeDisplayName(episodes, action.left, t),
             leftVolume: volume(action.start, action.at),
             right: episodeDisplayName(episodes, action.right, t),
             rightVolume: volume(action.at, action.end),
           })}
-          <span className="ml-1 text-text-4">
+          <span className="ml-1 text-muted-foreground">
             {t(forward ? "dashboard:manual_split_move_later" : "dashboard:manual_split_move_earlier", {
               volume: volume(Math.min(action.at, action.boundary), Math.max(action.at, action.boundary)),
             })}
@@ -123,12 +123,12 @@ export function ManualSplitToolbar({
       }}
     >
       {summary}
-      <span className="text-[11px] text-text-4">{t("dashboard:manual_split_nudge_hint")}</span>
+      <span className="text-[11px] text-muted-foreground">{t("dashboard:manual_split_nudge_hint")}</span>
       <button
         type="button"
         disabled={busy}
         onClick={onConfirm}
-        className="focus-ring rounded font-medium disabled:opacity-50"
+        className="focus-ring rounded-sm font-medium disabled:opacity-50"
         style={{ color }}
       >
         {confirmLabel}
@@ -137,7 +137,7 @@ export function ManualSplitToolbar({
         type="button"
         aria-label={t("common:cancel")}
         onClick={onCancel}
-        className="focus-ring rounded p-0.5 text-text-4 hover:bg-[oklch(0.3_0.01_265)] hover:text-text"
+        className="focus-ring rounded-sm p-0.5 text-muted-foreground hover:bg-[oklch(0.3_0.01_265)] hover:text-foreground"
       >
         <X className="h-3.5 w-3.5" aria-hidden />
       </button>

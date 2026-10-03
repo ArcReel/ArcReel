@@ -86,7 +86,7 @@ function StatusBadge({ status, t }: { status: GridDisplayStatus; t: (key: string
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium tracking-wide ${cls}`}
+      className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium tracking-wide ${cls}`}
     >
       {icon}
       {label}
@@ -122,7 +122,7 @@ function ReferenceImageStrip({
             className="group flex w-14 shrink-0 flex-col items-center gap-1"
           >
             <div
-              className={`w-full overflow-hidden rounded border bg-gray-900/50 transition-all duration-200 ${
+              className={`w-full overflow-hidden rounded-sm border bg-gray-900/50 transition-all duration-200 ${
                 isChar
                   ? "border-amber-800/30 group-hover:border-amber-500/50"
                   : "border-sky-800/30 group-hover:border-sky-500/50"
@@ -385,7 +385,7 @@ export function GridPreviewPanel({
                             key={idx}
                             type="button"
                             onClick={() => setSelectedIdx(idx)}
-                            className={`inline-flex h-5 min-w-[1.375rem] items-center justify-center rounded px-1 text-[10px] font-medium tabular-nums transition-all duration-150 ${
+                            className={`inline-flex h-5 min-w-[1.375rem] items-center justify-center rounded-sm px-1 text-[10px] font-medium tabular-nums transition-all duration-150 ${
                               idx === safeIdx
                                 ? "bg-amber-700/50 text-amber-200 shadow-sm"
                                 : "text-gray-500 hover:text-gray-300 hover:bg-gray-800/60"
@@ -400,14 +400,14 @@ export function GridPreviewPanel({
                     <StatusBadge status={displayStatus} t={t} />
 
                     {isInterrupted && (
-                      <span className="inline-flex items-center gap-1 rounded border border-amber-700/40 bg-amber-950/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-amber-300">
+                      <span className="inline-flex items-center gap-1 rounded-sm border border-amber-700/40 bg-amber-950/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-amber-300">
                         <AlertCircle className="h-3 w-3" />
                         {t("grid_interrupted_hint")}
                       </span>
                     )}
 
                     {grid.status === "completed" && grid.grid_image_path && !grid.split_at && (
-                      <span className="inline-flex items-center gap-1 rounded border border-violet-700/40 bg-violet-950/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-violet-300">
+                      <span className="inline-flex items-center gap-1 rounded-sm border border-violet-700/40 bg-violet-950/60 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-violet-300">
                         <Scissors className="h-3 w-3" />
                         {t("grid_unsplit_hint")}
                       </span>
@@ -459,7 +459,7 @@ export function GridPreviewPanel({
                         type="button"
                         disabled={actionBusy}
                         onClick={() => fileInputRef.current?.click()}
-                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded border border-gray-700/50 bg-gray-900/40 px-2 py-1 text-[10px] font-medium text-gray-400 transition-colors ${
+                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded-sm border border-gray-700/50 bg-gray-900/40 px-2 py-1 text-[10px] font-medium text-gray-400 transition-colors ${
                           actionBusy ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-800/60 hover:text-gray-200"
                         }`}
                       >
@@ -475,7 +475,7 @@ export function GridPreviewPanel({
                         type="button"
                         disabled={actionBusy || !grid.grid_image_path}
                         onClick={handleSplit}
-                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
+                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded-sm border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
                           actionBusy || !grid.grid_image_path
                             ? "opacity-50 cursor-not-allowed"
                             : "hover:bg-amber-900/40 hover:text-amber-300"
@@ -515,7 +515,7 @@ export function GridPreviewPanel({
                             })
                             .finally(() => setRegenerating(false));
                         }}
-                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
+                        className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1 rounded-sm border border-amber-800/30 bg-amber-950/30 px-2 py-1 text-[10px] font-medium text-amber-400/80 transition-colors ${
                           actionBusy ? "opacity-50 cursor-not-allowed" : "hover:bg-amber-900/40 hover:text-amber-300"
                         }`}
                         whileTap={actionBusy ? {} : { scale: 0.95 }}

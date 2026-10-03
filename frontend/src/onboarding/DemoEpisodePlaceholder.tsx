@@ -12,7 +12,7 @@ export function DemoEpisodePlaceholder() {
 
   return (
     <div className="flex h-full items-center justify-center px-6">
-      <p className="max-w-sm text-center text-[13px] leading-relaxed text-text-3">
+      <p className="max-w-sm text-center text-[13px] leading-relaxed text-muted-foreground">
         {/* 演示账本按集 ID 升序排列，集 ID 即播出位置。 */}
         {t("demo_episode_placeholder", { position: DEMO_SCRIPTED_EPISODE })}
       </p>

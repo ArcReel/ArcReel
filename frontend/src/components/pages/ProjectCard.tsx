@@ -11,7 +11,7 @@ import { Link } from "wouter";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getProjectDisplayName } from "@/utils/project-display";
-import { hashHue, posterGridStyle } from "@/components/shared/darkroom-tokens";
+import { hashHue } from "@/components/shared/darkroom-tokens";
 import type { ArtifactCount, ProjectStatus, ProjectSummary } from "@/types";
 
 interface ProgressTone {
@@ -69,7 +69,6 @@ const POSTER_FX_STYLE: CSSProperties = {
     "linear-gradient(115deg, oklch(1 0 0 / 0.18) 0%, transparent 30%), linear-gradient(295deg, oklch(0 0 0 / 0.55) 0%, transparent 45%)",
 };
 
-const POSTER_GRID_STYLE = posterGridStyle();
 
 const POSTER_SPROCKET_STYLE: CSSProperties = {
   background:
@@ -116,11 +115,6 @@ export function Poster({ project, styleLabel, large = false }: PosterProps) {
       <div aria-hidden className="pointer-events-none absolute inset-0" style={POSTER_FX_STYLE} />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-10"
-        style={POSTER_GRID_STYLE}
-      />
-      <div
-        aria-hidden
         className="pointer-events-none absolute inset-y-0 left-0 w-2.5 opacity-50"
         style={POSTER_SPROCKET_STYLE}
       />
@@ -165,9 +159,9 @@ export function NeedsRepairPill() {
     <span
       className="inline-flex items-center rounded-full border px-2 py-[2px] font-mono text-[10px] font-semibold uppercase tracking-[0.06em]"
       style={{
-        color: "var(--color-warm)",
-        borderColor: "var(--color-warm-ring)",
-        background: "var(--color-warm-soft)",
+        color: "var(--warn)",
+        borderColor: "color-mix(in oklab, var(--warn) 30%, transparent)",
+        background: "color-mix(in oklab, var(--warn) 10%, transparent)",
       }}
     >
       {t("lobby_card_needs_repair")}
@@ -182,7 +176,7 @@ export function NeedsRepairPill() {
 export function RepairReasonLine({ reason }: { reason: string | null }) {
   if (!reason) return null;
   return (
-    <p className="mb-3 line-clamp-2 break-words font-mono text-[10.5px] leading-[1.45] text-text-3">
+    <p className="mb-3 line-clamp-2 break-words font-mono text-[10.5px] leading-[1.45] text-muted-foreground">
       {reason}
     </p>
   );
@@ -200,7 +194,7 @@ export function ProgressPill({ progress, label }: { progress: ProjectProgress; l
   const pulsing = progress === "in_progress";
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full border border-hairline-soft bg-bg-grad-a/60 px-2 py-[2px] font-mono text-[10px] font-semibold uppercase tracking-[0.06em]"
+      className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-card/60 px-2 py-[2px] font-mono text-[10px] font-semibold uppercase tracking-[0.06em]"
       style={{ color: tone.text }}
     >
       <span
@@ -225,9 +219,9 @@ function episodeDotColor(
 ): { bg: string; glow?: string } {
   const inProductionEnd = summary.completed + summary.in_production;
   const scriptedEnd = inProductionEnd + summary.scripted;
-  if (i < summary.completed) return { bg: "var(--color-good)" };
+  if (i < summary.completed) return { bg: "var(--good)" };
   if (i < inProductionEnd) {
-    return { bg: "var(--color-accent)", glow: "0 0 6px var(--color-accent-glow)" };
+    return { bg: "var(--primary)", glow: "0 0 6px color-mix(in oklab, var(--primary) 35%, transparent)" };
   }
   if (i < scriptedEnd) return { bg: "oklch(0.55 0.010 265)" };
   return { bg: "oklch(0.22 0.011 265)" };
@@ -242,7 +236,7 @@ function EpisodeStrip({ summary }: { summary: ProjectStatus["episodes_summary"] 
         return (
           <span
             key={i}
-            className="h-[3px] flex-1 rounded-[1.5px]"
+            className="h-[3px] flex-1 rounded-xs"
             style={{ background: c.bg, boxShadow: c.glow }}
           />
         );
@@ -262,16 +256,16 @@ export function gradientProgressStyles(variant: "accent" | "good"): {
     return {
       trackStyle,
       barStyle: {
-        background: "linear-gradient(90deg, var(--color-good), oklch(0.86 0.08 155))",
-        boxShadow: "0 0 6px var(--color-good)",
+        background: "linear-gradient(90deg, var(--good), oklch(0.86 0.08 155))",
+        boxShadow: "0 0 6px var(--good)",
       },
     };
   }
   return {
     trackStyle,
     barStyle: {
-      background: "linear-gradient(90deg, var(--color-accent), var(--color-accent-2))",
-      boxShadow: "0 0 6px var(--color-accent-glow)",
+      background: "var(--primary)",
+      boxShadow: "0 0 6px color-mix(in oklab, var(--primary) 35%, transparent)",
     },
   };
 }
@@ -358,11 +352,11 @@ export function ProjectCard(props: ProjectCardProps) {
 
       <div className="px-4 pt-1 pb-3.5">
         <div className="mb-1.5 flex items-baseline justify-between gap-2">
-          <h3 className="truncate text-[17px] font-semibold tracking-tight text-text">
+          <h3 className="truncate text-[17px] font-semibold tracking-tight text-foreground">
             {projectDisplayName}
           </h3>
           <span
-            className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-3"
+            className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.08em] text-muted-foreground"
             title={styleLabel}
           >
             {styleLabel}
@@ -379,7 +373,7 @@ export function ProjectCard(props: ProjectCardProps) {
         <EpisodeStrip summary={episodes} />
 
         <div
-          className="mt-3 grid grid-cols-4 overflow-hidden rounded-[7px] border border-hairline-soft"
+          className="mt-3 grid grid-cols-4 overflow-hidden rounded-md border border-border/50"
           style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
         >
           {(
@@ -394,15 +388,15 @@ export function ProjectCard(props: ProjectCardProps) {
               key={cell.k}
               className={
                 "px-1.5 py-2 text-center" +
-                (i < 3 ? " border-r border-hairline-soft" : "")
+                (i < 3 ? " border-r border-border/50" : "")
               }
             >
-              <div className="font-mono text-[8.5px] font-bold tracking-[0.08em] text-text-3">
+              <div className="font-mono text-[8.5px] font-bold tracking-[0.08em] text-muted-foreground">
                 {cell.k}
               </div>
-              <div className="mt-0.5 font-mono text-[11.5px] font-semibold tabular-nums text-text-2">
+              <div className="mt-0.5 font-mono text-[11.5px] font-semibold tabular-nums text-subtle-foreground">
                 {cell.v}
-                <span className="text-text-4">/{cell.total || "—"}</span>
+                <span className="text-muted-foreground">/{cell.total || "—"}</span>
               </div>
             </div>
           ))}
@@ -412,10 +406,10 @@ export function ProjectCard(props: ProjectCardProps) {
   );
 
   return (
-    <article className="group relative overflow-hidden rounded-[12px] border border-hairline bg-bg-grad-a/85 transition-[transform,border-color,box-shadow] duration-150 motion-safe:hover:-translate-y-0.5 hover:border-accent/45 hover:shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.6),0_0_0_1px_var(--color-accent-soft)] focus-within:border-accent/60 focus-within:shadow-[0_0_0_2px_var(--color-accent-soft)]">
+    <article className="group relative overflow-hidden rounded-xl border border-border bg-card/85 transition-[transform,border-color,box-shadow] duration-150 motion-safe:hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.6),0_0_0_1px_color-mix(in_oklab,var(--primary)_22%,transparent)] focus-within:border-primary/60 focus-within:shadow-[0_0_0_2px_color-mix(in_oklab,var(--primary)_22%,transparent)]">
       <Link
         href={`/app/projects/${project.name}`}
-        className="block w-full text-left text-text no-underline outline-none"
+        className="block w-full text-left text-foreground no-underline outline-none"
         aria-label={linkLabel}
       >
         {body}
@@ -434,7 +428,7 @@ export function ProjectCard(props: ProjectCardProps) {
               setMenuOpen((v) => !v);
             }}
             className={
-              "grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/70 text-text-3 backdrop-blur transition-[opacity,color,background] hover:bg-bg hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+              "grid h-8 w-8 place-items-center rounded-md border border-border/50 bg-background/70 text-muted-foreground backdrop-blur transition-[opacity,color,background] hover:bg-background hover:text-subtle-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
               (menuOpen
                 ? "opacity-100"
                 : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100")
@@ -445,7 +439,7 @@ export function ProjectCard(props: ProjectCardProps) {
           {menuOpen ? (
             <div
               ref={menuRef}
-              className="absolute right-0 bottom-[calc(100%+6px)] min-w-[148px] overflow-hidden rounded-md border border-hairline bg-bg-grad-a/95 shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.7)] backdrop-blur"
+              className="absolute right-0 bottom-[calc(100%+6px)] min-w-[148px] overflow-hidden rounded-md border border-border bg-card/95 shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.7)] backdrop-blur"
             >
               <button
                 type="button"
@@ -456,7 +450,7 @@ export function ProjectCard(props: ProjectCardProps) {
                   props.onDelete();
                 }}
                 aria-label={`${t("delete_project")} — ${projectDisplayName}`}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-danger-2 transition-colors hover:bg-danger-soft focus-visible:bg-danger-soft focus-visible:outline-none"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-destructive transition-colors hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 {t("delete_project")}

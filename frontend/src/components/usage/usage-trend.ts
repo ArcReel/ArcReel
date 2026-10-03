@@ -135,7 +135,7 @@ const CALL_SERIES: readonly TrendSeries[] = [
   {
     key: "failed",
     labelKey: "usage_status_failed",
-    color: "var(--color-danger)",
+    color: "var(--destructive)",
     value: (bucket) => bucket.failed,
   },
   {

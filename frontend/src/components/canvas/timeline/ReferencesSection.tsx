@@ -117,7 +117,7 @@ export function ReferencesSection({
     <div
       className="text-[10.5px] font-bold uppercase"
       style={{
-        color: "var(--color-text-4)",
+        color: "var(--muted-foreground)",
         letterSpacing: "1px",
         fontFamily: "var(--font-mono)",
       }}
@@ -155,17 +155,17 @@ export function ReferencesSection({
           title={disabled ? disabledHint : t("references_add_cta")}
           className="focus-ring group flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           style={{
-            border: "1px dashed var(--color-hairline)",
-            color: "var(--color-text-4)",
+            border: "1px dashed var(--border)",
+            color: "var(--muted-foreground)",
             background: "transparent",
           }}
           onMouseEnter={(e) => {
             if (disabled) return;
-            e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
+            e.currentTarget.style.borderColor = "var(--input)";
             e.currentTarget.style.borderStyle = "solid";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = "var(--color-hairline)";
+            e.currentTarget.style.borderColor = "var(--border)";
             e.currentTarget.style.borderStyle = "dashed";
           }}
         >
@@ -174,7 +174,7 @@ export function ReferencesSection({
           </span>
           <span
             className="num inline-flex shrink-0 items-center gap-1 text-[11px]"
-            style={{ color: "var(--color-accent-2)" }}
+            style={{ color: "var(--primary)" }}
           >
             <Plus className="h-3 w-3" aria-hidden="true" />
             <span>{t("references_add_cta")}</span>
@@ -212,15 +212,15 @@ export function ReferencesSection({
           aria-label={t("segment_refs_edit_button")}
           className="focus-ring inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           style={{
-            color: "var(--color-text-3)",
+            color: "var(--muted-foreground)",
             background: "transparent",
           }}
           onMouseEnter={(e) => {
             if (disabled) return;
-            e.currentTarget.style.color = "var(--color-accent-2)";
+            e.currentTarget.style.color = "var(--primary)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--color-text-3)";
+            e.currentTarget.style.color = "var(--muted-foreground)";
           }}
         >
           <Edit3 className="h-3 w-3" aria-hidden="true" />
@@ -234,15 +234,15 @@ export function ReferencesSection({
         title={disabled ? disabledHint : t("segment_refs_edit_button")}
         className="focus-ring group flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
         style={{
-          border: "1px solid var(--color-hairline-soft)",
+          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
           background: "oklch(0.20 0.011 265 / 0.4)",
         }}
         onMouseEnter={(e) => {
           if (disabled) return;
-          e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
+          e.currentTarget.style.borderColor = "var(--input)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "var(--color-hairline-soft)";
+          e.currentTarget.style.borderColor = "color-mix(in oklab, var(--border) 50%, transparent)";
         }}
       >
         {characterNames.length > 0 && (
@@ -314,11 +314,11 @@ function Group({
       {children}
       <span
         className="inline-flex items-center gap-1 text-[11px]"
-        style={{ color: "var(--color-text-3)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
-        <span style={{ color: "var(--color-text-4)" }}>{icon}</span>
+        <span style={{ color: "var(--muted-foreground)" }}>{icon}</span>
         <span>{label}</span>
-        <span className="num" style={{ color: "var(--color-text-2)" }}>
+        <span className="num" style={{ color: "var(--subtle-foreground)" }}>
           {count}
         </span>
       </span>

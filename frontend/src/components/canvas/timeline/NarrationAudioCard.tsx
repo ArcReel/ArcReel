@@ -54,10 +54,10 @@ export function NarrationAudioCard({
     <div>
       {/* Header */}
       <div className="mb-2 flex items-center gap-1.5">
-        <AudioLines className="h-3.5 w-3.5" style={{ color: "var(--color-text-3)" }} />
+        <AudioLines className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
         <span
           className="text-[12px] font-semibold"
-          style={{ color: "var(--color-text-2)" }}
+          style={{ color: "var(--subtle-foreground)" }}
         >
           {t("media_narration_title")}
         </span>
@@ -74,17 +74,17 @@ export function NarrationAudioCard({
 
       {/* 只读原文 + 播放器并排 */}
       <div
-        className="rounded-[10px] px-3 py-2.5"
+        className="rounded-lg px-3 py-2.5"
         style={{
           background:
             "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35))",
-          border: "1px solid var(--color-hairline-soft)",
-          borderLeft: "3px solid var(--color-accent-soft)",
+          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+          borderLeft: "3px solid color-mix(in oklab, var(--primary) 22%, transparent)",
         }}
       >
         <p
           className="display-serif m-0 text-[12.5px]"
-          style={{ lineHeight: 1.65, color: "var(--color-text)" }}
+          style={{ lineHeight: 1.65, color: "var(--foreground)" }}
         >
           {hasNovelText ? novelText : t("no_original_text")}
         </p>
@@ -100,11 +100,11 @@ export function NarrationAudioCard({
           />
         ) : (
           <div
-            className="mt-2.5 flex items-center justify-center gap-2 rounded-[8px] py-2.5 text-[11.5px]"
+            className="mt-2.5 flex items-center justify-center gap-2 rounded-md py-2.5 text-[11.5px]"
             style={{
-              border: "1px dashed var(--color-hairline)",
+              border: "1px dashed var(--border)",
               background: "oklch(0.18 0.010 265 / 0.4)",
-              color: "var(--color-text-4)",
+              color: "var(--muted-foreground)",
             }}
           >
             <AudioLines className="h-4 w-4" aria-hidden />
@@ -120,12 +120,12 @@ export function NarrationAudioCard({
           onClick={onGenerate}
           disabled={generateDisabled || generating}
           title={generateDisabled ? generateDisabledHint : undefined}
-          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-[10px] px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
           style={{
             color: "oklch(0.14 0 0)",
-            background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+            background: "var(--primary)",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-accent-glow)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px color-mix(in oklab, var(--primary) 35%, transparent)",
           }}
         >
           <Sparkles className="h-3.5 w-3.5" />

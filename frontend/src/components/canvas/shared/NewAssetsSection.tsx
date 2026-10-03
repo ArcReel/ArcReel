@@ -74,14 +74,14 @@ const GROUP_LABEL_KEY: Record<Group, string> = {
 
 /** 行左侧细边按处理方式着色：一眼分出会新建资产、归并、衍生与不登记的项。 */
 const DECISION_EDGE: Record<NewAssetDecision, string> = {
-  register: "var(--color-accent)",
-  merge: "var(--color-text-4)",
-  derivative: "var(--color-accent-2)",
-  skip: "var(--color-hairline)",
+  register: "var(--primary)",
+  merge: "var(--muted-foreground)",
+  derivative: "var(--primary)",
+  skip: "var(--border)",
 };
 
 const FIELD_CLS =
-  "w-full rounded-[6px] border border-hairline bg-bg-grad-a/40 px-2 py-1 text-[12px] text-text-2 disabled:cursor-not-allowed disabled:opacity-60";
+  "w-full rounded-sm border border-border bg-card/40 px-2 py-1 text-[12px] text-subtle-foreground disabled:cursor-not-allowed disabled:opacity-60";
 
 function groupOf(item: PlanNewAsset): Group {
   return item.type === "character" && item.decision === "derivative" ? "derivative" : item.type;
@@ -136,7 +136,7 @@ function TargetSelect({
   const { t } = useTranslation("dashboard");
   const choices = value && !options.includes(value) ? [value, ...options] : options;
   return (
-    <label className="flex flex-col gap-1 text-[11px] text-text-4">
+    <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
       {label}
       <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className={FIELD_CLS}>
         <option value="">{t("new_asset_target_placeholder")}</option>
@@ -164,7 +164,7 @@ function TextField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-[11px] text-text-4">
+    <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
       {label}
       <input
         type="text"
@@ -190,9 +190,9 @@ function DescriptionField({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1 text-[11px] text-text-4">
+    <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
       <span>{label}</span>
-      <AutoTextarea value={value} onChange={onChange} disabled={disabled} aria-label={label} className="text-text-3" />
+      <AutoTextarea value={value} onChange={onChange} disabled={disabled} aria-label={label} className="text-muted-foreground" />
     </div>
   );
 }
@@ -238,19 +238,19 @@ function NewAssetRow({
 
   return (
     <li
-      className="flex flex-col gap-2 rounded-[8px] border border-l-2 border-hairline-soft px-3 py-2.5"
+      className="flex flex-col gap-2 rounded-md border border-l-2 border-border/50 px-3 py-2.5"
       style={{ borderLeftColor: DECISION_EDGE[autoTarget != null ? "merge" : item.decision] }}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[12.5px] font-medium text-text">{item.name}</span>
-        <span className="flex-1 text-[12px] text-text-3">{summaryText(t, item, autoTarget)}</span>
+        <span className="text-[12.5px] font-medium text-foreground">{item.name}</span>
+        <span className="flex-1 text-[12px] text-muted-foreground">{summaryText(t, item, autoTarget)}</span>
         {!readOnly && (
           <select
             value={item.decision}
             onChange={(e) => onPatch({ decision: e.target.value as NewAssetDecision })}
             disabled={disabled}
             aria-label={t("new_asset_decision_label", { name: item.name })}
-            className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-sm border border-border bg-card/40 px-1 py-0.5 text-[11px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
           >
             {decisions.map((decision) => (
               <option key={decision} value={decision}>
@@ -260,7 +260,7 @@ function NewAssetRow({
           </select>
         )}
       </div>
-      {item.reason && <p className="text-[11.5px] text-text-4">{t("new_asset_reason", { reason: item.reason })}</p>}
+      {item.reason && <p className="text-[11.5px] text-muted-foreground">{t("new_asset_reason", { reason: item.reason })}</p>}
 
       {!readOnly && item.decision === "register" && autoTarget == null && (
         <div className="grid gap-2">
@@ -315,17 +315,17 @@ function NewAssetRow({
 
       {appearances.length > 0 && (
         <details className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] text-text-4">
+          <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] text-muted-foreground">
             <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
             {t("new_asset_appearances", { count: appearances.length })}
           </summary>
           <ul className="mt-1.5 flex flex-col gap-1">
             {appearances.map((entry) => (
               <li key={entry.id} className="flex items-start gap-2 text-[11.5px] leading-relaxed">
-                <span className="shrink-0 rounded bg-bg-grad-a/70 px-1.5 py-px font-mono text-[10.5px] text-text-3">
+                <span className="shrink-0 rounded-sm bg-card/70 px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">
                   {itemIdWithinEpisode(entry.id)}
                 </span>
-                <span className="text-text-4">{entry.snippet}</span>
+                <span className="text-muted-foreground">{entry.snippet}</span>
               </li>
             ))}
           </ul>
@@ -357,7 +357,7 @@ export function NewAssetsSection({ items, entries, readOnly, disabled, onChange 
       description={t(readOnly ? "new_assets_readonly_description" : "new_assets_description")}
     >
       {autoMergedCount > 0 && (
-        <p className="mb-3 text-[12px] text-text-3">{t("new_assets_auto_merged_notice", { count: autoMergedCount })}</p>
+        <p className="mb-3 text-[12px] text-muted-foreground">{t("new_assets_auto_merged_notice", { count: autoMergedCount })}</p>
       )}
       <div className="flex flex-col gap-4">
         {GROUPS.map((group) => {
@@ -365,7 +365,7 @@ export function NewAssetsSection({ items, entries, readOnly, disabled, onChange 
           if (indexed.length === 0) return null;
           return (
             <section key={group} aria-label={t(GROUP_LABEL_KEY[group])} className="flex flex-col gap-2">
-              <h4 className="font-mono text-[10px] tracking-[0.08em] text-text-4">{t(GROUP_LABEL_KEY[group])}</h4>
+              <h4 className="font-mono text-[10px] tracking-[0.08em] text-muted-foreground">{t(GROUP_LABEL_KEY[group])}</h4>
               <ul className="flex flex-col gap-2">
                 {indexed.map(({ item, index }) => (
                   <NewAssetRow

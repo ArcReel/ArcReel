@@ -51,16 +51,16 @@ export function OfficialServiceCard() {
   if (state === null) return null;
 
   return (
-    <div className="rounded-[12px] border border-hairline p-6" style={CARD_STYLE}>
-      <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+    <div className="rounded-xl border border-border p-6" style={CARD_STYLE}>
+      <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
         {t("official_service_title")}
       </div>
-      <p id={descId} className="max-w-[72ch] text-[12.5px] text-text-3">
+      <p id={descId} className="max-w-[72ch] text-[12.5px] text-muted-foreground">
         {state.available ? t("official_service_desc") : t("official_service_not_configured")}
       </p>
       {state.available && (
         <>
-          <div className="mt-4 flex items-center gap-3 text-[12.5px] text-text-2">
+          <div className="mt-4 flex items-center gap-3 text-[12.5px] text-subtle-foreground">
             <span id={toggleLabelId}>{t("official_service_toggle")}</span>
             <PillSwitch
               checked={state.enabled}
@@ -71,8 +71,8 @@ export function OfficialServiceCard() {
             />
           </div>
           <dl className="mt-4 flex flex-wrap items-baseline gap-x-2 text-[12px]">
-            <dt className="text-text-3">{t("official_service_instance_id")}</dt>
-            <dd className="break-all font-mono text-text-2">
+            <dt className="text-muted-foreground">{t("official_service_instance_id")}</dt>
+            <dd className="break-all font-mono text-subtle-foreground">
               {state.instance_id ?? t("official_service_instance_id_none")}
             </dd>
           </dl>

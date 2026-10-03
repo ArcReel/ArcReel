@@ -233,7 +233,7 @@ describe("SystemConfigPage", () => {
     expect(await screen.findByText("0.9.0")).toBeInTheDocument();
     expect(await screen.findByText(/最新版本：0.9.1/)).toBeInTheDocument();
     expect(await screen.findByText("发现新版本")).toBeInTheDocument();
-    expect(await screen.findByText("Release Notes")).toBeInTheDocument();
+    expect(await screen.findByText("发布说明")).toBeInTheDocument();
     expect(await screen.findByText(/add about tab/)).toBeInTheDocument();
   });
 

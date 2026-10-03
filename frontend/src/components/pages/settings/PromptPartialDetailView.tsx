@@ -91,25 +91,25 @@ function PartialBody({
   return (
     <>
       <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
           {t("prompt_templates_partial")}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2.5">
-          <h2 className="break-all font-mono text-[20px] leading-tight text-text">{partial.name}</h2>
+          <h2 className="break-all font-mono text-[20px] leading-tight text-foreground">{partial.name}</h2>
           {partial.protected && <LockBadge />}
         </div>
-        <p className="mt-1.5 text-[12.5px] text-text-3">
+        <p className="mt-1.5 text-[12.5px] text-muted-foreground">
           {t("prompt_templates_referenced_count", { count: partial.referenced_by.length })}
         </p>
       </header>
 
       <SectionShell kicker="Partial Body" title={t("prompt_templates_partial_source")}>
         {partial.source.trim() ? (
-          <div className="overflow-x-auto whitespace-pre-wrap break-words rounded-[8px] border border-hairline-soft bg-bg-grad-b/60 px-3.5 py-3 font-mono text-[12px] leading-[1.7] text-text-2">
+          <div className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-sidebar/60 px-3.5 py-3 font-mono text-[12px] leading-[1.7] text-subtle-foreground">
             {partial.source}
           </div>
         ) : (
-          <p className="text-[12.5px] italic text-text-4">{t("prompt_templates_partial_blank")}</p>
+          <p className="text-[12.5px] italic text-muted-foreground">{t("prompt_templates_partial_blank")}</p>
         )}
       </SectionShell>
 
@@ -118,7 +118,7 @@ function PartialBody({
         title={t("prompt_templates_referenced_by")}
         description={t("prompt_templates_referenced_by_desc")}
       >
-        <ul className="divide-y divide-hairline-soft">
+        <ul className="divide-y divide-border/50">
           {partial.referenced_by.map((id) => {
             const template = templates.get(id);
             return (
@@ -126,18 +126,18 @@ function PartialBody({
                 <button
                   type="button"
                   onClick={() => onOpenTemplate(id)}
-                  className="group flex w-full items-center gap-3 rounded-[6px] px-1 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="group flex w-full items-center gap-3 rounded-sm px-1 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] text-text group-hover:underline">
+                    <span className="block text-[13px] text-foreground group-hover:underline">
                       {template?.title ?? id}
                     </span>
-                    <span className="mt-0.5 block font-mono text-[11px] text-text-4">
+                    <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">
                       {template ? `${categoryLabel(t, template.category)} · ${id}` : id}
                     </span>
                   </span>
                   {template?.protected && <LockBadge />}
-                  <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-text-4" />
+                  <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 </button>
               </li>
             );

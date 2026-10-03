@@ -5,17 +5,17 @@ export type ShotStatus = "ready" | "storyboard" | "pending";
 
 const CONFIG: Record<ShotStatus, { color: string; bg: string; labelKey: string }> = {
   ready: {
-    color: "var(--color-good)",
+    color: "var(--good)",
     bg: "oklch(0.74 0.08 155 / 0.12)",
     labelKey: "shot_status_ready",
   },
   storyboard: {
-    color: "var(--color-accent-2)",
-    bg: "var(--color-accent-dim)",
+    color: "var(--primary)",
+    bg: "color-mix(in oklab, var(--primary) 12%, transparent)",
     labelKey: "shot_status_storyboard",
   },
   pending: {
-    color: "var(--color-text-4)",
+    color: "var(--muted-foreground)",
     bg: "oklch(0.30 0.01 250 / 0.4)",
     labelKey: "shot_status_pending",
   },
@@ -32,7 +32,7 @@ export function StatusBadge({ status }: { status: ShotStatus }) {
   const cfg = CONFIG[status];
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[10.5px] font-medium"
+      className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-[10.5px] font-medium"
       style={{
         color: cfg.color,
         background: cfg.bg,

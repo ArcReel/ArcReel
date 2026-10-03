@@ -85,7 +85,7 @@ function durationOutOfTier(seconds: number, options: number[] | null): boolean {
 }
 
 const SECTION_LABEL_STYLE: React.CSSProperties = {
-  color: "var(--color-text-4)",
+  color: "var(--muted-foreground)",
   letterSpacing: "0.08em",
   fontFamily: "var(--font-mono)",
 };
@@ -106,7 +106,7 @@ function MetaChips({ items }: { items: string[] }) {
       {items.map((name) => (
         <span
           key={name}
-          className="rounded border border-hairline bg-bg-grad-a/50 px-1.5 py-0.5 text-[10.5px] text-text-3"
+          className="rounded-sm border border-border bg-card/50 px-1.5 py-0.5 text-[10.5px] text-muted-foreground"
         >
           {name}
         </span>
@@ -139,12 +139,12 @@ function ItemHeader({
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{shortId}</span>
+        <span className="rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-[11px] text-subtle-foreground">{shortId}</span>
         {readOnly ? (
           <>
-            <span className="text-[11px] text-text-4">{durationSeconds}s</span>
+            <span className="text-[11px] text-muted-foreground">{durationSeconds}s</span>
             {segmentBreak && (
-              <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-text-4">
+              <span className="rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {t("review_segment_break")}
               </span>
             )}
@@ -230,10 +230,10 @@ function ReadOnlyUtterances({ utterances }: { utterances: Utterance[] }) {
     <ul className="flex flex-col gap-1.5">
       {utterances.map((u, i) => (
         <li key={String(i)} className="flex items-start gap-2 text-[12.5px] leading-relaxed">
-          <span className="mt-0.5 shrink-0 rounded border border-hairline bg-bg-grad-a/55 px-1.5 py-px text-[10.5px] text-text-3">
+          <span className="mt-0.5 shrink-0 rounded-sm border border-border bg-card/55 px-1.5 py-px text-[10.5px] text-muted-foreground">
             {u.kind === "dialogue" ? u.speaker : t("utterance_kind_voiceover")}
           </span>
-          <span className={u.kind === "voiceover" ? "italic text-text-2" : "text-text"}>{u.text}</span>
+          <span className={u.kind === "voiceover" ? "italic text-subtle-foreground" : "text-foreground"}>{u.text}</span>
         </li>
       ))}
     </ul>
@@ -252,7 +252,7 @@ function ItemCardShell({ notes, children }: { notes?: ItemDraftNotes; children: 
   return (
     <article
       ref={notes?.anchorRef}
-      className={`scroll-mt-28 rounded-[10px] border p-3.5 ${violating ? "border-red-500/45" : "border-hairline"}`}
+      className={`scroll-mt-28 rounded-lg border p-3.5 ${violating ? "border-red-500/45" : "border-border"}`}
       style={CARD_STYLE}
     >
       {children}
@@ -326,7 +326,7 @@ function DramaSceneCard({
         {t("review_source_text_label")}
       </label>
       {readOnly ? (
-        <ReadOnlyText text={scene.source_text} className="text-text-3" />
+        <ReadOnlyText text={scene.source_text} className="text-muted-foreground" />
       ) : (
         <AutoTextarea
           value={scene.source_text}
@@ -334,7 +334,7 @@ function DramaSceneCard({
           onChange={(source_text) => onChange({ source_text })}
           placeholder={t("review_source_text_placeholder")}
           aria-label={t("review_source_text_label")}
-          className="text-text-3"
+          className="text-muted-foreground"
         />
       )}
     </ItemCardShell>
@@ -387,7 +387,7 @@ function NarrationSegmentCard({
         {t("review_novel_text_label")}
       </label>
       {readOnly ? (
-        <ReadOnlyText text={segment.novel_text} className="text-text" />
+        <ReadOnlyText text={segment.novel_text} className="text-foreground" />
       ) : (
         <AutoTextarea
           value={segment.novel_text}
@@ -599,7 +599,7 @@ export function ScriptReviewGate({
   };
 
   if (loading) {
-    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_script_plan")}</div>;
+    return <div className="flex h-64 items-center justify-center text-muted-foreground">{t("dashboard:loading_script_plan")}</div>;
   }
 
   // 加载错误态：区别于「无 script_plan 产物」空态，展示错误信息 + 重试入口。
@@ -608,9 +608,9 @@ export function ScriptReviewGate({
       <div role="alert" className="flex h-64 flex-col items-center justify-center gap-3 text-center">
         <AlertTriangle className="h-6 w-6 text-amber-400" aria-hidden="true" />
         <div className="flex flex-col gap-1">
-          <p className="text-[13px] font-medium text-text-2">{t("dashboard:review_load_failed")}</p>
+          <p className="text-[13px] font-medium text-subtle-foreground">{t("dashboard:review_load_failed")}</p>
           {loadError.message && (
-            <p className="max-w-sm px-4 font-mono text-[11px] text-text-4">{loadError.message}</p>
+            <p className="max-w-sm px-4 font-mono text-[11px] text-muted-foreground">{loadError.message}</p>
           )}
         </div>
         <button type="button" onClick={handleRetry} className={GHOST_BTN_LG_CLS}>
@@ -625,7 +625,7 @@ export function ScriptReviewGate({
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
     // 没有规划时也能在这里发起 AI 规划；已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3 text-text-4">
+      <div className="flex h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
         <p>{t("dashboard:no_script_plan_content")}</p>
         {status === "no_script_plan" && (
           <ScriptPlanButton
@@ -936,16 +936,16 @@ function ReviewStatusBar({
   const { t } = useTranslation("dashboard");
   return (
     <header
-      className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-[10px] border border-hairline px-3.5 py-2.5 backdrop-blur-md"
+      className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-lg border border-border px-3.5 py-2.5 backdrop-blur-md"
       style={CARD_STYLE}
     >
       <div className="flex items-center gap-2">
         {confirmed ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Clock className="h-4 w-4 text-amber-400" />}
         <div className="flex flex-col">
-          <span className="text-[12.5px] font-medium text-text">
+          <span className="text-[12.5px] font-medium text-foreground">
             {confirmed ? t("review_status_confirmed") : t("review_status_pending")}
           </span>
-          <span className="text-[11px] text-text-4">
+          <span className="text-[11px] text-muted-foreground">
             {scriptMissing
               ? t("review_script_missing_hint")
               : confirmed

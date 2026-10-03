@@ -32,11 +32,11 @@ export function WizardStep3Style({
     <div className="space-y-5">
       <StylePicker value={value} onChange={onChange} />
 
-      <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
+      <div className="mt-7 flex items-center justify-between border-t border-border/50 pt-5">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-md px-2.5 py-1.5 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("common:cancel")}
         </button>

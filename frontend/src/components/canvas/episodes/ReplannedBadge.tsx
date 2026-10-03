@@ -9,7 +9,7 @@ export function ReplannedBadge() {
   const { t } = useTranslation("dashboard");
   return (
     <span
-      className="inline-flex items-center rounded px-1.5 py-px text-[10.5px] leading-[1.6]"
+      className="inline-flex items-center rounded-sm px-1.5 py-px text-[10.5px] leading-[1.6]"
       style={{ color: "oklch(0.85 0.08 200)", border: "1px dashed oklch(0.85 0.08 200 / 0.6)" }}
       title={t("episodes_view_replanned_hint")}
     >

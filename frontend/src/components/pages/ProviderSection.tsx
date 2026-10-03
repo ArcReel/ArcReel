@@ -17,17 +17,17 @@ import { CustomProviderForm } from "./settings/CustomProviderForm";
 
 const STATUS_MAP: Record<string, { color: string; label: string; glow?: string }> = {
   ready: {
-    color: "var(--color-good)",
+    color: "var(--good)",
     label: "status_ready",
     glow: "0 0 6px oklch(0.78 0.10 155 / 0.55)",
   },
   error: {
-    color: "var(--color-warm)",
+    color: "var(--warn)",
     label: "status_error",
-    glow: "0 0 6px var(--color-warm-glow)",
+    glow: "0 0 6px color-mix(in oklab, var(--warn) 35%, transparent)",
   },
   unconfigured: {
-    color: "var(--color-text-4)",
+    color: "var(--muted-foreground)",
     label: "status_unconfigured",
   },
 };
@@ -35,7 +35,7 @@ const STATUS_MAP: Record<string, { color: string; label: string; glow?: string }
 function StatusDot({ status }: { status: string }) {
   const { t } = useTranslation("dashboard");
   const { color, label, glow } = STATUS_MAP[status] ?? {
-    color: "var(--color-text-4)",
+    color: "var(--muted-foreground)",
     label: status,
   };
   return (
@@ -123,14 +123,14 @@ export function ProviderSection() {
   if (loadError) {
     return (
       <div role="alert" className="flex flex-col items-start gap-2.5 px-6 py-8">
-        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warn">
           {t("common:load_failed")}
         </span>
-        <p className="text-[12.5px] text-text-2">{loadError}</p>
+        <p className="text-[12.5px] text-subtle-foreground">{loadError}</p>
         <button
           type="button"
           onClick={reload}
-          className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-md border border-border/50 bg-card/55 px-3 py-1.5 text-[12px] text-subtle-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("common:retry")}
         </button>
@@ -140,8 +140,8 @@ export function ProviderSection() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 px-6 py-8 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+      <div className="flex items-center gap-2 px-6 py-8 text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("loading_providers")}
         </span>
@@ -154,10 +154,10 @@ export function ProviderSection() {
       {/* Provider list sidebar */}
       <nav
         aria-label={t("provider_list")}
-        className="sticky top-0 max-h-screen w-56 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
+        className="sticky top-0 max-h-screen w-56 shrink-0 self-start overflow-y-auto border-r border-border/50 px-3 py-5"
         style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
       >
-        <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4">
+        <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
           {t("preset_providers")}
         </div>
         {providers.map((p) => {
@@ -171,19 +171,19 @@ export function ProviderSection() {
               aria-current={isActive ? "page" : undefined}
               aria-pressed={isActive}
               className={
-                "group relative mb-0.5 flex w-full items-center gap-2.5 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                "group relative mb-0.5 flex w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
                 (isActive
-                  ? "border-accent/35 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-accent-glow)]"
-                  : "border-transparent text-text-3 hover:border-hairline-soft hover:bg-bg-grad-a/55 hover:text-text")
+                  ? "border-primary/35 bg-primary/12 text-foreground shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
+                  : "border-transparent text-muted-foreground hover:border-border/50 hover:bg-card/55 hover:text-foreground")
               }
             >
               {/* Active rail */}
               <span
                 aria-hidden
-                className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-[2px] transition-opacity"
+                className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-xs transition-opacity"
                 style={{
                   background:
-                    "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                    "var(--primary)",
                   opacity: isActive ? 1 : 0,
                 }}
               />
@@ -245,7 +245,7 @@ export function ProviderSection() {
           />
         )}
         {!selection && (
-          <div className="p-6 text-[12.5px] text-text-3">{t("select_provider")}</div>
+          <div className="p-6 text-[12.5px] text-muted-foreground">{t("select_provider")}</div>
         )}
       </div>
     </div>

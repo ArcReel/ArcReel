@@ -15,20 +15,20 @@ export function MarketSubmissionList({
   return (
     <section aria-labelledby="market-submissions-title" className="mt-10">
       <div className={KICKER_CLS}>Submissions</div>
-      <h3 id="market-submissions-title" className="mt-1 text-[14px] font-medium text-text">
+      <h3 id="market-submissions-title" className="mt-1 text-[14px] font-medium text-foreground">
         {t("market_submissions_title")}
       </h3>
-      <ul className="mt-3 divide-y divide-hairline-soft rounded-[10px] border border-hairline">
+      <ul className="mt-3 divide-y divide-border/50 rounded-lg border border-border">
         {submissions.map((submission) => (
           <li key={submission.endpoint_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
             <button
               type="button"
               onClick={() => onOpenEndpoint(submission.endpoint_key)}
-              className="min-w-0 truncate text-left text-[12.5px] text-text hover:text-accent-2"
+              className="min-w-0 truncate text-left text-[12.5px] text-foreground hover:text-primary"
             >
               {submission.endpoint_display_name}
             </button>
-            <span className="font-mono text-[11px] text-text-3">{submission.slug}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{submission.slug}</span>
             <span className="ml-auto">
               <MarketSubmissionBadge submission={submission} />
             </span>

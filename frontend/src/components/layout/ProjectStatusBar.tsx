@@ -37,12 +37,12 @@ const STATUS_REFRESH_DEBOUNCE_MS = 250;
 /** 平的状态面：不内凹、不含凸起亮片，避免读成分段开关。 */
 const FLAT = {
   background: "linear-gradient(180deg, oklch(0.25 0.012 265 / 0.9), oklch(0.22 0.011 265 / 0.9))",
-  border: "1px solid var(--color-hairline)",
+  border: "1px solid var(--border)",
   boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.3)",
 };
 const FLAT_WARM = {
-  background: "var(--color-warm-soft)",
-  border: "1px solid var(--color-warm-ring)",
+  background: "color-mix(in oklab, var(--warn) 10%, transparent)",
+  border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
   boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
 };
 const SHELL = "inline-flex h-[28px] items-center overflow-hidden rounded-full";
@@ -116,7 +116,7 @@ function Divider({ warm }: { warm?: boolean }) {
     <span
       aria-hidden
       className="h-3.5 w-px"
-      style={{ background: warm ? "var(--color-warm-ring)" : "var(--color-hairline)" }}
+      style={{ background: warm ? "color-mix(in oklab, var(--warn) 30%, transparent)" : "var(--border)" }}
     />
   );
 }
@@ -134,7 +134,7 @@ function Ring({ done, total }: { done: number; total: number }) {
         cy="7.5"
         r={r}
         fill="none"
-        stroke="var(--color-accent)"
+        stroke="var(--primary)"
         strokeWidth="2.2"
         strokeLinecap="round"
         strokeDasharray={`${c * f} ${c}`}
@@ -145,10 +145,10 @@ function Ring({ done, total }: { done: number; total: number }) {
 }
 
 function episodeDotColor(episode: EpisodeMeta): string {
-  if (episode.status === "completed") return "var(--color-good)";
-  if (episodeNeedsUpdate(episode)) return "var(--color-warm)";
-  if (episode.status === "in_production") return "var(--color-accent-2)";
-  return "var(--color-text-4)";
+  if (episode.status === "completed") return "var(--good)";
+  if (episodeNeedsUpdate(episode)) return "var(--warn)";
+  if (episode.status === "in_production") return "var(--primary)";
+  return "var(--muted-foreground)";
 }
 
 function GuideButtonView({
@@ -212,12 +212,12 @@ function NextPanel({
   };
   return (
     <div className="space-y-2">
-      <p className="m-0 text-[12.5px] leading-[1.55]" style={{ color: "var(--color-text-2)" }}>
+      <p className="m-0 text-[12.5px] leading-[1.55]" style={{ color: "var(--subtle-foreground)" }}>
         {guide.detail}
       </p>
       {guide.instruction && (
         <label className="block">
-          <span className="mb-0.5 block text-[11px]" style={{ color: "var(--color-text-3)" }}>
+          <span className="mb-0.5 block text-[11px]" style={{ color: "var(--muted-foreground)" }}>
             {t("guide_instruction_label")}
           </span>
           <input
@@ -226,9 +226,9 @@ function NextPanel({
             placeholder={t("guide_instruction_placeholder")}
             className="focus-ring w-full rounded-md px-2 py-1 text-[12px]"
             style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-hairline)",
-              color: "var(--color-text)",
+              background: "var(--muted)",
+              border: "1px solid var(--border)",
+              color: "var(--foreground)",
             }}
           />
         </label>
@@ -245,7 +245,7 @@ function NextPanel({
           />
         ))}
         {guide.alternatives.length > 0 && (
-          <span className="inline-flex flex-wrap items-center gap-1.5 text-[12px]" style={{ color: "var(--color-text-3)" }}>
+          <span className="inline-flex flex-wrap items-center gap-1.5 text-[12px]" style={{ color: "var(--muted-foreground)" }}>
             {t("guide_or")}
             {guide.alternatives.map((button) => (
               <GuideButtonView
@@ -306,17 +306,17 @@ function EpisodeList({
             type="button"
             onClick={() => onNavigate(`/episodes/${episode.episode}`)}
             aria-current={current === episode.episode ? "page" : undefined}
-            className="focus-ring flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[12px] hover:bg-[oklch(1_0_0_/_0.05)]"
-            style={current === episode.episode ? { background: "var(--color-accent-dim)" } : undefined}
+            className="focus-ring flex w-full items-center gap-2 rounded-sm px-1.5 py-1 text-left text-[12px] hover:bg-[oklch(1_0_0_/_0.05)]"
+            style={current === episode.episode ? { background: "color-mix(in oklab, var(--primary) 12%, transparent)" } : undefined}
           >
             <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: episodeDotColor(episode) }} />
-            <span className="w-12 shrink-0 tabular-nums" style={{ color: "var(--color-text-3)" }}>
+            <span className="w-12 shrink-0 tabular-nums" style={{ color: "var(--muted-foreground)" }}>
               {t("common:episode_position_name", { position: index + 1 })}
             </span>
-            <span className="min-w-0 flex-1 truncate" style={{ color: "var(--color-text)" }}>
+            <span className="min-w-0 flex-1 truncate" style={{ color: "var(--foreground)" }}>
               {episodeDisplayName(episodes, episode.episode, t)}
             </span>
-            <span className="shrink-0 text-[11px]" style={{ color: "var(--color-text-3)" }}>
+            <span className="shrink-0 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
               {rowNote(episode)}
             </span>
           </button>
@@ -365,11 +365,11 @@ function MigrationBar({ projectName, reason }: { projectName: string; reason: st
       <div className={SHELL} style={FLAT_WARM}>
         {/* 窄屏只留图标与「重试」，标题收进无障碍名称与弹层。 */}
         <Segment onClick={() => setOpen((value) => !value)} expanded={open} label={title}>
-          <AlertTriangle aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--color-warm)" }} />
-          <span aria-hidden className="hidden md:inline" style={{ color: "var(--color-text)" }}>
+          <AlertTriangle aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--warn)" }} />
+          <span aria-hidden className="hidden md:inline" style={{ color: "var(--foreground)" }}>
             {title}
           </span>
-          <ChevronDown aria-hidden className="h-3 w-3" style={{ color: "var(--color-text-3)" }} />
+          <ChevronDown aria-hidden className="h-3 w-3" style={{ color: "var(--muted-foreground)" }} />
         </Segment>
         <Divider warm />
         <div className="px-1.5">
@@ -378,7 +378,7 @@ function MigrationBar({ projectName, reason }: { projectName: string; reason: st
             onClick={() => void retry()}
             disabled={running}
             className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11.5px] font-medium disabled:cursor-wait"
-            style={{ background: "var(--color-text)", color: "oklch(0.15 0 0)" }}
+            style={{ background: "var(--foreground)", color: "oklch(0.15 0 0)" }}
           >
             {running && <Loader2 aria-hidden className="h-3 w-3 motion-safe:animate-spin" />}
             {running ? t("migration_retry_running") : t("migration_retry")}
@@ -387,14 +387,14 @@ function MigrationBar({ projectName, reason }: { projectName: string; reason: st
       </div>
       <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} align="center" width="w-[min(440px,calc(100vw-24px))]">
         <div className="space-y-2 p-3" role="alert">
-          <p className="m-0 text-[12px] font-semibold leading-[1.55]" style={{ color: "var(--color-text)" }}>
+          <p className="m-0 text-[12px] font-semibold leading-[1.55]" style={{ color: "var(--foreground)" }}>
             {failures > 0 ? t("migration_retry_failed_heading") : t("migration_repair_title")}
           </p>
-          <p className="m-0 text-[12px] leading-[1.55]" style={{ color: "var(--color-text-2)" }}>
+          <p className="m-0 text-[12px] leading-[1.55]" style={{ color: "var(--subtle-foreground)" }}>
             {failures > 0 ? t("migration_retry_failed_body") : t("migration_repair_body")}
           </p>
           {shownReason ? (
-            <p className="m-0 break-words font-mono text-[11.5px] leading-[1.5]" style={{ color: "var(--color-text-3)" }}>
+            <p className="m-0 break-words font-mono text-[11.5px] leading-[1.5]" style={{ color: "var(--muted-foreground)" }}>
               {shownReason}
             </p>
           ) : null}
@@ -473,16 +473,16 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
           expanded={open === "episodes"}
         >
           <Ring done={done} total={total} />
-          <span className="num" style={{ color: "var(--color-text-2)" }}>
+          <span className="num" style={{ color: "var(--subtle-foreground)" }}>
             {progressText}
           </span>
           {staleEpisodes > 0 && (
             <span
               className="inline-flex items-center gap-1 text-[11px]"
-              style={{ color: "var(--color-warm)" }}
+              style={{ color: "var(--warn)" }}
               title={t("guide_stale_episodes", { count: staleEpisodes })}
             >
-              <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--color-warm)" }} />
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--warn)" }} />
               <span className="num" aria-label={t("guide_stale_episodes", { count: staleEpisodes })}>
                 {staleEpisodes}
               </span>
@@ -493,20 +493,20 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
           <>
             <Divider />
             <Segment segmentRef={nextRef} onClick={() => toggle("next")} expanded={open === "next"}>
-              <span className="text-[11px]" style={{ color: "var(--color-text-4)" }}>
+              <span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
                 {t("guide_next_label")}
               </span>
-              <span className="font-medium" style={{ color: "var(--color-text)" }}>
+              <span className="font-medium" style={{ color: "var(--foreground)" }}>
                 {guide.title}
               </span>
-              <ChevronDown aria-hidden className="h-3 w-3" style={{ color: "var(--color-text-3)" }} />
+              <ChevronDown aria-hidden className="h-3 w-3" style={{ color: "var(--muted-foreground)" }} />
             </Segment>
           </>
         )}
         {allComplete && (
           <>
             <Divider />
-            <span className="px-3 text-[11px]" style={{ color: "var(--color-good)" }}>
+            <span className="px-3 text-[11px]" style={{ color: "var(--good)" }}>
               {t("guide_all_complete")}
             </span>
           </>
@@ -514,7 +514,7 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
         {yieldToPanel && (
           <>
             <Divider />
-            <span className="px-3 text-[11px]" style={{ color: "var(--color-text-4)" }}>
+            <span className="px-3 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
               {t("guide_next_in_panel")}
             </span>
           </>
