@@ -46,6 +46,12 @@ interface EpisodesRailProps {
   onDelete: (episode: number) => void;
   /** 从这一集开始重新规划。 */
   onReplan: (episode: number) => void;
+  /** PROTOTYPE（#2982）：集清单单行显示，选中后才展开首尾句与操作。 */
+  compact?: boolean;
+  /** PROTOTYPE（#2982）：标题、上传、进度与 AI 规划移到页头。 */
+  toolsInHeader?: boolean;
+  /** PROTOTYPE（#2982）：未登记文件改为页头下方提示条。 */
+  hideUnregistered?: boolean;
 }
 
 /** 选中一集后就地展开的集管理操作。 */
@@ -100,6 +106,9 @@ export function EpisodesRail({
   onCreate,
   onDelete,
   onReplan,
+  compact = false,
+  toolsInHeader = false,
+  hideUnregistered = false,
 }: EpisodesRailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const groups = railFileGroups(view, episodes);
@@ -121,6 +130,7 @@ export function EpisodesRail({
 
   return (
     <div className="space-y-5 px-4 py-5 pb-24">
+      {toolsInHeader ? null : (
       <header className={`flex items-center gap-2 ${assistantFloating ? "pr-12" : ""}`}>
         <h2 className="display-serif text-[16px] font-semibold tracking-tight text-text">
           {t("dashboard:workspace_nav_episodes")}
@@ -137,8 +147,9 @@ export function EpisodesRail({
           {t("dashboard:source_upload_title")}
         </PrimaryButton>
       </header>
+      )}
 
-      {view.unregistered.length > 0 ? (
+      {view.unregistered.length > 0 && !hideUnregistered ? (
         <UnregisteredFilesPanel
           projectName={projectName}
           files={view.unregistered}
@@ -147,7 +158,7 @@ export function EpisodesRail({
         />
       ) : null}
 
-      {view.files.length > 0 ? (
+      {view.files.length > 0 && !toolsInHeader ? (
         <section aria-labelledby="episodes-rail-progress" className="space-y-2">
           <div className="flex items-baseline justify-between gap-3">
             <h3 id="episodes-rail-progress" className="text-[12.5px] font-medium text-text-2">
@@ -178,7 +189,7 @@ export function EpisodesRail({
           generating={planning}
           onChanged={onChanged}
         />
-      ) : (
+      ) : toolsInHeader ? null : (
         <EpisodePlanningPanel projectName={projectName} view={view} active={planning} />
       )}
 
@@ -207,6 +218,7 @@ export function EpisodesRail({
                       onSelect={onSelect}
                       cutActions={cutActions}
                       episodeActions={episodeActions}
+                      compact={compact}
                     />
                   </li>
                 ))}
@@ -235,6 +247,7 @@ export function EpisodesRail({
                   onSelect={onSelect}
                   episodeActions={episodeActions}
                   origin
+                  compact={compact}
                 />
               </li>
             ))}
@@ -263,6 +276,7 @@ function RailRowView({
   onSelect,
   cutActions,
   episodeActions,
+  compact,
 }: {
   row: RailRow;
   view: EpisodesView;
@@ -272,6 +286,7 @@ function RailRowView({
   onSelect: (episode: number) => void;
   cutActions: CutActions;
   episodeActions: EpisodeActions;
+  compact?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   if (row.kind === "gap") {
@@ -296,6 +311,7 @@ function RailRowView({
       onSelect={onSelect}
       cutActions={cutActions}
       episodeActions={episodeActions}
+      compact={compact}
     />
   );
 }
@@ -311,6 +327,7 @@ function EpisodeCard({
   origin = false,
   cutActions,
   episodeActions,
+  compact = false,
 }: {
   episode: EpisodeMeta;
   info: EpisodesViewEpisode | null;
@@ -323,9 +340,11 @@ function EpisodeCard({
   origin?: boolean;
   cutActions?: CutActions;
   episodeActions: EpisodeActions;
+  compact?: boolean;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, setLocation] = useLocation();
+  const brief = compact && !selected;
   const id = episode.episode;
   const color = episodeColor(id);
   const position = episodePosition(episodes, id);
@@ -344,13 +363,16 @@ function EpisodeCard({
         type="button"
         onClick={() => onSelect(id)}
         aria-pressed={selected}
-        className="focus-ring block w-full rounded-md px-2.5 py-2 text-left hover:bg-[oklch(0.26_0.012_265/0.45)]"
+        className={`focus-ring block w-full rounded-md px-2.5 text-left hover:bg-[oklch(0.26_0.012_265/0.45)] ${brief ? "py-1.5" : "py-2"}`}
       >
-        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px]">
+        <span className={`flex items-center gap-x-1.5 gap-y-1 text-[12.5px] ${brief ? "flex-nowrap" : "flex-wrap"}`}>
           <span className="font-semibold" style={{ color }}>
             {position === null ? t("common:episode_unlisted_name") : t("common:episode_position_name", { position })}
           </span>
-          <span className="min-w-0 text-text">{title || t("dashboard:episodes_view_untitled")}</span>
+          <span className={`min-w-0 text-text ${brief ? "flex-1 truncate" : ""}`}>{title || t("dashboard:episodes_view_untitled")}</span>
+          {brief && info?.units != null ? (
+            <span className="num shrink-0 text-[11px] text-text-4">{formatVolume(t, info.units, view.unit)}</span>
+          ) : null}
           {origin && info ? (
             <span className="rounded border border-hairline px-1 py-px text-[10.5px] text-text-3">
               {t(`dashboard:episodes_view_origin_${info.origin}`)}
@@ -363,23 +385,23 @@ function EpisodeCard({
             </span>
           ) : null}
         </span>
-        {info?.units != null ? (
+        {info?.units != null && !brief ? (
           <span className="num mt-0.5 block text-[10.5px] text-text-4">
             {formatVolume(t, info.units, view.unit)}
             {info.spoken_seconds != null ? ` · ${formatSpoken(t, info.spoken_seconds)}` : ""}
           </span>
         ) : null}
-        {hook ? (
+        {hook && !brief ? (
           <span className="mt-1 block text-[11.5px] leading-[1.55] text-text-3">
             {t("dashboard:episodes_view_hook", { hook })}
           </span>
         ) : null}
-        {info?.first_sentence ? (
+        {info?.first_sentence && !brief ? (
           <span className="mt-1 block truncate text-[11.5px] text-text-3" title={info.first_sentence}>
             {t("dashboard:episodes_view_first_sentence", { sentence: info.first_sentence })}
           </span>
         ) : null}
-        {info?.last_sentence ? (
+        {info?.last_sentence && !brief ? (
           <span className="block truncate text-[11.5px] text-text-3" title={info.last_sentence}>
             {t("dashboard:episodes_view_last_sentence", { sentence: info.last_sentence })}
           </span>

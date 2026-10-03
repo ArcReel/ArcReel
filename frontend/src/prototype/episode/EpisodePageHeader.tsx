@@ -6,7 +6,7 @@
 import type { ReactNode } from "react";
 import { requestCanvasTab, setSlot, useCanvasTabState } from "./slots";
 
-type Tab = "plan" | "board" | "edit";
+type Tab = "source" | "plan" | "board" | "edit";
 
 export function EpisodePageHeader({
   mode,
@@ -23,9 +23,15 @@ export function EpisodePageHeader({
 }) {
   const canvas = useCanvasTabState();
   const active: Tab | null = editActive ? "edit" : canvas.current;
-  const tabs: { key: Tab; label: string; disabled?: boolean }[] = [];
+  const tabs: { key: Tab; label: string; disabled?: boolean; title?: string }[] = [];
+  if (canvas.hasSource) tabs.push({ key: "source", label: "原文" });
   if (canvas.hasPlan) tabs.push({ key: "plan", label: "脚本规划" });
-  if (canvas.current) tabs.push({ key: "board", label: canvas.boardLabel, disabled: !canvas.boardEnabled });
+  if (canvas.current) tabs.push({
+      key: "board",
+      label: canvas.boardLabel,
+      disabled: !canvas.boardEnabled,
+      title: canvas.boardEnabled ? undefined : "脚本生成后可用",
+    });
   if (canEdit) tabs.push({ key: "edit", label: "剪辑" });
 
   const choose = (key: Tab) => {
@@ -46,6 +52,7 @@ export function EpisodePageHeader({
           role="tab"
           aria-selected={active === tab.key}
           disabled={tab.disabled}
+          title={tab.title}
           onClick={() => choose(tab.key)}
           className={`focus-ring rounded-md px-3 py-1 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
             active === tab.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"

@@ -22,7 +22,8 @@ import {
 } from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
 import { EPISODE_VIEW_EDIT } from "@/app-routes";
-import { EpisodeProtoBar } from "@/prototype/episode/EpisodeProtoBar";
+import { SourcesProtoBar } from "@/prototype/sources/SourcesProtoBar";
+import { useSourcesProto } from "@/prototype/sources/store";
 import { publishMetrics, useShellProto } from "@/prototype/shell/store";
 import { AgentRail, DragHandle, useElementWidth, useViewportWidth } from "@/prototype/shell/ShellParts";
 import {
@@ -225,6 +226,9 @@ function PrototypeShell({
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
 
   const inEpisode = /^\/episodes\/\d+/.test(location);
+  // PROTOTYPE（#2982）：分集视图可选择折叠侧栏
+  const { axes: sourcesAxes } = useSourcesProto();
+  const inEpisodesView = /^\/episodes\/?$/.test(location);
   const inEdit = inEpisode && new URLSearchParams(search).get("view") === EPISODE_VIEW_EDIT;
 
   const limits = WIDTH_LIMITS[axes.resize];
@@ -247,7 +251,9 @@ function PrototypeShell({
         ? "episode"
         : axes.autoCollapse === "edit" && inEdit
           ? "edit"
-          : null;
+          : sourcesAxes.sidebar === "collapse" && inEpisodesView
+            ? "episodes"
+            : null;
   const [userCollapsed, setUserCollapsed] = useState(false);
   const [tempExpanded, setTempExpanded] = useState(false);
   const resetKey = `${forcedReason}|${location}|${inEdit}`;
@@ -432,7 +438,7 @@ function PrototypeShell({
           <Bot className="h-5 w-5" />
         </button>
       ) : null}
-      <EpisodeProtoBar />
+      <SourcesProtoBar />
     </div>
   );
 }

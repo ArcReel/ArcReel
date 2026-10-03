@@ -19,6 +19,19 @@ import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
 import { useDeleteEpisode } from "./useDeleteEpisode";
 import { useReplanEpisode } from "./useReplanEpisode";
 import { replanCompare } from "./replan-compare-model";
+import { ReplanCandidatePanel } from "./ReplanCandidatePanel";
+import { UnregisteredFilesPanel } from "./UnregisteredFilesPanel";
+import { EPISODE_PLANNING_SLOTS } from "@/actions/generation";
+import { useActiveResourceIds } from "@/stores/tasks-store";
+import { useSourcesProto } from "@/prototype/sources/store";
+import {
+  EpisodeOutline,
+  EpisodesHeaderBar,
+  EpisodesTable,
+  UnregisteredBanner,
+  mockReplan,
+  type EpisodeMenuActions,
+} from "@/prototype/sources/EpisodesProto";
 import {
   EPISODES_VIEW_CREATE_PARAM,
   EPISODES_VIEW_EPISODE_PARAM,
@@ -89,7 +102,20 @@ function useEpisodesViewData(projectName: string) {
  */
 export function EpisodesView({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
-  const { view, error, reload, episodes } = useEpisodesViewData(projectName);
+  const { view: rawView, error, reload, episodes } = useEpisodesViewData(projectName);
+  // PROTOTYPE（#2982）：结构与入口位置由原型轴决定；「演示状态」可以在内存里造一份新的分集方案
+  const { axes } = useSourcesProto();
+  const view = useMemo(
+    () =>
+      rawView !== null && axes.mock === "replan" && rawView.replan === null
+        ? { ...rawView, replan: mockReplan(rawView, episodes) }
+        : rawView,
+    [rawView, axes.mock, episodes],
+  );
+  const activePlanning = useActiveResourceIds("text_episode_plan", projectName);
+  const planning = EPISODE_PLANNING_SLOTS.some((slot) => activePlanning.has(slot));
+  const [current, setCurrent] = useState<number | null>(null);
+  const [tab, setTab] = useState<"source" | "list">("source");
   const search = useSearch();
   const [, setLocation] = useLocation();
   const [selected, setSelected] = useState<number | null>(null);
@@ -185,57 +211,196 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     );
   }
 
-  return (
-    <div className="flex h-full flex-col lg:flex-row">
-      <main className="min-h-0 flex-1 overflow-y-auto px-6 lg:px-10" aria-label={t("episodes_view_source_label")}>
-        <div className="mx-auto max-w-[44em]">
-          <ExternalChangeNotice
+  // 原文滚动时，目录高亮视口顶部所在的那一集
+  const onManuscriptScroll = (event: React.UIEvent<HTMLElement>) => {
+    const top = event.currentTarget.getBoundingClientRect().top + 96;
+    let found: number | null = null;
+    let best = -Infinity;
+    for (const [episode, el] of episodeHeaders.current) {
+      const y = el.getBoundingClientRect().top;
+      if (y <= top && y > best) {
+        best = y;
+        found = episode;
+      }
+    }
+    if (found !== current) setCurrent(found);
+  };
+  const locate = (episode: number) => {
+    setSelected(episode);
+    setCurrent(episode);
+    if (tab !== "source") {
+      setTab("source");
+      requestAnimationFrame(() => requestAnimationFrame(() => scrollIntoViewTop(episodeHeaders.current.get(episode))));
+    } else scrollIntoViewTop(episodeHeaders.current.get(episode));
+  };
+  const menuActions: EpisodeMenuActions = {
+    busy: split.busy,
+    replanBlocked: view.replan !== null ? t("replan_pending_hint") : planning ? t("episode_planning_busy") : null,
+    onReplan: (episode) => void replan.requestReplan(episode),
+    onMergeWithNext: split.mergeWithNext,
+    onClearAfter: split.clearAfter,
+    onCreate: setCreateAfter,
+    onDelete: (episode) => void deletion.requestDelete(episode),
+  };
+
+  const layout = axes.layout;
+  // 目录与上下 tab 两种结构没有右栏可放工具，入口固定在页头
+  const toolsInHeader = layout !== "split" || axes.tools === "header";
+  const banner = axes.notices === "banner";
+
+  const manuscript = (
+    <main
+      className="min-h-0 flex-1 overflow-y-auto px-6 @min-[900px]/epv:px-10"
+      aria-label={t("episodes_view_source_label")}
+      onScroll={onManuscriptScroll}
+    >
+      <div className="mx-auto max-w-[40em]">
+        <ExternalChangeNotice projectName={projectName} changes={view.external_changes} onLocate={scrollToFile} />
+        {view.files.length === 0 ? (
+          <EmptySource hasEpisodes={episodes.length > 0} onUpload={openUpload} />
+        ) : (
+          <SourceManuscript
             projectName={projectName}
-            changes={view.external_changes}
-            onLocate={scrollToFile}
+            view={view}
+            episodes={episodes}
+            selected={selected}
+            onSelect={setSelected}
+            registerEpisodeHeader={registerEpisodeHeader}
+            registerFileBar={registerFileBar}
+            caret={caret}
+            moving={split.moving}
+            onPlace={split.place}
+            onToggleMoving={split.toggleMoving}
+            compare={compare}
           />
-          {view.files.length === 0 ? (
-            <EmptySource hasEpisodes={episodes.length > 0} onUpload={openUpload} />
-          ) : (
-            <SourceManuscript
-              projectName={projectName}
-              view={view}
-              episodes={episodes}
-              selected={selected}
-              onSelect={setSelected}
-              registerEpisodeHeader={registerEpisodeHeader}
-              registerFileBar={registerFileBar}
-              caret={caret}
-              moving={split.moving}
-              onPlace={split.place}
-              onToggleMoving={split.toggleMoving}
-              compare={compare}
-            />
-          )}
-        </div>
-      </main>
+        )}
+      </div>
+    </main>
+  );
+
+  const replanAside =
+    view.replan !== null ? (
       <aside
-        className="min-h-0 shrink-0 overflow-y-auto border-hairline max-lg:max-h-[45%] max-lg:border-t lg:w-[360px] lg:border-l"
-        style={{ background: "oklch(0.18 0.01 265 / 0.5)" }}
-        aria-label={t("episodes_view_rail_label")}
+        className="w-[clamp(320px,30cqw,400px)] min-h-0 shrink-0 space-y-4 overflow-y-auto border-l border-border bg-sidebar/40 px-4 py-4"
+        aria-label="新的分集方案"
       >
-        <EpisodesRail
+        <ReplanCandidatePanel
+          projectName={projectName}
+          view={view}
+          replan={view.replan}
+          episodes={episodes}
+          generating={planning}
+          onChanged={reload}
+        />
+      </aside>
+    ) : null;
+
+  let body: React.ReactNode;
+  if (layout === "outline") {
+    body = (
+      <>
+        <aside className="w-[clamp(240px,26cqw,300px)] min-h-0 shrink-0 overflow-y-auto border-r border-border" aria-label="集目录">
+          {!banner && view.unregistered.length > 0 ? (
+            <div className="px-3 pt-3">
+              <UnregisteredFilesPanel projectName={projectName} files={view.unregistered} episodes={episodes} onChanged={reload} />
+            </div>
+          ) : null}
+          <EpisodeOutline
+            projectName={projectName}
+            view={view}
+            episodes={episodes}
+            current={current ?? selected}
+            onLocate={locate}
+            onScrollToFile={scrollToFile}
+            actions={menuActions}
+          />
+        </aside>
+        {manuscript}
+        {replanAside}
+      </>
+    );
+  } else if (layout === "tabs") {
+    body =
+      tab === "list" ? (
+        <div className="flex min-h-0 flex-1 flex-col pt-2">
+          <EpisodesTable view={view} episodes={episodes} onLocate={locate} actions={menuActions} />
+        </div>
+      ) : (
+        <>
+          {manuscript}
+          {replanAside}
+        </>
+      );
+  } else {
+    body = (
+      <>
+        {manuscript}
+        <aside
+          className="w-[clamp(300px,28cqw,380px)] min-h-0 shrink-0 overflow-y-auto border-l border-border"
+          style={{ background: "oklch(0.18 0.01 265 / 0.5)" }}
+          aria-label={t("episodes_view_rail_label")}
+        >
+          <EpisodesRail
+            projectName={projectName}
+            view={view}
+            episodes={episodes}
+            selected={selected}
+            onSelect={selectFromRail}
+            onScrollToFile={scrollToFile}
+            onUpload={openUpload}
+            onChanged={reload}
+            splitBusy={split.busy}
+            onMergeWithNext={split.mergeWithNext}
+            onClearAfter={split.clearAfter}
+            onCreate={setCreateAfter}
+            onDelete={(episode) => void deletion.requestDelete(episode)}
+            onReplan={(episode) => void replan.requestReplan(episode)}
+            compact={axes.list === "compact"}
+            toolsInHeader={toolsInHeader}
+            hideUnregistered={banner}
+          />
+        </aside>
+      </>
+    );
+  }
+
+  return (
+    <div className="@container/epv flex h-full flex-col">
+      {toolsInHeader ? (
+        <EpisodesHeaderBar
           projectName={projectName}
           view={view}
           episodes={episodes}
-          selected={selected}
-          onSelect={selectFromRail}
-          onScrollToFile={scrollToFile}
-          onUpload={openUpload}
-          onChanged={reload}
-          splitBusy={split.busy}
-          onMergeWithNext={split.mergeWithNext}
-          onClearAfter={split.clearAfter}
-          onCreate={setCreateAfter}
-          onDelete={(episode) => void deletion.requestDelete(episode)}
-          onReplan={(episode) => void replan.requestReplan(episode)}
-        />
-      </aside>
+          onUpload={setUpload}
+          onCreate={() => setCreateAfter(null)}
+        >
+          {layout === "tabs" ? (
+            <div role="tablist" aria-label="分集视图" className="ml-2 flex shrink-0 items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
+              {(
+                [
+                  ["source", "原文"],
+                  ["list", "分集清单"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === key}
+                  onClick={() => setTab(key)}
+                  className={`focus-ring rounded-md px-3 py-1 text-[12.5px] font-medium transition-colors ${
+                    tab === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </EpisodesHeaderBar>
+      ) : null}
+      {banner ? <UnregisteredBanner projectName={projectName} view={view} episodes={episodes} onChanged={reload} /> : null}
+      <div className="flex min-h-0 flex-1">{body}</div>
       {upload !== null ? (
         <SourceUploadDialog projectName={projectName} initialMode={upload} onClose={() => setUpload(null)} />
       ) : null}

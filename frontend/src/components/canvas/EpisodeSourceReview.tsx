@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Anchor, ChevronDown, Loader2, PencilLine } from "lucide-react";
 import { API } from "@/api";
@@ -16,6 +16,11 @@ import type { EpisodeMeta } from "@/types";
 import type { SourceKind } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
+import { ScriptPlanButton as ProtoScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
+import { CompactEpisodeHead } from "@/prototype/episode/CompactEpisodeHead";
+import { SlotPortal, useCanvasTabBridge } from "@/prototype/episode/slots";
+import { useSourcesProto } from "@/prototype/sources/store";
+import { GuideBlock, InlineScriptPlanStart, SourceReading } from "@/prototype/sources/ReviewProto";
 
 /**
  * 已选集但既没有脚本规划也没有正式脚本时的画布视图：呈现本集原文与分集元信息（边界、节拍、
@@ -406,6 +411,22 @@ export function EpisodeSourceReview({
     [projectName, episode, t],
   );
 
+  // PROTOTYPE（#2982）
+  const { axes: protoAxes } = useSourcesProto();
+  const [reviewTab, setReviewTab] = useState<"source" | "plan">("source");
+  useCanvasTabBridge(
+    protoAxes.review === "sourceTab" ? reviewTab : "plan",
+    {
+      hasPlan: protoAxes.review !== "standalone",
+      boardEnabled: false,
+      boardLabel: "分镜",
+      hasSource: protoAxes.review === "sourceTab",
+    },
+    (tab) => {
+      if (tab === "source" || tab === "plan") setReviewTab(tab);
+    },
+  );
+
   const handleSaveTitle = useCallback(
     async (title: string) => {
       try {
@@ -419,6 +440,185 @@ export function EpisodeSourceReview({
     },
     [projectName, episode, t],
   );
+
+  const confirmDialog = (
+    <ConfirmDialog
+      open={pendingSave !== null}
+      title={t("source_kind_change_episode_title")}
+      description={
+        <>
+          <span className="block">{t("source_kind_change_episode_desc")}</span>
+          <ul className="mt-2 list-disc space-y-0.5 pl-5">
+            {(pendingSave?.episodes ?? []).map((affected) => (
+              <li key={affected}>
+                {t("source_kind_change_episode", {
+                  position: episodePosition(episodes, affected) ?? "?",
+                  name: episodeDisplayName(episodes, affected, t),
+                })}
+              </li>
+            ))}
+          </ul>
+        </>
+      }
+      confirmLabel={t("source_kind_change_episode_confirm")}
+      loading={saving}
+      onConfirm={() => {
+        if (pendingSave) void handleSave(pendingSave.draft, pendingSave.sourceKind, true);
+      }}
+      onCancel={() => setPendingSave(null)}
+    />
+  );
+
+  // PROTOTYPE（#2982）：原文审阅与「脚本规划」tab 的衔接方式由原型轴决定
+  if (protoAxes.review !== "standalone") {
+    const sourceBody = loading ? (
+      <p className="text-center text-[13px] text-muted-foreground">{t("episode_workspace_source_loading")}</p>
+    ) : editing ? (
+      <div className="h-[min(70dvh,640px)]">
+        <SourceEditor
+          key={fetchKey}
+          initialText={text ?? ""}
+          initialKind={isDrama ? (meta?.source_kind ?? "novel") : null}
+          saving={saving}
+          focusToken={focusToken}
+          onSave={(draft, sourceKind) => void handleSave(draft, sourceKind)}
+          onCancel={text ? () => setEditingKey(null) : null}
+        />
+      </div>
+    ) : text ? (
+      <SourceReading
+        toolbar={
+          editable ? (
+            <button
+              type="button"
+              onClick={() => setEditingKey(fetchKey)}
+              className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
+            >
+              <PencilLine className="h-3.5 w-3.5" aria-hidden />
+              {t("episode_workspace_source_edit")}
+            </button>
+          ) : (
+            <span className="text-[11.5px] text-muted-foreground">切自整本源文，改原文请到「分集」视图</span>
+          )
+        }
+      >
+        {text}
+      </SourceReading>
+    ) : (
+      <p className="text-center text-[13px] text-muted-foreground">{t("episode_workspace_source_missing")}</p>
+    );
+    const inline = protoAxes.planEntry === "inline";
+    const side = protoAxes.guide === "side";
+    const startArea = inline ? (
+      <InlineScriptPlanStart projectName={projectName} episode={episode} savedInstructions={meta?.script_plan_instructions ?? ""} />
+    ) : null;
+    const dialogActions = (
+      <>
+        <StartBlankScriptButton
+          projectName={projectName}
+          episode={episode}
+          discardsPlan={false}
+          className="focus-ring inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+        />
+        <ProtoScriptPlanButton
+          projectName={projectName}
+          episode={episode}
+          replaces="none"
+          className="focus-ring h-7 rounded-md bg-primary px-2.5 text-[12.5px] font-medium text-primary-foreground hover:bg-primary/85"
+        />
+      </>
+    );
+    const r = meta?.source_range;
+    const crossesFiles = r?.end_file != null && r.end_file !== r.source_file;
+    const chars = !crossesFiles && r?.start != null && r?.end != null ? r.end - r.start : (text ? [...text].length : null);
+    const position = episodePosition(episodes, episode);
+    const originLabel = origin === "whole_source" ? "切自整本源文" : origin === "own" ? "自带原文" : "无原文";
+    const head = (
+      <SlotPortal name="head">
+        <CompactEpisodeHead
+          chip={`EP · ${String(position ?? 0).padStart(2, "0")}`}
+          title={
+            <EditableEpisodeTitle
+              title={meta?.title ?? ""}
+              placeholder={episodeDisplayName(episodes, episode, t)}
+              canEdit={meta !== undefined}
+              onSave={handleSaveTitle}
+            />
+          }
+          meta={`${originLabel}${chars != null ? ` · ${chars.toLocaleString()} 字` : ""}`}
+          progress="脚本未生成"
+          episode={episode}
+        />
+      </SlotPortal>
+    );
+    // 原文 tab 存在、起步区内嵌时，原文 tab 的动作是「去规划脚本」：切到脚本规划 tab
+    const actions =
+      protoAxes.review === "sourceTab" && inline ? (
+        reviewTab === "source" ? (
+          <button
+            type="button"
+            onClick={() => setReviewTab("plan")}
+            className="focus-ring inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[12.5px] font-medium text-primary-foreground hover:bg-primary/85"
+          >
+            规划脚本
+          </button>
+        ) : null
+      ) : inline ? null : (
+        dialogActions
+      );
+
+    const withGuide = (main: ReactNode, guideHere = true) => (
+      <div className="@container/rv h-full overflow-y-auto">
+        <div
+          className={`mx-auto grid gap-x-10 gap-y-5 px-8 pb-24 pt-6 ${
+            side && guideHere ? "max-w-[1120px] @min-[860px]/rv:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]" : "max-w-[760px]"
+          }`}
+        >
+          <div className="min-w-0 space-y-5">
+            <ScriptPlanProgress projectName={projectName} episode={episode} />
+            {guideHere && !side ? <GuideBlock key={episode} meta={meta} side={false} /> : null}
+            {main}
+          </div>
+          {guideHere && side ? (
+            <aside className="self-start @min-[860px]/rv:sticky @min-[860px]/rv:top-6">
+              <GuideBlock key={episode} meta={meta} side />
+            </aside>
+          ) : null}
+        </div>
+      </div>
+    );
+
+    let content: ReactNode;
+    if (protoAxes.review === "planTab") {
+      content = withGuide(
+        <>
+          {startArea}
+          {startArea ? <h3 className="pt-2 text-[12.5px] font-medium text-muted-foreground">本集原文</h3> : null}
+          {sourceBody}
+        </>,
+      );
+    } else if (reviewTab === "source") {
+      content = withGuide(sourceBody);
+    } else {
+      content = withGuide(
+        startArea ?? (
+          <section className="rounded-xl border border-dashed border-border px-6 py-10 text-center">
+            <h2 className="text-[14px] font-semibold text-foreground">这一集还没有脚本</h2>
+            <p className="mt-1 text-[12.5px] text-muted-foreground">{t("script_plan_desc")}</p>
+            <div className="mt-4 flex justify-center gap-2">{dialogActions}</div>
+          </section>
+        ),
+      );
+    }
+    return (
+      <>
+        {head}
+        {actions ? <SlotPortal name="actions">{actions}</SlotPortal> : null}
+        {content}
+        {confirmDialog}
+      </>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col p-6">
@@ -501,31 +701,7 @@ export function EpisodeSourceReview({
           </div>
         </div>
       </div>
-      <ConfirmDialog
-        open={pendingSave !== null}
-        title={t("source_kind_change_episode_title")}
-        description={
-          <>
-            <span className="block">{t("source_kind_change_episode_desc")}</span>
-            <ul className="mt-2 list-disc space-y-0.5 pl-5">
-              {(pendingSave?.episodes ?? []).map((affected) => (
-                <li key={affected}>
-                  {t("source_kind_change_episode", {
-                    position: episodePosition(episodes, affected) ?? "?",
-                    name: episodeDisplayName(episodes, affected, t),
-                  })}
-                </li>
-              ))}
-            </ul>
-          </>
-        }
-        confirmLabel={t("source_kind_change_episode_confirm")}
-        loading={saving}
-        onConfirm={() => {
-          if (pendingSave) void handleSave(pendingSave.draft, pendingSave.sourceKind, true);
-        }}
-        onCancel={() => setPendingSave(null)}
-      />
+      {confirmDialog}
     </div>
   );
 }

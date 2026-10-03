@@ -34,7 +34,7 @@ export function SlotPortal({ name, children }: { name: SlotName; children: React
 
 // ---- 画布 tab 桥接 ----
 
-export type CanvasTab = "plan" | "board";
+export type CanvasTab = "source" | "plan" | "board";
 
 interface TabState {
   current: CanvasTab | null;
@@ -43,6 +43,8 @@ interface TabState {
   /** 「分镜」tab 是否可用（没有正式脚本时不可用） */
   boardEnabled: boolean;
   boardLabel: string;
+  /** PROTOTYPE（#2982）：有没有「原文」tab。 */
+  hasSource?: boolean;
   request: { tab: CanvasTab; id: number } | null;
 }
 
@@ -71,13 +73,13 @@ export function requestCanvasTab(tab: CanvasTab) {
 /** 画布调用：发布自己的 tab 状态，并响应页头的切换请求。 */
 export function useCanvasTabBridge(
   current: CanvasTab,
-  info: { hasPlan: boolean; boardEnabled: boolean; boardLabel: string },
+  info: { hasPlan: boolean; boardEnabled: boolean; boardLabel: string; hasSource?: boolean },
   onRequest: (tab: CanvasTab) => void,
 ) {
-  const { hasPlan, boardEnabled, boardLabel } = info;
+  const { hasPlan, boardEnabled, boardLabel, hasSource = false } = info;
   useEffect(() => {
-    setTabState({ current, hasPlan, boardEnabled, boardLabel });
-  }, [current, hasPlan, boardEnabled, boardLabel]);
+    setTabState({ current, hasPlan, boardEnabled, boardLabel, hasSource });
+  }, [current, hasPlan, boardEnabled, boardLabel, hasSource]);
   useEffect(() => () => setTabState({ current: null }), []);
   const request = useCanvasTabState().request;
   useEffect(() => {
