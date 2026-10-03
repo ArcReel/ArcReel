@@ -135,7 +135,7 @@ export function ProtoQuestionnaire({
           className="min-w-0 text-[11px]"
           render={(props, state) => (
             <div {...props}>
-              第 {state.current + 1} / {state.total} 题
+              第 {state.current} / {state.total} 题
             </div>
           )}
         />

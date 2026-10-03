@@ -80,7 +80,7 @@ export type AxisState = { [K in AxisKey]: AxisValue<K> };
 
 export const AXIS_KEYS = Object.keys(AXES) as AxisKey[];
 
-export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }> = {
+export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisState }> = {
   A: {
     name: "现状",
     axes: {
@@ -118,6 +118,20 @@ export const PRESETS: Record<"A" | "B" | "C", { name: string; axes: AxisState }>
       thinking: "label",
       todo: "inline",
       question: "inline",
+      session: "history",
+      composer: "inside",
+      failure: "compact",
+    },
+  },
+  D: {
+    name: "维护者选定",
+    axes: {
+      scroll: "follow",
+      layout: "chat",
+      work: "rows",
+      thinking: "label",
+      todo: "dockCompact",
+      question: "composer",
       session: "history",
       composer: "inside",
       failure: "compact",
