@@ -123,7 +123,9 @@ describe("AgentConfigTab", () => {
     useConfigStatusStore.setState({ initialized: true, isEmbeddedAgentConfigured: false });
     renderSection();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("ArcReel Agent 尚未配置");
+    expect(await screen.findByRole("note", { name: "ArcReel Agent 尚未配置" })).toHaveTextContent(
+      "还没有生效的 Agent 供应商",
+    );
     expect(screen.getByText(/还没有 Agent 供应商/)).toBeInTheDocument();
   });
 
@@ -135,7 +137,7 @@ describe("AgentConfigTab", () => {
     renderSection();
 
     const item = await screen.findByRole("listitem", { name: "Anthropic 主号" });
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("note", { name: "ArcReel Agent 尚未配置" })).not.toBeInTheDocument();
     const terms = within(item).getAllByRole("term").map((el) => el.textContent);
     const values = within(item).getAllByRole("definition").map((el) => el.textContent);
     expect(Object.fromEntries(terms.map((term, i) => [term, values[i]]))).toEqual({

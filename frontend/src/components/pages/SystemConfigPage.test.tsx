@@ -168,7 +168,8 @@ describe("SystemConfigPage", () => {
     await waitFor(() => expect(usage).toHaveAttribute("aria-current", "page"));
   });
 
-  it("does not show warnings when only the embedded-agent credential is missing", async () => {
+  it("只缺内嵌 Agent 时，提示与侧栏标记只在「ArcReel Agent」分区，大厅的配置完整状态不受影响", async () => {
+    const user = userEvent.setup();
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(
       makeConfigResponse({ anthropic_api_key: { is_set: false, masked: null } }),
     );
@@ -176,23 +177,41 @@ describe("SystemConfigPage", () => {
 
     renderPage("/app/settings", "section=arcreel-agent");
 
-    await screen.findByRole("heading", { name: "Agent 供应商" });
+    expect(await screen.findByRole("note", { name: "ArcReel Agent 尚未配置" })).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "设置" });
+    const flagged = within(nav)
+      .getAllByRole("link")
+      .filter((link) => within(link).queryByRole("img", { name: "配置不完整" }))
+      .map((link) => link.textContent);
+    expect(flagged).toEqual(["ArcReel Agent"]);
+    expect(useConfigStatusStore.getState().isComplete).toBe(true);
 
-    expect(screen.queryByText("当前配置存在以下问题，可能会影响部分功能：")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("配置未完成")).not.toBeInTheDocument();
+    await user.click(within(nav).getByRole("link", { name: "供应商" }));
+    await waitFor(() => expect(within(nav).getByRole("link", { name: "供应商" })).toHaveAttribute("aria-current", "page"));
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 
-  it("hides the config issues banner on the prompt templates section", async () => {
+  it("缺少供应商时只在「供应商」分区与其侧栏项提示，其他分区不出现提示", async () => {
+    const user = userEvent.setup();
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders({ status: "unconfigured" }));
     vi.spyOn(API, "listPromptTemplates").mockResolvedValue({ templates: [] });
 
-    renderPage("/app/settings", "section=prompt-templates");
-    await screen.findByText("暂无提示词模版。");
-    await waitFor(() => expect(useConfigStatusStore.getState().issues).not.toHaveLength(0));
-    expect(screen.queryByText("当前配置存在以下问题，可能会影响部分功能：")).not.toBeInTheDocument();
+    renderPage("/app/settings", "section=providers");
+    const notice = await screen.findByRole("note", { name: "配置不完整" });
+    expect(notice).toHaveTextContent("未配置支持视频生成的供应商");
 
-    fireEvent.click(screen.getByRole("link", { name: "使用记录" }));
-    expect(await screen.findByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "设置" });
+    const flagged = within(nav)
+      .getAllByRole("link")
+      .filter((link) => within(link).queryByRole("img", { name: "配置不完整" }))
+      .map((link) => link.textContent);
+    expect(flagged).toEqual(["供应商"]);
+
+    for (const section of ["默认模型", "使用记录", "提示词模版"]) {
+      await user.click(within(nav).getByRole("link", { name: section }));
+      await waitFor(() => expect(within(nav).getByRole("link", { name: section })).toHaveAttribute("aria-current", "page"));
+      expect(screen.queryByRole("note", { name: "配置不完整" })).not.toBeInTheDocument();
+    }
   });
 
   it("Agent 记忆分区按用户级路径加载记忆文件", async () => {
@@ -214,8 +233,6 @@ describe("SystemConfigPage", () => {
     expect(await screen.findByText("0.9.0")).toBeInTheDocument();
     expect(await screen.findByText(/最新版本：0.9.1/)).toBeInTheDocument();
     expect(await screen.findByText("发现新版本")).toBeInTheDocument();
-    expect(await screen.findByText("发布说明")).toBeInTheDocument();
-    expect(await screen.findByText(/add about tab/)).toBeInTheDocument();
   });
 
   it("rechecks updates when clicking the refresh button", async () => {

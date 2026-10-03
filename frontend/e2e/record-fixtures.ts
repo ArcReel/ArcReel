@@ -86,6 +86,15 @@ const RECORDINGS: Recording[] = [
     path: "/api/v1/usage/records?limit=20&since=2025-12-02T16:00:00.000Z&status=success,failed,cancelled",
   },
   { file: "usage-records-pending", method: "GET", path: "/api/v1/usage/records?limit=20&status=pending" },
+  // 全局设置：关于（版本信息访问外网，由场景替换）、提示词模版列表与详情。
+  { file: "official-service", method: "GET", path: "/api/v1/official-service" },
+  { file: "prompt-templates", method: "GET", path: "/api/v1/prompt-templates" },
+  { file: "prompt-template-episode-plan", method: "GET", path: "/api/v1/prompt-templates/text/episode_plan" },
+  {
+    file: "prompt-partial-additional-instructions",
+    method: "GET",
+    path: "/api/v1/prompt-templates/partials/shared/additional_instructions",
+  },
 ];
 
 // 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。

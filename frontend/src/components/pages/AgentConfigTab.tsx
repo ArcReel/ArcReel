@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ChevronRight, Loader2, RotateCw } from "lucide-react";
+import { ChevronRight, Loader2, RotateCw } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link } from "wouter";
 
@@ -9,13 +9,14 @@ import { CredentialsSection } from "@/components/agent/CredentialsSection";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
-import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useConfigStatusStore, useSectionConfigIssues } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
+
+import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
 
 /** Agent 会话启动时拼进系统提示的语言规范模版，正文在「提示词模版」中查看。 */
 const AGENT_LANGUAGE_RULE_ID = "text/agent_language_rule";
@@ -54,6 +55,7 @@ function buildPatch(fields: AgentRuntimeFields, saved: AgentRuntimeFields): Syst
  */
 export function AgentConfigTab() {
   const { t } = useTranslation("dashboard");
+  const issues = useSectionConfigIssues("arcreel-agent");
 
   return (
     <section aria-labelledby="arcreel-agent-title" className="flex flex-col gap-8">
@@ -72,7 +74,7 @@ export function AgentConfigTab() {
           />
         </p>
       </header>
-      <EmbeddedAgentNotice />
+      <ConfigIssueNotice issues={issues} />
       <CredentialsSection />
       <RuntimeSettings />
       <p className="text-sm text-muted-foreground">
@@ -90,21 +92,6 @@ export function AgentConfigTab() {
         />
       </p>
     </section>
-  );
-}
-
-/** 「内嵌 Agent 未配置」的就地提示：没有生效的 Agent 供应商时，工作台里的 Agent 无法对话。 */
-function EmbeddedAgentNotice() {
-  const { t } = useTranslation("dashboard");
-  const initialized = useConfigStatusStore((s) => s.initialized);
-  const configured = useConfigStatusStore((s) => s.isEmbeddedAgentConfigured);
-  if (!initialized || configured) return null;
-  return (
-    <Alert>
-      <AlertTriangle aria-hidden />
-      <AlertTitle>{t("embedded_agent_not_configured")}</AlertTitle>
-      <AlertDescription>{t("embedded_agent_not_configured_desc")}</AlertDescription>
-    </Alert>
   );
 }
 

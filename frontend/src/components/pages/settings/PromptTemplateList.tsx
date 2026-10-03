@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PromptTemplateMeta, PromptTemplateTrigger } from "@/types";
 import { errMsg } from "@/utils/async";
-import { categoryLabel, ErrorCard, LoadingCard, type Load } from "./promptTemplateShared";
+import { categoryLabel, EmptyCard, ErrorCard, LoadingCard, type Load } from "./promptTemplateShared";
 
 /** 按流水线顺序排列；接口返回的其他类别按首次出现顺序排在最后。 */
 const CATEGORY_ORDER = ["text", "asset", "storyboard", "video", "style"];
@@ -124,17 +126,10 @@ export function PromptTemplateList({ onSelect }: { onSelect: (id: string) => voi
   };
 
   return (
-    <section className="space-y-6">
-      <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-          Prompt Templates
-        </div>
-        <h2 className="font-editorial mt-1 text-[24px] leading-tight text-foreground">
-          {t("prompt_templates")}
-        </h2>
-        <p className="mt-1.5 max-w-[62ch] text-[12.5px] leading-[1.6] text-muted-foreground">
-          {t("prompt_templates_desc")}
-        </p>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-1">
+        <h2 className="text-lg font-medium">{t("prompt_templates")}</h2>
+        <p className="max-w-prose text-sm text-muted-foreground">{t("prompt_templates_desc")}</p>
       </header>
 
       {state.status === "loading" && <LoadingCard label={t("prompt_templates_loading")} />}
@@ -167,7 +162,7 @@ export function PromptTemplateList({ onSelect }: { onSelect: (id: string) => voi
           onSelect={onSelect}
         />
       ))}
-    </section>
+    </div>
   );
 }
 
@@ -182,10 +177,7 @@ function AxisFilterBar({
 }) {
   const { t } = useTranslation("dashboard");
   return (
-    <div
-      className="space-y-2 rounded-lg border border-border px-4 py-3"
-      style={CARD_STYLE}
-    >
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3">
       {axisValues.map(([axis, values]) => {
         const axisLabel = t(`prompt_templates_axis_${axis}`);
         const options: [string | undefined, string][] = [
@@ -196,30 +188,22 @@ function AxisFilterBar({
           }),
         ];
         return (
-          <div
-            key={axis}
-            role="group"
-            aria-label={axisLabel}
-            className="flex flex-wrap items-center gap-x-3 gap-y-1.5"
-          >
-            <span className="w-24 shrink-0 text-[12px] text-muted-foreground">{axisLabel}</span>
+          <div key={axis} role="group" aria-label={axisLabel} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="w-24 shrink-0 text-xs text-muted-foreground">{axisLabel}</span>
             <div className="flex flex-wrap items-center gap-1">
               {options.map(([value, label]) => {
                 const active = filter[axis] === value;
                 return (
-                  <button
+                  <Button
                     key={value ?? ""}
-                    type="button"
+                    variant={active ? "secondary" : "ghost"}
+                    size="xs"
                     aria-pressed={active}
                     title={value}
                     onClick={() => onChange(axis, value)}
-                    className={
-                      "focus-ring rounded-full px-2.5 py-0.5 text-[12px] transition-colors " +
-                      (active ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground")
-                    }
                   >
                     {label}
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -242,124 +226,88 @@ function CategoryGroup({
   onSelect: (id: string) => void;
 }) {
   const { t } = useTranslation("dashboard");
-  const [expanded, setExpanded] = useState(!compact);
   const headingId = `prompt-template-category-${category}`;
-  const listId = `prompt-template-list-${category}`;
   const label = categoryLabel(t, category);
+  const count = <span className="text-xs text-muted-foreground">{t("prompt_templates_count", { count: items.length })}</span>;
 
-  return (
-    <section aria-labelledby={headingId}>
-      <div className="mb-2.5 flex items-baseline justify-between gap-3">
-        <h3 id={headingId} className="text-[14.5px] font-medium text-foreground">
-          {compact ? (
-            <button
-              type="button"
-              aria-expanded={expanded}
-              aria-controls={listId}
-              onClick={() => setExpanded((open) => !open)}
-              className="group inline-flex items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
+  // 画风等长尾类别默认收起为两列紧凑表；其余类别平铺带说明的行。
+  if (compact) {
+    return (
+      <Collapsible render={<section aria-labelledby={headingId} />}>
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 id={headingId} className="text-sm font-medium">
+            <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="-ml-2.5" />}>
               <ChevronRight
                 aria-hidden
-                className={`h-3.5 w-3.5 text-muted-foreground motion-safe:transition-transform group-hover:text-subtle-foreground ${expanded ? "rotate-90" : ""}`}
+                className="text-muted-foreground motion-safe:transition-transform group-aria-expanded/button:rotate-90"
               />
               {label}
-            </button>
-          ) : (
-            label
-          )}
-        </h3>
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-          {t("prompt_templates_count", { count: items.length })}
-        </span>
-      </div>
-      {compact ? (
-        expanded && (
-          <ul
-            id={listId}
-            className="grid grid-cols-2 overflow-hidden rounded-lg border border-border py-1"
-            style={CARD_STYLE}
-          >
+            </CollapsibleTrigger>
+          </h3>
+          {count}
+        </div>
+        <CollapsibleContent className="mt-2.5">
+          <ul className="@container grid grid-cols-1 overflow-hidden rounded-lg border border-border bg-card py-1 @md:grid-cols-2">
             {items.map((template) => (
-              <li key={template.id}>
+              <li key={template.id} className="min-w-0">
                 <button
                   type="button"
                   onClick={() => onSelect(template.id)}
                   title={template.id}
-                  className="group flex w-full items-center gap-2 px-3.5 py-2 text-left transition-colors hover:bg-card/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  className={`${ROW_CLS} gap-2 px-3.5 py-2`}
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12.5px] text-subtle-foreground group-hover:text-foreground">
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-sm text-subtle-foreground group-hover:text-foreground">
                       {template.title}
                     </span>
-                    <span className="mt-1 block truncate text-[10.5px] text-muted-foreground">
+                    <span className="truncate text-xs text-muted-foreground">
                       {stageLabel(t, template.stage)} · {triggerLabel(t, template.invoked_by)}
                     </span>
                   </span>
-                  <ChevronRight
-                    aria-hidden
-                    className="h-3 w-3 shrink-0 text-muted-foreground transition-colors group-hover:text-subtle-foreground"
-                  />
+                  <ChevronRight aria-hidden className={CHEVRON_CLS} />
                 </button>
               </li>
             ))}
           </ul>
-        )
-      ) : (
-        <ul
-          className="divide-y divide-border/50 overflow-hidden rounded-lg border border-border"
-          style={CARD_STYLE}
-        >
-          {items.map((template) => (
-            <li key={template.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(template.id)}
-                className="group flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-card/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium text-foreground">{template.title}</span>
-                  <span className="mt-0.5 block text-[12px] leading-[1.55] text-muted-foreground">
-                    {template.description}
-                  </span>
-                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] leading-none">
-                    <span
-                      title={template.stage}
-                      className="rounded-full bg-primary/12 px-2 py-1 text-primary"
-                    >
-                      {stageLabel(t, template.stage)}
-                    </span>
-                    <span
-                      title={`${template.invoked_by.kind}:${template.invoked_by.name}`}
-                      className="rounded-full border border-border px-2 py-1 text-muted-foreground"
-                    >
-                      {triggerLabel(t, template.invoked_by)}
-                    </span>
-                  </span>
+        </CollapsibleContent>
+      </Collapsible>
+    );
+  }
+
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 id={headingId} className="text-sm font-medium">
+          {label}
+        </h3>
+        {count}
+      </div>
+      <ul className="@container divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+        {items.map((template) => (
+          <li key={template.id}>
+            <button type="button" onClick={() => onSelect(template.id)} className={`${ROW_CLS} gap-4 px-4 py-3`}>
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="text-sm font-medium">{template.title}</span>
+                <span className="text-sm text-muted-foreground">{template.description}</span>
+                <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                  <Badge variant="secondary" title={template.stage}>
+                    {stageLabel(t, template.stage)}
+                  </Badge>
+                  <Badge variant="outline" title={`${template.invoked_by.kind}:${template.invoked_by.name}`}>
+                    {triggerLabel(t, template.invoked_by)}
+                  </Badge>
                 </span>
-                <span className="hidden shrink-0 font-mono text-[10.5px] text-muted-foreground sm:block">
-                  {template.id}
-                </span>
-                <ChevronRight
-                  aria-hidden
-                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-subtle-foreground"
-                />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+              </span>
+              <span className="hidden shrink-0 font-mono text-xs text-muted-foreground @lg:block">{template.id}</span>
+              <ChevronRight aria-hidden className={CHEVRON_CLS} />
+            </button>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
 
-function EmptyCard({ children }: { children: ReactNode }) {
-  return (
-    <div
-      className="rounded-lg border border-border px-5 py-6 text-[12.5px] text-muted-foreground"
-      style={CARD_STYLE}
-    >
-      {children}
-    </div>
-  );
-}
+const ROW_CLS =
+  "group flex w-full items-center text-left transition-colors hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-inset";
+const CHEVRON_CLS = "size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-subtle-foreground";

@@ -1,0 +1,24 @@
+{
+  "method": "GET",
+  "path": "/api/v1/prompt-templates/partials/shared/additional_instructions",
+  "status": 200,
+  "body": {
+    "name": "shared/additional_instructions",
+    "source": "# 附加指令\n{{ instructions }}",
+    "protected": true,
+    "referenced_by": [
+      "text/ad_reference_video_prompt_authoring",
+      "text/ad_reference_video_script",
+      "text/ad_storyboard_prompt_authoring",
+      "text/ad_storyboard_script",
+      "text/draft_repair",
+      "text/drama_prompt_authoring",
+      "text/drama_script_plan",
+      "text/episode_plan",
+      "text/narration_prompt_authoring",
+      "text/narration_script_plan",
+      "text/reference_video_prompt_authoring",
+      "text/reference_video_script_plan"
+    ]
+  }
+}

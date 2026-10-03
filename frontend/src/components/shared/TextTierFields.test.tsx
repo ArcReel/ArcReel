@@ -104,6 +104,7 @@ describe("TextTierFields", () => {
     );
     await expandTiers(user);
     await user.click(screen.getByRole("combobox", { name: "简单任务" }));
+    await screen.findByRole("listbox");
     await user.click(screen.getByRole("option", { name: /g25/ }));
     expect(onChange).toHaveBeenCalledWith({ default: "", simple: "gemini/g25", complex: "" });
   });

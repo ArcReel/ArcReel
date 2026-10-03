@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ResolutionPicker } from "./ResolutionPicker";
 
 describe("ResolutionPicker", () => {
-  it("select mode renders options + default and maps empty to null", () => {
+  it("select mode renders options + default and maps empty to null", async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
     render(
       <ResolutionPicker
@@ -15,11 +17,12 @@ describe("ResolutionPicker", () => {
       />
     );
     const select = screen.getByRole("combobox");
-    expect(select).toBeInTheDocument();
-    expect(screen.getByText("默认（不传）")).toBeInTheDocument();
-    fireEvent.change(select, { target: { value: "720p" } });
+    expect(select).toHaveTextContent("默认（不传）");
+    await user.click(select);
+    await user.click(await screen.findByRole("option", { name: "720p" }));
     expect(onChange).toHaveBeenCalledWith("720p");
-    fireEvent.change(select, { target: { value: "" } });
+    await user.click(select);
+    await user.click(await screen.findByRole("option", { name: "默认（不传）" }));
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
 

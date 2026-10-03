@@ -56,8 +56,16 @@ shadcn 文档与社区示例多数基于 Radix，Base UI 版本有几处差异�
 - `DropdownMenuLabel` 必须放在 `DropdownMenuGroup` 内，否则运行时整页崩溃。本仓库的包装层已不导出 `DropdownMenuLabel`，分组标题通过 `DropdownMenuGroup` 的 `label` 属性传入。
 - `modal` 模式的 Popover，其 Popup 内必须有 Close。
 - Portal 会多渲染一层 `<div>`，依赖 DOM 层级的选择器和样式要随之调整。
+- Combobox、Select 的弹层在点击后异步打开，测试点击触发器后用 `findByRole("listbox")` 或 `findByRole("option")` 等待。Combobox 的搜索框放在弹层内，触发按钮本身带 `role="combobox"`。
+- Checkbox、Radio 渲染为带角色的 `span`，禁用态体现为 `aria-disabled="true"`，`toBeDisabled()` 断言不成立。
+- Collapsible 收起时卸载面板内容，测试先点开触发按钮，再查询面板里的元素，展开状态看触发按钮的 `aria-expanded`。
+- Slider 的滑块在 jsdom 中不可见，按角色查不到；需要角色测试的单值滑杆保留原生 `<input type="range">`。
 
 这些约束在包装层或调用处遵守。上表之外的组件第一次使用时，在浏览器里实测键盘、焦点和关闭行为后再推广。
+
+### 原语只接受布局类名，折叠触发器经 `render` 渲染为 `Button`
+
+`@shadcn/lint` 的 `no-restyle` 只放行布局类名：间距、边框、配色写在原语外的一层普通元素上，原语自身只用 margin 与它隔开。Collapsible 自身没有样式，触发器写成 `<CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>`，展开图标用 `group-aria-expanded/button:rotate-90` 旋转。
 
 ### 原语出现缺陷或 major 升级时，用 `add --diff` 对照上游后手动合并
 
@@ -202,6 +210,10 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 - `providerSettingsPath(target)`：`{ preset: id }` 选中预置供应商（`provider=`）；`{ custom: id, model? }` 选中自定义供应商，带 `model` 时定位到这个模型（`custom=`、`model=`）；`{ newCustom: { endpoint?, baseUrl? } }` 打开预填的新建表单（`custom=new`、`endpoint=`、`base_url=`）。
 - `endpointSettingsPath(endpointKey, { fromCustomProvider? })`：选中端点（`endpoint=`）。从自定义供应商跳来时传 `fromCustomProvider`，写成 `from=<供应商 id>`；端点页据此在顶部显示「返回『供应商名』」，返回地址是 `providerSettingsPath({ custom: from })`。
+
+### 配置问题提示在问题所属分区，不做全局横幅
+
+`config-status-store` 的每条问题带所属分区，`useSectionConfigIssues(section)` 取某个分区要提示的问题。全局设置的侧栏只在该分区的条目上显示警告标记，提示用 `settings/ConfigIssueNotice`：全出血分区由设置页放在分区顶部，限宽分区放在自己的页头说明之后。其他分区里与问题相关的空状态，用 `settingsSectionPath` 链接到所属分区，不重复列出问题。「内嵌 Agent 未配置」只在「ArcReel Agent」分区提示，不计入 `isComplete`，大厅与顶栏的红点不因它亮起。
 
 ## 横向溢出与截断
 

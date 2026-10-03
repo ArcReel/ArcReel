@@ -2,11 +2,18 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { SectionShell } from "@/components/shared/SectionShell";
-import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
+import { Button } from "@/components/ui/button";
 import type { PromptTemplateMeta, PromptTemplatePartial } from "@/types";
 import { errMsg } from "@/utils/async";
-import { categoryLabel, ErrorCard, LoadingCard, LockBadge, type Load } from "./promptTemplateShared";
+import {
+  categoryLabel,
+  DetailSection,
+  ErrorCard,
+  LoadingCard,
+  LockBadge,
+  SOURCE_BLOCK_CLS,
+  type Load,
+} from "./promptTemplateShared";
 
 type PartialDetail = {
   partial: PromptTemplatePartial;
@@ -60,11 +67,11 @@ export function PromptPartialDetailView({
   };
 
   return (
-    <section className="space-y-6">
-      <button type="button" onClick={onBack} className={GHOST_BTN_CLS}>
-        <ChevronLeft aria-hidden className="h-3.5 w-3.5" />
+    <div className="flex flex-col items-start gap-6">
+      <Button variant="ghost" size="sm" onClick={onBack}>
+        <ChevronLeft aria-hidden />
         {t(backTo === "template" ? "dashboard:prompt_templates_back_to_template" : "dashboard:prompt_templates_back")}
-      </button>
+      </Button>
 
       {state.status === "loading" && <LoadingCard label={t("dashboard:prompt_templates_loading")} />}
       {state.status === "error" && (
@@ -75,7 +82,7 @@ export function PromptPartialDetailView({
         />
       )}
       {state.status === "ready" && <PartialBody detail={state.data} onOpenTemplate={onOpenTemplate} />}
-    </section>
+    </div>
   );
 }
 
@@ -89,36 +96,28 @@ function PartialBody({
   const { t } = useTranslation("dashboard");
 
   return (
-    <>
-      <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-          {t("prompt_templates_partial")}
-        </div>
-        <div className="mt-1 flex flex-wrap items-center gap-2.5">
-          <h2 className="break-all font-mono text-[20px] leading-tight text-foreground">{partial.name}</h2>
+    <div className="flex w-full flex-col gap-6">
+      <header className="flex flex-col gap-1">
+        <p className="text-xs text-muted-foreground">{t("prompt_templates_partial")}</p>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h2 className="font-mono text-lg font-medium break-all">{partial.name}</h2>
           {partial.protected && <LockBadge />}
         </div>
-        <p className="mt-1.5 text-[12.5px] text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {t("prompt_templates_referenced_count", { count: partial.referenced_by.length })}
         </p>
       </header>
 
-      <SectionShell kicker="Partial Body" title={t("prompt_templates_partial_source")}>
+      <DetailSection title={t("prompt_templates_partial_source")}>
         {partial.source.trim() ? (
-          <div className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-sidebar/60 px-3.5 py-3 font-mono text-[12px] leading-[1.7] text-subtle-foreground">
-            {partial.source}
-          </div>
+          <div className={SOURCE_BLOCK_CLS}>{partial.source}</div>
         ) : (
-          <p className="text-[12.5px] italic text-muted-foreground">{t("prompt_templates_partial_blank")}</p>
+          <p className="text-sm text-muted-foreground italic">{t("prompt_templates_partial_blank")}</p>
         )}
-      </SectionShell>
+      </DetailSection>
 
-      <SectionShell
-        kicker="Used By"
-        title={t("prompt_templates_referenced_by")}
-        description={t("prompt_templates_referenced_by_desc")}
-      >
-        <ul className="divide-y divide-border/50">
+      <DetailSection title={t("prompt_templates_referenced_by")} description={t("prompt_templates_referenced_by_desc")}>
+        <ul className="-my-2 divide-y divide-border">
           {partial.referenced_by.map((id) => {
             const template = templates.get(id);
             return (
@@ -126,24 +125,22 @@ function PartialBody({
                 <button
                   type="button"
                   onClick={() => onOpenTemplate(id)}
-                  className="group flex w-full items-center gap-3 rounded-sm px-1 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="group flex w-full items-center gap-3 rounded-sm py-2.5 text-left focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] text-foreground group-hover:underline">
-                      {template?.title ?? id}
-                    </span>
-                    <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="text-sm group-hover:underline">{template?.title ?? id}</span>
+                    <span className="font-mono text-xs break-all text-muted-foreground">
                       {template ? `${categoryLabel(t, template.category)} · ${id}` : id}
                     </span>
                   </span>
                   {template?.protected && <LockBadge />}
-                  <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
                 </button>
               </li>
             );
           })}
         </ul>
-      </SectionShell>
-    </>
+      </DetailSection>
+    </div>
   );
 }

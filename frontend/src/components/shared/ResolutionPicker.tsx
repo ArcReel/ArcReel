@@ -1,5 +1,7 @@
 import { useId, useState } from "react";
-import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
+
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export interface ResolutionPickerProps {
   mode: "select" | "combobox";
@@ -24,21 +26,21 @@ export function ResolutionPicker({
   if (options.length === 0) return null;
 
   if (mode === "select") {
+    // null 项既是占位文案，也是列表里的「不传」选项，用户可以从弹层里清除已选档位。
+    const items = [{ value: null, label: placeholder }, ...options.map((o) => ({ value: o, label: o }))];
     return (
-      <select
-        aria-label={ariaLabel}
-        className={INPUT_CLS}
-        value={value ?? ""}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
-      >
-        <option value="">{placeholder}</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
+      <Select items={items} value={value} onValueChange={(next) => onChange(next)} disabled={disabled}>
+        <SelectTrigger aria-label={ariaLabel} className="min-w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {items.map((item) => (
+            <SelectItem key={item.value ?? ""} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     );
   }
 
@@ -55,6 +57,7 @@ interface ComboboxInputProps {
   disabled?: boolean;
 }
 
+/** 自定义供应商的分辨率可以自由填写，候选只作提示，所以用带 datalist 的输入框而不是下拉。 */
 function ComboboxInput({ ariaLabel, listId, options, value, onChange, placeholder, disabled }: ComboboxInputProps) {
   // 本地编辑态允许用户自由输入（含空格/清空）——外部 value 变化时通过 render-phase
   // 判断同步（React 官方推荐的"派生 state from props"模式，非 effect）。
@@ -67,10 +70,10 @@ function ComboboxInput({ ariaLabel, listId, options, value, onChange, placeholde
 
   return (
     <>
-      <input
+      <Input
         type="text"
         aria-label={ariaLabel}
-        className={INPUT_CLS}
+        className="w-40"
         value={local}
         disabled={disabled}
         placeholder={placeholder}

@@ -1,0 +1,11 @@
+{
+  "method": "GET",
+  "path": "/api/v1/official-service",
+  "status": 200,
+  "body": {
+    "available": true,
+    "enabled": true,
+    "notice_seen": false,
+    "instance_id": null
+  }
+}

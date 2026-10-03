@@ -1,5 +1,9 @@
-import { useEffect, useId, useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { InlineWarning } from "@/components/shared/InlineWarning";
 import {
   durationOutOfRangeReason,
@@ -27,7 +31,6 @@ import {
 import { TextTierFields } from "./TextTierFields";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import type { ProviderInfo, VoiceConsistencyTier } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import type { ModelCandidatesResponse } from "@/types/system";
@@ -124,24 +127,18 @@ export interface ModelConfigSectionProps {
   };
 }
 
-interface ChannelCardProps {
-  kicker: string;
-  title: string;
-  children: React.ReactNode;
+function ChannelCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+      <h3 className="text-sm font-medium">{title}</h3>
+      {children}
+    </section>
+  );
 }
 
-function ChannelCard({ kicker, title, children }: ChannelCardProps) {
-  return (
-    <div className="rounded-lg border border-border p-4" style={CARD_STYLE}>
-      <div className="mb-3">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-          {kicker}
-        </div>
-        <div className="mt-1 text-[13.5px] font-medium text-foreground">{title}</div>
-      </div>
-      {children}
-    </div>
-  );
+/** 通道内的字段小标题：本地化常规字，不用等宽大写。 */
+function FieldTitle({ children }: { children: React.ReactNode }) {
+  return <div className="text-xs font-medium text-muted-foreground">{children}</div>;
 }
 
 export function ModelConfigSection({
@@ -162,8 +159,6 @@ export function ModelConfigSection({
   enable,
 }: ModelConfigSectionProps) {
   const { t } = useTranslation(["templates", "dashboard"]);
-  // 派生唯一 radio name，避免同页多个 ModelConfigSection 实例的音频开关被浏览器并入同一互斥组
-  const generateAudioName = useId();
 
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const endpointConstraints = useEndpointCatalogStore((s) => s.endpointConstraints);
@@ -369,11 +364,9 @@ export function ModelConfigSection({
     const constraints = lookupEndpointConstraints(backend, customProviders, endpointConstraints);
     const sizeFixed = constraints?.sizeFixed ?? false;
     return (
-      <div className="mt-3 flex flex-col gap-1">
+      <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-            {label}
-          </span>
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
           <ResolutionPicker
             mode={res.isCustom ? "combobox" : "select"}
             options={res.options}
@@ -385,17 +378,17 @@ export function ModelConfigSection({
           />
         </div>
         {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
-        {sizeFixed && <p className="text-[11px] text-muted-foreground">{t("resolution_fixed_hint")}</p>}
+        {sizeFixed && <p className="text-xs text-muted-foreground">{t("resolution_fixed_hint")}</p>}
       </div>
     );
   };
 
   return (
-    <div className="space-y-4">
-      <p className="text-[12.5px] leading-[1.55] text-muted-foreground">{t("default_hint")}</p>
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">{t("default_hint")}</p>
 
       {showVideo && (
-        <ChannelCard kicker="Video Channel" title={t("model_video")}>
+        <ChannelCard title={t("model_video")}>
           <LayeredModelFields
             defaultLabel={t("model_video_default")}
             defaultValue={value.videoBackend}
@@ -429,7 +422,7 @@ export function ModelConfigSection({
             `${bucketLabels.i2v.label} · ${t("resolution_label")}`,
           )}
           {usesReferenceImages && i2vCapabilities.videoModelError && (
-            <InlineWarning message={i2vCapabilities.videoModelError} className="mt-2" />
+            <InlineWarning message={i2vCapabilities.videoModelError} />
           )}
           {renderResolutionField(
             executingVideo,
@@ -441,24 +434,20 @@ export function ModelConfigSection({
               ? `${bucketLabels.r2v.label} · ${t("resolution_label")}`
               : t("resolution_label"),
           )}
-          {capabilities.videoModelError && <InlineWarning message={capabilities.videoModelError} className="mt-2" />}
+          {capabilities.videoModelError && <InlineWarning message={capabilities.videoModelError} />}
 
           {/* 档位空集且该模型的时长本就不由 ArcReel 驱动：控件无从渲染，但要说清为什么没有，
               否则用户只会看见时长这一节凭空消失。 */}
           {showDuration && supportedDurations?.length === 0 && videoDurationNotDriven && (
-            <>
-              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                {t("duration_label")}
-              </div>
-              <p className="text-[11px] text-muted-foreground">{t("duration_not_driven_notice")}</p>
-            </>
+            <div className="flex flex-col gap-2">
+              <FieldTitle>{t("duration_label")}</FieldTitle>
+              <p className="text-xs text-muted-foreground">{t("duration_not_driven_notice")}</p>
+            </div>
           )}
 
           {showDuration && supportedDurations && supportedDurations.length > 0 && (
-            <>
-              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                {t("duration_label")}
-              </div>
+            <div className="flex flex-col gap-2">
+              <FieldTitle>{t("duration_label")}</FieldTitle>
               {isContinuousIntegerRange(supportedDurations) && supportedDurations.length >= 5 ? (
                 <DurationSlider
                   options={supportedDurations}
@@ -480,7 +469,6 @@ export function ModelConfigSection({
               )}
               {durationNoticeKey && (
                 <InlineWarning
-                  className="mt-2"
                   message={t(durationNoticeKey, { value: value.defaultDuration })}
                   action={{
                     label: t("duration_reset_auto"),
@@ -488,16 +476,19 @@ export function ModelConfigSection({
                   }}
                 />
               )}
-            </>
+            </div>
           )}
 
           {onVideoGenerateAudioChange && (
-            <div className="mt-3">
-              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                {t("dashboard:generate_audio_label")}
-              </div>
-              <fieldset className="flex flex-wrap gap-x-5 gap-y-2" disabled={audioLocked}>
-                <legend className="sr-only">{t("dashboard:audio_settings_sr_label")}</legend>
+            <div className="flex flex-col gap-2">
+              <FieldTitle>{t("dashboard:generate_audio_label")}</FieldTitle>
+              <RadioGroup
+                aria-label={t("dashboard:audio_settings_sr_label")}
+                // 三态值映射成字符串：RadioGroup 的值不能是 null
+                value={String(audioDisplayValue)}
+                onValueChange={(next) => onVideoGenerateAudioChange(next === "null" ? null : next === "true")}
+                disabled={audioLocked}
+              >
                 {(
                   [
                     [null, t("dashboard:follow_global_default")],
@@ -505,29 +496,15 @@ export function ModelConfigSection({
                     [false, t("dashboard:disabled_label")],
                   ] as const
                 ).map(([val, label]) => (
-                  <label
-                    key={String(val)}
-                    className={`inline-flex items-center gap-2 text-[12.5px] ${
-                      audioLocked ? "text-muted-foreground" : "text-subtle-foreground"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name={generateAudioName}
-                      checked={audioDisplayValue === val}
-                      onChange={() => onVideoGenerateAudioChange(val)}
-                      className="accent-[oklch(0.76_0.09_295)]"
-                    />
+                  <Label key={String(val)}>
+                    <RadioGroupItem value={String(val)} />
                     {label}
-                  </label>
+                  </Label>
                 ))}
-              </fieldset>
-              {audioLockedHint && (
-                <p className="mt-1.5 text-[11px] leading-[1.5] text-muted-foreground">{audioLockedHint}</p>
-              )}
+              </RadioGroup>
+              {audioLockedHint && <p className="text-xs text-muted-foreground">{audioLockedHint}</p>}
               {audioConflict && (
                 <InlineWarning
-                  className="mt-2"
                   message={t("dashboard:audio_switch_conflict_notice")}
                   action={{
                     label: t("dashboard:audio_switch_conflict_action"),
@@ -542,7 +519,7 @@ export function ModelConfigSection({
       )}
 
       {showImage && (
-        <ChannelCard kicker="Image Channel" title={t("model_image")}>
+        <ChannelCard title={t("model_image")}>
           <LayeredModelFields
             defaultLabel={t("model_image_default")}
             defaultValue={value.imageBackendDefault}
@@ -568,7 +545,7 @@ export function ModelConfigSection({
       )}
 
       {showText && (
-        <ChannelCard kicker="Text Channel" title={t("model_text")}>
+        <ChannelCard title={t("model_text")}>
           <TextTierFields
             value={{
               default: value.textBackendDefault,
@@ -615,18 +592,38 @@ export function ModelConfigSection({
 // Duration sub-components
 // ---------------------------------------------------------------------------
 
-const DURATION_PILL_BASE =
-  "rounded-md border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-const durationActiveCls =
-  "border-primary/45 bg-primary/12 text-primary";
-
-const durationInactiveCls =
-  "border-border/50 bg-card/55 text-muted-foreground hover:border-border hover:text-foreground";
-
-const durationActiveStyle: CSSProperties = {
-  boxShadow: "0 0 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
-};
+/**
+ * 时长档位的单选项：选中项用 secondary 底色。过期上下文下用 aria-disabled 而不是 disabled，
+ * 选项仍可聚焦，不打断键盘走位。
+ */
+function DurationOption({
+  checked,
+  label,
+  tabIndex,
+  disabled,
+  onClick,
+}: {
+  checked: boolean;
+  label: string;
+  tabIndex?: number;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      variant={checked ? "secondary" : "outline"}
+      size="sm"
+      role="radio"
+      aria-checked={checked}
+      aria-label={label}
+      aria-disabled={disabled || undefined}
+      tabIndex={tabIndex}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  );
+}
 
 function DurationButtonGroup({
   options,
@@ -655,39 +652,29 @@ function DurationButtonGroup({
   };
   return (
     <div
-      className={`flex flex-wrap gap-2${disabled ? " opacity-60" : ""}`}
+      className="flex flex-wrap gap-2"
       role="radiogroup"
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
     >
-      <button
-        type="button"
-        role="radio"
-        aria-checked={isAutoActive}
-        aria-label={autoLabel}
+      <DurationOption
+        checked={isAutoActive}
+        label={autoLabel}
         tabIndex={isAutoTabbable ? 0 : -1}
+        disabled={disabled}
         onClick={() => select(null)}
-        className={`${DURATION_PILL_BASE} ${isAutoActive ? durationActiveCls : durationInactiveCls}`}
-        style={isAutoActive ? durationActiveStyle : undefined}
-      >
-        {autoLabel}
-      </button>
+      />
       {options.map((d) => {
         const active = value === d;
         return (
-          <button
+          <DurationOption
             key={d}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            aria-label={t("duration_seconds_value_text", { value: d })}
+            checked={active}
+            label={t("duration_seconds_value_text", { value: d })}
             tabIndex={active ? 0 : -1}
+            disabled={disabled}
             onClick={() => select(d)}
-            className={`${DURATION_PILL_BASE} ${active ? durationActiveCls : durationInactiveCls}`}
-            style={active ? durationActiveStyle : undefined}
-          >
-            {t("duration_seconds_value_text", { value: d })}
-          </button>
+          />
         );
       })}
     </div>
@@ -722,21 +709,15 @@ function DurationSlider({
   const isAutoActive = value === null;
   const valueText = value === null ? autoLabel : t("duration_seconds_value_text", { value });
   return (
-    <div className={`flex flex-wrap items-center gap-3${disabled ? " opacity-60" : ""}`}>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={isAutoActive}
-        aria-label={autoLabel}
-        aria-disabled={disabled || undefined}
+    <div className="flex flex-wrap items-center gap-3">
+      <DurationOption
+        checked={isAutoActive}
+        label={autoLabel}
+        disabled={disabled}
         onClick={() => {
           if (!disabled) onChange(null);
         }}
-        className={`${DURATION_PILL_BASE} ${isAutoActive ? durationActiveCls : durationInactiveCls}`}
-        style={isAutoActive ? durationActiveStyle : undefined}
-      >
-        {autoLabel}
-      </button>
+      />
       <input
         type="range"
         aria-label={ariaLabel}
@@ -747,9 +728,9 @@ function DurationSlider({
         value={sliderValue}
         disabled={disabled}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
-        className="min-w-[120px] flex-1 accent-primary"
+        className="min-w-30 flex-1 accent-primary disabled:opacity-50"
       />
-      <span className="min-w-[2.5rem] text-right font-mono text-[11px] tabular-nums text-subtle-foreground">
+      <span className="min-w-10 text-right text-xs tabular-nums text-subtle-foreground">
         {valueText}
       </span>
     </div>

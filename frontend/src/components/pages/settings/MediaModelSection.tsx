@@ -1,8 +1,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "wouter";
 import { Loader2 } from "lucide-react";
 import { API } from "@/api";
+import { settingsSectionPath } from "@/app-routes";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type {
   SystemConfigSettings,
   SystemConfigOptions,
@@ -35,7 +40,6 @@ import {
   lookupResolutions,
   lookupVideoAudioControl,
 } from "@/utils/provider-models";
-import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import type { ProviderInfo, VideoRoute } from "@/types/provider";
 
 /** 本页编辑单元包含的系统设置字段；保存时只提交改过的字段。 */
@@ -73,32 +77,45 @@ function changedFields(fields: MediaModelFields, saved: MediaModelFields): Syste
   return patch;
 }
 
-interface CardProps {
-  kicker: string;
-  title?: string;
+/** 一个通道一张卡片：标题、可选说明，然后是字段。 */
+function ChannelCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
   description?: string;
   children: React.ReactNode;
-}
-
-function SectionCard({ kicker, title, description, children }: CardProps) {
+}) {
   return (
-    <div
-      className="rounded-lg border border-border p-5"
-      style={CARD_STYLE}
-    >
-      <div className="mb-4">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-          {kicker}
-        </div>
-        {title && (
-          <h4 className="mt-1.5 text-[14px] font-medium text-foreground">{title}</h4>
-        )}
-        {description && (
-          <p className="mt-1 text-[12px] leading-[1.55] text-muted-foreground">{description}</p>
-        )}
+    <section className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
       {children}
-    </div>
+    </section>
+  );
+}
+
+/** 通道没有可选模型时的空状态，链接到「供应商」去配置。 */
+function NoProviders({ message }: { message: string }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+      {message}{" "}
+      <Link href={settingsSectionPath("providers")} className="text-primary underline underline-offset-4">
+        {t("default_models_configure_providers")}
+      </Link>
+    </p>
+  );
+}
+
+function FieldHint({ id, children }: { id?: string; children: React.ReactNode }) {
+  return (
+    <p id={id} className="text-xs text-muted-foreground">
+      {children}
+    </p>
   );
 }
 
@@ -180,11 +197,9 @@ export function MediaModelSection() {
 
   if (!settings || !options) {
     return (
-      <div className="flex items-center gap-2 px-1 py-12 text-muted-foreground">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
-        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
-          {t("common:loading")}
-        </span>
+      <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+        {t("common:loading")}
       </div>
     );
   }
@@ -302,38 +317,14 @@ export function MediaModelSection() {
     ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying }
     : undefined;
 
-  const emptyHint = (msg: string) => (
-    <div className="rounded-md border border-border/50 bg-card/45 px-3 py-2.5 text-[12px] text-muted-foreground">
-      {msg}
-    </div>
-  );
-
   return (
-    <div className="space-y-7">
-      {/* Heading */}
-      <div>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-          Default Routing
-        </div>
-        <h3
-          className="font-editorial mt-1"
-          style={{
-            fontWeight: 400,
-            fontSize: 22,
-            lineHeight: 1.1,
-            letterSpacing: "-0.012em",
-            color: "var(--foreground)",
-          }}
-        >
-          {t("model_selection")}
-        </h3>
-        <p className="mt-1.5 text-[12.5px] leading-[1.6] text-muted-foreground">
-          {t("model_selection_desc")}
-        </p>
-      </div>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-1">
+        <h2 className="text-lg font-medium">{t("settings_default_models")}</h2>
+        <p className="text-sm text-muted-foreground">{t("model_selection_desc")}</p>
+      </header>
 
-      {/* Video */}
-      <SectionCard kicker="Video Channel" title={t("default_video_model")}>
+      <ChannelCard title={t("default_models_channel_video")}>
         {videoBackends.length > 0 ? (
           <LayeredModelFields
             defaultLabel={t("default_video_model")}
@@ -357,61 +348,47 @@ export function MediaModelSection() {
             )}
           </LayeredModelFields>
         ) : (
-          emptyHint(t("no_video_providers_hint"))
+          <NoProviders message={t("no_video_providers_hint")} />
         )}
 
-        <div
-          className={`mt-4 flex items-start gap-2.5 text-[12.5px] ${
-            audioLocked ? "text-muted-foreground" : "text-subtle-foreground"
-          }`}
-        >
-          <input
-            id="media-generate-audio"
-            type="checkbox"
-            checked={audioLocked ? audioLockedControl === "always_on" : currentAudio}
-            disabled={audioLocked}
-            onChange={(e) =>
-              setFields((prev) => ({ ...prev, video_generate_audio: e.target.checked }))
-            }
-            className="mt-0.5 h-3.5 w-3.5 rounded-sm border-border bg-card accent-primary disabled:cursor-not-allowed enabled:cursor-pointer"
-          />
-          <label
-            htmlFor="media-generate-audio"
-            className={`flex flex-col ${audioLocked ? "cursor-not-allowed" : "cursor-pointer"}`}
-          >
-            <span>{t("generate_audio")}</span>
-            <span className="text-[11px] text-muted-foreground">
-              {audioLocked
-                ? t(
-                    audioLockedControl === "always_on"
-                      ? "audio_switch_locked_always_on"
-                      : "audio_switch_locked_always_off",
-                  )
-                : t("audio_support_hint")}
+        <div className="flex flex-col gap-2">
+          <Label className="items-start">
+            <Checkbox
+              checked={audioLocked ? audioLockedControl === "always_on" : currentAudio}
+              disabled={audioLocked}
+              onCheckedChange={(checked) => setFields((prev) => ({ ...prev, video_generate_audio: checked }))}
+            />
+            <span className="flex flex-col gap-1">
+              {t("generate_audio")}
+              <span className="text-xs text-muted-foreground">
+                {audioLocked
+                  ? t(
+                      audioLockedControl === "always_on"
+                        ? "audio_switch_locked_always_on"
+                        : "audio_switch_locked_always_off",
+                    )
+                  : t("audio_support_hint")}
+              </span>
             </span>
-          </label>
+          </Label>
+          {audioConflict && (
+            <InlineWarning
+              message={t("audio_switch_conflict_notice")}
+              action={{
+                label: t("audio_switch_conflict_action"),
+                onClick: () => setFields((prev) => ({ ...prev, video_generate_audio: true })),
+              }}
+            />
+          )}
         </div>
-        {audioConflict && (
-          <InlineWarning
-            className="mt-2"
-            message={t("audio_switch_conflict_notice")}
-            action={{
-              label: t("audio_switch_conflict_action"),
-              onClick: () => setFields((prev) => ({ ...prev, video_generate_audio: true })),
-            }}
-          />
-        )}
-        <div className="mt-4">
-          <label
-            htmlFor="video-poll-timeout-input"
-            className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
-          >
-            {t("video_poll_timeout_label")}
-          </label>
-          <input
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="video-poll-timeout-input">{t("video_poll_timeout_label")}</Label>
+          <Input
             id="video-poll-timeout-input"
             type="text"
             inputMode="decimal"
+            aria-describedby="video-poll-timeout-hint"
             value={pollTimeoutInput ?? String(currentPollTimeout)}
             onChange={(e) => {
               const raw = e.target.value;
@@ -435,14 +412,13 @@ export function MediaModelSection() {
               setFields((prev) => ({ ...prev, video_poll_timeout_seconds: restored }));
               setPollTimeoutInput(null);
             }}
-            className="w-full rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-40"
           />
-          <p className="mt-1 text-[11px] text-muted-foreground">{t("video_poll_timeout_hint")}</p>
+          <FieldHint id="video-poll-timeout-hint">{t("video_poll_timeout_hint")}</FieldHint>
         </div>
-      </SectionCard>
+      </ChannelCard>
 
-      {/* Image */}
-      <SectionCard kicker="Image Channel" title={t("default_image_model")}>
+      <ChannelCard title={t("default_models_channel_image")}>
         {imageBackends.length > 0 ? (
           <LayeredModelFields
             defaultLabel={t("default_image_model")}
@@ -457,12 +433,11 @@ export function MediaModelSection() {
             subFieldsError={candidatesSubFieldsError}
           />
         ) : (
-          emptyHint(t("no_image_providers_hint"))
+          <NoProviders message={t("no_image_providers_hint")} />
         )}
-      </SectionCard>
+      </ChannelCard>
 
-      {/* Text */}
-      <SectionCard kicker="Text Channel" title={t("text_models")} description={t("text_models_desc")}>
+      <ChannelCard title={t("default_models_channel_text")} description={t("text_models_desc")}>
         {textBackends.length > 0 ? (
           <TextTierFields
             value={textTierValue}
@@ -486,12 +461,12 @@ export function MediaModelSection() {
             }}
           />
         ) : (
-          emptyHint(t("no_text_providers_hint"))
+          <NoProviders message={t("no_text_providers_hint")} />
         )}
-      </SectionCard>
+      </ChannelCard>
 
-      {/* Audio (narration TTS) */}
-      <SectionCard kicker="Audio Channel" title={t("default_audio_model")}>
+      {/* 旁白配音：模型、音色与语速只是新建 TTS 配音项目的预填值，说明放在通道开头。 */}
+      <ChannelCard title={t("default_models_channel_audio")} description={t("global_tts_defaults_prefill_hint")}>
         {audioBackends.length > 0 ? (
           <ProviderModelSelect
             value={currentAudioBackend}
@@ -505,77 +480,59 @@ export function MediaModelSection() {
             aria-label={t("default_audio_model")}
           />
         ) : (
-          emptyHint(t("no_audio_providers_hint"))
+          <NoProviders message={t("no_audio_providers_hint")} />
         )}
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{t("global_tts_defaults_prefill_hint")}</p>
 
-        <div className="mt-4 space-y-3.5">
-          <div>
-            <label
-              htmlFor="narration-voice-input"
-              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
-            >
-              {t("narration_voice_label")}
-            </label>
-            <input
-              id="narration-voice-input"
-              type="text"
-              value={currentNarrationVoice}
-              onChange={(e) => setFields((prev) => ({ ...prev, narration_voice: e.target.value }))}
-              className="w-full rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">{t("narration_voice_hint")}</p>
-          </div>
-          <div>
-            <label
-              htmlFor="narration-speed-input"
-              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
-            >
-              {t("narration_speed_label")}
-            </label>
-            <input
-              id="narration-speed-input"
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={currentNarrationSpeed ?? ""}
-              onChange={(e) => {
-                const raw = e.target.value;
-                setFields((prev) => {
-                  if (raw === "") return { ...prev, narration_speed: null };
-                  const next = Number(raw);
-                  // 仅过滤非有限数：NaN/Infinity 会被 JSON 序列化为 null 误触"清除"语义。
-                  // 0/负数允许临时存在（键入 0.5 会先经过 0），正数约束由保存时后端校验兜底。
-                  if (!Number.isFinite(next)) return prev;
-                  return { ...prev, narration_speed: next };
-                });
-              }}
-              className="w-full rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">{t("narration_speed_hint")}</p>
-          </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="narration-voice-input">{t("narration_voice_label")}</Label>
+          <Input
+            id="narration-voice-input"
+            type="text"
+            aria-describedby="narration-voice-hint"
+            value={currentNarrationVoice}
+            onChange={(e) => setFields((prev) => ({ ...prev, narration_voice: e.target.value }))}
+          />
+          <FieldHint id="narration-voice-hint">{t("narration_voice_hint")}</FieldHint>
         </div>
-      </SectionCard>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="narration-speed-input">{t("narration_speed_label")}</Label>
+          <Input
+            id="narration-speed-input"
+            type="number"
+            min={0.1}
+            step={0.1}
+            aria-describedby="narration-speed-hint"
+            value={currentNarrationSpeed ?? ""}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setFields((prev) => {
+                if (raw === "") return { ...prev, narration_speed: null };
+                const next = Number(raw);
+                // 仅过滤非有限数：NaN/Infinity 会被 JSON 序列化为 null 误触"清除"语义。
+                // 0/负数允许临时存在（键入 0.5 会先经过 0），正数约束由保存时后端校验兜底。
+                if (!Number.isFinite(next)) return prev;
+                return { ...prev, narration_speed: next };
+              });
+            }}
+            className="w-40"
+          />
+          <FieldHint id="narration-speed-hint">{t("narration_speed_hint")}</FieldHint>
+        </div>
+      </ChannelCard>
 
-      <SectionCard
-        kicker="Market Network"
-        title={t("market_proxy_label")}
-        description={t("market_proxy_hint")}
-      >
-        <label htmlFor="market-github-proxy-prefix" className="sr-only">
-          {t("market_proxy_label")}
-        </label>
-        <input
+      {/* GitHub raw 代理前缀暂留在这里，等市场的「设置」区接手。 */}
+      <ChannelCard title={t("market_proxy_label")} description={t("market_proxy_hint")}>
+        <Input
           id="market-github-proxy-prefix"
           type="url"
+          aria-label={t("market_proxy_label")}
           value={currentMarketProxyPrefix}
           placeholder="https://proxy.example.com/"
           onChange={(event) =>
             setFields((prev) => ({ ...prev, market_github_proxy_prefix: event.target.value }))
           }
-          className="w-full rounded-md border border-border bg-card/55 px-3 py-2 font-mono text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
-      </SectionCard>
+      </ChannelCard>
 
       <PageShellFooter>
         <SaveBar unit={unit} />
