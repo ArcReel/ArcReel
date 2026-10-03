@@ -1888,7 +1888,6 @@ export default {
   'shot_detail_next': '下一镜',
   'shot_detail_count': '{{current}} / {{total}}',
   'eyebrow_segment_refs': '引用 · 范围',
-  'eyebrow_library': '资源库 · {{type}}',
   'context_clear': '清除上下文',
   'context_label_character': '角色',
   'context_label_scene': '场景',

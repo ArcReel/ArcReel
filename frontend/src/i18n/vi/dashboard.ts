@@ -1989,7 +1989,6 @@ export default {
   'episode_workspace_source_saved': 'Đã lưu nguyên văn của tập',
   'episode_workspace_source_save_failed': 'Không lưu được nguyên văn của tập: {{message}}',
   'episodes_section_title': 'Tập',
-  'eyebrow_library': 'Thư viện · {{type}}',
   'eyebrow_segment_refs': 'Tham chiếu · Phạm vi',
   'grid_canvas_tab_aria': 'Các tab chính của bảng phân cảnh đa lưới',
   'import_diagnostics': 'Chẩn đoán nhập',

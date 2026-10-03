@@ -216,10 +216,8 @@ export function SceneCard({
             resourceType="scene"
             resourceId={name}
             projectName={projectName}
-            initialDescription={scene.description}
-            sheetPath={scene.scene_sheet}
+            preview={{ description: scene.description, sheetPath: scene.scene_sheet }}
             busy={generating || uploadingSheet}
-            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
           />
           <VersionTimeMachine
             projectName={projectName}

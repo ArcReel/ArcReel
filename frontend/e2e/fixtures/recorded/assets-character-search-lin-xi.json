@@ -1,0 +1,27 @@
+{
+  "method": "GET",
+  "path": "/api/v1/assets?q=%E6%9E%97%E5%A4%95&type=character",
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "type": "character",
+        "name": "林夕",
+        "description": "二十出头的旧城茶馆老板娘，短发，常穿靛蓝布衫。",
+        "voice_style": "温和、语速偏慢",
+        "image_path": null,
+        "audio_path": null,
+        "source_project": null,
+        "updated_at": "2026-01-01T08:00:00.000Z",
+        "derivatives": []
+      }
+    ],
+    "total": 1,
+    "counts": {
+      "character": 1,
+      "prop": 0,
+      "scene": 0
+    }
+  }
+}
