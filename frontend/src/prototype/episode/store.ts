@@ -17,24 +17,9 @@ function isAxisValue(key: AxisKey, value: string): boolean {
   return value in AXES[key].values;
 }
 
+// #2981：剧集页已定为预设 D，固定下来；地址栏的 variant 交给概览页原型使用。
 function readInitial(): State {
-  const params = new URLSearchParams(window.location.search);
-  const fromUrl = params.get("variant");
-  if (fromUrl && (PRESET_KEYS as string[]).includes(fromUrl)) {
-    const overrides: Record<string, string> = {};
-    for (const key of AXIS_KEYS) {
-      const v = params.get(`s.${key}`);
-      if (v && isAxisValue(key, v)) overrides[key] = v;
-    }
-    return { preset: fromUrl as PresetKey, overrides };
-  }
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as State;
-  } catch {
-    // 原型：读不到就用默认
-  }
-  return { preset: "B", overrides: {} };
+  return { preset: "D", overrides: {} };
 }
 
 let state: State = readInitial();
@@ -44,21 +29,7 @@ export function resolveAxes(s: State = state): AxisState {
   return { ...PRESETS[s.preset].axes, ...s.overrides };
 }
 
-function syncUrl() {
-  const params = new URLSearchParams(window.location.search);
-  params.set("variant", state.preset);
-  for (const key of AXIS_KEYS) {
-    const o = state.overrides[key];
-    if (o) params.set(`s.${key}`, String(o));
-    else params.delete(`s.${key}`);
-  }
-  window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
-}
+function syncUrl() {}
 
 function set(next: State) {
   state = next;

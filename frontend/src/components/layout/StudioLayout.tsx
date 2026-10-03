@@ -22,7 +22,7 @@ import {
 } from "@/stores/app-store";
 import { UI_LAYERS } from "@/utils/ui-layers";
 import { EPISODE_VIEW_EDIT } from "@/app-routes";
-import { EpisodeProtoBar } from "@/prototype/episode/EpisodeProtoBar";
+import { OverviewProtoBar } from "@/prototype/overview/OverviewProtoBar";
 import { publishMetrics, useShellProto } from "@/prototype/shell/store";
 import { AgentRail, DragHandle, useElementWidth, useViewportWidth } from "@/prototype/shell/ShellParts";
 import {
@@ -432,7 +432,7 @@ function PrototypeShell({
           <Bot className="h-5 w-5" />
         </button>
       ) : null}
-      <EpisodeProtoBar />
+      <OverviewProtoBar />
     </div>
   );
 }

@@ -21,7 +21,8 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
-import { OverviewCanvas } from "./OverviewCanvas";
+import { ProtoOverviewHost } from "@/prototype/overview/ProtoOverview";
+import { ProtoNotFound } from "@/prototype/overview/ProtoNotFound";
 import { EpisodesView } from "./episodes/EpisodesView";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
@@ -624,11 +625,8 @@ export function StudioCanvasRouter() {
   return (
     <Switch>
       <Route path="/">
-        <OverviewCanvas
-          projectName={currentProjectName}
-          projectData={currentProjectData}
-          readOnly={demoMode}
-        />
+        {/* PROTOTYPE #2981：概览页原型接管根路由 */}
+        <ProtoOverviewHost projectName={currentProjectName} projectData={currentProjectData} />
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_LOREBOOK}`}>
@@ -945,6 +943,11 @@ export function StudioCanvasRouter() {
             </div>
           );
         }}
+      </Route>
+
+      {/* PROTOTYPE #2981：项目内未知路径的兜底 */}
+      <Route>
+        <ProtoNotFound />
       </Route>
     </Switch>
   );
