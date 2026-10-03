@@ -16,7 +16,6 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 
-import { ExternalAgentModal } from "./ExternalAgentModal";
 
 /** 运行参数编辑单元：输入框里的原始字符串，保存时再转成数字。 */
 interface AgentRuntimeFields {
@@ -54,7 +53,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const { t } = useTranslation("dashboard");
   const [remoteData, setRemoteData] = useState<GetSystemConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [showExternalGuide, setShowExternalGuide] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -125,7 +123,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   return (
     <div className={visible ? undefined : "hidden"}>
       <div className="space-y-7 pb-0 pt-1">
-        <AgentPageIntro onOpenExternalGuide={() => setShowExternalGuide(true)} />
+        <AgentPageIntro />
         <CredentialsSection />
         <SectionShell kicker="Runtime Tuning" title={t("advanced_settings")}>
           <div className="space-y-4">
@@ -173,9 +171,6 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       <PageShellFooter>
         <SaveBar unit={unit} />
       </PageShellFooter>
-      {showExternalGuide && (
-        <ExternalAgentModal onClose={() => setShowExternalGuide(false)} />
-      )}
     </div>
   );
 }

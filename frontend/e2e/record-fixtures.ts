@@ -73,6 +73,8 @@ const RECORDINGS: Recording[] = [
   { file: "provider-gemini-aistudio-config", method: "GET", path: "/api/v1/providers/gemini-aistudio/config" },
   { file: "provider-gemini-aistudio-credentials", method: "GET", path: "/api/v1/providers/gemini-aistudio/credentials" },
   { file: "system-config-model-candidates", method: "GET", path: "/api/v1/system/config/model-candidates" },
+  // 全局设置：访问令牌列表（录制环境没有令牌，多条目由场景替换）。
+  { file: "api-keys", method: "GET", path: "/api/v1/api-keys" },
 ];
 
 // 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。

@@ -28,10 +28,10 @@ import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { AgentConfigTab } from "./AgentConfigTab";
-import { ApiKeysTab } from "./ApiKeysTab";
-import { ExternalAgentGuide } from "./ExternalAgentGuide";
 import { ProviderSection } from "./ProviderSection";
 import { AboutSection } from "./settings/AboutSection";
+import { AccessTokensSection } from "./settings/agent-access/AccessTokensSection";
+import { ExternalAgentSection } from "./settings/agent-access/ExternalAgentSection";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
 import { GeneralSection } from "./settings/GeneralSection";
 import { MarketSection } from "./settings/market/MarketSection";
@@ -143,7 +143,6 @@ export function SystemConfigPage() {
 }
 
 function SectionContent({ section }: { section: SettingsSection }) {
-  const { t } = useTranslation("dashboard");
   switch (section) {
     case "providers":
       return <ProviderSection />;
@@ -161,17 +160,9 @@ function SectionContent({ section }: { section: SettingsSection }) {
         </div>
       );
     case "external-agent":
-      return (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-medium">{t("settings_external_agent")}</h2>
-            <p className="text-sm text-muted-foreground">{t("external_agent_modal_subtitle")}</p>
-          </div>
-          <ExternalAgentGuide />
-        </div>
-      );
+      return <ExternalAgentSection />;
     case "access-tokens":
-      return <ApiKeysTab />;
+      return <AccessTokensSection />;
     case "market":
       return <MarketSection />;
     case "usage":

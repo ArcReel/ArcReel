@@ -111,7 +111,7 @@ let isolationApplied = false;
 
 /**
  * `inert` 摘不掉底层弹窗自己挂在 `document`/`window` 上的全局键盘监听——Esc 关闭、
- * Enter 提交（如 `ApiKeysTab` 的「新建 API Key」弹窗）这类监听不看谁在无障碍树里，
+ * Enter 提交这类监听不看谁在无障碍树里，
  * 引导期间照样会被触发，在遮罩后台悄悄关弹窗、甚至提交表单。逐个让每个监听器自行
  * 判断引导状态属于挂一漏万，这里改为统一拦截：引导激活期间在 document 的捕获阶段
  * 拦下所有 `keydown`（`Tab` 除外，放行给 driver 自己的焦点陷阱）。driver 自己的

@@ -183,7 +183,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 ### 横向放不下的内容按类型处理：滚动加边缘渐隐、表格固定列宽、单行文字截断
 
 - **可横向滚动的条目**（标签、缩略图带）：容器写 `overflow-x-auto scroll-fade-x`，被裁掉的一侧显示渐隐，提示还有内容。
-- **表格**：用 `table-fixed` 和 `<colgroup>` 给状态、时间、操作这类短列固定宽度，短列内容加 `whitespace-nowrap`；剩余宽度留给主文字列，主文字列的单元格用 `TruncatedText`。
+- **表格**：用 `table-fixed` 和 `<colgroup>` 给状态、时间、操作这类短列固定宽度，短列内容加 `whitespace-nowrap`；剩余宽度留给主文字列，主文字列的单元格用 `TruncatedText`。使用 `components/ui/table` 时，`TableHead`、`TableCell` 不接受颜色、字体与内边距 class（`@shadcn/lint` 的 `no-restyle`），这些写在单元格内的包裹元素或 `TruncatedText` 的 `className` 上。
 - **单行文字**（名称、路径、模型 ID）：用 `components/shared/TruncatedText`。被截断时可以用键盘聚焦，悬停或聚焦时显示全文；没有截断时不进入 Tab 顺序。放进 flex 或表格单元格时，父级需要允许收缩（`min-w-0`）。不用 `title` 属性代替，键盘用户看不到它。
 
 ## 滚动条

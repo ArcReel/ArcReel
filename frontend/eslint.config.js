@@ -84,6 +84,8 @@ const REWORKED_FILES = [
   "src/components/shared/page-shell/**",
   "src/components/pages/SystemConfigPage.tsx",
   "src/components/pages/settings/GeneralSection.tsx",
+  // 外部 Agent 接入与访问令牌
+  "src/components/pages/settings/agent-access/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

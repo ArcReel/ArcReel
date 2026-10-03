@@ -130,9 +130,11 @@ describe("AgentConfigTab — credentials directory", () => {
     expect(await screen.findByText("内嵌智能体")).toBeInTheDocument();
     expect(screen.getByText("外部 agent")).toBeInTheDocument();
 
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "外部智能体接入" }));
-    expect(screen.getByRole("dialog", { name: "外部智能体接入" })).toBeInTheDocument();
+    // 接入指引是全局设置里的独立分区，入口只做跳转
+    expect(screen.getByRole("link", { name: "外部 Agent 接入" })).toHaveAttribute(
+      "href",
+      "/app/settings?section=external-agent",
+    );
   });
 
   it("renders existing credentials in the list", async () => {

@@ -1,14 +1,12 @@
 import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import { ArrowUpRight, Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Link } from "wouter";
 
+import { settingsSectionPath } from "@/app-routes";
 import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
-interface AgentPageIntroProps {
-  onOpenExternalGuide: () => void;
-}
-
-export function AgentPageIntro({ onOpenExternalGuide }: AgentPageIntroProps) {
+export function AgentPageIntro() {
   const { t } = useTranslation("dashboard");
   return (
     <section aria-labelledby="agent-access-title">
@@ -47,14 +45,10 @@ export function AgentPageIntro({ onOpenExternalGuide }: AgentPageIntroProps) {
             <p className="mt-1 text-[11.5px] leading-[1.55] text-muted-foreground">
               {t("external_agent_desc")}
             </p>
-            <button
-              type="button"
-              onClick={onOpenExternalGuide}
-              className={`${GHOST_BTN_CLS} mt-3`}
-            >
-              {t("external_agent_guide")}
+            <Link href={settingsSectionPath("external-agent")} className={`${GHOST_BTN_CLS} mt-3`}>
+              {t("settings_external_agent")}
               <ArrowUpRight className="h-3 w-3" aria-hidden />
-            </button>
+            </Link>
           </div>
         </div>
       </div>
