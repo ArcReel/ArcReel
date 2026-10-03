@@ -175,7 +175,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 `AppRoutes` 根部的 `LeaveGuardProvider` 是唯一的离开拦截。它经 wouter 的 `aroundNav` 拦截全部应用内跳转（`navigate`、`Link`、`Redirect`），截住浏览器的前进与后退，并在关闭标签页或刷新时请求浏览器原生提示。对话框的三个按钮是「继续编辑 / 放弃修改 / 保存并离开」；保存失败时留在原处，错误由编辑单元自己显示。页面自建的确认框和 `beforeunload` 会与它重复弹出，或在它放行之后再拦一次。
 
-- `useEditUnit` 挂载期间自动登记。自行管理表单状态的页面调用 `useLeaveGuard({ dirty, save, discard })` 登记，`save` 必须如实返回是否保存成功：总是返回 `true` 会让保存失败的修改随跳转丢失。
+- `useEditUnit` 挂载期间自动登记。自行管理表单状态的页面调用 `useLeaveGuard({ dirty, saving, save, discard })` 登记，`save` 必须如实返回是否保存成功：总是返回 `true` 会让保存失败的修改随跳转丢失。`saving` 如实反映保存请求在途：离开拦截据此等保存落定再判断，否则「放弃修改」会放走已经发出的保存，「保存并离开」会重复提交。
 - 选中项记在 URL 里、经路由跳转切换的（设置分区、供应商），路由拦截已经覆盖。不经路由的切换（分镜、记忆文件、资产的上一个与下一个、关闭 Sheet）用 `useConfirmLeave()` 包住切换动作，被包住的动作要同步完成切换。第三个按钮需要别的文案时传 `saveLabel`，如切换分镜时传 `t("common:save_and_switch")`。
 - 不会卸载编辑单元的跳转（如同一编辑单元的分页切换），在登记时用 `allowNavigation(to)` 放行。
 - 页面跳转一律经 wouter，不直接调用 `window.history` 或改写 `window.location`：绕过 wouter 的跳转不经过拦截。

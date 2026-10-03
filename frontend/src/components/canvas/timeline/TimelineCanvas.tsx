@@ -301,12 +301,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           disabled={!hasScript}
           className="relative px-3.5 py-2.5 text-[12.5px] font-medium transition-colors focus-ring disabled:cursor-not-allowed"
           style={{
-            color:
-              activeTab === "timeline"
-                ? "var(--foreground)"
-                : !hasScript
-                  ? "var(--muted-foreground)"
-                  : "var(--muted-foreground)",
+            color: activeTab === "timeline" ? "var(--foreground)" : "var(--muted-foreground)",
           }}
         >
           {t("tab_timeline")}

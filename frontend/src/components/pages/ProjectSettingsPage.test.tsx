@@ -361,6 +361,34 @@ describe("ProjectSettingsPage – style picker", () => {
     expect(updateSpy).toHaveBeenCalledWith("demo", { style_template_id: "live_zhang_yimou" });
   });
 
+  it("字段校验未通过时，保存并离开与保存按钮一样不保存、留在原处", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        content_mode: "ad",
+        generation_mode: "storyboard",
+        target_duration: 30,
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject");
+    const { location } = renderAt("/app/projects/demo/settings");
+
+    const group = await screen.findByRole("radiogroup", { name: "目标总时长" });
+    await waitFor(() => expect(within(group).getByRole("radio", { name: "30 秒" })).toBeChecked());
+    // 自定义输入留空：目标总时长无效，保存按钮置灰
+    fireEvent.click(within(group).getByRole("radio", { name: "自定义" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "返回项目" })[0]);
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "保存并离开" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(location.history.at(-1)).toBe("/app/projects/demo/settings");
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
   it("saves a template change via PATCH style_template_id", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {

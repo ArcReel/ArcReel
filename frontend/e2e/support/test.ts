@@ -6,7 +6,7 @@ import { FIXED_NOW, loadRecordedResponses, recordedKey, type RecordedResponse } 
 
 const RECORDED = loadRecordedResponses();
 
-/** 场景对某个接口的替换响应，用于长文本、多条目等压力变体；键形如 `GET /api/v1/projects`。 */
+/** 场景对某个接口的替换响应，用于长文本、多条目等压力变体；键形如 `GET /api/v1/projects`，带查询串的请求写全查询串。 */
 export type ApiOverrides = Record<string, Pick<RecordedResponse, "status" | "body">>;
 
 export interface ApiStub {
@@ -31,7 +31,7 @@ export const test = base.extend<{ api: ApiStub }>({
       );
       await page.route("**/api/**", async (route) => {
         const request = route.request();
-        const key = recordedKey(request.method(), new URL(request.url()).pathname);
+        const key = recordedKey(request.method(), request.url());
         const response = overrides.get(key) ?? RECORDED.get(key);
         if (!response) {
           unrecorded.push(key);
@@ -43,7 +43,10 @@ export const test = base.extend<{ api: ApiStub }>({
 
       await use({
         override(entries) {
-          for (const [key, response] of Object.entries(entries)) overrides.set(key, response);
+          for (const [key, response] of Object.entries(entries)) {
+            const [method, url] = key.split(" ", 2);
+            overrides.set(recordedKey(method, url), response);
+          }
         },
       });
 

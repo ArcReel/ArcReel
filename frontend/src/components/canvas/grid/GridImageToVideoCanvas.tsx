@@ -253,12 +253,7 @@ export function GridImageToVideoCanvas({
       disabled={disabled}
       className="focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed"
       style={{
-        color:
-          activeTab === key
-            ? "var(--foreground)"
-            : disabled
-              ? "var(--muted-foreground)"
-              : "var(--muted-foreground)",
+        color: activeTab === key ? "var(--foreground)" : "var(--muted-foreground)",
       }}
     >
       {label}

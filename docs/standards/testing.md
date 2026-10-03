@@ -74,7 +74,7 @@ respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的
 
 ### 前端页面级套件的接口替身从真实后端录制
 
-`frontend/e2e/` 经 `page.route()` 回放 `e2e/fixtures/recorded/` 下的响应。这些文件只由 `pnpm e2e:record` 对真实后端录制生成，不手改；后端改动接口形状的 PR 同时重录，形状变化体现为替身文件的 diff。长文本、多条目等压力变体写在场景的 `api` 字段里。页面请求了没有录制的接口时用例失败。页面级套件同样不引入 msw。
+`frontend/e2e/` 经 `page.route()` 回放 `e2e/fixtures/recorded/` 下的响应。这些文件只由 `pnpm e2e:record` 对真实后端录制生成，不手改；后端改动接口形状的 PR 同时重录，形状变化体现为替身文件的 diff。长文本、多条目等压力变体写在场景的 `api` 字段里。替身按方法、路径与查询串匹配，查询串不同的请求分别录制；页面请求了没有录制的接口时用例失败。页面级套件同样不引入 msw。
 
 ### 前端只 mock 三类内部子组件
 

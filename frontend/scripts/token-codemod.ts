@@ -14,7 +14,8 @@
 //   color-mix；在任意值类内部使用下划线写法。首尾同色的 linear-gradient 收为单色。
 // - 任意值圆角 rounded-[Npx] 改为 Nova 刻度中最接近的具名档，距离相同时取较大档；
 //   不带档位的 rounded（4px）按同一规则改为 rounded-sm，只改字符串里的类名。
-// 运行结束时列出改写后仍残留的旧颜色变量、旧工具类与任意值圆角，这些需要人工处理。
+// 运行结束时列出改写后仍残留的旧颜色变量、旧工具类与任意值圆角，以及因颜色合并而两支同值的
+// 三元表达式，这些需要人工处理。
 //
 // 跳过 src/components/ui/（shadcn 生成文件，其中的 accent 是菜单悬停色）与 src/i18n/。
 // 重跑幂等：改写结果不再命中任何规则。accent → primary 无法区分旧紫色与 shadcn 的 accent，
@@ -218,10 +219,14 @@ function rewriteArbitraryRadius(text: string): string {
   );
 }
 
+function parseSource(text: string, fileName: string): ts.SourceFile {
+  const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  return ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, kind);
+}
+
 /** 只在字符串字面量里改不带档位的 rounded，避开同名变量与注释里的英文单词 */
 function rewriteBareRadius(text: string, fileName: string): string {
-  const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-  const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, kind);
+  const source = parseSource(text, fileName);
   const ranges: Array<[number, number]> = [];
   const visit = (node: ts.Node) => {
     if (
@@ -271,6 +276,26 @@ function leftovers(text: string): string[] {
   return found;
 }
 
+/** 多个旧色合并为同一语义色后，原本按状态取色的三元表达式两支可能变得相同（a ? "x" : "x"） */
+function sameBranchTernaries(text: string, fileName: string): string[] {
+  const source = parseSource(text, fileName);
+  const found: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isConditionalExpression(node) &&
+      ts.isStringLiteralLike(node.whenTrue) &&
+      ts.isStringLiteralLike(node.whenFalse) &&
+      node.whenTrue.text === node.whenFalse.text
+    ) {
+      const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+      found.push(`${line + 1}: 两支同值的三元表达式 ${JSON.stringify(node.whenTrue.text)}`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
 const FRONTEND_ROOT = path.resolve(import.meta.dirname, "..");
 const SKIPPED_DIRS = ["src/components/ui", "src/i18n", "node_modules"].map((dir) => path.join(FRONTEND_ROOT, dir));
 
@@ -300,7 +325,9 @@ function main(): void {
       changed.push(relative);
       if (!check) writeFileSync(file, after);
     }
-    for (const line of leftovers(after)) warnings.push(`${relative}:${line}`);
+    const pending = leftovers(after);
+    if (/\.tsx?$/.test(file)) pending.push(...sameBranchTernaries(after, file));
+    for (const line of pending) warnings.push(`${relative}:${line}`);
   }
 
   for (const file of changed) console.log(`${check ? "将改写" : "已改写"} ${file}`);

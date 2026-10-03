@@ -173,7 +173,7 @@ export function useEditUnit<T>({
     [save],
   );
 
-  useLeaveGuard({ dirty, save, discard, title: leaveTitle, allowNavigation });
+  useLeaveGuard({ dirty, saving: status === "saving", save, discard, title: leaveTitle, allowNavigation });
 
   return {
     value,

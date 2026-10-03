@@ -107,7 +107,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
                   <div
                     className={
                       "font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] " +
-                      (active ? "text-primary" : done ? "text-muted-foreground" : "text-muted-foreground")
+                      (active ? "text-primary" : "text-muted-foreground")
                     }
                   >
                     Step {s.num.toString().padStart(2, "0")}

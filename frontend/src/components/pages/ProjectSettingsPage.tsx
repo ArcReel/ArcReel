@@ -637,17 +637,23 @@ export function ProjectSettingsPage() {
     }
   }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, narrationDelivery, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, adTargetDuration, contentMode, videoResolutions, imageResolution, projectName, t, globalDefaults]);
 
-  // 「保存并离开」依次保存有修改的部分；风格未选定时不保存、留在原处。
+  // 口播语速、单集或总目标时长越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
+  const fieldsInvalid =
+    !isValidSpeechRate(speechRate) ||
+    !isValidEpisodeTargetDuration(episodeTargetDuration) ||
+    (contentMode === "ad" && adTargetDuration === null);
+
+  // 「保存并离开」依次保存有修改的部分；字段校验未通过或风格未选定时不保存、留在原处。
   // 不传 discard：被拦截的出口都会离开本页或切到别的项目重新加载。
   const saveBeforeLeave = useCallback(async () => {
     if (styleIsDirty && isStyleIncomplete) {
       useAppStore.getState().pushToast(t("style_incomplete_hint"), "error");
       return false;
     }
-    if (fieldsDirty && !(await handleSave())) return false;
+    if (fieldsDirty && (fieldsInvalid || !(await handleSave()))) return false;
     return !styleIsDirty || handleSaveStyle();
-  }, [fieldsDirty, styleIsDirty, isStyleIncomplete, handleSave, handleSaveStyle, t]);
-  useLeaveGuard({ dirty: isDirty, save: saveBeforeLeave });
+  }, [fieldsDirty, fieldsInvalid, styleIsDirty, isStyleIncomplete, handleSave, handleSaveStyle, t]);
+  useLeaveGuard({ dirty: isDirty, saving: saving || savingStyle, save: saveBeforeLeave });
 
   const handleResetAgentProfile = useCallback(async () => {
     if (profileResetProject !== projectName) {
@@ -1102,13 +1108,7 @@ export function ProjectSettingsPage() {
             <button
               // eslint-disable-next-line react-hooks/refs -- handleSave 在 onClick 时才执行，规则误报
               onClick={voidPromise(handleSave)}
-              // 口播语速越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
-              disabled={
-                saving ||
-                !isValidSpeechRate(speechRate) ||
-                !isValidEpisodeTargetDuration(episodeTargetDuration) ||
-                (contentMode === "ad" && adTargetDuration === null)
-              }
+              disabled={saving || fieldsInvalid}
               className={`${ACCENT_BTN_CLS} px-5`}
               style={ACCENT_BUTTON_STYLE}
             >

@@ -18,8 +18,14 @@ export interface RecordedResponse {
   body: unknown;
 }
 
-export function recordedKey(method: string, path: string): string {
-  return `${method.toUpperCase()} ${path}`;
+/**
+ * 替身的匹配键：方法加路径与查询串。查询参数按名称排序，与发送顺序和编码写法无关；
+ * 查询串不同的请求是不同的接口，各自录制。`url` 可以是完整地址或以 / 开头的路径。
+ */
+export function recordedKey(method: string, url: string): string {
+  const parsed = new URL(url, "http://recorded.invalid");
+  parsed.searchParams.sort();
+  return `${method.toUpperCase()} ${parsed.pathname}${parsed.search}`;
 }
 
 export function loadRecordedResponses(): Map<string, RecordedResponse> {
