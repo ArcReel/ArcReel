@@ -144,32 +144,33 @@ export function EndpointsSection() {
     [navigate, hrefOf],
   );
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (signal?: AbortSignal) => {
     const [endpointsRes, providersRes] = await Promise.all([
-      API.listCustomEndpoints(),
-      API.listCustomProviders(),
+      API.listCustomEndpoints({ signal }),
+      API.listCustomProviders({ signal }),
     ]);
+    if (signal?.aborted) return;
     setCustomEndpoints(endpointsRes.endpoints);
     setProviders(providersRes.providers);
     await refreshCatalog();
   }, [refreshCatalog]);
 
   useEffect(() => {
-    let disposed = false;
+    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reloadKey 变化时点亮加载态并重新拉取，是动作驱动重置
     setLoading(true);
     setLoadError(null);
     voidCall(
-      reload()
+      reload(controller.signal)
         .catch((e) => {
-          if (!disposed) setLoadError(errMsg(e));
+          if (!controller.signal.aborted) setLoadError(errMsg(e));
         })
         .finally(() => {
-          if (!disposed) setLoading(false);
+          if (!controller.signal.aborted) setLoading(false);
         }),
     );
     return () => {
-      disposed = true;
+      controller.abort();
     };
   }, [reload, reloadKey]);
 
@@ -178,10 +179,10 @@ export function EndpointsSection() {
 
   // 本节管的是自定义端点，内置端点只作参照。自定义端点的媒体类型由定义自己声明（一份
   // ComfyUI workflow 可以产图），因此自定义端点不按 video 过滤——否则导进来的图像端点在设置页
-  // 里既看不到也删不掉。内置端点仍只列视频：内置图像端点在这里没有管理面。
+  // 里既看不到也删不掉。内置端点默认只列视频；来自模型行的深链也展示其选中的非视频端点。
   const sectionCatalog = useMemo(
-    () => catalog.filter((endpoint) => endpoint.media_type === "video" || endpoint.source === "custom"),
-    [catalog],
+    () => catalog.filter((endpoint) => endpoint.media_type === "video" || endpoint.source === "custom" || endpoint.key === selectedKey),
+    [catalog, selectedKey],
   );
 
   const railGroups = useMemo<SecondaryRailGroup[]>(() => {
@@ -255,12 +256,13 @@ export function EndpointsSection() {
       : { mode: "builtin", descriptor };
   }, [selectedKey, customEndpoints, sectionCatalog, comfyuiDraft]);
 
-  // 地址里没有选中项时选中第一个端点（我的端点优先）；与供应商分区的兜底一致，用 replace。
+  // 地址里没有选中项、或指向已不存在的新导入草稿时，选中第一个端点（我的端点优先）；与供应商分区的兜底一致，用 replace。
   const firstKey = railGroups.find((group) => group.items.length > 0)?.items[0]?.id ?? null;
+  const needsFallback = selectedKey === null || (selectedKey === COMFYUI_DRAFT_KEY && selection === null);
   useEffect(() => {
-    if (loading || loadError || selectedKey !== null || firstKey === null) return;
+    if (loading || loadError || !needsFallback || firstKey === null) return;
     select(firstKey);
-  }, [loading, loadError, selectedKey, firstKey, select]);
+  }, [loading, loadError, needsFallback, firstKey, select]);
 
   const back = useMemo((): EndpointBackTarget | null => {
     if (fromProviderId === undefined) return null;
@@ -516,7 +518,7 @@ export function EndpointsSection() {
   );
 
   const handleDiscardComfyui = useCallback(() => {
-    // 导入的未保存定义整份丢掉：新导入的落回第一个端点，重新导入的落回已保存的那份。
+    // 导入的未保存定义整份丢掉：新导入的由兜底选中落回第一个端点，重新导入的落回已保存的那份。
     setComfyuiDraft(null);
     setResetEpoch((n) => n + 1);
   }, []);

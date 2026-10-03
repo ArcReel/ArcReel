@@ -55,6 +55,17 @@ function ChartContainer({
 }) {
   const uniqueId = React.useId()
   const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`
+  const [fontsReady, setFontsReady] = React.useState(() => typeof document === "undefined" || !document.fonts)
+
+  React.useEffect(() => {
+    if (!document.fonts) return
+    const controller = new AbortController()
+    // Recharts 缓存刻度文本的测量结果；首次测量必须使用已加载的项目字体。
+    void document.fonts.ready.then(() => {
+      if (!controller.signal.aborted) setFontsReady(true)
+    })
+    return () => controller.abort()
+  }, [])
 
   return (
     <ChartContext.Provider value={{ config }}>
@@ -68,11 +79,13 @@ function ChartContainer({
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
-        <RechartsPrimitive.ResponsiveContainer
-          initialDimension={initialDimension}
-        >
-          {children}
-        </RechartsPrimitive.ResponsiveContainer>
+        {fontsReady && (
+          <RechartsPrimitive.ResponsiveContainer
+            initialDimension={initialDimension}
+          >
+            {children}
+          </RechartsPrimitive.ResponsiveContainer>
+        )}
       </div>
     </ChartContext.Provider>
   )

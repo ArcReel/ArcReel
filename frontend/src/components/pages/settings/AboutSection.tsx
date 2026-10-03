@@ -79,7 +79,7 @@ export function AboutSection() {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 text-primary motion-safe:animate-spin" aria-hidden />
+        <Loader2 className="size-4 text-primary animate-spin" aria-hidden />
         {t("about_loading")}
       </div>
     );
@@ -123,7 +123,7 @@ export function AboutSection() {
             </div>
           </div>
           <Button variant="outline" onClick={() => void fetchVersion()} disabled={refreshing}>
-            <RefreshCcw className={refreshing ? "motion-safe:animate-spin" : undefined} aria-hidden />
+            <RefreshCcw className={refreshing ? "animate-spin" : undefined} aria-hidden />
             {refreshing ? t("about_checking_update") : t("about_check_update")}
           </Button>
         </div>

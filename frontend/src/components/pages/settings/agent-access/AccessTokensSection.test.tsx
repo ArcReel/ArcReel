@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { createDeferred } from "@/test/deferred";
 import type { ApiKeyInfo } from "@/types";
 
 import { AccessTokensSection } from "./AccessTokensSection";
@@ -62,6 +63,24 @@ describe("AccessTokensSection", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("arc-new****")).toBeInTheDocument();
     expect(screen.queryByText("arc-new-full-secret")).not.toBeInTheDocument();
+  });
+
+  it("创建发生在列表加载期间时保留新令牌和既有令牌", async () => {
+    const initial = createDeferred<ApiKeyInfo[]>();
+    const added: ApiKeyInfo = { ...EXISTING, id: 2, name: "新接入", key_prefix: "arc-new" };
+    vi.mocked(API.listApiKeys).mockReturnValueOnce(initial.promise).mockResolvedValueOnce([added, EXISTING]);
+    vi.spyOn(API, "createApiKey").mockResolvedValue({ ...added, key: "arc-new-secret" });
+    const user = userEvent.setup();
+    render(<AccessTokensSection />);
+    await user.click(screen.getByRole("button", { name: "创建访问令牌" }));
+    const dialog = await screen.findByRole("dialog", { name: "创建访问令牌" });
+    await user.type(within(dialog).getByRole("textbox", { name: "名称" }), "新接入");
+    await user.click(within(dialog).getByRole("button", { name: "创建" }));
+    await screen.findByRole("dialog", { name: "访问令牌已创建" });
+    initial.resolve([EXISTING]);
+    await user.click(screen.getByRole("button", { name: "完成" }));
+    expect(await screen.findByText("arc-new****")).toBeInTheDocument();
+    expect(screen.getByText("arc-live****")).toBeInTheDocument();
   });
 
   it("创建失败时留在表单并显示错误，不出现令牌", async () => {

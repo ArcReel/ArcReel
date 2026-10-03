@@ -353,12 +353,16 @@ function RenameSourceDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const formId = useId();
   const inputId = useId();
-  // 对话框关闭动画期间 source 已是 null，保留上一次的内容避免闪成空白。
-  const [shown, setShown] = useState(source);
+  // 对话框关闭动画期间 source 已是 null，保留上一次的内容避免闪成空白。每次打开（含再次打开同一个源）都从源的当前名称开始。
+  const [prevSource, setPrevSource] = useState<MarketSourceInfo | null>(null);
+  const [shown, setShown] = useState<MarketSourceInfo | null>(null);
   const [name, setName] = useState("");
-  if (source && source !== shown) {
-    setShown(source);
-    setName(source.display_name);
+  if (source !== prevSource) {
+    setPrevSource(source);
+    if (source) {
+      setShown(source);
+      setName(source.display_name);
+    }
   }
   const trimmed = name.trim();
 
@@ -409,12 +413,17 @@ function DeleteSourceDialog({
   onDeleted: (id: number) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
-  const [shown, setShown] = useState(source);
+  // 关闭动画期间保留上一次的源；每次打开都清掉上一次的错误。
+  const [prevSource, setPrevSource] = useState<MarketSourceInfo | null>(null);
+  const [shown, setShown] = useState<MarketSourceInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (source && source !== shown) {
-    setShown(source);
-    setError(null);
+  if (source !== prevSource) {
+    setPrevSource(source);
+    if (source) {
+      setShown(source);
+      setError(null);
+    }
   }
 
   const handleDelete = async () => {

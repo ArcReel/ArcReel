@@ -13,6 +13,7 @@ const PROVIDERS_PATH = "/app/settings?section=providers";
 interface RecordedProvider {
   id: string;
   credential_count: number;
+  status: "ready" | "unconfigured";
 }
 
 // 录制环境没有配置任何密钥：在录制的目录上给几个预置供应商补上密钥数量，二级栏第二行才有「已配置 N 个密钥」。
@@ -24,10 +25,14 @@ const PROVIDERS_WITH_KEYS: ApiOverrides = {
   "GET /api/v1/providers": {
     status: 200,
     body: {
-      providers: recordedProviders.providers.map((provider, index) => ({
-        ...provider,
-        credential_count: provider.id === "gemini-aistudio" ? 12 : index % 3 === 0 ? index + 1 : 0,
-      })),
+      providers: recordedProviders.providers.map((provider, index) => {
+        const credentialCount = provider.id === "gemini-aistudio" ? 12 : index % 3 === 0 ? index + 1 : 0;
+        return {
+          ...provider,
+          credential_count: credentialCount,
+          status: credentialCount > 0 ? "ready" : "unconfigured",
+        };
+      }),
     },
   },
 };

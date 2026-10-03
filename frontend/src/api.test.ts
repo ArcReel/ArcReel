@@ -530,7 +530,7 @@ describe("API", () => {
         method: "PATCH",
         body: JSON.stringify({ title: "新标题" }),
       });
-      expect(requestSpy).toHaveBeenCalledWith("/system/config");
+      expect(requestSpy).toHaveBeenCalledWith("/system/config", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/system/version");
       expect(requestSpy).toHaveBeenCalledWith("/prompt-templates", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/prompt-templates/asset/sheet%201", { signal: undefined });

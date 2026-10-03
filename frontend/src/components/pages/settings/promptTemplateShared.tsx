@@ -20,7 +20,7 @@ export const CHIP_CLS =
 export function LoadingCard({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
-      <Loader2 aria-hidden className="size-4 text-primary motion-safe:animate-spin" />
+      <Loader2 aria-hidden className="size-4 text-primary animate-spin" />
       {label}
     </div>
   );

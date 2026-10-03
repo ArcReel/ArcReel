@@ -121,6 +121,7 @@ const CATALOG: EndpointDescriptor[] = [
   }),
   descriptor({
     key: "openai-image",
+    kind: "python",
     media_type: "image",
     source: "builtin",
     display_name: "OpenAI Image",
@@ -323,10 +324,31 @@ describe("EndpointsSection", () => {
     expect(within(list).queryByText("OpenAI Image")).not.toBeInTheDocument();
   });
 
-  it("rejects a built-in image endpoint selected through the URL", async () => {
-    renderSection("section=endpoints&endpoint=openai-image");
-    expect(await screen.findByText("选择一个端点查看其定义。")).toBeInTheDocument();
-    expect(screen.queryByText("该端点由代码实现，仅展示接口信息。")).not.toBeInTheDocument();
+  it("opens a non-video built-in endpoint deep link and returns to its provider", async () => {
+    vi.mocked(API.listCustomProviders).mockResolvedValue({ providers: [provider({})] });
+    const { location } = renderSection("section=endpoints&endpoint=openai-image&from=1");
+    expect(await screen.findByText("该端点由代码实现，仅展示接口信息。")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("link", { name: "返回「Relay」" }));
+    expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=1");
+  });
+
+  it.each(["{", '{"meta": {}}'])("keeps invalid JSON edits in the leave guard and discards the raw text: %s", async (text) => {
+    const update = vi.spyOn(API, "updateCustomEndpoint");
+    const { location } = renderSection("section=endpoints&endpoint=ce-7", { guarded: true });
+    await screen.findByDisplayValue("Example Video API");
+    await userEvent.click(screen.getByRole("button", { name: "JSON" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "JSON" }), { target: { value: text } });
+    await clickRail("新建端点");
+    const dialog = await screen.findByRole("alertdialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "继续编辑" }));
+    expect(location.history.at(-1)).toBe("/app/settings?section=endpoints&endpoint=ce-7");
+    expect(screen.getByRole("textbox", { name: "JSON" })).toHaveValue(text);
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(screen.getByRole("textbox", { name: "JSON" })).toHaveValue(text);
+    expect(update).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "放弃修改" }));
+    expect(JSON.parse((screen.getByRole("textbox", { name: "JSON" }) as HTMLTextAreaElement).value)).toEqual(MINE.definition);
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("shows an editable lifecycle form for one of my endpoints", async () => {
@@ -705,6 +727,31 @@ describe("EndpointsSection", () => {
       expect(create).not.toHaveBeenCalled();
       // 占位名要先改掉：同作者同名的两份 workflow 会被判成同一份。
       expect(screen.getByText(/先给这份 workflow 起个名字/)).toBeInTheDocument();
+    });
+
+    it("falls back to the first endpoint after discarding a newly imported workflow", async () => {
+      const workflow = { "9": { class_type: "SaveVideo", inputs: { fps: 16 } } };
+      const wrapped: ComfyuiEndpointDefinition = {
+        kind: "comfyui",
+        schema_version: "1.0.0",
+        meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" },
+        media_type: "video",
+        workflow,
+        bindings: {},
+      };
+      vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+        validation({ import_shape: "comfyui_api_workflow", wrapped_definition: wrapped }),
+      );
+      const { location } = renderSection();
+      await screen.findByRole("navigation");
+
+      await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
+      await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
+      expect(await screen.findByLabelText("端点名称")).toHaveValue("ComfyUI workflow");
+      await userEvent.click(screen.getByRole("button", { name: "放弃修改" }));
+
+      await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=endpoints&endpoint=ce-7"));
+      expect(await screen.findByDisplayValue("Example Video API")).toBeInTheDocument();
     });
 
     it("drops an inference that comes back after the dialog was dismissed", async () => {
