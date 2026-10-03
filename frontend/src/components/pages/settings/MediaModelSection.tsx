@@ -161,13 +161,15 @@ export function MediaModelSection() {
   const source = useMemo(() => fieldsFrom(settings), [settings]);
   const saveFields = useCallback(
     async (fields: MediaModelFields, saved: MediaModelFields) => {
-      await API.updateSystemConfig(changedFields(fields, saved));
+      const res = await API.updateSystemConfig(changedFields(fields, saved));
       // 全局默认视频后端参与项目能力的三级解析（项目 > 系统设置 > 系统默认）。项目未指定
       // 后端时改这里会换掉生效模型，而项目字段一个都没变、在用的能力查询不会因 props 重取。
       useCapabilitiesStore.getState().invalidate();
       await fetchConfig();
       void reloadCandidates();
       void useConfigStatusStore.getState().refresh();
+      // 以服务端规范化后的值（如去掉首尾空白的旁白音色）作为已保存内容，不依赖重取配置的渲染时机
+      return fieldsFrom(res.settings);
     },
     [fetchConfig, reloadCandidates],
   );

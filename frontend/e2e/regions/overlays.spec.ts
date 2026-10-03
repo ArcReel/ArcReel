@@ -24,12 +24,12 @@ function diagnostics(prefix: string, count: number) {
 function exportWith(diagnosticsBody: Record<string, unknown>): ApiOverrides {
   return {
     ...EVENT_STREAM,
-    "POST /api/v1/projects/demo/export/token": {
+    "POST /api/v1/projects/demo/export/token?scope=current": {
       status: 200,
       body: { download_token: "e2e-token", expires_in: 300, diagnostics: diagnosticsBody },
     },
     // 下载链接是一次页面跳转；204 让浏览器留在当前页。
-    "GET /api/v1/projects/demo/export": { status: 204, body: null },
+    "GET /api/v1/projects/demo/export?download_token=e2e-token&scope=current": { status: 204, body: null },
   };
 }
 

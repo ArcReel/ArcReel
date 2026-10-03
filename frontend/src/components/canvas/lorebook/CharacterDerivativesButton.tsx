@@ -299,7 +299,7 @@ export function CharacterDerivativesButton({
                 {derivative.referenced !== undefined && (
                   <p
                     className="mt-1 text-[10px]"
-                    style={{ color: derivative.referenced ? "var(--muted-foreground)" : "var(--muted-foreground)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   >
                     {t(derivative.referenced ? "assets:derivative_referenced" : "assets:derivative_unreferenced")}
                   </p>

@@ -381,7 +381,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     setSaveError(null);
   }, []);
   // 切换供应商、分区或离开页面前，有未保存的高级配置先询问
-  useLeaveGuard({ dirty: hasDraft, save: handleSave, discard: discardDraft });
+  useLeaveGuard({ dirty: hasDraft, saving, save: handleSave, discard: discardDraft });
 
   if (loadError) {
     return (

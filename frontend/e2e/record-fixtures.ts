@@ -1,6 +1,6 @@
 // 对真实后端录制页面级套件的接口数据替身：`pnpm e2e:record`。
 // 在临时数据目录里启动后端、创建演示项目，按 RECORDINGS 逐个请求并写入 e2e/fixtures/recorded/。
-// 时间戳、临时路径与令牌改写成固定值，重录后只有接口形状的变化会出现在 diff 里。
+// 时间戳、临时数据目录、仓库检出路径、令牌与项目修订号改写成固定值，重录后只有接口形状的变化会出现在 diff 里。
 // 后端改动接口形状的 PR 同时重录。
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -23,6 +23,7 @@ interface Recording {
   /** 替身文件名（不含扩展名）。 */
   file: string;
   method: "GET" | "POST";
+  /** 页面实际请求的路径；带查询串时写全，参数顺序不限。查询串不同的请求分别录制。 */
   path: string;
   /** 不带令牌请求。 */
   anonymous?: boolean;
@@ -50,10 +51,17 @@ const RECORDINGS: Recording[] = [
   { file: "projects", method: "GET", path: "/api/v1/projects" },
   { file: "project-demo", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}` },
   // 工作区与集页的启动请求（项目事件流是 SSE，不录制，场景里按需替换）。
-  { file: "tasks", method: "GET", path: "/api/v1/tasks" },
+  { file: "tasks", method: "GET", path: "/api/v1/tasks?page_size=200" },
+  { file: "project-demo-tasks", method: "GET", path: `/api/v1/tasks?page_size=200&project_name=${DEMO_PROJECT}` },
   { file: "tasks-stats", method: "GET", path: "/api/v1/tasks/stats" },
-  { file: "usage-summary", method: "GET", path: "/api/v1/usage/summary" },
-  { file: "usage-records", method: "GET", path: "/api/v1/usage/records" },
+  { file: "project-demo-tasks-stats", method: "GET", path: `/api/v1/tasks/stats?project_name=${DEMO_PROJECT}` },
+  { file: "project-demo-usage-summary", method: "GET", path: `/api/v1/usage/summary?project_name=${DEMO_PROJECT}` },
+  {
+    file: "project-demo-usage-records-recent",
+    method: "GET",
+    path: `/api/v1/usage/records?limit=10&project_name=${DEMO_PROJECT}&status=success,failed,cancelled`,
+  },
+  { file: "project-demo-usage-records-pending", method: "GET", path: `/api/v1/usage/records?project_name=${DEMO_PROJECT}&status=pending` },
   { file: "project-demo-video-capabilities", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/video-capabilities`, status: 422 },
   { file: "project-demo-assistant-skills", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/assistant/skills` },
   { file: "project-demo-assistant-sessions", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/assistant/sessions` },
@@ -62,20 +70,23 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-cost-estimate", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/cost-estimate` },
 ];
 
+// 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。
+const FIXED_VALUES = new Map<string, string>([
+  ["access_token", RECORDED_ACCESS_TOKEN],
+  ["project_revision", "sha256-v1:<project-revision>"],
+]);
+
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
 
 function normalize(value: unknown, dataDir: string): unknown {
   if (typeof value === "string") {
     if (ISO_TIMESTAMP.test(value)) return FIXED_NOW;
-    return value.replaceAll(dataDir, "<data-dir>");
+    return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>");
   }
   if (Array.isArray(value)) return value.map((item) => normalize(item, dataDir));
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [
-        key,
-        key === "access_token" ? RECORDED_ACCESS_TOKEN : normalize(item, dataDir),
-      ]),
+      Object.entries(value).map(([key, item]) => [key, FIXED_VALUES.get(key) ?? normalize(item, dataDir)]),
     );
   }
   return value;

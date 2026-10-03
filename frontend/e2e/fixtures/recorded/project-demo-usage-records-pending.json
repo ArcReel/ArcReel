@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v1/usage/records?project_name=demo&status=pending",
+  "status": 200,
+  "body": {
+    "items": [],
+    "next_cursor": null,
+    "total": 0
+  }
+}

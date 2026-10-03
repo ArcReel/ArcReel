@@ -51,6 +51,7 @@ function renderNotePage(editor: ReactNode) {
     <Router hook={location.hook}>
       <LeaveGuardProvider>
         <Link href="/elsewhere">去别处</Link>
+        <Link href="/notes">当前页</Link>
         <Switch>
           <Route path="/notes">{editor}</Route>
           <Route path="/elsewhere">别处的页面</Route>
@@ -121,6 +122,18 @@ describe("离开拦截", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
+  it("跳到当前地址时不询问，修改保留", async () => {
+    const user = userEvent.setup();
+    const location = renderNotePage(<NoteEditor source="原始备注" save={vi.fn<SaveNote>()} />);
+    await user.type(note(), "，补充");
+
+    await user.click(screen.getByRole("link", { name: "当前页" }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(location.history.at(-1)).toBe("/notes");
+    expect(note()).toHaveValue("原始备注，补充");
+  });
+
   it("继续编辑：留在原处，修改保留", async () => {
     const user = userEvent.setup();
     const location = renderNotePage(<NoteEditor source="原始备注" save={vi.fn<SaveNote>()} />);
@@ -174,6 +187,46 @@ describe("离开拦截", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("保存失败：备注过长");
     expect(location.history.at(-1)).toBe("/notes");
+    expect(note()).toHaveValue("原始备注，补充");
+  });
+
+  it("保存在途时离开：等保存成功后直接离开，不询问也不重复提交", async () => {
+    const user = userEvent.setup();
+    const saving = createDeferred<string | void>();
+    const save = vi.fn<SaveNote>().mockReturnValue(saving.promise);
+    const location = renderNotePage(<NoteEditor source="原始备注" save={save} />);
+    await user.type(note(), "，补充");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await user.click(screen.getByRole("link", { name: "去别处" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(location.history.at(-1)).toBe("/notes");
+
+    await act(async () => saving.resolve(undefined));
+
+    expect(await screen.findByText("别处的页面")).toBeInTheDocument();
+    expect(location.history.at(-1)).toBe("/elsewhere");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("保存在途时离开：保存失败后再询问，修改与错误保留", async () => {
+    const user = userEvent.setup();
+    const saving = createDeferred<string | void>();
+    const location = renderNotePage(<NoteEditor source="原始备注" save={() => saving.promise} />);
+    await user.type(note(), "，补充");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await user.click(screen.getByRole("link", { name: "去别处" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    await act(async () => saving.reject(new Error("备注过长")));
+
+    await user.click(within(await leaveDialog()).getByRole("button", { name: "继续编辑" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(location.history.at(-1)).toBe("/notes");
+    expect(screen.getByRole("alert")).toHaveTextContent("保存失败：备注过长");
     expect(note()).toHaveValue("原始备注，补充");
   });
 
@@ -231,9 +284,10 @@ describe("离开拦截", () => {
       window.history.replaceState(null, "", "/");
     });
 
-    /** 用浏览器地址渲染，模拟从 /elsewhere 进入备注页。 */
-    function renderInBrowser() {
-      window.history.replaceState(null, "", "/elsewhere");
+    /** 用浏览器地址渲染，模拟依次访问 visited 中的页面后进入备注页。 */
+    function renderInBrowser(visited = ["/elsewhere"]) {
+      window.history.replaceState(null, "", visited[0]);
+      for (const path of visited.slice(1)) window.history.pushState(null, "", path);
       window.history.pushState(null, "", "/notes");
       render(
         <LeaveGuardProvider>
@@ -273,6 +327,19 @@ describe("离开拦截", () => {
 
       expect(await screen.findByText("别处的页面")).toBeInTheDocument();
       expect(window.location.pathname).toBe("/elsewhere");
+    });
+
+    it("放行后退时回到原有的历史记录，再后退不会回到已离开的页面", async () => {
+      const user = userEvent.setup();
+      renderInBrowser(["/start", "/elsewhere"]);
+      await user.type(note(), "，补充");
+
+      await goBack();
+      await user.click(within(await leaveDialog()).getByRole("button", { name: "放弃修改" }));
+      expect(await screen.findByText("别处的页面")).toBeInTheDocument();
+
+      await act(() => window.history.back());
+      await waitFor(() => expect(window.location.pathname).toBe("/start"));
     });
   });
 });

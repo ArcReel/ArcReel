@@ -12,7 +12,7 @@ import {
 } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Router, useLocation, type AroundNavHandler } from "wouter";
+import { Router, useLocation, useSearch, type AroundNavHandler } from "wouter";
 
 import {
   AlertDialog,
@@ -29,6 +29,11 @@ import {
 export interface LeaveGuardOptions {
   /** 有未保存修改；为 false 时不拦截。 */
   dirty: boolean;
+  /**
+   * 保存请求在途。此时的离开先等保存落定再判断：成功且没有新修改就直接放行，失败或又有修改才询问。
+   * 否则「放弃修改」会放走已经发出的保存，「保存并离开」会重复提交。
+   */
+  saving?: boolean;
   /** 「保存并离开」时调用，返回是否保存成功。失败时留在原处，错误由编辑单元自己显示。 */
   save: () => Promise<boolean>;
   /** 「放弃修改」时调用。不传时只放行跳转，适用于被拦截的出口都会卸载或重新加载编辑单元的页面。 */
@@ -51,6 +56,11 @@ interface LeaveRequest extends ConfirmLeaveOptions {
   proceed: () => void;
 }
 
+interface PendingLeave {
+  proceed: () => void;
+  options: ConfirmLeaveOptions & { to?: string };
+}
+
 interface LeaveGuardRegistry {
   register: (id: string, unit: LeaveGuardOptions) => () => void;
   confirmLeave: (proceed: () => void, options?: ConfirmLeaveOptions) => void;
@@ -63,13 +73,13 @@ const LeaveGuardContext = createContext<LeaveGuardRegistry | null>(null);
  * 包住的切换与关闭标签页都会先询问。`useEditUnit` 已自动登记；自行管理表单状态的页面直接调用。
  * 函数型参数需传稳定引用。
  */
-export function useLeaveGuard({ dirty, save, discard, title, allowNavigation }: LeaveGuardOptions): void {
+export function useLeaveGuard({ dirty, saving, save, discard, title, allowNavigation }: LeaveGuardOptions): void {
   const registry = useContext(LeaveGuardContext);
   const id = useId();
   useEffect(() => {
     if (!registry) return;
-    return registry.register(id, { dirty, save, discard, title, allowNavigation });
-  }, [registry, id, dirty, save, discard, title, allowNavigation]);
+    return registry.register(id, { dirty, saving, save, discard, title, allowNavigation });
+  }, [registry, id, dirty, saving, save, discard, title, allowNavigation]);
 }
 
 /**
@@ -92,6 +102,15 @@ function currentUrl(): string {
   return window.location.pathname + window.location.search + window.location.hash;
 }
 
+/** 目标与当前地址的路径和查询参数都相同（参数顺序不计）。`to` 可以是只有查询串的相对地址。 */
+function isSameLocation(to: string, here: string): boolean {
+  const current = new URL(here, "http://leave-guard.invalid");
+  const target = new URL(to, current);
+  current.searchParams.sort();
+  target.searchParams.sort();
+  return target.pathname === current.pathname && target.search === current.search;
+}
+
 /**
  * 离开拦截的注册中心与唯一的拦截对话框，挂在路由根部（`base` 为空的位置）。
  * 应用内路由跳转经 wouter 的 `aroundNav` 拦截；浏览器前进后退先退回原地址再询问；
@@ -99,22 +118,35 @@ function currentUrl(): string {
  */
 export function LeaveGuardProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation("common");
-  const [, navigate] = useLocation();
+  const [path] = useLocation();
+  const search = useSearch();
+  // 路由的当前地址（路径加查询串），供 aroundNav 识别跳到当前地址
+  const hereRef = useRef("");
+  useLayoutEffect(() => {
+    hereRef.current = search ? `${path}?${search}` : path;
+  }, [path, search]);
   const unitsRef = useRef(new Map<string, LeaveGuardOptions>());
   // 用户已放行的那次切换在同步执行期间发起的跳转，不再重复拦截
   const passingRef = useRef(false);
+  // 用户放行被截住的前进后退后，由 history.back() 引起的那次 popstate 直接交给 wouter
+  const releasingPopRef = useRef(false);
+  // 等在途保存落定的离开请求；登记变化时重新判断，只保留最近一次
+  const pendingLeaveRef = useRef<PendingLeave | null>(null);
   const lastUrlRef = useRef("");
   const [request, setRequest] = useState<LeaveRequest | null>(null);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const dirtyUnitIds = useCallback((to?: string) => {
-    const ids: string[] = [];
-    for (const [id, unit] of unitsRef.current) {
-      if (unit.dirty && !(to !== undefined && unit.allowNavigation?.(to))) ids.push(id);
-    }
-    return ids;
-  }, []);
+  /** 这次离开会影响的编辑单元：排除放行该目标的单元。 */
+  const leavingUnits = useCallback(
+    (to?: string) => [...unitsRef.current].filter(([, unit]) => !(to !== undefined && unit.allowNavigation?.(to))),
+    [],
+  );
+
+  const dirtyUnitIds = useCallback(
+    (to?: string) => leavingUnits(to).flatMap(([id, unit]) => (unit.dirty ? [id] : [])),
+    [leavingUnits],
+  );
 
   const pass = useCallback((proceed: () => void) => {
     passingRef.current = true;
@@ -127,7 +159,15 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
 
   const requestLeave = useCallback(
     (proceed: () => void, options: ConfirmLeaveOptions & { to?: string } = {}) => {
-      const unitIds = passingRef.current ? [] : dirtyUnitIds(options.to);
+      if (passingRef.current) {
+        proceed();
+        return;
+      }
+      if (leavingUnits(options.to).some(([, unit]) => unit.saving)) {
+        pendingLeaveRef.current = { proceed, options };
+        return;
+      }
+      const unitIds = dirtyUnitIds(options.to);
       if (unitIds.length === 0) {
         proceed();
         return;
@@ -136,31 +176,39 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
       setRequest({ unitIds, title, proceed, saveLabel: options.saveLabel });
       setOpen(true);
     },
-    [dirtyUnitIds],
+    [leavingUnits, dirtyUnitIds],
   );
 
-  const registry = useMemo<LeaveGuardRegistry>(
-    () => ({
+  const registry = useMemo<LeaveGuardRegistry>(() => {
+    // 编辑单元的保存落定后会更新登记，此时重新判断被推迟的离开；放到 effect 之外执行
+    const retryPendingLeave = () => {
+      const pending = pendingLeaveRef.current;
+      if (!pending) return;
+      pendingLeaveRef.current = null;
+      queueMicrotask(() => requestLeave(pending.proceed, pending.options));
+    };
+    return {
       register: (id, unit) => {
         unitsRef.current.set(id, unit);
+        retryPendingLeave();
         return () => {
           unitsRef.current.delete(id);
+          retryPendingLeave();
         };
       },
       confirmLeave: (proceed, options) => requestLeave(proceed, options),
-    }),
-    [requestLeave],
-  );
+    };
+  }, [requestLeave]);
 
   const aroundNav = useCallback<AroundNavHandler>(
     (go, to, options) => {
-      requestLeave(
-        () => {
-          go(to, options);
-          lastUrlRef.current = currentUrl();
-        },
-        { to },
-      );
+      const navigate = () => {
+        go(to, options);
+        lastUrlRef.current = currentUrl();
+      };
+      // 跳到当前地址（如再点一次已选中的分区）不会卸载任何编辑单元，不询问
+      if (isSameLocation(to, hereRef.current)) navigate();
+      else requestLeave(navigate, { to });
     },
     [requestLeave],
   );
@@ -171,24 +219,26 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
     lastUrlRef.current = currentUrl();
     const onPopState = (event: PopStateEvent) => {
       const target = currentUrl();
-      if (passingRef.current || dirtyUnitIds(target).length === 0) {
+      if (releasingPopRef.current || passingRef.current || dirtyUnitIds(target).length === 0) {
+        releasingPopRef.current = false;
         lastUrlRef.current = target;
         return;
       }
-      // 浏览器前进后退不经过 aroundNav，地址已经变了：先退回离开前的地址，用户放行后再前往目标
+      // 浏览器前进后退不经过 aroundNav，地址已经变了：先压入离开前的地址，目标记录正好在它前一条。
+      // 用户放行后退回一条，回到浏览器原本要去的那条历史记录，不另压新记录
       event.stopImmediatePropagation();
       window.history.pushState(null, "", lastUrlRef.current);
       requestLeave(
         () => {
-          navigate(target);
-          lastUrlRef.current = target;
+          releasingPopRef.current = true;
+          window.history.back();
         },
         { to: target },
       );
     };
     window.addEventListener("popstate", onPopState, { capture: true });
     return () => window.removeEventListener("popstate", onPopState, { capture: true });
-  }, [dirtyUnitIds, requestLeave, navigate]);
+  }, [dirtyUnitIds, requestLeave]);
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {

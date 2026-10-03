@@ -210,7 +210,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     <span
                       className="num rounded-xs px-1.5 py-px text-[10.5px]"
                       style={{
-                        color: active ? "var(--muted-foreground)" : "var(--muted-foreground)",
+                        color: "var(--muted-foreground)",
                         background: active ? "oklch(0 0 0 / 0.2)" : "transparent",
                       }}
                     >

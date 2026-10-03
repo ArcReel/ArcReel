@@ -144,7 +144,7 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
             >
               <Icon
                 className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                style={{ color: isActive ? "var(--primary)" : "var(--primary)" }}
+                style={{ color: "var(--primary)" }}
               />
               <div className="min-w-0">
                 <span

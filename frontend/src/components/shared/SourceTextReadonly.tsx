@@ -34,7 +34,7 @@ export function SourceTextReadonly({ text, className }: SourceTextReadonlyProps)
         className="m-0 whitespace-pre-wrap border-l-2 pl-3 text-[12px]"
         style={{
           borderColor: "var(--border)",
-          color: hasContent ? "var(--muted-foreground)" : "var(--muted-foreground)",
+          color: "var(--muted-foreground)",
           lineHeight: 1.65,
           fontStyle: hasContent ? undefined : "italic",
         }}

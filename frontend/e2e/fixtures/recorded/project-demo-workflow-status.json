@@ -4,7 +4,7 @@
   "status": 200,
   "body": {
     "schema_version": 2,
-    "project_revision": "sha256-v1:628d56c0f5142ddf47abe82d467a5184ff1180e62fbbcff3ef27d178fce9f2b6",
+    "project_revision": "sha256-v1:<project-revision>",
     "source_revision": "sha256-v1:5eccc6d32e26075e1eeb38099443419c4b37a2433114dcbf22ed8071e32a3670",
     "project": {
       "content_mode": "narration",
