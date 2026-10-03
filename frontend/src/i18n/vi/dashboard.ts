@@ -493,6 +493,8 @@ export default {
 
   // ExportScopeDialog
   'export_scope_title': 'Chọn phạm vi xuất',
+  'export_scope_description': 'Tải dự án xuống dưới dạng tệp lưu trữ ZIP.',
+  'export_scope_confirm': 'Xuất',
   'current_version_only': 'Chỉ phiên bản hiện tại',
   'recommended': 'Khuyến nghị',
   'small_size_hint': 'Không có lịch sử phiên bản, kích thước nhỏ hơn',
@@ -1986,7 +1988,6 @@ export default {
   'episode_workspace_source_saved': 'Đã lưu nguyên văn của tập',
   'episode_workspace_source_save_failed': 'Không lưu được nguyên văn của tập: {{message}}',
   'episodes_section_title': 'Tập',
-  'eyebrow_export_scope': 'Xuất · Phạm vi',
   'eyebrow_library': 'Thư viện · {{type}}',
   'eyebrow_segment_refs': 'Tham chiếu · Phạm vi',
   'grid_canvas_tab_aria': 'Các tab chính của bảng phân cảnh đa lưới',

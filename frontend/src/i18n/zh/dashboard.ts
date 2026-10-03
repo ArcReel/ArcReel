@@ -496,6 +496,8 @@ export default {
 
   // ExportScopeDialog
   'export_scope_title': '选择导出范围',
+  'export_scope_description': '把项目打包成 ZIP 归档下载。',
+  'export_scope_confirm': '导出',
   'current_version_only': '仅当前版本',
   'recommended': '推荐',
   'small_size_hint': '不含版本历史，体积更小',
@@ -1884,7 +1886,6 @@ export default {
   'shot_detail_prev': '上一镜',
   'shot_detail_next': '下一镜',
   'shot_detail_count': '{{current}} / {{total}}',
-  'eyebrow_export_scope': '导出 · 范围',
   'eyebrow_segment_refs': '引用 · 范围',
   'eyebrow_library': '资源库 · {{type}}',
   'context_clear': '清除上下文',

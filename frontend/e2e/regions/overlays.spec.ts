@@ -47,7 +47,8 @@ async function episodeReady(page: Page) {
 
 async function exportProject(page: Page) {
   await page.getByRole("button", { name: "导出项目归档" }).click();
-  await page.getByRole("button", { name: /仅当前版本/ }).click();
+  // 默认选中「仅当前版本」
+  await page.getByRole("dialog", { name: "选择导出范围" }).getByRole("button", { name: "导出", exact: true }).click();
 }
 
 function diagnosticsDialog(page: Page): Locator {

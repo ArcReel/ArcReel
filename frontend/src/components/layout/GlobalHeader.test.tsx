@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -25,7 +25,9 @@ vi.mock("./WorkspaceNotificationsDrawer", () => ({
 async function openExportScope(option: "current" | "full") {
   screen.getByRole("button", { name: "导出项目归档" }).click();
   const name = option === "current" ? /仅当前版本/ : /全部数据/;
-  (await screen.findByRole("button", { name })).click();
+  const dialog = await screen.findByRole("dialog", { name: "选择导出范围" });
+  fireEvent.click(within(dialog).getByRole("radio", { name }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "导出" }));
 }
 
 function renderHeader(path = "/characters") {
@@ -139,8 +141,8 @@ describe("GlobalHeader", () => {
     renderHeader();
     screen.getByRole("button", { name: "导出项目归档" }).click();
 
-    expect(await screen.findByRole("button", { name: /仅当前版本/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /全部数据/ })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: /仅当前版本/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /全部数据/ })).toBeInTheDocument();
     expect(screen.queryByText(/剪映草稿目录/)).not.toBeInTheDocument();
     expect(screen.getByText(/成片与剪映草稿在各集的剪辑视图中导出/)).toBeInTheDocument();
   });
@@ -239,6 +241,7 @@ describe("GlobalHeader", () => {
     renderHeader();
     await openExportScope("full");
 
+    expect(API.requestExportToken).toHaveBeenCalledWith("demo", "full");
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("导出失败");
     });

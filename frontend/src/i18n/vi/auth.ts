@@ -6,4 +6,5 @@ export default {
   'login_failed': 'Đăng nhập thất bại',
   'username': 'Tên đăng nhập',
   'password': 'Mật khẩu',
+  'login_subtitle': 'Đăng nhập bằng tài khoản của bạn',
 } satisfies Record<keyof typeof enAuth, string>;

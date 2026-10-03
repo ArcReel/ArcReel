@@ -64,6 +64,7 @@ export default {
   'show': 'Show',
   'hide': 'Hide',
   'not_found_title': 'Page not found',
+  'not_found_description': 'The address may be wrong, or this page has been removed.',
   'not_found_back': 'Back to home',
   'recommended': 'Recommended',
   'elapsed_seconds': '{{seconds}}s',

@@ -8,6 +8,7 @@ defineRegionScenarios("登录页", [
     ready: async (page) => {
       await page.getByRole("button", { name: "登录" }).waitFor();
     },
+    screenshot: { name: "login", target: (page) => page.locator("[data-testid=login-page] > div") },
   },
   {
     name: "登录失败显示错误提示",

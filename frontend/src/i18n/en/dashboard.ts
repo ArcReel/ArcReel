@@ -496,6 +496,8 @@ export default {
 
   // ExportScopeDialog
   'export_scope_title': 'Select Export Scope',
+  'export_scope_description': 'Download the project as a ZIP archive.',
+  'export_scope_confirm': 'Export',
   'current_version_only': 'Current Version Only',
   'recommended': 'Recommended',
   'small_size_hint': 'No version history, smaller size',
@@ -1885,7 +1887,6 @@ export default {
   'shot_detail_prev': 'Previous',
   'shot_detail_next': 'Next',
   'shot_detail_count': '{{current}} / {{total}}',
-  'eyebrow_export_scope': 'Export · Scope',
   'eyebrow_segment_refs': 'References · Scope',
   'eyebrow_library': 'Library · {{type}}',
   'context_clear': 'Clear context',
