@@ -107,6 +107,9 @@ const REWORKED_FILES = [
   // 市场分区（浏览、我的分享、设置）与全仓共用的可排序列表
   "src/components/pages/settings/market/**",
   "src/components/shared/sortable/**",
+  // 登录页、404 页与导出范围对话框
+  "src/components/pages/{LoginPage,NotFoundPage}.tsx",
+  "src/components/layout/ExportScopeDialog.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

@@ -85,8 +85,6 @@ export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SE
  * `APP_PROJECT_WORKSPACE_PATTERN` 同样由它们拼出，新增/改名路由只需改这一处。
  */
 export const WORKSPACE_ROUTE_SETTINGS = "settings";
-export const WORKSPACE_ROUTE_LOREBOOK = "lorebook";
-export const WORKSPACE_ROUTE_CLUES = "clues";
 export const WORKSPACE_ROUTE_CHARACTERS = "characters";
 export const WORKSPACE_ROUTE_SCENES = "scenes";
 export const WORKSPACE_ROUTE_PROPS = "props";
@@ -109,8 +107,6 @@ export function episodeEditViewPath(episode: number, timelineId?: string): strin
  *  在下面的正则里额外拼一条 `episodes/[^/]+` 分支覆盖后者。 */
 const WORKSPACE_STATIC_LEAF_ROUTES = [
   WORKSPACE_ROUTE_SETTINGS,
-  WORKSPACE_ROUTE_LOREBOOK,
-  WORKSPACE_ROUTE_CLUES,
   WORKSPACE_ROUTE_EPISODES,
   WORKSPACE_ROUTE_CHARACTERS,
   WORKSPACE_ROUTE_SCENES,
@@ -122,8 +118,8 @@ const WORKSPACE_STATIC_LEAF_ROUTES = [
  * `/app/projects/:projectName` 下真正有路由承接的子路径——`.../settings`
  * 是 router.tsx 里独立注册的 `ProjectSettingsPage` 全屏路由；其余是
  * `StudioCanvasRouter`（nest 路由）内层 `<Switch>` 实际注册的路由集合。
- * 内层没有兜底 404，未匹配的子路径只会渲染空白画布，因此不能整段
- * `/app/projects/` 前缀放行，需要按这份路由表精确匹配。
+ * 内层没有兜底路由，未匹配的子路径由 router.tsx 按这份路由表拦下、显示 404，
+ * 因此不能整段 `/app/projects/` 前缀放行，需要精确匹配。
  * wouter 底层 regexparam 编译路由时带 `i` 标志（大小写不敏感），这里同步加
  * 上 `i`，否则大小写变体的合法路径会被本模式误判为未注册子路径。
  */
@@ -131,3 +127,8 @@ export const APP_PROJECT_WORKSPACE_PATTERN = new RegExp(
   `^${ROUTE_APP_PROJECTS}/[^/]+(/(?:${WORKSPACE_STATIC_LEAF_ROUTES.join("|")}|${WORKSPACE_ROUTE_EPISODES}/[^/]+))?$`,
   "i",
 );
+
+/** 地址是否落在项目工作区已注册的路由上；与 wouter 一样容忍末尾斜杠。 */
+export function isWorkspacePath(location: string): boolean {
+  return APP_PROJECT_WORKSPACE_PATTERN.test(location.replace(/(.)\/$/, "$1"));
+}

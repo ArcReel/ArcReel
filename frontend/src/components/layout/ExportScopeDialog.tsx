@@ -1,210 +1,116 @@
-import { Package, History, PackageCheck, Scissors } from "lucide-react";
-import { GlassPopover } from "@/components/legacy/GlassPopover";
+import { useState } from "react";
+import { Scissors } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { RefObject, ReactNode } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 export type ExportScope = "current" | "full";
 
 interface ExportScopeDialogProps {
   open: boolean;
   onClose: () => void;
+  /** 点击「导出」时以选中的范围调用；对话框随即关闭，导出进度由调用方展示。 */
   onSelect: (scope: ExportScope) => void;
-  anchorRef: RefObject<HTMLElement | null>;
-  /** 提示里「打开剪辑视图」链接指向的集（集 ID 与集名）；项目还没有集时为 null，只显示提示。 */
-  editViewEpisode: { episode: number; name: string } | null;
-  onOpenEditView: (episode: number) => void;
+  /** 提示里「打开剪辑视图」链接指向的集（集 ID 与集名）；不传或为 null 时只显示提示。 */
+  editViewEpisode?: { episode: number; name: string } | null;
+  onOpenEditView?: (episode: number) => void;
 }
 
-/** 顶栏「导出项目」的范围选择：只有项目归档；成片与剪映草稿在各集的剪辑视图中导出。 */
+/** 「导出项目」的范围选择：只有项目归档；成片与剪映草稿在各集的剪辑视图中导出。 */
 export function ExportScopeDialog({
   open,
   onClose,
   onSelect,
-  anchorRef,
   editViewEpisode,
   onOpenEditView,
 }: ExportScopeDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const [scope, setScope] = useState<ExportScope>("current");
+
+  const options: { value: ExportScope; title: string; hint: string; recommended?: boolean }[] = [
+    {
+      value: "current",
+      title: t("dashboard:current_version_only"),
+      hint: t("dashboard:small_size_hint"),
+      recommended: true,
+    },
+    { value: "full", title: t("dashboard:all_data"), hint: t("dashboard:full_history_hint") },
+  ];
 
   return (
-    <GlassPopover
+    <Dialog
       open={open}
-      onClose={onClose}
-      anchorRef={anchorRef}
-      sideOffset={8}
-      width="w-[22rem]"
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      // 每次打开都回到推荐的范围
+      onOpenChangeComplete={(next) => {
+        if (!next) setScope("current");
+      }}
     >
-      <div className="px-4 pb-3 pt-3.5">
-        <div className="mb-2.5 flex items-center gap-2">
-          <span
-            aria-hidden
-            className="grid h-7 w-7 place-items-center rounded-lg"
-            style={{
-              background:
-                "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-              color: "var(--primary)",
-              boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
-            }}
-          >
-            <PackageCheck className="h-3.5 w-3.5" />
-          </span>
-          <div className="min-w-0">
-            <div
-              className="display-serif text-[14px] font-semibold tracking-tight"
-              style={{ color: "var(--foreground)" }}
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>{t("dashboard:export_scope_title")}</DialogTitle>
+          <DialogDescription>{t("dashboard:export_scope_description")}</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-4">
+            <RadioGroup
+              aria-label={t("dashboard:export_scope_title")}
+              value={scope}
+              onValueChange={(next) => setScope(next as ExportScope)}
             >
-              {t("dashboard:export_scope_title")}
-            </div>
-            <div
-              className="num text-[10px] uppercase"
-              style={{
-                color: "var(--muted-foreground)",
-                letterSpacing: "1.0px",
-              }}
-            >
-              {t("dashboard:eyebrow_export_scope")}
+              {options.map((option) => (
+                // eslint-disable-next-line jsx-a11y/label-has-associated-control -- 控件是嵌套的 RadioGroupItem（Base UI 单选），规则识别不到
+                <label
+                  key={option.value}
+                  className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-fast hover:bg-muted/50 has-data-checked:border-primary"
+                >
+                  <RadioGroupItem value={option.value} className="mt-0.5" />
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      {option.title}
+                      {option.recommended && <Badge variant="secondary">{t("dashboard:recommended")}</Badge>}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{option.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </RadioGroup>
+            <div className="flex items-start gap-2 text-xs text-muted-foreground">
+              <Scissors aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+              <div className="flex min-w-0 flex-col items-start gap-1">
+                <p>{t("dashboard:export_renders_moved_hint")}</p>
+                {editViewEpisode && onOpenEditView && (
+                  // 集名可能很长，链接要能换行，不用不换行的 Button
+                  <button
+                    type="button"
+                    onClick={() => onOpenEditView(editViewEpisode.episode)}
+                    className="rounded-sm text-left break-all text-primary underline underline-offset-2 focus-ring"
+                  >
+                    {t("dashboard:export_open_edit_view", { name: editViewEpisode.name })}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <ScopeOption
-            icon={<Package className="h-4 w-4" />}
-            title={
-              <span className="inline-flex items-center gap-1.5">
-                <span>{t("dashboard:current_version_only")}</span>
-                <span
-                  className="num rounded-xs px-1.5 py-px text-[9.5px] uppercase"
-                  style={{
-                    letterSpacing: "0.6px",
-                    color: "var(--primary)",
-                    background: "color-mix(in oklab, var(--primary) 12%, transparent)",
-                    border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-                  }}
-                >
-                  {t("dashboard:recommended")}
-                </span>
-              </span>
-            }
-            hint={t("dashboard:small_size_hint")}
-            tone="accent"
-            onClick={() => onSelect("current")}
-          />
-          <ScopeOption
-            icon={<History className="h-4 w-4" />}
-            title={t("dashboard:all_data")}
-            hint={t("dashboard:full_history_hint")}
-            tone="neutral"
-            onClick={() => onSelect("full")}
-          />
-        </div>
-
-        <div
-          className="mt-3 flex items-start gap-2 border-t pt-3 text-[11.5px] leading-[1.55]"
-          style={{ borderColor: "color-mix(in oklab, var(--border) 50%, transparent)", color: "var(--muted-foreground)" }}
-        >
-          <Scissors className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <p>
-            {t("dashboard:export_renders_moved_hint")}
-            {editViewEpisode !== null && (
-              <>
-                {" "}
-                <button
-                  type="button"
-                  onClick={() => onOpenEditView(editViewEpisode.episode)}
-                  className="focus-ring rounded-sm underline underline-offset-2"
-                  style={{ color: "var(--primary)" }}
-                >
-                  {t("dashboard:export_open_edit_view", { name: editViewEpisode.name })}
-                </button>
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-    </GlassPopover>
-  );
-}
-
-type ScopeTone = "accent" | "neutral";
-
-const SCOPE_PALETTE: Record<
-  ScopeTone,
-  { color: string; ring: string; hoverBg: string; hoverBorder: string }
-> = {
-  accent: {
-    color: "var(--primary)",
-    ring: "color-mix(in oklab, var(--primary) 22%, transparent)",
-    hoverBg: "color-mix(in oklab, var(--primary) 12%, transparent)",
-    hoverBorder: "color-mix(in oklab, var(--primary) 22%, transparent)",
-  },
-  neutral: {
-    color: "var(--muted-foreground)",
-    ring: "var(--border)",
-    hoverBg: "oklch(1 0 0 / 0.04)",
-    hoverBorder: "var(--input)",
-  },
-};
-
-function ScopeOption({
-  icon,
-  title,
-  hint,
-  tone,
-  onClick,
-}: {
-  icon: ReactNode;
-  title: ReactNode;
-  hint: string;
-  tone: ScopeTone;
-  onClick: () => void;
-}) {
-  const palette = SCOPE_PALETTE[tone];
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="focus-ring group flex items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
-      style={{
-        border: "1px solid var(--border)",
-        background: "oklch(0.20 0.011 265 / 0.4)",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = palette.hoverBg;
-        e.currentTarget.style.borderColor = palette.hoverBorder;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.4)";
-        e.currentTarget.style.borderColor = "var(--border)";
-      }}
-    >
-      <span
-        aria-hidden
-        className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md"
-        style={{
-          background: "oklch(0.16 0.010 265 / 0.6)",
-          border: `1px solid ${palette.ring}`,
-          color: palette.color,
-        }}
-      >
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div
-          className="text-[13px] font-medium leading-tight"
-          style={{ color: "var(--foreground)" }}
-        >
-          {title}
-        </div>
-        <p
-          className="mt-1 text-[11.5px] leading-[1.5]"
-          style={{ color: "var(--muted-foreground)" }}
-        >
-          {hint}
-        </p>
-      </div>
-    </button>
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>{t("common:cancel")}</DialogClose>
+          <Button onClick={() => onSelect(scope)}>{t("dashboard:export_scope_confirm")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
