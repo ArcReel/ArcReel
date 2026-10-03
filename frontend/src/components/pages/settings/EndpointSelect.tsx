@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, useCallback } from "react"
 import { ChevronDown, Type, Image as ImageIcon, Film, AudioLines, Settings2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
-import { Popover } from "@/components/ui/Popover";
+import { Popover } from "@/components/legacy/FloatingPopover";
 import type { DiscoveryFormat, EndpointKey, ImageCap, MediaType } from "@/types";
 import { isComfyuiEndpoint, isComfyuiProtocol } from "./customProviderHelpers";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";

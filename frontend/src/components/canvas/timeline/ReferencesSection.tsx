@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Edit3, MapPin, Plus, Puzzle, User } from "lucide-react";
-import { AvatarStack } from "@/components/ui/AvatarStack";
-import { ClueStack } from "@/components/ui/ClueStack";
+import { AvatarStack } from "@/components/canvas/timeline/AvatarStack";
+import { ClueStack } from "@/components/canvas/timeline/ClueStack";
 import {
   SegmentRefsEditModal,
   type SegmentRefsChanges,
-} from "@/components/ui/SegmentRefsEditModal";
+} from "@/components/canvas/timeline/SegmentRefsEditModal";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { Character, PlanNewAsset } from "@/types";
 import { planReferenceCandidates } from "@/utils/plan-new-assets";

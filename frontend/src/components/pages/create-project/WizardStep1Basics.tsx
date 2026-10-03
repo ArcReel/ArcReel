@@ -8,8 +8,8 @@ import {
   isValidEpisodeTargetDuration,
 } from "@/components/shared/EpisodeTargetDurationField";
 import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/ui/darkroom-tokens";
-import { FieldLabel } from "@/components/ui/FieldLabel";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/shared/darkroom-tokens";
+import { FieldLabel } from "@/components/shared/FieldLabel";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
 export interface WizardStep1Value {

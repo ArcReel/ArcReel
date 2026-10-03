@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
 
 /**
  * JSON 片段编辑器。文本是编辑期的真相源，只有解析成功才写回定义——

@@ -1,4 +1,4 @@
-import { RefThumbnail } from "@/components/ui/RefThumbnail";
+import { RefThumbnail } from "./RefThumbnail";
 import type { Prop, Scene } from "@/types";
 import type { AssetKind } from "@/types/reference-video";
 

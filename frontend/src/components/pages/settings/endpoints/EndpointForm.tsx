@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { useAppStore } from "@/stores/app-store";
 import type {
   EndpointCapabilities,

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { FilePlus2 } from "lucide-react";
 import { API } from "@/api";
 import { AdScriptButton, AdScriptInputsLink, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { useAdScriptEntry } from "@/hooks/useAdScriptEntry";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";

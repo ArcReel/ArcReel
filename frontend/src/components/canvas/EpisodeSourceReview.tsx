@@ -11,7 +11,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import { EpisodeDeleteButton } from "@/components/canvas/episodes/EpisodeDeleteButton";
 import { SourceKindSelect } from "@/components/canvas/episodes/SourceKindSelect";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import type { EpisodeMeta } from "@/types";
 import type { SourceKind } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";

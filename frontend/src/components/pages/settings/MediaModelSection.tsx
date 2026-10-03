@@ -10,7 +10,7 @@ import type {
   SystemConfigPatch,
 } from "@/types/system";
 import type { CustomProviderInfo } from "@/types/custom-provider";
-import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
+import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import {
   LayeredModelFields,
   degradeSubFieldsToSaved,
@@ -19,7 +19,7 @@ import {
 } from "@/components/shared/LayeredModelFields";
 import { TextTierFields } from "@/components/shared/TextTierFields";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
-import { InlineWarning } from "@/components/ui/InlineWarning";
+import { InlineWarning } from "@/components/shared/InlineWarning";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -35,7 +35,7 @@ import {
   lookupResolutions,
   lookupVideoAudioControl,
 } from "@/utils/provider-models";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import type { ProviderInfo, VideoRoute } from "@/types/provider";
 
 interface CardProps {

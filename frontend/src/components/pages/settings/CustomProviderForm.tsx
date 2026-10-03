@@ -28,7 +28,7 @@ import {
   type DiscoveryFormat,
 } from "./customProviderHelpers";
 import { EndpointSelect } from "./EndpointSelect";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import {
@@ -49,8 +49,8 @@ import {
   CARD_STYLE,
   GHOST_BTN_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
-import { FieldLabel } from "@/components/ui/FieldLabel";
+} from "@/components/shared/darkroom-tokens";
+import { FieldLabel } from "@/components/shared/FieldLabel";
 import { formatNameList } from "@/utils/list-format";
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { FieldLabel } from "@/components/ui/FieldLabel";
+import { FieldLabel } from "./FieldLabel";
 
 export interface OptionalNumberFieldProps {
   /** 已翻译的字段名。 */

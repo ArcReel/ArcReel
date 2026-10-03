@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { ArrowRight, Box, Image as ImageIcon, Lock, Play, Trees, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { FieldLabel } from "@/components/ui/FieldLabel";
+import { FieldLabel } from "@/components/shared/FieldLabel";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
 /**

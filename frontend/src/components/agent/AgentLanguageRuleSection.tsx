@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
-import { SectionShell } from "@/components/ui/SectionShell";
+import { SectionShell } from "@/components/shared/SectionShell";
 import { errMsg } from "@/utils/async";
 
 const AGENT_LANGUAGE_RULE_ID = "text/agent_language_rule";

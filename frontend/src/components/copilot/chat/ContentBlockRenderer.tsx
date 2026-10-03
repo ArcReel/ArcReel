@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ContentBlock } from "@/types";
-import { ImageLightbox } from "@/components/ui/ImageLightbox";
+import { ImageLightbox } from "@/components/shared/ImageLightbox";
 import { TextBlock } from "./TextBlock";
 import { ToolCallWithResult } from "./ToolCallWithResult";
 import { ThinkingBlock } from "./ThinkingBlock";

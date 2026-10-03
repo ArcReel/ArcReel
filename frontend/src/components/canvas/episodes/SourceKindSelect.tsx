@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import type { SourceKind } from "@/types/episodes-view";
 
 const SOURCE_KINDS: readonly SourceKind[] = ["novel", "screenplay"];

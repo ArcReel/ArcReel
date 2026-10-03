@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { EndpointDuplicateDescriptor } from "@/types";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
 const ROW_CLS =
   "flex items-center gap-3 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2 text-[12.5px] text-text-2";

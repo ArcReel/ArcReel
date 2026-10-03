@@ -4,10 +4,10 @@ import { Library, Search, Check } from "lucide-react";
 import { API } from "@/api";
 import type { Asset, AssetType } from "@/types/asset";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
 import { AssetThumb } from "./AssetThumb";
 
 interface Props {

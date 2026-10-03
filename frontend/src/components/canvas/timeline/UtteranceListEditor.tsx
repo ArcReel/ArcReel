@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import type { Utterance, UtteranceKind } from "@/types";
-import { AutoTextarea } from "@/components/ui/AutoTextarea";
+import { AutoTextarea } from "@/components/legacy/AutoTextarea";
 
 interface UtteranceListEditorProps {
   utterances: Utterance[];

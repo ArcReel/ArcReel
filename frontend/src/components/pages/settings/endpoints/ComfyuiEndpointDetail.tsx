@@ -9,7 +9,7 @@ import {
   ACCENT_BUTTON_STYLE,
   CARD_STYLE,
   GHOST_BTN_CLS,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import type {
   ComfyuiBindingKey,
   ComfyuiBindingTarget,

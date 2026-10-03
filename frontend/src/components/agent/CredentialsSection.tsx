@@ -4,9 +4,9 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { AddCredentialModal } from "@/components/agent/AddCredentialModal";
 import { CredentialList } from "@/components/agent/CredentialList";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
-import { SectionShell } from "@/components/ui/SectionShell";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
+import { SectionShell } from "@/components/shared/SectionShell";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type {

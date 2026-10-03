@@ -4,10 +4,10 @@ import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
-import { ProviderIcon } from "@/components/ui/ProviderIcon";
+import { ProviderIcon } from "@/components/shared/ProviderIcon";
 import { CredentialList } from "@/components/pages/CredentialList";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
-import { FieldLabel } from "@/components/ui/FieldLabel";
+import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
+import { FieldLabel } from "@/components/shared/FieldLabel";
 import type { ProviderConfigDetail, ProviderField } from "@/types";
 
 // ---------------------------------------------------------------------------

@@ -18,17 +18,17 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ProgressBar } from "@/components/ui/ProgressBar";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
-import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ProgressBar } from "@/components/shared/ProgressBar";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import { Typewriter, type TypewriterSegment } from "@/components/pages/Typewriter";
 import { WARM_TONE } from "@/utils/severity-tone";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { ExternalAgentModal } from "./ExternalAgentModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
-import { ICON_BTN_FILLED_CLS } from "@/components/ui/darkroom-tokens";
+import { ICON_BTN_FILLED_CLS } from "@/components/shared/darkroom-tokens";
 import {
   ProjectCard,
   Poster,

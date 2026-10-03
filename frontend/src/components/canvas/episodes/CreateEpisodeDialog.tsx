@@ -2,12 +2,12 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
-import { FieldLabel } from "@/components/ui/FieldLabel";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
-import { INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { FieldLabel } from "@/components/shared/FieldLabel";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { SourceKind } from "@/types/episodes-view";

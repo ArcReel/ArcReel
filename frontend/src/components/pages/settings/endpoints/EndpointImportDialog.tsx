@@ -1,13 +1,13 @@
 import { useId, useRef, useState } from "react";
 import { CircleAlert, Loader2, TriangleAlert, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { GlassModal } from "@/components/ui/GlassModal";
+import { GlassModal } from "@/components/legacy/GlassModal";
 import {
   ACCENT_BTN_SM_CLS,
   ACCENT_BUTTON_STYLE,
   GHOST_BTN_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import { voidCall } from "@/utils/async";
 import type {
   AnyEndpointDefinition,

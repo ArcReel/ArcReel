@@ -18,9 +18,9 @@ import {
   DROPDOWN_PANEL_STYLE,
   GHOST_BTN_CLS,
   INPUT_CLS,
-} from "@/components/ui/darkroom-tokens";
-import { ModelCombobox } from "@/components/ui/ModelCombobox";
-import { Popover } from "@/components/ui/Popover";
+} from "@/components/shared/darkroom-tokens";
+import { ModelCombobox } from "@/components/legacy/ModelCombobox";
+import { Popover } from "@/components/legacy/FloatingPopover";
 import { useCredentialForm } from "@/hooks/useCredentialForm";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useFocusTrap } from "@/hooks/useFocusTrap";

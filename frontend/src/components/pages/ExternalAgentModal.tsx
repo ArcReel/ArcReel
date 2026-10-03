@@ -8,8 +8,8 @@ import {
   DROPDOWN_PANEL_STYLE,
   GHOST_BTN_CLS,
   ICON_BTN_FILLED_CLS,
-} from "@/components/ui/darkroom-tokens";
-import { ModalShell } from "@/components/ui/ModalShell";
+} from "@/components/shared/darkroom-tokens";
+import { ModalShell } from "@/components/legacy/ModalShell";
 import { copyText } from "@/utils/clipboard";
 
 interface ExternalAgentModalProps {

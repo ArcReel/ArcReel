@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import type { ScriptOverwrite } from "@/types";
 import { itemIdsInEpisodeText } from "@/utils/episode-display";
 

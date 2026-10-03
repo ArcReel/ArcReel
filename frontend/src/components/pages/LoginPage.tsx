@@ -8,7 +8,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { safeReturnPath } from "@/utils/safe-url";
 import { BRAND } from "@/branding";
 import type { LoginResponse, ErrorResponse } from "@/api";
-import { FieldLabel } from "@/components/ui/FieldLabel";
+import { FieldLabel } from "@/components/shared/FieldLabel";
 import {
   ACCENT_BTN_CLS,
   ACCENT_BUTTON_STYLE,
@@ -16,7 +16,7 @@ import {
   INPUT_CLS,
   ambientGlowStyle,
   posterGridStyle,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 
 const POSTER_GRID_STYLE = posterGridStyle({ size: 44, maskShape: "60% 60% at 50% 35%", opacity: 0.05 });
 const AMBIENT_GLOW_STYLE = ambientGlowStyle();

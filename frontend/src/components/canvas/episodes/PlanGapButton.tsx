@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Sparkles } from "lucide-react";
 
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";

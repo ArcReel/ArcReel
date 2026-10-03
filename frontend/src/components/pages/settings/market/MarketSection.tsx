@@ -11,8 +11,8 @@ import {
   INPUT_CLS,
   ambientGlowStyle,
   posterGridStyle,
-} from "@/components/ui/darkroom-tokens";
-import { PillSwitch } from "@/components/ui/PillSwitch";
+} from "@/components/shared/darkroom-tokens";
+import { PillSwitch } from "@/components/legacy/PillSwitch";
 import type {
   MarketEntry,
   MarketEntryAggregate,

@@ -4,7 +4,7 @@ import { useLocation, useSearch } from "wouter";
 import { BookOpen, Upload } from "lucide-react";
 
 import { API } from "@/api";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodesView as EpisodesViewData } from "@/types";
 import { errMsg } from "@/utils/async";

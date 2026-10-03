@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronLeft, Landmark, Package as PackageIcon, Plus, Search, User } from "lucide-react";
 import { AssetGrid } from "@/components/assets/AssetGrid";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { useAssetsStore } from "@/stores/assets-store";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -17,7 +17,7 @@ import {
   ICON_BTN_FILLED_CLS,
   INPUT_CLS,
   ambientGlowStyle,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import type { Asset, AssetType } from "@/types/asset";
 
 const ASSET_LIBRARY_RETURN_TO_KEY = "assetLibrary:returnTo";

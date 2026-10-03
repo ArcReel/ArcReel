@@ -1,4 +1,4 @@
-import { Popover } from "./Popover";
+import { Popover } from "./FloatingPopover";
 import type { ComponentProps, ReactNode } from "react";
 import type { GlassHairlineTone } from "./GlassModal";
 

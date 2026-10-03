@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useProviderCatalog } from "@/hooks/useProviderCatalog";
 import type { CatalogRefreshResult } from "@/hooks/useProviderCatalog";
 import { useAppStore } from "@/stores/app-store";
-import { ProviderIcon } from "@/components/ui/ProviderIcon";
+import { ProviderIcon } from "@/components/shared/ProviderIcon";
 import { ProviderDetail } from "./ProviderDetail";
 import { CustomProviderSection } from "./settings/CustomProviderSection";
 import { CustomProviderDetail } from "./settings/CustomProviderDetail";

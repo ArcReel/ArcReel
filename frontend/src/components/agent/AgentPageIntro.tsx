@@ -2,7 +2,7 @@ import ClaudeColor from "@lobehub/icons/es/Claude/components/Color";
 import { ArrowUpRight, Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
 interface AgentPageIntroProps {
   onOpenExternalGuide: () => void;

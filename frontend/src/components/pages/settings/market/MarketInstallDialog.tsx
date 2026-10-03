@@ -13,9 +13,9 @@ import type {
   MarketEntryDetail,
   MarketEntryInstallation,
 } from "@/types";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
-import { ACCENT_BTN_SM_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
+import { ACCENT_BTN_SM_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { errMsg } from "@/utils/async";
 import { isDeclarativeDefinition, isRenderableDefinition } from "../endpoints/endpoint-definition-draft";

@@ -4,11 +4,11 @@ import { AlertTriangle, Bot, CheckCircle2, Loader2, OctagonAlert, RotateCcw, Sav
 import type { DraftDocType, DraftSoftViolation, ScriptReviewViolation } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
-import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { itemIdsInEpisodeText } from "@/utils/episode-display";
 
 /** 把一段指令预填进 Agent 输入框并打开面板；只填不发送，用户核对后自行发送。 */

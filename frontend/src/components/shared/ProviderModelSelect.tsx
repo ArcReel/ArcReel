@@ -10,8 +10,8 @@ import {
   size,
   useFloating,
 } from "@floating-ui/react";
-import { ProviderIcon } from "@/components/ui/ProviderIcon";
-import { DROPDOWN_PANEL_STYLE } from "@/components/ui/darkroom-tokens";
+import { ProviderIcon } from "./ProviderIcon";
+import { DROPDOWN_PANEL_STYLE } from "./darkroom-tokens";
 import { UI_LAYERS } from "@/utils/ui-layers";
 
 interface ProviderModelSelectProps {

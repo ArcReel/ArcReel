@@ -1,8 +1,8 @@
 import { useId } from "react";
 import { AlertTriangle, ShieldAlert, Sparkles, Info } from "lucide-react";
 import type { ArchiveDiagnostic } from "@/types";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
 import {
   SEVERITY_TONES,
   WARM_TONE,

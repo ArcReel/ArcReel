@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
-import { AutoTextarea } from "@/components/ui/AutoTextarea";
-import { CompactInput } from "@/components/ui/CompactInput";
-import { DropdownPill } from "@/components/ui/DropdownPill";
+import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { CompactInput } from "@/components/canvas/timeline/CompactInput";
+import { DropdownPill } from "@/components/legacy/DropdownPill";
 import { SHOT_TYPES, SHOT_TYPE_I18N_KEYS } from "@/types";
 import type { ImagePrompt, ShotType } from "@/types";
 

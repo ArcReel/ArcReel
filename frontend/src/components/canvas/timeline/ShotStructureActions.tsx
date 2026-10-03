@@ -1,8 +1,8 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash2 } from "lucide-react";
-import { AutoTextarea } from "@/components/ui/AutoTextarea";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 type StructureContentMode = "narration" | "drama" | "ad";

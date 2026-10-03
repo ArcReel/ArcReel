@@ -4,10 +4,10 @@ import { AlertTriangle, ImagePlus, Landmark, Package, User } from "lucide-react"
 import { AssetThumb } from "./AssetThumb";
 import { API } from "@/api";
 import type { Asset, AssetDerivative, AssetType } from "@/types/asset";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
 import { sanitizeImageSrc } from "@/utils/safe-url";
 import { WARM_TONE } from "@/utils/severity-tone";
 

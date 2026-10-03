@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import type { ReferenceDurationPrecheck } from "@/types";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { advisoryProblems } from "./advisory-problems";

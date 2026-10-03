@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { Check, ChevronRight, Copy, RotateCcw, Settings, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import type { FailureObservation } from "@/types";
 import { copyText } from "@/utils/clipboard";
 

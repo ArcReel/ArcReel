@@ -39,15 +39,15 @@ import { useModelCapabilities, type DurationOutOfRangeReason } from "@/hooks/use
 import { PlanDurationSelect, durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
 import { speakerCandidates } from "@/utils/plan-new-assets";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { AutoTextarea } from "@/components/ui/AutoTextarea";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { AutoTextarea } from "@/components/legacy/AutoTextarea";
 import {
   ACCENT_BUTTON_STYLE,
   ACCENT_BTN_CLS,
   CARD_STYLE,
   GHOST_BTN_CLS,
   GHOST_BTN_LG_CLS,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import { sumItemDuration } from "@/utils/script-shape";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, itemIdWithinEpisode } from "@/utils/episode-display";

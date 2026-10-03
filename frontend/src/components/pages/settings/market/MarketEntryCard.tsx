@@ -7,7 +7,7 @@ import {
   CARD_STYLE,
   GHOST_BTN_CLS,
   posterGridStyle,
-} from "@/components/ui/darkroom-tokens";
+} from "@/components/shared/darkroom-tokens";
 import type { MarketEntry, MarketEntryAggregate, MarketSourceKind } from "@/types";
 import { MarketEntryStats } from "./MarketEntryStats";
 import { MarketInstallBadges } from "./MarketInstallBadges";

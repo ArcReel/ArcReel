@@ -1,4 +1,4 @@
-import { RefThumbnail } from "@/components/ui/RefThumbnail";
+import { RefThumbnail } from "./RefThumbnail";
 import type { Character } from "@/types";
 import { resolveCharacterForm } from "@/utils/reference-mentions";
 

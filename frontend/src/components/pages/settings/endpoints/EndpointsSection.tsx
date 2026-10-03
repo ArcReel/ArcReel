@@ -6,7 +6,7 @@ import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import type {
   AnyEndpointDefinition,
   ComfyuiEndpointDefinition,

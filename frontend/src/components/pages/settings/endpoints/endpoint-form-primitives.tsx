@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import type { EndpointPathItem } from "@/types";
 import { isPlainPath, pathItemText, type EndpointFormSection } from "./endpoint-definition-draft";
 

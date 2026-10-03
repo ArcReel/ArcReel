@@ -3,10 +3,10 @@ import { useTranslation } from "react-i18next";
 import { Bot, Sparkles } from "lucide-react";
 import { API, ApiRequestError } from "@/api";
 import { enqueuePromptAuthoring, promptAuthoringResourceId } from "@/actions/generation";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import {

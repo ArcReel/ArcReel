@@ -5,10 +5,10 @@ import { API, CHARACTER_DERIVATIVE_RESOURCE_TYPE, derivativeResourceId } from "@
 import { enqueueCharacterDerivative } from "@/actions/generation";
 import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
-import { AspectFrame } from "@/components/ui/AspectFrame";
-import { GenerateButton } from "@/components/ui/GenerateButton";
-import { ImageFlipReveal } from "@/components/ui/ImageFlipReveal";
-import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
+import { AspectFrame } from "@/components/canvas/shared/AspectFrame";
+import { GenerateButton } from "@/components/canvas/lorebook/GenerateButton";
+import { ImageFlipReveal } from "@/components/canvas/shared/ImageFlipReveal";
+import { PreviewableImageFrame } from "@/components/canvas/shared/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
