@@ -114,6 +114,9 @@ const REWORKED_FILES = [
   "src/components/pages/CreateProjectModal.tsx",
   "src/components/pages/create-project/**",
   "src/components/shared/{DurationTierPicker,StylePicker,GenerationRouteCards,GridStoryboardBar,OptionalNumberField,EpisodeTargetDurationField,SpeechRateField}.tsx",
+  // 项目大厅：顶栏、问候区、筛选工具栏、海报卡与项目对话框
+  "src/components/pages/ProjectsPage.tsx",
+  "src/components/pages/lobby/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
