@@ -82,6 +82,8 @@ export function inspectLayout(): LayoutReport {
     const overY = clipY && el.scrollHeight - el.clientHeight > TOLERANCE;
     if (!overX && !overY) continue;
     if (overX && !overY && style.textOverflow === "ellipsis") continue;
+    // 单行输入框的长值随光标横向滚动，键盘与指针都能到达。
+    if (overX && !overY && el instanceof HTMLInputElement) continue;
     const lineClamp = style.getPropertyValue("-webkit-line-clamp");
     if (overY && !overX && lineClamp !== "" && lineClamp !== "none") continue;
     clipped.push({

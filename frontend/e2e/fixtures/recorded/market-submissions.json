@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/market/submissions",
+  "status": 200,
+  "body": {
+    "submissions": []
+  }
+}

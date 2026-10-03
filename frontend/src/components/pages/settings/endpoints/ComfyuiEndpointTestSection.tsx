@@ -1,15 +1,15 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { Loader2, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { settingsSectionPath } from "@/app-routes";
 import { errMsg } from "@/utils/async";
-import {
-  ACCENT_BTN_SM_CLS,
-  ACCENT_BUTTON_STYLE,
-  GHOST_BTN_CLS,
-  INPUT_CLS,
-} from "@/components/shared/darkroom-tokens";
+import { cn } from "cn";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type {
   ComfyuiEndpointDefinition,
   ComfyuiMediaType,
@@ -22,8 +22,7 @@ import type {
   TrialRunStageState,
 } from "@/types";
 import { TRIAL_RUN_STAGES } from "@/types";
-import { LABEL_CLS, MONO_INPUT_CLS } from "./endpoint-form-primitives";
-import { RequestPreview, TestCard } from "./endpoint-test-primitives";
+import { RequestPreview, TestCard, TestField, TestSelect } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
 
 /** 两种媒体类型各自的分辨率档，与服务端 `packages/arcreel-market-core/src/arcreel_market_core/aspect_size.py` 的短边表同名同序。 */
@@ -34,6 +33,9 @@ const RESOLUTION_TIERS: Record<ComfyuiMediaType, readonly string[]> = {
 
 /** 项目的画幅比例只有竖屏与横屏两档，测试参数照它给。 */
 const ASPECT_RATIOS = ["9:16", "16:9"] as const;
+
+/** 分辨率下拉里「沿用 workflow 原生尺寸」那一项的取值；发请求时换回 null。 */
+const NATIVE_RESOLUTION = "native";
 
 /** 时长输入清空时按这个秒数发出，占位符把它写在空输入框里。 */
 const DEFAULT_DURATION_SECONDS = 5;
@@ -62,7 +64,7 @@ const FAILURE_ACTION_TEXT: Record<string, string | undefined> = {
 
 const STAGE_DOT_CLS: Record<TrialRunStageState, string> = {
   done: "bg-good",
-  pending: "bg-primary motion-safe:animate-pulse",
+  pending: "bg-primary animate-breath",
   skipped: "bg-input",
 };
 
@@ -89,11 +91,12 @@ export interface ComfyuiEndpointTestSectionProps {
  */
 export function ComfyuiEndpointTestSection({ definition, providers, blocked }: ComfyuiEndpointTestSectionProps) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const idBase = useId();
   const isVideo = definition.media_type === "video";
 
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<string>(ASPECT_RATIOS[0]);
-  const [resolution, setResolution] = useState("");
+  const [resolution, setResolution] = useState(NATIVE_RESOLUTION);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(DEFAULT_DURATION_SECONDS);
   const [assetFiles, setAssetFiles] = useState<Partial<Record<ComfyuiAssetKey, File[]>>>({});
 
@@ -142,7 +145,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
       model: definition.meta.name,
       prompt,
       aspect_ratio: aspectRatio,
-      resolution: resolution === "" ? null : resolution,
+      resolution: resolution === NATIVE_RESOLUTION ? null : resolution,
       ...(isVideo ? { duration_seconds: durationSeconds ?? DEFAULT_DURATION_SECONDS } : {}),
     }),
     [definition.meta.name, prompt, aspectRatio, resolution, durationSeconds, isVideo],
@@ -170,51 +173,44 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
 
   const running = trial.run !== null && !trial.finished;
 
+  const ids = {
+    prompt: `${idBase}-prompt`,
+    duration: `${idBase}-duration`,
+    baseUrl: `${idBase}-base-url`,
+    apiKey: `${idBase}-api-key`,
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="block sm:col-span-2 lg:col-span-4">
-          <span className={LABEL_CLS}>{t("ce_trial_prompt")}</span>
-          <textarea
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-3 @2xl/page:grid-cols-2 @4xl/page:grid-cols-4">
+        <TestField label={t("ce_trial_prompt")} htmlFor={ids.prompt} className="@2xl/page:col-span-2 @4xl/page:col-span-4">
+          <Textarea
+            id={ids.prompt}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder={t("ce_trial_prompt_placeholder")}
-            className={`${INPUT_CLS} h-16 resize-y`}
+            className="min-h-16"
           />
-        </label>
-        <label className="block">
-          <span className={LABEL_CLS}>{t("ce_cf_test_aspect")}</span>
-          <select
-            value={aspectRatio}
-            onChange={(e) => setAspectRatio(e.target.value)}
-            className={`${INPUT_CLS} ${MONO_INPUT_CLS}`}
-          >
-            {ASPECT_RATIOS.map((ratio) => (
-              <option key={ratio} value={ratio}>
-                {ratio}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className={LABEL_CLS}>{t("ce_cf_test_resolution")}</span>
-          <select
-            value={resolution}
-            onChange={(e) => setResolution(e.target.value)}
-            className={`${INPUT_CLS} ${MONO_INPUT_CLS}`}
-          >
-            <option value="">{t("ce_cf_test_resolution_native")}</option>
-            {RESOLUTION_TIERS[definition.media_type].map((tier) => (
-              <option key={tier} value={tier}>
-                {tier}
-              </option>
-            ))}
-          </select>
-        </label>
+        </TestField>
+        <TestSelect
+          label={t("ce_cf_test_aspect")}
+          value={aspectRatio}
+          onValueChange={setAspectRatio}
+          items={ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: ratio }))}
+        />
+        <TestSelect
+          label={t("ce_cf_test_resolution")}
+          value={resolution}
+          onValueChange={setResolution}
+          items={[
+            { value: NATIVE_RESOLUTION, label: t("ce_cf_test_resolution_native") },
+            ...RESOLUTION_TIERS[definition.media_type].map((tier) => ({ value: tier, label: tier })),
+          ]}
+        />
         {isVideo && (
-          <label className="block">
-            <span className={LABEL_CLS}>{t("ce_cf_test_duration")}</span>
-            <input
+          <TestField label={t("ce_cf_test_duration")} htmlFor={ids.duration}>
+            <Input
+              id={ids.duration}
               type="number"
               min={1}
               max={60}
@@ -229,113 +225,104 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
                 const seconds = Number(e.target.value);
                 setDurationSeconds(Number.isInteger(seconds) && seconds >= 1 ? seconds : null);
               }}
-              className={`${INPUT_CLS} tabular-nums`}
             />
-          </label>
+          </TestField>
         )}
-        {assetSlots.map(({ key, slots }) => (
-          <label key={key} className="block">
-            <span className={LABEL_CLS}>
-              {t(`ce_cf_key_${key}`)}
-              {key === "reference_images" && ` · ${t("ce_cf_test_slots", { n: slots })}`}
-            </span>
-            <input
-              type="file"
-              accept="image/*"
-              multiple={key === "reference_images"}
-              aria-label={t(`ce_cf_key_${key}`)}
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                setAssetFiles((current) => ({ ...current, [key]: files }));
-              }}
-              className={`${INPUT_CLS} file:mr-3 file:rounded-sm file:border-0 file:bg-card file:px-2 file:py-1 file:text-subtle-foreground`}
-            />
-          </label>
-        ))}
+        {assetSlots.map(({ key, slots }) => {
+          const id = `${idBase}-asset-${key}`;
+          return (
+            <TestField
+              key={key}
+              htmlFor={id}
+              label={
+                <>
+                  {t(`ce_cf_key_${key}`)}
+                  {key === "reference_images" && (
+                    <span className="font-normal text-muted-foreground">{t("ce_cf_test_slots", { n: slots })}</span>
+                  )}
+                </>
+              }
+            >
+              <Input
+                id={id}
+                type="file"
+                accept="image/*"
+                multiple={key === "reference_images"}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  setAssetFiles((current) => ({ ...current, [key]: files }));
+                }}
+              />
+            </TestField>
+          );
+        })}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="block">
-          <span className={LABEL_CLS}>{t("ce_trial_credentials")}</span>
-          <select
-            value={credSource}
-            onChange={(e) => setCredSource(e.target.value as "provider" | "inline")}
-            className={INPUT_CLS}
-          >
-            <option value="provider" disabled={providers.length === 0}>
-              {t("ce_trial_creds_provider")}
-            </option>
-            <option value="inline">{t("ce_trial_creds_inline")}</option>
-          </select>
-        </label>
+      <div className="grid grid-cols-1 gap-3 @2xl/page:grid-cols-2 @4xl/page:grid-cols-4">
+        <TestSelect
+          label={t("ce_trial_credentials")}
+          value={credSource}
+          onValueChange={(value) => setCredSource(value as "provider" | "inline")}
+          items={[
+            { value: "provider", label: t("ce_trial_creds_provider"), disabled: providers.length === 0 },
+            { value: "inline", label: t("ce_trial_creds_inline") },
+          ]}
+        />
         {credSource === "provider" ? (
-          <label className="block">
-            <span className={LABEL_CLS}>{t("ce_trial_provider")}</span>
-            <select
-              value={providerId}
-              onChange={(e) => setProviderId(e.target.value)}
-              className={INPUT_CLS}
-            >
-              {providers.map((p) => (
-                <option key={p.id} value={String(p.id)}>
-                  {p.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <TestSelect
+            label={t("ce_trial_provider")}
+            value={providerId}
+            onValueChange={setProviderId}
+            items={providers.map((p) => ({ value: String(p.id), label: p.display_name }))}
+          />
         ) : (
           <>
-            <label className="block">
-              <span className={LABEL_CLS}>{t("base_url")}</span>
-              <input
+            <TestField label={t("base_url")} htmlFor={ids.baseUrl}>
+              <Input
+                id={ids.baseUrl}
                 type="url"
+                autoComplete="off"
+                spellCheck={false}
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder="http://127.0.0.1:8188"
-                className={`${INPUT_CLS} ${MONO_INPUT_CLS}`}
               />
-            </label>
-            <label className="block">
-              <span className={LABEL_CLS}>{t("api_key_label")}</span>
-              <input
+            </TestField>
+            <TestField label={t("credential_secret_label")} htmlFor={ids.apiKey}>
+              <Input
+                id={ids.apiKey}
                 type="password"
                 autoComplete="off"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={t("ce_trial_key_placeholder")}
-                className={`${INPUT_CLS} ${MONO_INPUT_CLS}`}
               />
-            </label>
+            </TestField>
           </>
         )}
-        <p className="self-end pb-1.5 text-[11.5px] leading-[1.5] text-muted-foreground sm:col-span-2">
-          {t("ce_cf_test_credentials_note")}
-        </p>
+        <p className="self-end text-xs text-muted-foreground @2xl/page:col-span-2">{t("ce_cf_test_credentials_note")}</p>
       </div>
 
       {blocked && (
-        <p role="status" className="text-[12px] text-warn">
+        <p role="status" className="text-xs text-warn">
           {t("ce_cf_test_blocked")}
         </p>
       )}
 
       <TestCard title={t("ce_test_preview")} desc={t("ce_cf_test_preview_desc")}>
-        <button
-          type="button"
-          onClick={() => void handlePreview()}
-          disabled={previewing || blocked}
-          className={GHOST_BTN_CLS}
-        >
-          {previewing && <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />}
-          {t("ce_cf_test_preview_run")}
-        </button>
+        <div>
+          <Button variant="outline" onClick={() => void handlePreview()} disabled={previewing || blocked}>
+            {previewing && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+            {t("ce_cf_test_preview_run")}
+          </Button>
+        </div>
         {previewError && (
-          <p role="alert" className="mt-2 text-[12px] text-warn">
+          <p role="alert" className="text-xs text-warn">
             {previewError}
           </p>
         )}
         {preview && (
-          <div className="mt-3 space-y-3">
+          <div className="flex flex-col gap-3">
             {preview.conversions && (
               <ConversionsTable
                 conversions={preview.conversions}
@@ -351,41 +338,33 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
 
       <TestCard title={t("ce_test_trial")} badge={t("ce_cf_test_trial_gpu")} desc={t("ce_cf_test_trial_desc")}>
         <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handleStartTrial()}
-              disabled={trial.starting || blocked || running}
-              className={ACCENT_BTN_SM_CLS}
-              style={ACCENT_BUTTON_STYLE}
-            >
-              {trial.starting ? (
-                <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
-              ) : (
-                <Play className="h-3 w-3" aria-hidden />
-              )}
-              {t("ce_cf_test_trial_run")}
-            </button>
-            {running && (
-              <button type="button" onClick={() => void trial.cancel()} className={GHOST_BTN_CLS}>
-                {t("common:cancel")}
-              </button>
+          <Button onClick={() => void handleStartTrial()} disabled={trial.starting || blocked || running}>
+            {trial.starting ? (
+              <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <Play aria-hidden data-icon="inline-start" />
             )}
-          <span className="text-[11.5px] text-muted-foreground">{t("ce_cf_test_trial_note")}</span>
+            {t("ce_cf_test_trial_run")}
+          </Button>
+          {running && (
+            <Button variant="outline" onClick={() => void trial.cancel()}>
+              {t("common:cancel")}
+            </Button>
+          )}
+          <span className="text-xs text-muted-foreground">{t("ce_cf_test_trial_note")}</span>
         </div>
         {trial.error && (
-          <p role="alert" className="mt-2 text-[12px] text-warn">
+          <p role="alert" className="text-xs text-warn">
             {trial.error}
           </p>
         )}
-        <div className="mt-3">
-          {trial.run ? (
-            <TrialRunReport run={trial.run} artifactUrl={trial.artifactUrl} stalled={trial.pollStopped} />
-          ) : (
-            <p className="rounded-md border border-border px-3 py-6 text-center text-[12px] text-muted-foreground">
-              {trial.cancelled ? t("ce_trial_cancelled") : t("ce_cf_test_trial_empty")}
-            </p>
-          )}
-        </div>
+        {trial.run ? (
+          <TrialRunReport run={trial.run} artifactUrl={trial.artifactUrl} stalled={trial.pollStopped} />
+        ) : (
+          <p className="rounded-lg border border-border px-3 py-6 text-center text-xs text-muted-foreground">
+            {trial.cancelled ? t("ce_trial_cancelled") : t("ce_cf_test_trial_empty")}
+          </p>
+        )}
       </TestCard>
     </div>
   );
@@ -436,11 +415,11 @@ function ConversionsTable({
   });
 
   return (
-    <div>
-      <span className={LABEL_CLS}>{t("ce_cf_test_conv_title")}</span>
-      <dl className="divide-y divide-border/50 overflow-hidden rounded-md border border-border/50">
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="text-sm font-medium">{t("ce_cf_test_conv_title")}</span>
+      <dl className="divide-y divide-border rounded-lg border border-border text-xs">
         {rows.map((row) => (
-          <div key={row.key} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-1.5 text-[11.5px]">
+          <div key={row.key} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-1.5">
             <dt className="w-16 shrink-0 text-muted-foreground">{row.label}</dt>
             <dd className="flex min-w-0 flex-wrap items-baseline gap-x-2">
               <span className="font-mono text-muted-foreground" translate="no">
@@ -450,7 +429,7 @@ function ConversionsTable({
                 →
               </span>
               {row.to === null ? (
-                <span className="text-warn/90">{t("ce_cf_test_conv_unbound")}</span>
+                <span className="text-warn">{t("ce_cf_test_conv_unbound")}</span>
               ) : (
                 <span className="font-mono tabular-nums text-foreground" translate="no">
                   {row.to}
@@ -460,23 +439,23 @@ function ConversionsTable({
           </div>
         ))}
         {conversions.negative_prompt !== "" && (
-          <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5 text-[11.5px]">
+          <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5">
             <dt className="w-16 shrink-0 text-muted-foreground">{t("ce_cf_key_negative_prompt")}</dt>
-            <dd className="min-w-0 flex-1 break-words text-subtle-foreground">{conversions.negative_prompt}</dd>
+            <dd className="min-w-0 flex-1 wrap-break-word text-subtle-foreground">{conversions.negative_prompt}</dd>
           </div>
         )}
         {conversions.dropped_nodes.length > 0 && (
-          <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5 text-[11.5px]">
+          <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5">
             <dt className="w-16 shrink-0 text-muted-foreground">{t("ce_cf_test_conv_dropped")}</dt>
-            <dd className="min-w-0 flex-1 font-mono text-subtle-foreground" translate="no">
+            <dd className="min-w-0 flex-1 font-mono break-all text-subtle-foreground" translate="no">
               {conversions.dropped_nodes.join(" · ")}
             </dd>
           </div>
         )}
-        <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5 text-[11.5px]">
+        <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5">
           <dt className="w-16 shrink-0 text-muted-foreground">{t("ce_cf_test_conv_fingerprint")}</dt>
-          <dd className="min-w-0 flex-1 truncate font-mono text-muted-foreground" translate="no">
-            {conversions.workflow_sha256}
+          <dd className="min-w-0 flex-1" translate="no">
+            <TruncatedText text={conversions.workflow_sha256} className="font-mono text-muted-foreground" />
           </dd>
         </div>
       </dl>
@@ -497,19 +476,19 @@ function TrialRunReport({
   const { t } = useTranslation("dashboard");
   const actionText = run.error_action === null ? undefined : FAILURE_ACTION_TEXT[run.error_action];
   return (
-    <div className="space-y-2.5">
-      <ol aria-live="polite" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
+    <div className="flex flex-col gap-3">
+      <ol aria-live="polite" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         {TRIAL_RUN_STAGES.map((stage) => {
           const state = run.stages[stage] ?? "pending";
           const route = STAGE_ROUTES[stage];
           return (
             <li key={stage} className="inline-flex items-baseline gap-1.5">
-              <span aria-hidden className={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${STAGE_DOT_CLS[state]}`} />
+              <span aria-hidden className={cn("size-1.5 shrink-0 self-center rounded-full", STAGE_DOT_CLS[state])} />
               <span className={state === "done" ? "text-subtle-foreground" : "text-muted-foreground"}>
                 {t(`ce_cf_test_stage_${stage}`)}
               </span>
               {route && (
-                <span className="font-mono text-[10.5px] text-muted-foreground" translate="no">
+                <span className="font-mono text-muted-foreground" translate="no">
                   {route}
                 </span>
               )}
@@ -518,10 +497,10 @@ function TrialRunReport({
           );
         })}
       </ol>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>{t(`ce_trial_status_${run.status}`)}</span>
         {run.provider_job_id !== null && (
-          <span className="font-mono text-muted-foreground" translate="no">
+          <span className="font-mono break-all" translate="no">
             prompt_id {run.provider_job_id}
           </span>
         )}
@@ -531,19 +510,19 @@ function TrialRunReport({
         {run.api_call_id !== null && (
           <a
             href={settingsSectionPath("usage", { record: String(run.api_call_id) })}
-            className="text-primary underline decoration-primary/40 underline-offset-2 hover:text-foreground"
+            className="text-primary underline underline-offset-2 hover:text-foreground"
           >
             {t("ce_trial_record", { id: run.api_call_id })}
           </a>
         )}
       </div>
-      {stalled && <p className="text-[11.5px] text-warn/90">{t("ce_cf_test_poll_stopped")}</p>}
+      {stalled && <p className="text-xs text-warn">{t("ce_cf_test_poll_stopped")}</p>}
       {artifactUrl &&
         (run.media_type === "image" ? (
           <img
             src={artifactUrl}
             alt={t("ce_trial_artifact")}
-            className="w-full rounded-md border border-good/35 bg-black object-contain"
+            className="w-full rounded-lg border border-border bg-black object-contain"
           />
         ) : (
           // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
@@ -552,21 +531,23 @@ function TrialRunReport({
             preload="metadata"
             src={artifactUrl}
             aria-label={t("ce_trial_artifact")}
-            className="w-full rounded-md border border-good/35 bg-black"
+            className="w-full rounded-lg border border-border bg-black"
           />
         ))}
       {run.error !== null && (
-        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-[12px]">
+        <Alert variant="destructive">
           {run.error_code !== null && (
-            <div className="mb-1 font-mono text-[11px] text-destructive" translate="no">
-              {run.error_code}
-            </div>
+            <AlertTitle>
+              <span className="font-mono" translate="no">
+                {run.error_code}
+              </span>
+            </AlertTitle>
           )}
-          <p className="leading-[1.55] text-subtle-foreground">{run.error}</p>
-          {actionText !== undefined && (
-            <p className="mt-1.5 text-[11.5px] leading-[1.5] text-muted-foreground">{t(actionText)}</p>
-          )}
-        </div>
+          <AlertDescription>
+            <p className="wrap-break-word">{run.error}</p>
+            {actionText !== undefined && <p>{t(actionText)}</p>}
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );

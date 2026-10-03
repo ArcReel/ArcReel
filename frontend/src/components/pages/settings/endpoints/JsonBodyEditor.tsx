@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
+import { Textarea } from "@/components/ui/textarea";
 
 /**
  * JSON 片段编辑器。文本是编辑期的真相源，只有解析成功才写回定义——
@@ -24,8 +24,8 @@ export function JsonBodyEditor({
   const [invalid, setInvalid] = useState(false);
 
   return (
-    <div>
-      <textarea
+    <div className="font-mono">
+      <Textarea
         value={text}
         readOnly={readOnly}
         aria-label={ariaLabel}
@@ -42,10 +42,9 @@ export function JsonBodyEditor({
             setInvalid(true);
           }
         }}
-        className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.6]`}
       />
       {invalid && (
-        <span role="alert" className="mt-1.5 block text-[12px] text-warn">
+        <span role="alert" className="mt-1.5 block font-sans text-xs text-warn">
           {t("ce_json_parse_error")}
         </span>
       )}
