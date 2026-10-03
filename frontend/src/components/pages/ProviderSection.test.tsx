@@ -12,7 +12,7 @@ import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { ProviderSection } from "./ProviderSection";
 import type { ProviderConfigDetail, ProviderInfo, CustomProviderInfo, EndpointDescriptor } from "@/types";
 
-function renderAt(path = "/app/settings?provider=gemini-aistudio") {
+function renderAt(path = "/app/settings?section=providers&provider=gemini-aistudio") {
   const location = memoryLocation({ path, record: true });
   return {
     ...render(
@@ -37,8 +37,7 @@ function providersFor(lang: string): { providers: ProviderInfo[] } {
         status: "ready",
         media_types: ["video"],
         capabilities: [],
-        configured_keys: [],
-        missing_keys: [],
+        credential_count: 0,
         models: {},
       },
     ],
@@ -91,8 +90,7 @@ function providerDetailFor(lang: string): ProviderConfigDetail {
 
 async function savePresetProvider() {
   renderAt();
-  await screen.findByText("Gemini AI Studio（中文）", { selector: "h3" });
-  fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
+  await screen.findByRole("heading", { name: "Gemini AI Studio（中文）" });
   fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), {
     target: { value: "7" },
   });
@@ -172,8 +170,8 @@ describe("ProviderSection", () => {
 
     const nav = () => screen.getByRole("navigation");
     await screen.findByRole("navigation");
-    expect(within(nav()).getByText("Gemini AI Studio（中文）")).toBeInTheDocument();
-    expect(within(nav()).getByText("我的端点（中文）")).toBeInTheDocument();
+    expect(within(nav()).getAllByText("Gemini AI Studio（中文）")[0]).toBeInTheDocument();
+    expect(within(nav()).getAllByText("我的端点（中文）")[0]).toBeInTheDocument();
 
     await act(async () => {
       await i18n.changeLanguage("en");
@@ -181,10 +179,10 @@ describe("ProviderSection", () => {
 
     // 切换语言后目录须按新语言重取，否则停留在切换前的译名
     await waitFor(() =>
-      expect(within(nav()).getByText("Gemini AI Studio (EN)")).toBeInTheDocument(),
+      expect(within(nav()).getAllByText("Gemini AI Studio (EN)")[0]).toBeInTheDocument(),
     );
-    expect(within(nav()).getByText("My Endpoint (EN)")).toBeInTheDocument();
-    expect(within(nav()).queryByText("Gemini AI Studio（中文）")).not.toBeInTheDocument();
+    expect(within(nav()).getAllByText("My Endpoint (EN)")[0]).toBeInTheDocument();
+    expect(within(nav()).queryAllByText("Gemini AI Studio（中文）")).toHaveLength(0);
   });
 
   it("keeps the catalog rendered while the language-triggered refetch is in flight", async () => {
@@ -207,7 +205,7 @@ describe("ProviderSection", () => {
     // 语言切换是静默刷新：不回到 loading 面板，详情面板不被卸载
     expect(screen.queryByText(/加载供应商列表|Loading providers/)).not.toBeInTheDocument();
     expect(
-      within(screen.getByRole("navigation")).getByText("Gemini AI Studio（中文）"),
+      within(screen.getByRole("navigation")).getAllByText("Gemini AI Studio（中文）")[0],
     ).toBeInTheDocument();
 
     await act(async () => {
@@ -216,7 +214,7 @@ describe("ProviderSection", () => {
     });
     await waitFor(() =>
       expect(
-        within(screen.getByRole("navigation")).getByText("Gemini AI Studio (EN)"),
+        within(screen.getByRole("navigation")).getAllByText("Gemini AI Studio (EN)")[0],
       ).toBeInTheDocument(),
     );
   });
@@ -238,7 +236,7 @@ describe("ProviderSection", () => {
     // 静默刷新失败不得把整个小节换成错误面板：那会卸载详情面板、丢掉未保存的表单输入
     await waitFor(() =>
       expect(
-        within(screen.getByRole("navigation")).getByText("Gemini AI Studio（中文）"),
+        within(screen.getByRole("navigation")).getAllByText("Gemini AI Studio（中文）")[0],
       ).toBeInTheDocument(),
     );
     expect(screen.queryByText("network down")).not.toBeInTheDocument();
@@ -264,14 +262,14 @@ describe("ProviderSection", () => {
 
   it("selects the first preset provider when the URL names no selection", async () => {
     const { location } = renderAt("/app/settings");
-    const nav = await screen.findByRole("navigation");
 
     // 兜底选中以 replace 写回 URL，并在目录里点亮首个 preset
+    const panel = await screen.findByRole("tabpanel");
     await waitFor(() =>
-      expect(within(nav).getByText("Gemini AI Studio（中文）").closest('[aria-current="page"]')).not.toBeNull(),
+      expect(within(panel).getByRole("link", { name: /Gemini AI Studio（中文）/ })).toHaveAttribute("aria-current", "page"),
     );
     // replace 写回：历史里只剩替换后的一条，不追加
-    expect(location.history).toEqual(["/app/settings?provider=gemini-aistudio"]);
+    expect(location.history).toEqual(["/app/settings?section=providers&provider=gemini-aistudio"]);
   });
 
   it("warns when a successful save is followed by a failed catalog refresh", async () => {
@@ -314,17 +312,31 @@ describe("ProviderSection", () => {
     vi.mocked(API.getProviderConfig).mockImplementation(() => Promise.resolve(providerDetailFor(i18n.language)));
     vi.spyOn(API, "getCustomProvider").mockResolvedValue(customProvider(1, "我的端点（中文）"));
     const { location } = renderAt();
-    await screen.findByText("Gemini AI Studio（中文）", { selector: "h3" });
-    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
+    await screen.findByRole("heading", { name: "Gemini AI Studio（中文）" });
     fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), { target: { value: "7" } });
 
-    fireEvent.click(within(screen.getByRole("navigation")).getByText("我的端点（中文）"));
+    fireEvent.click(screen.getByRole("tab", { name: /自定义/ }));
+    fireEvent.click(within(screen.getByRole("tabpanel")).getByRole("link", { name: /我的端点（中文）/ }));
     const dialog = await screen.findByRole("alertdialog", { name: "有未保存的修改" });
-    expect(location.history.at(-1)).toBe("/app/settings?provider=gemini-aistudio");
+    expect(location.history.at(-1)).toBe("/app/settings?section=providers&provider=gemini-aistudio");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "保存并离开" }));
-    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?custom=1"));
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=1"));
     expect(API.patchProviderConfig).toHaveBeenCalledWith("gemini-aistudio", { max_workers: "7" });
+  });
+
+  it("shows each preset provider's key count from the catalog, or unconfigured when it has none", async () => {
+    vi.mocked(API.getProviders).mockResolvedValue({
+      providers: [
+        { ...providersFor("zh").providers[0], credential_count: 2 },
+        { ...providersFor("zh").providers[0], id: "grok", display_name: "Grok", status: "unconfigured", credential_count: 0 },
+      ],
+    });
+    renderAt();
+
+    const panel = await screen.findByRole("tabpanel");
+    expect(within(panel).getByRole("link", { name: /Gemini AI Studio（中文）/ })).toHaveTextContent("已配置 2 个密钥");
+    expect(within(panel).getByRole("link", { name: /Grok/ })).toHaveTextContent("未配置");
   });
 
   it("selects the newly created custom provider after the form saves", async () => {
@@ -337,13 +349,13 @@ describe("ProviderSection", () => {
       .mockResolvedValueOnce({ providers: [customProvider(1, "旧端点")] })
       .mockResolvedValue({ providers: [customProvider(1, "旧端点"), customProvider(2, "我的中转站")] });
 
-    const { location } = renderAt("/app/settings?custom=new");
+    const { location } = renderAt("/app/settings?section=providers&custom=new");
     await screen.findByRole("button", { name: "保存" });
 
     saveNewCustomProvider();
 
     // 保存后须切到刚建好的那一项，否则用户停在填满的表单上，再保存一次就多出一个重复供应商
-    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?custom=2"));
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=2"));
     await waitFor(() => expect(API.getCustomProvider).toHaveBeenCalledWith(2));
   });
 
@@ -357,13 +369,13 @@ describe("ProviderSection", () => {
       .mockResolvedValueOnce({ providers: [customProvider(1, "旧端点")] })
       .mockRejectedValue(new Error("network down"));
 
-    const { location } = renderAt("/app/settings?custom=new");
+    const { location } = renderAt("/app/settings?section=providers&custom=new");
     await screen.findByRole("button", { name: "保存" });
 
     saveNewCustomProvider();
 
     // 选中来自新建响应，与目录重取的结局无关；刷新失败另行告警。
-    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?custom=2"));
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=2"));
     await waitFor(() =>
       expect(useAppStore.getState().toast).toMatchObject({
         text: "已保存，但供应商列表刷新失败，请重新加载页面",

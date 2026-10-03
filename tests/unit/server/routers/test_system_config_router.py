@@ -99,8 +99,7 @@ def _make_mock_svc(
                     media_types=list(meta.media_types),
                     capabilities=list(meta.capabilities),
                     required_keys=list(meta.required_keys),
-                    configured_keys=list(meta.required_keys) if name in ready else [],
-                    missing_keys=[] if name in ready else list(meta.required_keys),
+                    credential_count=1 if name in ready else 0,
                 )
             )
         return statuses

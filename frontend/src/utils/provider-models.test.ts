@@ -44,8 +44,7 @@ const VEO_PROVIDERS: ProviderInfo[] = [
     status: "ready",
     media_types: ["video"],
     capabilities: [],
-    configured_keys: [],
-    missing_keys: [],
+    credential_count: 0,
     models: {
       "veo-3.1-generate-preview": {
         display_name: "Veo 3.1",

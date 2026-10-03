@@ -9,7 +9,7 @@ export default {
   'lobby_settings_title': 'Cài đặt',
   'lobby_settings_body': 'Trước khi bắt đầu sản xuất cần hoàn tất hai mục cấu hình. Chấm đỏ trên nút nghĩa là còn mục bắt buộc chưa được cấu hình.',
   'settings_providers_title': 'Cấu hình nhà cung cấp',
-  'settings_providers_body': 'Hình ảnh và video do các nhà cung cấp cấu hình tại đây tạo ra. Cấu hình ít nhất một nhà cung cấp: nhập API Key và xác nhận khả dụng bằng "Kiểm tra kết nối".',
+  'settings_providers_body': 'Hình ảnh và video do các nhà cung cấp cấu hình tại đây tạo ra. Thêm khóa cho ít nhất một nhà cung cấp, rồi bấm "Kiểm tra" để xác nhận khả dụng.',
   'settings_agent_title': 'Cấu hình [[brand]] Agent',
   'settings_agent_body': '[[brand]] Agent có thể đảm nhận mọi tác vụ sản xuất trong [[brand]]. Hãy thêm một nhà cung cấp Agent tại đây và nhập khóa.',
   'lobby_demo_title': 'Dự án minh hoạ',

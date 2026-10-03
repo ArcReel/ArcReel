@@ -1,12 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
-import type { ProviderCredential } from "@/types";
+import type { CredentialSecretField, ProviderCredential } from "@/types";
 
 import { CredentialList } from "./CredentialList";
 
-const BASE_URL_LABEL = "Base URL（可选）";
+const BASE_URL_LABEL = "接口地址（可选）";
+const API_KEY_FIELDS: CredentialSecretField[] = [{ key: "api_key", label: "API Key" }];
 
 const mockCred = (overrides: Partial<ProviderCredential> = {}): ProviderCredential => ({
   id: 1,
@@ -20,38 +21,105 @@ const mockCred = (overrides: Partial<ProviderCredential> = {}): ProviderCredenti
   ...overrides,
 });
 
-describe("pages/CredentialList base_url gating", () => {
+function renderList({
+  providerId = "dashscope",
+  supportsBaseUrl = false,
+  secretFields = API_KEY_FIELDS,
+  secretFieldGroups = [secretFields.map((f) => f.key)],
+  onChanged,
+}: {
+  providerId?: string;
+  supportsBaseUrl?: boolean;
+  secretFields?: CredentialSecretField[];
+  secretFieldGroups?: string[][];
+  onChanged?: () => void;
+} = {}) {
+  return render(
+    <CredentialList
+      providerId={providerId}
+      supportsBaseUrl={supportsBaseUrl}
+      secretFields={secretFields}
+      secretFieldGroups={secretFieldGroups}
+      onChanged={onChanged}
+    />,
+  );
+}
+
+async function openAddDialog() {
+  fireEvent.click(await screen.findByRole("button", { name: "添加密钥" }));
+  return screen.findByRole("dialog", { name: "添加密钥" });
+}
+
+async function openEditDialog(name: string) {
+  fireEvent.click(await screen.findByRole("button", { name: `「${name}」的更多操作` }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "编辑" }));
+  return screen.findByRole("dialog", { name: "编辑密钥" });
+}
+
+describe("pages/CredentialList", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders Base URL input in add form when provider supports it", async () => {
+  it("shows the Base URL field in the add dialog only when the provider supports it", async () => {
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    render(<CredentialList providerId="dashscope" supportsBaseUrl />);
+    const { unmount } = renderList({ supportsBaseUrl: true });
+    expect(within(await openAddDialog()).getByLabelText(BASE_URL_LABEL)).toBeInTheDocument();
+    unmount();
 
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-
-    expect(await screen.findByText(BASE_URL_LABEL)).toBeInTheDocument();
+    renderList({ providerId: "ark", supportsBaseUrl: false });
+    const dialog = await openAddDialog();
+    expect(within(dialog).getByLabelText("名称")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(BASE_URL_LABEL)).not.toBeInTheDocument();
   });
 
-  it("omits Base URL input in add form when provider does not support it", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    render(<CredentialList providerId="ark" supportsBaseUrl={false} />);
+  it("switches the active key immediately and reports the change", async () => {
+    vi.spyOn(API, "listCredentials").mockResolvedValue({
+      credentials: [mockCred({ id: 1, name: "主账号", is_active: true }), mockCred({ id: 2, name: "备用账号" })],
+    });
+    const activateSpy = vi.spyOn(API, "activateCredential").mockResolvedValue();
+    const onChanged = vi.fn();
+    renderList({ onChanged });
 
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "激活 备用账号" }));
 
-    // 表单已渲染（名称字段在），但不含 Base URL 输入
-    expect(await screen.findByText("名称")).toBeInTheDocument();
-    expect(screen.queryByText(BASE_URL_LABEL)).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(activateSpy).toHaveBeenCalledWith("dashscope", 2);
   });
 
-  it("renders Base URL input in edit form when provider supports it", async () => {
+  it("deletes a key only after confirming in the alert dialog", async () => {
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [mockCred()] });
-    render(<CredentialList providerId="dashscope" supportsBaseUrl />);
+    const deleteSpy = vi.spyOn(API, "deleteCredential").mockResolvedValue();
+    const onChanged = vi.fn();
+    renderList({ onChanged });
 
-    fireEvent.click(await screen.findByRole("button", { name: /编辑 默认账号/ }));
+    const openConfirm = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "「默认账号」的更多操作" }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "删除" }));
+      return screen.findByRole("alertdialog", { name: "删除密钥「默认账号」？" });
+    };
 
-    expect(await screen.findByText(BASE_URL_LABEL)).toBeInTheDocument();
+    fireEvent.click(within(await openConfirm()).getByRole("button", { name: "取消" }));
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(await openConfirm()).getByRole("button", { name: "删除" }));
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(deleteSpy).toHaveBeenCalledWith("dashscope", 1);
+  });
+
+  it("keeps the dialog open with the error when adding a key fails", async () => {
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
+    vi.spyOn(API, "createCredential").mockRejectedValue(new Error("密钥无效"));
+    const onChanged = vi.fn();
+    renderList({ onChanged });
+
+    const dialog = await openAddDialog();
+    fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "主账号" } });
+    fireEvent.change(within(dialog).getByLabelText("密钥"), { target: { value: "sk-1" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "添加密钥" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("密钥无效");
+    expect(onChanged).not.toHaveBeenCalled();
   });
 });
 
@@ -60,125 +128,59 @@ describe("pages/CredentialList two-secret (Kling)", () => {
     { key: "access_key", label: "Access Key" },
     { key: "secret_key", label: "Secret Key" },
   ];
+  const KLING_CRED = mockCred({
+    id: 7,
+    provider: "kling",
+    name: "可灵账号",
+    api_key_masked: null,
+    access_key_masked: "AKfa…5678",
+    secret_key_masked: "SKse…4321",
+    is_active: true,
+  });
 
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders two secret inputs in the add form by required_keys", async () => {
+  it("submits both secrets on create, trimmed", async () => {
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    render(
-      <CredentialList providerId="kling" supportsBaseUrl secretFields={KLING_SECRET_FIELDS} />,
-    );
+    const createSpy = vi.spyOn(API, "createCredential").mockResolvedValue({} as never);
+    renderList({ providerId: "kling", secretFields: KLING_SECRET_FIELDS });
 
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-
-    expect(await screen.findByLabelText(/Access Key/)).toBeInTheDocument();
-    expect(await screen.findByLabelText(/Secret Key/)).toBeInTheDocument();
-  });
-
-  it("submits both secrets on create", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    const createSpy = vi
-      .spyOn(API, "createCredential")
-      .mockResolvedValue({} as never);
-    render(
-      <CredentialList providerId="kling" supportsBaseUrl={false} secretFields={KLING_SECRET_FIELDS} />,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-    fireEvent.change(await screen.findByLabelText(/名称/), { target: { value: "可灵账号" } });
-    fireEvent.change(await screen.findByLabelText(/Access Key/), { target: { value: "AK-1" } });
-    fireEvent.change(await screen.findByLabelText(/Secret Key/), { target: { value: "SK-1" } });
-    fireEvent.click(screen.getByRole("button", { name: /添加$/ }));
+    const dialog = await openAddDialog();
+    fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "可灵账号" } });
+    fireEvent.change(within(dialog).getByLabelText("Access Key"), { target: { value: "  AK-1\n" } });
+    fireEvent.change(within(dialog).getByLabelText("Secret Key"), { target: { value: "\tSK-1 " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "添加密钥" }));
 
     await vi.waitFor(() => {
-      expect(createSpy).toHaveBeenCalledWith("kling", expect.objectContaining({
-        name: "可灵账号",
-        access_key: "AK-1",
-        secret_key: "SK-1",
-      }));
-    });
-  });
-
-  it("trims surrounding whitespace from secrets on create", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    const createSpy = vi
-      .spyOn(API, "createCredential")
-      .mockResolvedValue({} as never);
-    render(
-      <CredentialList providerId="kling" supportsBaseUrl={false} secretFields={KLING_SECRET_FIELDS} />,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-    fireEvent.change(await screen.findByLabelText(/名称/), { target: { value: "可灵账号" } });
-    fireEvent.change(await screen.findByLabelText(/Access Key/), { target: { value: "  AK-1\n" } });
-    fireEvent.change(await screen.findByLabelText(/Secret Key/), { target: { value: "\tSK-1 " } });
-    fireEvent.click(screen.getByRole("button", { name: /添加$/ }));
-
-    await vi.waitFor(() => {
-      expect(createSpy).toHaveBeenCalledWith("kling", expect.objectContaining({
-        access_key: "AK-1",
-        secret_key: "SK-1",
-      }));
+      expect(createSpy).toHaveBeenCalledWith(
+        "kling",
+        expect.objectContaining({ name: "可灵账号", access_key: "AK-1", secret_key: "SK-1" }),
+      );
     });
   });
 
   it("does not overwrite a stored secret with a whitespace-only edit", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({
-      credentials: [
-        {
-          id: 7,
-          provider: "kling",
-          name: "可灵账号",
-          api_key_masked: null,
-          credentials_filename: null,
-          base_url: null,
-          access_key_masked: "AKfa…5678",
-          secret_key_masked: "SKse…4321",
-          is_active: true,
-          created_at: "2026-06-01T00:00:00Z",
-        },
-      ],
-    });
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [KLING_CRED] });
     const updateSpy = vi.spyOn(API, "updateCredential").mockResolvedValue({} as never);
-    render(
-      <CredentialList providerId="kling" supportsBaseUrl={false} secretFields={KLING_SECRET_FIELDS} />,
-    );
+    renderList({ providerId: "kling", secretFields: KLING_SECRET_FIELDS });
 
-    fireEvent.click(await screen.findByRole("button", { name: /编辑 可灵账号/ }));
-    fireEvent.change(await screen.findByLabelText(/Secret Key/), { target: { value: "   " } });
-    fireEvent.click(screen.getByRole("button", { name: /保存/ }));
+    const dialog = await openEditDialog("可灵账号");
+    fireEvent.change(within(dialog).getByLabelText("Secret Key"), { target: { value: "   " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
 
-    // 空白-only 输入经 trim 后为空，不应作为新值提交覆盖既有密钥
-    await vi.waitFor(() => {
-      expect(updateSpy).not.toHaveBeenCalled();
-    });
+    // 只含空白的输入经 trim 后为空，不应作为新值提交覆盖既有密钥
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 
   it("shows each masked secret independently in the row", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({
-      credentials: [
-        {
-          id: 7,
-          provider: "kling",
-          name: "可灵账号",
-          api_key_masked: null,
-          credentials_filename: null,
-          base_url: null,
-          access_key_masked: "AKfa…5678",
-          secret_key_masked: "SKse…4321",
-          is_active: true,
-          created_at: "2026-06-01T00:00:00Z",
-        },
-      ],
-    });
-    render(
-      <CredentialList providerId="kling" supportsBaseUrl={false} secretFields={KLING_SECRET_FIELDS} />,
-    );
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [KLING_CRED] });
+    renderList({ providerId: "kling", secretFields: KLING_SECRET_FIELDS });
 
     expect(await screen.findByText(/AKfa…5678/)).toBeInTheDocument();
-    expect(await screen.findByText(/SKse…4321/)).toBeInTheDocument();
+    expect(screen.getByText(/SKse…4321/)).toBeInTheDocument();
   });
 });
 
@@ -192,131 +194,52 @@ describe("pages/CredentialList credential groups (api_key OR access_key+secret_k
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
   });
 
-  it("shows an OR hint describing the two credential groups", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    render(
-      <CredentialList
-        providerId="kling"
-        supportsBaseUrl
-        secretFields={KLING_SECRET_FIELDS}
-        secretFieldGroups={KLING_SECRET_FIELD_GROUPS}
-      />,
-    );
+  const renderKling = () =>
+    renderList({ providerId: "kling", secretFields: KLING_SECRET_FIELDS, secretFieldGroups: KLING_SECRET_FIELD_GROUPS });
 
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
+  it("describes the two groups and marks no single secret field as required", async () => {
+    renderKling();
+    const dialog = await openAddDialog();
 
-    expect(await screen.findByText("API Key 或 Access Key + Secret Key")).toBeInTheDocument();
+    expect(within(dialog).getByText("API Key 或 Access Key + Secret Key")).toBeInTheDocument();
+    for (const label of ["API Key", "Access Key", "Secret Key"]) {
+      expect(within(dialog).getByLabelText(label)).not.toBeRequired();
+    }
   });
 
-  it("renders all three secret inputs regardless of grouping", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    render(
-      <CredentialList
-        providerId="kling"
-        supportsBaseUrl
-        secretFields={KLING_SECRET_FIELDS}
-        secretFieldGroups={KLING_SECRET_FIELD_GROUPS}
-      />,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-
-    expect(await screen.findByLabelText(/^API Key/)).toBeInTheDocument();
-    expect(await screen.findByLabelText(/Access Key/)).toBeInTheDocument();
-    expect(await screen.findByLabelText(/Secret Key/)).toBeInTheDocument();
-  });
-
-  it("submits with only api_key filled (access_key/secret_key left empty)", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
+  it.each([
+    { filled: { "API Key": "sk-api-1" }, expected: { api_key: "sk-api-1" } },
+    { filled: { "Access Key": "AK-1", "Secret Key": "SK-1" }, expected: { access_key: "AK-1", secret_key: "SK-1" } },
+  ])("submits when one group is complete: $expected", async ({ filled, expected }) => {
     const createSpy = vi.spyOn(API, "createCredential").mockResolvedValue({} as never);
-    render(
-      <CredentialList
-        providerId="kling"
-        supportsBaseUrl={false}
-        secretFields={KLING_SECRET_FIELDS}
-        secretFieldGroups={KLING_SECRET_FIELD_GROUPS}
-      />,
-    );
+    renderKling();
 
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-    fireEvent.change(await screen.findByLabelText(/名称/), { target: { value: "可灵账号" } });
-    fireEvent.change(await screen.findByLabelText(/^API Key/), { target: { value: "sk-api-1" } });
-    fireEvent.click(screen.getByRole("button", { name: /添加$/ }));
+    const dialog = await openAddDialog();
+    fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "可灵账号" } });
+    for (const [label, value] of Object.entries(filled)) {
+      fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
+    }
+    fireEvent.click(within(dialog).getByRole("button", { name: "添加密钥" }));
 
     await vi.waitFor(() => {
-      expect(createSpy).toHaveBeenCalledWith(
-        "kling",
-        expect.objectContaining({ name: "可灵账号", api_key: "sk-api-1" }),
-      );
-    });
-  });
-
-  it("submits with only access_key+secret_key filled (api_key left empty)", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    const createSpy = vi.spyOn(API, "createCredential").mockResolvedValue({} as never);
-    render(
-      <CredentialList
-        providerId="kling"
-        supportsBaseUrl={false}
-        secretFields={KLING_SECRET_FIELDS}
-        secretFieldGroups={KLING_SECRET_FIELD_GROUPS}
-      />,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-    fireEvent.change(await screen.findByLabelText(/名称/), { target: { value: "可灵账号" } });
-    fireEvent.change(await screen.findByLabelText(/Access Key/), { target: { value: "AK-1" } });
-    fireEvent.change(await screen.findByLabelText(/Secret Key/), { target: { value: "SK-1" } });
-    fireEvent.click(screen.getByRole("button", { name: /添加$/ }));
-
-    await vi.waitFor(() => {
-      expect(createSpy).toHaveBeenCalledWith(
-        "kling",
-        expect.objectContaining({ name: "可灵账号", access_key: "AK-1", secret_key: "SK-1" }),
-      );
+      expect(createSpy).toHaveBeenCalledWith("kling", expect.objectContaining({ name: "可灵账号", ...expected }));
     });
   });
 
   it("rejects submit when no group is fully filled", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
     const createSpy = vi.spyOn(API, "createCredential").mockResolvedValue({} as never);
-    render(
-      <CredentialList
-        providerId="kling"
-        supportsBaseUrl={false}
-        secretFields={KLING_SECRET_FIELDS}
-        secretFieldGroups={KLING_SECRET_FIELD_GROUPS}
-      />,
-    );
+    renderKling();
 
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-    fireEvent.change(await screen.findByLabelText(/名称/), { target: { value: "可灵账号" } });
+    const dialog = await openAddDialog();
+    fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "可灵账号" } });
     // 只填一半的双键组（access_key 无 secret_key），且未填 api_key —— 两组都不完整
-    fireEvent.change(await screen.findByLabelText(/Access Key/), { target: { value: "AK-1" } });
-    fireEvent.click(screen.getByRole("button", { name: /添加$/ }));
+    fireEvent.change(within(dialog).getByLabelText("Access Key"), { target: { value: "AK-1" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "添加密钥" }));
 
-    expect(await screen.findByText("请至少完整填写一组鉴权字段")).toBeInTheDocument();
+    expect(await within(dialog).findByText("请至少完整填写一组鉴权字段")).toBeInTheDocument();
     expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("does not mark any single field as required when multiple groups exist", async () => {
-    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
-    render(
-      <CredentialList
-        providerId="kling"
-        supportsBaseUrl={false}
-        secretFields={KLING_SECRET_FIELDS}
-        secretFieldGroups={KLING_SECRET_FIELD_GROUPS}
-      />,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: /添加供应商/ }));
-    await screen.findByLabelText(/^API Key/);
-
-    // 二选一场景下三个 secret 字段都不应标必填星标（* ），只有 Name 字段仍是无条件必填，
-    // 否则会误导用户以为「三个都要填」
-    expect(screen.getAllByText("*")).toHaveLength(1);
   });
 });

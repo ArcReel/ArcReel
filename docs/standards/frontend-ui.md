@@ -176,11 +176,26 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 限宽与铺满档在外壳主体下方有一行固定的底行，只覆盖内容区，不随主体滚动。区段用 `<PageShellFooter><SaveBar unit={unit} /></PageShellFooter>` 把保存栏渲染进去，底行内层与内容列同宽、同起点；区段没有渲染保存栏时底行不显示。全出血档没有这一行，保存栏放在区段详情栏的底部、滚动区之外。`SaveBar` 本身不带边框与背景，由所在的行提供。
 
+### 全出血的主从布局使用 `components/shared/master-detail` 的二级栏与详情栏
+
+供应商、调用端点与 Agent 记忆这类「列表 + 详情」区段，根节点写 `flex min-h-0 min-w-0 flex-1`，左侧放 `SecondaryRail`，右侧放 `DetailPane`：
+
+- **`SecondaryRail`**：传 `groups`（每组 `{ id, label, items, action?, emptyText? }`）与 `activeId`。条目是 `{ id, label, description?, icon, href }`：第二行 `description` 写状态或数量，选中经 `href` 走路由，离开拦截因此覆盖切换。`action` 是组末尾的动作条目（如「添加自定义供应商」），不计入 Tab 上的数量。二级栏按 `@container/page` 的宽度切换形态：内容区不窄于 64rem 时是 264px 的两行条目，多组时顶部是 Tab，每次只列一组；更窄时收为 56px 的图标栏，悬停或聚焦显示名称，多组上下叠放。没有手动切换过时 Tab 跟随选中项所在的组。只有一组时不显示 Tab。
+- **`DetailPane`**：分 `header`、正文与 `footer` 三段，只有正文滚动。设置类详情的 `SaveBar` 放进 `footer`，常驻底部。正文不带内边距，表单通常写 `max-w-190 px-6 py-6`，此时保存栏写 `max-w-178`，与表单列同宽、同起点。
+- 选中项换了就整栏重建：给详情组件传 `key`，上一项的未保存修改、在途请求与加载状态不会带到下一项。
+
+两种形态都在 DOM 里，靠容器查询只显示其中一种，被隐藏的一份不进入可访问树。jsdom 不计算样式，Vitest 中两份都可见：按条目查询时限定在 `getByRole("tabpanel")` 内，或用 `getAllBy*`。
+
 ### 「返回」使用 `useReturnTo`，设置页深链使用 `settingsSectionPath`
 
 路由根部的 `useTrackReturnTo` 把最近停留的应用页面（含查询串）记在 `sessionStorage`。全局设置与资产库之间往来不改变返回目标，只做重定向的入口也不记录。页面的「返回」按钮调用 `useReturnTo()` 取得的回调，回到进入之前的页面；没有记录时回到项目大厅。入口按钮和深链不需要各自记录来源。`useReturnTo` 只用于顶层路由上的页面：嵌套路由里的 `navigate` 以嵌套路径为基准。
 
 指向全局设置某个分区的链接用 `app-routes.ts` 的 `settingsSectionPath(section, params)` 生成，分区名由 `SettingsSection` 类型校验，分区改名时 typecheck 会报出所有旧链接。在嵌套路由里跳转时在前面加 `~`，例如 `` `~${settingsSectionPath("usage")}` ``。
+
+供应商与调用端点之间的跳转用两个专用函数，不手拼查询参数：
+
+- `providerSettingsPath(target)`：`{ preset: id }` 选中预置供应商（`provider=`）；`{ custom: id, model? }` 选中自定义供应商，带 `model` 时定位到这个模型（`custom=`、`model=`）；`{ newCustom: { endpoint?, baseUrl? } }` 打开预填的新建表单（`custom=new`、`endpoint=`、`base_url=`）。
+- `endpointSettingsPath(endpointKey, { fromCustomProvider? })`：选中端点（`endpoint=`）。从自定义供应商跳来时传 `fromCustomProvider`，写成 `from=<供应商 id>`；端点页据此在顶部显示「返回『供应商名』」，返回地址是 `providerSettingsPath({ custom: from })`。
 
 ## 横向溢出与截断
 

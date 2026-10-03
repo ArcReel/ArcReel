@@ -9,7 +9,7 @@ export default {
   'lobby_settings_title': '设置',
   'lobby_settings_body': '开始制作前需要完成两项配置。按钮上的红点表示还有必填项未配置。',
   'settings_providers_title': '配置供应商',
-  'settings_providers_body': '图像和视频由这里配置的供应商生成。至少配置一个供应商：填入 API Key，通过「连通性检查」确认可用。',
+  'settings_providers_body': '图像和视频由这里配置的供应商生成。至少给一个供应商添加密钥，再点「测试」确认可用。',
   'settings_agent_title': '配置 [[brand]] Agent',
   'settings_agent_body': '[[brand]] Agent 能完成 [[brand]] 中的全部制作任务。在这里添加一个 Agent 供应商并填入密钥。',
   'lobby_demo_title': '演示项目',

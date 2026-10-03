@@ -59,8 +59,7 @@ const mockProviders = {
       status: "ready" as const,
       media_types: ["video", "image", "text"],
       capabilities: [],
-      configured_keys: [],
-      missing_keys: [],
+      credential_count: 0,
       models: {
         "veo-3": {
           display_name: "veo-3",
@@ -328,7 +327,7 @@ describe("CreateProjectModal", () => {
       providers: [
         {
           id: "gemini-aistudio", display_name: "Gemini AI Studio", description: "", status: "ready" as const,
-          media_types: ["video", "image", "text"], capabilities: [], configured_keys: [], missing_keys: [],
+          media_types: ["video", "image", "text"], capabilities: [], credential_count: 0,
           models: {
             "veo-3": {
               display_name: "veo-3", media_type: "video", capabilities: [], default: false,
@@ -339,7 +338,7 @@ describe("CreateProjectModal", () => {
         },
         {
           id: "ark", display_name: "Ark", description: "", status: "ready" as const,
-          media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
+          media_types: ["video"], capabilities: [], credential_count: 0,
           models: {
             seedance: {
               display_name: "seedance", media_type: "video", capabilities: [], default: false,

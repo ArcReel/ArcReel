@@ -6,6 +6,7 @@ import { Popover } from "@/components/legacy/FloatingPopover";
 import type { DiscoveryFormat, EndpointKey, ImageCap, MediaType } from "@/types";
 import { isComfyuiEndpoint, isComfyuiProtocol } from "./customProviderHelpers";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
+import { endpointSettingsPath } from "@/app-routes";
 
 // ---------------------------------------------------------------------------
 // EndpointSelect — 自定义供应商「调用端点」选择器
@@ -338,9 +339,7 @@ export function EndpointSelect({
           type="button"
           onClick={() => {
             setOpen(false);
-            const params = new URLSearchParams({ section: "endpoints" });
-            if (value) params.set("endpoint", value);
-            const proceed = () => navigate(`/app/settings?${params.toString()}`);
+            const proceed = () => navigate(endpointSettingsPath(value || undefined));
             if (onManageNavigate) onManageNavigate(proceed);
             else proceed();
           }}

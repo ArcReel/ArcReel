@@ -109,8 +109,8 @@ class ProviderStatus:
     media_types: list[str]
     capabilities: list[str]
     required_keys: list[str]
-    configured_keys: list[str]
-    missing_keys: list[str]
+    # 凭证（界面称「密钥」）条数，供设置页二级栏显示「已配置 N 个密钥」。
+    credential_count: int
     models: dict[str, dict] | None = None  # model_id -> ModelInfo dict representation
 
 
@@ -152,19 +152,12 @@ class ConfigService:
         await self._provider_repo.delete(provider, key, flush=flush)
 
     async def get_all_providers_status(self) -> list[ProviderStatus]:
-        all_configured = await self._provider_repo.get_all_configured_keys_bulk()
         cred_repo = CredentialRepository(self._provider_repo.session)
         active_creds = await cred_repo.get_active_credentials_bulk()
+        credential_counts = await cred_repo.count_by_provider_bulk()
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
-            has_active = name in active_creds
-            configured = all_configured.get(name, [])
-            if has_active:
-                status: Literal["ready", "unconfigured", "error"] = "ready"
-                missing: list[str] = []
-            else:
-                status = "unconfigured"
-                missing = list(meta.required_keys)
+            status: Literal["ready", "unconfigured", "error"] = "ready" if name in active_creds else "unconfigured"
             # 先按 __dict__ 排除 pricing（其费率含 tuple 键，非 JSON 可序列化且响应不消费；
             # 用 __dict__ 而非 asdict 以免递归转换 pricing 后又被丢弃），再 deepcopy 其余可变容器
             # 字段（list/dict），避免返回值与全局 PROVIDER_REGISTRY 共享引用被调用方意外改写。
@@ -181,8 +174,7 @@ class ConfigService:
                     media_types=list(meta.media_types),
                     capabilities=list(meta.capabilities),
                     required_keys=list(meta.required_keys),
-                    configured_keys=configured,
-                    missing_keys=missing,
+                    credential_count=credential_counts.get(name, 0),
                     models=models_dict,
                 )
             )

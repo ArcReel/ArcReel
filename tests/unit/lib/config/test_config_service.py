@@ -40,7 +40,6 @@ async def test_provider_becomes_ready(config_service: ConfigService, db_session:
     statuses = await config_service.get_all_providers_status()
     aistudio = next(s for s in statuses if s.name == "gemini-aistudio")
     assert aistudio.status == "ready"
-    assert aistudio.missing_keys == []
 
 
 async def test_get_provider_config(config_service: ConfigService):

@@ -21,10 +21,7 @@
           "text_to_image",
           "vision"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "gemini-3.1-pro-preview": {
             "display_name": "Gemini 3.1 Pro",
@@ -182,10 +179,7 @@
           "text_to_image",
           "vision"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "credentials_path"
-        ],
+        "credential_count": 0,
         "models": {
           "gemini-3.1-pro-preview": {
             "display_name": "Gemini 3.1 Pro",
@@ -324,10 +318,7 @@
           "text_to_image",
           "vision"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "doubao-seed-2-0-pro-260215": {
             "display_name": "豆包 Seed 2.0 Pro",
@@ -609,10 +600,7 @@
           "text_to_image",
           "vision"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "doubao-seed-2.0-mini": {
             "display_name": "豆包 Seed 2.0 Mini",
@@ -874,10 +862,7 @@
           "text_to_image",
           "vision"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "grok-4.20-0309-reasoning": {
             "display_name": "Grok 4.20 Reasoning",
@@ -1084,10 +1069,7 @@
           "text_to_image",
           "vision"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "gpt-5.5": {
             "display_name": "GPT-5.5",
@@ -1217,10 +1199,7 @@
           "image_to_image",
           "text_to_image"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "viduq2": {
             "display_name": "Vidu Q2 Image",
@@ -1388,10 +1367,7 @@
           "text_to_speech",
           "vision"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "qwen-plus": {
             "display_name": "Qwen Plus",
@@ -1926,10 +1902,7 @@
           "text_to_image",
           "vision"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "MiniMax-M3": {
             "display_name": "MiniMax M3",
@@ -2068,12 +2041,7 @@
           "image_to_image",
           "text_to_image"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key",
-          "access_key",
-          "secret_key"
-        ],
+        "credential_count": 0,
         "models": {
           "kling-v2-5-turbo": {
             "display_name": "可灵 2.5 Turbo",
@@ -2237,10 +2205,7 @@
           "text_generation",
           "text_to_image"
         ],
-        "configured_keys": [],
-        "missing_keys": [
-          "api_key"
-        ],
+        "credential_count": 0,
         "models": {
           "agnes-3.0-flash": {
             "display_name": "Agnes 3.0 Flash",

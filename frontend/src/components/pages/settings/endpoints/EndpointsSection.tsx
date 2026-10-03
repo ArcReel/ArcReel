@@ -6,6 +6,7 @@ import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
+import { providerSettingsPath } from "@/app-routes";
 import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 import type {
   AnyEndpointDefinition,
@@ -484,26 +485,16 @@ export function EndpointsSection() {
 
   const handleCreateProvider = useCallback(
     (definition: EndpointDefinition, endpointKey: string) => {
-      const params = new URLSearchParams();
-      params.set("section", "providers");
-      params.set("custom", "new");
-      params.set("endpoint", endpointKey);
-      const baseUrl = definition.meta.hints?.base_url;
-      if (baseUrl) params.set("base_url", baseUrl);
-      navigate(`${location}?${params.toString()}`);
+      navigate(providerSettingsPath({ newCustom: { endpoint: endpointKey, baseUrl: definition.meta.hints?.base_url } }));
     },
-    [location, navigate],
+    [navigate],
   );
 
   const handleNavigateToModel = useCallback(
     (reference: EndpointReference) => {
-      const params = new URLSearchParams();
-      params.set("section", "providers");
-      params.set("custom", String(reference.provider_id));
-      params.set("model", reference.model_id);
-      navigate(`${location}?${params.toString()}`);
+      navigate(providerSettingsPath({ custom: reference.provider_id, model: reference.model_id }));
     },
-    [location, navigate],
+    [navigate],
   );
 
   if (loadError) {

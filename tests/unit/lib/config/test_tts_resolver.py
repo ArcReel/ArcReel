@@ -15,8 +15,7 @@ def _ready(name: str, media_types: list[str]) -> ProviderStatus:
         media_types=media_types,
         capabilities=[],
         required_keys=[],
-        configured_keys=[],
-        missing_keys=[],
+        credential_count=0,
     )
 
 

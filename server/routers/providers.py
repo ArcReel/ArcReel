@@ -114,8 +114,8 @@ class ProviderSummary(BaseModel):
     status: str
     media_types: list[str]
     capabilities: list[str]
-    configured_keys: list[str]
-    missing_keys: list[str]
+    # 凭证（界面称「密钥」）条数；没有凭证时为 0。
+    credential_count: int
     models: dict[str, ModelInfoResponse]
 
 
@@ -421,8 +421,7 @@ async def list_providers(
                 status=s.status,
                 media_types=s.media_types,
                 capabilities=s.capabilities,
-                configured_keys=s.configured_keys,
-                missing_keys=s.missing_keys,
+                credential_count=s.credential_count,
                 models=models,
             )
         )
