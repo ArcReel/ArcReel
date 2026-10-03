@@ -2,7 +2,7 @@ import { useId, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Lightbulb, Pencil } from "lucide-react";
 import { API } from "@/api";
-import { AdTargetDurationField } from "@/components/shared/AdTargetDurationField";
+import { DurationTierPicker } from "@/components/shared/DurationTierPicker";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 
@@ -99,7 +99,7 @@ export function AdBriefCard({ projectName, brief, targetDuration, readOnly = fal
             className="focus-ring w-full resize-y rounded-lg px-3 py-2 text-[13px] leading-[1.6] outline-none"
             style={FIELD_STYLE}
           />
-          <AdTargetDurationField value={seconds} onChange={setSeconds} disabled={saving} />
+          <DurationTierPicker value={seconds} onChange={setSeconds} disabled={saving} />
           <div className="flex items-center gap-2">
             <button
               type="button"

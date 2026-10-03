@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Stub URL object APIs not available in jsdom
@@ -103,82 +103,86 @@ function stubModelVideoCapabilities() {
   });
 }
 
+function installStubs(name = "demo-proj") {
+  navigateMock.mockClear();
+  useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+  useProjectsStore.setState({ showCreateModal: true });
+  useAppStore.setState(useAppStore.getInitialState(), true);
+  vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
+  vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
+  vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+  vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
+  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+  stubModelVideoCapabilities();
+  vi.spyOn(API, "createProject").mockResolvedValue({ success: true, name, project: {} as never });
+  vi.spyOn(API, "uploadStyleImage").mockResolvedValue({
+    success: true,
+    style_image: "",
+    style_description: "",
+    url: "",
+  });
+}
+
+const nextButton = () => screen.getByRole("button", { name: /^(下一步|Next)$/ });
+const clickNext = () => fireEvent.click(nextButton());
+
+/** 填好第一步的必填项：标题、创作类型、生成方式。 */
+function fillBasics({ mode = "旁白/解说", route = "分镜图生视频" }: { mode?: string; route?: string } = {}) {
+  fireEvent.change(screen.getByRole("textbox", { name: "项目标题" }), { target: { value: "demo" } });
+  fireEvent.click(screen.getByRole("radio", { name: new RegExp(mode) }));
+  fireEvent.click(screen.getByRole("radio", { name: new RegExp(route) }));
+}
+
+/** 从第一步走到第三步，停在「创建项目」可点的状态。 */
+async function walkToStyle() {
+  clickNext();
+  await waitFor(() => expect(nextButton()).toBeEnabled());
+  clickNext();
+  return screen.findByRole("button", { name: "创建项目" });
+}
+
+async function createWithDefaults() {
+  render(<CreateProjectModal />);
+  fillBasics();
+  fireEvent.click(await walkToStyle());
+  await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+  return vi.mocked(API.createProject).mock.calls[0][0];
+}
+
 describe("CreateProjectModal", () => {
-  beforeEach(() => {
-    navigateMock.mockClear();
-    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
-    useProjectsStore.setState({ showCreateModal: true });
-    useAppStore.setState(useAppStore.getInitialState(), true);
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
-    vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
-    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
-    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
-    stubModelVideoCapabilities();
-    vi.spyOn(API, "createProject").mockResolvedValue({
-      success: true,
-      name: "demo-proj",
-      project: {} as never,
-    });
-    vi.spyOn(API, "uploadStyleImage").mockResolvedValue({
-      success: true,
-      style_image: "",
-      style_description: "",
-      url: "",
-    });
+  beforeEach(() => installStubs());
+
+  it("has no default content mode or generation route and lists what step 1 still needs", () => {
+    render(<CreateProjectModal />);
+    for (const radio of screen.getAllByRole("radio")) {
+      if (/竖屏/.test(radio.closest("label")?.textContent ?? "")) continue;
+      expect(radio).not.toBeChecked();
+    }
+    expect(nextButton()).toBeDisabled();
+    expect(nextButton()).toHaveAccessibleDescription("还需要：项目标题、创作类型、生成方式");
+
+    fireEvent.change(screen.getByRole("textbox", { name: "项目标题" }), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /剧情演绎/ }));
+    expect(nextButton()).toHaveAccessibleDescription("还需要：生成方式");
+
+    fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
+    expect(nextButton()).toBeEnabled();
+    expect(nextButton()).not.toHaveAccessibleDescription();
   });
 
-  it("starts at step 1 and shows title input", () => {
+  it("marks finished steps in the step indicator as the wizard advances", async () => {
     render(<CreateProjectModal />);
-    expect(screen.getByRole("textbox")).toBeInTheDocument();
-    // Next button disabled until title typed
-    expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
+    const steps = within(screen.getByRole("list", { name: "创建步骤" }));
+    expect(steps.getByText("基础信息").closest("li")).toHaveAttribute("aria-current", "step");
+    fillBasics();
+    clickNext();
+    await waitFor(() => expect(steps.getByText("生成设置").closest("li")).toHaveAttribute("aria-current", "step"));
+    expect(steps.getByText("（已完成）")).toBeInTheDocument();
   });
 
-  it("advances from step 1 to step 2 after title entered and Next clicked", async () => {
-    render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 生成模式无预选、必选：不选则 Next 恒禁用
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    // Step 2 shows loading or Back button
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /上一步/ })).toBeInTheDocument()
-    );
-  });
-
-  it("advances from step 2 to step 3 without validation", async () => {
-    render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 生成模式无预选、必选：不选则 Next 恒禁用
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ })); // to step 2
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    // Step 3: Create button appears
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
-    );
-  });
-
-  it("submits createProject with default template when Create clicked on step 3", async () => {
-    render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 生成模式无预选、必选：不选则 Next 恒禁用
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-    expect(API.createProject).toHaveBeenCalledWith(
+  it("creates the project only on the third step and opens it", async () => {
+    const payload = await createWithDefaults();
+    expect(payload).toEqual(
       expect.objectContaining({
         title: "demo",
         content_mode: "narration",
@@ -190,76 +194,129 @@ describe("CreateProjectModal", () => {
         default_image_backend: null,
         default_duration: null,
         narration_delivery: "post_production",
-      })
+      }),
     );
-    // 后期配音项目不提交 TTS 快照
-    expect(vi.mocked(API.createProject).mock.calls[0][0]).not.toHaveProperty("audio_backend");
+    // 后期配音项目不提交 TTS 快照，未填的可选时长与语速不带键
+    for (const key of ["audio_backend", "target_duration", "episode_target_duration", "speech_rate_units_per_second"]) {
+      expect(payload).not.toHaveProperty(key);
+    }
+    expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
+    expect(useProjectsStore.getState().showCreateModal).toBe(false);
+  });
+
+  it("closes from the cancel button", () => {
+    render(<CreateProjectModal />);
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(useProjectsStore.getState().showCreateModal).toBe(false);
+  });
+
+  it("ignores close requests while the project is being created", async () => {
+    let resolveCreate: (value: Awaited<ReturnType<typeof API.createProject>>) => void = () => {};
+    vi.spyOn(API, "createProject").mockImplementation(
+      () => new Promise((resolve) => (resolveCreate = resolve)),
+    );
+    render(<CreateProjectModal />);
+    fillBasics();
+    fireEvent.click(await walkToStyle());
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    expect(useProjectsStore.getState().showCreateModal).toBe(true);
+
+    await act(async () => resolveCreate({ success: true, name: "demo-proj", project: {} as never }));
     expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
   });
 
   it("prefills TTS narration with the global defaults and submits that snapshot", async () => {
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fillBasics();
+    clickNext();
     fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
 
     expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("Cherry");
     expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(1.1);
-    expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
 
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-    expect(API.createProject).toHaveBeenCalledWith(
-      expect.objectContaining({
-        narration_delivery: "use_tts",
-        audio_backend: "dashscope/qwen3-tts-flash",
-        narration_voice: "Cherry",
-        narration_speed: 1.1,
-      }),
+    await waitFor(() =>
+      expect(API.createProject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          narration_delivery: "use_tts",
+          audio_backend: "dashscope/qwen3-tts-flash",
+          narration_voice: "Cherry",
+          narration_speed: 1.1,
+        }),
+      ),
     );
   });
 
   it("requires a TTS model before leaving step 2 with TTS narration", async () => {
-    vi.spyOn(API, "getNarrationDefaults").mockResolvedValue({
-      audio_backend: null,
-      narration_voice: "Cherry",
-      narration_speed: null,
-    });
-    render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
-
-    expect(screen.getByText("选择 TTS 配音时必须选择 TTS 模型")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole("radio", { name: "后期配音" }));
-    expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled();
-  });
-
-  it("keeps step 2 usable without TTS prefill when the narration defaults cannot be read", async () => {
     vi.spyOn(API, "getNarrationDefaults").mockRejectedValue(new Error("boom"));
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fillBasics();
+    clickNext();
     fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
 
-    expect(screen.getByText("选择 TTS 配音时必须选择 TTS 模型")).toBeInTheDocument();
+    expect(nextButton()).toBeDisabled();
+    expect(nextButton()).toHaveAccessibleDescription("还需要：TTS 模型");
+
+    fireEvent.click(screen.getByRole("radio", { name: "后期配音" }));
+    expect(nextButton()).toBeEnabled();
   });
 
-  it("submits grid_storyboard when the assembly toggle is switched on at creation", async () => {
+  it("lets step 2 continue with global defaults when the model catalog cannot be read", async () => {
+    vi.spyOn(API, "getSystemConfig").mockRejectedValue(new Error("network down"));
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fillBasics();
+    clickNext();
+    expect(await screen.findByText("network down")).toBeInTheDocument();
+    expect(nextButton()).toBeEnabled();
+  });
+
+  it("asks the no-project endpoint for the candidate model and lists its narrowed durations", async () => {
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...mockSysConfig,
+      settings: { ...mockSysConfig.settings, default_video_backend: "gemini-aistudio/veo-3" },
+    } as never);
+    vi.spyOn(API, "getModelVideoCapabilities").mockResolvedValue({
+      provider_id: "gemini-aistudio",
+      model: "veo-3",
+      supported_durations: [8],
+      max_duration: 8,
+      max_reference_images: 3,
+      first_frame: true,
+      last_frame: true,
+      source: "registry",
+      voice_consistency: "soft",
+      duration_constraints: { resolution: null, uses_reference_images: true, allowed: [8], excluded: {} },
+    } as never);
+    render(<CreateProjectModal />);
+    fillBasics({ route: "参考生视频" });
+    clickNext();
+    // 项目尚不存在：按全局默认解析出的候选模型走无项目端点，并带上参考图路径
+    await waitFor(() =>
+      expect(API.getModelVideoCapabilities).toHaveBeenCalledWith(
+        "gemini-aistudio/veo-3",
+        expect.objectContaining({ usesReferenceImages: true, resolution: null }),
+      ),
+    );
+    expect(await screen.findByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
+  });
+
+  it("submits grid_storyboard only while the storyboard route keeps it on", async () => {
+    render(<CreateProjectModal />);
+    fillBasics();
     fireEvent.click(screen.getByRole("switch", { name: "多宫格分镜" }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+    // 切到参考生视频清空开关，切回来时保持关闭
+    fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
+    expect(screen.queryByRole("switch", { name: "多宫格分镜" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    expect(screen.getByRole("switch", { name: "多宫格分镜" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("switch", { name: "多宫格分镜" }));
+
+    fireEvent.click(await walkToStyle());
     await waitFor(() =>
       expect(API.createProject).toHaveBeenCalledWith(
         expect.objectContaining({ generation_mode: "storyboard", grid_storyboard: true }),
@@ -267,49 +324,50 @@ describe("CreateProjectModal", () => {
     );
   });
 
-  it("omits the speech rate when left empty and submits it when filled", async () => {
-    const { unmount } = render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-    // 未填不带该键：服务端不落盘，估算回退语言默认
-    expect(vi.mocked(API.createProject).mock.calls[0][0]).not.toHaveProperty(
-      "speech_rate_units_per_second",
-    );
-    unmount();
-
-    vi.mocked(API.createProject).mockClear();
+  it("hides the grid toggle for ad projects and clears it when switching to ad", () => {
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.change(screen.getByLabelText(/^语速（可选）$/), { target: { value: "6" } });
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+    fillBasics();
+    fireEvent.click(screen.getByRole("switch", { name: "多宫格分镜" }));
+    fireEvent.click(screen.getByRole("radio", { name: /广告\/短片/ }));
+    expect(screen.queryByRole("switch", { name: "多宫格分镜" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /旁白\/解说/ }));
+    expect(screen.getByRole("switch", { name: "多宫格分镜" })).not.toBeChecked();
+  });
+
+  it("submits the speech rate and episode target duration filled on step 2", async () => {
+    render(<CreateProjectModal />);
+    fillBasics();
+    clickNext();
+    fireEvent.change(await screen.findByLabelText(/^语速（可选）$/), { target: { value: "6" } });
+    fireEvent.change(screen.getByLabelText(/单集目标时长/), { target: { value: "120" } });
+    await waitFor(() => expect(nextButton()).toBeEnabled());
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
     await waitFor(() =>
       expect(API.createProject).toHaveBeenCalledWith(
-        expect.objectContaining({ speech_rate_units_per_second: 6 }),
+        expect.objectContaining({ speech_rate_units_per_second: 6, episode_target_duration: 120 }),
       ),
     );
   });
 
-  it("goes back from step 2 to step 1 preserving title", async () => {
+  it("blocks step 2 and names the fields to fix while durations are out of range", async () => {
     render(<CreateProjectModal />);
-    const titleInput = screen.getByRole("textbox");
-    fireEvent.change(titleInput, { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /上一步/ })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /上一步/ }));
-    // Back on step 1, title preserved
-    expect(screen.getByRole("textbox")).toHaveValue("demo");
+    fillBasics();
+    clickNext();
+    fireEvent.change(await screen.findByLabelText(/^语速（可选）$/), { target: { value: "99" } });
+    fireEvent.change(screen.getByLabelText(/单集目标时长/), { target: { value: "5" } });
+    expect(nextButton()).toBeDisabled();
+    expect(nextButton()).toHaveAccessibleDescription("请修正：单集目标时长、语速");
+  });
+
+  it("goes back to step 1 with the entered basics kept", async () => {
+    render(<CreateProjectModal />);
+    fillBasics();
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "上一步" }));
+    expect(screen.getByRole("textbox", { name: "项目标题" })).toHaveValue("demo");
+    expect(screen.getByRole("radio", { name: /旁白\/解说/ })).toBeChecked();
+    expect(nextButton()).toBeEnabled();
   });
 
   it("revalidates duration and resolution when step 1 switches the executing video model", async () => {
@@ -351,19 +409,14 @@ describe("CreateProjectModal", () => {
     } as never);
 
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 生成模式无预选、必选：不选则 Next 恒禁用
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fillBasics();
+    clickNext();
     // 第二步按 i2v 执行模型（veo-3）列时长与分辨率
     fireEvent.click(await screen.findByRole("radio", { name: "4 秒" }));
     fireEvent.change(screen.getByRole("combobox", { name: /分辨率/ }), { target: { value: "1080p" } });
-    fireEvent.click(screen.getByRole("button", { name: /上一步/ }));
+    fireEvent.click(screen.getByRole("button", { name: "上一步" }));
     fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+    fireEvent.click(await walkToStyle());
     // 执行模型换成 seedance：4 秒不在其支持集内、1080p 也不是它的分辨率，两者都不跟进载荷
     await waitFor(() =>
       expect(API.createProject).toHaveBeenCalledWith(
@@ -374,181 +427,80 @@ describe("CreateProjectModal", () => {
     expect(payload.model_settings).toBeUndefined();
   });
 
-  it("shows error toast and stays on step 3 when createProject fails", async () => {
+  it("shows an error toast and stays on step 3 when createProject fails", async () => {
     vi.spyOn(API, "createProject").mockRejectedValueOnce(new Error("boom"));
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 生成模式无预选、必选：不选则 Next 恒禁用
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-    // Not navigated away
+    fillBasics();
+    fireEvent.click(await walkToStyle());
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("创建项目失败: boom"));
     expect(navigateMock).not.toHaveBeenCalled();
-    // Create button re-enabled after failure (creating=false)
-    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "创建项目" })).toBeEnabled();
   });
 
-  it("calls uploadStyleImage after createProject when in custom mode with uploaded file", async () => {
+  it("uploads the custom style image after creating the project", async () => {
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 生成模式无预选、必选：不选则 Next 恒禁用
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument());
+    fillBasics();
+    const create = await walkToStyle();
 
-    // Switch to custom tab
-    fireEvent.click(screen.getByRole("button", { name: /自定义|Custom/ }));
-    // Upload a file via the hidden file input
+    fireEvent.click(screen.getByRole("tab", { name: "自定义" }));
     const file = new File(["content"], "style.png", { type: "image/png" });
     const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
     Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
     fireEvent.change(fileInput);
+    fireEvent.click(create);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
-
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-    expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({
-      style_template_id: null,
-    }));
+    await waitFor(() =>
+      expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({ style_template_id: null })),
+    );
     await waitFor(() => expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file));
   });
 
-  it("允许在 custom tab 未上传文件时创建项目（风格为可选）", async () => {
+  it("creates without a style when the custom tab has no image", async () => {
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 生成模式无预选、必选：不选则 Next 恒禁用
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument());
-
-    // Switch to custom tab WITHOUT uploading anything
-    fireEvent.click(screen.getByRole("button", { name: /自定义|Custom/ }));
-
-    // Create button should still be enabled — style is optional
-    await waitFor(() => expect(screen.getByRole("button", { name: /创建项目/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
-
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-    expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({
-      style_template_id: null,
-    }));
-    // No upload since no file
+    fillBasics();
+    const create = await walkToStyle();
+    fireEvent.click(screen.getByRole("tab", { name: "自定义" }));
+    fireEvent.click(create);
+    await waitFor(() =>
+      expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({ style_template_id: null })),
+    );
     expect(API.uploadStyleImage).not.toHaveBeenCalled();
   });
 });
 
 describe("CreateProjectModal ad mode", () => {
-  beforeEach(() => {
-    navigateMock.mockClear();
-    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
-    useProjectsStore.setState({ showCreateModal: true });
-    useAppStore.setState(useAppStore.getInitialState(), true);
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
-    vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
-    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
-    vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
-    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
-    stubModelVideoCapabilities();
-    vi.spyOn(API, "createProject").mockResolvedValue({
-      success: true,
-      name: "ad-proj",
-      project: {} as never,
-    });
-  });
+  beforeEach(() => installStubs("ad-proj"));
 
-  it("submits ad project with target_duration and without default_duration", async () => {
+  it("submits the chosen target duration and no default duration", async () => {
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "ad demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByText(/广告\/短片/));
-    // 改选 30 秒档
-    fireEvent.click(screen.getByRole("radio", { name: /30\s*秒/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
+    fillBasics({ mode: "广告\\/短片" });
+    clickNext();
+    fireEvent.click(await screen.findByRole("radio", { name: "30 秒" }));
+    expect(screen.queryByLabelText(/单集目标时长/)).not.toBeInTheDocument();
+    await waitFor(() => expect(nextButton()).toBeEnabled());
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
     await waitFor(() => expect(API.createProject).toHaveBeenCalled());
 
-    expect(API.createProject).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "ad demo",
-        content_mode: "ad",
-        aspect_ratio: "9:16",
-        target_duration: 30,
-      })
-    );
     const payload = vi.mocked(API.createProject).mock.calls[0][0];
-    expect("default_duration" in payload).toBe(false);
+    expect(payload).toEqual(expect.objectContaining({ content_mode: "ad", target_duration: 30 }));
+    expect(payload).not.toHaveProperty("default_duration");
     expect(navigateMock).toHaveBeenCalledWith("/app/projects/ad-proj");
   });
 
-  it("does not send target_duration for narration projects", async () => {
+  it("blocks step 2 until a custom target duration is a positive whole number", async () => {
     render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    // 生成模式无预选、必选：不选则 Next 恒禁用
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fillBasics({ mode: "广告\\/短片" });
+    clickNext();
+    fireEvent.click(await screen.findByRole("radio", { name: "自定义" }));
+    expect(nextButton()).toHaveAccessibleDescription("请修正：目标总时长");
+    fireEvent.change(screen.getByRole("spinbutton", { name: "自定义目标总时长（秒）" }), { target: { value: "45" } });
+    await waitFor(() => expect(nextButton()).toBeEnabled());
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled()
+      expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({ target_duration: 45 })),
     );
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-    const payload = vi.mocked(API.createProject).mock.calls[0][0];
-    expect("target_duration" in payload).toBe(false);
-  });
-
-  it("submits the episode target duration typed in the wizard", async () => {
-    render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.change(screen.getByLabelText(/单集目标时长/), { target: { value: "120" } });
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-
-    expect(API.createProject).toHaveBeenCalledWith(
-      expect.objectContaining({ episode_target_duration: 120 })
-    );
-  });
-
-  it("omits the episode target duration when it is left empty", async () => {
-    render(<CreateProjectModal />);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /创建项目/ })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole("button", { name: /创建项目/ }));
-    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
-
-    const payload = vi.mocked(API.createProject).mock.calls[0][0];
-    expect("episode_target_duration" in payload).toBe(false);
   });
 });
 
@@ -589,9 +541,8 @@ describe("CreateProjectModal language switch", () => {
   });
 
   async function goToStep2() {
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
-    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fillBasics();
+    clickNext();
     await waitFor(() => expect(screen.getByRole("button", { name: /下一步|Next/ })).toBeEnabled());
   }
 
