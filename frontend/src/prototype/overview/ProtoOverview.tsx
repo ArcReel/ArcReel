@@ -168,7 +168,7 @@ function ProtoOverview({
   }
 
   const analyzing = phase === "analyzing";
-  const setting = (bare?: boolean, collapsedSummary?: boolean) => (
+  const setting = (bare?: boolean, collapsedSummary?: boolean) => isAd && axes.adStory === "tab" ? null : (
     <StorySetting
       data={data}
       fields={axes.fields}
@@ -181,7 +181,7 @@ function ProtoOverview({
   );
   const adBlocks = isAd && (
     <>
-      <AdBrief data={data} />
+      <AdBrief data={data} duration={axes.adDuration} />
       {axes.adInit === "inline" && <AdProducts data={data} />}
     </>
   );

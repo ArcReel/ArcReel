@@ -1,5 +1,5 @@
 // PROTOTYPE — 项目概览页与空项目欢迎页原型（#2981），不合并。
-// 预设 A/B/C/D 是各条轴的组合；底栏可逐轴覆盖，方便「B 的这个 + C 的那个」式取舍。
+// 预设 A–D 是各条轴的组合，E 是维护者的选择；底栏可逐轴覆盖，方便「B 的这个 + C 的那个」式取舍。
 // 工作区外壳固定为「工作区外壳与 Agent 面板」的结论，剧集页固定为「剧集页」的结论（预设 D）。
 
 export const AXES = {
@@ -83,6 +83,20 @@ export const AXES = {
       inline: "不设初始化页：创作灵感区 + 商品区空状态",
     },
   },
+  adStory: {
+    label: "广告的故事设定",
+    values: {
+      show: "概览显示（现状）",
+      tab: "概览不显示，视频页加「故事设定」tab",
+    },
+  },
+  adDuration: {
+    label: "广告目标时长",
+    values: {
+      number: "数字输入",
+      tiers: "档位选择器 15 / 30 / 60 / 90 秒 + 自定义",
+    },
+  },
   notFound: {
     label: "项目内未知路径",
     values: {
@@ -99,7 +113,7 @@ export type AxisState = { [K in AxisKey]: AxisValue<K> };
 
 export const AXIS_KEYS = Object.keys(AXES) as AxisKey[];
 
-export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisState }> = {
+export const PRESETS: Record<"A" | "B" | "C" | "D" | "E", { name: string; axes: AxisState }> = {
   A: {
     name: "现状",
     axes: {
@@ -113,6 +127,8 @@ export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisSt
       empty: "welcome",
       transition: "swap",
       adInit: "form",
+      adStory: "show",
+      adDuration: "number",
       notFound: "blank",
     },
   },
@@ -129,6 +145,8 @@ export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisSt
       empty: "inline",
       transition: "inPlace",
       adInit: "inline",
+      adStory: "show",
+      adDuration: "number",
       notFound: "empty",
     },
   },
@@ -145,6 +163,8 @@ export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisSt
       empty: "welcome",
       transition: "inPlace",
       adInit: "form",
+      adStory: "show",
+      adDuration: "number",
       notFound: "empty",
     },
   },
@@ -161,7 +181,27 @@ export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: AxisSt
       empty: "start",
       transition: "swap",
       adInit: "form",
+      adStory: "show",
+      adDuration: "number",
       notFound: "redirect",
+    },
+  },
+  E: {
+    name: "维护者选定",
+    axes: {
+      sample: "real",
+      layout: "bible",
+      header: "meta",
+      fields: "seamless",
+      episodeList: "none",
+      assets: "inline",
+      cost: "summary",
+      empty: "welcome",
+      transition: "inPlace",
+      adInit: "inline",
+      adStory: "tab",
+      adDuration: "tiers",
+      notFound: "empty",
     },
   },
 };

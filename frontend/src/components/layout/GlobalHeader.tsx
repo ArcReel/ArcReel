@@ -167,7 +167,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           <button
             type="button"
             onClick={onNavigateBack}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors focus-ring"
+            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-xs transition-colors focus-ring"
             style={{ color: "var(--color-text-3)" }}
             onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-text)")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--color-text-3)")}

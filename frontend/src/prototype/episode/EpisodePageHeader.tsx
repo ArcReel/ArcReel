@@ -5,8 +5,9 @@
 
 import type { ReactNode } from "react";
 import { requestCanvasTab, setSlot, useCanvasTabState } from "./slots";
+import { setAdSettingTab, useAdSettingTab } from "../overview/adSettingTab";
 
-type Tab = "plan" | "board" | "edit";
+type Tab = "setting" | "plan" | "board" | "edit";
 
 export function EpisodePageHeader({
   mode,
@@ -14,21 +15,28 @@ export function EpisodePageHeader({
   editActive,
   onEditChange,
   progress,
+  settingTab = false,
 }: {
   mode: "oneRow" | "twoRow";
   canEdit: boolean;
   editActive: boolean;
   onEditChange: (edit: boolean) => void;
   progress: ReactNode;
+  /** #2981：广告项目在视频页加「故事设定」tab */
+  settingTab?: boolean;
 }) {
   const canvas = useCanvasTabState();
-  const active: Tab | null = editActive ? "edit" : canvas.current;
+  const settingActive = useAdSettingTab() && settingTab;
+  const active: Tab | null = settingActive ? "setting" : editActive ? "edit" : canvas.current;
   const tabs: { key: Tab; label: string; disabled?: boolean }[] = [];
+  if (settingTab) tabs.push({ key: "setting", label: "故事设定" });
   if (canvas.hasPlan) tabs.push({ key: "plan", label: "脚本规划" });
   if (canvas.current) tabs.push({ key: "board", label: canvas.boardLabel, disabled: !canvas.boardEnabled });
   if (canEdit) tabs.push({ key: "edit", label: "剪辑" });
 
   const choose = (key: Tab) => {
+    setAdSettingTab(key === "setting");
+    if (key === "setting") return;
     if (key === "edit") {
       onEditChange(true);
       return;

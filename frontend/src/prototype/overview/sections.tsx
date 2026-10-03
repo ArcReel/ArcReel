@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AlertDialog,
@@ -404,7 +405,46 @@ function SettingFields({
 // 广告：创作灵感与商品
 // ---------------------------------------------------------------------------
 
-export function AdBrief({ data, bare }: { data: ProjectData; bare?: boolean }) {
+const AD_TIERS = ["15", "30", "60", "90"];
+
+function DurationTiers({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isTier = AD_TIERS.includes(value);
+  const [custom, setCustom] = useState(!isTier);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <ToggleGroup
+        variant="outline"
+        size="sm"
+        value={[custom ? "custom" : value]}
+        onValueChange={(v: string[]) => {
+          const next = v[0];
+          if (!next) return;
+          if (next === "custom") setCustom(true);
+          else {
+            setCustom(false);
+            onChange(next);
+          }
+        }}
+      >
+        {AD_TIERS.map((t) => (
+          <ToggleGroupItem key={t} value={t} className="px-3 text-[13px] tabular-nums">
+            {t} 秒
+          </ToggleGroupItem>
+        ))}
+        <ToggleGroupItem value="custom" className="px-3 text-[13px]">
+          自定义
+        </ToggleGroupItem>
+      </ToggleGroup>
+      {custom && (
+        <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
+          <Input type="number" value={value} onChange={(e) => onChange(e.target.value)} className="h-7 w-20 text-[13px] md:text-[13px]" />秒
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function AdBrief({ data, bare, duration = "number" }: { data: ProjectData; bare?: boolean; duration?: AxisState["adDuration"] }) {
   const [base, setBase] = useState({ brief: data.brief ?? "", target: String(data.target_duration ?? "") });
   const [draft, setDraft] = useState(base);
   const dirty = draft.brief !== base.brief || draft.target !== base.target;
@@ -417,6 +457,12 @@ export function AdBrief({ data, bare }: { data: ProjectData; bare?: boolean }) {
           placeholder="想拍什么、给谁看、什么调性"
           className="resize-none text-[14px] leading-[1.7] md:text-[14px]"
         />
+        {duration === "tiers" ? (
+          <div className="flex items-center gap-3 text-[13px] text-muted-foreground">
+            目标时长
+            <DurationTiers value={draft.target} onChange={(v) => setDraft((d) => ({ ...d, target: v }))} />
+          </div>
+        ) : (
         <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
           目标时长
           <Input
@@ -427,6 +473,7 @@ export function AdBrief({ data, bare }: { data: ProjectData; bare?: boolean }) {
           />
           秒
         </label>
+        )}
       </div>
       {dirty && (
         <UnsavedBar

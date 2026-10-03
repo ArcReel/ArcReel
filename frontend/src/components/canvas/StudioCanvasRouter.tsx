@@ -23,6 +23,9 @@ import { useActiveResourceIds } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { ProtoOverviewHost } from "@/prototype/overview/ProtoOverview";
 import { ProtoNotFound } from "@/prototype/overview/ProtoNotFound";
+import { AdSettingPane } from "@/prototype/overview/AdSettingPane";
+import { useAdSettingTab } from "@/prototype/overview/adSettingTab";
+import { useOverviewProto } from "@/prototype/overview/store";
 import { EpisodesView } from "./episodes/EpisodesView";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
@@ -124,6 +127,10 @@ export function StudioCanvasRouter() {
   const episodeView = episodeViewOf(searchParams);
   // PROTOTYPE（#2974）
   const { axes: protoAxes } = useEpisodeProto();
+  const { axes: overviewAxes } = useOverviewProto();
+  const adSettingTabOn = useAdSettingTab();
+  const adSettingActive =
+    adSettingTabOn && currentProjectData?.content_mode === "ad" && overviewAxes.adStory === "tab";
   const setEpisodeView = (view: EpisodeView) =>
     setSearchParams((params) => {
       if (view === "edit") params.set(EPISODE_VIEW_PARAM, EPISODE_VIEW_EDIT);
@@ -832,6 +839,7 @@ export function StudioCanvasRouter() {
                   editActive={showEditView}
                   onEditChange={(edit) => setEpisodeView(edit ? "edit" : "storyboard")}
                   progress={progressInHeader ? workflowPanel : null}
+                  settingTab={isAd && overviewAxes.adStory === "tab"}
                 />
               ) : (
                 canEdit && <EpisodeViewSwitch view={episodeView} onChange={setEpisodeView} />
@@ -842,9 +850,12 @@ export function StudioCanvasRouter() {
                 id={canEdit ? EPISODE_VIEW_PANEL_ID : undefined}
                 aria-labelledby={canEdit ? episodeViewTabId(episodeView) : undefined}
               >
-                {showEditView && editNode}
+                {adSettingActive && currentProjectData && (
+                  <AdSettingPane data={currentProjectData} />
+                )}
+                {showEditView && !adSettingActive && editNode}
                 {(!showEditView || mergedHeader) && (
-                <div className={showEditView ? "hidden" : "contents"}>
+                <div className={showEditView || adSettingActive ? "hidden" : "contents"}>
                 {demoMode && !script ? (
                   <DemoEpisodePlaceholder />
                 ) : showSourceReview && episode ? (
