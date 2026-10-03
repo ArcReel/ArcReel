@@ -91,6 +91,7 @@ from server.routers import (
     script_plan,
     script_review,
     shot_uploads,
+    social_publish,
     storyboard_batches,
     system,
     system_config,
@@ -618,6 +619,7 @@ app.include_router(scenes.router, prefix="/api/v1", dependencies=[Depends(get_cu
 app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["道具管理"])
 app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["商品管理"])
 app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
+app.include_router(social_publish.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["社交分发"])
 app.include_router(
     edit_timelines.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["剪辑时间线"]
 )

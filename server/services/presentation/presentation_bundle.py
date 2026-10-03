@@ -11,14 +11,10 @@ from pathlib import Path
 from typing import Protocol
 
 from lib.infra.async_thread import run_sync_transaction
-from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_manager import ProjectManager
 from lib.speech.speech_artifact_provenance import RenditionVariant
-from server.services.presentation.presentation_read_model import (
-    MaterializedPresentation,
-    PresentationReadModelService,
-    PresentationUnavailableError,
-)
+from server.services.presentation.presentation_media import selected_media_path
+from server.services.presentation.presentation_read_model import MaterializedPresentation, PresentationReadModelService
 
 
 class UnitPresentationReader(Protocol):
@@ -79,9 +75,9 @@ class PresentationBundleService:
     @staticmethod
     def _write_bundle(*, project_path: Path, result: MaterializedPresentation, output: Path) -> None:
         presentation = result.presentation
-        video = _selected_path(project_path, presentation.video.media.artifact_path)
+        video = selected_media_path(project_path, presentation.video.media.artifact_path)
         narration = (
-            _selected_path(project_path, presentation.narration_audio.media.artifact_path)
+            selected_media_path(project_path, presentation.narration_audio.media.artifact_path)
             if presentation.narration_audio is not None
             else None
         )
@@ -107,13 +103,6 @@ class PresentationBundleService:
                     json.dumps(subtitle_value, ensure_ascii=False, indent=2) + "\n",
                 )
                 archive.writestr("subtitles.vtt", subtitle_webvtt)
-
-
-def _selected_path(project_path: Path, relative_path: str) -> Path:
-    try:
-        return safe_join(project_path, relative_path, require_file=True)
-    except (PathTraversalError, FileNotFoundError) as exc:
-        raise PresentationUnavailableError("selected presentation media is unavailable") from exc
 
 
 __all__ = ["PresentationBundleService", "UnitPresentationReader"]

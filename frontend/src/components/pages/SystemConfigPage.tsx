@@ -12,6 +12,7 @@ import {
   Languages,
   Plug,
   ScrollText,
+  Send,
   Store,
   Waypoints,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import { ApiKeysTab } from "./ApiKeysTab";
 import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
+import { SocialPublishSection } from "./settings/SocialPublishSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
@@ -46,6 +48,7 @@ type SettingsSection =
   | "endpoints"
   | "market"
   | "media"
+  | "distribution"
   | "usage"
   | "api-keys"
   | "prompt-templates"
@@ -81,6 +84,7 @@ const SECTION_GROUPS: SectionGroup[] = [
       { id: "endpoints", labelKey: "dashboard:ce_section_title", Icon: Waypoints },
       { id: "market", labelKey: "dashboard:market_section_title", Icon: Store },
       { id: "media", labelKey: "dashboard:models", Icon: Film },
+      { id: "distribution", labelKey: "dashboard:social_publish_section_title", Icon: Send },
     ],
   },
   {
@@ -114,6 +118,7 @@ export function SystemConfigPage() {
     if (section === "endpoints") return "endpoints";
     if (section === "market") return "market";
     if (section === "media") return "media";
+    if (section === "distribution") return "distribution";
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
     if (section === "prompt-templates") return "prompt-templates";
@@ -334,6 +339,7 @@ export function SystemConfigPage() {
 
               {activeSection === "agent" && <AgentConfigTab visible />}
               {activeSection === "media" && <MediaModelSection />}
+              {activeSection === "distribution" && <SocialPublishSection />}
               {activeSection === "usage" && <UsageRecordsSection />}
               {activeSection === "api-keys" && (
                 <div className="p-6">
