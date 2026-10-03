@@ -78,6 +78,8 @@ const RECORDINGS: Recording[] = [
   // 全局设置「ArcReel Agent」：Agent 供应商列表（录制环境为空）与添加对话框的预设供应商目录。
   { file: "agent-credentials", method: "GET", path: "/api/v1/agent/credentials" },
   { file: "agent-preset-providers", method: "GET", path: "/api/v1/agent/preset-providers" },
+  // 全局设置「Agent 记忆」：用户记忆目录（录制环境没有记忆文件，多条目与正文由场景替换）。
+  { file: "agent-memory", method: "GET", path: "/api/v1/agent/memory" },
   // 全局设置「使用记录」：默认最近 30 天（起点由固定时间与 Asia/Shanghai 推出）与进行中的调用。
   { file: "usage-summary-30d", method: "GET", path: "/api/v1/usage/summary?since=2025-12-02T16:00:00.000Z&tz=Asia/Shanghai" },
   {

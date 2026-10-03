@@ -12,7 +12,7 @@ import {
 } from "@/app-routes";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
+import { ProjectMemoryFiles } from "@/components/agent-memory/ProjectMemoryFiles";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { isValidEpisodeTargetDuration } from "@/components/shared/EpisodeTargetDurationField";
@@ -427,7 +427,7 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
       content = (
         <div className="flex flex-col gap-6">
           <TabHeader title={t("agent_memory_project_title")} description={t("agent_memory_project_desc")} />
-          <AgentMemoryCabinet scope={{ level: "project", projectName }} frame="card" />
+          <ProjectMemoryFiles projectName={projectName} />
         </div>
       );
       break;

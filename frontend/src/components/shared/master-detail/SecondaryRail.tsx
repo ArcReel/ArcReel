@@ -73,12 +73,12 @@ export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRai
             </TabsList>
             {groups.map((group) => (
               <TabsContent key={group.id} value={group.id}>
-                <StandardList group={group} activeId={activeId} replace={replace} />
+                <SecondaryRailList group={group} activeId={activeId} replace={replace} />
               </TabsContent>
             ))}
           </Tabs>
         ) : (
-          groups[0] && <StandardList group={groups[0]} activeId={activeId} replace={replace} />
+          groups[0] && <SecondaryRailList group={groups[0]} activeId={activeId} replace={replace} />
         )}
       </div>
 
@@ -101,7 +101,11 @@ export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRai
   );
 }
 
-function StandardList({
+/**
+ * 标准档的条目列表：两行条目（名称；状态或数量）加组末尾的动作条目，自身不滚动。
+ * 限宽页里放不下二级栏时（如项目设置的「项目记忆」），单独用它列出条目，由页面主体滚动。
+ */
+export function SecondaryRailList({
   group,
   activeId,
   replace,
