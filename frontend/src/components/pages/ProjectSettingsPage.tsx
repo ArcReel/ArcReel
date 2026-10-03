@@ -37,7 +37,7 @@ import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRa
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/shared/darkroom-tokens";
 import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
 import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
-import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
+import { useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 import { getProjectDisplayName } from "@/utils/project-display";
 
@@ -432,7 +432,7 @@ export function ProjectSettingsPage() {
     && (initialStyleRef.current.templateId !== null
       || initialStyleRef.current.uploadedPreview !== null);
 
-  const isDirty =
+  const fieldsDirty =
     videoBackend !== initialRef.current.videoBackend ||
     videoProviderI2V !== initialRef.current.videoProviderI2V ||
     videoProviderR2V !== initialRef.current.videoProviderR2V ||
@@ -455,28 +455,9 @@ export function ProjectSettingsPage() {
     episodeTargetDuration !== initialRef.current.episodeTargetDuration ||
     adTargetDuration !== initialRef.current.adTargetDuration ||
     JSON.stringify(videoResolutions) !== JSON.stringify(initialRef.current.videoResolutions) ||
-    imageResolution !== initialRef.current.imageResolution ||
-    styleIsDirty;
+    imageResolution !== initialRef.current.imageResolution;
   /* eslint-enable react-hooks/refs */
-
-  useWarnUnsaved(isDirty);
-
-  const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
-
-  const guardedNavigate = useCallback((path: string) => {
-    if (isDirty) {
-      setPendingNavigation(path);
-      return;
-    }
-    navigate(path);
-  }, [isDirty, navigate]);
-
-  const confirmDiscardAndNavigate = useCallback(() => {
-    if (!pendingNavigation) return;
-    const target = pendingNavigation;
-    setPendingNavigation(null);
-    navigate(target);
-  }, [pendingNavigation, navigate]);
+  const isDirty = fieldsDirty || styleIsDirty;
 
   // Cross-tab switch from custom → template may leave {mode:"template", templateId:null}
   // while an uploaded preview still lingers — no user-chosen card. Block save so
@@ -489,8 +470,9 @@ export function ProjectSettingsPage() {
     && (styleValue.uploadedFile !== null || !!styleValue.uploadedPreview);
   const isStyleSaveDisabled = savingStyle || !styleIsDirty || isStyleIncomplete;
 
-  const handleSaveStyle = useCallback(async () => {
-    if (!styleValue) return;
+  /** 保存风格，返回是否成功。 */
+  const handleSaveStyle = useCallback(async (): Promise<boolean> => {
+    if (!styleValue) return true;
     setSavingStyle(true);
     try {
       if (styleValue.mode === "template" && styleValue.templateId) {
@@ -510,8 +492,10 @@ export function ProjectSettingsPage() {
       setStyleValue(nextStyle);
       initialStyleRef.current = nextStyle;
       useAppStore.getState().pushToast(t("saved"), "success");
+      return true;
     } catch (e: unknown) {
       useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");
+      return false;
     } finally {
       setSavingStyle(false);
     }
@@ -558,7 +542,8 @@ export function ProjectSettingsPage() {
     [narrationDelivery, narrationDefaults],
   );
 
-  const handleSave = useCallback(async () => {
+  /** 保存风格以外的项目设置，返回是否成功。 */
+  const handleSave = useCallback(async (): Promise<boolean> => {
     const narrationProblem = narrationDeliveryProblem({
       delivery: narrationDelivery,
       audioBackend,
@@ -570,7 +555,7 @@ export function ProjectSettingsPage() {
         t(narrationProblem === "model" ? "project_tts_model_required" : "project_narration_voice_required"),
         "error",
       );
-      return;
+      return false;
     }
     setSaving(true);
     try {
@@ -643,12 +628,26 @@ export function ProjectSettingsPage() {
       // 不会自动重取，需显式失效（同 MediaModelSection 保存流程）。
       useCapabilitiesStore.getState().invalidate();
       useAppStore.getState().pushToast(t("saved"), "success");
+      return true;
     } catch (e: unknown) {
       useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");
+      return false;
     } finally {
       setSaving(false);
     }
   }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, narrationDelivery, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, adTargetDuration, contentMode, videoResolutions, imageResolution, projectName, t, globalDefaults]);
+
+  // 「保存并离开」依次保存有修改的部分；风格未选定时不保存、留在原处。
+  // 不传 discard：被拦截的出口都会离开本页或切到别的项目重新加载。
+  const saveBeforeLeave = useCallback(async () => {
+    if (styleIsDirty && isStyleIncomplete) {
+      useAppStore.getState().pushToast(t("style_incomplete_hint"), "error");
+      return false;
+    }
+    if (fieldsDirty && !(await handleSave())) return false;
+    return !styleIsDirty || handleSaveStyle();
+  }, [fieldsDirty, styleIsDirty, isStyleIncomplete, handleSave, handleSaveStyle, t]);
+  useLeaveGuard({ dirty: isDirty, save: saveBeforeLeave });
 
   const handleResetAgentProfile = useCallback(async () => {
     if (profileResetProject !== projectName) {
@@ -714,7 +713,7 @@ export function ProjectSettingsPage() {
       >
         <div className="mx-auto flex max-w-3xl items-center gap-4 px-6 py-4">
           <button
-            onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
+            onClick={() => navigate(`/app/projects/${projectName}`)}
             className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-card/45 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("back_to_project")}
           >
@@ -1095,7 +1094,7 @@ export function ProjectSettingsPage() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
-              onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
+              onClick={() => navigate(`/app/projects/${projectName}`)}
               className={GHOST_BTN_LG_CLS}
             >
               {t("common:cancel")}
@@ -1140,15 +1139,6 @@ export function ProjectSettingsPage() {
         onConfirm={handleResetAgentProfile}
       />
 
-      <ConfirmDialog
-        open={pendingNavigation !== null}
-        tone="danger"
-        title={t("unsaved_changes_confirm")}
-        confirmLabel={t("common:confirm")}
-        cancelLabel={t("common:cancel")}
-        onCancel={() => setPendingNavigation(null)}
-        onConfirm={confirmDiscardAndNavigate}
-      />
     </div>
   );
 }

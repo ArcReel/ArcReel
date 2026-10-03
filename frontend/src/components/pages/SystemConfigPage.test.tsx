@@ -1,10 +1,12 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
+import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import type { GetSystemConfigResponse, GetSystemVersionResponse, ProviderInfo } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -79,11 +81,13 @@ function makeVersionResponse(overrides?: Partial<GetSystemVersionResponse>): Get
   };
 }
 
-function renderPage(path = "/app/settings") {
-  const location = memoryLocation({ path, record: true });
+function renderPage(path = "/app/settings", searchPath?: string) {
+  const location = memoryLocation({ path, searchPath, record: true });
   return render(
     <Router hook={location.hook}>
-      <SystemConfigPage />
+      <LeaveGuardProvider>
+        <SystemConfigPage />
+      </LeaveGuardProvider>
     </Router>,
   );
 }
@@ -202,6 +206,24 @@ describe("SystemConfigPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /使用记录/ }));
     expect(await screen.findByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
+  });
+
+  it("切换设置分区前拦截未保存的修改，放弃修改后才切换", async () => {
+    const user = userEvent.setup();
+    renderPage("/app/settings", "section=media");
+    const media = screen.getByRole("button", { name: /模型选择/ });
+    const usage = screen.getByRole("button", { name: /使用记录/ });
+
+    const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
+    await user.clear(timeout);
+    await user.type(timeout, "7200");
+    await user.click(usage);
+
+    const dialog = await screen.findByRole("alertdialog", { name: "有未保存的修改" });
+    expect(media).toHaveAttribute("aria-current", "page");
+
+    await user.click(within(dialog).getByRole("button", { name: "放弃修改" }));
+    await waitFor(() => expect(usage).toHaveAttribute("aria-current", "page"));
   });
 
   it("renders the back link that navigates to projects", () => {

@@ -13,6 +13,7 @@ import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
 import { LoginPage } from "@/components/pages/LoginPage";
 import { NotFoundPage } from "@/components/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
+import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { OnboardingTour } from "@/onboarding/OnboardingTour";
 import {
   buildDemoProjectData,
@@ -193,8 +194,9 @@ function StudioWorkspace() {
 // ---------------------------------------------------------------------------
 
 export function AppRoutes() {
+  // 离开拦截包住全部路由：未保存修改在任何应用内跳转前先询问
   return (
-    <>
+    <LeaveGuardProvider>
       <ConfigStatusLoader />
       <OnboardingTour />
       <Switch>
@@ -259,6 +261,6 @@ export function AppRoutes() {
         </Route>
       </Switch>
       <ToastOverlay />
-    </>
+    </LeaveGuardProvider>
   );
 }
