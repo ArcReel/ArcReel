@@ -3,7 +3,7 @@
 // 时间戳、临时数据目录、仓库检出路径、令牌与项目修订号改写成固定值，重录后只有接口形状的变化会出现在 diff 里。
 // 后端改动接口形状的 PR 同时重录。
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -107,6 +107,9 @@ const RECORDINGS: Recording[] = [
   { file: "assets-character", method: "GET", path: "/api/v1/assets?limit=60&type=character" },
   { file: "project-demo-asset-sheets-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status` },
   { file: "assets-character-search-lin-xi", method: "GET", path: `/api/v1/assets?q=${encodeURIComponent("林夕")}&type=character` },
+  // 项目设置：Agent 配置状态与项目记忆（演示项目没有定制配置与记忆文件，多条目由场景替换）。
+  { file: "project-demo-agent-profile", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-profile` },
+  { file: "project-demo-agent-memory", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-memory` },
 ];
 
 // 资产库里的演示资产：两个角色、一个场景、一个道具，都没有图片。
@@ -216,7 +219,8 @@ async function postForm(baseUrl: string, token: string, path: string, fields: Re
 }
 
 async function main() {
-  const dataDir = mkdtempSync(join(tmpdir(), "arcreel-e2e-"));
+  // 取真实路径：macOS 的临时目录经 /var → /private/var 符号链接，后端返回的是解析后的路径
+  const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "arcreel-e2e-")));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = {

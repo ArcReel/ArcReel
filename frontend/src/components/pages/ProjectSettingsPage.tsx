@@ -1,1145 +1,453 @@
-import { useParams, useLocation } from "wouter";
-import { errMsg, voidCall, voidPromise } from "@/utils/async";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useLocation, useParams, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, Loader2 } from "lucide-react";
-import { API, type AgentProfileStatus } from "@/api";
-import { useAppStore } from "@/stores/app-store";
-import { useCapabilitiesStore } from "@/stores/capabilities-store";
-import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
-import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
-import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
+import { AlertCircle, Bot, Brain, Film, Loader2, Mic, Palette, SlidersHorizontal, type LucideIcon } from "lucide-react";
+
+import { API } from "@/api";
 import {
-  NarrationDeliveryFields,
-  narrationDeliveryProblem,
-  type NarrationDeliveryValue,
-} from "@/components/shared/NarrationDeliveryFields";
-import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
-import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
-import type {
-  CharacterVoiceBinding,
-  CustomProviderInfo,
-  NarrationDefaultsResponse,
-  NarrationDelivery,
-  ProviderInfo,
-} from "@/types";
-import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
+  PROJECT_SETTINGS_TABS,
+  ROUTE_APP_PROJECTS,
+  projectSettingsPath,
+  type ProjectSettingsTab,
+} from "@/app-routes";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
+import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
+import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { isValidEpisodeTargetDuration } from "@/components/shared/EpisodeTargetDurationField";
+import { executingVideoModel } from "@/components/shared/LayeredModelFields";
+import { countModelOverrides } from "@/components/shared/model-overrides";
+import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
+import { narrationDeliveryProblem } from "@/components/shared/NarrationDeliveryFields";
+import { PageHeader } from "@/components/shared/page-shell/PageHeader";
+import { PageShell, PageShellFooter } from "@/components/shared/page-shell/PageShell";
+import { PageSidebar, type PageSidebarGroup } from "@/components/shared/page-shell/PageSidebar";
+import { isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
-import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
-import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
-import {
-  EpisodeTargetDurationField,
-  isValidEpisodeTargetDuration,
-} from "@/components/shared/EpisodeTargetDurationField";
-import { DurationTierPicker } from "@/components/shared/DurationTierPicker";
-import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/shared/darkroom-tokens";
-import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
-import { useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
-import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
+import type { CustomProviderInfo, NarrationDefaultsResponse, ProviderInfo } from "@/types";
+import { errMsg, voidCall } from "@/utils/async";
+import { normalizeRoute } from "@/utils/generation-mode";
 import { getProjectDisplayName } from "@/utils/project-display";
+import { getCustomProviderModels, getProviderModels } from "@/utils/provider-models";
 
-function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
-  const styleImage = project.style_image as string | undefined;
-  const templateId = (project.style_template_id as string | undefined) ?? null;
-  if (styleImage) {
-    return {
-      mode: "custom",
-      templateId: null,
-      activeCategory: "live",
-      uploadedFile: null,
-      uploadedPreview: `/api/v1/files/${encodeURIComponent(projectName)}/${styleImage}`,
-    };
-  }
-  const effectiveId = templateId ?? DEFAULT_TEMPLATE_ID;
-  const tpl = STYLE_TEMPLATES.find((x) => x.id === effectiveId);
+import { AgentProfileTab } from "./project-settings/AgentProfileTab";
+import { BasicsTab } from "./project-settings/BasicsTab";
+import {
+  buildProjectPatch,
+  deriveForm,
+  formEqual,
+  isFormTab,
+  pendingStyleUpload,
+  styleImageUrl,
+  tabDirty,
+  type GlobalModelDefaults,
+  type ProjectFacts,
+  type ProjectSettingsForm,
+} from "./project-settings/project-settings-form";
+import { TabHeader } from "./project-settings/SettingsBlock";
+import { StyleTab } from "./project-settings/StyleTab";
+import { VoiceTab } from "./project-settings/VoiceTab";
+
+const TABS: Record<ProjectSettingsTab, { labelKey: string; icon: LucideIcon }> = {
+  basics: { labelKey: "project_settings_tab_basics", icon: SlidersHorizontal },
+  style: { labelKey: "project_settings_tab_style", icon: Palette },
+  models: { labelKey: "project_settings_tab_models", icon: Film },
+  voice: { labelKey: "project_settings_tab_voice", icon: Mic },
+  memory: { labelKey: "agent_memory_project_title", icon: Brain },
+  agent: { labelKey: "agent_profile_title", icon: Bot },
+};
+
+/** 侧栏分组：「项目」四个表单分页共用一个编辑单元，「Agent」两页各管各的保存。 */
+const TAB_GROUPS: { id: string; labelKey: string; tabs: ProjectSettingsTab[] }[] = [
+  { id: "project", labelKey: "project_settings_group_project", tabs: ["basics", "style", "models", "voice"] },
+  { id: "agent", labelKey: "project_settings_group_agent", tabs: ["memory", "agent"] },
+];
+
+function parseTab(search: string): ProjectSettingsTab {
+  const value = new URLSearchParams(search).get("tab");
+  return PROJECT_SETTINGS_TABS.find((tab) => tab === value) ?? "basics";
+}
+
+interface LoadedSettings {
+  source: ProjectSettingsForm;
+  title: string;
+  facts: ProjectFacts & { sourceLanguage: string | null };
+  globals: GlobalModelDefaults;
+  /** 全局「生成有声视频」的生效值，项目跟随全局时据此判定与执行模型的矛盾。未保存过时为 true。 */
+  globalGenerateAudio: boolean;
+  options: {
+    videoBackends: string[];
+    imageBackends: string[];
+    textBackends: string[];
+    audioBackends: string[];
+    providerNames?: Record<string, string>;
+    modelNames?: Record<string, string>;
+  };
+  providers: ProviderInfo[];
+  customProviders: CustomProviderInfo[];
+  narrationDefaults: NarrationDefaultsResponse | null;
+}
+
+async function loadSettings(projectName: string, signal: AbortSignal): Promise<LoadedSettings> {
+  const [configRes, projectRes, providers, customProviders, narrationDefaults] = await Promise.all([
+    API.getSystemConfig({ signal }),
+    API.getProject(projectName, { signal }),
+    getProviderModels().catch(() => [] as ProviderInfo[]),
+    getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
+    API.getNarrationDefaults({ signal }).catch(() => null),
+  ]);
+  const settings = configRes.settings;
+  const globals: GlobalModelDefaults = {
+    video: settings?.default_video_backend ?? "",
+    videoI2V: settings?.default_video_backend_i2v ?? "",
+    videoR2V: settings?.default_video_backend_r2v ?? "",
+    image: settings?.default_image_backend ?? "",
+    imageT2I: settings?.default_image_backend_t2i ?? "",
+    imageI2I: settings?.default_image_backend_i2i ?? "",
+    textDefault: settings?.default_text_backend ?? "",
+    textSimple: settings?.text_backend_simple ?? "",
+    textComplex: settings?.text_backend_complex ?? "",
+  };
+  const project = projectRes.project as unknown as Record<string, unknown>;
   return {
-    mode: "template",
-    templateId: effectiveId,
-    activeCategory: tpl?.category ?? "live",
-    uploadedFile: null,
-    uploadedPreview: null,
+    source: deriveForm(projectRes.project, projectName, globals),
+    title: typeof project.title === "string" ? project.title : "",
+    facts: {
+      contentMode: typeof project.content_mode === "string" ? project.content_mode : "narration",
+      generationRoute: normalizeRoute(project.generation_mode),
+      // 源文语言由内容分析写入，此页只读，只用来决定语速的单位名词（字 / 词）
+      sourceLanguage: typeof project.source_language === "string" ? project.source_language : null,
+    },
+    globals,
+    globalGenerateAudio: settings?.video_generate_audio ?? true,
+    options: {
+      videoBackends: configRes.options?.video_backends ?? [],
+      imageBackends: configRes.options?.image_backends ?? [],
+      textBackends: configRes.options?.text_backends ?? [],
+      audioBackends: configRes.options?.audio_backends ?? [],
+      providerNames: configRes.options?.provider_names,
+      modelNames: configRes.options?.model_names,
+    },
+    providers,
+    customProviders,
+    narrationDefaults,
   };
 }
 
-function sameProfileFiles(left: string[], right: string[]) {
-  return left.length === right.length && left.every((file, index) => file === right[index]);
-}
-
-// ─── Section card primitive ─────────────────────────────────────────────────
-
-interface SectionCardProps {
-  kicker: string;
-  title?: string;
-  description?: string;
-  children: React.ReactNode;
-  footer?: React.ReactNode;
-}
-
-function SectionCard({ kicker, title, description, children, footer }: SectionCardProps) {
-  return (
-    <section
-      className="overflow-hidden rounded-xl border border-border"
-      style={{
-        background:
-          "linear-gradient(180deg, oklch(0.20 0.012 270 / 0.55), oklch(0.16 0.010 265 / 0.55))",
-        boxShadow:
-          "inset 0 1px 0 oklch(1 0 0 / 0.03), 0 18px 40px -28px oklch(0 0 0 / 0.5)",
-      }}
-    >
-      <header className="px-5 pt-4 pb-3 border-b border-border/50">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-          {kicker}
-        </div>
-        {title ? (
-          <h2 className="mt-1 text-[15px] font-semibold tracking-tight text-foreground">{title}</h2>
-        ) : null}
-        {description ? (
-          <p className="mt-1 text-[12px] leading-[1.55] text-muted-foreground">{description}</p>
-        ) : null}
-      </header>
-      <div className="px-5 py-4">{children}</div>
-      {footer ? (
-        <footer className="border-t border-border/50 bg-[oklch(0.16_0.010_265_/_0.5)] px-5 py-3">
-          {footer}
-        </footer>
-      ) : null}
-    </section>
-  );
-}
-
-// ─── Component ───────────────────────────────────────────────────────────────
-
+/** 项目设置：侧栏分页，「项目」组的四个表单分页共用一条保存栏，「Agent」组是项目记忆与 Agent 配置。 */
 export function ProjectSettingsPage() {
-  const { t } = useTranslation("dashboard");
   const params = useParams<{ projectName: string }>();
   const projectName = params.projectName || "";
+  // 换项目即整页重建，上一个项目的未保存修改与在途请求不会带过来
+  return <ProjectSettingsView key={projectName} projectName={projectName} />;
+}
+
+function ProjectSettingsView({ projectName }: { projectName: string }) {
+  const { t } = useTranslation("dashboard");
+  const [loaded, setLoaded] = useState<LoadedSettings | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadCount, setLoadCount] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    voidCall(
+      (async () => {
+        try {
+          const next = await loadSettings(projectName, controller.signal);
+          if (controller.signal.aborted) return;
+          setLoaded(next);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          setLoadError(errMsg(error));
+        }
+      })(),
+    );
+    return () => controller.abort();
+  }, [projectName, loadCount]);
+
+  if (loaded) return <LoadedProjectSettings projectName={projectName} loaded={loaded} />;
+
+  return (
+    <SettingsShell projectName={projectName}>
+      {loadError ? (
+        <Alert variant="destructive">
+          <AlertCircle aria-hidden />
+          <AlertDescription>{t("project_settings_load_failed", { message: loadError })}</AlertDescription>
+          <AlertAction>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                setLoadError(null);
+                setLoadCount((count) => count + 1);
+              }}
+            >
+              {t("common:retry")}
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 aria-hidden className="size-4 animate-spin" />
+          {t("common:loading")}
+        </p>
+      )}
+    </SettingsShell>
+  );
+}
+
+/** 外壳：顶栏「返回」回到项目工作台，侧栏分页记在 `?tab=`。 */
+function SettingsShell({
+  projectName,
+  title,
+  badges,
+  children,
+}: {
+  projectName: string;
+  /** 项目显示名，加载完成前不显示。 */
+  title?: string;
+  badges?: Partial<Record<ProjectSettingsTab, ReactNode>>;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation(["dashboard", "common"]);
   const [, navigate] = useLocation();
+  const tab = parseTab(useSearch());
 
-  const [options, setOptions] = useState<{
-    video_backends: string[];
-    image_backends: string[];
-    text_backends: string[];
-    audio_backends: string[];
-    provider_names?: Record<string, string>;
-    model_names?: Record<string, string>;
-  } | null>(null);
-  const {
-    candidates,
-    error: candidatesError,
-    retrying: candidatesRetrying,
-    reload: reloadCandidates,
-  } = useModelCandidates();
-  const [globalDefaults, setGlobalDefaults] = useState<{
-    video: string;
-    videoI2V: string;
-    videoR2V: string;
-    image: string;
-    imageT2I: string;
-    imageI2I: string;
-    textDefault: string;
-    textSimple: string;
-    textComplex: string;
-    audio: string;
-  }>({
-    video: "", videoI2V: "", videoR2V: "",
-    image: "", imageT2I: "", imageI2I: "",
-    textDefault: "", textSimple: "", textComplex: "", audio: "",
-  });
-  // 全局「生成有声视频」的生效值，供项目级「跟随全局」时判定与执行模型的矛盾。
-  // 未保存过时取 true，镜像后端 _DEFAULT_VIDEO_GENERATE_AUDIO。
-  const [globalGenerateAudio, setGlobalGenerateAudio] = useState(true);
-
-  // Project-level overrides (from project.json)
-  // "" means "follow global default"
-  const [videoBackend, setVideoBackend] = useState<string>("");
-  const [videoProviderI2V, setVideoProviderI2V] = useState<string>("");
-  const [videoProviderR2V, setVideoProviderR2V] = useState<string>("");
-  const [imageBackendDefault, setImageBackendDefault] = useState<string>("");
-  const [imageBackendT2I, setImageBackendT2I] = useState<string>("");
-  const [imageBackendI2I, setImageBackendI2I] = useState<string>("");
-  const [audioOverride, setAudioOverride] = useState<boolean | null>(null);
-  // 旁白交付方式与 TTS 快照（docs/adr/0089）：快照不跟随全局默认，切到后期配音时保留
-  const [narrationDelivery, setNarrationDelivery] = useState<NarrationDelivery>("post_production");
-  const [audioBackend, setAudioBackend] = useState<string>("");
-  const [narrationVoice, setNarrationVoice] = useState<string>("");
-  const [narrationSpeed, setNarrationSpeed] = useState<number | null>(null);
-  // 全局默认的 TTS 设置：没有快照的项目切到 TTS 配音时用它预填
-  const [narrationDefaults, setNarrationDefaults] = useState<NarrationDefaultsResponse | null>(null);
-  // 角色声音绑定方式：参考生视频路线专有；缺省即默认档（提示词软约束）
-  const [voiceBinding, setVoiceBinding] = useState<CharacterVoiceBinding>(DEFAULT_CHARACTER_VOICE_BINDING);
-  const [textDefault, setTextDefault] = useState<string>("");
-  const [textSimple, setTextSimple] = useState<string>("");
-  const [textComplex, setTextComplex] = useState<string>("");
-  const [aspectRatio, setAspectRatio] = useState<string>("");
-  // 生成模式创建时锁定，此页只读展示；宫格装配开关随时可切
-  const [generationRoute, setGenerationRoute] = useState<GenerationRoute>("storyboard");
-  const [gridStoryboard, setGridStoryboard] = useState(false);
-  const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
-  // 口播语速估算（阅读单位 / 秒）：null = 未填，按项目语言的默认速度估算
-  const [speechRate, setSpeechRate] = useState<number | null>(null);
-  const [episodeTargetDuration, setEpisodeTargetDuration] = useState<number | null>(null);
-  // ad 项目的目标总时长（秒）；自定义输入不是正整数时为 null，拦住保存。
-  const [adTargetDuration, setAdTargetDuration] = useState<number | null>(null);
-  // 每次从项目载入目标总时长时换一次 key，让档位控件按载入值重新初始化。
-  const [adTargetLoadCount, setAdTargetLoadCount] = useState(0);
-  // 源文语言由内容分析写入，此页只读——只用来决定语速的单位名词（字 / 词）
-  const [sourceLanguage, setSourceLanguage] = useState<string | null>(null);
-  const [videoResolutions, setVideoResolutions] = useState<Record<string, string | null>>({});
-  const [imageResolution, setImageResolution] = useState<string | null>(null);
-  const [modelSettings, setModelSettings] = useState<Record<string, { resolution: string | null }>>({});
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
-
-  const { providerNames: allProviderNames, modelNames: allModelNames } = useDisplayNames(
-    providers,
-    customProviders,
-    options,
-    candidates,
+  const groups = useMemo<PageSidebarGroup[]>(
+    () =>
+      TAB_GROUPS.map((group) => ({
+        id: group.id,
+        label: t(group.labelKey),
+        items: group.tabs.map((id) => ({
+          id,
+          label: t(TABS[id].labelKey),
+          icon: TABS[id].icon,
+          href: projectSettingsPath(projectName, id),
+          badge: badges?.[id],
+        })),
+      })),
+    [t, projectName, badges],
   );
 
-  const [projectTitle, setProjectTitle] = useState<string>("");
-  const [contentMode, setContentMode] = useState<string>("narration");
-  const [saving, setSaving] = useState(false);
-  const [loadedAgentProfile, setLoadedAgentProfile] = useState<{
-    projectName: string;
-    status: AgentProfileStatus;
-  } | null>(null);
-  const agentProfile = loadedAgentProfile?.projectName === projectName ? loadedAgentProfile.status : null;
-  const [profileResetProject, setProfileResetProject] = useState<string | null>(null);
-  const [profileResetting, setProfileResetting] = useState(false);
+  return (
+    <PageShell
+      header={
+        <PageHeader
+          back={{
+            label: t("common:back"),
+            onClick: () => navigate(`${ROUTE_APP_PROJECTS}/${encodeURIComponent(projectName)}`),
+          }}
+          title={t("project_settings")}
+          subtitle={title}
+        />
+      }
+      sidebar={<PageSidebar label={t("project_settings")} groups={groups} activeId={tab} replace />}
+      tier="constrained"
+    >
+      {children}
+    </PageShell>
+  );
+}
 
-  // ── Style picker state (independent save flow) ─────────────────────────────
-  const [styleValue, setStyleValue] = useState<StylePickerValue | null>(null);
-  const [savingStyle, setSavingStyle] = useState(false);
-  const initialRef = useRef({
-    videoBackend: "", videoProviderI2V: "", videoProviderR2V: "",
-    imageBackendDefault: "", imageBackendT2I: "", imageBackendI2I: "",
-    audioOverride: null as boolean | null,
-    narrationDelivery: "post_production",
-    audioBackend: "", narrationVoice: "", narrationSpeed: null as number | null,
-    voiceBinding: DEFAULT_CHARACTER_VOICE_BINDING,
-    textDefault: "", textSimple: "", textComplex: "",
-    aspectRatio: "", gridStoryboard: false,
-    defaultDuration: null as number | null,
-    speechRate: null as number | null,
-    episodeTargetDuration: null as number | null,
-    adTargetDuration: null as number | null,
-    videoResolutions: {},
-    imageResolution: null as string | null,
-  });
-  // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
-  const initialStyleRef = useRef<StylePickerValue | null>(null);
+function TabBadge({ overrides, dirty }: { overrides?: number; dirty: boolean }) {
+  const { t } = useTranslation("common");
+  if (!overrides && !dirty) return undefined;
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      {!!overrides && (
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {t("dashboard:project_settings_overrides_badge", { count: overrides })}
+        </span>
+      )}
+      {dirty && <span role="img" aria-label={t("unsaved_changes")} className="size-1.5 rounded-full bg-warn" />}
+    </span>
+  );
+}
 
-  // 候选是全局配置、与项目无关，故不跟随下面按 projectName 重取的效果；reload 的标识随语言
-  // 变化，语言切换时只刷新候选与译名，不重取项目表单。拉取失败也只影响细分区。
+/** 基础分页里校验未通过的字段；行内已有提示，保存时只需指出分页。 */
+function basicsInvalid(value: ProjectSettingsForm, facts: ProjectFacts): boolean {
+  return (
+    !isValidSpeechRate(value.speechRate) ||
+    (facts.contentMode === "ad"
+      ? value.adTargetDuration === null
+      : !isValidEpisodeTargetDuration(value.episodeTargetDuration))
+  );
+}
+
+function LoadedProjectSettings({ projectName, loaded }: { projectName: string; loaded: LoadedSettings }) {
+  const { t } = useTranslation("dashboard");
+  const tab = parseTab(useSearch());
+  const { facts, globals } = loaded;
+
+  const { candidates, error: candidatesError, retrying: candidatesRetrying, reload: reloadCandidates } =
+    useModelCandidates();
+  // 候选是全局配置，与项目无关；reload 的标识随界面语言变化，语言切换时只刷新候选与译名
   useEffect(() => {
     void reloadCandidates();
   }, [reloadCandidates]);
-
-  useEffect(() => {
-    let disposed = false;
-    voidCall(
-      API.getAgentProfileStatus(projectName)
-        .then((status) => {
-          if (!disposed) setLoadedAgentProfile({ projectName, status });
-        })
-        .catch(() => {
-          if (!disposed) setLoadedAgentProfile(null);
-        }),
-    );
-    return () => {
-      disposed = true;
-    };
-  }, [projectName]);
-
-  useEffect(() => {
-    let disposed = false;
-
-    voidCall(Promise.all([
-      API.getSystemConfig(),
-      API.getProject(projectName),
-      getProviderModels().catch(() => [] as ProviderInfo[]),
-      getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
-      API.getNarrationDefaults().catch(() => null),
-    ]).then(([configRes, projectRes, providerList, customProviderList, ttsDefaults]) => {
-      if (disposed) return;
-      setNarrationDefaults(ttsDefaults);
-
-      setOptions({
-        video_backends: configRes.options?.video_backends ?? [],
-        image_backends: configRes.options?.image_backends ?? [],
-        text_backends: configRes.options?.text_backends ?? [],
-        audio_backends: configRes.options?.audio_backends ?? [],
-        provider_names: configRes.options?.provider_names,
-        model_names: configRes.options?.model_names,
-      });
-      // 各层原样带入，不在此折叠回退——穿透演算由 ModelConfigSection 按解析链推导。
-      const nextGlobals = {
-        video: configRes.settings?.default_video_backend ?? "",
-        videoI2V: configRes.settings?.default_video_backend_i2v ?? "",
-        videoR2V: configRes.settings?.default_video_backend_r2v ?? "",
-        image: configRes.settings?.default_image_backend ?? "",
-        imageT2I: configRes.settings?.default_image_backend_t2i ?? "",
-        imageI2I: configRes.settings?.default_image_backend_i2i ?? "",
-        textDefault: configRes.settings?.default_text_backend ?? "",
-        textSimple: configRes.settings?.text_backend_simple ?? "",
-        textComplex: configRes.settings?.text_backend_complex ?? "",
-        audio: configRes.settings?.default_audio_backend ?? "",
-      };
-      setGlobalDefaults(nextGlobals);
-      setGlobalGenerateAudio(configRes.settings?.video_generate_audio ?? true);
-      setProviders(providerList);
-      setCustomProviders(customProviderList);
-
-      const project = projectRes.project as unknown as Record<string, unknown>;
-      const vb = (project.video_backend as string | undefined) ?? "";
-      const vpi2v = (project.video_provider_i2v as string | undefined) ?? "";
-      const vpr2v = (project.video_provider_r2v as string | undefined) ?? "";
-      const ibDefault = (project.default_image_backend as string | undefined) ?? "";
-      const ibt2i = (project.image_provider_t2i as string | undefined) ?? "";
-      const ibi2i = (project.image_provider_i2i as string | undefined) ?? "";
-      const rawAudio = project.video_generate_audio;
-      const ao = typeof rawAudio === "boolean" ? rawAudio : null;
-      const delivery: NarrationDelivery = project.narration_delivery === "use_tts" ? "use_tts" : "post_production";
-      const ab = (project.audio_backend as string | undefined) ?? "";
-      const nv = (project.narration_voice as string | undefined) ?? "";
-      const rawSpeed = project.narration_speed;
-      const ns = typeof rawSpeed === "number" && Number.isFinite(rawSpeed) ? rawSpeed : null;
-      const td = (project.default_text_backend as string | undefined) ?? "";
-      const tsi = (project.text_backend_simple as string | undefined) ?? "";
-      const tcx = (project.text_backend_complex as string | undefined) ?? "";
-
-      const rawAr = typeof project.aspect_ratio === "string" ? project.aspect_ratio : "";
-      // Backend's get_aspect_ratio() falls back to "9:16" when unset (generation_tasks.py).
-      // Mirror that here so the UI reflects the actually-effective ratio.
-      const ar = rawAr || "9:16";
-      const route = normalizeRoute(project.generation_mode);
-      const grid = project.grid_storyboard === true;
-      const dd = project.default_duration != null ? (project.default_duration as number) : null;
-      const rawEtd = project.episode_target_duration;
-      const etd = typeof rawEtd === "number" && Number.isFinite(rawEtd) ? rawEtd : null;
-      const rawAtd = project.target_duration;
-      const atd = typeof rawAtd === "number" && Number.isInteger(rawAtd) && rawAtd > 0 ? rawAtd : null;
-      const rawRate = project.speech_rate_units_per_second;
-      const sr = typeof rawRate === "number" && Number.isFinite(rawRate) ? rawRate : null;
-      const sl = typeof project.source_language === "string" ? project.source_language : null;
-      const vbind: CharacterVoiceBinding =
-        project.character_voice_binding === "reference_audio" ? "reference_audio" : DEFAULT_CHARACTER_VOICE_BINDING;
-
-      setVideoBackend(vb);
-      setVideoProviderI2V(vpi2v);
-      setVideoProviderR2V(vpr2v);
-      setImageBackendDefault(ibDefault);
-      setImageBackendT2I(ibt2i);
-      setImageBackendI2I(ibi2i);
-      setAudioOverride(ao);
-      setNarrationDelivery(delivery);
-      setAudioBackend(ab);
-      setNarrationVoice(nv);
-      setNarrationSpeed(ns);
-      setTextDefault(td);
-      setTextSimple(tsi);
-      setTextComplex(tcx);
-      setAspectRatio(ar);
-      setGenerationRoute(route);
-      setGridStoryboard(grid);
-      setDefaultDuration(dd);
-      setSpeechRate(sr);
-      setEpisodeTargetDuration(etd);
-      setAdTargetDuration(atd);
-      setAdTargetLoadCount((count) => count + 1);
-      setSourceLanguage(sl);
-      setVoiceBinding(vbind);
-      setProjectTitle(typeof project.title === "string" ? project.title : "");
-      setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
-
-      // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与
-      // handleSave 一字不差——后端 resolve_resolution 就是按执行模型查这张表，键位对不上
-      // 用户选的分辨率会被静默忽略。读侧另有一条兼容回退：视频回落 legacy video_model_settings。
-      const executingVb = executingVideoModel(
-        { videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v },
-        nextGlobals,
-        route === "reference_video",
-      );
-      const executingI2V = executingVideoModel(
-        { videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v }, nextGlobals, false,
-      );
-      const executingIb = executingImageModel({ imageBackendDefault: ibDefault, imageBackendT2I: ibt2i }, nextGlobals);
-      const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
-      const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
-      const resolutions: Record<string, string | null> = Object.fromEntries(
-        Object.entries(ms).map(([model, settings]) => [model, settings?.resolution ?? null]),
-      );
-      for (const model of new Set([executingVb, executingI2V])) {
-        if (!model) continue;
-        const modelId = model.includes("/") ? model.split("/")[1] : model;
-        resolutions[model] = resolutions[model] ?? legacyVideo[modelId]?.resolution ?? null;
-      }
-      const iRes: string | null = executingIb ? (ms[executingIb]?.resolution ?? null) : null;
-      setVideoResolutions(resolutions);
-      setImageResolution(iRes);
-      setModelSettings(ms);
-
-      const derivedStyle = deriveStyleValue(project, projectName);
-      setStyleValue(derivedStyle);
-      initialStyleRef.current = derivedStyle;
-      initialRef.current = {
-        videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v,
-        imageBackendDefault: ibDefault, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i,
-        audioOverride: ao,
-        narrationDelivery: delivery,
-        audioBackend: ab, narrationVoice: nv, narrationSpeed: ns,
-        voiceBinding: vbind,
-        textDefault: td, textSimple: tsi, textComplex: tcx,
-        aspectRatio: ar, gridStoryboard: grid, defaultDuration: dd, speechRate: sr,
-        episodeTargetDuration: etd,
-        adTargetDuration: atd,
-        videoResolutions: resolutions, imageResolution: iRes,
-      };
-    }));
-
-    return () => { disposed = true; };
-  }, [projectName]);
-
-  // blob: URL 所有权集中：StylePicker 只通过 onChange 更换引用，
-  // revoke 统一在此 effect 做（URL 变更或卸载时）。
-  useEffect(() => {
-    const url = styleValue?.uploadedPreview;
-    if (!url?.startsWith("blob:")) return;
-    return () => URL.revokeObjectURL(url);
-  }, [styleValue?.uploadedPreview]);
-
-  // initialRef / initialStyleRef 是加载时快照，用于 dirty-check。
-  /* eslint-disable react-hooks/refs -- ref 只在 fetch 完成时写一次，render 期读取稳定；改用 state 会在 fetch effect 内 setState */
-  const styleIsDirty = (() => {
-    const init = initialStyleRef.current;
-    if (!styleValue || !init) return false;
-    if (styleValue.mode !== init.mode) return true;
-    if (styleValue.mode === "template") return styleValue.templateId !== init.templateId;
-    // custom 模式：新上传文件、或既有图被用户清空（preview 从 URL 变为 null）
-    return styleValue.uploadedFile !== null || styleValue.uploadedPreview !== init.uploadedPreview;
-  })();
-
-  // "无风格"态：模版未选 + 未上传新文件 + 未保留旧预览
-  const isStyleCleared = !!styleValue
-    && styleValue.templateId === null
-    && styleValue.uploadedFile === null
-    && !styleValue.uploadedPreview;
-  const hasInitialStyle = !!initialStyleRef.current
-    && (initialStyleRef.current.templateId !== null
-      || initialStyleRef.current.uploadedPreview !== null);
-
-  const fieldsDirty =
-    videoBackend !== initialRef.current.videoBackend ||
-    videoProviderI2V !== initialRef.current.videoProviderI2V ||
-    videoProviderR2V !== initialRef.current.videoProviderR2V ||
-    imageBackendDefault !== initialRef.current.imageBackendDefault ||
-    imageBackendT2I !== initialRef.current.imageBackendT2I ||
-    imageBackendI2I !== initialRef.current.imageBackendI2I ||
-    audioOverride !== initialRef.current.audioOverride ||
-    narrationDelivery !== initialRef.current.narrationDelivery ||
-    audioBackend !== initialRef.current.audioBackend ||
-    narrationVoice !== initialRef.current.narrationVoice ||
-    narrationSpeed !== initialRef.current.narrationSpeed ||
-    voiceBinding !== initialRef.current.voiceBinding ||
-    textDefault !== initialRef.current.textDefault ||
-    textSimple !== initialRef.current.textSimple ||
-    textComplex !== initialRef.current.textComplex ||
-    aspectRatio !== initialRef.current.aspectRatio ||
-    gridStoryboard !== initialRef.current.gridStoryboard ||
-    defaultDuration !== initialRef.current.defaultDuration ||
-    speechRate !== initialRef.current.speechRate ||
-    episodeTargetDuration !== initialRef.current.episodeTargetDuration ||
-    adTargetDuration !== initialRef.current.adTargetDuration ||
-    JSON.stringify(videoResolutions) !== JSON.stringify(initialRef.current.videoResolutions) ||
-    imageResolution !== initialRef.current.imageResolution;
-  /* eslint-enable react-hooks/refs */
-  const isDirty = fieldsDirty || styleIsDirty;
-
-  // Cross-tab switch from custom → template may leave {mode:"template", templateId:null}
-  // while an uploaded preview still lingers — no user-chosen card. Block save so
-  // clicking it can't silently route to the "clear style" PATCH branch. The
-  // explicit 取消风格 action zeroes uploadedFile/uploadedPreview too, bypassing this.
-  const isStyleIncomplete =
-    !!styleValue
-    && styleValue.mode === "template"
-    && !styleValue.templateId
-    && (styleValue.uploadedFile !== null || !!styleValue.uploadedPreview);
-  const isStyleSaveDisabled = savingStyle || !styleIsDirty || isStyleIncomplete;
-
-  /** 保存风格，返回是否成功。 */
-  const handleSaveStyle = useCallback(async (): Promise<boolean> => {
-    if (!styleValue) return true;
-    setSavingStyle(true);
-    try {
-      if (styleValue.mode === "template" && styleValue.templateId) {
-        await API.updateProject(projectName, { style_template_id: styleValue.templateId });
-      } else if (styleValue.mode === "custom" && styleValue.uploadedFile) {
-        await API.uploadStyleImage(projectName, styleValue.uploadedFile);
-      } else {
-        // 取消风格：显式清掉模板 ID 与自定义图
-        await API.updateProject(projectName, {
-          style_template_id: null,
-          clear_style_image: true,
-        });
-      }
-      // Refetch project to reset styleValue from canonical server state
-      const refreshed = await API.getProject(projectName);
-      const nextStyle = deriveStyleValue(refreshed.project as unknown as Record<string, unknown>, projectName);
-      setStyleValue(nextStyle);
-      initialStyleRef.current = nextStyle;
-      useAppStore.getState().pushToast(t("saved"), "success");
-      return true;
-    } catch (e: unknown) {
-      useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");
-      return false;
-    } finally {
-      setSavingStyle(false);
-    }
-  }, [styleValue, projectName, t]);
-
-  const handleClearStyle = useCallback(() => {
-    if (!styleValue) return;
-    setStyleValue({
-      ...styleValue,
-      templateId: null,
-      uploadedFile: null,
-      uploadedPreview: null,
-    });
-  }, [styleValue]);
-
-  // 宫格是分镜图生视频内的装配选项；参考生视频与不支持宫格的 ad 项目下既不呈现也不参与保存
-  const gridToggleVisible = generationRoute === "storyboard" && contentMode !== "ad";
-
-  const narration: NarrationDeliveryValue = {
-    delivery: narrationDelivery,
-    audioBackend,
-    narrationVoice,
-    narrationSpeed,
-  };
-
-  const handleNarrationChange = useCallback(
-    (next: NarrationDeliveryValue) => {
-      let value = next;
-      // 没有完整快照的项目切到 TTS 配音：缺的模型与音色、以及未设的语速按全局默认预填
-      const hasSnapshot = next.audioBackend.includes("/") && next.narrationVoice.trim() !== "";
-      if (next.delivery === "use_tts" && narrationDelivery !== "use_tts" && !hasSnapshot && narrationDefaults) {
-        value = {
-          ...next,
-          audioBackend: next.audioBackend.includes("/") ? next.audioBackend : (narrationDefaults.audio_backend ?? ""),
-          narrationVoice: next.narrationVoice.trim() ? next.narrationVoice : narrationDefaults.narration_voice,
-          narrationSpeed: next.narrationSpeed ?? narrationDefaults.narration_speed,
-        };
-      }
-      setNarrationDelivery(value.delivery);
-      setAudioBackend(value.audioBackend);
-      setNarrationVoice(value.narrationVoice);
-      setNarrationSpeed(value.narrationSpeed);
-    },
-    [narrationDelivery, narrationDefaults],
+  const catalogNames = useMemo(
+    () => ({ provider_names: loaded.options.providerNames, model_names: loaded.options.modelNames }),
+    [loaded.options],
+  );
+  const { providerNames, modelNames } = useDisplayNames(
+    loaded.providers,
+    loaded.customProviders,
+    catalogNames,
+    candidates,
   );
 
-  /** 保存风格以外的项目设置，返回是否成功。 */
-  const handleSave = useCallback(async (): Promise<boolean> => {
-    const narrationProblem = narrationDeliveryProblem({
-      delivery: narrationDelivery,
-      audioBackend,
-      narrationVoice,
-      narrationSpeed,
-    });
-    if (narrationProblem) {
-      useAppStore.getState().pushToast(
-        t(narrationProblem === "model" ? "project_tts_model_required" : "project_narration_voice_required"),
-        "error",
-      );
-      return false;
-    }
-    setSaving(true);
-    try {
-      // resolution 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与读侧一致；
-      // 后端按执行模型查这张表，键位对不上分辨率会被静默忽略。
-      // 音色与后端 .strip() 对齐：保存时去首尾空白，避免本地基线带空格而磁盘值不带导致 isDirty 误报
-      const trimmedVoice = narrationVoice.trim();
-      // 旁白配置只写改动过的字段：旧项目可能留着裸供应商的音频后端，原样回写会被快照校验拒绝
-      const initial = initialRef.current;
-      const narrationPatch = {
-        ...(narrationDelivery !== initial.narrationDelivery ? { narration_delivery: narrationDelivery } : {}),
-        ...(audioBackend !== initial.audioBackend ? { audio_backend: audioBackend || null } : {}),
-        ...(trimmedVoice !== initial.narrationVoice ? { narration_voice: trimmedVoice || null } : {}),
-        ...(narrationSpeed !== initial.narrationSpeed ? { narration_speed: narrationSpeed } : {}),
-      };
-      const executingImage = executingImageModel({ imageBackendDefault, imageBackendT2I }, globalDefaults);
-      const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
-      for (const [model, resolution] of Object.entries(videoResolutions)) {
-        newModelSettings[model] = { resolution };
+  // 一次保存依次提交项目 PATCH 与新参考图上传。上传失败时 PATCH 已经落盘，如实说明，
+  // 未保存修改保留，再次保存会重新提交两步。
+  const save = useCallback(
+    async (value: ProjectSettingsForm, saved: ProjectSettingsForm): Promise<ProjectSettingsForm> => {
+      if (basicsInvalid(value, facts)) {
+        throw new Error(t("project_settings_invalid_fields", { tab: t("project_settings_tab_basics") }));
       }
-      if (executingImage) {
-        newModelSettings[executingImage] = { resolution: imageResolution };
+      const narrationProblem = narrationDeliveryProblem(value.narration);
+      if (narrationProblem) {
+        throw new Error(t(narrationProblem === "model" ? "project_tts_model_required" : "project_narration_voice_required"));
       }
-
-      await API.updateProject(projectName, {
-        video_backend: videoBackend || null,
-        video_provider_i2v: videoProviderI2V || null,
-        video_provider_r2v: videoProviderR2V || null,
-        default_image_backend: imageBackendDefault || null,
-        image_provider_t2i: imageBackendT2I || null,
-        image_provider_i2i: imageBackendI2I || null,
-        video_generate_audio: audioOverride,
-        ...narrationPatch,
-        // 绑定方式只在参考生视频路线上有效，其余路线该键与项目无关，不写
-        ...(generationRoute === "reference_video" ? { character_voice_binding: voiceBinding } : {}),
-        // null 即清除项目级覆盖、回退语言默认
-        speech_rate_units_per_second: speechRate,
-        default_text_backend: textDefault || null,
-        text_backend_simple: textSimple || null,
-        text_backend_complex: textComplex || null,
-        aspect_ratio: aspectRatio || undefined,
-        // 生成模式不在 PATCH 面上（创建后不可更改）；宫格装配开关随时可写，
-        // 但只在开关可见时写——参考生视频与 ad 项目下该键与项目无关，ad 更会对 true 返回 400
-        ...(gridToggleVisible ? { grid_storyboard: gridStoryboard } : {}),
-        // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
-        // ad 项目禁写 episode_target_duration（同 default_duration，字段出现即 400），省略该键；
-        // 非 ad 恒写：null 即清除该偏好
-        // ad 项目改写目标总时长（正整数秒，不可清空），非 ad 项目对该字段出现本身返回 400
-        ...(contentMode === "ad"
-          ? adTargetDuration !== null
-            ? { target_duration: adTargetDuration }
-            : {}
-          : { default_duration: defaultDuration, episode_target_duration: episodeTargetDuration }),
-        model_settings: newModelSettings,
-      });
-      setModelSettings(newModelSettings);
-      setNarrationVoice(trimmedVoice);
-      initialRef.current = {
-        videoBackend, videoProviderI2V, videoProviderR2V,
-        imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride,
-        narrationDelivery, audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
-        voiceBinding,
-        textDefault, textSimple, textComplex,
-        aspectRatio, gridStoryboard, defaultDuration, speechRate,
-        episodeTargetDuration,
-        adTargetDuration,
-        videoResolutions, imageResolution,
-      };
-      // grid_storyboard / video_backend 落盘后，/video-capabilities 按已存值解析——查询 key 未变
-      // 不会自动重取，需显式失效（同 MediaModelSection 保存流程）。
+      const res = await API.updateProject(projectName, buildProjectPatch(value, saved, facts, globals));
+      // grid_storyboard、video_backend 落盘后 /video-capabilities 按已存值解析，查询 key 不变，需显式失效
       useCapabilitiesStore.getState().invalidate();
-      useAppStore.getState().pushToast(t("saved"), "success");
-      return true;
-    } catch (e: unknown) {
-      useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, narrationDelivery, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, adTargetDuration, contentMode, videoResolutions, imageResolution, projectName, t, globalDefaults]);
-
-  // 口播语速、单集或总目标时长越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
-  const fieldsInvalid =
-    !isValidSpeechRate(speechRate) ||
-    !isValidEpisodeTargetDuration(episodeTargetDuration) ||
-    (contentMode === "ad" && adTargetDuration === null);
-
-  // 「保存并离开」依次保存有修改的部分；字段校验未通过或风格未选定时不保存、留在原处。
-  // 不传 discard：被拦截的出口都会离开本页或切到别的项目重新加载。
-  const saveBeforeLeave = useCallback(async () => {
-    if (styleIsDirty && isStyleIncomplete) {
-      useAppStore.getState().pushToast(t("style_incomplete_hint"), "error");
-      return false;
-    }
-    if (fieldsDirty && (fieldsInvalid || !(await handleSave()))) return false;
-    return !styleIsDirty || handleSaveStyle();
-  }, [fieldsDirty, fieldsInvalid, styleIsDirty, isStyleIncomplete, handleSave, handleSaveStyle, t]);
-  useLeaveGuard({ dirty: isDirty, saving: saving || savingStyle, save: saveBeforeLeave });
-
-  const handleResetAgentProfile = useCallback(async () => {
-    if (profileResetProject !== projectName) {
-      setProfileResetProject(null);
-      return;
-    }
-    const resetProject = profileResetProject;
-    setProfileResetting(true);
-    try {
-      const currentStatus = await API.getAgentProfileStatus(resetProject);
-      const displayedStatus = loadedAgentProfile?.projectName === resetProject ? loadedAgentProfile.status : null;
-      if (!displayedStatus || !sameProfileFiles(displayedStatus.customized_files, currentStatus.customized_files)) {
-        setLoadedAgentProfile({ projectName: resetProject, status: currentStatus });
-        if (!currentStatus.customized) setProfileResetProject(null);
-        return;
+      const next = deriveForm(res.project, projectName, globals);
+      const file = pendingStyleUpload(value, saved);
+      if (!file) return next;
+      let uploaded;
+      try {
+        uploaded = await API.uploadStyleImage(projectName, file);
+      } catch (error) {
+        throw new Error(t("project_settings_style_upload_failed", { message: errMsg(error) }), { cause: error });
       }
-      const status = await API.resetAgentProfile(resetProject);
-      setLoadedAgentProfile((current) => (
-        current?.projectName === resetProject ? { projectName: resetProject, status } : current
-      ));
-      setProfileResetProject(null);
-      useAppStore.getState().pushToast(t("agent_profile_reset_success"), "success");
-    } catch (error: unknown) {
-      useAppStore.getState().pushToast(t("agent_profile_reset_failed", { message: errMsg(error) }), "error");
-    } finally {
-      setProfileResetting(false);
-    }
-  }, [loadedAgentProfile, profileResetProject, projectName, t]);
+      // 参考图文件名固定，地址加版本参数，避免浏览器沿用旧图的缓存
+      const preview = `${styleImageUrl(projectName, uploaded.style_image)}?v=${Date.now()}`;
+      return { ...next, style: { kind: "image", preview, description: uploaded.style_description, file: null } };
+    },
+    [projectName, facts, globals, t],
+  );
 
-  const handleOpenAgentProfileReset = useCallback(async () => {
-    const resetProject = projectName;
-    try {
-      const status = await API.getAgentProfileStatus(resetProject);
-      setLoadedAgentProfile({ projectName: resetProject, status });
-      setProfileResetProject(status.customized ? resetProject : null);
-    } catch (error: unknown) {
-      useAppStore.getState().pushToast(t("agent_profile_reset_failed", { message: errMsg(error) }), "error");
-    }
-  }, [projectName, t]);
+  // 四个表单分页之间切换不卸载编辑单元，不拦截；切到项目记忆、Agent 配置或离开本页时拦截
+  const allowNavigation = useCallback(
+    (to: string) => {
+      const url = new URL(to, "http://project-settings.invalid");
+      const here = new URL(projectSettingsPath(projectName), "http://project-settings.invalid");
+      return (
+        decodeURIComponent(url.pathname).toLowerCase() === decodeURIComponent(here.pathname).toLowerCase() &&
+        isFormTab(parseTab(url.search))
+      );
+    },
+    [projectName],
+  );
+
+  const unit = useEditUnit({ source: loaded.source, save, isEqual: formEqual, allowNavigation });
+  const { value, savedValue, setValue } = unit;
+
+  // 待上传参考图的预览地址由页面持有：不再使用（换图、放弃、保存）或离开页面时收回
+  const stylePreview = value.style.kind === "image" ? value.style.preview : null;
+  useEffect(() => {
+    if (!stylePreview?.startsWith("blob:")) return;
+    return () => URL.revokeObjectURL(stylePreview);
+  }, [stylePreview]);
+
+  const overrides = countModelOverrides(value.models, value.models.generateAudio);
+  const badges = {
+    basics: <TabBadge dirty={tabDirty("basics", value, savedValue)} />,
+    style: <TabBadge dirty={tabDirty("style", value, savedValue)} />,
+    models: <TabBadge overrides={overrides} dirty={tabDirty("models", value, savedValue)} />,
+    voice: <TabBadge dirty={tabDirty("voice", value, savedValue)} />,
+  };
+
+  const usesReferenceImages = facts.generationRoute === "reference_video";
+  const modelValue: ModelConfigValue = {
+    ...value.models,
+    videoResolution: value.models.videoResolutions?.[executingVideoModel(value.models, globals, usesReferenceImages)] ?? null,
+  };
+
+  let content: ReactNode;
+  switch (tab) {
+    case "basics":
+      content = <BasicsTab value={value} savedValue={savedValue} onChange={setValue} facts={facts} />;
+      break;
+    case "style":
+      content = <StyleTab value={value.style} onChange={(style) => setValue((prev) => ({ ...prev, style }))} />;
+      break;
+    case "models":
+      content = (
+        <div className="flex flex-col gap-6">
+          <TabHeader title={t("project_settings_tab_models")} />
+          <ModelConfigSection
+            projectName={projectName}
+            value={modelValue}
+            onChange={({ videoResolution: _videoResolution, ...next }) =>
+              setValue((prev) => ({ ...prev, models: { ...prev.models, ...next } }))
+            }
+            providers={loaded.providers}
+            customProviders={loaded.customProviders}
+            options={{
+              videoBackends: loaded.options.videoBackends,
+              imageBackends: loaded.options.imageBackends,
+              textBackends: loaded.options.textBackends,
+              providerNames,
+              modelNames,
+            }}
+            candidates={candidates}
+            candidatesError={
+              candidatesError ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying } : undefined
+            }
+            globalDefaults={globals}
+            videoGenerateAudio={value.models.generateAudio}
+            globalVideoGenerateAudio={loaded.globalGenerateAudio}
+            onVideoGenerateAudioChange={(generateAudio) =>
+              setValue((prev) => ({ ...prev, models: { ...prev.models, generateAudio } }))
+            }
+            usesReferenceImages={usesReferenceImages}
+            showOverrideSources
+            enable={facts.contentMode === "ad" ? { duration: false } : undefined}
+          />
+        </div>
+      );
+      break;
+    case "voice":
+      content = (
+        <VoiceTab
+          value={value}
+          onChange={setValue}
+          generationRoute={facts.generationRoute}
+          narrationDefaults={loaded.narrationDefaults}
+          audioBackends={loaded.options.audioBackends}
+          providerNames={providerNames}
+          modelNames={modelNames}
+        />
+      );
+      break;
+    case "memory":
+      content = (
+        <div className="flex flex-col gap-6">
+          <TabHeader title={t("agent_memory_project_title")} description={t("agent_memory_project_desc")} />
+          <AgentMemoryCabinet scope={{ level: "project", projectName }} frame="card" />
+        </div>
+      );
+      break;
+    case "agent":
+      content = <AgentProfileTab projectName={projectName} />;
+      break;
+  }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col text-foreground"
-      style={
-        {
-          background:
-            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--card), var(--sidebar))",
-        }
-      }
+    <SettingsShell
+      projectName={projectName}
+      title={getProjectDisplayName(loaded.title, t("untitled_project"))}
+      badges={badges}
     >
-      {/* ─── Sticky top bar ─── */}
-      <header
-        className="sticky top-0 z-30 shrink-0"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
-          backdropFilter: "blur(28px) saturate(1.5)",
-          WebkitBackdropFilter: "blur(28px) saturate(1.5)",
-          borderBottom: "1px solid var(--border)",
-          boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.05), 0 6px 24px -12px oklch(0 0 0 / 0.45)",
-        }}
-      >
-        <div className="mx-auto flex max-w-3xl items-center gap-4 px-6 py-4">
-          <button
-            onClick={() => navigate(`/app/projects/${projectName}`)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-card/45 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={t("back_to_project")}
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-            <span>{t("back_to_project")}</span>
-          </button>
-          <span aria-hidden className="h-5 w-px bg-border/50" />
-          <div className="min-w-0 flex-1">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-              Project Booth — {projectName.toUpperCase()}
-            </div>
-            <h1
-              className="font-editorial mt-0.5 truncate"
-              style={{
-                fontWeight: 400,
-                fontSize: 24,
-                lineHeight: 1.05,
-                letterSpacing: "-0.012em",
-                color: "var(--foreground)",
-              }}
-              title={getProjectDisplayName(projectTitle, t("untitled_project"))}
-            >
-              {t("project_settings")}
-              <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                {getProjectDisplayName(projectTitle, t("untitled_project"))}
-              </span>
-            </h1>
-          </div>
-        </div>
-      </header>
-
-      {/* ─── Scrollable body ───
-          滚动容器必须是定位元素：sr-only 的 legend 与单选框是绝对定位，没有定位祖先时会逃出滚动容器撑高文档 */}
-      <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-6 py-7 pb-24 space-y-5">
-          <div>
-            <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-              {t("model_config")}
-            </div>
-            <p className="mt-1 text-[12.5px] leading-[1.55] text-muted-foreground">
-              {t("model_config_project_desc")}
-            </p>
-          </div>
-
-          {agentProfile && (
-            <SectionCard
-              kicker={t("agent_profile_title")}
-              title={t("agent_profile_title")}
-              description={t("agent_profile_description")}
-              footer={agentProfile.customized ? (
-                <button
-                  type="button"
-                  onClick={() => voidCall(handleOpenAgentProfileReset())}
-                  className={GHOST_BTN_LG_CLS}
-                >
-                  {t("agent_profile_reset")}
-                </button>
-              ) : undefined}
-            >
-              {agentProfile.customized ? (
-                <div className="space-y-2">
-                  <p className="text-[12px] text-warn">{t("agent_profile_customized")}</p>
-                  <ul className="space-y-1" aria-label={t("agent_profile_affected_files")}>
-                    {agentProfile.customized_files.map((file) => (
-                      <li key={file} className="font-mono text-[11px] text-muted-foreground">{file}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="text-[12px] text-muted-foreground">{t("agent_profile_builtin")}</p>
-              )}
-            </SectionCard>
-          )}
-
-          <SectionCard
-            kicker="Agent Memory"
-            title={t("agent_memory_project_title")}
-            description={t("agent_memory_project_desc")}
-          >
-            <AgentMemoryCabinet scope={{ level: "project", projectName }} frame="card" />
-          </SectionCard>
-
-          {/* Style picker (independent save flow, mutually exclusive template / custom) */}
-          {styleValue && (
-            <SectionCard
-              kicker="Visual Style"
-              title={t("project_style_section_title")}
-              footer={
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    // eslint-disable-next-line react-hooks/refs -- handleSaveStyle 在 onClick 时才执行，其中的 ref 写入合法，规则误报
-                    onClick={voidPromise(handleSaveStyle)}
-                    disabled={isStyleSaveDisabled}
-                    className={ACCENT_BTN_CLS}
-                    style={ACCENT_BUTTON_STYLE}
-                  >
-                    {savingStyle && (
-                      <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                    )}
-                    {savingStyle ? t("style_saving") : t("style_save")}
-                  </button>
-                  {hasInitialStyle && !isStyleCleared && !savingStyle && (
-                    <button
-                      type="button"
-                      onClick={handleClearStyle}
-                      className="rounded-md px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {t("style_clear")}
-                    </button>
-                  )}
-                  {isStyleCleared && !savingStyle && styleIsDirty && (
-                    <p className="text-[11.5px] text-muted-foreground">{t("style_cleared_hint")}</p>
-                  )}
-                </div>
-              }
-            >
-              <StylePicker value={styleValue} onChange={setStyleValue} />
-            </SectionCard>
-          )}
-
-          {options && (
-            <>
-              {/* Model config (video + duration + image + text) */}
-              <SectionCard kicker="Engine Routing" title={t("model_config")}>
-                <ModelConfigSection
-                  projectName={projectName}
-                  value={{
-                    videoBackend,
-                    videoProviderI2V,
-                    videoProviderR2V,
-                    imageBackendDefault,
-                    imageBackendT2I,
-                    imageBackendI2I,
-                    textBackendDefault: textDefault,
-                    textBackendSimple: textSimple,
-                    textBackendComplex: textComplex,
-                    defaultDuration,
-                    videoResolution: videoResolutions[executingVideoModel(
-                      { videoBackend, videoProviderI2V, videoProviderR2V }, globalDefaults,
-                      generationRoute === "reference_video",
-                    )] ?? null,
-                    videoResolutions,
-                    imageResolution,
-                  }}
-                  onChange={(next) => {
-                    setVideoBackend(next.videoBackend);
-                    setVideoProviderI2V(next.videoProviderI2V);
-                    setVideoProviderR2V(next.videoProviderR2V);
-                    setImageBackendDefault(next.imageBackendDefault);
-                    setImageBackendT2I(next.imageBackendT2I);
-                    setImageBackendI2I(next.imageBackendI2I);
-                    setTextDefault(next.textBackendDefault);
-                    setTextSimple(next.textBackendSimple);
-                    setTextComplex(next.textBackendComplex);
-                    setDefaultDuration(next.defaultDuration);
-                    setVideoResolutions(next.videoResolutions ?? videoResolutions);
-                    setImageResolution(next.imageResolution);
-                  }}
-                  providers={providers}
-                  customProviders={customProviders}
-                  options={{
-                    videoBackends: options.video_backends,
-                    imageBackends: options.image_backends,
-                    textBackends: options.text_backends,
-                    providerNames: allProviderNames,
-                    modelNames: allModelNames,
-                  }}
-                  candidates={candidates}
-                  candidatesError={
-                    candidatesError
-                      ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying }
-                      : undefined
-                  }
-                  globalDefaults={{
-                    video: globalDefaults.video,
-                    videoI2V: globalDefaults.videoI2V,
-                    videoR2V: globalDefaults.videoR2V,
-                    image: globalDefaults.image,
-                    imageT2I: globalDefaults.imageT2I,
-                    imageI2I: globalDefaults.imageI2I,
-                    textDefault: globalDefaults.textDefault,
-                    textSimple: globalDefaults.textSimple,
-                    textComplex: globalDefaults.textComplex,
-                  }}
-                  videoGenerateAudio={audioOverride}
-                  globalVideoGenerateAudio={globalGenerateAudio}
-                  onVideoGenerateAudioChange={setAudioOverride}
-                  usesReferenceImages={generationRoute === "reference_video"}
-                  enable={contentMode === "ad" ? { duration: false } : undefined}
-                />
-              </SectionCard>
-
-              {/* Aspect ratio */}
-              <SectionCard kicker="Frame Aspect">
-                <fieldset>
-                  <legend className="mb-2.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                    {t("aspect_ratio_label")}
-                  </legend>
-                  <div className="flex gap-2.5">
-                    {(["9:16", "16:9"] as const).map((ar) => (
-                      <label key={ar} className={radioCardClass(aspectRatio === ar)}>
-                        <input
-                          type="radio"
-                          name="aspectRatio"
-                          value={ar}
-                          checked={aspectRatio === ar}
-                          onChange={() => {
-                            setAspectRatio(ar);
-                            if (initialRef.current.aspectRatio && ar !== initialRef.current.aspectRatio) {
-                              useAppStore.getState().pushToast(
-                                t("aspect_ratio_change_warning"),
-                                "warning",
-                              );
-                            }
-                          }}
-                          className="sr-only"
-                        />
-                        <span className="inline-flex items-center gap-2">
-                          <span
-                            aria-hidden
-                            className="block rounded-xs border border-border"
-                            style={{
-                              width: ar === "16:9" ? 12 : 7.5,
-                              height: ar === "16:9" ? 7.5 : 12,
-                              background:
-                                aspectRatio === ar ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "transparent",
-                            }}
-                          />
-                          {ar === "9:16" ? t("portrait_9_16") : t("landscape_16_9")}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              </SectionCard>
-
-              {/* Generation route — 创建时锁定，此处只读；宫格装配开关随时可切 */}
-              <SectionCard kicker="Pipeline Mode">
-                <div className="space-y-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                      {t("generation_route")}
-                    </span>
-                    <RouteLockBadge />
-                  </div>
-                  <div className="rounded-lg border border-border/50 bg-card/50 px-3.5 py-2.5">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[13px] font-semibold text-foreground">
-                        {t(ROUTE_META[generationRoute].nameKey)}
-                      </span>
-                      <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                        {ROUTE_META[generationRoute].tag}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-[11.5px] leading-[1.5] text-muted-foreground">
-                      {t(ROUTE_META[generationRoute].descKey)}
-                    </p>
-                  </div>
-                  {gridToggleVisible ? (
-                    <GridStoryboardBar checked={gridStoryboard} onToggle={setGridStoryboard} />
-                  ) : null}
-                </div>
-              </SectionCard>
-
-              {/* 口播语速估算：驱动时长建议与说话量提示，与配音（TTS）无关，
-                  故独立成卡、不与旁白交付同栏，避免两个「语速」被读成一个设置 */}
-              <SectionCard kicker="Pacing Estimate">
-                <SpeechRateField
-                  value={speechRate}
-                  onChange={setSpeechRate}
-                  sourceLanguage={sourceLanguage}
-                />
-                {/* ad 项目的整集体量由目标总时长表达，不呈现单集目标时长（服务端亦拒写） */}
-                {contentMode === "ad" && (
-                  <div className="mt-4">
-                    <DurationTierPicker
-                      key={adTargetLoadCount}
-                      value={adTargetDuration}
-                      onChange={setAdTargetDuration}
-                    />
-                  </div>
-                )}
-                {contentMode !== "ad" && (
-                  <div className="mt-4">
-                    <EpisodeTargetDurationField
-                      value={episodeTargetDuration}
-                      onChange={setEpisodeTargetDuration}
-                    />
-                  </div>
-                )}
-              </SectionCard>
-
-              {/* 角色声音绑定方式：只在参考生视频路线有效——参考音频通道属于该路线，
-                  分镜图生视频路线上此设置不改变任何交付内容，故不展示也不写入 */}
-              {generationRoute === "reference_video" && (
-              <SectionCard kicker="Character Voice" title={t("character_voice_binding_title")}>
-                <fieldset>
-                  <legend className="sr-only">{t("character_voice_binding_title")}</legend>
-                  <div className="flex gap-2.5">
-                    {(["prompt", "reference_audio"] as const).map((mode) => (
-                      <label key={mode} className={radioCardClass(voiceBinding === mode)}>
-                        <input
-                          type="radio"
-                          name="characterVoiceBinding"
-                          value={mode}
-                          checked={voiceBinding === mode}
-                          onChange={() => setVoiceBinding(mode)}
-                          className="sr-only"
-                        />
-                        <span>
-                          {mode === "prompt"
-                            ? t("character_voice_binding_prompt_label")
-                            : t("character_voice_binding_reference_audio_label")}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                    {voiceBinding === "prompt"
-                      ? t("character_voice_binding_prompt_desc")
-                      : t("character_voice_binding_reference_audio_desc")}
-                  </p>
-                </fieldset>
-              </SectionCard>
-              )}
-
-              {/* 旁白交付方式是每个项目的必填配置：任何内容模式的旁白单元都按它交付 */}
-              <SectionCard kicker="Narration" title={t("project_narration_delivery_title")}>
-                <NarrationDeliveryFields
-                  value={narration}
-                  onChange={handleNarrationChange}
-                  audioBackends={options.audio_backends}
-                  providerNames={allProviderNames}
-                  modelNames={allModelNames}
-                />
-              </SectionCard>
-            </>
-          )}
-
-          {!options && (
-            <div className="flex items-center gap-2 py-6 text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
-              <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
-                {t("loading_config")}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ─── Sticky save bar ─── */}
-      <footer
-        className="shrink-0"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.18 0.011 265 / 0.65), oklch(0.14 0.009 265 / 0.85))",
-          backdropFilter: "blur(20px) saturate(1.3)",
-          WebkitBackdropFilter: "blur(20px) saturate(1.3)",
-          borderTop: "1px solid var(--border)",
-          boxShadow: "0 -8px 28px -12px oklch(0 0 0 / 0.55)",
-        }}
-      >
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-6 py-3">
-          <div className="min-w-0 flex items-center gap-2 text-[11.5px] text-muted-foreground">
-            <span
-              aria-hidden
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{
-                background: isDirty ? "var(--warn)" : "var(--good)",
-                boxShadow: isDirty
-                  ? "0 0 6px oklch(0.85 0.13 75 / 0.4)"
-                  : "0 0 6px oklch(0.78 0.10 155 / 0.4)",
-              }}
-            />
-            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em]">
-              {isDirty ? t("unsaved_changes_hint") : t("saved")}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              onClick={() => navigate(`/app/projects/${projectName}`)}
-              className={GHOST_BTN_LG_CLS}
-            >
-              {t("common:cancel")}
-            </button>
-            <button
-              // eslint-disable-next-line react-hooks/refs -- handleSave 在 onClick 时才执行，规则误报
-              onClick={voidPromise(handleSave)}
-              disabled={saving || fieldsInvalid}
-              className={`${ACCENT_BTN_CLS} px-5`}
-              style={ACCENT_BUTTON_STYLE}
-            >
-              {saving && <Loader2 aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />}
-              {saving ? t("common:saving") : t("common:save")}
-            </button>
-          </div>
-        </div>
-      </footer>
-
-      <ConfirmDialog
-        open={profileResetProject === projectName && agentProfile !== null}
-        tone="danger"
-        title={t("agent_profile_reset_confirm_title")}
-        description={(
-          <div className="space-y-2">
-            <p>{t("agent_profile_reset_confirm_description")}</p>
-            <ul className="space-y-1 font-mono text-[11px]">
-              {agentProfile?.customized_files.map((file) => <li key={file}>{file}</li>)}
-            </ul>
-          </div>
-        )}
-        confirmLabel={t("agent_profile_reset_confirm")}
-        loadingLabel={t("agent_profile_resetting")}
-        loading={profileResetting}
-        cancelLabel={t("common:cancel")}
-        onCancel={() => setProfileResetProject(null)}
-        onConfirm={handleResetAgentProfile}
-      />
-
-    </div>
+      {content}
+      {isFormTab(tab) && (
+        <PageShellFooter>
+          <SaveBar unit={unit} />
+        </PageShellFooter>
+      )}
+    </SettingsShell>
   );
 }

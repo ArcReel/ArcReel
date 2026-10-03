@@ -85,6 +85,20 @@ export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SE
  * `APP_PROJECT_WORKSPACE_PATTERN` 同样由它们拼出，新增/改名路由只需改这一处。
  */
 export const WORKSPACE_ROUTE_SETTINGS = "settings";
+
+/** 项目设置的分页，即地址参数 `tab` 的取值，顺序同侧栏；缺省或无法识别时落在 `basics`。 */
+export const PROJECT_SETTINGS_TABS = ["basics", "style", "models", "voice", "memory", "agent"] as const;
+export type ProjectSettingsTab = (typeof PROJECT_SETTINGS_TABS)[number];
+
+/**
+ * 项目设置某个分页的地址（顶层路由的绝对路径）。不传 `tab` 时落在默认的「基础」。
+ * 在项目工作区的嵌套路由里跳转时在前面加 `~`。
+ */
+export function projectSettingsPath(projectName: string, tab?: ProjectSettingsTab): string {
+  const path = `${ROUTE_APP_PROJECTS}/${encodeURIComponent(projectName)}/${WORKSPACE_ROUTE_SETTINGS}`;
+  return tab ? `${path}?${new URLSearchParams({ tab }).toString()}` : path;
+}
+
 export const WORKSPACE_ROUTE_CHARACTERS = "characters";
 export const WORKSPACE_ROUTE_SCENES = "scenes";
 export const WORKSPACE_ROUTE_PROPS = "props";
