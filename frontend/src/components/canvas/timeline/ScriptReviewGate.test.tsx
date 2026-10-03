@@ -244,8 +244,7 @@ describe("ScriptReviewGate", () => {
 
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
 
-    const button = await screen.findByRole("button", { name: "确认并继续" });
-    expect(button).not.toHaveAttribute("data-tone");
+    expect(await screen.findByRole("button", { name: "确认并继续" })).toBeEnabled();
     expect(screen.queryByText("确认并覆盖正式脚本")).not.toBeInTheDocument();
   });
 
@@ -278,12 +277,11 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
 
     const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
-    expect(button).toHaveAttribute("data-tone", "danger");
     expect(screen.getByText("本集已有正式脚本，确认会按脚本规划整份重建它。")).toBeInTheDocument();
 
     fireEvent.click(button);
 
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("alertdialog");
     // 确认框原样呈现服务端生成的丢失清单，不在前端另拼。
     expect(within(dialog).getByText(itemIdsInEpisodeText(overwrite.text), { normalizer: (text) => text })).toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
@@ -291,7 +289,7 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, { overwriteRevision: "sha256-v1:listed" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 
   it("switches to the danger confirm when the server reports an existing formal script", async () => {
@@ -308,8 +306,7 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
     fireEvent.click(await screen.findByRole("button", { name: "确认并继续" }));
 
-    const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
-    expect(button).toHaveAttribute("data-tone", "danger");
+    expect(await screen.findByRole("button", { name: "确认并覆盖正式脚本" })).toBeEnabled();
   });
 
   it("keeps the overwrite dialog open with the refreshed list when the formal script changed meanwhile", async () => {
@@ -334,12 +331,12 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
-    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("S07"));
-    expect(screen.getByRole("dialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
+    await waitFor(() => expect(screen.getByRole("alertdialog")).toHaveTextContent("S07"));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 
   it.each([400, 422])("warns and disables confirm when capabilities return %i", async (status) => {
@@ -385,7 +382,7 @@ describe("ScriptReviewGate", () => {
       rejectCapabilities(new ApiRequestError("无法解析", undefined, 422));
     });
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "覆盖并确认" })).toBeDisabled();
   });
 

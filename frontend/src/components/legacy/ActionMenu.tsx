@@ -1,6 +1,11 @@
-import { useId, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
+import type { ComponentType, CSSProperties, ReactNode } from "react";
 
-import { GlassPopover } from "./GlassPopover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export interface ActionMenuItem {
   key: string;
@@ -8,7 +13,7 @@ export interface ActionMenuItem {
   icon?: ComponentType<{ className?: string }>;
   onSelect: () => void;
   disabled?: boolean;
-  /** 不可撤销的操作（如删除），以暖色提示。 */
+  /** 不可撤销的操作（如删除），以危险色提示。 */
   danger?: boolean;
   /** 禁用时的原因。 */
   title?: string;
@@ -24,63 +29,40 @@ interface ActionMenuProps {
   width?: string;
 }
 
-/** 按钮触发的操作菜单：点选一项即执行并收起。 */
+/**
+ * 按钮触发的操作菜单：点选一项即执行并收起，方向键在菜单项间移动。
+ * DropdownMenu 的薄封装，新代码直接用 `components/ui/dropdown-menu`，调用处由各区域逐步替换。
+ */
 export function ActionMenu({ label, children, items, triggerClassName, triggerStyle, width = "w-52" }: ActionMenuProps) {
-  const [open, setOpen] = useState(false);
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const menuId = useId();
   return (
-    <>
-      <button
-        ref={anchorRef}
-        type="button"
+    <DropdownMenu>
+      <DropdownMenuTrigger
         aria-label={label}
         title={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((value) => !value);
-        }}
+        // 触发按钮常放在可点击的卡片里，点击不冒泡到卡片
+        onClick={(event) => event.stopPropagation()}
         className={triggerClassName}
         style={triggerStyle}
       >
         {children}
-      </button>
-      <GlassPopover
-        open={open}
-        onClose={() => setOpen(false)}
-        anchorRef={anchorRef}
-        sideOffset={4}
-        width={width}
-        align="start"
-        showHairline={false}
-      >
-        <div id={menuId} role="menu" aria-label={label} className="py-1">
-          {items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                role="menuitem"
-                disabled={item.disabled}
-                title={item.title}
-                onClick={() => {
-                  setOpen(false);
-                  item.onSelect();
-                }}
-                className="focus-ring flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] transition-colors hover:bg-[oklch(0.26_0.012_265/0.5)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
-                style={{ color: item.danger ? "var(--warn)" : "var(--subtle-foreground)" }}
-              >
-                {Icon ? <Icon className="h-3.5 w-3.5 shrink-0" /> : null}
-                <span className="truncate">{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </GlassPopover>
-    </>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent aria-label={label} className={width}>
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <DropdownMenuItem
+              key={item.key}
+              disabled={item.disabled}
+              title={item.title}
+              variant={item.danger ? "destructive" : "default"}
+              onClick={item.onSelect}
+            >
+              {Icon ? <Icon /> : null}
+              <span className="truncate">{item.label}</span>
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

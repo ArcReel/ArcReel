@@ -8,6 +8,9 @@
   // shadcn 原语模块按成套 API 导出子组件（如 TooltipTrigger、DialogFooter），暂无调用方也要保留，
   // 否则下次 `shadcn add --diff` 合并上游时会被当作本地删改。只豁免导出类问题；
   // 未使用的原语文件与依赖照常报告，组件按需安装。
+  // 临时条目：原语已按本仓规范改好，首个使用方落地时删除对应条目（#2995 起）。
+  // sheet.tsx → 首个侧滑面板使用方（#3011 或 #3030）；popover.tsx → 首个弹出面板使用方（#3013 等）。
+  "ignore": ["src/components/ui/sheet.tsx", "src/components/ui/popover.tsx"],
   "ignoreIssues": {
     "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"]
   }

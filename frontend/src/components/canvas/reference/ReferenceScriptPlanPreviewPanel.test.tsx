@@ -373,11 +373,10 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
-    expect(button).toHaveAttribute("data-tone", "danger");
     expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
 
     fireEvent.click(button);
-    expect(await screen.findByRole("dialog")).toHaveTextContent(itemIdsInEpisodeText(overwrite.text));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(itemIdsInEpisodeText(overwrite.text));
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, { overwriteRevision: "sha256-v1:listed" }));
@@ -409,8 +408,8 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
-    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("U05"));
-    expect(screen.getByRole("dialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
+    await waitFor(() => expect(screen.getByRole("alertdialog")).toHaveTextContent("U05"));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
@@ -460,7 +459,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       rejectCapabilities(new ApiRequestError("无法解析", undefined, 422));
     });
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "覆盖并确认" })).toBeDisabled();
   });
 

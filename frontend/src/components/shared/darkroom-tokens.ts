@@ -1,10 +1,12 @@
 import type { CSSProperties } from "react";
 
+/**
+ * @deprecated 旧主按钮的内联样式，外观已收为 Button 的 default 变体（纯色、无光晕）。
+ * 新代码直接用 `components/ui/button`，调用处由各区域逐步替换。
+ */
 export const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
+  color: "var(--primary-foreground)",
   background: "var(--primary)",
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 6px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
 };
 
 export const CARD_STYLE: CSSProperties = {
@@ -29,8 +31,9 @@ export const DROPDOWN_PANEL_STYLE: CSSProperties = {
   WebkitBackdropFilter: "blur(12px)",
 };
 
+// 背景写在 ACCENT_BUTTON_STYLE 的内联样式里，悬停用亮度变化表达；主按钮不再悬停上移。
 const ACCENT_BTN_BASE_CLS =
-  "inline-flex items-center rounded-md font-semibold transition-transform motion-safe:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0";
+  "inline-flex items-center rounded-md font-semibold transition-[filter] enabled:hover:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 export const ACCENT_BTN_CLS = `${ACCENT_BTN_BASE_CLS} gap-2 px-4 py-2 text-[12.5px]`;
 

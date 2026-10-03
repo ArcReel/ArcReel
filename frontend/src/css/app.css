@@ -77,30 +77,9 @@ body {
     pointer-events: none;
 }
 
-.toast-enter {
-    animation: slide-down 0.24s ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .toast-enter {
-        animation: none;
-    }
-}
-
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes slide-down {
-    from {
-        transform: translateY(-8px);
-        opacity: 0;
-    }
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
 }
 
 .landing-shell {

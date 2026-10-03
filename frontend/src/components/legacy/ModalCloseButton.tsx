@@ -1,26 +1,21 @@
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 
 interface ModalCloseButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** 覆盖默认 aria-label（默认从 common.close 取） */
   ariaLabel?: string;
 }
 
-// 玻璃 X 关闭按钮 — hover 走 CSS :hover（消除 6 处 inline onMouseEnter/Leave 重复）
+/** 旧弹窗关闭按钮：Button ghost 图标按钮的薄封装。新弹层用 Dialog 自带的关闭按钮。 */
 export const ModalCloseButton = forwardRef<HTMLButtonElement, ModalCloseButtonProps>(
-  function ModalCloseButton({ ariaLabel, className = "", type = "button", ...rest }, ref) {
+  function ModalCloseButton({ ariaLabel, type = "button", ...rest }, ref) {
     const { t } = useTranslation("common");
     return (
-      <button
-        ref={ref}
-        type={type}
-        aria-label={ariaLabel ?? t("close")}
-        className={`arc-close-btn focus-ring grid h-7 w-7 place-items-center rounded-md ${className}`.trim()}
-        {...rest}
-      >
-        <X className="h-4 w-4" aria-hidden="true" />
-      </button>
+      <Button ref={ref} type={type} variant="ghost" size="icon-sm" aria-label={ariaLabel ?? t("close")} {...rest}>
+        <X aria-hidden="true" />
+      </Button>
     );
   },
 );

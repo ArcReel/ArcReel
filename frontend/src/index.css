@@ -20,7 +20,8 @@
     --subtle-foreground: oklch(0.820 0.008 265);
     --card: oklch(0.182 0.011 270);
     --card-foreground: var(--foreground);
-    --popover: oklch(0.182 0.011 270);
+    /* 弹层材质：不透明 surface，比卡片略亮；一条 border、一个 overlay 阴影，不用模糊与渐变 */
+    --popover: oklch(0.205 0.011 265);
     --popover-foreground: var(--foreground);
     --primary: oklch(0.76 0.09 295);
     --primary-foreground: oklch(0.14 0 0);
@@ -54,6 +55,22 @@
     --sidebar-accent-foreground: var(--accent-foreground);
     --sidebar-border: var(--border);
     --sidebar-ring: var(--ring);
+
+    /* 模态遮罩：与新手引导遮罩同一规范（onboarding/tour.ts 的 OVERLAY_INK 与 overlayOpacity） */
+    --scrim: oklch(0.10 0.012 265 / 0.78);
+
+    /* 层级。弹层 Portal 到 body，与隔离了层叠上下文的 #app-root 同级，z-index 只需在三者间排序：
+       弹层（Dialog、Sheet、Popover、菜单、Tooltip）< Toast < 新手引导（driver.js 遮罩与气泡）。
+       同层弹层按打开顺序叠放：后打开的 Portal 节点排在 DOM 后面。 */
+    --z-overlay: 50;
+    --z-toast: 60;
+    --z-onboarding: 10000;
+
+    /* 动效时长：界面动效一律短于 300ms。fast 用于悬停、淡入淡出，base 用于弹层进出与换图交叉淡入。 */
+    --duration-fast: 150ms;
+    --duration-base: 200ms;
+    /* 进场缓动：快起慢停 */
+    --easing-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @theme {
@@ -64,6 +81,13 @@
     --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     /* 衬线 — 仅项目大厅 (Darkroom) 用于编辑式电影感大标题 */
     --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
+
+    /* 运行中状态点的透明度呼吸，只用于小状态点；减少动态效果时由下方全局规则停住 */
+    --animate-breath: breath 1.6s ease-in-out infinite;
+    @keyframes breath {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
 }
 
 @theme inline {
@@ -110,6 +134,24 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+    --color-scrim: var(--scrim);
+
+    --shadow-overlay: 0 16px 40px -12px oklch(0 0 0 / 0.6);
+
+    --z-index-overlay: var(--z-overlay);
+    --z-index-toast: var(--z-toast);
+    --z-index-onboarding: var(--z-onboarding);
+
+    --transition-duration-fast: var(--duration-fast);
+    --transition-duration-base: var(--duration-base);
+    --ease-emphasized: var(--easing-emphasized);
+}
+
+/* shadcn 原语的裸 border 默认取描边色，而不是 currentColor */
+@layer base {
+    * {
+        border-color: var(--border);
+    }
 }
 
 /* Portal 出去的弹层挂在 body 下、与 #app-root 同级；隔离出独立层叠上下文后，
@@ -133,15 +175,34 @@ body {
     text-rendering: optimizeLegibility;
 }
 
-/* 尊重系统级"减少动效"偏好（WCAG 2.3.3） */
+/* 减少动态效果（WCAG 2.3.3）：去掉位移、缩放、旋转，只保留透明度与颜色变化。
+   - tw-animate-css 的进出场（弹层的 animate-in / animate-out）把位移与缩放写在变量里，这里归零，淡入淡出照常。
+   - 过渡只保留透明度与颜色属性，位移与缩放类过渡直接跳到终态（Base UI 的 data-starting-style 写法、按钮按下下沉）。
+   - 其余 keyframes 动画多带位移或缩放（呼吸点、进度扫光、交接卡片），直接跳到终态并停止循环；
+     渐隐遮罩 scroll-fade-* 是跟随滚动位置的动画，不是动效，不受影响。 */
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
+        --tw-enter-translate-x: 0 !important;
+        --tw-enter-translate-y: 0 !important;
+        --tw-enter-scale: 1 !important;
+        --tw-enter-rotate: 0 !important;
+        --tw-enter-blur: 0 !important;
+        --tw-exit-translate-x: 0 !important;
+        --tw-exit-translate-y: 0 !important;
+        --tw-exit-scale: 1 !important;
+        --tw-exit-rotate: 0 !important;
+        --tw-exit-blur: 0 !important;
+        transition-property: opacity, color, background-color, border-color, outline-color, text-decoration-color, fill, stroke !important;
+        scroll-behavior: auto !important;
+    }
+
+    :where(*:not([class*="animate-in"], [class*="animate-out"], [class*="scroll-fade"])),
+    *::before,
+    *::after {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-        scroll-behavior: auto !important;
     }
 }
 
@@ -156,20 +217,31 @@ body {
     font-family: var(--font-display);
 }
 
-/* 滚动条 */
+/* 滚动条：唯一一套样式，静止时可见，可见宽度 6px。
+   Chromium（含 Electron）与 Safari 用 ::-webkit-scrollbar 自绘，不随系统「滚动时显示」设置隐藏；
+   Chromium 121 起元素一旦设置 scrollbar-width / scrollbar-color 就改用标准属性、忽略这里的伪元素，
+   所以标准属性只给不支持伪元素的浏览器（Firefox）。 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
-    background: oklch(0.42 0.010 265 / 0.35);
+    background: oklch(0.50 0.012 265 / 0.55);
     border-radius: 10px;
     border: 2px solid transparent;
     background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.55 0.012 265 / 0.55);
+    background: oklch(0.62 0.012 265 / 0.75);
     border: 2px solid transparent;
     background-clip: padding-box;
 }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner { background: transparent; }
+
+@supports not selector(::-webkit-scrollbar) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: oklch(0.50 0.012 265 / 0.55) transparent;
+    }
+}
 
 /* 统一焦点指示（a11y） */
 @utility focus-ring {
@@ -220,62 +292,14 @@ body {
     background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--warn) 50%, transparent), transparent);
 }
 
-/* 玻璃 X 关闭按钮 */
-.arc-close-btn {
-    color: var(--muted-foreground);
-    transition: color 150ms, background 150ms;
-}
-.arc-close-btn:hover {
-    color: var(--foreground);
-    background: oklch(1 0 0 / 0.05);
-}
+/* 旧按钮类：外观等同 Button 的 default（主按钮）与 outline（次按钮）变体，只留给还没改用 Button 的调用处，
+   干净交付时随调用处一起删除。放进 components 层，调用处的工具类照常覆盖。 */
+@layer components {
+    .arc-btn-primary {
+        @apply border border-transparent bg-primary text-primary-foreground transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 enabled:hover:bg-primary/80 disabled:pointer-events-none disabled:opacity-50;
+    }
 
-/* 玻璃次按钮（Cancel / 普通操作） */
-.arc-btn-secondary {
-    color: var(--muted-foreground);
-    border: 1px solid var(--border);
-    background: oklch(0.22 0.011 265 / 0.5);
-    transition: color 150ms, background 150ms, border-color 150ms;
-}
-.arc-btn-secondary:hover:not(:disabled) {
-    color: var(--foreground);
-    background: oklch(0.26 0.013 265 / 0.7);
-    border-color: var(--input);
-}
-.arc-btn-secondary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* 主按钮 CTA — accent 默认，warm/danger 用 data-tone */
-.arc-btn-primary {
-    color: oklch(0.14 0 0);
-    background: var(--primary);
-    box-shadow:
-        inset 0 1px 0 oklch(1 0 0 / 0.35),
-        0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent),
-        0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent);
-    transition: transform 150ms, opacity 150ms;
-}
-.arc-btn-primary[data-tone="warm"] {
-    background: var(--warn);
-    box-shadow:
-        inset 0 1px 0 oklch(1 0 0 / 0.35),
-        0 6px 18px -6px color-mix(in oklab, var(--warn) 35%, transparent),
-        0 0 0 1px color-mix(in oklab, var(--warn) 30%, transparent);
-}
-.arc-btn-primary[data-tone="danger"] {
-    background: var(--destructive);
-    box-shadow:
-        inset 0 1px 0 oklch(1 0 0 / 0.35),
-        0 6px 18px -6px color-mix(in oklab, var(--destructive) 35%, transparent),
-        0 0 0 1px color-mix(in oklab, var(--destructive) 30%, transparent);
-}
-.arc-btn-primary:hover:not(:disabled) {
-    transform: translateY(-1px);
-}
-.arc-btn-primary:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    transform: none;
+    .arc-btn-secondary {
+        @apply border border-input bg-input/30 text-foreground transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 enabled:hover:bg-input/50 disabled:pointer-events-none disabled:opacity-50;
+    }
 }
