@@ -1,16 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { cn } from "cn";
 
 export interface TypewriterSegment {
   text: string;
   className?: string;
-  style?: CSSProperties;
   after?: ReactNode;
 }
 
-/** caret 闪烁 1 次的周期（亮 + 灭），单位 ms。决定 linger 阶段总时长 = blinkPeriodMs * caretBlinkCount */
-const CARET_BLINK_PERIOD_MS = 1400;
-/** 吐字完成后 caret 还闪几次再消失 */
-const CARET_BLINK_AFTER_DONE = 3;
+/** 吐字完成后光标继续闪烁的时长，与 index.css 的 `--animate-caret-linger`（1.4s × 3 次）一致。 */
+const CARET_LINGER_MS = 1400 * 3;
 
 interface TypewriterProps {
   segments: TypewriterSegment[];
@@ -22,7 +20,6 @@ interface TypewriterProps {
   /** 同一 once key 同会话内只播放一次；后续 mount 直接显示完成态 */
   once?: string;
   className?: string;
-  style?: CSSProperties;
   onDone?: () => void;
 }
 
@@ -47,7 +44,6 @@ export function Typewriter({
   caret = true,
   once,
   className,
-  style,
   onDone,
 }: TypewriterProps) {
   const totalLen = useMemo(() => segments.reduce((n, s) => n + s.text.length, 0), [segments]);
@@ -97,7 +93,7 @@ export function Typewriter({
             if (cancelled) return;
             setPhase("done");
             onDoneRef.current?.();
-          }, CARET_BLINK_PERIOD_MS * CARET_BLINK_AFTER_DONE),
+          }, CARET_LINGER_MS),
         );
         return;
       }
@@ -141,7 +137,7 @@ export function Typewriter({
     const segEnd = consumed + seg.text.length;
     const visibleEnd = Math.max(consumed, Math.min(pos, segEnd));
     visibleNodes.push(
-      <span key={`tw-s-${i}`} className={seg.className} style={seg.style}>
+      <span key={`tw-s-${i}`} className={seg.className}>
         {seg.text.slice(0, visibleEnd - consumed)}
       </span>,
     );
@@ -152,7 +148,7 @@ export function Typewriter({
   });
 
   return (
-    <span className={className} style={style}>
+    <span className={className}>
       <span className="sr-only">{fullText}</span>
       <span aria-hidden="true">
         {visibleNodes}
@@ -168,19 +164,10 @@ function TypewriterCaret({ finite }: { finite: boolean }) {
   return (
     <span
       aria-hidden="true"
-      style={{
-        display: "inline-block",
-        width: 4,
-        marginLeft: "0.2ch",
-        height: "1em",
-        verticalAlign: "-0.12em",
-        background: "var(--primary)",
-        boxShadow: "0 0 10px color-mix(in oklab, var(--primary) 35%, transparent)",
-        borderRadius: 1.5,
-        animation: finite
-          ? `tw-blink ${CARET_BLINK_PERIOD_MS}ms steps(2, end) ${CARET_BLINK_AFTER_DONE} forwards`
-          : `tw-blink ${CARET_BLINK_PERIOD_MS}ms steps(2, end) infinite`,
-      }}
+      className={cn(
+        "ml-0.5 inline-block h-[1em] w-1 rounded-xs bg-primary align-[-0.12em]",
+        finite ? "animate-caret-linger" : "animate-caret-blink",
+      )}
     />
   );
 }

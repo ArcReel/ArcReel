@@ -438,7 +438,7 @@ describe("API", () => {
       await API.generateProjectProp("demo", "Sword");
       await API.generateProjectProduct("demo", "Phone");
 
-      expect(requestSpy).toHaveBeenCalledWith("/projects");
+      expect(requestSpy).toHaveBeenCalledWith("/projects", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
         method: "POST",
         body: JSON.stringify({ title: "Demo", generation_mode: "storyboard" }),

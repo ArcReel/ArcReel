@@ -17,6 +17,7 @@ import logging
 import os
 import tempfile
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -107,6 +108,7 @@ from server.services.project.narration_settings import (
     validate_tts_backend,
     validate_tts_speed,
 )
+from server.services.project.project_activity import project_last_activity_at
 from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
@@ -534,13 +536,17 @@ async def export_project_archive(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
+_NO_ACTIVITY = datetime.min.replace(tzinfo=UTC)
+
+
 @router.get("/projects")
 async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
-    """列出所有项目"""
+    """列出所有项目，最近有活动的在前。"""
 
     def _sync():
         manager = get_project_manager()
         projects = []
+        last_activity: dict[str, datetime] = {}
         for name in manager.list_projects():
             try:
                 # 列举之后被删除的项目不再列出
@@ -586,6 +592,12 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                         _t,
                     )
 
+                    activity = project_last_activity_at(
+                        manager.get_project_path(name), project, preloaded_scripts.values()
+                    )
+                    if activity is not None:
+                        last_activity[name] = activity
+
                     raw_title = project.get("title")
                     projects.append(
                         {
@@ -598,13 +610,18 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                             "style_image": project.get("style_image"),
                             "thumbnail": thumbnail,
                             "status": status,
+                            "last_activity_at": activity.isoformat() if activity is not None else None,
                         }
                     )
             except Exception as e:
                 # 出错时返回基本信息
                 logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
-                projects.append({"name": name, "title": "", "style": "", "thumbnail": None, "status": {}})
+                projects.append(
+                    {"name": name, "title": "", "style": "", "thumbnail": None, "status": {}, "last_activity_at": None}
+                )
 
+        # 没有活动时间的项目排在最后，彼此保持按名字的列举顺序。
+        projects.sort(key=lambda p: last_activity.get(p["name"], _NO_ACTIVITY), reverse=True)
         return {"projects": projects}
 
     return await asyncio.to_thread(_sync)

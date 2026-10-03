@@ -165,6 +165,8 @@ export function buildDemoProject(t: DemoT): ProjectSummary {
     style_image: null,
     thumbnail: null,
     status: DEMO_STATUS,
+    // 演示项目没有真实的修改记录，卡片上不写「几天前更新」。
+    last_activity_at: null,
   };
 }
 
