@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -9,22 +9,27 @@ import { AgentPageIntro } from "@/components/agent/AgentPageIntro";
 import { CredentialsSection } from "@/components/agent/CredentialsSection";
 import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { FieldLabel } from "@/components/shared/FieldLabel";
+import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
+import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { SectionShell } from "@/components/shared/SectionShell";
-import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
-import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type { GetSystemConfigResponse, SystemConfigPatch } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 
-import { TabSaveFooter } from "./TabSaveFooter";
 import { ExternalAgentModal } from "./ExternalAgentModal";
 
-interface AgentDraft {
+/** 运行参数编辑单元：输入框里的原始字符串，保存时再转成数字。 */
+interface AgentRuntimeFields {
   cleanupDelaySeconds: string;
   maxConcurrentSessions: string;
 }
 
-function buildDraft(data: GetSystemConfigResponse): AgentDraft {
+const DEFAULT_FIELDS: AgentRuntimeFields = {
+  cleanupDelaySeconds: "300",
+  maxConcurrentSessions: "5",
+};
+
+function fieldsFrom(data: GetSystemConfigResponse): AgentRuntimeFields {
   const s = data.settings;
   return {
     cleanupDelaySeconds: String(s.agent_session_cleanup_delay_seconds ?? 300),
@@ -32,19 +37,12 @@ function buildDraft(data: GetSystemConfigResponse): AgentDraft {
   };
 }
 
-function deepEqual(a: AgentDraft, b: AgentDraft): boolean {
-  return (
-    a.cleanupDelaySeconds === b.cleanupDelaySeconds &&
-    a.maxConcurrentSessions === b.maxConcurrentSessions
-  );
-}
-
-function buildPatch(draft: AgentDraft, saved: AgentDraft): SystemConfigPatch {
+function buildPatch(fields: AgentRuntimeFields, saved: AgentRuntimeFields): SystemConfigPatch {
   const patch: SystemConfigPatch = {};
-  if (draft.cleanupDelaySeconds !== saved.cleanupDelaySeconds)
-    patch.agent_session_cleanup_delay_seconds = Number(draft.cleanupDelaySeconds) || 300;
-  if (draft.maxConcurrentSessions !== saved.maxConcurrentSessions)
-    patch.agent_max_concurrent_sessions = Number(draft.maxConcurrentSessions) || 5;
+  if (fields.cleanupDelaySeconds !== saved.cleanupDelaySeconds)
+    patch.agent_session_cleanup_delay_seconds = Number(fields.cleanupDelaySeconds) || 300;
+  if (fields.maxConcurrentSessions !== saved.maxConcurrentSessions)
+    patch.agent_max_concurrent_sessions = Number(fields.maxConcurrentSessions) || 5;
   return patch;
 }
 
@@ -56,26 +54,12 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
   const { t } = useTranslation("dashboard");
   const [remoteData, setRemoteData] = useState<GetSystemConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<AgentDraft>({
-    cleanupDelaySeconds: "300",
-    maxConcurrentSessions: "5",
-  });
-  const savedRef = useRef<AgentDraft>({
-    cleanupDelaySeconds: "300",
-    maxConcurrentSessions: "5",
-  });
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [showExternalGuide, setShowExternalGuide] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const res = await API.getSystemConfig();
-      setRemoteData(res);
-      const d = buildDraft(res);
-      savedRef.current = d;
-      setDraft(d);
+      setRemoteData(await API.getSystemConfig());
     } catch (err) {
       setLoadError(errMsg(err));
     }
@@ -86,42 +70,17 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
     void load();
   }, [load]);
 
-  // eslint-disable-next-line react-hooks/refs -- 渲染期只读 savedRef.current 做 isDirty 浅比较，不写 ref
-  const isDirty = !deepEqual(draft, savedRef.current);
-  useWarnUnsaved(isDirty);
-
-  const updateDraft = useCallback(
-    <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) => {
-      setDraft((prev) => ({ ...prev, [key]: value }));
-      setSaveError(null);
-    },
-    [],
-  );
-
-  const handleSave = useCallback(async () => {
-    const patch = buildPatch(draft, savedRef.current);
-    if (Object.keys(patch).length === 0) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const res = await API.updateSystemConfig(patch);
-      setRemoteData(res);
-      const newDraft = buildDraft(res);
-      savedRef.current = newDraft;
-      setDraft(newDraft);
-      voidCall(useConfigStatusStore.getState().refresh());
-      useAppStore.getState().pushToast(t("agent_config_saved"), "success");
-    } catch (err) {
-      setSaveError(errMsg(err));
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, t]);
-
-  const handleReset = useCallback(() => {
-    setDraft(savedRef.current);
-    setSaveError(null);
+  const source = useMemo(() => (remoteData ? fieldsFrom(remoteData) : DEFAULT_FIELDS), [remoteData]);
+  const saveFields = useCallback(async (fields: AgentRuntimeFields, saved: AgentRuntimeFields) => {
+    const res = await API.updateSystemConfig(buildPatch(fields, saved));
+    setRemoteData(res);
+    voidCall(useConfigStatusStore.getState().refresh());
+    return fieldsFrom(res);
   }, []);
+  const unit = useEditUnit({ source, save: saveFields });
+  const saving = unit.status === "saving";
+  const updateField = (key: keyof AgentRuntimeFields, value: string) =>
+    unit.setValue((prev) => ({ ...prev, [key]: value }));
 
   if (loadError) {
     return (
@@ -182,8 +141,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 type="number"
                 min={10}
                 max={3600}
-                value={draft.cleanupDelaySeconds}
-                onChange={(e) => updateDraft("cleanupDelaySeconds", e.target.value)}
+                value={unit.value.cleanupDelaySeconds}
+                onChange={(e) => updateField("cleanupDelaySeconds", e.target.value)}
                 className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
                 disabled={saving}
               />
@@ -200,8 +159,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
                 type="number"
                 min={1}
                 max={20}
-                value={draft.maxConcurrentSessions}
-                onChange={(e) => updateDraft("maxConcurrentSessions", e.target.value)}
+                value={unit.value.maxConcurrentSessions}
+                onChange={(e) => updateField("maxConcurrentSessions", e.target.value)}
                 className={`${INPUT_CLS} mt-1.5 max-w-[140px]`}
                 disabled={saving}
               />
@@ -212,14 +171,8 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
         <AgentMemoryCabinet scope={{ level: "user" }} frame="section" />
       </div>
 
-      <TabSaveFooter
-        isDirty={isDirty}
-        saving={saving}
-        disabled={false}
-        error={saveError}
-        onSave={() => void handleSave()}
-        onReset={handleReset}
-      />
+      {/* 设置页内容区是滚动容器，保存栏吸底常驻 */}
+      <SaveBar unit={unit} className="sticky bottom-0" />
       {showExternalGuide && (
         <ExternalAgentModal onClose={() => setShowExternalGuide(false)} />
       )}

@@ -8,6 +8,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { createDeferred } from "@/test/deferred";
+import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { ProviderSection } from "./ProviderSection";
 import type { ProviderConfigDetail, ProviderInfo, CustomProviderInfo, EndpointDescriptor } from "@/types";
 
@@ -16,7 +17,9 @@ function renderAt(path = "/app/settings?provider=gemini-aistudio") {
   return {
     ...render(
       <Router hook={location.hook} searchHook={location.searchHook}>
-        <ProviderSection />
+        <LeaveGuardProvider>
+          <ProviderSection />
+        </LeaveGuardProvider>
       </Router>,
     ),
     location,
@@ -307,6 +310,23 @@ describe("ProviderSection", () => {
 
     expect(useAppStore.getState().toast).toBeNull();
   });
+  it("切换供应商前拦截未保存的高级配置，保存并离开会先保存再切换", async () => {
+    vi.mocked(API.getProviderConfig).mockImplementation(() => Promise.resolve(providerDetailFor(i18n.language)));
+    vi.spyOn(API, "getCustomProvider").mockResolvedValue(customProvider(1, "我的端点（中文）"));
+    const { location } = renderAt();
+    await screen.findByText("Gemini AI Studio（中文）", { selector: "h3" });
+    fireEvent.click(screen.getByRole("button", { name: "高级配置" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), { target: { value: "7" } });
+
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("我的端点（中文）"));
+    const dialog = await screen.findByRole("alertdialog", { name: "有未保存的修改" });
+    expect(location.history.at(-1)).toBe("/app/settings?provider=gemini-aistudio");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存并离开" }));
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?custom=1"));
+    expect(API.patchProviderConfig).toHaveBeenCalledWith("gemini-aistudio", { max_workers: "7" });
+  });
+
   it("selects the newly created custom provider after the form saves", async () => {
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT] });

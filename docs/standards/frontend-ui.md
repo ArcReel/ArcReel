@@ -158,3 +158,24 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 ### 滚动条始终可见，样式只在 `index.css` 中定义
 
 滚动条宽 10px，可见滑块 6px，不自动隐藏。组件不写 `scrollbar-*` 或 `::-webkit-scrollbar` 样式：Chromium 121 起，元素一旦设置 `scrollbar-width` 或 `scrollbar-color` 就忽略 `::-webkit-scrollbar`，局部改写会让该元素退回浏览器默认样式。标准属性只通过 `@supports not selector(::-webkit-scrollbar)` 提供给 Firefox。
+
+## 编辑单元与保存
+
+### 可编辑内容接入 `useEditUnit`：字段进入未保存修改，动作立即执行
+
+一个设置视图或一块画布内容是一个编辑单元（见 `CONTEXT.md`），用 `components/shared/edit-unit/useEditUnit` 持有已保存内容与未保存修改。字段（描述、提示词、时长、引用，设置表单里的开关与下拉）一律写进 `unit.setValue`，由单元统一保存或放弃；上传、生成、改名、删除、排序这类动作不进入未保存修改，立即执行。同一视图里回车即存、松手即存与手动保存混用时，创作者分不清哪些修改已经生效。
+
+- 已保存内容经 `source` 传入，加载结果与之后的推送都从这里进来。不要在 effect 里把本地状态重置成服务端数据：没有未保存修改时 hook 直接采用新内容，有修改时保留修改，并在保存栏或提示条上标出「此内容已被 Agent 更新」。
+- `save(value, savedValue)` 提交修改，返回保存后的内容，失败时抛错。错误显示在保存栏或提示条上；保存成功不弹提示。
+- 设置表单用常驻的 `SaveBar`，放在表单滚动区之外的底部；画布内容用 `UnsavedChangesBar`，放在所属内容下方。不再另设「编辑模式」开关。
+- 有未保存修改时，生成按钮写「保存并生成」（`common:save_and_generate`），点击时调用 `unit.saveAndGenerate(generate, { confirm })`。`confirm` 是「重新生成会让下游失效」这类确认：取消时什么都不保存，保存失败时不生成。
+- 界面文案与代码命名不单称「草稿」，这个词已指待修复草稿与可编辑草稿。
+
+### 离开与切换交给离开拦截，不自建未保存确认框或 `beforeunload`
+
+`AppRoutes` 根部的 `LeaveGuardProvider` 是唯一的离开拦截。它经 wouter 的 `aroundNav` 拦截全部应用内跳转（`navigate`、`Link`、`Redirect`），截住浏览器的前进与后退，并在关闭标签页或刷新时请求浏览器原生提示。对话框的三个按钮是「继续编辑 / 放弃修改 / 保存并离开」；保存失败时留在原处，错误由编辑单元自己显示。页面自建的确认框和 `beforeunload` 会与它重复弹出，或在它放行之后再拦一次。
+
+- `useEditUnit` 挂载期间自动登记。自行管理表单状态的页面调用 `useLeaveGuard({ dirty, save, discard })` 登记，`save` 必须如实返回是否保存成功：总是返回 `true` 会让保存失败的修改随跳转丢失。
+- 选中项记在 URL 里、经路由跳转切换的（设置分区、供应商），路由拦截已经覆盖。不经路由的切换（分镜、记忆文件、资产的上一个与下一个、关闭 Sheet）用 `useConfirmLeave()` 包住切换动作，被包住的动作要同步完成切换。第三个按钮需要别的文案时传 `saveLabel`，如切换分镜时传 `t("common:save_and_switch")`。
+- 不会卸载编辑单元的跳转（如同一编辑单元的分页切换），在登记时用 `allowNavigation(to)` 放行。
+- 页面跳转一律经 wouter，不直接调用 `window.history` 或改写 `window.location`：绕过 wouter 的跳转不经过拦截。

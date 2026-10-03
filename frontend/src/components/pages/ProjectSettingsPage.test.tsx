@@ -7,6 +7,7 @@ import { API } from "@/api";
 import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
 import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
+import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 
 const FAKE_CONFIG = {
   options: { video_backends: [], image_backends: [], text_backends: [], provider_names: {} },
@@ -76,7 +77,9 @@ function renderAt(path: string) {
   return {
     ...render(
       <Router hook={location.hook}>
-        <Route path="/app/projects/:projectName/settings" component={ProjectSettingsPage} />
+        <LeaveGuardProvider>
+          <Route path="/app/projects/:projectName/settings" component={ProjectSettingsPage} />
+        </LeaveGuardProvider>
       </Router>,
     ),
     location,
@@ -332,6 +335,30 @@ describe("ProjectSettingsPage – style picker", () => {
     });
     expect(imageTrigger).toHaveTextContent(/跟随全局默认|Use global default/);
     expect(imageTrigger).toHaveTextContent(/nano-banana/);
+  });
+
+  it("返回项目前拦截未保存的修改，保存并离开会同时保存设置与风格", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: { title: "Demo", style_template_id: "live_premium_drama", episodes: [], characters: {}, clues: {} },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+    const { location } = renderAt("/app/projects/demo/settings");
+
+    fireEvent.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
+    fireEvent.click(screen.getByRole("button", { name: /张艺谋/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "返回项目" })[0]);
+
+    const dialog = await screen.findByRole("alertdialog", { name: "有未保存的修改" });
+    expect(location.history.at(-1)).toBe("/app/projects/demo/settings");
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存并离开" }));
+
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/projects/demo"));
+    expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ aspect_ratio: "16:9" }));
+    expect(updateSpy).toHaveBeenCalledWith("demo", { style_template_id: "live_zhang_yimou" });
   });
 
   it("saves a template change via PATCH style_template_id", async () => {

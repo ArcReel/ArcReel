@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useRef, type CSSProperties } from "re
 import { errMsg, voidCall } from "@/utils/async";
 import { ChevronRight, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import { ProviderIcon } from "@/components/shared/ProviderIcon";
 import { CredentialList } from "@/components/pages/CredentialList";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { FieldLabel } from "@/components/shared/FieldLabel";
+import { useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import type { ProviderConfigDetail, ProviderField } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -281,7 +281,6 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   }, []);
 
   const hasDraft = Object.keys(draft).length > 0;
-  useWarnUnsaved(hasDraft);
 
   const handleCredentialChanged = useCallback(() => {
     // 凭证已经改完了：目录刷新与这次详情重取是否落地无关，与保存路径同一口径。
@@ -334,8 +333,9 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     };
   }, [i18n.language, providerId, reloadKey, applyDetail, startDetailRequest]);
 
-  const handleSave = useCallback(async () => {
-    if (Object.keys(draft).length === 0) return;
+  /** 保存高级配置，返回是否已入库。 */
+  const handleSave = useCallback(async (): Promise<boolean> => {
+    if (Object.keys(draft).length === 0) return true;
     setSaving(true);
     setSaveError(null);
     // 面板可能在 PATCH 途中切到别的供应商。这次保存之后的每一次面板状态写入都要先确认
@@ -373,7 +373,15 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
       // 面板已经翻篇的话，进行态由新的那一次停留自己管，这里回写只会把它推回保存中。
       if (stillOnThisProvider()) setSaving(false);
     }
+    return saved;
   }, [draft, providerId, onSaved, applyDetail, startDetailRequest]);
+
+  const discardDraft = useCallback(() => {
+    setDraft({});
+    setSaveError(null);
+  }, []);
+  // 切换供应商、分区或离开页面前，有未保存的高级配置先询问
+  useLeaveGuard({ dirty: hasDraft, save: handleSave, discard: discardDraft });
 
   if (loadError) {
     return (

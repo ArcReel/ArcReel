@@ -78,6 +78,8 @@ const REWORKED_FILES = [
   "src/components/shared/ScriptOverwriteConfirmDialog.tsx",
   "src/components/shared/TruncatedText.tsx",
   "src/components/layout/ToastOverlay.tsx",
+  // 编辑单元、保存栏、内联未保存提示条与离开拦截（#2997）
+  "src/components/shared/edit-unit/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [];

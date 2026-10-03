@@ -65,6 +65,7 @@ export default {
   'style_saving': 'Saving…',
   'style_clear': 'Remove style',
   'style_cleared_hint': 'Save to remove the current style',
+  'style_incomplete_hint': 'Choose a style template before saving the style',
   'importing': 'Importing...',
   'import_zip': 'Import ZIP',
   'loading_projects': 'Loading projects list...',
@@ -438,7 +439,6 @@ export default {
   'text_models': 'Text Models',
   'text_models_desc': 'Configure text models by task tier; leave empty to fall back to the default model.',
   'no_text_providers_hint': 'No text providers available, please configure API keys in "Providers" first.',
-  'media_config_saved': 'Media model configuration saved',
   // GlobalHeader
   'mode_badge_drama': 'Drama 16:9',
   'mode_badge_narration': 'Narration/Commentary 9:16',
@@ -1168,7 +1168,6 @@ export default {
   'text_model_override_desc': 'Override by task type; leave empty to follow global default',
   'loading_config': 'Loading configuration...',
   'saved': 'Saved',
-  'unsaved_changes_confirm': 'You have unsaved changes. Are you sure you want to leave?',
   'unsaved_changes_hint': 'You have unsaved changes',
 
   // ProviderSection
@@ -2725,7 +2724,6 @@ export default {
   'market_refresh_all_done': 'Refreshed {{count}} market sources',
   'market_proxy_label': 'GitHub raw proxy prefix',
   'market_proxy_hint': 'When set, it is prepended to every raw.githubusercontent.com address, e.g. https://proxy.example.com/. Leave empty to connect directly.',
-  'market_proxy_saved': 'Proxy prefix saved',
   'market_search_label': 'Search market entries',
   'market_search_placeholder': 'Search name, author, description',
   'market_type_filter_label': 'Entry type',

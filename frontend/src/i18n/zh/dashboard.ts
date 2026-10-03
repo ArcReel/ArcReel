@@ -66,6 +66,7 @@ export default {
   'style_saving': '保存中…',
   'style_clear': '取消风格',
   'style_cleared_hint': '保存后将移除当前风格',
+  'style_incomplete_hint': '先选择一个风格模版，再保存风格',
   'importing': '导入中...',
   'import_zip': '导入 ZIP',
   'loading_projects': '加载项目列表...',
@@ -438,7 +439,6 @@ export default {
   'text_models': '文本模型',
   'text_models_desc': '按任务档位配置文本模型，留空回退默认模型',
   'no_text_providers_hint': '暂无可用文本供应商，请先在「供应商」页面配置 API 密钥',
-  'media_config_saved': '媒体模型配置已保存',
   // GlobalHeader
   'mode_badge_drama': '剧情演绎 16:9',
   'mode_badge_narration': '旁白/解说 9:16',
@@ -1167,7 +1167,6 @@ export default {
   'text_model_override_desc': '按任务类型覆盖，留空跟随全局默认',
   'loading_config': '加载配置中…',
   'saved': '已保存',
-  'unsaved_changes_confirm': '有未保存的修改，确定要离开吗？',
   'unsaved_changes_hint': '有未保存的更改',
 
   // ProviderSection
@@ -2724,7 +2723,6 @@ export default {
   'market_refresh_all_done': '已刷新 {{count}} 个市场源',
   'market_proxy_label': 'GitHub raw 代理前缀',
   'market_proxy_hint': '非空时拼接在所有 raw.githubusercontent.com 地址前，例如 https://proxy.example.com/；留空即直连。',
-  'market_proxy_saved': '代理前缀已保存',
   'market_search_label': '搜索市场条目',
   'market_search_placeholder': '搜索名称、作者、描述',
   'market_type_filter_label': '条目类型',

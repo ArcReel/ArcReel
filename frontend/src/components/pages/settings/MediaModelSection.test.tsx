@@ -100,7 +100,6 @@ describe("MediaModelSection", () => {
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith({ market_github_proxy_prefix: "https://proxy.example.com/" }),
     );
-    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("代理前缀已保存"));
   });
 
   it("rounds a fractional polling timeout to an integer on blur before saving", async () => {
@@ -125,16 +124,16 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
 
     const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
-    // 先键入有效值（键入过程会把中间值写进草稿），再清空离开
+    // 先键入有效值（键入过程会把中间值写进未保存修改），再清空离开
     await user.clear(timeout);
     await user.type(timeout, "7200");
     await user.clear(timeout);
     expect(timeout).toHaveValue("");
     await user.tab();
 
-    // 空输入撤销该字段的未保存编辑：回显已保存值，键入过的 7200 不残留在草稿里
+    // 空输入撤销该字段的未保存编辑：回显已保存值，键入过的 7200 不残留在未保存修改里
     expect(timeout).toHaveValue("3600");
-    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("keeps configured global sub-fields visible when the candidate fetch fails", async () => {
@@ -241,11 +240,9 @@ describe("MediaModelSection", () => {
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith({ default_video_backend: "ark/seedance" }),
     );
-    // 保存结束的可观测证据：成功 toast 已推出——PATCH 已返回但流程仍卡在候选请求上时，
-    // finally 里的 setSaving(false) 与这条 toast 都不会发生。
-    await waitFor(() =>
-      expect(useAppStore.getState().toast?.text).toBe("媒体模型配置已保存"),
-    );
+    // 保存结束的可观测证据：保存栏显示「已保存」——PATCH 已返回但流程仍卡在候选请求上时，
+    // 保存栏会一直停在「正在保存」。
+    expect(await screen.findByText("已保存")).toBeInTheDocument();
   });
 
   describe("音频勾选框的模型可控性", () => {

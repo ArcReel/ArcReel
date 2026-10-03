@@ -66,6 +66,7 @@ export default {
   'style_saving': 'Đang lưu…',
   'style_clear': 'Xóa phong cách',
   'style_cleared_hint': 'Lưu để xóa phong cách hiện tại',
+  'style_incomplete_hint': 'Hãy chọn một mẫu phong cách trước khi lưu phong cách',
   'importing': 'Đang nhập...',
   'import_zip': 'Nhập ZIP',
   'loading_projects': 'Đang tải danh sách dự án...',
@@ -441,7 +442,6 @@ export default {
   'text_models': 'Mô hình văn bản',
   'text_models_desc': 'Cấu hình mô hình văn bản theo bậc tác vụ; để trống để quay về mô hình mặc định.',
   'no_text_providers_hint': 'Không có nhà cung cấp văn bản khả dụng, vui lòng cấu hình khóa API tại "Nhà cung cấp" trước.',
-  'media_config_saved': 'Đã lưu cấu hình mô hình media',
   // GlobalHeader
   'mode_badge_drama': 'Phim truyện 16:9',
   'mode_badge_narration': 'Thuyết minh/Bình luận 9:16',
@@ -1159,7 +1159,6 @@ export default {
   'text_model_override_desc': 'Ghi đè theo loại tác vụ; để trống để theo mặc định toàn cục',
   'loading_config': 'Đang tải cấu hình...',
   'saved': 'Đã lưu',
-  'unsaved_changes_confirm': 'Bạn có thay đổi chưa lưu. Bạn có chắc muốn rời khỏi?',
   'unsaved_changes_hint': 'Bạn có thay đổi chưa lưu',
 
   // ProviderSection
@@ -2725,7 +2724,6 @@ export default {
   'market_refresh_all_done': 'Đã làm mới {{count}} nguồn chợ',
   'market_proxy_label': 'Tiền tố proxy GitHub raw',
   'market_proxy_hint': 'Khi có giá trị, tiền tố được ghép trước mọi địa chỉ raw.githubusercontent.com, ví dụ https://proxy.example.com/. Để trống để kết nối trực tiếp.',
-  'market_proxy_saved': 'Đã lưu tiền tố proxy',
   'market_search_label': 'Tìm mục trong chợ',
   'market_search_placeholder': 'Tìm theo tên, tác giả, mô tả',
   'market_type_filter_label': 'Loại mục',
