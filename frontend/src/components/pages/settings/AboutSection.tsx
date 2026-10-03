@@ -80,11 +80,11 @@ export function AboutSection() {
   if (loading) {
     return (
       <div
-        className="rounded-[10px] border border-hairline px-5 py-6 text-[12.5px] text-text-3"
+        className="rounded-lg border border-border px-5 py-6 text-[12.5px] text-muted-foreground"
         style={CARD_STYLE}
       >
         <div className="flex items-center gap-2">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
           <span className="font-mono text-[10.5px] uppercase tracking-[0.14em]">
             {t("about_loading")}
           </span>
@@ -97,7 +97,7 @@ export function AboutSection() {
     <section className="space-y-6">
       {/* Hero version card */}
       <div
-        className="relative overflow-hidden rounded-[12px] border border-hairline p-6"
+        className="relative overflow-hidden rounded-xl border border-border p-6"
         style={CARD_STYLE}
       >
         {/* Decorative sprocket-style dots, top-right */}
@@ -110,14 +110,14 @@ export function AboutSection() {
             <span
               key={i}
               className="block h-[5px] w-[5px] rounded-full"
-              style={{ background: "var(--color-hairline-strong)" }}
+              style={{ background: "var(--input)" }}
             />
           ))}
         </div>
 
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
               {t("about_current_version")}
             </div>
             <div className="flex items-end gap-3">
@@ -128,7 +128,7 @@ export function AboutSection() {
                   fontWeight: 400,
                   letterSpacing: "-0.02em",
                   lineHeight: 1,
-                  color: "var(--color-text)",
+                  color: "var(--foreground)",
                 }}
               >
                 {data?.current.version ?? "-"}
@@ -137,21 +137,21 @@ export function AboutSection() {
                 <span
                   className="rounded-full px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em]"
                   style={{
-                    background: "var(--color-accent-dim)",
-                    color: "var(--color-accent-2)",
-                    border: "1px solid var(--color-accent-soft)",
-                    boxShadow: "0 0 14px -6px var(--color-accent-glow)",
+                    background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                    color: "var(--primary)",
+                    border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                    boxShadow: "0 0 14px -6px color-mix(in oklab, var(--primary) 35%, transparent)",
                   }}
                 >
                   {t("about_update_available")}
                 </span>
               ) : (
-                <span className="rounded-full border border-hairline-soft bg-bg-grad-a/55 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                <span className="rounded-full border border-border/50 bg-card/55 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                   {t("about_up_to_date")}
                 </span>
               )}
             </div>
-            <div className="space-y-0.5 text-[12.5px] text-text-3">
+            <div className="space-y-0.5 text-[12.5px] text-muted-foreground">
               {data?.latest && (
                 <p>{t("about_latest_version", { version: data.latest.version })}</p>
               )}
@@ -186,11 +186,11 @@ export function AboutSection() {
         {(error || data?.update_check_error) && (
           <div
             role="alert"
-            className="mt-5 flex items-start gap-1.5 rounded-[8px] border px-4 py-3 text-[12px]"
+            className="mt-5 flex items-start gap-1.5 rounded-md border px-4 py-3 text-[12px]"
             style={{
-              borderColor: "var(--color-warm-ring)",
-              background: "var(--color-warm-tint)",
-              color: "var(--color-warm-bright)",
+              borderColor: "color-mix(in oklab, var(--warn) 30%, transparent)",
+              background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+              color: "var(--warn)",
             }}
           >
             <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -203,7 +203,7 @@ export function AboutSection() {
             href={data.latest.html_url}
             target="_blank"
             rel="noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent"
+            className="mt-4 inline-flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-primary transition-colors hover:text-primary"
           >
             {t("about_open_release")}
             <ExternalLink className="h-3 w-3" aria-hidden />
@@ -213,33 +213,33 @@ export function AboutSection() {
 
       {/* Release notes */}
       <div
-        className="rounded-[12px] border border-hairline p-6"
+        className="rounded-xl border border-border p-6"
         style={CARD_STYLE}
       >
         <div className="mb-3 flex items-center gap-2">
-          <Info className="h-3.5 w-3.5 text-accent-2" aria-hidden />
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+          <Info className="h-3.5 w-3.5 text-primary" aria-hidden />
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
             {t("about_release_notes")}
           </span>
         </div>
         {data?.latest?.body ? (
-          <div className="markdown-body text-[13px] leading-[1.65] text-text-2">
+          <div className="markdown-body text-[13px] leading-[1.65] text-subtle-foreground">
             <StreamMarkdown content={data.latest.body} />
           </div>
         ) : (
-          <p className="text-[12.5px] text-text-3">{t("about_release_notes_empty")}</p>
+          <p className="text-[12.5px] text-muted-foreground">{t("about_release_notes_empty")}</p>
         )}
       </div>
 
       {/* 重看引导 —— 与首次自动弹出共用同一组件，重看不重置「已看过」标记 */}
       <div
-        className="rounded-[12px] border border-hairline p-6"
+        className="rounded-xl border border-border p-6"
         style={CARD_STYLE}
       >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
           {tOnboarding("replay_title")}
         </div>
-        <p className="text-[12.5px] text-text-3">{tOnboarding("replay_desc")}</p>
+        <p className="text-[12.5px] text-muted-foreground">{tOnboarding("replay_desc")}</p>
         <button
           type="button"
           onClick={startTour}
@@ -254,13 +254,13 @@ export function AboutSection() {
 
       {/* Diagnostic logs */}
       <div
-        className="rounded-[12px] border border-hairline p-6"
+        className="rounded-xl border border-border p-6"
         style={CARD_STYLE}
       >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
           {t("diagnostics_section_title")}
         </div>
-        <p className="text-[12.5px] text-text-3">{t("diagnostics_section_desc")}</p>
+        <p className="text-[12.5px] text-muted-foreground">{t("diagnostics_section_desc")}</p>
         <button
           type="button"
           onClick={() => void handleDownloadDiagnostics()}
@@ -278,13 +278,13 @@ export function AboutSection() {
 
       {/* Copyright & attribution — NOTICE §7(b) 要求的署名句与仓库链接，逐字保留，不走品牌占位 */}
       <div
-        className="rounded-[12px] border border-hairline p-6"
+        className="rounded-xl border border-border p-6"
         style={CARD_STYLE}
       >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
           {t("about_legal_title")}
         </div>
-        <div className="space-y-1 text-[12.5px] text-text-3">
+        <div className="space-y-1 text-[12.5px] text-muted-foreground">
           <p>Copyright © 2026 Pollo3470 and ArcReel contributors</p>
           <p>
             Powered by ArcReel —{" "}
@@ -292,7 +292,7 @@ export function AboutSection() {
               href="https://github.com/ArcReel/ArcReel"
               target="_blank"
               rel="noreferrer"
-              className="break-all text-accent-2 transition-colors hover:text-accent"
+              className="break-all text-primary transition-colors hover:text-primary"
             >
               https://github.com/ArcReel/ArcReel
             </a>

@@ -144,7 +144,7 @@ function extractSkillArgs(input: Record<string, unknown> | undefined): string {
 function StandaloneToolResult({ block }: Readonly<{ block: ContentBlock }>) {
   const { t } = useTranslation("dashboard");
   return (
-    <div className="my-1.5 rounded-lg border border-white/10 bg-ink-800/30 px-3 py-2">
+    <div className="my-1.5 rounded-lg border border-white/10 bg-muted/30 px-3 py-2">
       <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
         {block.is_error ? t("tool_call_error_label") : t("tool_call_result_label")}
       </div>
@@ -164,7 +164,7 @@ function InterruptNoticeBlock() {
   return (
     <div
       className="my-1 flex items-center gap-1.5 text-[11.5px]"
-      style={{ color: "var(--color-warn)" }}
+      style={{ color: "var(--warn)" }}
     >
       <span>{"■"}</span>
       <span>{t("chat_interrupt_notice")}</span>
@@ -182,7 +182,7 @@ function QuestionAnswerBlock({ block }: Readonly<{ block: ContentBlock }>) {
     <div className="my-0.5">
       <div
         className="text-[10px] font-semibold uppercase tracking-wide"
-        style={{ color: "var(--color-text-4)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         {t("chat_question_answer_label")}
       </div>
@@ -190,18 +190,18 @@ function QuestionAnswerBlock({ block }: Readonly<{ block: ContentBlock }>) {
         <div className="mt-1 flex flex-col gap-1">
           {Object.entries(answers).map(([question, label]) => (
             <div key={question} className="text-[12.5px] leading-[1.5]">
-              <span style={{ color: "var(--color-text-3)" }}>{question}</span>
-              <span className="mx-1" style={{ color: "var(--color-text-4)" }}>
+              <span style={{ color: "var(--muted-foreground)" }}>{question}</span>
+              <span className="mx-1" style={{ color: "var(--muted-foreground)" }}>
                 {"→"}
               </span>
-              <span className="font-medium" style={{ color: "var(--color-text)" }}>
+              <span className="font-medium" style={{ color: "var(--foreground)" }}>
                 {label}
               </span>
             </div>
           ))}
         </div>
       ) : (
-        <div className="mt-1 text-[12px]" style={{ color: "var(--color-text-2)" }}>
+        <div className="mt-1 text-[12px]" style={{ color: "var(--subtle-foreground)" }}>
           {block.text}
         </div>
       )}

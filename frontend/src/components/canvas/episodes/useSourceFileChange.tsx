@@ -103,7 +103,7 @@ export function useSourceFileChange() {
         description={
           <>
             {pending.changed ? (
-              <span className="mb-2 block text-[var(--color-warm)]">{t("source_file_change_changed")}</span>
+              <span className="mb-2 block text-warn">{t("source_file_change_changed")}</span>
             ) : null}
             <span className="block">{t("source_file_change_impact")}</span>
             <span className="mt-1 block whitespace-pre-line">{pending.text}</span>

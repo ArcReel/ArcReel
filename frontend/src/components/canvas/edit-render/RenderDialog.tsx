@@ -26,15 +26,15 @@ const JIANYING_VERSION_STORAGE_KEY = "arcreel_jianying_version";
 
 const FIELD_STYLE = {
   background: "oklch(0.16 0.010 265 / 0.6)",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
 } as const;
 
 const STATUS_COLOR: Record<RenderArtifactStatus, string> = {
-  current: "var(--color-good)",
-  stale: "var(--color-warm)",
-  missing: "var(--color-text-4)",
-  blocked: "var(--color-danger)",
+  current: "var(--good)",
+  stale: "var(--warn)",
+  missing: "var(--muted-foreground)",
+  blocked: "var(--destructive)",
 };
 
 interface RenderDialogProps {
@@ -84,7 +84,7 @@ export function RenderDialog({
         <h2
           id={titleId}
           className="display-serif min-w-0 truncate text-[15px] font-semibold tracking-tight"
-          style={{ color: "var(--color-text)" }}
+          style={{ color: "var(--foreground)" }}
         >
           {t("edit_render_dialog_title", { name: timelineName })}
         </h2>
@@ -267,7 +267,7 @@ function RenderPanelBody({
             </Field>
           )}
           {!isDraft && (
-            <label className="flex cursor-pointer items-start gap-2 text-[12.5px]" style={{ color: "var(--color-text-2)" }}>
+            <label className="flex cursor-pointer items-start gap-2 text-[12.5px]" style={{ color: "var(--subtle-foreground)" }}>
               <input
                 type="checkbox"
                 className="mt-0.5"
@@ -277,7 +277,7 @@ function RenderPanelBody({
               />
               <span>
                 {t("edit_render_burn_subtitles")}
-                <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--color-text-4)" }}>
+                <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
                   {t("edit_render_burn_subtitles_hint")}
                 </span>
               </span>
@@ -373,18 +373,18 @@ function KindOption({
       onClick={onSelect}
       className="focus-ring flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       style={{
-        border: `1px solid ${selected ? "var(--color-accent-soft)" : "var(--color-hairline)"}`,
-        background: selected ? "var(--color-accent-dim)" : "oklch(0.20 0.011 265 / 0.4)",
+        border: `1px solid ${selected ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "var(--border)"}`,
+        background: selected ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.20 0.011 265 / 0.4)",
       }}
     >
-      <span className="mt-0.5 shrink-0" style={{ color: selected ? "var(--color-accent-2)" : "var(--color-text-3)" }}>
+      <span className="mt-0.5 shrink-0" style={{ color: selected ? "var(--primary)" : "var(--muted-foreground)" }}>
         {icon}
       </span>
       <span className="min-w-0">
-        <span className="block text-[13px] font-medium leading-tight" style={{ color: "var(--color-text)" }}>
+        <span className="block text-[13px] font-medium leading-tight" style={{ color: "var(--foreground)" }}>
           {title}
         </span>
-        <span className="mt-1 block text-[11.5px] leading-[1.5]" style={{ color: "var(--color-text-4)" }}>
+        <span className="mt-1 block text-[11.5px] leading-[1.5]" style={{ color: "var(--muted-foreground)" }}>
           {hint}
         </span>
       </span>
@@ -407,7 +407,7 @@ function ArtifactStatusRow({
   if (loadError !== null) return <ErrorLine text={t("edit_render_status_load_failed", { message: loadError })} />;
   if (artifact === null) {
     return (
-      <p className="text-[12px]" style={{ color: "var(--color-text-4)" }}>
+      <p className="text-[12px]" style={{ color: "var(--muted-foreground)" }}>
         {loading ? t("edit_render_status_loading") : null}
       </p>
     );
@@ -420,7 +420,7 @@ function ArtifactStatusRow({
       data-testid="edit-render-artifact-status"
       data-status={status}
       className="flex items-start gap-2.5 rounded-lg px-3 py-2.5"
-      style={{ border: "1px solid var(--color-hairline-soft)", background: "oklch(0.18 0.010 265 / 0.5)" }}
+      style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)", background: "oklch(0.18 0.010 265 / 0.5)" }}
     >
       <span
         aria-hidden="true"
@@ -428,9 +428,9 @@ function ArtifactStatusRow({
         style={{ background: STATUS_COLOR[status] }}
       />
       <div className="min-w-0 text-[12.5px] leading-[1.5]">
-        <div style={{ color: "var(--color-text)" }}>{t(`edit_render_status_${status}`)}</div>
+        <div style={{ color: "var(--foreground)" }}>{t(`edit_render_status_${status}`)}</div>
         {artifact.version !== null && (
-          <div style={{ color: "var(--color-text-4)" }}>
+          <div style={{ color: "var(--muted-foreground)" }}>
             {renderedJustNow
               ? t("edit_render_status_meta_just_now", { version: artifact.version })
               : when
@@ -439,7 +439,7 @@ function ArtifactStatusRow({
           </div>
         )}
         {status === "stale" && artifact.version !== null && (
-          <div style={{ color: "var(--color-text-4)" }}>{t("edit_render_status_stale_hint")}</div>
+          <div style={{ color: "var(--muted-foreground)" }}>{t("edit_render_status_stale_hint")}</div>
         )}
       </div>
     </div>
@@ -464,7 +464,7 @@ function TaskProgress({ kind, submitting, task }: { kind: RenderKind; submitting
   else text = t("edit_render_task_cancelled");
   const active = submitting && task?.status !== "succeeded";
   return (
-    <div role="status" className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--color-text-3)" }}>
+    <div role="status" className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--muted-foreground)" }}>
       {active && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
       <span>{text}</span>
     </div>
@@ -473,7 +473,7 @@ function TaskProgress({ kind, submitting, task }: { kind: RenderKind; submitting
 
 function ErrorLine({ text }: { text: string }) {
   return (
-    <p role="alert" className="text-[12px] leading-[1.5]" style={{ color: "var(--color-danger)" }}>
+    <p role="alert" className="text-[12px] leading-[1.5]" style={{ color: "var(--destructive)" }}>
       {text}
     </p>
   );
@@ -492,12 +492,12 @@ function Field({
 }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="mb-1 block text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+      <label htmlFor={htmlFor} className="mb-1 block text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
         {label}
       </label>
       {children}
       {hint && (
-        <p className="mt-1.5 text-[11px] leading-[1.55]" style={{ color: "var(--color-text-4)" }}>
+        <p className="mt-1.5 text-[11px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
           {hint}
         </p>
       )}

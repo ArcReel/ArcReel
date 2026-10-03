@@ -37,7 +37,7 @@ export function EndpointReferenceList({
             <button
               type="button"
               onClick={() => onNavigateToModel(reference)}
-              className="text-left text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-accent"
+              className="text-left text-primary underline decoration-primary/40 underline-offset-2 hover:text-primary"
             >
               {reference.provider_display_name} · {reference.model_display_name} — {t("ce_go_to_model")}
             </button>

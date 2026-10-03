@@ -132,12 +132,12 @@ interface ChannelCardProps {
 
 function ChannelCard({ kicker, title, children }: ChannelCardProps) {
   return (
-    <div className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
+    <div className="rounded-lg border border-border p-4" style={CARD_STYLE}>
       <div className="mb-3">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
           {kicker}
         </div>
-        <div className="mt-1 text-[13.5px] font-medium text-text">{title}</div>
+        <div className="mt-1 text-[13.5px] font-medium text-foreground">{title}</div>
       </div>
       {children}
     </div>
@@ -371,7 +371,7 @@ export function ModelConfigSection({
     return (
       <div className="mt-3 flex flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
             {label}
           </span>
           <ResolutionPicker
@@ -385,14 +385,14 @@ export function ModelConfigSection({
           />
         </div>
         {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
-        {sizeFixed && <p className="text-[11px] text-text-4">{t("resolution_fixed_hint")}</p>}
+        {sizeFixed && <p className="text-[11px] text-muted-foreground">{t("resolution_fixed_hint")}</p>}
       </div>
     );
   };
 
   return (
     <div className="space-y-4">
-      <p className="text-[12.5px] leading-[1.55] text-text-3">{t("default_hint")}</p>
+      <p className="text-[12.5px] leading-[1.55] text-muted-foreground">{t("default_hint")}</p>
 
       {showVideo && (
         <ChannelCard kicker="Video Channel" title={t("model_video")}>
@@ -447,16 +447,16 @@ export function ModelConfigSection({
               否则用户只会看见时长这一节凭空消失。 */}
           {showDuration && supportedDurations?.length === 0 && videoDurationNotDriven && (
             <>
-              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 {t("duration_label")}
               </div>
-              <p className="text-[11px] text-text-4">{t("duration_not_driven_notice")}</p>
+              <p className="text-[11px] text-muted-foreground">{t("duration_not_driven_notice")}</p>
             </>
           )}
 
           {showDuration && supportedDurations && supportedDurations.length > 0 && (
             <>
-              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 {t("duration_label")}
               </div>
               {isContinuousIntegerRange(supportedDurations) && supportedDurations.length >= 5 ? (
@@ -493,7 +493,7 @@ export function ModelConfigSection({
 
           {onVideoGenerateAudioChange && (
             <div className="mt-3">
-              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 {t("dashboard:generate_audio_label")}
               </div>
               <fieldset className="flex flex-wrap gap-x-5 gap-y-2" disabled={audioLocked}>
@@ -508,7 +508,7 @@ export function ModelConfigSection({
                   <label
                     key={String(val)}
                     className={`inline-flex items-center gap-2 text-[12.5px] ${
-                      audioLocked ? "text-text-4" : "text-text-2"
+                      audioLocked ? "text-muted-foreground" : "text-subtle-foreground"
                     }`}
                   >
                     <input
@@ -523,7 +523,7 @@ export function ModelConfigSection({
                 ))}
               </fieldset>
               {audioLockedHint && (
-                <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{audioLockedHint}</p>
+                <p className="mt-1.5 text-[11px] leading-[1.5] text-muted-foreground">{audioLockedHint}</p>
               )}
               {audioConflict && (
                 <InlineWarning
@@ -616,16 +616,16 @@ export function ModelConfigSection({
 // ---------------------------------------------------------------------------
 
 const DURATION_PILL_BASE =
-  "rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  "rounded-md border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const durationActiveCls =
-  "border-accent/45 bg-accent-dim text-accent-2";
+  "border-primary/45 bg-primary/12 text-primary";
 
 const durationInactiveCls =
-  "border-hairline-soft bg-bg-grad-a/55 text-text-3 hover:border-hairline hover:text-text";
+  "border-border/50 bg-card/55 text-muted-foreground hover:border-border hover:text-foreground";
 
 const durationActiveStyle: CSSProperties = {
-  boxShadow: "0 0 18px -8px var(--color-accent-glow)",
+  boxShadow: "0 0 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
 };
 
 function DurationButtonGroup({
@@ -747,9 +747,9 @@ function DurationSlider({
         value={sliderValue}
         disabled={disabled}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
-        className="min-w-[120px] flex-1 accent-[var(--color-accent)]"
+        className="min-w-[120px] flex-1 accent-primary"
       />
-      <span className="min-w-[2.5rem] text-right font-mono text-[11px] tabular-nums text-text-2">
+      <span className="min-w-[2.5rem] text-right font-mono text-[11px] tabular-nums text-subtle-foreground">
         {valueText}
       </span>
     </div>

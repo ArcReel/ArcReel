@@ -46,9 +46,9 @@ function useTtsSpeedSupport(backend: string): boolean | null {
   return answer?.backend === backend ? answer.supportsSpeed : null;
 }
 
-const FIELD_LABEL_CLS = "mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
+const FIELD_LABEL_CLS = "mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground";
 const INPUT_CLS =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 interface Props {
   value: NarrationDeliveryValue;
@@ -90,7 +90,7 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
             </label>
           ))}
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-text-4">
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           {value.delivery === "use_tts"
             ? t("project_narration_delivery_use_tts_desc")
             : t("project_narration_delivery_post_production_desc")}{" "}
@@ -111,9 +111,9 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
               aria-label={t("project_tts_model_label")}
             />
             {audioBackends.length === 0 ? (
-              <p className="mt-1 text-[11px] text-warm">{t("project_tts_no_models")}</p>
+              <p className="mt-1 text-[11px] text-warn">{t("project_tts_no_models")}</p>
             ) : problem === "model" ? (
-              <p className="mt-1 text-[11px] text-warm">{t("project_tts_model_required")}</p>
+              <p className="mt-1 text-[11px] text-warn">{t("project_tts_model_required")}</p>
             ) : null}
           </div>
           <div>
@@ -128,7 +128,7 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
               aria-invalid={problem === "voice"}
               className={INPUT_CLS}
             />
-            <p className={`mt-1 text-[11px] ${problem === "voice" ? "text-warm" : "text-text-4"}`}>
+            <p className={`mt-1 text-[11px] ${problem === "voice" ? "text-warn" : "text-muted-foreground"}`}>
               {problem === "voice" ? t("project_narration_voice_required") : t("project_narration_voice_hint")}
             </p>
           </div>
@@ -156,7 +156,7 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
               }}
               className={INPUT_CLS}
             />
-            <p id={`${speedId}-hint`} className="mt-1 text-[11px] text-text-4">
+            <p id={`${speedId}-hint`} className="mt-1 text-[11px] text-muted-foreground">
               {speedDisabled ? t("project_narration_speed_unsupported") : t("narration_speed_hint")}
             </p>
           </div>

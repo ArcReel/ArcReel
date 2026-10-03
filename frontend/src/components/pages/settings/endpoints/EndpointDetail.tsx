@@ -105,8 +105,8 @@ function KindBadge({ selection }: { selection: EndpointSelection }) {
         : t("ce_group_builtin");
   return (
     <span
-      className={`shrink-0 rounded-[5px] border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] ${
-        custom ? "border-accent/35 bg-accent-dim text-accent-2" : "border-hairline-soft bg-bg-grad-a/55 text-text-3"
+      className={`shrink-0 rounded-sm border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] ${
+        custom ? "border-primary/35 bg-primary/12 text-primary" : "border-border/50 bg-card/55 text-muted-foreground"
       }`}
     >
       {label}
@@ -431,12 +431,12 @@ export function EndpointDetail({
       <div className="mb-5 flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="font-editorial text-[20px] text-text">{title}</h2>
+            <h2 className="font-editorial text-[20px] text-foreground">{title}</h2>
             <KindBadge selection={selection} />
             {installation && <MarketInstallBadges state={installation.state} modified={installation.modified} />}
             {submissionBadge}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-text-3">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-muted-foreground">
             {draft && (
               <span className="whitespace-nowrap">
                 {draft.meta.author} · v{draft.meta.version}
@@ -515,27 +515,27 @@ export function EndpointDetail({
       </div>
 
       {!editable && (
-        <div className="mb-5 rounded-[10px] border border-hairline bg-bg-grad-a/40 px-4 py-3 text-[12.5px] leading-[1.55] text-text-2">
+        <div className="mb-5 rounded-lg border border-border bg-card/40 px-4 py-3 text-[12.5px] leading-[1.55] text-subtle-foreground">
           {selection.mode === "builtin" ? t("ce_builtin_readonly") : t("ce_python_readonly")}
         </div>
       )}
 
       {selection.mode === "python" && (
-        <div className="rounded-[10px] border border-hairline p-4 font-mono text-[12px] text-text-2" style={CARD_STYLE}>
+        <div className="rounded-lg border border-border p-4 font-mono text-[12px] text-subtle-foreground" style={CARD_STYLE}>
           {selection.descriptor.request_method}{" "}
           <span className="text-good/85">{selection.descriptor.request_path_template}</span>
         </div>
       )}
 
       {loadError && (
-        <p role="alert" className="text-[12.5px] text-warm-bright">
+        <p role="alert" className="text-[12.5px] text-warn">
           {loadError}
         </p>
       )}
 
       {!definitionless && !draft && !loadError && (
-        <div className="flex items-center gap-2 py-8 text-text-3">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <div className="flex items-center gap-2 py-8 text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
           <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
             {t("common:loading")}
           </span>
@@ -574,7 +574,7 @@ export function EndpointDetail({
             </div>
           )}
 
-          <div className="mb-4 inline-flex rounded-[8px] border border-hairline bg-bg-grad-a/40 p-0.5">
+          <div className="mb-4 inline-flex rounded-md border border-border bg-card/40 p-0.5">
             {(["form", "json"] as const).map((mode) => (
               <button
                 key={mode}
@@ -585,8 +585,8 @@ export function EndpointDetail({
                   else leaveJsonMode();
                 }}
                 aria-pressed={editorMode === mode}
-                className={`rounded-[6px] px-3 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  editorMode === mode ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text"
+                className={`rounded-sm px-3 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  editorMode === mode ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {mode === "form" ? t("ce_view_form") : t("ce_view_json")}
@@ -619,10 +619,10 @@ export function EndpointDetail({
                   setDraft(parsed);
                   setJsonIssue(null);
                 }}
-                className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.65] read-only:border-accent/25 read-only:bg-bg-grad-b/65 read-only:text-text-2`}
+                className={`${INPUT_CLS} resize-y font-mono text-[11.5px] leading-[1.65] read-only:border-primary/25 read-only:bg-sidebar/65 read-only:text-subtle-foreground`}
               />
               {jsonIssue !== null && (
-                <span role="alert" className="mt-1.5 block text-[12px] text-warm-bright">
+                <span role="alert" className="mt-1.5 block text-[12px] text-warn">
                   {t(jsonIssue === "parse" ? "ce_json_parse_error" : "ce_json_shape_error")}
                 </span>
               )}

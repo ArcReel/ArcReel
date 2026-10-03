@@ -14,12 +14,8 @@ import {
   ACCENT_BUTTON_STYLE,
   CARD_STYLE,
   INPUT_CLS,
-  ambientGlowStyle,
-  posterGridStyle,
 } from "@/components/shared/darkroom-tokens";
 
-const POSTER_GRID_STYLE = posterGridStyle({ size: 44, maskShape: "60% 60% at 50% 35%", opacity: 0.05 });
-const AMBIENT_GLOW_STYLE = ambientGlowStyle();
 
 export function LoginPage() {
   const { t, i18n } = useTranslation(["common", "auth"]);
@@ -73,20 +69,17 @@ export function LoginPage() {
   return (
     <div
       data-testid="login-page"
-      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg px-4 text-text"
+      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 text-foreground"
     >
-      <div aria-hidden className="pointer-events-none absolute inset-0" style={AMBIENT_GLOW_STYLE} />
-      <div aria-hidden className="pointer-events-none absolute inset-0" style={POSTER_GRID_STYLE} />
-
       <div
-        className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-hairline p-8 shadow-2xl"
+        className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-border p-8 shadow-2xl"
         style={CARD_STYLE}
       >
         <div className="mb-6 text-center">
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-text-4">
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
             system · login
           </div>
-          <h1 className="font-editorial mt-1 flex items-center justify-center gap-2 text-[28px] tracking-tight text-text">
+          <h1 className="font-editorial mt-1 flex items-center justify-center gap-2 text-[28px] tracking-tight text-foreground">
             <picture>
               <source media="(prefers-reduced-motion: reduce)" srcSet="/logo.svg" />
               <img src="/logo-animated.svg" alt="" aria-hidden className="block h-7 w-7" />
@@ -129,7 +122,7 @@ export function LoginPage() {
           </div>
 
           {error && (
-            <p role="alert" aria-live="polite" className="text-sm text-warm-bright">
+            <p role="alert" aria-live="polite" className="text-sm text-warn">
               {error}
             </p>
           )}

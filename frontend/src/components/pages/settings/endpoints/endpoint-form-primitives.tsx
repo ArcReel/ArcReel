@@ -5,8 +5,8 @@ import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkro
 import type { EndpointPathItem } from "@/types";
 import { isPlainPath, pathItemText, type EndpointFormSection } from "./endpoint-definition-draft";
 
-export const LABEL_CLS = "mb-1 block text-[12px] font-medium text-text-2";
-export const HINT_CLS = "mt-1.5 block text-[12px] leading-[1.55] text-text-3";
+export const LABEL_CLS = "mb-1 block text-[12px] font-medium text-subtle-foreground";
+export const HINT_CLS = "mt-1.5 block text-[12px] leading-[1.55] text-muted-foreground";
 export const MONO_INPUT_CLS = "font-mono text-[12px]";
 
 // ---------------------------------------------------------------------------
@@ -79,8 +79,8 @@ export function VariableChips({
   const { t } = useTranslation("dashboard");
   const insertion = useInsertion();
   return (
-    <div className="mt-3 rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 px-3 py-2.5">
-      <span className="mb-1.5 block text-[11.5px] text-text-3">{t("ce_variables_hint")}</span>
+    <div className="mt-3 rounded-md border border-border/50 bg-card/35 px-3 py-2.5">
+      <span className="mb-1.5 block text-[11.5px] text-muted-foreground">{t("ce_variables_hint")}</span>
       <div className="flex flex-wrap gap-1.5">
         {variables.map((v) => (
           <button
@@ -88,14 +88,14 @@ export function VariableChips({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => insertion?.insert(v.token)}
-            className="inline-flex items-baseline gap-1.5 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 transition-colors hover:border-accent/40 hover:bg-accent-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-baseline gap-1.5 rounded-sm border border-border bg-card/55 px-2 py-1 transition-colors hover:border-primary/40 hover:bg-primary/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span className="font-mono text-[11px] text-accent-2">{v.token}</span>
-            <span className="text-[11px] text-text-3">{v.desc}</span>
+            <span className="font-mono text-[11px] text-primary">{v.token}</span>
+            <span className="text-[11px] text-muted-foreground">{v.desc}</span>
           </button>
         ))}
       </div>
-      {note && <span className="mt-1.5 block text-[11.5px] leading-[1.5] text-text-3">{note}</span>}
+      {note && <span className="mt-1.5 block text-[11.5px] leading-[1.5] text-muted-foreground">{note}</span>}
     </div>
   );
 }
@@ -120,18 +120,18 @@ export function FormSection({
 }) {
   return (
     <section id={`ce-section-${id}`} aria-labelledby={`ce-section-${id}-title`} className="relative scroll-mt-4 pl-7">
-      <span aria-hidden className="absolute bottom-0 left-[7px] top-6 w-px bg-hairline-soft" />
+      <span aria-hidden className="absolute bottom-0 left-[7px] top-6 w-px bg-border/50" />
       <span
         aria-hidden
-        className="absolute left-0 top-0.5 grid h-4 w-4 place-items-center rounded-full border border-accent/40 bg-accent-dim font-mono text-[8.5px] font-bold text-accent-2"
+        className="absolute left-0 top-0.5 grid h-4 w-4 place-items-center rounded-full border border-primary/40 bg-primary/12 font-mono text-[8.5px] font-bold text-primary"
       >
         {step}
       </span>
-      <h3 id={`ce-section-${id}-title`} className="text-[13.5px] font-semibold text-text">
+      <h3 id={`ce-section-${id}-title`} className="text-[13.5px] font-semibold text-foreground">
         {title}
       </h3>
-      <p className="mb-2.5 mt-0.5 text-[12px] leading-[1.55] text-text-3">{desc}</p>
-      <div className="mb-6 rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
+      <p className="mb-2.5 mt-0.5 text-[12px] leading-[1.55] text-muted-foreground">{desc}</p>
+      <div className="mb-6 rounded-lg border border-border p-4" style={CARD_STYLE}>
         {children}
       </div>
     </section>
@@ -198,13 +198,13 @@ export function CheckboxField({
   disabled?: boolean;
 }) {
   return (
-    <label className="flex items-center gap-2 text-[12.5px] text-text-2">
+    <label className="flex items-center gap-2 text-[12.5px] text-subtle-foreground">
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+        className="h-3.5 w-3.5 accent-primary"
       />
       {label}
     </label>
@@ -218,7 +218,7 @@ export function RowDeleteButton({ label, onClick }: { label: string; onClick: ()
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="grid h-8 w-8 place-items-center rounded-[6px] text-text-3 transition-colors hover:bg-bg-grad-a/55 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="grid h-8 w-8 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-card/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Trash2 className="h-3.5 w-3.5" aria-hidden />
     </button>
@@ -279,7 +279,7 @@ export function PathsEditor({
       <div className="space-y-1.5">
         {paths.map((item, index) => (
           <div key={index} className="flex items-center gap-2">
-            <span aria-hidden className="w-4 shrink-0 text-right font-mono text-[11px] text-text-3">
+            <span aria-hidden className="w-4 shrink-0 text-right font-mono text-[11px] text-muted-foreground">
               {index + 1}
             </span>
             <input
@@ -296,7 +296,7 @@ export function PathsEditor({
               className={`${INPUT_CLS} ${MONO_INPUT_CLS} text-good/90`}
             />
             {!isPlainPath(item) && (
-              <span className="shrink-0 text-[11px] text-text-3">{t("ce_path_json_only")}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">{t("ce_path_json_only")}</span>
             )}
             {!readOnly && (
               <RowDeleteButton
@@ -311,7 +311,7 @@ export function PathsEditor({
         <button
           type="button"
           onClick={() => onChange([...paths, ""])}
-          className="mt-1.5 rounded-[6px] border border-dashed border-hairline px-2 py-1 text-[11.5px] text-text-3 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="mt-1.5 rounded-sm border border-dashed border-border px-2 py-1 text-[11.5px] text-muted-foreground transition-colors hover:border-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("ce_path_add")}
         </button>

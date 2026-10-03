@@ -312,7 +312,7 @@ export function ReferenceVideoCard({
                         <img
                           src={API.getFileUrl(projectName, reference.path)}
                           alt={reference.name}
-                          className="h-12 w-16 rounded object-contain"
+                          className="h-12 w-16 rounded-sm object-contain"
                         />
                         <span>{t("reference_prompt_preview_image", { index: index + 1, name: reference.name })}</span>
                       </li>
@@ -333,9 +333,9 @@ export function ReferenceVideoCard({
           role="status"
           className="mb-2 flex-shrink-0 rounded-lg px-3 py-2 text-[11.5px]"
           style={{
-            color: "var(--color-text-2)",
-            background: "var(--color-warm-tint-faint)",
-            border: "1px solid var(--color-hairline-soft)",
+            color: "var(--subtle-foreground)",
+            background: "color-mix(in oklab, var(--warn) 5%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
           }}
         >
           {t("reference_editor_pending_authoring_hint")}
@@ -409,7 +409,7 @@ export function ReferenceVideoCard({
             return (
               <span
                 key={name}
-                className={`rounded border px-2 py-0.5 text-[11px] ${palette.textClass} ${palette.bgClass} ${palette.borderClass}`}
+                className={`rounded-sm border px-2 py-0.5 text-[11px] ${palette.textClass} ${palette.bgClass} ${palette.borderClass}`}
               >
                 {t("reference_editor_unknown_mention", { name })}
               </span>

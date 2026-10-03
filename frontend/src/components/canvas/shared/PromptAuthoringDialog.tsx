@@ -30,8 +30,8 @@ function readPromptOverwrite(err: unknown): PromptOverwrite | null {
 
 const FIELD_STYLE: CSSProperties = {
   background: "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -213,29 +213,29 @@ export function PromptAuthoringDialog({
           <h2
             id={titleId}
             className="display-serif text-[17px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {t("prompt_authoring_title")}
           </h2>
-          <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--color-text-3)" }}>
+          <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
             {t("prompt_authoring_desc")}
           </p>
 
           <fieldset className="mt-4">
-            <legend className="text-[12px] font-medium" style={{ color: "var(--color-text-2)" }}>
+            <legend className="text-[12px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
               {t("prompt_authoring_scope_label")}
             </legend>
             <div className="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup">
               {scopes.map((option) => (
                 <label
                   key={option.value}
-                  className={`inline-flex focus-within:ring-1 focus-within:ring-[var(--color-accent)] cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] ${
+                  className={`inline-flex focus-within:ring-1 focus-within:ring-ring cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] ${
                     option.disabled ? "cursor-not-allowed opacity-45" : ""
                   }`}
                   style={{
-                    border: `1px solid ${scope === option.value ? "var(--color-accent-soft)" : "var(--color-hairline)"}`,
-                    background: scope === option.value ? "var(--color-accent-dim)" : "transparent",
-                    color: scope === option.value ? "var(--color-text)" : "var(--color-text-2)",
+                    border: `1px solid ${scope === option.value ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "var(--border)"}`,
+                    background: scope === option.value ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
+                    color: scope === option.value ? "var(--foreground)" : "var(--subtle-foreground)",
                   }}
                 >
                   <input
@@ -256,22 +256,22 @@ export function PromptAuthoringDialog({
           {scope === "custom" && (
             <ul
               className="mt-2 max-h-48 space-y-0.5 overflow-y-auto rounded-lg p-1.5"
-              style={{ border: "1px solid var(--color-hairline)" }}
+              style={{ border: "1px solid var(--border)" }}
               aria-label={t("prompt_authoring_scope_custom")}
             >
               {entries.map((entry) => (
                 <li key={entry.id}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[12px] hover:bg-[oklch(1_0_0_/_0.04)]">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1 text-[12px] hover:bg-[oklch(1_0_0_/_0.04)]">
                     <input
                       type="checkbox"
                       checked={selected.includes(entry.id)}
                       disabled={submitting}
                       onChange={() => toggle(entry.id)}
                     />
-                    <span className="font-mono" style={{ color: "var(--color-text)" }}>
+                    <span className="font-mono" style={{ color: "var(--foreground)" }}>
                       {entry.id}
                     </span>
-                    <span className="ml-auto text-[11px]" style={{ color: "var(--color-text-4)" }}>
+                    <span className="ml-auto text-[11px]" style={{ color: "var(--muted-foreground)" }}>
                       {entry.pending
                         ? t("prompt_authoring_entry_pending")
                         : entry.hasContent
@@ -284,7 +284,7 @@ export function PromptAuthoringDialog({
             </ul>
           )}
 
-          <label className="mt-4 flex cursor-pointer items-start gap-2 text-[12.5px]" style={{ color: "var(--color-text-2)" }}>
+          <label className="mt-4 flex cursor-pointer items-start gap-2 text-[12.5px]" style={{ color: "var(--subtle-foreground)" }}>
             <input
               type="checkbox"
               className="mt-0.5"
@@ -294,7 +294,7 @@ export function PromptAuthoringDialog({
             />
             <span>
               {t("prompt_authoring_rewrite_toggle")}
-              <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--color-text-4)" }}>
+              <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
                 {t(
                   rewrite
                     ? unitMode
@@ -308,7 +308,7 @@ export function PromptAuthoringDialog({
             </span>
           </label>
 
-          <label htmlFor={fieldId} className="mt-4 block text-[12px] font-medium" style={{ color: "var(--color-text-2)" }}>
+          <label htmlFor={fieldId} className="mt-4 block text-[12px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
             {t("prompt_authoring_instructions_label")}
           </label>
           <textarea

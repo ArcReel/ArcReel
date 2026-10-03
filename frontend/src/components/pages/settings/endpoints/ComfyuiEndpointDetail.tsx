@@ -37,7 +37,7 @@ import { exportEndpointDefinition } from "./export-endpoint-definition";
 /** 自动包装原始 workflow 时写进 `meta.name` 的占位值，与服务端 `import_shapes.py` 同一个。 */
 export const COMFYUI_PLACEHOLDER_NAME = "ComfyUI workflow";
 
-const KICKER_CLS = "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2";
+const KICKER_CLS = "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary";
 const MEDIA_TYPES: readonly ComfyuiMediaType[] = ["video", "image"];
 /** `auth` 节里的两张表，按渲染次序。 */
 const AUTH_SECTIONS = ["headers", "query"] as const;
@@ -56,9 +56,9 @@ function Section({
   return (
     <section className="mb-6">
       <div className={KICKER_CLS}>{kicker}</div>
-      <h3 className="mt-0.5 text-[14px] font-medium text-text">{title}</h3>
-      {description && <p className="mt-0.5 max-w-2xl text-[12px] leading-[1.55] text-text-3">{description}</p>}
-      <div className="mt-2.5 rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
+      <h3 className="mt-0.5 text-[14px] font-medium text-foreground">{title}</h3>
+      {description && <p className="mt-0.5 max-w-2xl text-[12px] leading-[1.55] text-muted-foreground">{description}</p>}
+      <div className="mt-2.5 rounded-lg border border-border p-4" style={CARD_STYLE}>
         {children}
       </div>
     </section>
@@ -296,17 +296,17 @@ export function ComfyuiEndpointDetail({
                   meta: { ...current.meta, name: event.target.value },
                 }))
               }
-              className="min-w-0 flex-1 border-b border-transparent bg-transparent font-editorial text-[20px] text-text outline-none placeholder:text-text-4 hover:border-hairline focus:border-accent/50"
+              className="min-w-0 flex-1 border-b border-transparent bg-transparent font-editorial text-[20px] text-foreground outline-none placeholder:text-muted-foreground hover:border-border focus:border-primary/50"
             />
-            <span className="shrink-0 rounded-[5px] border border-accent/35 bg-accent-dim px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-accent-2">
+            <span className="shrink-0 rounded-sm border border-primary/35 bg-primary/12 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-primary">
               comfyui
             </span>
-            <span className="shrink-0 rounded-[5px] border border-hairline-soft bg-bg-grad-a/55 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-text-3">
+            <span className="shrink-0 rounded-sm border border-border/50 bg-card/55 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
               {t(definition.media_type === "image" ? "endpoint_image_group" : "endpoint_video_group")}
             </span>
           </div>
           {submissionBadge}
-          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-text-3">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-muted-foreground">
             {record && (
               <span className="font-mono text-[11.5px]" translate="no">
                 {record.key}
@@ -335,14 +335,14 @@ export function ComfyuiEndpointDetail({
 
       <Section kicker="Bindings" title={t("ce_cf_bindings_title")}>
         {inferError !== null && (
-          <p role="alert" className="mb-2.5 text-[12.5px] text-warm-bright">
+          <p role="alert" className="mb-2.5 text-[12.5px] text-warn">
             {t("ce_cf_infer_failed", { reason: inferError })}
           </p>
         )}
         {inference === null ? (
           inferError === null && (
-            <div className="flex items-center gap-2 py-4 text-text-3">
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+            <div className="flex items-center gap-2 py-4 text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
               <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("ce_cf_inferring")}</span>
             </div>
           )
@@ -358,7 +358,7 @@ export function ComfyuiEndpointDetail({
               onReinfer={reinfer}
               reinferring={reinferring}
             />
-            <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-hairline-soft pt-3">
+            <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-border/50 pt-3">
               <button
                 type="button"
                 disabled={!canSave}
@@ -370,7 +370,7 @@ export function ComfyuiEndpointDetail({
                 {dirty ? t("ce_cf_save") : t("ce_cf_saved_state")}
               </button>
               {blockers.length > 0 ? (
-                <ul aria-live="polite" className="space-y-0.5 text-[11.5px] text-warm-bright">
+                <ul aria-live="polite" className="space-y-0.5 text-[11.5px] text-warn">
                   {blockers.map((blocker) => (
                     <li key={`${blocker.code}:${blocker.key ?? ""}:${blocker.otherKey ?? ""}`}>
                       {blockerText(blocker)}
@@ -378,7 +378,7 @@ export function ComfyuiEndpointDetail({
                   ))}
                 </ul>
               ) : (
-                dirty && <span className="text-[11.5px] text-text-4">{t("ce_cf_save_ready")}</span>
+                dirty && <span className="text-[11.5px] text-muted-foreground">{t("ce_cf_save_ready")}</span>
               )}
             </div>
           </>
@@ -388,7 +388,7 @@ export function ComfyuiEndpointDetail({
       <Section kicker="Definition" title={t("ce_cf_definition_title")}>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <span className="mb-1 block text-[11.5px] font-medium text-text-3">{t("ce_cf_media_type_label")}</span>
+            <span className="mb-1 block text-[11.5px] font-medium text-muted-foreground">{t("ce_cf_media_type_label")}</span>
             <div className="flex gap-2">
               {MEDIA_TYPES.map((media) => (
                 <button
@@ -396,24 +396,24 @@ export function ComfyuiEndpointDetail({
                   type="button"
                   aria-pressed={definition.media_type === media}
                   onClick={() => changeMediaType(media)}
-                  className={`rounded-[7px] border px-3 py-1 font-mono text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  className={`rounded-md border px-3 py-1 font-mono text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     definition.media_type === media
-                      ? "border-accent/45 bg-accent-dim text-accent-2"
-                      : "border-hairline-soft text-text-3 hover:text-text"
+                      ? "border-primary/45 bg-primary/12 text-primary"
+                      : "border-border/50 text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {t(media === "image" ? "endpoint_image_group" : "endpoint_video_group")}
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{t("ce_cf_media_type_note")}</p>
+            <p className="mt-1.5 text-[11px] leading-[1.5] text-muted-foreground">{t("ce_cf_media_type_note")}</p>
           </div>
           <div>
-            <span className="mb-1 block text-[11.5px] font-medium text-text-3">{t("ce_cf_auth_label")}</span>
-            <pre className="overflow-x-auto rounded-[7px] border border-hairline-soft bg-bg-grad-a/40 p-2 font-mono text-[11.5px] text-text-2">
+            <span className="mb-1 block text-[11.5px] font-medium text-muted-foreground">{t("ce_cf_auth_label")}</span>
+            <pre className="overflow-x-auto rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[11.5px] text-subtle-foreground">
               {authPreview(definition)}
             </pre>
-            <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">
+            <p className="mt-1.5 text-[11px] leading-[1.5] text-muted-foreground">
               {t(definition.auth ? "ce_cf_auth_blank_note" : "ce_cf_auth_empty")}
             </p>
           </div>
@@ -426,9 +426,9 @@ export function ComfyuiEndpointDetail({
             <span
               key={chip.classType}
               translate="no"
-              className="rounded-[5px] border border-hairline-soft px-1.5 py-0.5 font-mono text-[11.5px] text-text-3"
+              className="rounded-sm border border-border/50 px-1.5 py-0.5 font-mono text-[11.5px] text-muted-foreground"
             >
-              {chip.classType} <span className="tabular-nums text-text-4">×{chip.count}</span>
+              {chip.classType} <span className="tabular-nums text-muted-foreground">×{chip.count}</span>
             </span>
           ))}
         </div>

@@ -51,13 +51,13 @@ export function DemoAssistantPanel() {
       {/* 头部：与真实面板同款标识，不带会话切换/新建——演示里没有会话可管理 */}
       <div
         className="flex h-12 items-center gap-2 px-3"
-        style={{ borderBottom: "1px solid var(--color-hairline)" }}
+        style={{ borderBottom: "1px solid var(--border)" }}
       >
         <div
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+              "linear-gradient(135deg, var(--primary), oklch(0.60 0.10 280))",
             color: "oklch(0.12 0 0)",
           }}
         >
@@ -78,12 +78,12 @@ export function DemoAssistantPanel() {
       {/* 输入区：只作形态展示，演示中不可用 */}
       <div
         className="p-3"
-        style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+        style={{ borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
       >
         <div
           className="flex items-end gap-2 rounded-lg px-3 py-2"
           style={{
-            border: "1px solid var(--color-hairline)",
+            border: "1px solid var(--border)",
             background: "oklch(0.20 0.012 265 / 0.7)",
           }}
         >
@@ -93,7 +93,7 @@ export function DemoAssistantPanel() {
             placeholder={t("onboarding:demo_action_unavailable")}
             aria-label={t("dashboard:assistant_input")}
             className="flex-1 resize-none overflow-hidden bg-transparent text-[13px] outline-none disabled:cursor-not-allowed"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           />
           <button
             type="button"
@@ -102,7 +102,7 @@ export function DemoAssistantPanel() {
             style={{
               color: "oklch(0.14 0 0)",
               background:
-                "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                "var(--primary)",
             }}
             title={t("onboarding:demo_action_unavailable")}
             aria-label={t("dashboard:send_message")}

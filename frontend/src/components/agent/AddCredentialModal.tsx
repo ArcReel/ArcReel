@@ -329,14 +329,14 @@ export function AddCredentialModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="cred-modal-title"
-        className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-[12px] border border-hairline p-5"
+        className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-xl border border-border p-5"
         style={DROPDOWN_PANEL_STYLE}
       >
         {/* Header */}
         <div className="mb-4 flex items-start justify-between gap-3">
           <h3
             id="cred-modal-title"
-            className="text-[15px] font-medium text-text"
+            className="text-[15px] font-medium text-foreground"
           >
             {mode === "edit" ? t("edit_credential_title") : t("add_credential")}
           </h3>
@@ -348,7 +348,7 @@ export function AddCredentialModal({
                   type="button"
                   onClick={() => setImportPickerOpen((v) => !v)}
                   data-testid="import-from-provider"
-                  className="inline-flex items-center gap-1.5 rounded-[6px] border border-hairline px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-2 transition hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-sm border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-subtle-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Download className="h-3 w-3" aria-hidden />
                   {t("import_from_provider")}
@@ -360,7 +360,7 @@ export function AddCredentialModal({
                   width="w-64"
                   // modal 容器是 z-50；默认 Popover layer 是 z-40 会被 modal 遮挡
                   layer="modal"
-                  className="rounded-[8px] border border-hairline py-1 shadow-lg"
+                  className="rounded-md border border-border py-1 shadow-lg"
                 >
                   {providers.map((p) => (
                     <button
@@ -368,7 +368,7 @@ export function AddCredentialModal({
                       type="button"
                       onClick={() => handleImportProvider(p)}
                       data-testid="import-provider-option"
-                      className="block w-full truncate px-3 py-2 text-left text-[12px] text-text-2 hover:bg-bg-grad-a/50"
+                      className="block w-full truncate px-3 py-2 text-left text-[12px] text-subtle-foreground hover:bg-card/50"
                     >
                       {p.display_name}
                     </button>
@@ -379,7 +379,7 @@ export function AddCredentialModal({
             <button
               type="button"
               onClick={onClose}
-              className="text-text-3 hover:text-text"
+              className="text-muted-foreground hover:text-foreground"
               aria-label={t("common:close")}
             >
               <X className="h-4 w-4" />
@@ -389,7 +389,7 @@ export function AddCredentialModal({
 
         {/* Preset grid — 3 列固定网格,自定义永远固定首格,推荐项次之 */}
         <div className="mb-5">
-          <div className="mb-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-2">
+          <div className="mb-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-subtle-foreground">
             {t("select_provider")}
           </div>
           <div className="grid grid-cols-3 gap-1.5">
@@ -448,11 +448,11 @@ export function AddCredentialModal({
             />
             <div id="cred-url-preview" className="mt-1 text-[11px] leading-[1.55]">
               {baseUrlRejected ? (
-                <span className="text-warm-bright">{t("base_url_unsupported_components")}</span>
+                <span className="text-warn">{t("base_url_unsupported_components")}</span>
               ) : messagesUrlPreview ? (
-                <span className="text-text-4">
+                <span className="text-muted-foreground">
                   {t("messages_url_preview_hint")}{" "}
-                  <span className="font-mono text-text-3" translate="no">
+                  <span className="font-mono text-muted-foreground" translate="no">
                     {messagesUrlPreview}
                   </span>
                 </span>
@@ -469,7 +469,7 @@ export function AddCredentialModal({
                   type="button"
                   onClick={handleManualKeyEntry}
                   data-testid="api-key-manual-entry"
-                  className="text-[11px] text-accent hover:underline"
+                  className="text-[11px] text-primary hover:underline"
                 >
                   {t("api_key_manual_entry")}
                 </button>
@@ -478,7 +478,7 @@ export function AddCredentialModal({
                   href={selected.api_key_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
                 >
                   {t("get_api_key")}
                   <ExternalLink className="h-3 w-3" aria-hidden />
@@ -509,7 +509,7 @@ export function AddCredentialModal({
               className={INPUT_CLS}
             />
             {importSource && (
-              <div id="cred-key-import-note" className="mt-1 text-[11px] leading-[1.55] text-text-4">
+              <div id="cred-key-import-note" className="mt-1 text-[11px] leading-[1.55] text-muted-foreground">
                 {t("api_key_from_provider_note")}
               </div>
             )}
@@ -523,7 +523,7 @@ export function AddCredentialModal({
                 type="button"
                 onClick={() => void handleDiscover()}
                 disabled={discovering || importSource !== null}
-                className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {discovering ? (
                   <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
@@ -546,7 +546,7 @@ export function AddCredentialModal({
               clearable
             />
             {discoverError && (
-              <div className="mt-1 text-[11px] text-warm-bright">{discoverError}</div>
+              <div className="mt-1 text-[11px] text-warn">{discoverError}</div>
             )}
           </Field>
 
@@ -554,23 +554,23 @@ export function AddCredentialModal({
           <details
             open={advancedOpen}
             onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
-            className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-3"
+            className="rounded-md border border-border/50 bg-card/35 p-3"
           >
             <summary className="flex cursor-pointer list-none items-center justify-between">
-              <span className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-2">
-                <SlidersHorizontal className="h-3.5 w-3.5 text-accent-2" aria-hidden />
+              <span className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-subtle-foreground">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-primary" aria-hidden />
                 {t("advanced_model_routing")}
               </span>
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-hairline-soft bg-bg-grad-a/55 text-text-3">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/50 bg-card/55 text-muted-foreground">
                 <ChevronDown
                   className={`h-3 w-3 transition-transform duration-200 ${
-                    advancedOpen ? "rotate-180 text-accent-2" : ""
+                    advancedOpen ? "rotate-180 text-primary" : ""
                   }`}
                   aria-hidden
                 />
               </span>
             </summary>
-            <p className="mt-2 text-[11px] leading-[1.55] text-text-3">
+            <p className="mt-2 text-[11px] leading-[1.55] text-muted-foreground">
               {t("model_routing_hint")}
             </p>
             <div className="mt-3 grid gap-3">
@@ -614,13 +614,13 @@ export function AddCredentialModal({
           </details>
 
           {selected?.notes && (
-            <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2 text-[11.5px] text-text-3">
+            <div className="rounded-md border border-border/50 bg-card/45 px-3 py-2 text-[11.5px] text-muted-foreground">
               {selected.notes}
             </div>
           )}
 
           {submitError && (
-            <div className="text-[11.5px] text-warm-bright">{submitError}</div>
+            <div className="text-[11.5px] text-warn">{submitError}</div>
           )}
 
           {testResult && <TestResultPanel result={testResult} />}
@@ -699,10 +699,10 @@ function PresetChip({
       disabled={disabled}
       aria-pressed={selected}
       title={title}
-      className={`group inline-flex items-center justify-start gap-1.5 truncate rounded-[8px] border px-2.5 py-1.5 text-left text-[12px] transition disabled:cursor-not-allowed disabled:opacity-60 ${
+      className={`group inline-flex items-center justify-start gap-1.5 truncate rounded-md border px-2.5 py-1.5 text-left text-[12px] transition disabled:cursor-not-allowed disabled:opacity-60 ${
         selected
-          ? "border-accent bg-accent/10 text-accent"
-          : "border-hairline bg-bg-grad-a/35 text-text-2 hover:border-accent/40"
+          ? "border-primary bg-primary/10 text-primary"
+          : "border-border bg-card/35 text-subtle-foreground hover:border-primary/40"
       }`}
     >
       {recommended && (
@@ -733,7 +733,7 @@ function Field({
       <div className="mb-1 flex items-center justify-between">
         <label
           htmlFor={htmlFor}
-          className="text-[11.5px] font-medium text-text-2"
+          className="text-[11.5px] font-medium text-subtle-foreground"
         >
           {label}
         </label>
@@ -763,10 +763,10 @@ function RoutingField({
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-2">
+      <label htmlFor={id} className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-subtle-foreground">
         {label}
       </label>
-      <div className="text-[11px] text-text-4">{desc}</div>
+      <div className="text-[11px] text-muted-foreground">{desc}</div>
       <div className="mt-1.5">
         <ModelCombobox
           id={id}

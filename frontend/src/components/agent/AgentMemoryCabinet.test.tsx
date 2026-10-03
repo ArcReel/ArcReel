@@ -73,7 +73,7 @@ describe("AgentMemoryCabinet", () => {
     render(<AgentMemoryCabinet scope={{ level: "user" }} frame="section" />);
 
     const stats = within(await findFileList()).getByText(/240\/200/);
-    expect(stats).toHaveClass("text-danger-2");
+    expect(stats).toHaveClass("text-destructive");
   });
 
   it("保存把编辑器原文整段 PUT 回去并弹 toast", async () => {

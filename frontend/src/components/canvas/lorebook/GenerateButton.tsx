@@ -15,11 +15,11 @@ interface GenerateButtonProps {
 }
 
 const ACTIVE_BG =
-  "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))";
+  "var(--primary)";
 const LOADING_BG =
   "linear-gradient(135deg, oklch(0.66 0.08 295), oklch(0.58 0.07 295))";
 const ACTIVE_SHADOW =
-  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)";
+  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)";
 
 export function GenerateButton({
   onClick,

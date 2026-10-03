@@ -122,10 +122,10 @@ export function EpisodesRail({
   return (
     <div className="space-y-5 px-4 py-5 pb-24">
       <header className={`flex items-center gap-2 ${assistantFloating ? "pr-12" : ""}`}>
-        <h2 className="display-serif text-[16px] font-semibold tracking-tight text-text">
+        <h2 className="display-serif text-[16px] font-semibold tracking-tight text-foreground">
           {t("dashboard:workspace_nav_episodes")}
         </h2>
-        <span className="num rounded-md border border-accent-soft bg-accent-dim px-1.5 py-px text-[10.5px] text-text-3">
+        <span className="num rounded-md border border-primary/22 bg-primary/12 px-1.5 py-px text-[10.5px] text-muted-foreground">
           {t("dashboard:episodes_view_episode_count", { count: episodes.length })}
         </span>
         <span className="flex-1" />
@@ -150,10 +150,10 @@ export function EpisodesRail({
       {view.files.length > 0 ? (
         <section aria-labelledby="episodes-rail-progress" className="space-y-2">
           <div className="flex items-baseline justify-between gap-3">
-            <h3 id="episodes-rail-progress" className="text-[12.5px] font-medium text-text-2">
+            <h3 id="episodes-rail-progress" className="text-[12.5px] font-medium text-subtle-foreground">
               {t("dashboard:episodes_view_whole_source", { count: view.files.length })}
             </h3>
-            <span className="num text-[11px] text-text-3">
+            <span className="num text-[11px] text-muted-foreground">
               {t("dashboard:episodes_view_progress", {
                 cut: view.cut_units.toLocaleString(),
                 total: formatVolume(t, view.units, view.unit),
@@ -164,7 +164,7 @@ export function EpisodesRail({
             value={percent}
             label={t("dashboard:episodes_view_progress_label")}
             className="h-1 overflow-hidden rounded-full bg-[oklch(0.26_0.012_265)]"
-            barClassName="h-full rounded-full bg-accent"
+            barClassName="h-full rounded-full bg-primary"
           />
         </section>
       ) : null}
@@ -189,7 +189,7 @@ export function EpisodesRail({
               <button
                 type="button"
                 onClick={() => onScrollToFile(group.file.source_file)}
-                className="focus-ring flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[11.5px] text-text-3 hover:text-text"
+                className="focus-ring flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[11.5px] text-muted-foreground hover:text-foreground"
                 title={group.file.name}
               >
                 <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -212,7 +212,7 @@ export function EpisodesRail({
                 ))}
               </ul>
               {group.tailUnits > 0 ? (
-                <p className="px-1 text-[11px] text-text-4">
+                <p className="px-1 text-[11px] text-muted-foreground">
                   {t("dashboard:episodes_view_tail_after", { volume: formatVolume(t, group.tailUnits, view.unit) })}
                 </p>
               ) : null}
@@ -248,7 +248,7 @@ export function EpisodesRail({
 function RailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-2.5">
-      <h3 className="text-[12.5px] font-medium text-text-2">{title}</h3>
+      <h3 className="text-[12.5px] font-medium text-subtle-foreground">{title}</h3>
       {children}
     </section>
   );
@@ -277,8 +277,8 @@ function RailRowView({
   if (row.kind === "gap") {
     return (
       <div
-        className="space-y-1.5 rounded-md px-2.5 py-1.5 text-[11.5px] text-text-4"
-        style={{ border: "1px dashed var(--color-accent-soft)" }}
+        className="space-y-1.5 rounded-md px-2.5 py-1.5 text-[11.5px] text-muted-foreground"
+        style={{ border: "1px dashed color-mix(in oklab, var(--primary) 22%, transparent)" }}
       >
         <p>{t("episodes_view_gap_row", { volume: formatVolume(t, row.units, view.unit) })}</p>
         <PlanGapButton sourceFile={row.sourceFile} end={row.end} blocked={cutActions.replanBlocked} />
@@ -336,8 +336,8 @@ function EpisodeCard({
       className="rounded-md transition-colors"
       style={{
         borderLeft: `3px solid ${color}`,
-        background: selected ? "var(--color-accent-dim)" : "oklch(0.2 0.011 265 / 0.55)",
-        boxShadow: fresh ? "inset 0 0 0 1px var(--color-accent-soft)" : undefined,
+        background: selected ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.2 0.011 265 / 0.55)",
+        boxShadow: fresh ? "inset 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)" : undefined,
       }}
     >
       <button
@@ -350,37 +350,37 @@ function EpisodeCard({
           <span className="font-semibold" style={{ color }}>
             {position === null ? t("common:episode_unlisted_name") : t("common:episode_position_name", { position })}
           </span>
-          <span className="min-w-0 text-text">{title || t("dashboard:episodes_view_untitled")}</span>
+          <span className="min-w-0 text-foreground">{title || t("dashboard:episodes_view_untitled")}</span>
           {origin && info ? (
-            <span className="rounded border border-hairline px-1 py-px text-[10.5px] text-text-3">
+            <span className="rounded-sm border border-border px-1 py-px text-[10.5px] text-muted-foreground">
               {t(`dashboard:episodes_view_origin_${info.origin}`)}
             </span>
           ) : null}
           {episode.ledger_status === "stale" ? <ReplannedBadge /> : null}
           {fresh ? (
-            <span className="rounded border border-accent-soft bg-accent-dim px-1 py-px text-[10.5px] text-accent-2">
+            <span className="rounded-sm border border-primary/22 bg-primary/12 px-1 py-px text-[10.5px] text-primary">
               {t("dashboard:episode_planning_fresh")}
             </span>
           ) : null}
         </span>
         {info?.units != null ? (
-          <span className="num mt-0.5 block text-[10.5px] text-text-4">
+          <span className="num mt-0.5 block text-[10.5px] text-muted-foreground">
             {formatVolume(t, info.units, view.unit)}
             {info.spoken_seconds != null ? ` · ${formatSpoken(t, info.spoken_seconds)}` : ""}
           </span>
         ) : null}
         {hook ? (
-          <span className="mt-1 block text-[11.5px] leading-[1.55] text-text-3">
+          <span className="mt-1 block text-[11.5px] leading-[1.55] text-muted-foreground">
             {t("dashboard:episodes_view_hook", { hook })}
           </span>
         ) : null}
         {info?.first_sentence ? (
-          <span className="mt-1 block truncate text-[11.5px] text-text-3" title={info.first_sentence}>
+          <span className="mt-1 block truncate text-[11.5px] text-muted-foreground" title={info.first_sentence}>
             {t("dashboard:episodes_view_first_sentence", { sentence: info.first_sentence })}
           </span>
         ) : null}
         {info?.last_sentence ? (
-          <span className="block truncate text-[11.5px] text-text-3" title={info.last_sentence}>
+          <span className="block truncate text-[11.5px] text-muted-foreground" title={info.last_sentence}>
             {t("dashboard:episodes_view_last_sentence", { sentence: info.last_sentence })}
           </span>
         ) : null}
@@ -403,7 +403,7 @@ function EpisodeCard({
             </button>
             <button
               type="button"
-              className={`${GHOST_BTN_CLS} hover:!text-[var(--color-warm)]`}
+              className={`${GHOST_BTN_CLS} hover:!text-warn`}
               onClick={() => episodeActions.onDelete(id)}
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden />
@@ -428,7 +428,7 @@ function CutEpisodeActions({ view, episode, actions }: { view: EpisodesView; epi
         : undefined;
   return (
     <>
-      <p className="text-[11px] leading-[1.6] text-text-4">{t("manual_split_rail_hint")}</p>
+      <p className="text-[11px] leading-[1.6] text-muted-foreground">{t("manual_split_rail_hint")}</p>
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"

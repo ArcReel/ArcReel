@@ -26,7 +26,7 @@ const TONE_TOKENS: Record<
   { color: string; soft: string; ring: string }
 > = {
   success: {
-    color: "var(--color-good)",
+    color: "var(--good)",
     soft: "oklch(0.30 0.10 155 / 0.18)",
     ring: "oklch(0.45 0.10 155 / 0.40)",
   },
@@ -41,9 +41,9 @@ const TONE_TOKENS: Record<
     ring: "oklch(0.45 0.18 25 / 0.40)",
   },
   info: {
-    color: "var(--color-accent-2)",
-    soft: "var(--color-accent-dim)",
-    ring: "var(--color-accent-soft)",
+    color: "var(--primary)",
+    soft: "color-mix(in oklab, var(--primary) 12%, transparent)",
+    ring: "color-mix(in oklab, var(--primary) 22%, transparent)",
   },
 };
 
@@ -78,17 +78,17 @@ export function WorkspaceNotificationsDrawer({
       {/* Header */}
       <div
         className="relative flex items-center gap-2.5 px-4 py-3"
-        style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
       >
         <span
           aria-hidden
           className="grid h-7 w-7 place-items-center rounded-lg"
           style={{
             background:
-              "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-            border: "1px solid var(--color-accent-soft)",
-            color: "var(--color-accent-2)",
-            boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+              "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
+            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+            color: "var(--primary)",
+            boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
           }}
         >
           <BellRing className="h-3.5 w-3.5" />
@@ -96,22 +96,22 @@ export function WorkspaceNotificationsDrawer({
         <div className="min-w-0">
           <div
             className="display-serif text-[14px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {t("workspace_notifications_title")}
           </div>
           <div
             className="num flex items-center gap-2 text-[10px] uppercase"
             style={{
-              color: "var(--color-text-4)",
+              color: "var(--muted-foreground)",
               letterSpacing: "1.0px",
             }}
           >
             <span>{t("notifications_count", { count: workspaceNotifications.length })}</span>
             {unreadCount > 0 && (
               <>
-                <span style={{ color: "var(--color-hairline-strong)" }}>·</span>
-                <span style={{ color: "var(--color-accent-2)" }}>
+                <span style={{ color: "var(--input)" }}>·</span>
+                <span style={{ color: "var(--primary)" }}>
                   {t("unread_count", { count: unreadCount })}
                 </span>
               </>
@@ -128,9 +128,9 @@ export function WorkspaceNotificationsDrawer({
           <div
             className="flex flex-col items-center justify-center gap-3 rounded-xl px-6 py-12 text-center"
             style={{
-              border: "1px dashed var(--color-hairline)",
+              border: "1px dashed var(--border)",
               background:
-                "radial-gradient(400px 200px at 50% -10%, var(--color-accent-dim), transparent 60%), oklch(0.18 0.010 265 / 0.30)",
+                "radial-gradient(400px 200px at 50% -10%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 60%), oklch(0.18 0.010 265 / 0.30)",
             }}
           >
             <span
@@ -138,9 +138,9 @@ export function WorkspaceNotificationsDrawer({
               className="grid h-10 w-10 place-items-center rounded-xl"
               style={{
                 background:
-                  "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.04))",
-                border: "1px solid var(--color-accent-soft)",
-                color: "var(--color-accent-2)",
+                  "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.04))",
+                border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                color: "var(--primary)",
               }}
             >
               <BellRing className="h-4 w-4" />
@@ -148,13 +148,13 @@ export function WorkspaceNotificationsDrawer({
             <div className="space-y-1">
               <p
                 className="display-serif text-[14px] font-semibold tracking-tight"
-                style={{ color: "var(--color-text)" }}
+                style={{ color: "var(--foreground)" }}
               >
                 {t("no_notifications")}
               </p>
               <p
                 className="text-[11.5px] leading-[1.5]"
-                style={{ color: "var(--color-text-3)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {t("notifications_hint")}
               </p>
@@ -173,13 +173,13 @@ export function WorkspaceNotificationsDrawer({
                   className="group rounded-xl px-3.5 py-3 text-[12px] transition-colors"
                   style={{
                     border: actionable
-                      ? "1px solid var(--color-accent-soft)"
+                      ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)"
                       : `1px solid ${tone.ring}`,
                     background: actionable
-                      ? "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
+                      ? "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
                       : tone.soft,
                     boxShadow: actionable
-                      ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-accent-glow)"
+                      ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent)"
                       : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
                   }}
                 >
@@ -200,8 +200,8 @@ export function WorkspaceNotificationsDrawer({
                           className="num text-[10px] uppercase"
                           style={{
                             color: item.read
-                              ? "var(--color-text-4)"
-                              : "var(--color-accent-2)",
+                              ? "var(--muted-foreground)"
+                              : "var(--primary)",
                             letterSpacing: "1.0px",
                           }}
                         >
@@ -211,7 +211,7 @@ export function WorkspaceNotificationsDrawer({
                       </div>
                       <p
                         className="mt-1.5 whitespace-pre-wrap leading-[1.55]"
-                        style={{ color: "var(--color-text)" }}
+                        style={{ color: "var(--foreground)" }}
                       >
                         {item.text}
                       </p>
@@ -224,9 +224,9 @@ export function WorkspaceNotificationsDrawer({
                             style={{
                               color: "oklch(0.14 0 0)",
                               background:
-                                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                                "var(--primary)",
                               boxShadow:
-                                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 4px 14px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 4px 14px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
                             }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.transform = "translateY(-1px)";
@@ -241,7 +241,7 @@ export function WorkspaceNotificationsDrawer({
                         ) : (
                           <span
                             className="text-[10.5px]"
-                            style={{ color: "var(--color-text-4)" }}
+                            style={{ color: "var(--muted-foreground)" }}
                           >
                             {t("notification_only")}
                           </span>
@@ -249,14 +249,14 @@ export function WorkspaceNotificationsDrawer({
                         <button
                           type="button"
                           onClick={() => removeWorkspaceNotification(item.id)}
-                          className="focus-ring rounded px-2 py-0.5 text-[10.5px] transition-colors"
-                          style={{ color: "var(--color-text-4)" }}
+                          className="focus-ring rounded-sm px-2 py-0.5 text-[10.5px] transition-colors"
+                          style={{ color: "var(--muted-foreground)" }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.color = "var(--color-text-2)";
+                            e.currentTarget.style.color = "var(--subtle-foreground)";
                             e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.color = "var(--color-text-4)";
+                            e.currentTarget.style.color = "var(--muted-foreground)";
                             e.currentTarget.style.background = "transparent";
                           }}
                         >
@@ -276,8 +276,8 @@ export function WorkspaceNotificationsDrawer({
         <div
           className="flex items-center justify-between px-4 py-2 text-[10.5px]"
           style={{
-            borderTop: "1px solid var(--color-hairline-soft)",
-            color: "var(--color-text-4)",
+            borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+            color: "var(--muted-foreground)",
           }}
         >
           <span>{t("auto_mark_read_hint")}</span>
@@ -312,7 +312,7 @@ function NotificationAge({ timestamp }: { timestamp: number }) {
   const { t } = useTranslation("dashboard");
   const now = useNowTick();
   return (
-    <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+    <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
       {formatNotificationTime(timestamp, now, t)}
     </span>
   );

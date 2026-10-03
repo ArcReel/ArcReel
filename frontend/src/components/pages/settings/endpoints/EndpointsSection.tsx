@@ -28,7 +28,7 @@ import { isComfyuiDefinition, reimportedDefinition, type ComfyuiImportDraft } fr
 import { EndpointDetail, type EndpointSelection } from "./EndpointDetail";
 import { EndpointImportDialog } from "./EndpointImportDialog";
 
-const KICKER_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
+const KICKER_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground";
 
 /** 有 kind 即是一份此刻就能显示的端点定义；其余形状的身份由服务端的分流结果给出。 */
 function hasKind(value: unknown): value is AnyEndpointDefinition {
@@ -509,10 +509,10 @@ export function EndpointsSection() {
   if (loadError) {
     return (
       <div role="alert" className="flex flex-col items-start gap-2.5 px-6 py-8">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warn">
           {t("common:load_failed")}
         </span>
-        <p className="text-[12.5px] text-text-2">{loadError}</p>
+        <p className="text-[12.5px] text-subtle-foreground">{loadError}</p>
         <button type="button" onClick={() => setReloadKey((k) => k + 1)} className={GHOST_BTN_CLS}>
           {t("common:retry")}
         </button>
@@ -522,8 +522,8 @@ export function EndpointsSection() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 px-6 py-8 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+      <div className="flex items-center gap-2 px-6 py-8 text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -535,7 +535,7 @@ export function EndpointsSection() {
     <div className="flex">
       <nav
         aria-label={t("ce_section_title")}
-        className="sticky top-0 max-h-screen w-60 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
+        className="sticky top-0 max-h-screen w-60 shrink-0 self-start overflow-y-auto border-r border-border/50 px-3 py-5"
         style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
       >
         <div className="mb-3 flex items-center gap-1.5 px-1">
@@ -570,7 +570,7 @@ export function EndpointsSection() {
         {(selectedKey === "new" || selectedKey === COMFYUI_DRAFT_KEY) && (
           <div className="mb-4">
             <div className={`${KICKER_CLS} mb-1.5 px-3`}>{t("ce_group_draft")}</div>
-            <span className="mb-0.5 flex w-full items-center gap-2 rounded-[8px] border border-accent/35 bg-accent-dim px-3 py-2 text-[12.5px] text-text">
+            <span className="mb-0.5 flex w-full items-center gap-2 rounded-md border border-primary/35 bg-primary/12 px-3 py-2 text-[12.5px] text-foreground">
               {selectedKey === "new" ? t("ce_new_endpoint") : (comfyuiDraft?.definition.meta.name ?? t("ce_cf_draft_entry"))}
             </span>
           </div>
@@ -590,34 +590,34 @@ export function EndpointsSection() {
                     aria-current={isActive ? "page" : undefined}
                     aria-pressed={isActive}
                     className={
-                      "group relative mb-0.5 flex w-full items-center gap-2 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+                      "group relative mb-0.5 flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
                       (isActive
-                        ? "border-accent/35 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-accent-glow)]"
-                        : "border-transparent text-text-3 hover:border-hairline-soft hover:bg-bg-grad-a/55 hover:text-text")
+                        ? "border-primary/35 bg-primary/12 text-foreground shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
+                        : "border-transparent text-muted-foreground hover:border-border/50 hover:bg-card/55 hover:text-foreground")
                     }
                   >
                     <span
                       aria-hidden
-                      className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r-[2px]"
+                      className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r-xs"
                       style={{
                         background:
-                          "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                          "var(--primary)",
                         opacity: isActive ? 1 : 0,
                       }}
                     />
                     {entry.python ? (
-                      <Lock className="h-3 w-3 shrink-0 text-text-3" aria-hidden />
+                      <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
                     ) : (
-                      <FileJson2 className="h-3 w-3 shrink-0 text-text-3" aria-hidden />
+                      <FileJson2 className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
                     )}
                     <span className="min-w-0 flex-1 truncate">{entry.label}</span>
                     {entry.mediaType !== null && (
-                      <span className="shrink-0 rounded-[4px] border border-hairline-soft px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-text-4">
+                      <span className="shrink-0 rounded-sm border border-border/50 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
                         {t(entry.mediaType === "image" ? "endpoint_image_group" : "endpoint_video_group")}
                       </span>
                     )}
                     {entry.referenceCount > 0 && (
-                      <span className="shrink-0 text-[10px] text-text-3">
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
                         {entry.referenceCount}
                       </span>
                     )}
@@ -669,7 +669,7 @@ export function EndpointsSection() {
             }
           />
         ) : (
-          <p className="p-6 text-[12.5px] text-text-3">{t("ce_select_endpoint")}</p>
+          <p className="p-6 text-[12.5px] text-muted-foreground">{t("ce_select_endpoint")}</p>
         )}
       </div>
 

@@ -8,7 +8,7 @@ export function AssetSheetStaleBadge({ status }: { status: AssetSheetStatusRow |
   if (status?.status !== "stale") return null;
   return (
     <span
-      className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+      className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium"
       style={{ background: "oklch(0.24 0.06 60 / 0.9)", color: "oklch(0.86 0.12 75)" }}
       title={t("sheet_status_stale_hint")}
     >
@@ -23,7 +23,7 @@ export function MissingDescriptionChip() {
   const { t } = useTranslation("assets");
   return (
     <span
-      className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+      className="rounded-sm px-1.5 py-0.5 text-[10px] font-medium"
       style={{ background: "oklch(0.24 0.06 60 / 0.55)", color: "oklch(0.86 0.12 75)" }}
       title={t("sheet_description_required")}
     >

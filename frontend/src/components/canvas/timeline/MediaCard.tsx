@@ -108,10 +108,10 @@ export function MediaCard({
     <div>
       {/* Header */}
       <div className="mb-2 flex items-center gap-1.5">
-        <Icon className="h-3.5 w-3.5" style={{ color: "var(--color-text-3)" }} />
+        <Icon className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
         <span
           className="text-[12px] font-semibold"
-          style={{ color: "var(--color-text-2)" }}
+          style={{ color: "var(--subtle-foreground)" }}
         >
           {title}
         </span>
@@ -166,10 +166,10 @@ export function MediaCard({
           </PreviewableImageFrame>
         ) : (
           <div
-            className="overflow-hidden rounded-[10px]"
+            className="overflow-hidden rounded-lg"
             style={{
               boxShadow:
-                "0 16px 40px -16px oklch(0 0 0 / 0.7), 0 0 0 1px var(--color-hairline)",
+                "0 16px 40px -16px oklch(0 0 0 / 0.7), 0 0 0 1px var(--border)",
             }}
           >
             <AspectFrame ratio={aspectRatio}>
@@ -187,11 +187,11 @@ export function MediaCard({
       ) : (
         <AspectFrame ratio={aspectRatio}>
           <div
-            className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-[10px]"
+            className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-lg"
             style={{
-              border: "1px dashed var(--color-hairline)",
+              border: "1px dashed var(--border)",
               background: "oklch(0.18 0.010 265 / 0.4)",
-              color: "var(--color-text-4)",
+              color: "var(--muted-foreground)",
             }}
           >
             <Icon className="h-5 w-5" />
@@ -211,12 +211,12 @@ export function MediaCard({
               ? (generateDisabledHint ?? t("media_generate_video_disabled_hint"))
               : undefined
           }
-          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-[10px] px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
           style={{
             color: "oklch(0.14 0 0)",
-            background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+            background: "var(--primary)",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-accent-glow)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px color-mix(in oklab, var(--primary) 35%, transparent)",
           }}
         >
           <Sparkles className="h-3.5 w-3.5" />

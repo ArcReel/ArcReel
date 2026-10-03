@@ -45,7 +45,7 @@ export function PlanDurationSelect({
   const notice = endpointFixed ? t("duration_not_driven_notice") : undefined;
   if (!options?.length) {
     return (
-      <span className="text-[11px] text-text-4" title={notice}>
+      <span className="text-[11px] text-muted-foreground" title={notice}>
         {t("reference_script_plan_duration_option", { seconds })}
         {notice && ` · ${notice}`}
       </span>
@@ -57,7 +57,7 @@ export function PlanDurationSelect({
       onChange={(e) => onChange(Number(e.target.value))}
       disabled={disabled}
       aria-label={label}
-      className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+      className="rounded-sm border border-border bg-card/40 px-1 py-0.5 text-[11px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
     >
       {/* 存量秒数可能已不在当前档位内：补一个当前值选项，否则 select 会静默跳到首档，
           用户看到的秒数与盘上的对不上。 */}
@@ -70,7 +70,7 @@ export function PlanDurationSelect({
   );
   if (!notice) return select;
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-text-4" title={notice}>
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground" title={notice}>
       {select}
       {notice}
     </span>

@@ -72,7 +72,7 @@ export function ActionMenu({ label, children, items, triggerClassName, triggerSt
                   item.onSelect();
                 }}
                 className="focus-ring flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] transition-colors hover:bg-[oklch(0.26_0.012_265/0.5)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
-                style={{ color: item.danger ? "var(--color-warm)" : "var(--color-text-2)" }}
+                style={{ color: item.danger ? "var(--warn)" : "var(--subtle-foreground)" }}
               >
                 {Icon ? <Icon className="h-3.5 w-3.5 shrink-0" /> : null}
                 <span className="truncate">{item.label}</span>

@@ -72,18 +72,18 @@ export function WizardStep2Models({
   return (
     <div className="space-y-5">
       {loading && (
-        <div className="flex items-center justify-center gap-2 py-12 text-text-3">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
           <span className="font-mono text-[11px] uppercase tracking-[0.14em]">{t("common:loading")}</span>
         </div>
       )}
       {error && (
-        <div role="alert" className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-4 py-6 text-center">
-          <div className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
+        <div role="alert" className="rounded-md border border-border/50 bg-card/45 px-4 py-6 text-center">
+          <div className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warn">
             <AlertTriangle aria-hidden className="h-3 w-3" />
             {t("common:error")}
           </div>
-          <p className="mt-1.5 text-[12.5px] text-text-2">{error}</p>
+          <p className="mt-1.5 text-[12.5px] text-subtle-foreground">{error}</p>
         </div>
       )}
       {/* 创建向导只暴露默认层（docs/adr/0054），按用途细分留给项目设置页 */}
@@ -118,11 +118,11 @@ export function WizardStep2Models({
         </SectionShell>
       )}
 
-      <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
+      <div className="mt-7 flex items-center justify-between border-t border-border/50 pt-5">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-[7px] px-2.5 py-1.5 text-[12.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-md px-2.5 py-1.5 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("common:cancel")}
         </button>

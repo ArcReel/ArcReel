@@ -30,11 +30,11 @@ const ICON_BTN_CLS =
 const ROW_BTN_CLS =
   "focus-ring grid h-6 w-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40";
 const INPUT_CLS =
-  "focus-ring w-full rounded-md px-2 py-1 text-[12px] outline-none placeholder:text-[var(--color-text-4)]";
+  "focus-ring w-full rounded-md px-2 py-1 text-[12px] outline-none placeholder:text-muted-foreground";
 const INPUT_STYLE: React.CSSProperties = {
   background: "oklch(0.16 0.010 265 / 0.7)",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
 };
 
 /** 脚本正文里引用该衍生的记号，浮层内可直接复制。 */
@@ -179,14 +179,14 @@ export function CharacterDerivativesButton({
         aria-label={t("assets:derivatives_with_count", { n: count })}
         aria-expanded={expanded}
         className={`${ICON_BTN_CLS} relative`}
-        style={{ color: count > 0 ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+        style={{ color: count > 0 ? "var(--primary)" : "var(--muted-foreground)" }}
       >
         <Layers className="h-3.5 w-3.5" />
         {count > 0 && (
           <span
             aria-hidden
             className="absolute -right-0.5 -top-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full px-[3px] text-[9px] font-semibold leading-none"
-            style={{ background: "var(--color-accent-dim)", color: "var(--color-accent-2)" }}
+            style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", color: "var(--primary)" }}
           >
             {count}
           </span>
@@ -201,10 +201,10 @@ export function CharacterDerivativesButton({
         maxHeight={420}
         className="flex flex-col overflow-y-auto p-3"
       >
-        <p className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--color-text-4)" }}>
+        <p className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--muted-foreground)" }}>
           DERIVATIVES
         </p>
-        <p className="mt-1 text-[11px] leading-[1.5]" style={{ color: "var(--color-text-4)" }}>
+        <p className="mt-1 text-[11px] leading-[1.5]" style={{ color: "var(--muted-foreground)" }}>
           {t("assets:derivative_hint")}
         </p>
 
@@ -216,7 +216,7 @@ export function CharacterDerivativesButton({
               <li
                 key={name}
                 className="rounded-lg p-2"
-                style={{ border: "1px solid var(--color-hairline-soft)" }}
+                style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
               >
                 {renaming === name ? (
                   <div className="flex items-center gap-1">
@@ -238,7 +238,7 @@ export function CharacterDerivativesButton({
                       disabled={pending}
                       aria-label={t("assets:derivative_rename_confirm")}
                       onClick={() => void handleRename(name)}
-                      style={{ color: "var(--color-accent-2)" }}
+                      style={{ color: "var(--primary)" }}
                     >
                       <Check className="h-3.5 w-3.5" />
                     </button>
@@ -247,7 +247,7 @@ export function CharacterDerivativesButton({
                       className={ROW_BTN_CLS}
                       aria-label={t("assets:cancel")}
                       onClick={() => setRenaming(null)}
-                      style={{ color: "var(--color-text-3)" }}
+                      style={{ color: "var(--muted-foreground)" }}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -256,7 +256,7 @@ export function CharacterDerivativesButton({
                   <div className="flex items-center gap-1">
                     <span
                       className="min-w-0 flex-1 truncate text-[12px] font-semibold"
-                      style={{ color: "var(--color-text)" }}
+                      style={{ color: "var(--foreground)" }}
                     >
                       {name}
                     </span>
@@ -269,7 +269,7 @@ export function CharacterDerivativesButton({
                         setRenameDraft(name);
                         setRenaming(name);
                       }}
-                      style={{ color: "var(--color-text-3)" }}
+                      style={{ color: "var(--muted-foreground)" }}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
@@ -279,7 +279,7 @@ export function CharacterDerivativesButton({
                       disabled={pending}
                       aria-label={t("assets:derivative_delete", { name })}
                       onClick={() => setDeleteTarget(name)}
-                      style={{ color: "var(--color-text-3)" }}
+                      style={{ color: "var(--muted-foreground)" }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -288,8 +288,8 @@ export function CharacterDerivativesButton({
 
                 <div className="mt-1.5 flex items-center gap-1">
                   <code
-                    className="min-w-0 flex-1 truncate rounded px-1.5 py-0.5 font-mono text-[10px]"
-                    style={{ background: "oklch(0.16 0.010 265 / 0.7)", color: "var(--color-text-3)" }}
+                    className="min-w-0 flex-1 truncate rounded-sm px-1.5 py-0.5 font-mono text-[10px]"
+                    style={{ background: "oklch(0.16 0.010 265 / 0.7)", color: "var(--muted-foreground)" }}
                   >
                     {derivativeToken(characterName, name)}
                   </code>
@@ -299,7 +299,7 @@ export function CharacterDerivativesButton({
                 {derivative.referenced !== undefined && (
                   <p
                     className="mt-1 text-[10px]"
-                    style={{ color: derivative.referenced ? "var(--color-text-3)" : "var(--color-text-4)" }}
+                    style={{ color: derivative.referenced ? "var(--muted-foreground)" : "var(--muted-foreground)" }}
                   >
                     {t(derivative.referenced ? "assets:derivative_referenced" : "assets:derivative_unreferenced")}
                   </p>
@@ -331,7 +331,7 @@ export function CharacterDerivativesButton({
                     className="focus-ring mt-1 rounded-md px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
                     disabled={pending}
                     onClick={() => void handleSaveDescription(name)}
-                    style={{ background: "var(--color-accent-dim)", color: "var(--color-accent-2)" }}
+                    style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", color: "var(--primary)" }}
                   >
                     {t("assets:save")}
                   </button>
@@ -355,12 +355,12 @@ export function CharacterDerivativesButton({
         </ul>
 
         {count === 0 && (
-          <p className="mt-3 text-[11px]" style={{ color: "var(--color-text-4)" }}>
+          <p className="mt-3 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
             {t("assets:derivative_empty")}
           </p>
         )}
 
-        <div className="mt-3 space-y-1.5 border-t pt-3" style={{ borderColor: "var(--color-hairline-soft)" }}>
+        <div className="mt-3 space-y-1.5 border-t pt-3" style={{ borderColor: "color-mix(in oklab, var(--border) 50%, transparent)" }}>
           <input
             className={INPUT_CLS}
             style={INPUT_STYLE}
@@ -383,7 +383,7 @@ export function CharacterDerivativesButton({
             className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
             disabled={pending || newName.trim().length === 0}
             onClick={() => void handleAdd()}
-            style={{ background: "var(--color-accent-dim)", color: "var(--color-accent-2)" }}
+            style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", color: "var(--primary)" }}
           >
             {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
             {t("assets:derivative_add")}

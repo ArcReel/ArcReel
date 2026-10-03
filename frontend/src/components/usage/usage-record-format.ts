@@ -27,10 +27,10 @@ export const STATUS_LABEL_KEYS: Record<UsageRecordStatus, string> = {
 };
 
 export const STATUS_COLORS: Record<UsageRecordStatus, string> = {
-  pending: "var(--color-accent-2)",
-  success: "var(--color-good)",
-  failed: "var(--color-danger-2)",
-  cancelled: "var(--color-text-4)",
+  pending: "var(--primary)",
+  success: "var(--good)",
+  failed: "var(--destructive)",
+  cancelled: "var(--muted-foreground)",
 };
 
 /** 有翻译的失败短语；这之外的错误码退回原文。 */

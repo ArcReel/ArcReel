@@ -61,10 +61,10 @@ export function ProjectMenu() {
         <div
           className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[11.5px] font-bold display-serif"
           style={{
-            background: "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.55 0.12 260) 100%)",
+            background: "linear-gradient(135deg, var(--primary) 0%, oklch(0.55 0.12 260) 100%)",
             color: "oklch(0.12 0 0)",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.25), inset 0 -1px 0 oklch(0 0 0 / 0.15), 0 0 0 1px oklch(1 0 0 / 0.08), 0 2px 10px -2px var(--color-accent-glow)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.25), inset 0 -1px 0 oklch(0 0 0 / 0.15), 0 0 0 1px oklch(1 0 0 / 0.08), 0 2px 10px -2px color-mix(in oklab, var(--primary) 35%, transparent)",
           }}
         >
           {initial}
@@ -79,7 +79,7 @@ export function ProjectMenu() {
           {currentProjectData && (
             <div
               className="mt-0.5 text-[10px] font-medium uppercase leading-[1.1]"
-              style={{ color: "var(--color-text-4)", letterSpacing: "0.2px" }}
+              style={{ color: "var(--muted-foreground)", letterSpacing: "0.2px" }}
             >
               {modeTagline}
             </div>
@@ -88,7 +88,7 @@ export function ProjectMenu() {
         <span
           className="ml-0.5 transition-transform"
           style={{
-            color: "var(--color-text-4)",
+            color: "var(--muted-foreground)",
             transform: open ? "rotate(180deg)" : "none",
           }}
         >
@@ -98,33 +98,33 @@ export function ProjectMenu() {
 
       {open && (
         <div
-          className="absolute left-0 z-50 min-w-[280px] rounded-[10px] p-1.5"
+          className="absolute left-0 z-50 min-w-[280px] rounded-lg p-1.5"
           style={{
             top: "calc(100% + 6px)",
             background: "oklch(0.20 0.011 265 / 0.98)",
             backdropFilter: "blur(20px) saturate(1.2)",
             WebkitBackdropFilter: "blur(20px) saturate(1.2)",
-            border: "1px solid var(--color-hairline-strong)",
+            border: "1px solid var(--input)",
             boxShadow:
               "0 14px 40px -10px oklch(0 0 0 / 0.6), 0 0 0 1px oklch(1 0 0 / 0.04)",
           }}
         >
           <div
             className="num px-2.5 pb-1 pt-1.5 text-[9.5px] font-bold uppercase"
-            style={{ color: "var(--color-text-4)", letterSpacing: "1.2px" }}
+            style={{ color: "var(--muted-foreground)", letterSpacing: "1.2px" }}
           >
             {t("dashboard:project_switcher_current")}
           </div>
           <div
             className="flex items-center gap-2.5 rounded-md p-2"
             style={{
-              background: "var(--color-accent-dim)",
-              border: "1px solid var(--color-accent)",
+              background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+              border: "1px solid var(--primary)",
             }}
           >
             <div
               className="display-serif grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md text-sm font-bold"
-              style={{ background: "var(--color-accent)", color: "oklch(0.12 0 0)" }}
+              style={{ background: "var(--primary)", color: "oklch(0.12 0 0)" }}
             >
               {initial}
             </div>
@@ -132,14 +132,14 @@ export function ProjectMenu() {
               <div className="flex items-center gap-1.5">
                 <span
                   className="text-[13px] font-semibold"
-                  style={{ color: "var(--color-accent-2)" }}
+                  style={{ color: "var(--primary)" }}
                 >
                   {projectTitle}
                 </span>
                 <span
-                  className="num rounded-[3px] px-1 py-px text-[9.5px] font-bold"
+                  className="num rounded-xs px-1 py-px text-[9.5px] font-bold"
                   style={{
-                    background: "var(--color-accent)",
+                    background: "var(--primary)",
                     color: "oklch(0.12 0 0)",
                     letterSpacing: "0.4px",
                   }}
@@ -150,7 +150,7 @@ export function ProjectMenu() {
               {currentProjectData && (
                 <div
                   className="mt-0.5 text-[10.5px] leading-[1.3]"
-                  style={{ color: "var(--color-text-4)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   {modeTagline}
                 </div>
@@ -159,7 +159,7 @@ export function ProjectMenu() {
           </div>
           <div
             className="mx-1.5 my-1 h-px"
-            style={{ background: "var(--color-hairline-soft)" }}
+            style={{ background: "color-mix(in oklab, var(--border) 50%, transparent)" }}
           />
           <button
             type="button"
@@ -168,7 +168,7 @@ export function ProjectMenu() {
               setLocation("~/app/projects");
             }}
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors focus-ring"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) =>
               (e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.55)")
             }
@@ -176,7 +176,7 @@ export function ProjectMenu() {
           >
             <Plus
               className="h-3.5 w-3.5 shrink-0"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             />
             <span>{t("dashboard:project_switcher_new")}</span>
           </button>
@@ -193,7 +193,7 @@ export function ProjectMenu() {
               );
             }}
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors focus-ring disabled:opacity-50"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) => {
               if (!currentProjectName) return;
               e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.55)";
@@ -202,7 +202,7 @@ export function ProjectMenu() {
           >
             <SlidersHorizontal
               className="h-3.5 w-3.5 shrink-0"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             />
             <span>{t("dashboard:project_switcher_settings")}</span>
           </button>

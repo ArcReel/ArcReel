@@ -107,10 +107,10 @@ export function EndpointImportDialog({
       panelClassName="max-h-[80vh] overflow-y-auto"
     >
       <div className="p-5">
-        <h2 id={titleId} className="font-editorial text-[18px] text-text">
+        <h2 id={titleId} className="font-editorial text-[18px] text-foreground">
           {t("ce_import_title")}
         </h2>
-        <p className="mt-1 text-[12px] text-text-3">
+        <p className="mt-1 text-[12px] text-muted-foreground">
           {[
             fileName || (result || pending ? t("ce_import_pasted") : ""),
             detectedDefinition?.meta?.name,
@@ -120,8 +120,8 @@ export function EndpointImportDialog({
             .join(" · ")}
         </p>
 
-        <div className="mt-3 rounded-[8px] border border-hairline-soft p-3">
-          <p className="text-[12px] leading-[1.55] text-text-3">{t("ce_import_source_desc")}</p>
+        <div className="mt-3 rounded-md border border-border/50 p-3">
+          <p className="text-[12px] leading-[1.55] text-muted-foreground">{t("ce_import_source_desc")}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -153,7 +153,7 @@ export function EndpointImportDialog({
                 );
               }}
             />
-            <span className="text-[11.5px] text-text-4">{t("ce_import_or_paste")}</span>
+            <span className="text-[11.5px] text-muted-foreground">{t("ce_import_or_paste")}</span>
           </div>
           <textarea
             className={`${INPUT_CLS} mt-2 h-28 w-full resize-y py-1.5 font-mono text-[11.5px] leading-[1.5]`}
@@ -180,20 +180,20 @@ export function EndpointImportDialog({
         </div>
 
         {pending && (
-          <p className="mt-3 flex items-center gap-2 text-[12px] text-text-3">
-            <Loader2 className="h-3 w-3 motion-safe:animate-spin text-accent-2" aria-hidden />
+          <p className="mt-3 flex items-center gap-2 text-[12px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 motion-safe:animate-spin text-primary" aria-hidden />
             {t("common:loading")}
           </p>
         )}
 
         {shapeNoticeKey && (
-          <p className="mt-3 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2 text-[12px] leading-[1.55] text-text-2">
+          <p className="mt-3 rounded-md border border-border bg-card/40 px-3 py-2 text-[12px] leading-[1.55] text-subtle-foreground">
             {t(shapeNoticeKey)}
           </p>
         )}
 
         {schemaVersion && schemaVersion.level !== "direct" && (
-          <p className="mt-3 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2 text-[12px] leading-[1.55] text-text-2">
+          <p className="mt-3 rounded-md border border-border bg-card/40 px-3 py-2 text-[12px] leading-[1.55] text-subtle-foreground">
             {t("ce_import_schema_mismatch", {
               file: schemaVersion.file ?? t("ce_import_schema_unknown"),
               current: schemaVersion.current,
@@ -202,8 +202,8 @@ export function EndpointImportDialog({
         )}
 
         {minAppVersion && !minAppVersion.satisfied && (
-          <p className="mt-3 flex items-start gap-2 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2 text-[12px] leading-[1.55] text-text-2">
-            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warm-bright" aria-hidden />
+          <p className="mt-3 flex items-start gap-2 rounded-md border border-border bg-card/40 px-3 py-2 text-[12px] leading-[1.55] text-subtle-foreground">
+            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
             <span>
               {t("ce_import_requires_newer_app", {
                 required: minAppVersion.required,
@@ -215,7 +215,7 @@ export function EndpointImportDialog({
 
         {isRawWorkflow && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-[12px] text-text-3">{t("ce_import_media_type")}</span>
+            <span className="text-[12px] text-muted-foreground">{t("ce_import_media_type")}</span>
             {MEDIA_TYPES.map((media) => (
               <button
                 key={media}
@@ -223,16 +223,16 @@ export function EndpointImportDialog({
                 disabled={busy}
                 aria-pressed={mediaType === media}
                 onClick={() => onMediaTypeChange(media)}
-                className={`rounded-[7px] border px-3 py-1 font-mono text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 ${
+                className={`rounded-md border px-3 py-1 font-mono text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${
                   mediaType === media
-                    ? "border-accent/45 bg-accent-dim text-accent-2"
-                    : "border-hairline-soft text-text-3 hover:text-text"
+                    ? "border-primary/45 bg-primary/12 text-primary"
+                    : "border-border/50 text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {t(media === "image" ? "endpoint_image_group" : "endpoint_video_group")}
               </button>
             ))}
-            <span className="w-full text-[11.5px] text-text-4">{t("ce_import_media_type_note")}</span>
+            <span className="w-full text-[11.5px] text-muted-foreground">{t("ce_import_media_type_note")}</span>
           </div>
         )}
 
@@ -240,26 +240,26 @@ export function EndpointImportDialog({
           <div className="mt-3 space-y-1.5">
             {errors.map((issue) => (
               <div key={`e-${issue.path}-${issue.code}`} className="flex items-start gap-2">
-                <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warm-bright" aria-hidden />
-                <span className="text-[12px] leading-[1.55] text-text-2">{issue.message}</span>
+                <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
+                <span className="text-[12px] leading-[1.55] text-subtle-foreground">{issue.message}</span>
               </div>
             ))}
             {result.warnings.map((issue) => (
               <div key={`w-${issue.path}-${issue.code}`} className="flex items-start gap-2">
-                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden />
-                <span className="text-[12px] leading-[1.55] text-text-2">{issue.message}</span>
+                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="text-[12px] leading-[1.55] text-subtle-foreground">{issue.message}</span>
               </div>
             ))}
           </div>
         )}
 
         {result?.hints?.base_url && (
-          <p className="mt-3 text-[12px] text-text-3">
+          <p className="mt-3 text-[12px] text-muted-foreground">
             {t("ce_import_hint_base_url", { url: result.hints.base_url })}
           </p>
         )}
         {result?.hints?.suggested_models && result.hints.suggested_models.length > 0 && (
-          <p className="mt-1 text-[12px] text-text-3">
+          <p className="mt-1 text-[12px] text-muted-foreground">
             {t("ce_import_hint_models", {
               models: formatNameList(
                 result.hints.suggested_models.map((m) => m.label ?? m.id),
@@ -296,7 +296,7 @@ export function EndpointImportDialog({
           </button>
         </div>
         {hasErrors && (
-          <p className="mt-2 text-right text-[12px] text-warm-bright">{t("ce_import_blocked")}</p>
+          <p className="mt-2 text-right text-[12px] text-warn">{t("ce_import_blocked")}</p>
         )}
       </div>
     </GlassModal>

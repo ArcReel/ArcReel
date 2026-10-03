@@ -217,9 +217,9 @@ export default tseslint.config(
     },
   },
 
-  // 页面级套件与录制脚本：类型信息取自 e2e/tsconfig.json
+  // 页面级套件与录制脚本：类型信息取自 e2e/tsconfig.json；scripts/ 同理取自 scripts/tsconfig.json
   {
-    files: ["e2e/**/*.ts"],
+    files: ["e2e/**/*.ts", "scripts/**/*.ts"],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },
       parserOptions: {

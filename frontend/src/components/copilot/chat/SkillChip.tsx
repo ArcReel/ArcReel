@@ -21,18 +21,18 @@ export function SkillChip({ name, args, status }: SkillChipProps) {
 
   const statusIcon = status === "ok" ? "✓" : status === "error" ? "✗" : status === "running" ? "…" : null;
   const statusColor =
-    status === "ok" ? "var(--color-good)" : status === "error" ? "var(--color-danger)" : "var(--color-text-4)";
+    status === "ok" ? "var(--good)" : status === "error" ? "var(--destructive)" : "var(--muted-foreground)";
 
   return (
     <div className="my-1 flex min-w-0 items-center gap-1.5">
       <span
         className="num inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium"
-        style={{ background: "var(--color-accent-dim)", color: "var(--color-accent-2)" }}
+        style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", color: "var(--primary)" }}
       >
         /{displayName}
       </span>
       {args && (
-        <span className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }} title={args}>
+        <span className="truncate text-[11px]" style={{ color: "var(--muted-foreground)" }} title={args}>
           {args}
         </span>
       )}

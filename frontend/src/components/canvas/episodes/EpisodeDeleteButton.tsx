@@ -20,7 +20,7 @@ export function EpisodeDeleteButton({ episode }: { episode: number }) {
       <button
         type="button"
         onClick={() => void deletion.requestDelete(episode)}
-        className="focus-ring ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-text-4 transition-colors hover:text-[var(--color-warm)]"
+        className="focus-ring ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-warn"
         title={t("episode_menu_delete")}
       >
         <Trash2 className="h-3 w-3" aria-hidden />

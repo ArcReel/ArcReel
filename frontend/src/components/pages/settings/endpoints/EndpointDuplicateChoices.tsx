@@ -4,7 +4,7 @@ import type { EndpointDuplicateDescriptor } from "@/types";
 import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
 const ROW_CLS =
-  "flex items-center gap-3 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2 text-[12.5px] text-text-2";
+  "flex items-center gap-3 rounded-md border border-border bg-card/40 px-3 py-2 text-[12.5px] text-subtle-foreground";
 
 type EndpointDuplicateChoicesProps = {
   duplicates: EndpointDuplicateDescriptor[];
@@ -36,14 +36,14 @@ export function EndpointDuplicateChoices({
   const groupName = useId();
   if (duplicates.length === 0) return null;
 
-  const version = (dup: EndpointDuplicateDescriptor) => <span className="ml-2 text-text-3">v{dup.version}</span>;
+  const version = (dup: EndpointDuplicateDescriptor) => <span className="ml-2 text-muted-foreground">v{dup.version}</span>;
   const relation = (dup: EndpointDuplicateDescriptor) => (
-    <span className="shrink-0 text-[11.5px] text-text-3">{t(`ce_import_relation_${dup.relation}`)}</span>
+    <span className="shrink-0 text-[11.5px] text-muted-foreground">{t(`ce_import_relation_${dup.relation}`)}</span>
   );
 
   return (
     <fieldset className="mt-4" disabled={disabled}>
-      <legend className="text-[12.5px] text-text-2">{t("ce_import_duplicates")}</legend>
+      <legend className="text-[12.5px] text-subtle-foreground">{t("ce_import_duplicates")}</legend>
       <div className="mt-2 space-y-2">
         {duplicates.map((dup) => {
           if (!selection) {

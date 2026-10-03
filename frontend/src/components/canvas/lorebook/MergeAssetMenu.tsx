@@ -28,12 +28,12 @@ type PreviewState =
   | { phase: "failed"; message: string };
 
 const TRIGGER_CLS =
-  "focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40";
+  "focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40";
 
 const FIELD_STYLE = {
   background: "oklch(0.20 0.011 265 / 0.6)",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
 } as const;
 
 const LABEL_CLS = "block text-[11px] font-medium";
@@ -154,14 +154,14 @@ export function MergeAssetMenu({ projectName, assetType, name, description, busy
   if (preview.phase === "loading") {
     impact = <p>{t("assets:merge_impact_loading")}</p>;
   } else if (preview.phase === "failed") {
-    impact = <p style={{ color: "var(--color-warm)" }}>{t("assets:merge_impact_failed", { message: preview.message })}</p>;
+    impact = <p style={{ color: "var(--warn)" }}>{t("assets:merge_impact_failed", { message: preview.message })}</p>;
   } else if (preview.phase === "ready") {
     const { result } = preview;
     const storyboards = result.episodes.reduce((sum, item) => sum + item.storyboards, 0);
     const videos = result.episodes.reduce((sum, item) => sum + item.videos, 0);
     impact = (
       <div className="space-y-1.5">
-        <p style={{ color: "var(--color-text-2)" }}>
+        <p style={{ color: "var(--subtle-foreground)" }}>
           {result.references > 0
             ? t("assets:merge_impact_summary", { references: result.references, storyboards, videos })
             : t("assets:merge_impact_none", { name })}
@@ -170,7 +170,7 @@ export function MergeAssetMenu({ projectName, assetType, name, description, busy
           <ul className="max-h-40 space-y-1 overflow-y-auto pr-1">
             {result.episodes.map((item) => (
               <li key={item.episode} className="flex gap-2">
-                <span className="w-24 shrink-0 truncate" style={{ color: "var(--color-text-2)" }}>
+                <span className="w-24 shrink-0 truncate" style={{ color: "var(--subtle-foreground)" }}>
                   {episodeDisplayName(episodes, item.episode, t)}
                 </span>
                 <span className="min-w-0 flex-1 tabular-nums">{episodeLine(item)}</span>
@@ -200,7 +200,7 @@ export function MergeAssetMenu({ projectName, assetType, name, description, busy
   const form = (
     <div className="mt-2 space-y-3.5">
       <div>
-        <label htmlFor={targetFieldId} className={LABEL_CLS} style={{ color: "var(--color-text-2)" }}>
+        <label htmlFor={targetFieldId} className={LABEL_CLS} style={{ color: "var(--subtle-foreground)" }}>
           {t("assets:merge_target_label")}
         </label>
         {candidates.length === 0 ? (
@@ -231,7 +231,7 @@ export function MergeAssetMenu({ projectName, assetType, name, description, busy
 
       {assetType === "character" && (
         <fieldset disabled={merging} className="space-y-1.5">
-          <legend className={LABEL_CLS} style={{ color: "var(--color-text-2)" }}>
+          <legend className={LABEL_CLS} style={{ color: "var(--subtle-foreground)" }}>
             {t("assets:merge_mode_label")}
           </legend>
           {[false, true].map((derivative) => {
@@ -247,10 +247,10 @@ export function MergeAssetMenu({ projectName, assetType, name, description, busy
                     setAsDerivative(derivative);
                     loadPreview(target, derivative);
                   }}
-                  className="mt-0.5 accent-[var(--color-accent-2)]"
+                  className="mt-0.5 accent-primary"
                 />
                 <label htmlFor={optionId} className="cursor-pointer">
-                  <span style={{ color: "var(--color-text)" }}>
+                  <span style={{ color: "var(--foreground)" }}>
                     {t(derivative ? "assets:merge_mode_derivative" : "assets:merge_mode_asset")}
                   </span>
                   <span className="block">
@@ -265,7 +265,7 @@ export function MergeAssetMenu({ projectName, assetType, name, description, busy
 
       <div>
         <div className="flex items-center justify-between gap-2">
-          <span className={LABEL_CLS} style={{ color: "var(--color-text-2)" }}>
+          <span className={LABEL_CLS} style={{ color: "var(--subtle-foreground)" }}>
             {t("assets:merge_source_description", { name })}
           </span>
           {description.trim() ? <CopyButton text={description} label={t("assets:merge_copy_description")} /> : null}
@@ -280,7 +280,7 @@ export function MergeAssetMenu({ projectName, assetType, name, description, busy
 
       {impact}
 
-      <p style={{ color: "var(--color-warm)" }}>{t("assets:merge_discarded", { name })}</p>
+      <p style={{ color: "var(--warn)" }}>{t("assets:merge_discarded", { name })}</p>
     </div>
   );
 

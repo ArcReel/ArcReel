@@ -41,8 +41,8 @@ export function AssistantResizeHandle({
       <div
         className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 ${
           isResizing
-            ? "bg-[var(--color-accent)]"
-            : "bg-transparent group-hover:bg-[var(--color-accent)]"
+            ? "bg-primary"
+            : "bg-transparent group-hover:bg-primary"
         }`}
       />
     </div>

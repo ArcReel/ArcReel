@@ -71,3 +71,13 @@ Dependabot 只升级 npm 包，不会重新生成 `components/ui/*.tsx`。`@base
 
 - 新增的组件变体、`@shadcn/lint` 的 `allow` 或 `contracts` 条目。
 - 登记进 `VIEWPORT_BREAKPOINT_ALLOWLIST` 的文件。只有外壳切换标准档与紧凑档、弹层宽度等确需按视口判断的场景可以登记；外壳内的组件一律使用容器查询。
+
+## 颜色与文字层级
+
+### 颜色只用 `index.css` 的语义 token，深浅用透明度修饰表达
+
+颜色 token 沿用 shadcn 命名（`primary`、`destructive`、`border`、`input`、`muted-foreground` 等），另有状态色 `good`、`warn` 和文字中间档 `subtle-foreground`。浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅另设变体 token；变体 token 会让同一语义出现多个近似色，旧色板中的变体色已按这一原则删除。危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。内联样式和 CSS 引用 `:root` 中的原始变量（`var(--primary)`），需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
+
+文字只分三档：`foreground`、`subtle-foreground`、`muted-foreground`。正文不在 `muted-foreground` 上再叠加透明度或 `opacity`：它在页面底色上的对比度是 5.7:1，再降低就达不到 WCAG AA 要求的 4.5:1。
+
+旧 token 名已由 `frontend/scripts/token-codemod.ts` 一次改完。合并仍在使用旧 token 名的分支后，对这些文件重跑脚本，用法见脚本头部注释。

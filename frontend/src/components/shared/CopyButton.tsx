@@ -41,7 +41,7 @@ export function CopyButton({ text, label, copiedLabel, className = "" }: CopyBut
       title={title}
       aria-label={title}
       className={`focus-ring grid h-6 w-6 place-items-center rounded-md transition-colors hover:bg-white/10 ${className}`}
-      style={{ color: copied ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+      style={{ color: copied ? "var(--primary)" : "var(--muted-foreground)" }}
     >
       <Icon aria-hidden className="h-3.5 w-3.5" />
     </button>

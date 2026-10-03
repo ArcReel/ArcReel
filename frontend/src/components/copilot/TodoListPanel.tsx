@@ -74,7 +74,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
     <div
       className="mx-3 mb-1 overflow-hidden rounded-lg"
       style={{
-        border: "1px solid var(--color-hairline-soft)",
+        border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         background: "oklch(0.20 0.012 265 / 0.5)",
         backdropFilter: "blur(6px)",
         WebkitBackdropFilter: "blur(6px)",
@@ -87,7 +87,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
         aria-expanded={!collapsed}
         aria-controls={listId}
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors"
-        style={{ color: "var(--color-text-2)" }}
+        style={{ color: "var(--subtle-foreground)" }}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "oklch(0.24 0.012 265 / 0.5)";
         }}
@@ -99,12 +99,12 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
         {collapsed ? (
           <ChevronRight
             className="h-3 w-3 shrink-0"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           />
         ) : (
           <ChevronDown
             className="h-3 w-3 shrink-0"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           />
         )}
 
@@ -113,11 +113,11 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
           <span className="relative flex h-2 w-2 shrink-0">
             <span
               className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
-              style={{ background: "var(--color-warn)" }}
+              style={{ background: "var(--warn)" }}
             />
             <span
               className="relative inline-flex h-2 w-2 rounded-full"
-              style={{ background: "var(--color-warn)" }}
+              style={{ background: "var(--warn)" }}
             />
           </span>
         )}
@@ -125,7 +125,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
         {/* Current task label */}
         <span
           className="flex-1 truncate text-[12px]"
-          style={{ color: "var(--color-text-2)" }}
+          style={{ color: "var(--subtle-foreground)" }}
         >
           {headerLabel}
         </span>
@@ -135,11 +135,11 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
           <ProgressBar
             value={progressPercent}
             className="h-1 w-16 rounded-full bg-[oklch(0.30_0.012_265_/_0.5)]"
-            barClassName="bg-(--color-good) transition-all duration-500 ease-out"
+            barClassName="bg-good transition-all duration-500 ease-out"
           />
           <span
             className="num text-[10px]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {completedCount}/{total}
           </span>
@@ -151,7 +151,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
         <div
           id={listId}
           className="space-y-0.5 px-3 py-1.5"
-          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           {todos.map((todo, idx) => (
             <TodoRow key={`${idx}-${todo.content}-${todo.status}`} todo={todo} />
@@ -171,10 +171,10 @@ function TodoRow({ todo }: { todo: TodoItem }) {
   const isInProgress = todo.status === "in_progress";
 
   const labelColor = isCompleted
-    ? "var(--color-text-4)"
+    ? "var(--muted-foreground)"
     : isInProgress
-      ? "var(--color-text)"
-      : "var(--color-text-3)";
+      ? "var(--foreground)"
+      : "var(--muted-foreground)";
 
   return (
     <div className="flex items-center gap-2 py-0.5">
@@ -182,23 +182,23 @@ function TodoRow({ todo }: { todo: TodoItem }) {
       {isCompleted ? (
         <Check
           className="h-3 w-3 shrink-0"
-          style={{ color: "var(--color-good)" }}
+          style={{ color: "var(--good)" }}
         />
       ) : isInProgress ? (
         <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
           <span
             className="absolute h-2 w-2 animate-ping rounded-full opacity-40"
-            style={{ background: "var(--color-warn)" }}
+            style={{ background: "var(--warn)" }}
           />
           <span
             className="relative h-1.5 w-1.5 rounded-full"
-            style={{ background: "var(--color-warn)" }}
+            style={{ background: "var(--warn)" }}
           />
         </span>
       ) : (
         <Circle
           className="h-3 w-3 shrink-0"
-          style={{ color: "var(--color-text-4)" }}
+          style={{ color: "var(--muted-foreground)" }}
         />
       )}
 

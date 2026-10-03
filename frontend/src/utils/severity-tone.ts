@@ -13,22 +13,22 @@ export interface ToneTokens {
 
 export const SEVERITY_TONES: Record<DiagnosticSeverity, ToneTokens> = {
   blocking: {
-    color: "var(--color-danger-2)",
-    soft: "var(--color-danger-soft)",
-    ring: "var(--color-danger-ring)",
-    glow: "var(--color-danger-glow)",
+    color: "var(--destructive)",
+    soft: "color-mix(in oklab, var(--destructive) 10%, transparent)",
+    ring: "color-mix(in oklab, var(--destructive) 30%, transparent)",
+    glow: "color-mix(in oklab, var(--destructive) 35%, transparent)",
   },
   auto_fixed: {
-    color: "var(--color-accent-2)",
-    soft: "var(--color-accent-dim)",
-    ring: "var(--color-accent-soft)",
-    glow: "var(--color-accent-glow)",
+    color: "var(--primary)",
+    soft: "color-mix(in oklab, var(--primary) 12%, transparent)",
+    ring: "color-mix(in oklab, var(--primary) 22%, transparent)",
+    glow: "color-mix(in oklab, var(--primary) 35%, transparent)",
   },
   warnings: {
-    color: "var(--color-warm)",
-    soft: "var(--color-warm-soft)",
-    ring: "var(--color-warm-ring)",
-    glow: "var(--color-warm-glow)",
+    color: "var(--warn)",
+    soft: "color-mix(in oklab, var(--warn) 10%, transparent)",
+    ring: "color-mix(in oklab, var(--warn) 30%, transparent)",
+    glow: "color-mix(in oklab, var(--warn) 35%, transparent)",
   },
 };
 

@@ -44,8 +44,8 @@ export function AutoTextarea({
       style={{
         background:
           "linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4))",
-        border: "1px solid var(--color-hairline-soft)",
-        color: "var(--color-text)",
+        border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+        color: "var(--foreground)",
         boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
       }}
     />

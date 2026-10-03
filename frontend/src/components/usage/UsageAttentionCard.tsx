@@ -28,14 +28,14 @@ export function UsageAttentionCard({ summary, onChange }: UsageAttentionCardProp
 
   return (
     <section
-      className="col-span-12 rounded-[10px] border border-danger/20 p-4 lg:col-span-5"
+      className="col-span-12 rounded-lg border border-destructive/20 p-4 lg:col-span-5"
       style={CARD_STYLE}
     >
       <div className="mb-2.5 flex items-center justify-between gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
           {t("usage_attention_title")}
         </h4>
-        <span className="num text-[11px] text-text-4">{summary.attention.length}</span>
+        <span className="num text-[11px] text-muted-foreground">{summary.attention.length}</span>
       </div>
       <ul className="flex flex-col gap-2">
         {summary.attention.map((item) => (
@@ -105,14 +105,14 @@ function AttentionItem({
     <button
       type="button"
       onClick={() => onChange(patch)}
-      className="focus-ring group flex w-full items-start gap-2.5 rounded-[8px] border border-hairline bg-bg-grad-b/40 px-3 py-2.5 text-left transition-colors hover:border-danger/40"
+      className="focus-ring group flex w-full items-start gap-2.5 rounded-md border border-border bg-sidebar/40 px-3 py-2.5 text-left transition-colors hover:border-destructive/40"
     >
-      <Icon aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
+      <Icon aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
       <span className="min-w-0 flex-1">
-        <span className="block text-[12.5px] text-text">{title}</span>
-        <span className="mt-0.5 block text-[11.5px] text-text-3">{detail}</span>
+        <span className="block text-[12.5px] text-foreground">{title}</span>
+        <span className="mt-0.5 block text-[11.5px] text-muted-foreground">{detail}</span>
       </span>
-      <span className="shrink-0 pt-0.5 text-[11px] text-text-4 transition-colors group-hover:text-accent-2">
+      <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground transition-colors group-hover:text-primary">
         {t(isRate ? "usage_attention_failure_rate_action" : "usage_attention_consecutive_action")}
       </span>
     </button>

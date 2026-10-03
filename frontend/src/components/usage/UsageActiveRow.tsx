@@ -33,7 +33,7 @@ function ProgressPulse() {
       className="mt-1 h-0.5 w-full overflow-hidden rounded-full"
       style={{ background: "oklch(0.16 0.010 265 / 0.7)" }}
     >
-      <div className="animate-progress-pulse h-full w-1/3 rounded-full bg-accent" />
+      <div className="animate-progress-pulse h-full w-1/3 rounded-full bg-primary" />
     </div>
   );
 }
@@ -76,16 +76,16 @@ export function UsageActiveRow({
           style={{ color: media.color }}
         />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-[11.5px] text-text-2">
+          <div className="flex items-center gap-1.5 text-[11.5px] text-subtle-foreground">
             <span className="truncate">{target}</span>
             <span
               aria-hidden="true"
               className={
-                "ml-auto h-[5px] w-[5px] shrink-0 rounded-full bg-accent-2" +
+                "ml-auto h-[5px] w-[5px] shrink-0 rounded-full bg-primary" +
                 (running ? " animate-breathe" : "")
               }
             />
-            <span className="num shrink-0 text-[11px] text-text-3">
+            <span className="num shrink-0 text-[11px] text-muted-foreground">
               {elapsedSince(view.startedAt, now, t)}
             </span>
             {task && cancellable && onCancel && (
@@ -93,7 +93,7 @@ export function UsageActiveRow({
                 type="button"
                 disabled={cancelling}
                 onClick={() => onCancel(task.task_id)}
-                className="focus-ring shrink-0 rounded p-0.5 text-text-4 transition-colors hover:text-danger-2 disabled:opacity-60"
+                className="focus-ring shrink-0 rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-60"
                 aria-label={t(cancelling ? "cancelling_status" : "cancel_this_task")}
                 title={cancelling ? t("cancelling_status") : t("cancel_task")}
               >
@@ -105,7 +105,7 @@ export function UsageActiveRow({
               </button>
             )}
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-text-3">
+          <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-muted-foreground">
             <span className="truncate">
               {providerLabel(view.provider)} · {view.model ?? t("usage_model_unresolved")}
             </span>

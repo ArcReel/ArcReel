@@ -11,7 +11,7 @@ const KPI_VALUE_STYLE: CSSProperties = {
   fontWeight: 400,
   letterSpacing: "-0.01em",
   lineHeight: 1.1,
-  color: "var(--color-text)",
+  color: "var(--foreground)",
 };
 
 const DASH = "—";
@@ -35,14 +35,14 @@ function Cell({
   first: boolean;
 }) {
   return (
-    <div className={"px-5 py-4" + (first ? "" : " border-l border-hairline-soft")}>
-      <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-text-4">
+    <div className={"px-5 py-4" + (first ? "" : " border-l border-border/50")}>
+      <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </div>
       <div className="font-editorial mt-1" style={KPI_VALUE_STYLE}>
         {value}
       </div>
-      <div className="mt-1 text-[10.5px] text-text-4">{sub}</div>
+      <div className="mt-1 text-[10.5px] text-muted-foreground">{sub}</div>
     </div>
   );
 }
@@ -60,7 +60,7 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
 
   return (
     <div
-      className="grid grid-cols-2 overflow-hidden rounded-[10px] border border-hairline sm:grid-cols-4"
+      className="grid grid-cols-2 overflow-hidden rounded-lg border border-border sm:grid-cols-4"
       style={CARD_STYLE}
     >
       <Cell

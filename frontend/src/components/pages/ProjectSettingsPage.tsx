@@ -81,7 +81,7 @@ interface SectionCardProps {
 function SectionCard({ kicker, title, description, children, footer }: SectionCardProps) {
   return (
     <section
-      className="overflow-hidden rounded-[12px] border border-hairline"
+      className="overflow-hidden rounded-xl border border-border"
       style={{
         background:
           "linear-gradient(180deg, oklch(0.20 0.012 270 / 0.55), oklch(0.16 0.010 265 / 0.55))",
@@ -89,20 +89,20 @@ function SectionCard({ kicker, title, description, children, footer }: SectionCa
           "inset 0 1px 0 oklch(1 0 0 / 0.03), 0 18px 40px -28px oklch(0 0 0 / 0.5)",
       }}
     >
-      <header className="px-5 pt-4 pb-3 border-b border-hairline-soft">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+      <header className="px-5 pt-4 pb-3 border-b border-border/50">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
           {kicker}
         </div>
         {title ? (
-          <h2 className="mt-1 text-[15px] font-semibold tracking-tight text-text">{title}</h2>
+          <h2 className="mt-1 text-[15px] font-semibold tracking-tight text-foreground">{title}</h2>
         ) : null}
         {description ? (
-          <p className="mt-1 text-[12px] leading-[1.55] text-text-3">{description}</p>
+          <p className="mt-1 text-[12px] leading-[1.55] text-muted-foreground">{description}</p>
         ) : null}
       </header>
       <div className="px-5 py-4">{children}</div>
       {footer ? (
-        <footer className="border-t border-hairline-soft bg-[oklch(0.16_0.010_265_/_0.5)] px-5 py-3">
+        <footer className="border-t border-border/50 bg-[oklch(0.16_0.010_265_/_0.5)] px-5 py-3">
           {footer}
         </footer>
       ) : null}
@@ -691,11 +691,11 @@ export function ProjectSettingsPage() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col text-text"
+      className="fixed inset-0 z-50 flex flex-col text-foreground"
       style={
         {
           background:
-            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
+            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--card), var(--sidebar))",
         }
       }
     >
@@ -707,7 +707,7 @@ export function ProjectSettingsPage() {
             "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
           backdropFilter: "blur(28px) saturate(1.5)",
           WebkitBackdropFilter: "blur(28px) saturate(1.5)",
-          borderBottom: "1px solid var(--color-hairline)",
+          borderBottom: "1px solid var(--border)",
           boxShadow:
             "inset 0 1px 0 oklch(1 0 0 / 0.05), 0 6px 24px -12px oklch(0 0 0 / 0.45)",
         }}
@@ -715,15 +715,15 @@ export function ProjectSettingsPage() {
         <div className="mx-auto flex max-w-3xl items-center gap-4 px-6 py-4">
           <button
             onClick={() => guardedNavigate(`/app/projects/${projectName}`)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-card/45 px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("back_to_project")}
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             <span>{t("back_to_project")}</span>
           </button>
-          <span aria-hidden className="h-5 w-px bg-hairline-soft" />
+          <span aria-hidden className="h-5 w-px bg-border/50" />
           <div className="min-w-0 flex-1">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
               Project Booth — {projectName.toUpperCase()}
             </div>
             <h1
@@ -733,12 +733,12 @@ export function ProjectSettingsPage() {
                 fontSize: 24,
                 lineHeight: 1.05,
                 letterSpacing: "-0.012em",
-                color: "var(--color-text)",
+                color: "var(--foreground)",
               }}
               title={getProjectDisplayName(projectTitle, t("untitled_project"))}
             >
               {t("project_settings")}
-              <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-text-3">
+              <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                 {getProjectDisplayName(projectTitle, t("untitled_project"))}
               </span>
             </h1>
@@ -750,10 +750,10 @@ export function ProjectSettingsPage() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-6 py-7 pb-24 space-y-5">
           <div>
-            <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-3">
+            <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
               {t("model_config")}
             </div>
-            <p className="mt-1 text-[12.5px] leading-[1.55] text-text-3">
+            <p className="mt-1 text-[12.5px] leading-[1.55] text-muted-foreground">
               {t("model_config_project_desc")}
             </p>
           </div>
@@ -775,15 +775,15 @@ export function ProjectSettingsPage() {
             >
               {agentProfile.customized ? (
                 <div className="space-y-2">
-                  <p className="text-[12px] text-warm">{t("agent_profile_customized")}</p>
+                  <p className="text-[12px] text-warn">{t("agent_profile_customized")}</p>
                   <ul className="space-y-1" aria-label={t("agent_profile_affected_files")}>
                     {agentProfile.customized_files.map((file) => (
-                      <li key={file} className="font-mono text-[11px] text-text-3">{file}</li>
+                      <li key={file} className="font-mono text-[11px] text-muted-foreground">{file}</li>
                     ))}
                   </ul>
                 </div>
               ) : (
-                <p className="text-[12px] text-text-3">{t("agent_profile_builtin")}</p>
+                <p className="text-[12px] text-muted-foreground">{t("agent_profile_builtin")}</p>
               )}
             </SectionCard>
           )}
@@ -820,13 +820,13 @@ export function ProjectSettingsPage() {
                     <button
                       type="button"
                       onClick={handleClearStyle}
-                      className="rounded-[7px] px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      className="rounded-md px-2.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       {t("style_clear")}
                     </button>
                   )}
                   {isStyleCleared && !savingStyle && styleIsDirty && (
-                    <p className="text-[11.5px] text-text-3">{t("style_cleared_hint")}</p>
+                    <p className="text-[11.5px] text-muted-foreground">{t("style_cleared_hint")}</p>
                   )}
                 </div>
               }
@@ -910,7 +910,7 @@ export function ProjectSettingsPage() {
               {/* Aspect ratio */}
               <SectionCard kicker="Frame Aspect">
                 <fieldset>
-                  <legend className="mb-2.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                  <legend className="mb-2.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                     {t("aspect_ratio_label")}
                   </legend>
                   <div className="flex gap-2.5">
@@ -935,12 +935,12 @@ export function ProjectSettingsPage() {
                         <span className="inline-flex items-center gap-2">
                           <span
                             aria-hidden
-                            className="block rounded-[1.5px] border border-hairline"
+                            className="block rounded-xs border border-border"
                             style={{
                               width: ar === "16:9" ? 12 : 7.5,
                               height: ar === "16:9" ? 7.5 : 12,
                               background:
-                                aspectRatio === ar ? "var(--color-accent-soft)" : "transparent",
+                                aspectRatio === ar ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "transparent",
                             }}
                           />
                           {ar === "9:16" ? t("portrait_9_16") : t("landscape_16_9")}
@@ -955,21 +955,21 @@ export function ProjectSettingsPage() {
               <SectionCard kicker="Pipeline Mode">
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                       {t("generation_route")}
                     </span>
                     <RouteLockBadge />
                   </div>
-                  <div className="rounded-[9px] border border-hairline-soft bg-bg-grad-a/50 px-3.5 py-2.5">
+                  <div className="rounded-lg border border-border/50 bg-card/50 px-3.5 py-2.5">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-[13px] font-semibold text-text">
+                      <span className="text-[13px] font-semibold text-foreground">
                         {t(ROUTE_META[generationRoute].nameKey)}
                       </span>
-                      <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-text-4">
+                      <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                         {ROUTE_META[generationRoute].tag}
                       </span>
                     </div>
-                    <p className="mt-0.5 text-[11.5px] leading-[1.5] text-text-3">
+                    <p className="mt-0.5 text-[11.5px] leading-[1.5] text-muted-foreground">
                       {t(ROUTE_META[generationRoute].descKey)}
                     </p>
                   </div>
@@ -1032,7 +1032,7 @@ export function ProjectSettingsPage() {
                       </label>
                     ))}
                   </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-text-4">
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
                     {voiceBinding === "prompt"
                       ? t("character_voice_binding_prompt_desc")
                       : t("character_voice_binding_reference_audio_desc")}
@@ -1055,8 +1055,8 @@ export function ProjectSettingsPage() {
           )}
 
           {!options && (
-            <div className="flex items-center gap-2 py-6 text-text-3">
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+            <div className="flex items-center gap-2 py-6 text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
               <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
                 {t("loading_config")}
               </span>
@@ -1073,17 +1073,17 @@ export function ProjectSettingsPage() {
             "linear-gradient(180deg, oklch(0.18 0.011 265 / 0.65), oklch(0.14 0.009 265 / 0.85))",
           backdropFilter: "blur(20px) saturate(1.3)",
           WebkitBackdropFilter: "blur(20px) saturate(1.3)",
-          borderTop: "1px solid var(--color-hairline)",
+          borderTop: "1px solid var(--border)",
           boxShadow: "0 -8px 28px -12px oklch(0 0 0 / 0.55)",
         }}
       >
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-6 py-3">
-          <div className="min-w-0 flex items-center gap-2 text-[11.5px] text-text-3">
+          <div className="min-w-0 flex items-center gap-2 text-[11.5px] text-muted-foreground">
             <span
               aria-hidden
               className="inline-block h-1.5 w-1.5 rounded-full"
               style={{
-                background: isDirty ? "var(--color-warm)" : "var(--color-good)",
+                background: isDirty ? "var(--warn)" : "var(--good)",
                 boxShadow: isDirty
                   ? "0 0 6px oklch(0.85 0.13 75 / 0.4)"
                   : "0 0 6px oklch(0.78 0.10 155 / 0.4)",

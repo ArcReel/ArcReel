@@ -8,12 +8,12 @@ type Overall = TestConnectionResponse["overall"];
 const OVERALL_VIEW: Record<Overall, { Icon: LucideIcon; tone: string; headlineKey: string }> = {
   ok: {
     Icon: CheckCircle,
-    tone: "border-accent/40 bg-accent/5 text-accent",
+    tone: "border-primary/40 bg-primary/5 text-primary",
     headlineKey: "test_ok",
   },
   fail: {
     Icon: AlertCircle,
-    tone: "border-warm-bright/40 bg-warm-bright/5 text-warm-bright",
+    tone: "border-warn/40 bg-warn/5 text-warn",
     headlineKey: "test_fail",
   },
 };
@@ -32,7 +32,7 @@ export function TestResultPanel({ result, attached = false }: Props) {
 
   return (
     <div
-      className={`${attached ? "rounded-t-none border-t-0" : "mt-3"} rounded-[10px] border p-3 ${tone}`}
+      className={`${attached ? "rounded-t-none border-t-0" : "mt-3"} rounded-lg border p-3 ${tone}`}
       role="status"
       aria-live="polite"
     >
@@ -42,22 +42,22 @@ export function TestResultPanel({ result, attached = false }: Props) {
       </div>
 
       {diagnosis && (
-        <div className="mt-2 text-[12px] leading-[1.55] text-text-2">
+        <div className="mt-2 text-[12px] leading-[1.55] text-subtle-foreground">
           {t(`diagnosis_${diagnosis}`)}
         </div>
       )}
 
       {/* 探测的就是 Agent 运行时调用的地址，二者同一个字符串 */}
-      <div className="mt-2 font-mono text-[10.5px] text-text-4 tabular-nums">
+      <div className="mt-2 font-mono text-[10.5px] text-muted-foreground tabular-nums">
         <div className="uppercase tracking-[0.12em]">{t("messages_url")}</div>
-        <div className="truncate text-text-3">{messages_url}</div>
+        <div className="truncate text-muted-foreground">{messages_url}</div>
         <div>
           POST · {messages_probe.status_code ?? "—"} · {messages_probe.latency_ms ?? "—"}&nbsp;ms
         </div>
       </div>
 
       {messages_probe.error && (
-        <details className="mt-2 text-[11px] text-text-4">
+        <details className="mt-2 text-[11px] text-muted-foreground">
           <summary className="cursor-pointer">{t("raw_error")}</summary>
           <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all">
             {messages_probe.error}

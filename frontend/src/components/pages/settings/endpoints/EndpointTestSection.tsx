@@ -39,26 +39,26 @@ function fieldValueText(field: EndpointExtractionField, t: TFunction): string {
 function StageReportTable({ report }: { report: EndpointStageReport }) {
   const { t } = useTranslation("dashboard");
   return (
-    <div className="overflow-hidden rounded-[8px] border border-hairline">
+    <div className="overflow-hidden rounded-md border border-border">
       {report.fields.length === 0 && (
-        <div className="px-3 py-6 text-center text-[12px] text-text-3">{t("ce_check_no_fields")}</div>
+        <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">{t("ce_check_no_fields")}</div>
       )}
       {report.fields.map((field) => {
         const hit = field.attempts.find((a) => a.matched);
         return (
           <div
             key={field.key}
-            className="flex items-baseline gap-2.5 border-b border-hairline-soft px-3 py-2 last:border-b-0"
+            className="flex items-baseline gap-2.5 border-b border-border/50 px-3 py-2 last:border-b-0"
           >
             <span
               aria-hidden
-              className={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${hit ? "bg-good" : "bg-text-4"}`}
+              className={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${hit ? "bg-good" : "bg-muted-foreground"}`}
             />
-            <span className="w-28 shrink-0 truncate text-[12px] text-text-2" title={field.key}>
+            <span className="w-28 shrink-0 truncate text-[12px] text-subtle-foreground" title={field.key}>
               {field.key}
             </span>
             <span className="shrink-0 font-mono text-[10.5px] text-good/85">{hit?.path ?? "—"}</span>
-            <span className="min-w-0 flex-1 truncate text-[11.5px] text-text-3">
+            <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted-foreground">
               {hit ? fieldValueText(field, t) : t("ce_check_no_match")}
             </span>
           </div>
@@ -217,7 +217,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                 {t("ce_check_run")}
               </button>
               {checkError && (
-                <p role="alert" className="mt-2 text-[12px] text-warm-bright">
+                <p role="alert" className="mt-2 text-[12px] text-warn">
                   {checkError}
                 </p>
               )}
@@ -226,7 +226,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
               {checkReport ? (
                 <StageReportTable report={checkReport} />
               ) : (
-                <div className="rounded-[8px] border border-hairline px-3 py-8 text-center text-[12px] text-text-3">
+                <div className="rounded-md border border-border px-3 py-8 text-center text-[12px] text-muted-foreground">
                   {t("ce_check_empty")}
                 </div>
               )}
@@ -258,7 +258,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
             </button>
           </div>
           {previewError && (
-            <p role="alert" className="mt-2 text-[12px] text-warm-bright">
+            <p role="alert" className="mt-2 text-[12px] text-warn">
               {previewError}
             </p>
           )}
@@ -368,7 +368,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                       const files = Array.from(e.target.files ?? []);
                       setAssetFiles((current) => ({ ...current, [source]: files }));
                     }}
-                    className={`${INPUT_CLS} file:mr-3 file:rounded file:border-0 file:bg-bg-grad-a file:px-2 file:py-1 file:text-text-2`}
+                    className={`${INPUT_CLS} file:mr-3 file:rounded-sm file:border-0 file:bg-card file:px-2 file:py-1 file:text-subtle-foreground`}
                   />
                 </label>
               ))}
@@ -390,7 +390,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                 )}
               </div>
               {runError && (
-                <p role="alert" className="text-[12px] text-warm-bright">
+                <p role="alert" className="text-[12px] text-warn">
                   {runError}
                 </p>
               )}
@@ -398,19 +398,19 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
             <div>
               {run ? (
                 <div className="space-y-2.5">
-                  <div className="flex items-center gap-2 text-[12px] text-text-2">
+                  <div className="flex items-center gap-2 text-[12px] text-subtle-foreground">
                     {!runFinished && !pollStopped && (
-                      <Loader2 className="h-3 w-3 motion-safe:animate-spin text-accent-2" aria-hidden />
+                      <Loader2 className="h-3 w-3 motion-safe:animate-spin text-primary" aria-hidden />
                     )}
                     <span>{t(`ce_trial_status_${run.status}`)}</span>
                     {run.duration_seconds !== null && (
-                      <span className="text-text-3">
+                      <span className="text-muted-foreground">
                         {t("ce_trial_duration", { seconds: run.duration_seconds })}
                       </span>
                     )}
                   </div>
                   {run.error && (
-                    <p role="alert" className="text-[12px] leading-[1.55] text-warm-bright">
+                    <p role="alert" className="text-[12px] leading-[1.55] text-warn">
                       {run.error}
                     </p>
                   )}
@@ -418,7 +418,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                     <img
                       src={artifactUrl}
                       alt={t("ce_trial_artifact")}
-                      className="w-full rounded-[8px] border border-hairline bg-black object-contain"
+                      className="w-full rounded-md border border-border bg-black object-contain"
                     />
                   ) : artifactUrl ? (
                     // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
@@ -427,7 +427,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                       preload="metadata"
                       src={artifactUrl}
                       aria-label={t("ce_trial_artifact")}
-                      className="w-full rounded-[8px] border border-hairline bg-black"
+                      className="w-full rounded-md border border-border bg-black"
                     />
                   ) : run.video_url ? (
                     <p className="truncate font-mono text-[11.5px] text-good/85">{run.video_url}</p>
@@ -435,7 +435,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                   {run.api_call_id !== null && (
                     <a
                       href={`/app/settings?section=usage&record=${run.api_call_id}`}
-                      className="inline-flex text-[11.5px] text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-text"
+                      className="inline-flex text-[11.5px] text-primary underline decoration-primary/40 underline-offset-2 hover:text-foreground"
                     >
                       {t("ce_trial_record", { id: run.api_call_id })}
                     </a>
@@ -457,7 +457,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                   )}
                 </div>
               ) : (
-                <div className="rounded-[8px] border border-hairline px-3 py-8 text-center text-[12px] text-text-3">
+                <div className="rounded-md border border-border px-3 py-8 text-center text-[12px] text-muted-foreground">
                   {cancelled ? t("ce_trial_cancelled") : t("ce_trial_empty")}
                 </div>
               )}

@@ -94,20 +94,20 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
         background: "oklch(0.70 0.18 25 / 0.06)",
       }
     : {
-        border: "1px solid var(--color-hairline-soft)",
+        border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         background: "oklch(0.21 0.012 265 / 0.5)",
       };
 
-  const labelColor = isError ? "var(--color-danger)" : "var(--color-warn)";
+  const labelColor = isError ? "var(--destructive)" : "var(--warn)";
 
   // -- status indicator ------------------------------------------------------
   const statusIcon = hasResult ? (isError ? "\u2717" : "\u2713") : "\u2026";
 
   const statusColor = hasResult
     ? isError
-      ? "var(--color-danger)"
-      : "var(--color-good)"
-    : "var(--color-text-4)";
+      ? "var(--destructive)"
+      : "var(--good)"
+    : "var(--muted-foreground)";
 
   // -- summary text ----------------------------------------------------------
   const summary = getToolSummary(toolName, block.input);
@@ -140,7 +140,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           </span>
           <span
             className="num truncate text-[11px]"
-            style={{ color: "var(--color-text-2)" }}
+            style={{ color: "var(--subtle-foreground)" }}
           >
             {summary}
           </span>
@@ -154,7 +154,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           </span>
           <span
             className="text-[10px]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {isExpanded ? "\u25BC" : "\u25B6"}
           </span>
@@ -165,7 +165,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
       {isExpanded && (
         <div
           id={detailsId}
-          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           {/* Tool Input */}
           <div
@@ -174,13 +174,13 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           >
             <div
               className="mb-1 text-[10px] uppercase tracking-wide"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("tool_call_input_label")}
             </div>
             <pre
               className="num max-h-32 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
-              style={{ color: "var(--color-text-2)" }}
+              style={{ color: "var(--subtle-foreground)" }}
             >
               {JSON.stringify(block.input, null, 2)}
             </pre>
@@ -193,7 +193,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
               style={{
                 borderTop: isError
                   ? "1px solid oklch(0.70 0.18 25 / 0.25)"
-                  : "1px solid var(--color-hairline-soft)",
+                  : "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                 background: isError
                   ? "oklch(0.70 0.18 25 / 0.08)"
                   : "oklch(0.16 0.010 265 / 0.5)",
@@ -202,14 +202,14 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
               <div
                 className="mb-1 text-[10px] uppercase tracking-wide"
                 style={{
-                  color: isError ? "var(--color-danger)" : "var(--color-text-4)",
+                  color: isError ? "var(--destructive)" : "var(--muted-foreground)",
                 }}
               >
                 {isError ? t("tool_call_error_label") : t("tool_call_result_label")}
               </div>
               <pre
                 className="num max-h-48 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
-                style={{ color: "var(--color-text-2)" }}
+                style={{ color: "var(--subtle-foreground)" }}
               >
                 {typeof block.result === "string"
                   ? block.result
@@ -235,13 +235,13 @@ function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
   const completed = todos.filter((td) => td.status === "completed").length;
   const hasResult = block.result !== undefined;
   const statusIcon = hasResult ? "\u2713" : "\u2026";
-  const statusColor = hasResult ? "var(--color-good)" : "var(--color-text-4)";
+  const statusColor = hasResult ? "var(--good)" : "var(--muted-foreground)";
 
   return (
     <div
       className="my-1.5 min-w-0 overflow-hidden rounded-lg"
       style={{
-        border: "1px solid var(--color-hairline-soft)",
+        border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         background: "oklch(0.21 0.012 265 / 0.5)",
       }}
     >
@@ -249,13 +249,13 @@ function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
           <span
             className="shrink-0 text-[10px] font-semibold uppercase tracking-wide"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             TodoWrite
           </span>
           <span
             className="truncate text-[11px]"
-            style={{ color: "var(--color-text-2)" }}
+            style={{ color: "var(--subtle-foreground)" }}
           >
             {total > 0
               ? t("tool_call_todo_summary", { completed, total })

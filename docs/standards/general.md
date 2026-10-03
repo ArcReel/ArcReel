@@ -43,5 +43,3 @@ lint、类型检查、依赖检查报错时修改代码，不加 baseline、计�
 ### 用户可见文本写成翻译 key，覆盖全部已支持语言
 
 前端界面文本写进 `frontend/src/i18n/`，后端返回给用户的错误、事件等消息写进 `lib/i18n/`，各自的语言目录就是语言清单。各语言 key 集合是否一致由 typecheck 与 `tests/unit/lib/i18n/` 校验。编写或修改中文界面文案（`frontend/src/i18n/zh`、`lib/i18n/zh`）与用户文档（`website/docs`）前，用 Skill 工具调用 `tech-doc-style-chinese`。中文文案先交维护者校对；其他语言先补齐 key 以通过校验，中文定稿后再更新译文。
-
-放行条件：卡片与区块顶部的 mono kicker（`SectionCard` / `ChannelCard` / `SectionShell` / `PlaceholderTile` 的 `kicker`，以及同款 eyebrow 标签）是 Darkroom 设计语言的一部分，固定英文直接写在组件里，不进 i18n。

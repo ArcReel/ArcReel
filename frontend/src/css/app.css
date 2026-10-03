@@ -17,7 +17,7 @@ body {
     background:
         radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
         radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
-        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
+        linear-gradient(180deg, var(--card), var(--sidebar));
     background-attachment: fixed;
 }
 
@@ -34,21 +34,21 @@ body {
 }
 
 .app-sidebar {
-    border-right: 1px solid var(--color-hairline);
+    border-right: 1px solid var(--border);
     background: linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5));
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
 }
 
 .app-panel {
-    border: 1px solid var(--color-hairline-soft);
+    border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
     background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.72), oklch(0.18 0.010 265 / 0.62));
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
 }
 
 .app-panel-strong {
-    border: 1px solid var(--color-hairline-strong);
+    border: 1px solid var(--input);
     background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.92), oklch(0.16 0.010 265 / 0.84));
     box-shadow: 0 20px 40px oklch(0 0 0 / 0.45);
 }
@@ -107,7 +107,7 @@ body {
     background:
         radial-gradient(circle at 14% 11%, oklch(0.76 0.09 295 / 0.16), transparent 34%),
         radial-gradient(circle at 88% 16%, oklch(0.70 0.12 320 / 0.14), transparent 32%),
-        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
+        linear-gradient(180deg, var(--card), var(--sidebar));
 }
 
 .landing-grid {
@@ -137,7 +137,7 @@ body {
 .landing-slogan {
     letter-spacing: 0.01em;
     text-wrap: balance;
-    color: var(--color-text);
+    color: var(--foreground);
     text-shadow:
         0 1px 0 oklch(1 0 0 / 0.08),
         0 14px 32px oklch(0 0 0 / 0.5);

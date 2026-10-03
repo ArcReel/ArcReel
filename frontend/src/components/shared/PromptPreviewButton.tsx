@@ -89,8 +89,8 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
         onClick={handleOpen}
         disabled={disabled}
         title={title}
-        className="focus-ring inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors hover:bg-white/5 disabled:cursor-default disabled:opacity-40"
-        style={{ color: "var(--color-text-3)" }}
+        className="focus-ring inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] transition-colors hover:bg-white/5 disabled:cursor-default disabled:opacity-40"
+        style={{ color: "var(--muted-foreground)" }}
       >
         <Eye aria-hidden className="h-3 w-3" />
         {t("prompt_preview_open")}
@@ -98,18 +98,18 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
       <GlassModal open={open} onClose={handleClose} labelledBy={titleId} widthClassName="w-full max-w-2xl">
         <div
           className="flex items-start justify-between gap-4 px-5 py-4"
-          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           <div className="min-w-0">
             <h2
               id={titleId}
               className="text-[14px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {title}
             </h2>
             {notice ? (
-              <p className="mt-1 text-[11px] leading-[1.5]" style={{ color: "var(--color-text-4)" }}>
+              <p className="mt-1 text-[11px] leading-[1.5]" style={{ color: "var(--muted-foreground)" }}>
                 {notice}
               </p>
             ) : null}
@@ -123,7 +123,7 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
               title={t("prompt_preview_refresh")}
               aria-label={t("prompt_preview_refresh")}
               className="focus-ring grid h-6 w-6 place-items-center rounded-md transition-colors hover:bg-white/10 disabled:opacity-40"
-              style={{ color: "var(--color-text-3)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               <RefreshCw aria-hidden className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             </button>
@@ -133,24 +133,24 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
 
         <div className="flex max-h-[65vh] flex-col gap-2 overflow-y-auto px-5 py-4">
           {loading && !result ? (
-            <p className="text-[11px]" style={{ color: "var(--color-text-4)" }}>
+            <p className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
               {t("prompt_preview_loading")}
             </p>
           ) : null}
           {error ? (
-            <p className="text-[11px]" style={{ color: "var(--color-warm)" }}>
+            <p className="text-[11px]" style={{ color: "var(--warn)" }}>
               {error}
             </p>
           ) : null}
           {result?.unavailable ? (
-            <p className="text-[11px]" style={{ color: "var(--color-text-4)" }}>
+            <p className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
               {result.unavailable}
             </p>
           ) : null}
           {result?.warnings?.length ? (
             <ul
               aria-label={t("prompt_preview_warnings_label")}
-              className="space-y-1 rounded px-2 py-1.5 text-[10.5px]"
+              className="space-y-1 rounded-sm px-2 py-1.5 text-[10.5px]"
               style={{
                 background: "oklch(0.35 0.10 70 / 0.10)",
                 color: "oklch(0.86 0.09 70)",
@@ -166,9 +166,9 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
             <pre
               className="overflow-auto whitespace-pre-wrap break-words rounded-md border p-3 text-[11.5px] leading-relaxed"
               style={{
-                borderColor: "var(--color-hairline)",
-                background: "var(--color-bg-grad-a)",
-                color: "var(--color-text-2)",
+                borderColor: "var(--border)",
+                background: "var(--card)",
+                color: "var(--subtle-foreground)",
                 fontFamily: "var(--font-mono)",
               }}
             >

@@ -41,7 +41,7 @@ const STEP_BADGE_GRADIENT =
 const STEP_BADGE_ACTIVE_STYLE: CSSProperties = {
   background: STEP_BADGE_GRADIENT,
   boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 18px -6px var(--color-accent-glow)",
+    "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 18px -6px color-mix(in oklab, var(--primary) 35%, transparent)",
 };
 
 const STEP_BADGE_DONE_STYLE: CSSProperties = {
@@ -56,12 +56,12 @@ const STEP_BADGE_INACTIVE_STYLE: CSSProperties = {
 const STEP_CONNECTOR_DONE_STYLE: CSSProperties = {
   height: 1,
   background:
-    "linear-gradient(90deg, var(--color-accent), oklch(0.55 0.06 295 / 0.4))",
+    "linear-gradient(90deg, var(--primary), oklch(0.55 0.06 295 / 0.4))",
 };
 
 const STEP_CONNECTOR_INACTIVE_STYLE: CSSProperties = {
   height: 1,
-  background: "var(--color-hairline-soft)",
+  background: "color-mix(in oklab, var(--border) 50%, transparent)",
 };
 
 function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
@@ -86,12 +86,12 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
               <div className="flex items-center gap-2.5 min-w-0">
                 <span
                   className={
-                    "grid h-7 w-7 shrink-0 place-items-center rounded-[8px] font-mono text-[11px] font-bold tabular-nums transition-colors " +
+                    "grid h-7 w-7 shrink-0 place-items-center rounded-md font-mono text-[11px] font-bold tabular-nums transition-colors " +
                     (done
-                      ? "border border-accent/45 text-text"
+                      ? "border border-primary/45 text-foreground"
                       : active
-                        ? "border border-accent/55 text-text"
-                        : "border border-hairline-soft text-text-4")
+                        ? "border border-primary/55 text-foreground"
+                        : "border border-border/50 text-muted-foreground")
                   }
                   style={
                     active
@@ -107,7 +107,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
                   <div
                     className={
                       "font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] " +
-                      (active ? "text-accent-2" : done ? "text-text-3" : "text-text-4")
+                      (active ? "text-primary" : done ? "text-muted-foreground" : "text-muted-foreground")
                     }
                   >
                     Step {s.num.toString().padStart(2, "0")}
@@ -115,7 +115,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
                   <div
                     className={
                       "text-[12.5px] tracking-tight truncate " +
-                      (active ? "text-text font-semibold" : done ? "text-text-2" : "text-text-3")
+                      (active ? "text-foreground font-semibold" : done ? "text-subtle-foreground" : "text-muted-foreground")
                     }
                   >
                     {t(s.key)}
@@ -410,7 +410,7 @@ export function CreateProjectModal() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-project-title"
-        className="relative w-full max-w-3xl overflow-hidden rounded-[14px] border border-hairline bg-bg-grad-a/95 shadow-[0_40px_100px_-30px_oklch(0_0_0_/_0.85)] backdrop-blur-md max-h-[92vh] flex flex-col"
+        className="relative w-full max-w-3xl overflow-hidden rounded-xl border border-border bg-card/95 shadow-[0_40px_100px_-30px_oklch(0_0_0_/_0.85)] backdrop-blur-md max-h-[92vh] flex flex-col"
         style={{
           background:
             "linear-gradient(180deg, oklch(0.20 0.012 270 / 0.95), oklch(0.16 0.010 265 / 0.95))",
@@ -421,23 +421,23 @@ export function CreateProjectModal() {
           {/* 角落装饰 — 取景框的轮廓 */}
           <div
             aria-hidden
-            className="pointer-events-none absolute left-3 top-3 h-3 w-3 border-l border-t border-accent/40"
+            className="pointer-events-none absolute left-3 top-3 h-3 w-3 border-l border-t border-primary/40"
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute right-3 top-3 h-3 w-3 border-r border-t border-accent/40"
+            className="pointer-events-none absolute right-3 top-3 h-3 w-3 border-r border-t border-primary/40"
           />
 
           <button
             type="button"
             onClick={handleClose}
             aria-label={t("common:close")}
-            className="absolute right-5 top-5 grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/55 text-text-3 transition-colors hover:border-hairline hover:bg-bg hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="absolute right-5 top-5 grid h-8 w-8 place-items-center rounded-md border border-border/50 bg-background/55 text-muted-foreground transition-colors hover:border-border hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" />
           </button>
 
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
             {stepKicker}
           </div>
           <h2
@@ -448,22 +448,22 @@ export function CreateProjectModal() {
               fontSize: 36,
               lineHeight: 1.05,
               letterSpacing: "-0.012em",
-              color: "var(--color-text)",
+              color: "var(--foreground)",
             }}
           >
             {t("dashboard:new_project")}
           </h2>
-          <p className="mt-1.5 text-[12.5px] leading-[1.55] text-text-3">
+          <p className="mt-1.5 text-[12.5px] leading-[1.55] text-muted-foreground">
             {t("templates:wizard_step_basics")}
-            <span aria-hidden className="mx-1.5 text-text-4">/</span>
+            <span aria-hidden className="mx-1.5 text-muted-foreground">/</span>
             {t("templates:wizard_step_models")}
-            <span aria-hidden className="mx-1.5 text-text-4">/</span>
+            <span aria-hidden className="mx-1.5 text-muted-foreground">/</span>
             {t("templates:wizard_step_style")}
           </p>
         </div>
 
         {/* Step indicator strip */}
-        <div className="shrink-0 border-y border-hairline-soft bg-[oklch(0.16_0.010_265_/_0.55)] px-6">
+        <div className="shrink-0 border-y border-border/50 bg-[oklch(0.16_0.010_265_/_0.55)] px-6">
           <StepIndicator current={step} />
         </div>
 

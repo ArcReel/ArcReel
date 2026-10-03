@@ -30,21 +30,21 @@ import {
 
 const STATUS_CLS: Record<ComfyuiRowStatus, string> = {
   auto: "border-good/40 bg-good/10 text-good",
-  manual: "border-accent/40 bg-accent-dim text-accent-2",
+  manual: "border-primary/40 bg-primary/12 text-primary",
   ambiguous: "border-warn/50 bg-warn/10 text-warn",
-  not_found: "border-hairline-strong bg-bg-grad-a/60 text-text-3",
-  unsupported: "border-hairline-soft bg-transparent text-text-4 line-through decoration-text-4/60",
-  required_unbound: "border-danger/50 bg-danger/10 text-danger",
+  not_found: "border-input bg-card/60 text-muted-foreground",
+  unsupported: "border-border/50 bg-transparent text-muted-foreground line-through decoration-muted-foreground/60",
+  required_unbound: "border-destructive/50 bg-destructive/10 text-destructive",
 };
 
 /** 一条目标的四元组写法：`#节点 class_type .输入 “标题”`。 */
 function TargetLabel({ target }: { target: ComfyuiBindingTarget }) {
   return (
-    <span className="font-mono text-[11.5px] text-text" translate="no">
+    <span className="font-mono text-[11.5px] text-foreground" translate="no">
       #{target.node}
-      <span className="text-text-3"> {target.class_type}</span>
-      {target.input !== undefined && <span className="text-text"> .{target.input}</span>}
-      {target.title ? <span className="ml-1.5 font-sans text-[11px] text-text-4">“{target.title}”</span> : null}
+      <span className="text-muted-foreground"> {target.class_type}</span>
+      {target.input !== undefined && <span className="text-foreground"> .{target.input}</span>}
+      {target.title ? <span className="ml-1.5 font-sans text-[11px] text-muted-foreground">“{target.title}”</span> : null}
     </span>
   );
 }
@@ -53,10 +53,10 @@ function ScoreBar({ score, best }: { score: number; best: number }) {
   const pct = Math.max(6, Math.round((score / Math.max(best, 1)) * 100));
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5">
-      <span aria-hidden className="h-1 w-14 overflow-hidden rounded-full bg-bg-grad-a">
-        <span className="block h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+      <span aria-hidden className="h-1 w-14 overflow-hidden rounded-full bg-card">
+        <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
       </span>
-      <span className="font-mono text-[10px] tabular-nums text-text-4">{score}</span>
+      <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{score}</span>
     </span>
   );
 }
@@ -86,8 +86,8 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
         return (
           <label
             key={`${candidate.target.node}.${candidate.target.input ?? ""}`}
-            className={`flex cursor-pointer items-start gap-2.5 rounded-[7px] border px-2.5 py-1.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
-              selected ? "border-accent/45 bg-accent-dim" : "border-hairline-soft hover:border-hairline"
+            className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-2.5 py-1.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ${
+              selected ? "border-primary/45 bg-primary/12" : "border-border/50 hover:border-border"
             }`}
           >
             <input
@@ -99,8 +99,8 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
             />
             <span
               aria-hidden
-              className={`mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border font-mono text-[8px] text-bg ${
-                selected ? "border-accent-2 bg-accent-2" : "border-hairline-strong"
+              className={`mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border font-mono text-[8px] text-background ${
+                selected ? "border-primary bg-primary" : "border-input"
               }`}
             >
               {order > 0 ? order : ""}
@@ -110,11 +110,11 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
                 <TargetLabel target={candidate.target} />
                 <ScoreBar score={candidate.score} best={best} />
               </span>
-              <span className="mt-0.5 block text-[11px] leading-[1.5] text-text-4">
+              <span className="mt-0.5 block text-[11px] leading-[1.5] text-muted-foreground">
                 {candidate.signals.map((signal) => signal.message).join(" · ")}
               </span>
               {candidate.origin !== "inferred" && (
-                <span className="mt-0.5 inline-block font-mono text-[10px] uppercase tracking-[0.08em] text-accent-2">
+                <span className="mt-0.5 inline-block font-mono text-[10px] uppercase tracking-[0.08em] text-primary">
                   {t(candidate.origin === "kept" ? "ce_cf_origin_kept" : "ce_cf_origin_rematched")}
                 </span>
               )}
@@ -200,13 +200,13 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
   const target = targets?.[0];
 
   if (bindingKey === "fps") {
-    return <span className="text-[11.5px] text-text-4">{t("ce_cf_fps_readonly_note")}</span>;
+    return <span className="text-[11.5px] text-muted-foreground">{t("ce_cf_fps_readonly_note")}</span>;
   }
   if (bindingKey === "width" || bindingKey === "height" || bindingKey === "frames") {
     if (!target) return null;
     return (
       <span className="flex flex-wrap items-center gap-3">
-        <label className="inline-flex items-center gap-1.5 text-[11.5px] text-text-3">
+        <label className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
           {t("ce_cf_step_label")}
           <input
             type="number"
@@ -220,8 +220,8 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
         </label>
         {bindingKey === "frames" && (
           <>
-            <span className="text-[11px] text-text-4">{t("ce_cf_frames_step_note")}</span>
-            <label className="inline-flex items-center gap-1.5 text-[11.5px] text-text-3">
+            <span className="text-[11px] text-muted-foreground">{t("ce_cf_frames_step_note")}</span>
+            <label className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
               {t("ce_cf_frames_fps_label")}
               <input
                 type="number"
@@ -243,7 +243,7 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
     if (!target) return null;
     const policy = target.policy ?? "random";
     return (
-      <span className="inline-flex items-center gap-2 text-[11.5px] text-text-3">
+      <span className="inline-flex items-center gap-2 text-[11.5px] text-muted-foreground">
         {t("ce_cf_seed_policy_label")}
         {(["random", "keep"] as const).map((option) => (
           <button
@@ -251,8 +251,8 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
             type="button"
             aria-pressed={policy === option}
             onClick={() => onPatch({ policy: option })}
-            className={`rounded-full border px-2 py-0.5 font-mono text-[10.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-              policy === option ? "border-accent/45 bg-accent-dim text-accent-2" : "border-hairline-soft text-text-3"
+            className={`rounded-full border px-2 py-0.5 font-mono text-[10.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              policy === option ? "border-primary/45 bg-primary/12 text-primary" : "border-border/50 text-muted-foreground"
             }`}
           >
             {t(option === "random" ? "ce_cf_seed_random" : "ce_cf_seed_keep")}
@@ -318,8 +318,8 @@ export function ComfyuiBindingTable({
   return (
     <div>
       <div className="mb-2.5 flex flex-wrap items-end justify-between gap-3">
-        <p className="max-w-xl text-[12px] leading-[1.55] text-text-3">{t("ce_cf_bindings_desc")}</p>
-        <span className="font-mono text-[11px] tabular-nums text-text-4" aria-live="polite">
+        <p className="max-w-xl text-[12px] leading-[1.55] text-muted-foreground">{t("ce_cf_bindings_desc")}</p>
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground" aria-live="polite">
           {t("ce_cf_tally", {
             bound: tally.bound,
             ambiguous: tally.ambiguous,
@@ -332,14 +332,14 @@ export function ComfyuiBindingTable({
       {inference.notes.length > 0 && (
         <ul className="mb-2.5 space-y-1">
           {inference.notes.map((note) => (
-            <li key={note.code} className="text-[11.5px] leading-[1.5] text-warm-bright">
+            <li key={note.code} className="text-[11.5px] leading-[1.5] text-warn">
               {note.message}
             </li>
           ))}
         </ul>
       )}
 
-      <div className="divide-y divide-hairline-soft">
+      <div className="divide-y divide-border/50">
         {keys.map((key, index) => {
           const result = inference.bindings[key];
           const candidates = result?.candidates ?? [];
@@ -355,12 +355,12 @@ export function ComfyuiBindingTable({
             <div key={key} className="py-2.5">
               <div className="grid grid-cols-[minmax(150px,190px)_96px_minmax(0,1fr)_auto] items-center gap-3">
                 <span className="inline-flex items-baseline gap-1.5 text-[12.5px]">
-                  <span className="font-mono text-[11.5px] text-accent-2" translate="no">
+                  <span className="font-mono text-[11.5px] text-primary" translate="no">
                     {key}
                   </span>
-                  <span className="text-text-2">{t(`ce_cf_key_${key}`)}</span>
+                  <span className="text-subtle-foreground">{t(`ce_cf_key_${key}`)}</span>
                   {required && (
-                    <span className="text-warm-bright" title={t("ce_cf_required")} aria-label={t("ce_cf_required")}>
+                    <span className="text-warn" title={t("ce_cf_required")} aria-label={t("ce_cf_required")}>
                       *
                     </span>
                   )}
@@ -376,26 +376,26 @@ export function ComfyuiBindingTable({
                   {targets && targets.length > 0 ? (
                     <>
                       {isListBindingKey(key) && targets.length > 1 ? (
-                        <span className="text-text-2">{t("ce_cf_target_count", { n: targets.length })}</span>
+                        <span className="text-subtle-foreground">{t("ce_cf_target_count", { n: targets.length })}</span>
                       ) : (
                         <TargetLabel target={targets[0]} />
                       )}
                       {origin !== null && (
-                        <span className="shrink-0 rounded-[4px] border border-accent/35 px-1 py-px font-mono text-[9.5px] uppercase tracking-[0.08em] text-accent-2">
+                        <span className="shrink-0 rounded-sm border border-primary/35 px-1 py-px font-mono text-[9.5px] uppercase tracking-[0.08em] text-primary">
                           {t(origin === "kept" ? "ce_cf_origin_kept" : "ce_cf_origin_rematched")}
                         </span>
                       )}
                     </>
                   ) : status === "unsupported" ? (
-                    <span className="text-text-4">{t("ce_cf_unsupported_text")}</span>
+                    <span className="text-muted-foreground">{t("ce_cf_unsupported_text")}</span>
                   ) : status === "ambiguous" ? (
-                    <span className="text-warm-bright">
+                    <span className="text-warn">
                       {candidates.length > 0
                         ? t("ce_cf_ambiguous_text", { n: candidates.length })
                         : t("ce_cf_lost_text")}
                     </span>
                   ) : (
-                    <span className="text-text-4">{t(`ce_cf_hint_${key}`)}</span>
+                    <span className="text-muted-foreground">{t(`ce_cf_hint_${key}`)}</span>
                   )}
                 </span>
 
@@ -404,7 +404,7 @@ export function ComfyuiBindingTable({
                   aria-expanded={open}
                   aria-controls={panelId}
                   onClick={() => setToggled((current) => ({ ...current, [key]: !open }))}
-                  className="text-[11.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="text-[11.5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {open
                     ? t("ce_cf_collapse")
@@ -417,7 +417,7 @@ export function ComfyuiBindingTable({
               {result && result.notes.length > 0 && (
                 <ul className="ml-[202px] mt-1 space-y-0.5">
                   {result.notes.map((note) => (
-                    <li key={note.code} className="text-[11px] leading-[1.5] text-text-4">
+                    <li key={note.code} className="text-[11px] leading-[1.5] text-muted-foreground">
                       {note.message}
                     </li>
                   ))}
@@ -427,7 +427,7 @@ export function ComfyuiBindingTable({
               {open && (
                 <div id={panelId} className="ml-[202px] mt-2 space-y-2">
                   {result?.state === "needs_confirmation" && (
-                    <p className="text-[11.5px] text-warm-bright">{t("ce_cf_needs_confirmation")}</p>
+                    <p className="text-[11.5px] text-warn">{t("ce_cf_needs_confirmation")}</p>
                   )}
                   {candidates.length > 0 && (
                     <CandidateList

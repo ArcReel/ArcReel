@@ -306,11 +306,11 @@ function UnitCard({
   return (
     <article
       ref={(el) => onScrollRef(unit.key, el)}
-      className={`scroll-mt-28 rounded-[10px] border p-4 ${hasViolation ? "border-red-500/45" : "border-hairline"}`}
+      className={`scroll-mt-28 rounded-lg border p-4 ${hasViolation ? "border-red-500/45" : "border-border"}`}
       style={CARD_STYLE}
     >
       <div className="flex items-center gap-2">
-        <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{itemIdWithinEpisode(unit.key)}</span>
+        <span className="rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-[11px] text-subtle-foreground">{itemIdWithinEpisode(unit.key)}</span>
         {durationProblem ? (
           <span className="text-[11px] text-amber-300" title={durationProblem.hint}>
             {durationProblem.label}
@@ -326,11 +326,11 @@ function UnitCard({
           />
         )}
         {outOfTier && (
-          <span className="rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
+          <span className="rounded-sm bg-red-500/15 px-1 py-px text-[10px] text-red-300">
             {t("reference_script_plan_duration_out_of_tier")}
           </span>
         )}
-        <span className="text-[11px] text-text-4">
+        <span className="text-[11px] text-muted-foreground">
           {t("reference_script_plan_unit_stats", { utterances: stats.utterances })}
         </span>
         <span className="flex-1" />
@@ -339,7 +339,7 @@ function UnitCard({
             type="button"
             onClick={onToggleEdit}
             aria-label={editing ? t("reference_script_plan_edit_done") : t("reference_script_plan_edit_text")}
-            className={`rounded-[6px] p-1 transition-colors ${editing ? "bg-accent/20 text-accent" : "text-text-4 hover:text-text"}`}
+            className={`rounded-sm p-1 transition-colors ${editing ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -349,23 +349,23 @@ function UnitCard({
       {split && (
         <ReferenceSplitAlert
           capability={split}
-          className="mt-2 rounded-[8px] border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+          className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
         />
       )}
 
       <details open className="group mt-3">
-        <summary className="flex cursor-pointer list-none items-center gap-1 font-mono text-[10px] tracking-[0.08em] text-text-4">
+        <summary className="flex cursor-pointer list-none items-center gap-1 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">
           <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
           {t("reference_script_plan_source_text_label")}
           {anchorBroken && (
-            <span className="ml-1 rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
+            <span className="ml-1 rounded-sm bg-red-500/15 px-1 py-px text-[10px] text-red-300">
               {t("reference_script_plan_source_anchor_broken")}
             </span>
           )}
         </summary>
         <p
           className={`mt-1.5 border-l pl-3 text-[11.5px] leading-relaxed ${
-            anchorBroken ? "border-red-400/50 text-red-200/70" : "border-hairline text-text-4"
+            anchorBroken ? "border-red-400/50 text-red-200/70" : "border-border text-muted-foreground"
           }`}
         >
           {unit.sourceText}
@@ -380,7 +380,7 @@ function UnitCard({
             onChange={onTextChange}
             disabled={busy}
             aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unit.key) })}
-            className="text-text-3"
+            className="text-muted-foreground"
           />
         ) : (
           <ScriptHighlight
@@ -532,7 +532,7 @@ export function ReferenceScriptPlanPreviewPanel({
   const scrollTo = (el: HTMLElement | null | undefined) => el?.scrollIntoView({ behavior: "smooth", block: "center" });
 
   if (loading) {
-    return <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:loading_script_plan")}</div>;
+    return <div className="flex h-64 items-center justify-center text-muted-foreground">{t("dashboard:loading_script_plan")}</div>;
   }
 
   if (loadError) {
@@ -540,8 +540,8 @@ export function ReferenceScriptPlanPreviewPanel({
       <div role="alert" className="flex h-64 flex-col items-center justify-center gap-3 text-center">
         <AlertTriangle className="h-6 w-6 text-amber-400" aria-hidden="true" />
         <div className="flex flex-col gap-1">
-          <p className="text-[13px] font-medium text-text-2">{t("dashboard:review_load_failed")}</p>
-          {loadError.message && <p className="max-w-sm px-4 font-mono text-[11px] text-text-4">{loadError.message}</p>}
+          <p className="text-[13px] font-medium text-subtle-foreground">{t("dashboard:review_load_failed")}</p>
+          {loadError.message && <p className="max-w-sm px-4 font-mono text-[11px] text-muted-foreground">{loadError.message}</p>}
         </div>
         <button type="button" onClick={handleRetry} className={GHOST_BTN_LG_CLS}>
           <RotateCcw className="h-3.5 w-3.5" />
@@ -555,7 +555,7 @@ export function ReferenceScriptPlanPreviewPanel({
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
     // 没有规划时也能在这里发起 AI 规划；已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3 text-text-4">
+      <div className="flex h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
         <p>{t("dashboard:no_script_plan_content")}</p>
         {status === "no_script_plan" && (
           <ScriptPlanButton
@@ -741,7 +741,7 @@ export function ReferenceScriptPlanPreviewPanel({
         />
       ) : (
         <header
-          className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-[10px] border border-hairline px-3.5 py-2.5 backdrop-blur-md"
+          className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-lg border border-border px-3.5 py-2.5 backdrop-blur-md"
           style={CARD_STYLE}
         >
           <div className="flex items-center gap-2">
@@ -751,10 +751,10 @@ export function ReferenceScriptPlanPreviewPanel({
               <Clock className="h-4 w-4 shrink-0 text-amber-400" />
             )}
             <div className="flex flex-col">
-              <span className="text-[12.5px] font-medium text-text">
+              <span className="text-[12.5px] font-medium text-foreground">
                 {confirmed ? t("dashboard:review_status_confirmed") : t("dashboard:review_status_pending")}
               </span>
-              <span className="text-[11px] text-text-4">
+              <span className="text-[11px] text-muted-foreground">
                 {scriptMissing
                   ? t("dashboard:review_script_missing_hint")
                   : confirmed
@@ -823,7 +823,7 @@ export function ReferenceScriptPlanPreviewPanel({
 
       {videoModelBlocked && !agentEditing && <VideoModelUnresolvedNotice projectName={projectName} />}
       {firstUnknownProblem && !agentEditing && (
-        <p role="alert" className="rounded-[8px] border border-amber-500/40 p-3 text-sm text-amber-200">
+        <p role="alert" className="rounded-md border border-amber-500/40 p-3 text-sm text-amber-200">
           {firstUnknownProblem.hint}
         </p>
       )}

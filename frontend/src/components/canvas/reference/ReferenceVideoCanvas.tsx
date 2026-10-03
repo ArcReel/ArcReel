@@ -953,7 +953,7 @@ export function ReferenceVideoCanvas({
       />
 
       {/* Tabs + request-local generation controls */}
-      <div className="flex items-center gap-0.5 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.5)] px-5">
+      <div className="flex items-center gap-0.5 border-b border-border bg-[oklch(0.19_0.012_250_/_0.5)] px-5">
         <div role="tablist" aria-label={t("reference_main_tab_aria")} className="flex items-center gap-0.5">
           {showPreprocess && <button
             type="button"
@@ -961,12 +961,12 @@ export function ReferenceVideoCanvas({
             aria-selected={tab === "preproc"}
             onClick={() => setTab("preproc")}
             className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
-              tab === "preproc" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+              tab === "preproc" ? "text-foreground" : "text-muted-foreground"
             }`}
           >
             <span>{t("reference_tab_script_plan")}</span>
             {preprocStatus === "loading" ? (
-              <Loader2 className="h-3 w-3 animate-spin text-[var(--color-text-4)]" aria-hidden="true" />
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />
             ) : (
               <span
                 aria-hidden="true"
@@ -976,7 +976,7 @@ export function ReferenceVideoCanvas({
             {tab === "preproc" && (
               <span
                 aria-hidden="true"
-                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm bg-primary"
               />
             )}
           </button>}
@@ -986,14 +986,14 @@ export function ReferenceVideoCanvas({
             aria-selected={tab === "units"}
             onClick={() => setTab("units")}
             className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
-              tab === "units" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+              tab === "units" ? "text-foreground" : "text-muted-foreground"
             }`}
           >
             {t("reference_tab_units")}
             {tab === "units" && (
               <span
                 aria-hidden="true"
-                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm bg-primary"
               />
             )}
           </button>
@@ -1007,7 +1007,7 @@ export function ReferenceVideoCanvas({
                 projectName={projectName}
                 episode={episode}
                 regenerate
-                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
+                className="focus-ring rounded-md border border-border bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-subtle-foreground transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-foreground"
               />
             )}
             {hasScript && (
@@ -1016,14 +1016,14 @@ export function ReferenceVideoCanvas({
                 episode={episode}
                 scope={selectedUnitId ? "current" : "pending"}
                 currentEntryId={selectedUnitId}
-                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
+                className="focus-ring rounded-md border border-border bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-subtle-foreground transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-foreground"
               />
             )}
             <button
               type="button"
               onClick={() => void handleBatchGenerate()}
               disabled={batchTargets.length === 0}
-              className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-border bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-subtle-foreground transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
               <span>{t("reference_batch_generate")}</span>
@@ -1041,7 +1041,7 @@ export function ReferenceVideoCanvas({
       )}
 
       {tab === "units" && promptDraft?.editable_by === "agent" && (
-        <div className="border-b border-[var(--color-hairline-soft)] px-5 py-2">
+        <div className="border-b border-border/50 px-5 py-2">
           <PromptAuthoringDraftPanel
             key={`${projectName}:${episode}`}
             projectName={projectName}
@@ -1059,7 +1059,7 @@ export function ReferenceVideoCanvas({
       {error && tab === "units" && (
         <p
           role="alert"
-          className="border-b border-[var(--color-hairline-soft)] bg-red-500/10 px-5 py-2 text-xs text-red-400"
+          className="border-b border-border/50 bg-red-500/10 px-5 py-2 text-xs text-red-400"
         >
           {error}
         </p>
@@ -1123,14 +1123,14 @@ export function ReferenceVideoCanvas({
             <div className="flex min-h-0 flex-col overflow-hidden bg-[radial-gradient(ellipse_at_top,oklch(0.20_0.012_270_/_0.35),oklch(0.17_0.010_265_/_0.2))]">
               {selected ? (
                 <>
-                  <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-hairline-soft)] px-4 py-2.5">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-border/50 px-4 py-2.5">
                     <span
                       translate="no"
-                      className="rounded px-2.5 py-1 font-mono text-xs font-bold tracking-wider text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_2px_6px_-2px_var(--color-accent-glow)]"
+                      className="rounded-sm px-2.5 py-1 font-mono text-xs font-bold tracking-wider text-[oklch(0.14_0_0)] bg-primary shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_2px_6px_-2px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
                     >
                       {itemIdWithinEpisode(selected.unit_id)}
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
+                    <span className="inline-flex items-center gap-1 rounded-sm border border-border/50 bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-subtle-foreground">
                       <Clock className="h-3 w-3" aria-hidden="true" />
                       {freeDuration && !selectedDurationEndpointFixed ? (
                         <input
@@ -1150,7 +1150,7 @@ export function ReferenceVideoCanvas({
                           onKeyDown={(e) => {
                             if (e.key === "Enter") e.currentTarget.blur();
                           }}
-                          className="focus-ring w-14 bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
+                          className="focus-ring w-14 bg-transparent font-mono tabular-nums text-subtle-foreground disabled:cursor-not-allowed disabled:opacity-60"
                         />
                       ) : selectedTierProblem ? (
                         <span className="text-amber-300" title={selectedTierProblem.hint}>
@@ -1167,7 +1167,7 @@ export function ReferenceVideoCanvas({
                           onChange={(e) =>
                             void handleDurationChange(selected.unit_id, Number(e.target.value))
                           }
-                          className="focus-ring cursor-pointer bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
+                          className="focus-ring cursor-pointer bg-transparent font-mono tabular-nums text-subtle-foreground disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {/* 已保存的越界值（换模型后档位收窄）留一项，避免下拉把它静默改写成别的秒数 */}
                           {(effectiveDurationOptions.includes(selected.duration_seconds)
@@ -1197,7 +1197,7 @@ export function ReferenceVideoCanvas({
                     )}
                     <span className="flex-1" />
                     {selectedIndex >= 0 && (
-                      <span className="font-mono text-[10.5px] tabular-nums text-[var(--color-text-4)]">
+                      <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground">
                         {selectedIndex + 1} / {units.length}
                       </span>
                     )}
@@ -1207,7 +1207,7 @@ export function ReferenceVideoCanvas({
                       disabled={movingUnit || selectedIndex <= 0}
                       aria-label={t("reference_unit_move_earlier")}
                       title={movingUnit ? t("shot_move_pending") : t("reference_unit_move_earlier")}
-                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded-sm border border-border bg-[oklch(0.22_0.011_265_/_0.5)] text-subtle-foreground hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -1217,7 +1217,7 @@ export function ReferenceVideoCanvas({
                       disabled={movingUnit || selectedIndex < 0 || selectedIndex >= units.length - 1}
                       aria-label={t("reference_unit_move_later")}
                       title={movingUnit ? t("shot_move_pending") : t("reference_unit_move_later")}
-                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded-sm border border-border bg-[oklch(0.22_0.011_265_/_0.5)] text-subtle-foreground hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -1226,7 +1226,7 @@ export function ReferenceVideoCanvas({
                       onClick={goPrev}
                       disabled={selectedIndex <= 0}
                       aria-label={t("reference_unit_prev")}
-                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded-sm border border-border bg-[oklch(0.22_0.011_265_/_0.5)] text-subtle-foreground hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -1235,7 +1235,7 @@ export function ReferenceVideoCanvas({
                       onClick={goNext}
                       disabled={selectedIndex < 0 || selectedIndex >= units.length - 1}
                       aria-label={t("reference_unit_next")}
-                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded-sm border border-border bg-[oklch(0.22_0.011_265_/_0.5)] text-subtle-foreground hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -1244,7 +1244,7 @@ export function ReferenceVideoCanvas({
                       onClick={() => void handleAdd(selected.unit_id)}
                       aria-label={t("reference_unit_insert_after")}
                       title={t("reference_unit_insert_after")}
-                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded-sm border border-border bg-[oklch(0.22_0.011_265_/_0.5)] text-subtle-foreground hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -1254,7 +1254,7 @@ export function ReferenceVideoCanvas({
                       disabled={isUnitRemovalBlocked(selected.unit_id)}
                       aria-label={t("reference_unit_remove")}
                       title={t("reference_unit_remove")}
-                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded-sm border border-border bg-[oklch(0.22_0.011_265_/_0.5)] text-subtle-foreground hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -1277,7 +1277,7 @@ export function ReferenceVideoCanvas({
                     <div
                       role="tablist"
                       aria-label={t("reference_tab_aria")}
-                      className="flex items-center gap-0 border-b border-[var(--color-hairline)] bg-[oklch(0.19_0.012_250_/_0.4)] px-5"
+                      className="flex items-center gap-0 border-b border-border bg-[oklch(0.19_0.012_250_/_0.4)] px-5"
                     >
                       <button
                         type="button"
@@ -1286,8 +1286,8 @@ export function ReferenceVideoCanvas({
                         onClick={() => setStackTab("editor")}
                         className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
                           stackTab === "editor"
-                            ? "text-[var(--color-text)]"
-                            : "text-[var(--color-text-3)]"
+                            ? "text-foreground"
+                            : "text-muted-foreground"
                         }`}
                       >
                         <Scissors className="h-3 w-3" aria-hidden="true" />
@@ -1301,7 +1301,7 @@ export function ReferenceVideoCanvas({
                         {stackTab === "editor" && (
                           <span
                             aria-hidden="true"
-                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm bg-primary"
                           />
                         )}
                       </button>
@@ -1312,8 +1312,8 @@ export function ReferenceVideoCanvas({
                         onClick={() => setStackTab("preview")}
                         className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
                           stackTab === "preview"
-                            ? "text-[var(--color-text)]"
-                            : "text-[var(--color-text-3)]"
+                            ? "text-foreground"
+                            : "text-muted-foreground"
                         }`}
                       >
                         <span>{t("reference_tab_preview")}</span>
@@ -1329,7 +1329,7 @@ export function ReferenceVideoCanvas({
                         {stackTab === "preview" && (
                           <span
                             aria-hidden="true"
-                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+                            className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm bg-primary"
                           />
                         )}
                       </button>
@@ -1365,8 +1365,8 @@ export function ReferenceVideoCanvas({
                               onClick={() => setEditorView(view)}
                               className={`focus-ring rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
                                 editorView === view
-                                  ? "border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)] text-[var(--color-text)]"
-                                  : "border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-3)] hover:text-[var(--color-text-2)]"
+                                  ? "border-primary/50 bg-primary/22 text-foreground"
+                                  : "border-border bg-[oklch(0.22_0.011_265_/_0.5)] text-muted-foreground hover:text-subtle-foreground"
                               }`}
                             >
                               {view === "script"
@@ -1412,10 +1412,10 @@ export function ReferenceVideoCanvas({
                           </div>
                         )}
                         {/* Editor bottom bar */}
-                        <div className="flex flex-shrink-0 items-center gap-2 border-t border-[var(--color-hairline-soft)] bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
+                        <div className="flex flex-shrink-0 items-center gap-2 border-t border-border/50 bg-[oklch(0.18_0.010_265_/_0.5)] px-3.5 py-2">
                           <span
                             className={`inline-flex items-center gap-1.5 text-[11px] ${
-                              isDirty ? "text-amber-300" : "text-[var(--color-text-4)]"
+                              isDirty ? "text-amber-300" : "text-muted-foreground"
                             }`}
                           >
                             {isDirty ? (
@@ -1443,8 +1443,8 @@ export function ReferenceVideoCanvas({
                             disabled={!isDirty || saving}
                             className={`focus-ring inline-flex min-w-[80px] items-center justify-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold ${
                               isDirty
-                                ? "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_12px_-4px_var(--color-accent-glow)]"
-                                : "border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-4)]"
+                                ? "text-[oklch(0.14_0_0)] bg-primary shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_12px_-4px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
+                                : "border border-border bg-[oklch(0.22_0.011_265_/_0.5)] text-muted-foreground"
                             } disabled:cursor-not-allowed`}
                           >
                             {saving ? (
@@ -1488,7 +1488,7 @@ export function ReferenceVideoCanvas({
                 // 广告/短片没有脚本规划：没有正式脚本时直接从空白开始。
                 <NoScriptBlankState projectName={projectName} episode={episode} className="flex-1 text-xs" />
               ) : hasScript && units.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-3 text-xs text-[var(--color-text-4)]">
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
                   <p className="m-0">{t("reference_canvas_empty")}</p>
                   <button
                     type="button"
@@ -1500,7 +1500,7 @@ export function ReferenceVideoCanvas({
                   </button>
                 </div>
               ) : (
-                <div className="flex flex-1 items-center justify-center text-xs text-[var(--color-text-4)]">
+                <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
                   {t("reference_canvas_empty")}
                 </div>
               )}
@@ -1508,7 +1508,7 @@ export function ReferenceVideoCanvas({
 
             {/* 右：UnitPreviewPanel（仅大屏） */}
             {!stackPreview && (
-              <div className="flex min-h-0 flex-col overflow-hidden border-l border-[var(--color-hairline)] bg-[linear-gradient(180deg,oklch(0.19_0.011_265_/_0.5),oklch(0.17_0.010_265_/_0.35))]">
+              <div className="flex min-h-0 flex-col overflow-hidden border-l border-border bg-[linear-gradient(180deg,oklch(0.19_0.011_265_/_0.5),oklch(0.17_0.010_265_/_0.35))]">
                 <UnitPreviewPanel
                   unit={selected}
                   projectName={projectName}

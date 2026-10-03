@@ -53,14 +53,14 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
       >
         <div
           className="min-h-0 overflow-hidden"
-          style={{ borderRight: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderRight: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           {left}
         </div>
         <div className="min-h-0 overflow-hidden">{mid}</div>
         <div
           className="min-h-0 overflow-hidden"
-          style={{ borderLeft: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderLeft: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           {right}
         </div>
@@ -79,7 +79,7 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
         <div
           className="flex gap-0.5 px-3 py-2"
           style={{
-            borderBottom: "1px solid var(--color-hairline-soft)",
+            borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
             background: "oklch(0.20 0.011 265 / 0.3)",
           }}
         >
@@ -92,9 +92,9 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
                 onClick={() => setActiveTab(x.k)}
                 className="rounded-md px-3 py-1.5 text-[11.5px] font-medium transition-colors focus-ring"
                 style={{
-                  color: active ? "var(--color-accent-2)" : "var(--color-text-3)",
-                  background: active ? "var(--color-accent-dim)" : "transparent",
-                  border: "1px solid " + (active ? "var(--color-accent-soft)" : "transparent"),
+                  color: active ? "var(--primary)" : "var(--muted-foreground)",
+                  background: active ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
+                  border: "1px solid " + (active ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "transparent"),
                 }}
               >
                 {x.label}
@@ -118,7 +118,7 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
       <div
         className="flex items-center gap-1.5 px-3 py-1.5"
         style={{
-          borderBottom: "1px solid var(--color-hairline-soft)",
+          borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
           background: "oklch(0.20 0.011 265 / 0.3)",
         }}
       >
@@ -127,9 +127,9 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
           onClick={() => setActiveTab(leftOpen ? "mid" : "left")}
           className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] font-medium focus-ring"
           style={{
-            color: leftOpen ? "var(--color-accent-2)" : "var(--color-text-3)",
-            background: leftOpen ? "var(--color-accent-dim)" : "oklch(0.22 0.011 265 / 0.5)",
-            border: "1px solid " + (leftOpen ? "var(--color-accent-soft)" : "var(--color-hairline-soft)"),
+            color: leftOpen ? "var(--primary)" : "var(--muted-foreground)",
+            background: leftOpen ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.22 0.011 265 / 0.5)",
+            border: "1px solid " + (leftOpen ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "color-mix(in oklab, var(--border) 50%, transparent)"),
           }}
         >
           <span aria-hidden="true">{leftOpen ? "×" : "☰"}</span>
@@ -146,7 +146,7 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
           <>
             <div
               className="min-h-0 overflow-hidden"
-              style={{ borderRight: "1px solid var(--color-hairline-soft)" }}
+              style={{ borderRight: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
             >
               {left}
             </div>
@@ -157,7 +157,7 @@ export function ResponsiveDetailGrid({ left, mid, right, revealRightKey = null }
             <div className="min-h-0 overflow-hidden">{mid}</div>
             <div
               className="min-h-0 overflow-hidden"
-              style={{ borderLeft: "1px solid var(--color-hairline-soft)" }}
+              style={{ borderLeft: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
             >
               {right}
             </div>

@@ -99,17 +99,17 @@ export function AssetFormModal({
       {/* Header */}
         <div
           className="flex items-start gap-3 px-6 py-5"
-          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           <span
             aria-hidden
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+                "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+              color: "var(--primary)",
+              boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
             }}
           >
             <TypeIcon className="h-4 w-4" />
@@ -118,14 +118,14 @@ export function AssetFormModal({
             <h3
               id={titleId}
               className="display-serif truncate text-[15px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {title}
             </h3>
             <p
               className="num mt-0.5 text-[10px] uppercase"
               style={{
-                color: "var(--color-text-4)",
+                color: "var(--muted-foreground)",
                 letterSpacing: "1.0px",
               }}
             >
@@ -160,14 +160,14 @@ export function AssetFormModal({
               className="focus-ring group relative aspect-video w-full overflow-hidden rounded-xl transition-colors"
               style={{
                 background: "oklch(0.16 0.010 265 / 0.6)",
-                border: "1px dashed var(--color-hairline)",
+                border: "1px dashed var(--border)",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--color-accent-soft)";
+                e.currentTarget.style.borderColor = "color-mix(in oklab, var(--primary) 22%, transparent)";
                 e.currentTarget.style.borderStyle = "dashed";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--color-hairline)";
+                e.currentTarget.style.borderColor = "var(--border)";
               }}
             >
               {displayedPreview ? (
@@ -181,7 +181,7 @@ export function AssetFormModal({
                     className="absolute inset-0 flex items-center justify-center gap-2 text-[13px] opacity-0 transition-opacity group-hover:opacity-100"
                     style={{
                       background: "oklch(0 0 0 / 0.6)",
-                      color: "var(--color-text)",
+                      color: "var(--foreground)",
                     }}
                   >
                     <ImagePlus className="h-4 w-4" />
@@ -191,29 +191,29 @@ export function AssetFormModal({
               ) : (
                 <div
                   className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center transition-colors"
-                  style={{ color: "var(--color-text-4)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   <span
                     aria-hidden
                     className="grid h-10 w-10 place-items-center rounded-full"
                     style={{
                       background:
-                        "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-                      border: "1px solid var(--color-accent-soft)",
-                      color: "var(--color-accent-2)",
+                        "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
+                      border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                      color: "var(--primary)",
                     }}
                   >
                     <ImagePlus className="h-4 w-4" />
                   </span>
                   <span
                     className="text-[12px]"
-                    style={{ color: "var(--color-text-3)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   >
                     {t("upload_image_hint")}
                   </span>
                   <span
                     className="text-[10px]"
-                    style={{ color: "var(--color-text-4)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   >
                     {t("upload_image_optional")}
                   </span>
@@ -235,7 +235,7 @@ export function AssetFormModal({
               label={
                 <>
                   {t("field.name")}{" "}
-                  <span style={{ color: "var(--color-accent-2)" }}>*</span>
+                  <span style={{ color: "var(--primary)" }}>*</span>
                 </>
               }
             >
@@ -246,8 +246,8 @@ export function AssetFormModal({
                 className="focus-ring rounded-lg px-3 py-2 text-[13px] outline-none"
                 style={{
                   background: "oklch(0.16 0.010 265 / 0.6)",
-                  border: "1px solid var(--color-hairline)",
-                  color: "var(--color-text)",
+                  border: "1px solid var(--border)",
+                  color: "var(--foreground)",
                 }}
               />
             </FieldLabel>
@@ -260,8 +260,8 @@ export function AssetFormModal({
                 className="focus-ring resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none"
                 style={{
                   background: "oklch(0.16 0.010 265 / 0.6)",
-                  border: "1px solid var(--color-hairline)",
-                  color: "var(--color-text)",
+                  border: "1px solid var(--border)",
+                  color: "var(--foreground)",
                 }}
               />
             </FieldLabel>
@@ -274,8 +274,8 @@ export function AssetFormModal({
                   className="focus-ring rounded-lg px-3 py-2 text-[13px] outline-none"
                   style={{
                     background: "oklch(0.16 0.010 265 / 0.6)",
-                    border: "1px solid var(--color-hairline)",
-                    color: "var(--color-text)",
+                    border: "1px solid var(--border)",
+                    color: "var(--foreground)",
                   }}
                 />
               </FieldLabel>
@@ -287,11 +287,11 @@ export function AssetFormModal({
           <div className="px-6 pb-6">
             <div
               className="num text-[10px] uppercase"
-              style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+              style={{ color: "var(--muted-foreground)", letterSpacing: "1.0px" }}
             >
               {t("derivatives_with_count", { n: derivatives.length })}
             </div>
-            <p className="mt-1.5 text-[11.5px] leading-[1.55]" style={{ color: "var(--color-text-4)" }}>
+            <p className="mt-1.5 text-[11.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
               {t("library_derivatives_note")}
             </p>
             <ul className="mt-3 grid grid-cols-3 gap-3">
@@ -299,7 +299,7 @@ export function AssetFormModal({
                 <li key={derivative.name} className="min-w-0">
                   <div
                     className="overflow-hidden rounded-lg"
-                    style={{ border: "1px solid var(--color-hairline-soft)" }}
+                    style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
                   >
                     <AssetThumb
                       imageUrl={API.getGlobalAssetUrl(derivative.image_path, imageFingerprint)}
@@ -310,7 +310,7 @@ export function AssetFormModal({
                   </div>
                   <div
                     className="mt-1.5 truncate text-[12px] font-medium"
-                    style={{ color: "var(--color-text-2)" }}
+                    style={{ color: "var(--subtle-foreground)" }}
                     title={derivative.name}
                   >
                     {derivative.name}
@@ -318,7 +318,7 @@ export function AssetFormModal({
                   {derivative.description ? (
                     <div
                       className="mt-0.5 line-clamp-2 text-[11px] leading-[1.5]"
-                      style={{ color: "var(--color-text-4)" }}
+                      style={{ color: "var(--muted-foreground)" }}
                     >
                       {derivative.description}
                     </div>
@@ -333,7 +333,7 @@ export function AssetFormModal({
         <div
           className="flex items-center gap-2 px-6 py-4"
           style={{
-            borderTop: "1px solid var(--color-hairline-soft)",
+            borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
             background: "oklch(0.17 0.010 250 / 0.5)",
           }}
         >
@@ -375,7 +375,7 @@ function FieldLabel({
       <span
         className="num text-[10px] uppercase"
         style={{
-          color: "var(--color-text-4)",
+          color: "var(--muted-foreground)",
           letterSpacing: "1.0px",
         }}
       >

@@ -11,21 +11,21 @@ import { SEVERITY_TONES, type ToneTokens } from "@/utils/severity-tone";
  * 实心与描边只留给下一步的主入口，行内动作不抢它的分量。焦点环与悬停态照旧齐备。
  */
 export const INLINE_ACTION_CLS =
-  "focus-ring rounded text-[11.5px] underline underline-offset-2 hover:opacity-80 disabled:opacity-50 disabled:hover:opacity-50";
+  "focus-ring rounded-sm text-[11.5px] underline underline-offset-2 hover:opacity-80 disabled:opacity-50 disabled:hover:opacity-50";
 
 /** 未登记状态词的落点：说不出程度就不着色，绝不在查表上崩掉整个面板。 */
 const NEUTRAL_TONE: ToneTokens = {
-  color: "var(--color-text-3)",
+  color: "var(--muted-foreground)",
   soft: "transparent",
-  ring: "var(--color-hairline-strong)",
+  ring: "var(--input)",
   glow: "transparent",
 };
 
 const CURRENT_TONE: ToneTokens = {
-  color: "var(--color-accent-2)",
-  soft: "var(--color-accent-dim)",
-  ring: "var(--color-accent-soft)",
-  glow: "var(--color-accent-glow)",
+  color: "var(--primary)",
+  soft: "color-mix(in oklab, var(--primary) 12%, transparent)",
+  ring: "color-mix(in oklab, var(--primary) 22%, transparent)",
+  glow: "color-mix(in oklab, var(--primary) 35%, transparent)",
 };
 
 /** 产物时效的色调。missing 刻意是中性色：缺失不是故障，只是还没做。 */

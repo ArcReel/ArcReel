@@ -87,7 +87,7 @@ export function CreateEpisodeDialog({ projectName, initialAfter = null, onClose,
         }}
       >
         <header className="flex items-start justify-between gap-3 px-6 pt-5">
-          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-text">
+          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-foreground">
             {t("dashboard:episode_create_title")}
           </h2>
           <ModalCloseButton onClick={onClose} disabled={busy} />
@@ -123,7 +123,7 @@ export function CreateEpisodeDialog({ projectName, initialAfter = null, onClose,
               className={INPUT_CLS}
               disabled={busy}
             />
-            <p className="mt-1 text-[11.5px] leading-[1.6] text-text-4">
+            <p className="mt-1 text-[11.5px] leading-[1.6] text-muted-foreground">
               {t("dashboard:episode_create_title_hint", { position })}
             </p>
           </div>
@@ -154,9 +154,9 @@ export function CreateEpisodeDialog({ projectName, initialAfter = null, onClose,
               className={`${INPUT_CLS} resize-y leading-[1.7]`}
               disabled={busy}
             />
-            <p className="mt-1 text-[11.5px] leading-[1.6] text-text-4">{t("dashboard:episode_create_source_hint")}</p>
+            <p className="mt-1 text-[11.5px] leading-[1.6] text-muted-foreground">{t("dashboard:episode_create_source_hint")}</p>
             {withSourceKind && hasSource ? (
-              <div className="mt-2 flex items-center gap-2 text-[12px] text-text-3">
+              <div className="mt-2 flex items-center gap-2 text-[12px] text-muted-foreground">
                 <span>{t("dashboard:source_kind")}</span>
                 <SourceKindSelect
                   value={sourceKind}
@@ -184,5 +184,5 @@ export function CreateEpisodeDialog({ projectName, initialAfter = null, onClose,
 
 function OptionalTag() {
   const { t } = useTranslation("dashboard");
-  return <span className="text-[11px] font-normal normal-case tracking-normal text-text-4">{t("episode_create_optional")}</span>;
+  return <span className="text-[11px] font-normal normal-case tracking-normal text-muted-foreground">{t("episode_create_optional")}</span>;
 }

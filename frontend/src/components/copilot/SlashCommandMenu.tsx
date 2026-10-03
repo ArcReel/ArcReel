@@ -139,24 +139,24 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
               onMouseEnter={() => setActiveIndex(i)}
               className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] transition-colors"
               style={{
-                background: isActive ? "var(--color-accent-dim)" : "transparent",
+                background: isActive ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
               }}
             >
               <Icon
                 className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                style={{ color: isActive ? "var(--color-accent-2)" : "var(--color-accent)" }}
+                style={{ color: isActive ? "var(--primary)" : "var(--primary)" }}
               />
               <div className="min-w-0">
                 <span
                   className="font-medium"
-                  style={{ color: "var(--color-text)" }}
+                  style={{ color: "var(--foreground)" }}
                 >
                   {label && (
                     <>
                       {label}
                       <span
                         className="ml-1.5"
-                        style={{ color: "var(--color-text-4)" }}
+                        style={{ color: "var(--muted-foreground)" }}
                       >
                         /{skill.name}
                       </span>
@@ -166,7 +166,7 @@ export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandM
                 </span>
                 <p
                   className="truncate text-[11px]"
-                  style={{ color: "var(--color-text-3)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   {skill.description}
                 </p>

@@ -154,7 +154,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       style={{
         width: collapsed ? 64 : 256,
         transition: "width .18s ease",
-        borderRight: "1px solid var(--color-hairline)",
+        borderRight: "1px solid var(--border)",
         background:
           "linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5))",
         boxShadow: "inset -1px 0 0 oklch(1 0 0 / 0.015)",
@@ -175,23 +175,23 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               className="relative mb-px flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors focus-ring hover:bg-[oklch(0.26_0.012_265/0.5)]"
               style={{
                 background: active
-                  ? "linear-gradient(90deg, var(--color-accent-soft), var(--color-accent-dim) 70%, transparent)"
+                  ? "linear-gradient(90deg, color-mix(in oklab, var(--primary) 22%, transparent), color-mix(in oklab, var(--primary) 12%, transparent) 70%, transparent)"
                   : "transparent",
-                color: active ? "var(--color-text)" : "var(--color-text-2)",
+                color: active ? "var(--foreground)" : "var(--subtle-foreground)",
               }}
             >
               {active && (
                 <span
-                  className="absolute -left-px top-[7px] bottom-[7px] w-0.5 rounded"
+                  className="absolute -left-px top-[7px] bottom-[7px] w-0.5 rounded-sm"
                   style={{
-                    background: "var(--color-accent)",
-                    boxShadow: "0 0 8px var(--color-accent-glow)",
+                    background: "var(--primary)",
+                    boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
                   }}
                 />
               )}
               <span
                 className="grid w-4 shrink-0 place-items-center"
-                style={{ color: active ? "var(--color-accent-2)" : "var(--color-text-3)" }}
+                style={{ color: active ? "var(--primary)" : "var(--muted-foreground)" }}
               >
                 <Icon className="h-4 w-4" />
               </span>
@@ -208,9 +208,9 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   </span>
                   {item.meta != null && (
                     <span
-                      className="num rounded-[3px] px-1.5 py-px text-[10.5px]"
+                      className="num rounded-xs px-1.5 py-px text-[10.5px]"
                       style={{
-                        color: active ? "var(--color-text-3)" : "var(--color-text-4)",
+                        color: active ? "var(--muted-foreground)" : "var(--muted-foreground)",
                         background: active ? "oklch(0 0 0 / 0.2)" : "transparent",
                       }}
                     >
@@ -226,7 +226,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
 
       <div
         className="mx-3.5 my-1 h-px"
-        style={{ background: "var(--color-hairline-soft)" }}
+        style={{ background: "color-mix(in oklab, var(--border) 50%, transparent)" }}
       />
 
       {/* ---- Episodes ---- */}
@@ -235,7 +235,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           <div className="flex items-center gap-2 px-3.5 pb-1.5 pt-2.5">
             <span
               className="text-[10.5px] font-bold uppercase"
-              style={{ color: "var(--color-text-4)", letterSpacing: "0.8px" }}
+              style={{ color: "var(--muted-foreground)", letterSpacing: "0.8px" }}
             >
               {isAd
                 ? t("dashboard:ad_video_section_title")
@@ -243,15 +243,15 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             </span>
             {!isAd && (
               <>
-                <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+                <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
                   {episodes.length}
                 </span>
                 <span className="flex-1" />
                 {demoMode ? null : (
                   <ActionMenu
                     label={t("dashboard:add_episode")}
-                    triggerClassName="grid h-5 w-5 place-items-center rounded focus-ring hover:text-text"
-                    triggerStyle={{ background: "oklch(0.28 0.012 250 / 0.6)", color: "var(--color-text-3)" }}
+                    triggerClassName="grid h-5 w-5 place-items-center rounded-sm focus-ring hover:text-foreground"
+                    triggerStyle={{ background: "oklch(0.28 0.012 250 / 0.6)", color: "var(--muted-foreground)" }}
                     items={[
                       {
                         key: "create",
@@ -280,12 +280,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                 className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
                 style={{
                   background: "oklch(0.16 0.010 250 / 0.6)",
-                  border: "1px solid var(--color-hairline)",
+                  border: "1px solid var(--border)",
                 }}
               >
                 <Search
                   className="h-3 w-3 shrink-0"
-                  style={{ color: "var(--color-text-4)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 />
                 <input
                   type="search"
@@ -294,7 +294,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   placeholder={t("dashboard:episode_search_placeholder")}
                   aria-label={t("dashboard:episode_search_placeholder")}
                   className="min-w-0 flex-1 bg-transparent text-xs outline-none focus-ring"
-                  style={{ color: "var(--color-text)" }}
+                  style={{ color: "var(--foreground)" }}
                 />
               </div>
             </div>
@@ -304,7 +304,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             {filteredEps.length === 0 ? (
               <div
                 className="px-2 py-6 text-center text-[11px] italic"
-                style={{ color: "var(--color-text-4)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {episodes.length === 0
                   ? t("dashboard:no_episodes_yet")
@@ -357,11 +357,11 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               aria-label={epLabel}
               className="num mb-[3px] flex h-9 w-full items-center justify-center rounded-md text-[11px] font-bold focus-ring"
               style={{
-                background: ep.episode === activeEp ? "var(--color-accent-dim)" : "transparent",
+                background: ep.episode === activeEp ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
                 color:
                   ep.episode === activeEp
-                    ? "var(--color-accent-2)"
-                    : "var(--color-text-3)",
+                    ? "var(--primary)"
+                    : "var(--muted-foreground)",
               }}
             >
               {isAd ? <Clapperboard className="h-4 w-4" aria-hidden /> : position}
@@ -375,7 +375,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       <div
         className="flex items-center gap-2 px-2.5 py-2"
         style={{
-          borderTop: "1px solid var(--color-hairline)",
+          borderTop: "1px solid var(--border)",
           background: "oklch(0.17 0.010 250 / 0.6)",
         }}
       >
@@ -386,7 +386,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
           aria-expanded={!collapsed}
           style={{
             background: "oklch(0.24 0.012 250 / 0.5)",
-            color: "var(--color-text-3)",
+            color: "var(--muted-foreground)",
           }}
           title={collapsed ? t("dashboard:sidebar_expand") : t("dashboard:sidebar_collapse")}
           aria-label={

@@ -42,14 +42,14 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
     <div className={className ?? "space-y-2 text-[12.5px] leading-relaxed"}>
       {blocked ? (
         <>
-          <p style={{ color: "var(--color-text-3)" }}>{t("admission_blocked_intro")}</p>
+          <p style={{ color: "var(--muted-foreground)" }}>{t("admission_blocked_intro")}</p>
           <ProblemList
             problems={admissionUnitViews(t, failing, seconds)}
             className="max-h-56 space-y-2 overflow-y-auto"
           />
           {withheld.length > 0 && (
             <div className="space-y-1">
-              <p style={{ color: "var(--color-text-4)" }}>
+              <p style={{ color: "var(--muted-foreground)" }}>
                 {t("admission_withheld_title", { count: withheld.length })}
               </p>
               <div className="flex flex-wrap gap-1">
@@ -62,23 +62,23 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
         </>
       ) : (
         <>
-          <p style={{ color: "var(--color-text-3)" }}>
+          <p style={{ color: "var(--muted-foreground)" }}>
             {t("admission_confirm_intro", { count: confirmingUnitCount })}
           </p>
           <ul className="max-h-56 space-y-2 overflow-y-auto">
             {tiers.map((tier) => (
               <li key={tier.request_duration_seconds ?? "unknown"} className="space-y-1">
                 <span className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="tabular-nums font-medium" style={{ color: "var(--color-text)" }}>
+                  <span className="tabular-nums font-medium" style={{ color: "var(--foreground)" }}>
                     {tierSeconds(tier.request_duration_seconds)}
                   </span>
-                  <span aria-hidden style={{ color: "var(--color-text-4)" }}>
+                  <span aria-hidden style={{ color: "var(--muted-foreground)" }}>
                     ×
                   </span>
-                  <span className="tabular-nums" style={{ color: "var(--color-text-2)" }}>
+                  <span className="tabular-nums" style={{ color: "var(--subtle-foreground)" }}>
                     {t("tier_units", { count: tier.unit_count })}
                   </span>
-                  <span style={{ color: "var(--color-text-2)" }}>
+                  <span style={{ color: "var(--subtle-foreground)" }}>
                     {tier.cost_amount != null && tier.cost_currency
                       ? t("tier_cost", {
                           cost: formatCurrencyAmount(tier.cost_currency, tier.cost_amount),
@@ -94,11 +94,11 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
               </li>
             ))}
           </ul>
-          <p style={{ color: "var(--color-text-3)" }}>{t("admission_confirm_note")}</p>
+          <p style={{ color: "var(--muted-foreground)" }}>{t("admission_confirm_note")}</p>
         </>
       )}
       {skippedCount > 0 && (
-        <p style={{ color: "var(--color-text-3)" }}>
+        <p style={{ color: "var(--muted-foreground)" }}>
           {t("admission_skipped", { count: skippedCount })}
         </p>
       )}

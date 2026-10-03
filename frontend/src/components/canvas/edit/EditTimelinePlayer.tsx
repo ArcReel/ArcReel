@@ -52,7 +52,7 @@ export function EditTimelinePlayer({
   return (
     <div className="flex flex-col items-center gap-2.5">
       <div
-        className={`relative overflow-hidden rounded-[10px] bg-black ${frame}`}
+        className={`relative overflow-hidden rounded-lg bg-black ${frame}`}
         style={{ containerType: "size" }}
         role="region"
         aria-label={t("edit_view_player_aria")}
@@ -71,7 +71,7 @@ export function EditTimelinePlayer({
         ))}
         {segment && !segment.hasVideo && (
           <div
-            className="absolute inset-0 flex items-center justify-center text-[13px] text-text-3"
+            className="absolute inset-0 flex items-center justify-center text-[13px] text-muted-foreground"
             style={{ opacity }}
           >
             {t("edit_view_stage_video_missing")}
@@ -97,11 +97,11 @@ export function EditTimelinePlayer({
         )}
         {current && (
           <div className="pointer-events-none absolute left-2.5 top-2.5 flex flex-wrap gap-1.5 text-[11px]">
-            <span className="rounded-[4px] bg-black/60 px-1.5 py-0.5 tabular-nums text-white/90">
+            <span className="rounded-sm bg-black/60 px-1.5 py-0.5 tabular-nums text-white/90">
               {current.id} · {itemIdWithinEpisode(current.unit_id)}
             </span>
             {trimIgnored && (
-              <span className="inline-flex items-center gap-1 rounded-[4px] bg-warn/90 px-1.5 py-0.5 text-black">
+              <span className="inline-flex items-center gap-1 rounded-sm bg-warn/90 px-1.5 py-0.5 text-black">
                 <AlertTriangle aria-hidden className="h-3 w-3" />
                 {t("edit_view_stage_trim_ignored")}
               </span>
@@ -111,7 +111,7 @@ export function EditTimelinePlayer({
         {playback.buffering && (
           <span
             role="status"
-            className="pointer-events-none absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-[4px] bg-black/60 px-1.5 py-0.5 text-[11px] text-white/90"
+            className="pointer-events-none absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-sm bg-black/60 px-1.5 py-0.5 text-[11px] text-white/90"
           >
             <Loader2 aria-hidden className="h-3 w-3 animate-spin motion-reduce:animate-none" />
             {t("edit_view_buffering")}
@@ -124,22 +124,22 @@ export function EditTimelinePlayer({
           onClick={playback.toggle}
           disabled={plan.segments.length === 0}
           aria-label={playback.playing ? t("edit_view_pause") : t("edit_view_play")}
-          className="focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-text text-bg transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+          className="focus-ring inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {playback.playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-px" />}
         </button>
-        <span className="text-[13px] tabular-nums text-text-2">
-          {formatClock(playback.t)} <span className="text-text-4">/ {formatClock(plan.duration)}</span>
+        <span className="text-[13px] tabular-nums text-subtle-foreground">
+          {formatClock(playback.t)} <span className="text-muted-foreground">/ {formatClock(plan.duration)}</span>
         </span>
-        <span className="text-[12px] text-text-4">
+        <span className="text-[12px] text-muted-foreground">
           {t("edit_view_clip_count", { count: plan.segments.length })}
         </span>
         <button
           type="button"
           onClick={onToggleSubtitles}
           aria-pressed={showSubtitles}
-          className={`focus-ring ml-auto inline-flex items-center gap-1.5 rounded-[7px] px-2 py-1 text-[12px] transition-colors ${
-            showSubtitles ? "bg-accent-dim text-text" : "text-text-3 hover:text-text"
+          className={`focus-ring ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition-colors ${
+            showSubtitles ? "bg-primary/12 text-foreground" : "text-muted-foreground hover:text-foreground"
           }`}
         >
           <Captions aria-hidden className="h-3.5 w-3.5" />
@@ -153,7 +153,7 @@ export function EditTimelinePlayer({
               {t("edit_view_playback_blocked")}
             </p>
           )}
-          {hasTransitions && <p className="m-0 text-text-4">{t("edit_view_transition_note")}</p>}
+          {hasTransitions && <p className="m-0 text-muted-foreground">{t("edit_view_transition_note")}</p>}
         </div>
       )}
     </div>

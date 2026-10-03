@@ -109,13 +109,13 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
       <section
         aria-labelledby="episode-planning-title"
         className="space-y-2 rounded-md py-2 pl-3 pr-2"
-        style={{ borderLeft: "3px solid var(--color-accent-2)", background: "var(--color-accent-dim)" }}
+        style={{ borderLeft: "3px solid var(--primary)", background: "color-mix(in oklab, var(--primary) 12%, transparent)" }}
       >
-        <h3 id="episode-planning-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
-          <Loader2 aria-hidden className="h-3.5 w-3.5 text-accent-2 motion-safe:animate-spin" />
+        <h3 id="episode-planning-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+          <Loader2 aria-hidden className="h-3.5 w-3.5 text-primary motion-safe:animate-spin" />
           {t("dashboard:episode_planning_running", { percent })}
         </h3>
-        <p className="m-0 text-[11.5px] leading-[1.6] text-text-3">
+        <p className="m-0 text-[11.5px] leading-[1.6] text-muted-foreground">
           {finishingWindow ? t("dashboard:episode_planning_finishing") : t("dashboard:episode_planning_running_hint")}
         </p>
         {!stopRequested ? (
@@ -130,17 +130,17 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
   if (remaining === 0 && started) {
     const stats = wholeSourceStats(view);
     return (
-      <section aria-labelledby="episode-planning-title" className="space-y-2 border-t border-hairline pt-4">
-        <h3 id="episode-planning-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
-          <CheckCircle2 aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--color-good)" }} />
+      <section aria-labelledby="episode-planning-title" className="space-y-2 border-t border-border pt-4">
+        <h3 id="episode-planning-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+          <CheckCircle2 aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--good)" }} />
           {hasGaps ? t("dashboard:episode_planning_done_with_gaps") : t("dashboard:episode_planning_done")}
         </h3>
         {stats ? (
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
-            <dt className="text-text-4">{t("dashboard:episode_planning_stats_count")}</dt>
-            <dd className="num m-0 text-text-2">{t("dashboard:episodes_view_episode_count", { count: stats.count })}</dd>
-            <dt className="text-text-4">{t("dashboard:episode_planning_stats_median")}</dt>
-            <dd className="num m-0 text-text-2">
+            <dt className="text-muted-foreground">{t("dashboard:episode_planning_stats_count")}</dt>
+            <dd className="num m-0 text-subtle-foreground">{t("dashboard:episodes_view_episode_count", { count: stats.count })}</dd>
+            <dt className="text-muted-foreground">{t("dashboard:episode_planning_stats_median")}</dt>
+            <dd className="num m-0 text-subtle-foreground">
               {formatVolume(t, stats.medianUnits, view.unit)}
               {stats.medianSpokenSeconds !== null
                 ? t("dashboard:episode_planning_stats_spoken", { spoken: formatSpoken(t, stats.medianSpokenSeconds) })
@@ -148,8 +148,8 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
             </dd>
             {targetSeconds ? (
               <>
-                <dt className="text-text-4">{t("dashboard:episode_planning_stats_target")}</dt>
-                <dd className="num m-0 text-text-2">{t("dashboard:episode_planning_stats_seconds", { count: targetSeconds })}</dd>
+                <dt className="text-muted-foreground">{t("dashboard:episode_planning_stats_target")}</dt>
+                <dd className="num m-0 text-subtle-foreground">{t("dashboard:episode_planning_stats_seconds", { count: targetSeconds })}</dd>
               </>
             ) : null}
           </dl>
@@ -176,27 +176,27 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
     );
 
   return (
-    <section aria-labelledby="episode-planning-title" className="space-y-2 border-t border-hairline pt-4">
-      <h3 id="episode-planning-title" className="text-[12.5px] font-medium text-text">
+    <section aria-labelledby="episode-planning-title" className="space-y-2 border-t border-border pt-4">
+      <h3 id="episode-planning-title" className="text-[12.5px] font-medium text-foreground">
         {started ? t("dashboard:guide_plan_continue_title") : t("dashboard:guide_plan_title")}
       </h3>
-      <p className="m-0 text-[11.5px] leading-[1.6] text-text-3">
+      <p className="m-0 text-[11.5px] leading-[1.6] text-muted-foreground">
         {started
           ? t("dashboard:episode_planning_continue_detail", { volume: formatVolume(t, remaining, view.unit) })
           : t("dashboard:guide_plan_detail")}
       </p>
       {failure ? <FailureNote failure={failure} /> : null}
       <label className="block">
-        <span className="mb-0.5 block text-[11px] text-text-3">{t("dashboard:guide_instruction_label")}</span>
+        <span className="mb-0.5 block text-[11px] text-muted-foreground">{t("dashboard:guide_instruction_label")}</span>
         <input
           value={instruction}
           onChange={(e) => updateInstruction(e.target.value)}
           placeholder={t("dashboard:guide_instruction_placeholder")}
           className="focus-ring w-full rounded-md px-2 py-1 text-[12px]"
           style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-hairline)",
-            color: "var(--color-text)",
+            background: "var(--muted)",
+            border: "1px solid var(--border)",
+            color: "var(--foreground)",
           }}
         />
       </label>
@@ -211,9 +211,9 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
 function FailureNote({ failure }: { failure: PlanningFailure }) {
   const { t } = useTranslation("dashboard");
   return (
-    <div role="alert" className="space-y-1.5 rounded-md p-2 text-[11.5px] leading-[1.6]" style={{ background: "var(--color-warm-soft)" }}>
-      <p className="m-0 flex gap-1.5 text-text-2">
-        <AlertTriangle aria-hidden className="mt-[3px] h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warm)" }} />
+    <div role="alert" className="space-y-1.5 rounded-md p-2 text-[11.5px] leading-[1.6]" style={{ background: "color-mix(in oklab, var(--warn) 10%, transparent)" }}>
+      <p className="m-0 flex gap-1.5 text-subtle-foreground">
+        <AlertTriangle aria-hidden className="mt-[3px] h-3.5 w-3.5 shrink-0" style={{ color: "var(--warn)" }} />
         <span>{t("episode_planning_failed", { reason: failure.message })}</span>
       </p>
       {failure.truncated ? <OutputTruncationHint truncation={failure.truncated} /> : null}

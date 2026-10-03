@@ -134,7 +134,7 @@ export function ShotList({
         className="flex flex-col items-center gap-1.5 overflow-y-auto py-2.5"
         style={{
           width: 44,
-          borderRight: "1px solid var(--color-hairline)",
+          borderRight: "1px solid var(--border)",
           background: "oklch(0.19 0.011 265 / 0.5)",
         }}
       >
@@ -146,8 +146,8 @@ export function ShotList({
           className="grid h-7 w-7 place-items-center rounded-md focus-ring"
           style={{
             background: "oklch(0.24 0.012 265 / 0.5)",
-            border: "1px solid var(--color-hairline-soft)",
-            color: "var(--color-text-3)",
+            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+            color: "var(--muted-foreground)",
           }}
         >
           <ChevronRight className="h-3.5 w-3.5" />
@@ -155,7 +155,7 @@ export function ShotList({
         <div
           className="mt-1.5 text-[9.5px] font-bold uppercase"
           style={{
-            color: "var(--color-text-4)",
+            color: "var(--muted-foreground)",
             letterSpacing: "1.2px",
             writingMode: "vertical-rl",
             transform: "rotate(180deg)",
@@ -173,14 +173,14 @@ export function ShotList({
                 type="button"
                 onClick={() => onSelect(i)}
                 title={itemIdWithinEpisode(id)}
-                className="num grid h-7 w-7 place-items-center rounded-[5px] text-[9.5px] font-bold focus-ring"
+                className="num grid h-7 w-7 place-items-center rounded-sm text-[9.5px] font-bold focus-ring"
                 style={{
-                  color: i === selectedIndex ? "oklch(0.14 0 0)" : "var(--color-text-3)",
+                  color: i === selectedIndex ? "oklch(0.14 0 0)" : "var(--muted-foreground)",
                   background:
                     i === selectedIndex
-                      ? "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))"
+                      ? "var(--primary)"
                       : "oklch(0.22 0.011 265 / 0.5)",
-                  border: "1px solid var(--color-hairline-soft)",
+                  border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                 }}
               >
                 {itemIdWithinEpisode(id)}
@@ -195,7 +195,7 @@ export function ShotList({
   return (
     <div
       style={{
-        borderRight: "1px solid var(--color-hairline)",
+        borderRight: "1px solid var(--border)",
         background:
           "linear-gradient(180deg, oklch(0.19 0.011 265 / 0.5), oklch(0.17 0.010 265 / 0.35))",
       }}
@@ -204,11 +204,11 @@ export function ShotList({
       <div className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-3">
         <span
           className="text-[10.5px] font-bold uppercase"
-          style={{ color: "var(--color-text-4)", letterSpacing: "0.8px" }}
+          style={{ color: "var(--muted-foreground)", letterSpacing: "0.8px" }}
         >
           {t("shots_section_title")}
         </span>
-        <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+        <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
           {filtered.length}
         </span>
         <span className="flex-1" />
@@ -217,8 +217,8 @@ export function ShotList({
           onClick={onToggleCollapse}
           title={t("shot_list_collapse")}
           aria-label={t("shot_list_collapse")}
-          className="grid h-6 w-6 place-items-center rounded text-[11px] focus-ring"
-          style={{ color: "var(--color-text-4)" }}
+          className="grid h-6 w-6 place-items-center rounded-sm text-[11px] focus-ring"
+          style={{ color: "var(--muted-foreground)" }}
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </button>
@@ -239,12 +239,12 @@ export function ShotList({
           className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
           style={{
             background: "oklch(0.20 0.011 265 / 0.55)",
-            border: "1px solid var(--color-hairline-soft)",
+            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
           }}
         >
           <Search
             className="h-3 w-3 shrink-0"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           />
           <input
             type="search"
@@ -253,7 +253,7 @@ export function ShotList({
             placeholder={t("shot_search_placeholder")}
             aria-label={t("shot_search_placeholder")}
             className="min-w-0 flex-1 bg-transparent text-[11.5px] outline-none focus-ring"
-            style={{ color: "var(--color-text-2)" }}
+            style={{ color: "var(--subtle-foreground)" }}
           />
         </div>
       </div>
@@ -310,10 +310,10 @@ export function ShotList({
                 {dropEdge && (
                   <span
                     aria-hidden="true"
-                    className={`pointer-events-none absolute left-1 right-1 z-10 h-0.5 rounded ${
+                    className={`pointer-events-none absolute left-1 right-1 z-10 h-0.5 rounded-sm ${
                       dropEdge === "top" ? "-top-px" : "-bottom-px"
                     }`}
-                    style={{ background: "var(--color-accent)" }}
+                    style={{ background: "var(--primary)" }}
                   />
                 )}
                 <button
@@ -330,25 +330,25 @@ export function ShotList({
                       ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))"
                       : undefined,
                     border: active
-                      ? "1px solid var(--color-accent-soft)"
+                      ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)"
                       : "1px solid transparent",
                     boxShadow: active
-                      ? "0 0 0 1px var(--color-accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.4)"
+                      ? "0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent), 0 4px 12px -6px oklch(0 0 0 / 0.4)"
                       : "none",
                   }}
                 >
                   {active && (
                     <span
                       aria-hidden="true"
-                      className="absolute -left-px top-2 bottom-2 w-0.5 rounded"
+                      className="absolute -left-px top-2 bottom-2 w-0.5 rounded-sm"
                       style={{
-                        background: "var(--color-accent)",
-                        boxShadow: "0 0 8px var(--color-accent-glow)",
+                        background: "var(--primary)",
+                        boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
                       }}
                     />
                   )}
                   <div
-                    className="relative shrink-0 overflow-hidden rounded-[5px]"
+                    className="relative shrink-0 overflow-hidden rounded-sm"
                     style={{ width: 48, height: 64 }}
                   >
                     {sbUrl ? (
@@ -384,7 +384,7 @@ export function ShotList({
                     <div
                       className="text-[12px]"
                       style={{
-                        color: active ? "var(--color-text)" : "var(--color-text-2)",
+                        color: active ? "var(--foreground)" : "var(--subtle-foreground)",
                         fontWeight: active ? 600 : 500,
                         lineHeight: 1.4,
                         display: "-webkit-box",
@@ -396,16 +396,16 @@ export function ShotList({
                       {text || itemIdWithinEpisode(id)}
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+                      <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
                         {t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}
                       </span>
                       {contentMode === "ad" && (seg as AdShot).section && (
                         <span
-                          className="rounded px-1 py-px text-[9px] font-semibold uppercase"
+                          className="rounded-sm px-1 py-px text-[9px] font-semibold uppercase"
                           style={{
-                            color: "var(--color-accent-2)",
+                            color: "var(--primary)",
                             background: "oklch(0.26 0.018 290 / 0.45)",
-                            border: "1px solid var(--color-accent-soft)",
+                            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
                             letterSpacing: "0.4px",
                           }}
                         >
@@ -415,17 +415,17 @@ export function ShotList({
                       {versions > 0 && (
                         <span
                           className="num text-[10px]"
-                          style={{ color: "var(--color-text-4)" }}
+                          style={{ color: "var(--muted-foreground)" }}
                         >
                           · V{versions}
                         </span>
                       )}
                       {pendingAuthoring && (
                         <span
-                          className="rounded px-1 py-px text-[9px] font-semibold"
+                          className="rounded-sm px-1 py-px text-[9px] font-semibold"
                           style={{
-                            color: "var(--color-warm)",
-                            border: "1px solid var(--color-hairline-soft)",
+                            color: "var(--warn)",
+                            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                             letterSpacing: "0.4px",
                           }}
                         >

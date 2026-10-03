@@ -287,14 +287,14 @@ function DurationPill({
       : "oklch(0.22 0.011 265 / 0.6)",
     border: isIncompatible
       ? "1px solid oklch(0.65 0.12 75 / 0.5)"
-      : "1px solid var(--color-hairline-soft)",
-    color: isIncompatible ? "oklch(0.85 0.12 80)" : "var(--color-text-2)",
+      : "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+    color: isIncompatible ? "oklch(0.85 0.12 80)" : "var(--subtle-foreground)",
   };
 
   if (!editable) {
     return (
       <span className={baseClass} style={baseStyle}>
-        <span style={{ color: "var(--color-text-4)" }}>⏱</span>
+        <span style={{ color: "var(--muted-foreground)" }}>⏱</span>
         <span className="num">
           {t("duration_seconds_value_text", { value: seconds })}
         </span>
@@ -329,7 +329,7 @@ function DurationPill({
         className={`${baseClass} transition-colors disabled:cursor-not-allowed disabled:opacity-60`}
         style={baseStyle}
       >
-        <span style={{ color: "var(--color-text-4)" }}>⏱</span>
+        <span style={{ color: "var(--muted-foreground)" }}>⏱</span>
         <span className="num">
           {t("duration_seconds_value_text", { value: seconds })}
         </span>
@@ -349,9 +349,9 @@ function DurationPill({
         backgroundColor="oklch(0.21 0.012 265 / 0.98)"
         className="rounded-lg p-2"
         style={{
-          border: "1px solid var(--color-hairline)",
+          border: "1px solid var(--border)",
           boxShadow:
-            "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px var(--color-hairline-soft)",
+            "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px color-mix(in oklab, var(--border) 50%, transparent)",
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",
         }}
@@ -387,7 +387,7 @@ function DurationPill({
             />
             <span
               className="num min-w-[2.25rem] text-right text-[11.5px]"
-              style={{ color: "var(--color-text-2)" }}
+              style={{ color: "var(--subtle-foreground)" }}
             >
               {t("duration_seconds_value_text", { value: displaySeconds })}
             </span>
@@ -420,15 +420,15 @@ function DurationPill({
                     checked
                       ? {
                           background:
-                            "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                            "var(--primary)",
                           color: "oklch(0.14 0 0)",
                           boxShadow:
-                            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 2px 6px -2px var(--color-accent-glow)",
+                            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 2px 6px -2px color-mix(in oklab, var(--primary) 35%, transparent)",
                         }
                       : {
                           background: "oklch(0.22 0.011 265 / 0.5)",
-                          color: "var(--color-text-2)",
-                          border: "1px solid var(--color-hairline-soft)",
+                          color: "var(--subtle-foreground)",
+                          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                         }
                   }
                 >
@@ -688,7 +688,7 @@ export function ShotDetail({
 
   const renderFormSwitchError = (side: PromptSide) =>
     formSwitchError?.side === side ? (
-      <p className="mt-2 text-[11px]" style={{ color: "var(--color-warm)" }}>
+      <p className="mt-2 text-[11px]" style={{ color: "var(--warn)" }}>
         {formSwitchError.message}
       </p>
     ) : null;
@@ -726,10 +726,10 @@ export function ShotDetail({
               if (key === "text") void switchToTextForm(side);
               else setPendingStructSwitch(side);
             }}
-            className="focus-ring rounded px-1.5 py-0.5 text-[10px] transition-colors disabled:cursor-default"
+            className="focus-ring rounded-sm px-1.5 py-0.5 text-[10px] transition-colors disabled:cursor-default"
             style={{
-              color: active ? "var(--color-text-2)" : "var(--color-text-4)",
-              background: active ? "var(--color-bg-grad-a)" : "transparent",
+              color: active ? "var(--subtle-foreground)" : "var(--muted-foreground)",
+              background: active ? "var(--card)" : "transparent",
             }}
           >
             {label}
@@ -802,7 +802,7 @@ export function ShotDetail({
   };
 
   const sectionHeaderStyle: React.CSSProperties = {
-    color: "var(--color-text-4)",
+    color: "var(--muted-foreground)",
     letterSpacing: "1px",
     fontFamily: "var(--font-mono)",
   };
@@ -847,7 +847,7 @@ export function ShotDetail({
                 {t("detail_section_voiceover")}
               </label>
               <span className="flex-1" />
-              <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+              <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
                 {t("detail_field_chars_count", { count: (draft.voiceover_text ?? "").length })}
               </span>
             </div>
@@ -874,8 +874,8 @@ export function ShotDetail({
                     className="rounded-md px-2 py-1 text-[11.5px]"
                     style={{
                       background: "oklch(0.22 0.011 265 / 0.6)",
-                      border: "1px solid var(--color-hairline-soft)",
-                      color: "var(--color-text-2)",
+                      border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+                      color: "var(--subtle-foreground)",
                     }}
                   >
                     {name}
@@ -903,7 +903,7 @@ export function ShotDetail({
           <div
             className="mb-2 text-[10.5px] font-bold uppercase"
             style={{
-              color: "var(--color-text-4)",
+              color: "var(--muted-foreground)",
               letterSpacing: "1px",
               fontFamily: "var(--font-mono)",
             }}
@@ -922,7 +922,7 @@ export function ShotDetail({
           <div
             className="mb-2 text-[10.5px] font-bold uppercase"
             style={{
-              color: "var(--color-text-4)",
+              color: "var(--muted-foreground)",
               letterSpacing: "1px",
               fontFamily: "var(--font-mono)",
             }}
@@ -939,8 +939,8 @@ export function ShotDetail({
             <div
               className="rounded-md py-3 text-center text-[11.5px] italic"
               style={{
-                border: "1px dashed var(--color-hairline)",
-                color: "var(--color-text-4)",
+                border: "1px dashed var(--border)",
+                color: "var(--muted-foreground)",
               }}
             >
               {t("detail_dialogue_empty")}
@@ -960,7 +960,7 @@ export function ShotDetail({
               {t("detail_section_narration_text")}
             </label>
             <span className="flex-1" />
-            <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+            <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
               {t("detail_field_chars_count", { count: (draft.novel_text ?? "").length })}
             </span>
           </div>
@@ -983,7 +983,7 @@ export function ShotDetail({
           <div
             className="mb-2 text-[10.5px] font-bold uppercase"
             style={{
-              color: "var(--color-text-4)",
+              color: "var(--muted-foreground)",
               letterSpacing: "1px",
               fontFamily: "var(--font-mono)",
             }}
@@ -995,13 +995,13 @@ export function ShotDetail({
             style={{
               background:
                 "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35))",
-              border: "1px solid var(--color-hairline-soft)",
-              borderLeft: "3px solid var(--color-accent-soft)",
+              border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+              borderLeft: "3px solid color-mix(in oklab, var(--primary) 22%, transparent)",
             }}
           >
             <p
               className="display-serif m-0 text-[13px]"
-              style={{ lineHeight: 1.65, color: "var(--color-text)" }}
+              style={{ lineHeight: 1.65, color: "var(--foreground)" }}
             >
               {narrationText.trim()}
             </p>
@@ -1017,7 +1017,7 @@ export function ShotDetail({
         <div
           className="text-[10.5px] font-bold uppercase"
           style={{
-            color: "var(--color-text-4)",
+            color: "var(--muted-foreground)",
             letterSpacing: "1px",
             fontFamily: "var(--font-mono)",
           }}
@@ -1041,9 +1041,9 @@ export function ShotDetail({
           role="status"
           className="rounded-lg px-3 py-2 text-[11.5px]"
           style={{
-            color: "var(--color-text-2)",
-            background: "var(--color-warm-tint-faint)",
-            border: "1px solid var(--color-hairline-soft)",
+            color: "var(--subtle-foreground)",
+            background: "color-mix(in oklab, var(--warn) 5%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
           }}
         >
           {t("detail_pending_authoring_hint")}
@@ -1054,11 +1054,11 @@ export function ShotDetail({
         <div className="mb-2 flex items-center gap-1.5">
           <ImageIcon
             className="h-3.5 w-3.5"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           />
           <span
             className="text-[12.5px] font-semibold"
-            style={{ color: "var(--color-text-2)" }}
+            style={{ color: "var(--subtle-foreground)" }}
           >
             {t("detail_image_prompt_title")}
           </span>
@@ -1066,7 +1066,7 @@ export function ShotDetail({
           {imgDraft && (
             <span
               className="num text-[10px]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("detail_field_chars_count", { count: imgDraft.scene.length })}
             </span>
@@ -1095,11 +1095,11 @@ export function ShotDetail({
         <div className="mb-2 flex items-center gap-1.5">
           <Film
             className="h-3.5 w-3.5"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
           />
           <span
             className="text-[12.5px] font-semibold"
-            style={{ color: "var(--color-text-2)" }}
+            style={{ color: "var(--subtle-foreground)" }}
           >
             {t("detail_video_prompt_title")}
           </span>
@@ -1107,7 +1107,7 @@ export function ShotDetail({
           {vidDraft && (
             <span
               className="num text-[10px]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("detail_field_chars_count", { count: vidDraft.action.length })}
             </span>
@@ -1238,17 +1238,17 @@ export function ShotDetail({
     >
       <div
         className="relative flex items-center gap-2.5 px-5 py-3"
-        style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
       >
         <span
           className="num rounded-md px-2.5 py-1 text-[12px] font-bold"
           style={{
             background:
-              "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+              "var(--primary)",
             color: "oklch(0.14 0 0)",
             letterSpacing: "0.3px",
             boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 2px 6px -2px var(--color-accent-glow)",
+              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 2px 6px -2px color-mix(in oklab, var(--primary) 35%, transparent)",
           }}
         >
           {itemIdWithinEpisode(segmentId)}
@@ -1277,7 +1277,7 @@ export function ShotDetail({
         <div className="flex items-center gap-1.5">
           <span
             className="num text-[10.5px]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {t("shot_detail_count", {
               current: selectedIndex + 1,
@@ -1361,23 +1361,23 @@ export function ShotDetail({
           className="flex items-center gap-2 px-5 py-2"
           style={{
             background:
-              "linear-gradient(180deg, var(--color-accent-dim), oklch(0.20 0.012 270 / 0.35))",
-            borderBottom: "1px solid var(--color-accent-soft)",
+              "linear-gradient(180deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.20 0.012 270 / 0.35))",
+            borderBottom: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
           }}
         >
           <span
             aria-hidden="true"
             className="h-1.5 w-1.5 rounded-full"
             style={{
-              background: "var(--color-accent)",
-              boxShadow: "0 0 6px var(--color-accent-glow)",
+              background: "var(--primary)",
+              boxShadow: "0 0 6px color-mix(in oklab, var(--primary) 35%, transparent)",
             }}
           />
           <span
             className="num text-[10.5px] uppercase"
             style={{
               letterSpacing: "1.0px",
-              color: "var(--color-accent-2)",
+              color: "var(--primary)",
             }}
           >
             {t("shot_detail_unsaved")}
@@ -1387,9 +1387,9 @@ export function ShotDetail({
             type="button"
             onClick={handleCancel}
             disabled={saving}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] text-[var(--color-text-3)] transition-colors [&:not(:disabled)]:hover:bg-[oklch(0.26_0.013_265_/_0.7)] [&:not(:disabled)]:hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] text-muted-foreground transition-colors [&:not(:disabled)]:hover:bg-[oklch(0.26_0.013_265_/_0.7)] [&:not(:disabled)]:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             style={{
-              border: "1px solid var(--color-hairline)",
+              border: "1px solid var(--border)",
               background: "oklch(0.22 0.011 265 / 0.5)",
             }}
           >
@@ -1404,9 +1404,9 @@ export function ShotDetail({
             style={{
               color: "oklch(0.14 0 0)",
               background:
-                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                "var(--primary)",
               boxShadow:
-                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
             }}
           >
             {saving ? (

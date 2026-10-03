@@ -11,7 +11,7 @@ import { customModelSettingsPath, type OutputTruncation } from "@/utils/output-t
 export function OutputTruncationHint({ truncation }: { truncation: OutputTruncation }) {
   const { t } = useTranslation("dashboard");
   const [, setLocation] = useLocation();
-  if (!truncation.custom) return <p className="m-0 text-text-3">{t("text_output_truncated_switch_model")}</p>;
+  if (!truncation.custom) return <p className="m-0 text-muted-foreground">{t("text_output_truncated_switch_model")}</p>;
   const settingsPath = customModelSettingsPath(truncation.providerId, truncation.model);
   if (settingsPath === null) return null;
   return (

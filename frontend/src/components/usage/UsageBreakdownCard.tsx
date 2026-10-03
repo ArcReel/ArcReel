@@ -27,7 +27,7 @@ const LOW_SUCCESS_RATE = 0.85;
 
 const GRID = "minmax(0,1fr) 52px 56px 84px";
 
-const HEAD_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
+const HEAD_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground";
 
 /** 一行的展示数据；三个维度投影到同一形状后共用渲染。 */
 interface BreakdownRowView {
@@ -70,12 +70,12 @@ export function UsageBreakdownCard({
   return (
     <section
       className={
-        "rounded-[10px] border border-hairline p-4 " + (wide ? "col-span-12" : "col-span-12 lg:col-span-7")
+        "rounded-lg border border-border p-4 " + (wide ? "col-span-12" : "col-span-12 lg:col-span-7")
       }
       style={CARD_STYLE}
     >
       <div className="mb-2.5 flex items-center justify-between gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
           {t("usage_breakdown_title")}
         </h4>
         <div
@@ -93,7 +93,7 @@ export function UsageBreakdownCard({
                 onClick={() => setDim(option.value)}
                 className={
                   "focus-ring rounded-full px-2 py-0.5 text-[11px] transition-colors " +
-                  (active ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text")
+                  (active ? "bg-primary/12 text-primary" : "text-muted-foreground hover:text-foreground")
                 }
               >
                 {t(option.labelKey)}
@@ -104,11 +104,11 @@ export function UsageBreakdownCard({
       </div>
 
       {rows.length === 0 ? (
-        <p className="py-6 text-center text-[12px] text-text-3">{t("usage_breakdown_empty")}</p>
+        <p className="py-6 text-center text-[12px] text-muted-foreground">{t("usage_breakdown_empty")}</p>
       ) : (
         <>
           <div
-            className="grid gap-x-2 border-b border-hairline pb-1.5"
+            className="grid gap-x-2 border-b border-border pb-1.5"
             style={{ gridTemplateColumns: GRID }}
           >
             <span className={HEAD_CLS}>{t(NAME_COL_KEYS[dim])}</span>
@@ -147,19 +147,19 @@ function BreakdownRow({
     <>
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-1 left-0 rounded-r-[2px] bg-accent/10"
+        className="pointer-events-none absolute inset-y-1 left-0 rounded-r-xs bg-primary/10"
         style={{ width: `${share * 100}%` }}
       />
       <span className="relative min-w-0 truncate text-left text-[12.5px]">
         {row.name}
-        {row.sub && <span className="ml-1.5 text-[11px] text-text-4">{row.sub}</span>}
+        {row.sub && <span className="ml-1.5 text-[11px] text-muted-foreground">{row.sub}</span>}
       </span>
       <span className="num relative text-right text-[12px]">{row.stats.calls}</span>
       <span
         className={
           "num relative text-right text-[12px] " +
           (row.stats.success_rate !== null && row.stats.success_rate < LOW_SUCCESS_RATE
-            ? "text-danger-2"
+            ? "text-destructive"
             : "")
         }
       >
@@ -170,12 +170,12 @@ function BreakdownRow({
   );
 
   const shared =
-    "relative grid w-full items-center gap-x-2 border-b border-hairline-soft py-1.5 last:border-b-0";
+    "relative grid w-full items-center gap-x-2 border-b border-border/50 py-1.5 last:border-b-0";
 
   const patch = row.filters;
   if (patch === null) {
     return (
-      <div className={`${shared} text-text-3`} style={{ gridTemplateColumns: GRID }}>
+      <div className={`${shared} text-muted-foreground`} style={{ gridTemplateColumns: GRID }}>
         {content}
       </div>
     );
@@ -187,8 +187,8 @@ function BreakdownRow({
       aria-pressed={row.active}
       onClick={() => onChange(patch)}
       className={
-        `${shared} focus-ring transition-colors hover:bg-bg-grad-a/60 ` +
-        (row.active ? "text-text" : "text-text-2")
+        `${shared} focus-ring transition-colors hover:bg-card/60 ` +
+        (row.active ? "text-foreground" : "text-subtle-foreground")
       }
       style={{ gridTemplateColumns: GRID }}
     >
@@ -210,7 +210,7 @@ function CostCell({ cost, primary }: { cost: Record<string, number>; primary: st
       {main}
       {others.length > 0 && (
         <>
-          <span aria-hidden="true" className="ml-1 text-[10px] text-text-4">
+          <span aria-hidden="true" className="ml-1 text-[10px] text-muted-foreground">
             +{others.length}
           </span>
           <span className="sr-only">

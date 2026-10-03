@@ -21,7 +21,7 @@ export function CompactInput({
     <label className={`flex items-center gap-2 ${className ?? ""}`}>
       <span
         className="shrink-0 text-[11px]"
-        style={{ color: "var(--color-text-4)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         {label}
       </span>
@@ -35,8 +35,8 @@ export function CompactInput({
         style={{
           background:
             "linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4))",
-          border: "1px solid var(--color-hairline-soft)",
-          color: "var(--color-text)",
+          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+          color: "var(--foreground)",
           boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
         }}
       />

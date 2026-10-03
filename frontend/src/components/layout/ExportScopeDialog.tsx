@@ -41,10 +41,10 @@ export function ExportScopeDialog({
             className="grid h-7 w-7 place-items-center rounded-lg"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+                "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+              color: "var(--primary)",
+              boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
             }}
           >
             <PackageCheck className="h-3.5 w-3.5" />
@@ -52,14 +52,14 @@ export function ExportScopeDialog({
           <div className="min-w-0">
             <div
               className="display-serif text-[14px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {t("dashboard:export_scope_title")}
             </div>
             <div
               className="num text-[10px] uppercase"
               style={{
-                color: "var(--color-text-4)",
+                color: "var(--muted-foreground)",
                 letterSpacing: "1.0px",
               }}
             >
@@ -75,12 +75,12 @@ export function ExportScopeDialog({
               <span className="inline-flex items-center gap-1.5">
                 <span>{t("dashboard:current_version_only")}</span>
                 <span
-                  className="num rounded-[3px] px-1.5 py-px text-[9.5px] uppercase"
+                  className="num rounded-xs px-1.5 py-px text-[9.5px] uppercase"
                   style={{
                     letterSpacing: "0.6px",
-                    color: "var(--color-accent-2)",
-                    background: "var(--color-accent-dim)",
-                    border: "1px solid var(--color-accent-soft)",
+                    color: "var(--primary)",
+                    background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                    border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
                   }}
                 >
                   {t("dashboard:recommended")}
@@ -102,7 +102,7 @@ export function ExportScopeDialog({
 
         <div
           className="mt-3 flex items-start gap-2 border-t pt-3 text-[11.5px] leading-[1.55]"
-          style={{ borderColor: "var(--color-hairline-soft)", color: "var(--color-text-4)" }}
+          style={{ borderColor: "color-mix(in oklab, var(--border) 50%, transparent)", color: "var(--muted-foreground)" }}
         >
           <Scissors className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <p>
@@ -113,8 +113,8 @@ export function ExportScopeDialog({
                 <button
                   type="button"
                   onClick={() => onOpenEditView(editViewEpisode.episode)}
-                  className="focus-ring rounded underline underline-offset-2"
-                  style={{ color: "var(--color-accent-2)" }}
+                  className="focus-ring rounded-sm underline underline-offset-2"
+                  style={{ color: "var(--primary)" }}
                 >
                   {t("dashboard:export_open_edit_view", { name: editViewEpisode.name })}
                 </button>
@@ -134,16 +134,16 @@ const SCOPE_PALETTE: Record<
   { color: string; ring: string; hoverBg: string; hoverBorder: string }
 > = {
   accent: {
-    color: "var(--color-accent-2)",
-    ring: "var(--color-accent-soft)",
-    hoverBg: "var(--color-accent-dim)",
-    hoverBorder: "var(--color-accent-soft)",
+    color: "var(--primary)",
+    ring: "color-mix(in oklab, var(--primary) 22%, transparent)",
+    hoverBg: "color-mix(in oklab, var(--primary) 12%, transparent)",
+    hoverBorder: "color-mix(in oklab, var(--primary) 22%, transparent)",
   },
   neutral: {
-    color: "var(--color-text-3)",
-    ring: "var(--color-hairline)",
+    color: "var(--muted-foreground)",
+    ring: "var(--border)",
     hoverBg: "oklch(1 0 0 / 0.04)",
-    hoverBorder: "var(--color-hairline-strong)",
+    hoverBorder: "var(--input)",
   },
 };
 
@@ -168,7 +168,7 @@ function ScopeOption({
       onClick={onClick}
       className="focus-ring group flex items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
       style={{
-        border: "1px solid var(--color-hairline)",
+        border: "1px solid var(--border)",
         background: "oklch(0.20 0.011 265 / 0.4)",
       }}
       onMouseEnter={(e) => {
@@ -177,7 +177,7 @@ function ScopeOption({
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.4)";
-        e.currentTarget.style.borderColor = "var(--color-hairline)";
+        e.currentTarget.style.borderColor = "var(--border)";
       }}
     >
       <span
@@ -194,13 +194,13 @@ function ScopeOption({
       <div className="min-w-0 flex-1">
         <div
           className="text-[13px] font-medium leading-tight"
-          style={{ color: "var(--color-text)" }}
+          style={{ color: "var(--foreground)" }}
         >
           {title}
         </div>
         <p
           className="mt-1 text-[11.5px] leading-[1.5]"
-          style={{ color: "var(--color-text-4)" }}
+          style={{ color: "var(--muted-foreground)" }}
         >
           {hint}
         </p>

@@ -29,7 +29,7 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
       return (
         <div
           className="my-1 flex items-center gap-1.5 text-[11.5px]"
-          style={{ color: "var(--color-text-4)" }}
+          style={{ color: "var(--muted-foreground)" }}
         >
           <span>–</span>
           <span>{t("task_progress_cancelled", { description })}</span>
@@ -41,13 +41,13 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
     return (
       <div
         className="my-1 flex items-center gap-1.5 text-[11.5px]"
-        style={{ color: "var(--color-text-3)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         <span
           className="inline-block h-3 w-3 animate-spin rounded-full border-t-transparent"
           style={{
             borderTop: "1px solid transparent",
-            border: "1px solid var(--color-accent)",
+            border: "1px solid var(--primary)",
             borderTopColor: "transparent",
           }}
         />
@@ -63,10 +63,10 @@ export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
     const isCompleted = taskStatus === "completed";
     const isFailed = taskStatus === "failed";
     const color = isFailed
-      ? "var(--color-danger)"
+      ? "var(--destructive)"
       : isCompleted
-        ? "var(--color-good)"
-        : "var(--color-text-3)";
+        ? "var(--good)"
+        : "var(--muted-foreground)";
     const label = isCompleted
       ? t("task_progress_completed")
       : isFailed

@@ -24,7 +24,7 @@ const STATUS_BADGE_MAP: Record<string, BadgeStyle> = {
     label: "status_ready",
     style: {
       background: "oklch(0.30 0.10 155 / 0.18)",
-      color: "var(--color-good)",
+      color: "var(--good)",
       border: "1px solid oklch(0.45 0.10 155 / 0.40)",
       boxShadow: "0 0 14px -6px oklch(0.55 0.10 155 / 0.50)",
     },
@@ -32,18 +32,18 @@ const STATUS_BADGE_MAP: Record<string, BadgeStyle> = {
   unconfigured: {
     label: "status_unconfigured",
     style: {
-      background: "var(--color-bg-grad-a)",
-      color: "var(--color-text-3)",
-      border: "1px solid var(--color-hairline)",
+      background: "var(--card)",
+      color: "var(--muted-foreground)",
+      border: "1px solid var(--border)",
     },
   },
   error: {
     label: "status_error",
     style: {
-      background: "var(--color-warm-tint)",
-      color: "var(--color-warm-bright)",
-      border: "1px solid var(--color-warm-ring)",
-      boxShadow: "0 0 14px -6px var(--color-warm-glow)",
+      background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+      color: "var(--warn)",
+      border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
+      boxShadow: "0 0 14px -6px color-mix(in oklab, var(--warn) 35%, transparent)",
     },
   },
 };
@@ -120,7 +120,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
             <button
               type="button"
               onClick={() => setShowSecret((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground transition-colors hover:text-subtle-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={showSecret ? t("common:hide") : t("common:show")}
             >
               {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -142,11 +142,11 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
               <button
                 type="button"
                 onClick={handleClear}
-                className="inline-flex items-center gap-1 rounded-[8px] px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 style={{
-                  background: "var(--color-warm-tint)",
-                  color: "var(--color-warm-bright)",
-                  border: "1px solid var(--color-warm-ring)",
+                  background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+                  color: "var(--warn)",
+                  border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
                 }}
               >
                 {t("confirm_clear")}
@@ -162,7 +162,7 @@ function FieldEditor({ field, draft, setDraft }: FieldEditorProps) {
           )}
         </div>
         {field.is_set && !(field.key in draft) && (
-          <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-text-4">
+          <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             {t("key_set_hint")}
           </p>
         )}
@@ -235,7 +235,7 @@ function CapabilityPill({ kind }: { kind: string }) {
             ? t("media_type_audio")
             : kind;
   return (
-    <span className="rounded-full border border-hairline-soft bg-bg-grad-a/55 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+    <span className="rounded-full border border-border/50 bg-card/55 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
       {label}
     </span>
   );
@@ -378,14 +378,14 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   if (loadError) {
     return (
       <div role="alert" className="flex flex-col items-start gap-2.5 px-1 py-10">
-        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warn">
           {t("common:load_failed")}
         </span>
-        <p className="text-[12.5px] text-text-2">{loadError}</p>
+        <p className="text-[12.5px] text-subtle-foreground">{loadError}</p>
         <button
           type="button"
           onClick={() => setReloadKey((k) => k + 1)}
-          className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-md border border-border/50 bg-card/55 px-3 py-1.5 text-[12px] text-subtle-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("common:retry")}
         </button>
@@ -395,8 +395,8 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
 
   if (!detail) {
     return (
-      <div className="flex items-center gap-2 px-1 py-12 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+      <div className="flex items-center gap-2 px-1 py-12 text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -418,7 +418,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
                 fontWeight: 400,
                 lineHeight: 1.1,
                 letterSpacing: "-0.012em",
-                color: "var(--color-text)",
+                color: "var(--foreground)",
               }}
             >
               {detail.display_name}
@@ -426,7 +426,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
             <StatusBadge status={detail.status} />
           </div>
           {detail.description && (
-            <p className="mt-1.5 text-[12.5px] leading-[1.55] text-text-3">
+            <p className="mt-1.5 text-[12.5px] leading-[1.55] text-muted-foreground">
               {detail.description}
             </p>
           )}
@@ -459,7 +459,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
           <button
             type="button"
             onClick={() => setShowAdvanced((v) => !v)}
-            className="inline-flex items-center gap-1 rounded font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="inline-flex items-center gap-1 rounded-sm font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ChevronRight
               className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-90" : ""}`}
@@ -477,11 +477,11 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
                   {saveError && (
                     <p
                       aria-live="polite"
-                      className="mb-2 rounded-[6px] px-2.5 py-1.5 text-[11.5px]"
+                      className="mb-2 rounded-sm px-2.5 py-1.5 text-[11.5px]"
                       style={{
-                        background: "var(--color-warm-tint)",
-                        color: "var(--color-warm-bright)",
-                        border: "1px solid var(--color-warm-ring)",
+                        background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+                        color: "var(--warn)",
+                        border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
                       }}
                     >
                       {saveError}

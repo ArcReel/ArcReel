@@ -52,19 +52,19 @@ function diagnosticsOf(error: unknown): MarketSubmissionDiagnostic[] | null {
 function DiagnosticList({ diagnostics }: { diagnostics: MarketSubmissionDiagnostic[] }) {
   const { t } = useTranslation("dashboard");
   return (
-    <div className="overflow-hidden rounded-[10px] border border-hairline" style={CARD_STYLE}>
-      <div aria-live="polite" className="border-b border-hairline-soft px-4 py-2.5 text-[12.5px] font-medium text-text">
+    <div className="overflow-hidden rounded-lg border border-border" style={CARD_STYLE}>
+      <div aria-live="polite" className="border-b border-border/50 px-4 py-2.5 text-[12.5px] font-medium text-foreground">
         {t("market_share_diagnostics_summary", { count: diagnostics.length })}
       </div>
       <ul>
         {diagnostics.map((diagnostic, index) => (
           <li
             key={`${diagnostic.file}-${diagnostic.path}-${diagnostic.code}-${index}`}
-            className="flex items-start gap-2.5 border-b border-hairline-soft px-4 py-2.5 last:border-b-0"
+            className="flex items-start gap-2.5 border-b border-border/50 px-4 py-2.5 last:border-b-0"
           >
-            <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warm-bright" aria-hidden />
-            <span className="min-w-0 flex-1 text-[12.5px] leading-[1.55] text-text-2">
-              <span className="mr-2 font-mono text-[11px] text-text-3">
+            <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
+            <span className="min-w-0 flex-1 text-[12.5px] leading-[1.55] text-subtle-foreground">
+              <span className="mr-2 font-mono text-[11px] text-muted-foreground">
                 {diagnostic.file ? diagnostic.file : "slug"}
               </span>
               {diagnostic.message}
@@ -197,18 +197,18 @@ export function ShareToMarketDialog({
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           <div>
-            <h2 id={titleId} className="font-editorial text-[22px] text-text">
+            <h2 id={titleId} className="font-editorial text-[22px] text-foreground">
               {t("market_share_title")}
             </h2>
-            <p className="mt-1.5 text-[12.5px] leading-[1.6] text-text-2">{t("market_share_intro")}</p>
+            <p className="mt-1.5 text-[12.5px] leading-[1.6] text-subtle-foreground">{t("market_share_intro")}</p>
           </div>
 
-          <div className="rounded-[8px] border border-warn/30 bg-warn/8 px-3 py-2 text-[12px] leading-[1.55] text-text-2">
+          <div className="rounded-md border border-warn/30 bg-warn/8 px-3 py-2 text-[12px] leading-[1.55] text-subtle-foreground">
             {t("market_share_no_credentials")}
           </div>
 
           <div>
-            <label htmlFor={slugId} className="mb-1 block text-[12px] text-text-2">
+            <label htmlFor={slugId} className="mb-1 block text-[12px] text-subtle-foreground">
               {t("market_share_slug_label")}
             </label>
             <input
@@ -220,13 +220,13 @@ export function ShareToMarketDialog({
               aria-describedby={slugHintId}
               onChange={(event) => setSlug(event.target.value.trim())}
             />
-            <p id={slugHintId} className="mt-1 text-[11.5px] leading-[1.5] text-text-3">
+            <p id={slugHintId} className="mt-1 text-[11.5px] leading-[1.5] text-muted-foreground">
               {t("market_share_slug_hint")}
             </p>
           </div>
 
           <div>
-            <label htmlFor={usernameId} className="mb-1 block text-[12px] text-text-2">
+            <label htmlFor={usernameId} className="mb-1 block text-[12px] text-subtle-foreground">
               {t("market_share_github_label")}
             </label>
             <input
@@ -238,11 +238,11 @@ export function ShareToMarketDialog({
               placeholder="octocat"
               onChange={(event) => setGithubUsername(event.target.value)}
             />
-            <p className="mt-1 text-[11.5px] leading-[1.5] text-text-3">{t("market_share_github_hint")}</p>
+            <p className="mt-1 text-[11.5px] leading-[1.5] text-muted-foreground">{t("market_share_github_hint")}</p>
           </div>
 
           <div>
-            <span className="mb-1 block text-[12px] text-text-2">{t("market_share_icon_label")}</span>
+            <span className="mb-1 block text-[12px] text-subtle-foreground">{t("market_share_icon_label")}</span>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -276,27 +276,27 @@ export function ShareToMarketDialog({
                 }}
               />
             </div>
-            <p className="mt-1 text-[11.5px] leading-[1.5] text-text-3">{t("market_share_icon_hint")}</p>
+            <p className="mt-1 text-[11.5px] leading-[1.5] text-muted-foreground">{t("market_share_icon_hint")}</p>
             {iconError && (
-              <p role="alert" className="mt-1 text-[12px] text-warm-bright">
+              <p role="alert" className="mt-1 text-[12px] text-warn">
                 {iconError}
               </p>
             )}
           </div>
 
           {checkError ? (
-            <p role="alert" className="text-[12.5px] text-warm-bright">
+            <p role="alert" className="text-[12.5px] text-warn">
               {t("market_share_check_failed", { message: checkError })}
             </p>
           ) : diagnostics === null ? (
-            <div className="flex items-center gap-2 text-[12.5px] text-text-3">
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+            <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
               {t("market_share_checking")}
             </div>
           ) : diagnostics.length === 0 ? (
             <div
               aria-live="polite"
-              className="rounded-[10px] border border-hairline px-4 py-2.5 text-[12.5px] text-text-2"
+              className="rounded-lg border border-border px-4 py-2.5 text-[12.5px] text-subtle-foreground"
               style={CARD_STYLE}
             >
               {t("market_share_check_passed")}
@@ -306,12 +306,12 @@ export function ShareToMarketDialog({
           )}
 
           {submitError && (
-            <p role="alert" className="text-[12.5px] text-warm-bright">
+            <p role="alert" className="text-[12.5px] text-warn">
               {submitError}
             </p>
           )}
         </div>
-        <div className="flex justify-end gap-2 border-t border-hairline-soft px-6 py-4">
+        <div className="flex justify-end gap-2 border-t border-border/50 px-6 py-4">
           <button type="button" className={GHOST_BTN_CLS} onClick={onClose} disabled={submitting}>
             {t("common:cancel")}
           </button>

@@ -84,7 +84,7 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
     <>
       <ActionMenu
         label={t("dashboard:source_file_actions_label", { name: file.name })}
-        triggerClassName="focus-ring grid h-6 w-6 shrink-0 place-items-center rounded-md text-text-3 hover:text-text disabled:opacity-45"
+        triggerClassName="focus-ring grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-45"
         triggerStyle={{ background: "oklch(0.25 0.012 265 / 0.9)" }}
         items={[
           {
@@ -230,19 +230,19 @@ function EditSourceFileDialog({
         }}
       >
         <header className="flex items-start justify-between gap-3 px-6 pt-5">
-          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-text">
+          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-foreground">
             {t("dashboard:source_file_edit_title", { name: file.name })}
           </h2>
           <ModalCloseButton onClick={onClose} disabled={busy} />
         </header>
         <div className="mt-4 flex min-h-0 flex-1 flex-col px-6">
-          <p className="mb-2 text-[11.5px] leading-[1.6] text-text-4">{t("dashboard:source_file_edit_hint")}</p>
+          <p className="mb-2 text-[11.5px] leading-[1.6] text-muted-foreground">{t("dashboard:source_file_edit_hint")}</p>
           {loadError !== null ? (
-            <p role="alert" className="text-[12.5px] text-[var(--color-warm)]">
+            <p role="alert" className="text-[12.5px] text-warn">
               {t("dashboard:source_file_edit_load_failed", { message: loadError })}
             </p>
           ) : text === null ? (
-            <p role="status" className="text-[12.5px] text-text-3">
+            <p role="status" className="text-[12.5px] text-muted-foreground">
               {t("dashboard:source_file_edit_loading")}
             </p>
           ) : (
@@ -306,13 +306,13 @@ function ReplaceSourceFileDialog({
         }}
       >
         <header className="flex items-start justify-between gap-3 px-6 pt-5">
-          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-text">
+          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-foreground">
             {t("dashboard:source_file_replace_title", { name: file.name })}
           </h2>
           <ModalCloseButton onClick={onClose} disabled={busy} />
         </header>
         <div className="mt-4 space-y-4 px-6">
-          <p className="text-[12.5px] leading-[1.7] text-text-3">
+          <p className="text-[12.5px] leading-[1.7] text-muted-foreground">
             {t("dashboard:source_file_replace_hint", { name: file.name })}
           </p>
           <div className="flex flex-wrap items-center gap-3">
@@ -336,11 +336,11 @@ function ReplaceSourceFileDialog({
             >
               {t("dashboard:source_file_replace_pick")}
             </SecondaryButton>
-            <span className="min-w-0 truncate text-[12px] text-text-2">
+            <span className="min-w-0 truncate text-[12px] text-subtle-foreground">
               {upload?.name ?? t("dashboard:source_file_replace_none")}
             </span>
           </div>
-          <p className="text-[11.5px] text-text-4">
+          <p className="text-[11.5px] text-muted-foreground">
             {t("dashboard:source_upload_pick_hint", { formats: SOURCE_FILE_FORMATS_LABEL })}
           </p>
           {sourceKind !== null ? (

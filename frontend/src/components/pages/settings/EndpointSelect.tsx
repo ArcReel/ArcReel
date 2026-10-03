@@ -226,10 +226,10 @@ export function EndpointSelect({
         onClick={onTriggerClick}
         onKeyDown={onTriggerKeyDown}
         className={[
-          "group inline-flex items-center gap-2 rounded-[8px] border px-2.5 py-1.5 text-left text-sm transition-colors",
-          "border-hairline bg-bg-grad-a/55 text-text",
-          "hover:border-hairline-strong",
-          "focus-visible:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+          "group inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors",
+          "border-border bg-card/55 text-foreground",
+          "hover:border-input",
+          "focus-visible:border-primary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
         ].join(" ")}
       >
@@ -244,7 +244,7 @@ export function EndpointSelect({
         )}
         <ChevronDown
           aria-hidden="true"
-          className={`h-3.5 w-3.5 shrink-0 text-text-4 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -256,7 +256,7 @@ export function EndpointSelect({
         sideOffset={6}
         width="w-[22rem]"
         maxHeight={420}
-        className="flex flex-col overflow-hidden rounded-xl border border-hairline shadow-2xl shadow-black/40"
+        className="flex flex-col overflow-hidden rounded-xl border border-border shadow-2xl shadow-black/40"
       >
         <div
           ref={listboxRef}
@@ -273,14 +273,14 @@ export function EndpointSelect({
             const Icon = meta.Icon;
             return (
               <div key={group.mediaType}>
-                {gIdx > 0 && <div className="mx-3 my-1 h-px bg-hairline-soft" />}
+                {gIdx > 0 && <div className="mx-3 my-1 h-px bg-border/50" />}
                 <div className="flex items-center gap-1.5 px-3 pb-1 pt-2">
                   <Icon
                     aria-hidden="true"
-                    className="h-3 w-3 text-text-4"
+                    className="h-3 w-3 text-muted-foreground"
                     strokeWidth={1.75}
                   />
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                     {t(meta.labelKey)}
                   </span>
                 </div>
@@ -301,21 +301,21 @@ export function EndpointSelect({
                             "relative w-full rounded-lg py-2 pl-3.5 pr-3 text-left transition-colors",
                             "before:absolute before:left-0 before:top-2.5 before:bottom-2.5 before:w-[2px] before:rounded-full before:transition-colors",
                             isSelected
-                              ? "bg-accent-dim before:bg-accent"
+                              ? "bg-primary/12 before:bg-primary"
                               : "before:bg-transparent",
-                            isActive && !isSelected ? "bg-bg-grad-a/50" : "",
+                            isActive && !isSelected ? "bg-card/50" : "",
                           ].join(" ")}
                         >
                           <div
-                            className={`truncate text-sm ${isSelected ? "text-text" : "text-text-2"}`}
+                            className={`truncate text-sm ${isSelected ? "text-foreground" : "text-subtle-foreground"}`}
                           >
                             {opt.displayName ?? t(opt.labelKey)}
                           </div>
                           <div className="mt-0.5 flex items-baseline gap-1.5 font-mono text-[11px] leading-none">
-                            <span className="text-text-4">{opt.method}</span>
+                            <span className="text-muted-foreground">{opt.method}</span>
                             <span className="truncate text-good/80">{opt.path}</span>
                             {opt.imageCaps && (
-                              <span className="ml-auto shrink-0 font-sans text-[10px] tracking-wide text-warm-bright/80">
+                              <span className="ml-auto shrink-0 font-sans text-[10px] tracking-wide text-warn/80">
                                 {opt.imageCaps.length === 2
                                   ? t("image_capability_both")
                                   : opt.imageCaps[0] === "text_to_image"
@@ -344,7 +344,7 @@ export function EndpointSelect({
             if (onManageNavigate) onManageNavigate(proceed);
             else proceed();
           }}
-          className="flex shrink-0 items-center gap-1.5 border-t border-hairline-soft px-3.5 py-2 text-left text-[12px] text-text-3 transition-colors hover:bg-bg-grad-a/50 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex shrink-0 items-center gap-1.5 border-t border-border/50 px-3.5 py-2 text-left text-[12px] text-muted-foreground transition-colors hover:bg-card/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Settings2 aria-hidden="true" className="h-3 w-3" />
           {t("ce_manage_entry")}

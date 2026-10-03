@@ -44,7 +44,7 @@ export function StepActButton({ act, onRun, size = "md", asLink = false, busy = 
           {...common}
           className={`focus-ring inline-flex items-center gap-1 rounded-md font-medium ${pad} ${dim || "hover:opacity-90"}`}
           style={{
-            background: "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            background: "var(--primary)",
             color: "oklch(0.15 0 0)",
           }}
         >
@@ -63,8 +63,8 @@ export function StepActButton({ act, onRun, size = "md", asLink = false, busy = 
           className={`focus-ring rounded-md font-medium ${pad} ${dim || "hover:opacity-80"}`}
           style={
             kind === "ai"
-              ? { border: "1px solid var(--color-accent-soft)", color: "var(--color-accent-2)" }
-              : { border: "1px solid var(--color-hairline)", color: "var(--color-text-2)" }
+              ? { border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)", color: "var(--primary)" }
+              : { border: "1px solid var(--border)", color: "var(--subtle-foreground)" }
           }
         >
           {act.label}
@@ -77,8 +77,8 @@ export function StepActButton({ act, onRun, size = "md", asLink = false, busy = 
     <>
       <button
         {...common}
-        className={`focus-ring rounded underline underline-offset-2 ${size === "sm" ? "text-[11.5px]" : "text-[12px]"} ${dim || "hover:opacity-80"}`}
-        style={{ color: kind === "danger" ? "var(--color-danger-2)" : "var(--color-text-2)" }}
+        className={`focus-ring rounded-sm underline underline-offset-2 ${size === "sm" ? "text-[11.5px]" : "text-[12px]"} ${dim || "hover:opacity-80"}`}
+        style={{ color: kind === "danger" ? "var(--destructive)" : "var(--subtle-foreground)" }}
       >
         {act.label}
       </button>

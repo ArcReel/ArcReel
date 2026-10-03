@@ -106,17 +106,17 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
       {/* Header */}
         <div
           className="flex items-center gap-3 px-5 py-4"
-          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           <span
             aria-hidden
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
+                "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
+              border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+              color: "var(--primary)",
+              boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
             }}
           >
             <Library className="h-4 w-4" />
@@ -125,14 +125,14 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
             <h3
               id={titleId}
               className="display-serif truncate text-[15px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {t(titleKey)}
             </h3>
             <div
               className="num text-[10px] uppercase"
               style={{
-                color: "var(--color-text-4)",
+                color: "var(--muted-foreground)",
                 letterSpacing: "1.0px",
               }}
             >
@@ -144,12 +144,12 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
             className="flex w-52 items-center gap-2 rounded-md px-2.5 py-1.5"
             style={{
               background: "oklch(0.16 0.010 265 / 0.6)",
-              border: "1px solid var(--color-hairline)",
+              border: "1px solid var(--border)",
             }}
           >
             <Search
               className="h-3.5 w-3.5 shrink-0"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             />
             <input
               type="text"
@@ -158,7 +158,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
               placeholder={t("search_placeholder")}
               aria-label={t("search_placeholder")}
               className="focus-ring min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             />
           </div>
 
@@ -170,7 +170,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
           {assetsWithUrl.length === 0 && !loading && (
             <div
               className="col-span-4 px-4 py-12 text-center text-[12px]"
-              style={{ color: "var(--color-text-4)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {debouncedQ ? t("no_results") : t("search_hint")}
             </div>
@@ -188,29 +188,29 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                 className="focus-ring relative rounded-lg p-2 text-left transition-colors disabled:cursor-not-allowed"
                 style={{
                   border: dup
-                    ? "1px solid var(--color-hairline-soft)"
+                    ? "1px solid color-mix(in oklab, var(--border) 50%, transparent)"
                     : sel
-                      ? "1px solid var(--color-accent-soft)"
-                      : "1px solid var(--color-hairline)",
+                      ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)"
+                      : "1px solid var(--border)",
                   background: dup
                     ? "oklch(0.20 0.011 265 / 0.3)"
                     : sel
-                      ? "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
+                      ? "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
                       : "oklch(0.20 0.011 265 / 0.5)",
                   opacity: dup ? 0.4 : 1,
                   boxShadow: sel
-                    ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-accent-glow)"
+                    ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent)"
                     : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
                 }}
                 onMouseEnter={(e) => {
                   if (!dup && !sel) {
-                    e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
+                    e.currentTarget.style.borderColor = "var(--input)";
                     e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.7)";
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!dup && !sel) {
-                    e.currentTarget.style.borderColor = "var(--color-hairline)";
+                    e.currentTarget.style.borderColor = "var(--border)";
                     e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.5)";
                   }
                 }}
@@ -218,14 +218,14 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                 <AssetThumb imageUrl={url} alt={a.name} fallback="—" variant="picker" />
                 <div
                   className="mt-1.5 truncate text-[12px] font-semibold"
-                  style={{ color: "var(--color-text)" }}
+                  style={{ color: "var(--foreground)" }}
                 >
                   {a.name}
                 </div>
                 {a.description && (
                   <div
                     className="truncate text-[10px]"
-                    style={{ color: "var(--color-text-4)" }}
+                    style={{ color: "var(--muted-foreground)" }}
                   >
                     {a.description}
                   </div>
@@ -237,9 +237,9 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                     style={{
                       color: "oklch(0.14 0 0)",
                       background:
-                        "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                        "var(--primary)",
                       boxShadow:
-                        "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-accent-soft)",
+                        "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
                     }}
                   >
                     <Check className="h-3 w-3" strokeWidth={3} />
@@ -247,7 +247,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                 )}
                 {dup && (
                   <span
-                    className="num absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[9.5px]"
+                    className="num absolute left-1.5 top-1.5 rounded-sm px-1.5 py-0.5 text-[9.5px]"
                     style={{
                       letterSpacing: "0.4px",
                       color: "oklch(0.85 0.13 75)",
@@ -277,11 +277,11 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
         {/* Footer */}
         <div
           className="flex items-center gap-2 px-5 py-3"
-          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+          style={{ borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
         >
           <span
             className="num flex-1 text-[11px]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {t("import_count", { count: selected.size })}
           </span>
@@ -296,7 +296,7 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
             <span>{t("confirm_import")}</span>
             {selected.size > 0 && (
               <span
-                className="num ml-1.5 rounded px-1.5 py-px text-[10.5px]"
+                className="num ml-1.5 rounded-sm px-1.5 py-px text-[10.5px]"
                 style={{
                   background: "oklch(0 0 0 / 0.18)",
                   color: "oklch(0.14 0 0)",

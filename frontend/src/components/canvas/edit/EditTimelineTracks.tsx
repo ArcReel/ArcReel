@@ -64,7 +64,7 @@ export function EditTimelineTracks({
   };
 
   return (
-    <div className="rounded-[10px] border border-hairline bg-bg-grad-b/60 p-3">
+    <div className="rounded-lg border border-border bg-sidebar/60 p-3">
       <div className="overflow-x-auto">
         <div
           className="relative"
@@ -102,7 +102,7 @@ export function EditTimelineTracks({
               {bgm.length > 0 ? (
                 <BgmBlocks items={bgm} duration={duration} />
               ) : (
-                <span className="absolute inset-y-0 left-1 flex items-center text-[10.5px] text-text-4">
+                <span className="absolute inset-y-0 left-1 flex items-center text-[10.5px] text-muted-foreground">
                   {translate("edit_view_bgm_track_empty")}
                 </span>
               )}
@@ -110,30 +110,30 @@ export function EditTimelineTracks({
             <div
               aria-hidden
               data-testid="edit-playhead"
-              className="pointer-events-none absolute -top-1 bottom-0 z-20 w-px bg-text"
+              className="pointer-events-none absolute -top-1 bottom-0 z-20 w-px bg-foreground"
               style={{ left: percent(Math.min(t, duration)) }}
             >
-              <span className="absolute -left-[4px] -top-1 h-2 w-2 rotate-45 bg-text" />
+              <span className="absolute -left-[4px] -top-1 h-2 w-2 rotate-45 bg-foreground" />
             </div>
           </div>
         </div>
       </div>
 
       {unusedUnits.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-hairline-soft pt-2.5 text-[12px] text-text-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2.5 text-[12px] text-muted-foreground">
           <span>{translate("edit_view_unused")}</span>
           {unusedUnits.map((unitId) => {
             const thumbnail = thumbnails.get(unitId);
             return (
               <span
                 key={unitId}
-                className="inline-flex items-center gap-1.5 rounded-[6px] border border-dashed border-hairline px-1.5 py-0.5"
+                className="inline-flex items-center gap-1.5 rounded-sm border border-dashed border-border px-1.5 py-0.5"
               >
                 {thumbnail && (
                   <img
                     src={API.getFileUrl(projectName, thumbnail)}
                     alt=""
-                    className="h-4 w-7 rounded-[2px] object-cover"
+                    className="h-4 w-7 rounded-xs object-cover"
                   />
                 )}
                 {itemIdWithinEpisode(unitId)}
@@ -150,7 +150,7 @@ function Ruler({ duration, percent }: { duration: number; percent: (seconds: num
   const step = rulerStep(duration);
   const ticks = Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step);
   return (
-    <div aria-hidden className="relative mb-1 h-4 text-[10px] tabular-nums text-text-4">
+    <div aria-hidden className="relative mb-1 h-4 text-[10px] tabular-nums text-muted-foreground">
       {ticks.map((tick) => (
         <span key={tick} className="absolute -translate-x-1/2" style={{ left: percent(tick) }}>
           {tick}s
@@ -170,9 +170,9 @@ interface TrackRowProps {
 
 function TrackRow({ label, height = "h-[58px]", action, children }: TrackRowProps) {
   return (
-    <div className={`relative ${height} border-b border-hairline-soft last:border-b-0`}>
+    <div className={`relative ${height} border-b border-border/50 last:border-b-0`}>
       <span
-        className="absolute top-1/2 flex -translate-y-1/2 items-center gap-1 text-[11px] text-text-3"
+        className="absolute top-1/2 flex -translate-y-1/2 items-center gap-1 text-[11px] text-muted-foreground"
         style={{ left: -LABEL_WIDTH, width: LABEL_WIDTH - 8 }}
       >
         {label}
@@ -216,7 +216,7 @@ function BgmUploadButton({ projectName }: { projectName: string }) {
         data-testid="edit-bgm-upload"
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => input.current?.click()}
-        className="focus-ring inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-text-3 hover:bg-bg-grad-b hover:text-text disabled:opacity-60"
+        className="focus-ring inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-muted-foreground hover:bg-sidebar hover:text-foreground disabled:opacity-60"
       >
         {uploading ? <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> : <Upload aria-hidden className="h-3 w-3" />}
       </button>
@@ -269,8 +269,8 @@ const VideoClips = memo(function VideoClips({
             className="focus-ring absolute inset-y-0 z-10 flex w-4 -translate-x-1/2 flex-col items-center"
             style={{ left: percent(clip.start) }}
           >
-            <span className="h-full w-[2px] bg-danger" />
-            <span className="absolute -bottom-1 rounded-[3px] bg-danger px-1 text-[9.5px] leading-[14px] text-black">
+            <span className="h-full w-[2px] bg-destructive" />
+            <span className="absolute -bottom-1 rounded-xs bg-destructive px-1 text-[9.5px] leading-[14px] text-black">
               {clip.id}
             </span>
           </button>
@@ -295,7 +295,7 @@ const VideoClips = memo(function VideoClips({
               key={`transition-${clip.id}`}
               aria-hidden
               title={`${t(`edit_transition_${clip.transition_to_next.type}`, { defaultValue: clip.transition_to_next.type })} ${formatSeconds(clip.transition_to_next.duration)}s`}
-              className="pointer-events-none absolute top-1/2 z-10 h-5 -translate-y-1/2 rounded-[3px] bg-accent/35 ring-1 ring-accent"
+              className="pointer-events-none absolute top-1/2 z-10 h-5 -translate-y-1/2 rounded-xs bg-primary/35 ring-1 ring-primary"
               style={{
                 left: `calc(${percent(clip.start + clip.duration)} - ${percent(clip.transition_to_next.duration / 2)})`,
                 width: percent(clip.transition_to_next.duration),
@@ -320,11 +320,11 @@ interface ClipBlockProps {
 function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect }: ClipBlockProps) {
   const { t } = useTranslation("dashboard");
   const missingVideo = clip.status === "video_missing";
-  const outline = selected ? "ring-2 ring-text" : active ? "ring-1 ring-accent" : "";
+  const outline = selected ? "ring-2 ring-foreground" : active ? "ring-1 ring-primary" : "";
   const border = trimIgnored
     ? "border border-dashed border-warn"
     : missingVideo
-      ? "border border-dashed border-hairline-strong"
+      ? "border border-dashed border-input"
       : "border border-black/30";
   return (
     <button
@@ -338,11 +338,11 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect 
       })}
       data-testid={`edit-clip-${clip.id}`}
       data-trim-ignored={trimIgnored || undefined}
-      className={`focus-ring absolute inset-y-1.5 overflow-hidden rounded-[5px] text-left ${border} ${outline}`}
+      className={`focus-ring absolute inset-y-1.5 overflow-hidden rounded-sm text-left ${border} ${outline}`}
       style={{
         left,
         width: `calc(${width} - 2px)`,
-        background: missingVideo ? "var(--color-surface-2)" : `oklch(0.42 0.07 ${unitHue(clip.unit_id)})`,
+        background: missingVideo ? "var(--muted)" : `oklch(0.42 0.07 ${unitHue(clip.unit_id)})`,
       }}
     >
       <span className="flex h-full flex-col justify-between p-1 text-[10.5px] leading-none text-white">
@@ -390,11 +390,11 @@ const NarrationBlocks = memo(function NarrationBlocks({
             data-testid={`edit-narration-${span.clipId}`}
             data-missing-audio={span.missingAudio || undefined}
             data-post-production={span.postProduction || undefined}
-            className={`absolute flex items-center overflow-hidden whitespace-nowrap rounded-[4px] px-1 text-[10px] leading-none ${
+            className={`absolute flex items-center overflow-hidden whitespace-nowrap rounded-sm px-1 text-[10px] leading-none ${
               span.postProduction
-                ? "border border-hairline bg-surface-2 text-text-3"
+                ? "border border-border bg-muted text-muted-foreground"
                 : span.missingAudio
-                  ? "border border-dashed border-hairline-strong text-text-3"
+                  ? "border border-dashed border-input text-muted-foreground"
                   : "border border-black/30 text-white"
             }`}
             style={{
@@ -430,7 +430,7 @@ const SubtitleBlocks = memo(function SubtitleBlocks({
         <span
           key={`${item.start}-${item.text}`}
           title={item.text}
-          className="absolute inset-y-1 flex items-center overflow-hidden whitespace-nowrap rounded-[3px] border border-hairline bg-surface-2 px-1 text-[10px] leading-none text-text-2"
+          className="absolute inset-y-1 flex items-center overflow-hidden whitespace-nowrap rounded-xs border border-border bg-muted px-1 text-[10px] leading-none text-subtle-foreground"
           style={{
             left: percentOf(item.start, duration),
             width: `calc(${percentOf(item.end - item.start, duration)} - 1px)`,
@@ -465,7 +465,7 @@ const BgmBlocks = memo(function BgmBlocks({ items, duration }: { items: readonly
               fadeOut: formatSeconds(item.fadeOut),
             })}
             data-testid={`edit-${item.id}`}
-            className="absolute inset-y-1 flex items-center overflow-hidden whitespace-nowrap rounded-[3px] px-1 text-[10px] leading-none text-white"
+            className="absolute inset-y-1 flex items-center overflow-hidden whitespace-nowrap rounded-xs px-1 text-[10px] leading-none text-white"
             style={{
               left: percentOf(item.start, duration),
               width: `calc(${percentOf(length, duration)} - 1px)`,

@@ -6,7 +6,6 @@ import {
   ACCENT_BUTTON_STYLE,
   CARD_STYLE,
   GHOST_BTN_CLS,
-  posterGridStyle,
 } from "@/components/shared/darkroom-tokens";
 import type { MarketEntry, MarketEntryAggregate, MarketSourceKind } from "@/types";
 import { MarketEntryStats } from "./MarketEntryStats";
@@ -51,14 +50,14 @@ export function EntryIcon({ entry }: { entry: MarketEntry }) {
         alt=""
         width={ICON_SIZE}
         height={ICON_SIZE}
-        className="shrink-0 rounded-[9px] object-contain"
+        className="shrink-0 rounded-lg object-contain"
       />
     );
   }
   return (
     <div
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-[9px] border border-hairline-soft font-editorial text-text-4"
+      className="flex shrink-0 items-center justify-center rounded-lg border border-border/50 font-editorial text-muted-foreground"
       style={{
         width: ICON_SIZE,
         height: ICON_SIZE,
@@ -75,8 +74,8 @@ export function EntryIcon({ entry }: { entry: MarketEntry }) {
 /** 标识条目来源的源片；官方源带强调色圆点。 */
 export function SourceChip({ name, kind }: { name: string; kind: MarketSourceKind | null }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-hairline-soft bg-bg-grad-a/50 px-2 py-[1px] font-mono text-[10px] text-text-3">
-      {kind === "official" && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-2" aria-hidden />}
+    <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-border/50 bg-card/50 px-2 py-[1px] font-mono text-[10px] text-muted-foreground">
+      {kind === "official" && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />}
       <span className="truncate">{name}</span>
     </span>
   );
@@ -115,7 +114,7 @@ export function MarketEntryCard({
   return (
     <article
       aria-label={entry.name}
-      className={`relative flex flex-col overflow-hidden rounded-[12px] border border-hairline text-left transition-[transform,border-color] hover:border-hairline-strong motion-safe:hover:-translate-y-0.5 ${
+      className={`relative flex flex-col overflow-hidden rounded-xl border border-border text-left transition-[transform,border-color] hover:border-input motion-safe:hover:-translate-y-0.5 ${
         unmet ? "opacity-60" : ""
       }`}
       style={CARD_STYLE}
@@ -126,14 +125,13 @@ export function MarketEntryCard({
           type="button"
           aria-label={entry.name}
           onClick={onOpen}
-          className="absolute inset-0 z-10 rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       )}
       <div
-        className="relative flex aspect-[2/1] items-center justify-center border-b border-hairline-soft"
+        className="relative flex aspect-[2/1] items-center justify-center border-b border-border/50"
         style={{ background: "oklch(0.14 0.010 265 / 0.6)" }}
       >
-        <div aria-hidden className="absolute inset-0 opacity-[0.06]" style={posterGridStyle({ size: 20 })} />
         <EntryIcon entry={entry} />
         {installation && (
           <div className="absolute left-2 top-2">
@@ -141,17 +139,17 @@ export function MarketEntryCard({
           </div>
         )}
         {(entry.media_type === "image" || entry.media_type === "video") && (
-          <span className="absolute right-2 top-2 rounded-[4px] border border-hairline-soft bg-bg-grad-a/55 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-text-4">
+          <span className="absolute right-2 top-2 rounded-sm border border-border/50 bg-card/55 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
             {t(entry.media_type === "image" ? "media_type_image" : "media_type_video")}
           </span>
         )}
       </div>
       <div className="flex flex-1 flex-col p-3">
-        <h3 className="truncate text-[13.5px] font-medium text-text">{entry.name}</h3>
-        <div className="mt-0.5 truncate text-[11.5px] text-text-4">
+        <h3 className="truncate text-[13.5px] font-medium text-foreground">{entry.name}</h3>
+        <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
           {entry.author} · v{entry.version}
         </div>
-        <p className="mt-1.5 line-clamp-2 flex-1 text-[11.5px] leading-[1.5] text-text-3">
+        <p className="mt-1.5 line-clamp-2 flex-1 text-[11.5px] leading-[1.5] text-muted-foreground">
           {entry.description}
         </p>
         <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
@@ -171,7 +169,7 @@ export function MarketEntryCard({
           <div className="mt-3 flex items-center">
             <span
               title={appVersion === null ? undefined : t("market_current_app_version", { version: appVersion })}
-              className="inline-flex shrink-0 items-center whitespace-nowrap rounded-[5px] border border-hairline-soft bg-bg-grad-a/55 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-text-3"
+              className="inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border border-border/50 bg-card/55 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground"
             >
               {t("market_requires_app", { version: entry.min_app_version })}
             </span>

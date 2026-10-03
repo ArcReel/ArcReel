@@ -392,7 +392,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   return (
     <section
       className="border-b px-4 py-2"
-      style={{ borderColor: "var(--color-hairline)" }}
+      style={{ borderColor: "var(--border)" }}
       data-testid="workflow-panel"
     >
       <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${assistantFloating ? "pr-12" : ""}`}>
@@ -401,8 +401,8 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           aria-expanded={expanded}
           aria-controls={panelId}
           onClick={() => setExpanded((value) => !value)}
-          className="focus-ring flex items-center gap-1.5 rounded text-[12.5px] font-medium hover:opacity-80"
-          style={{ color: "var(--color-text)" }}
+          className="focus-ring flex items-center gap-1.5 rounded-sm text-[12.5px] font-medium hover:opacity-80"
+          style={{ color: "var(--foreground)" }}
         >
           <ChevronDown
             aria-hidden
@@ -411,7 +411,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           />
           {t("panel_title")}
         </button>
-        <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: "var(--color-text-3)" }}>
+        <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: "var(--muted-foreground)" }}>
           {headline}
         </span>
         {view?.adDuration && (
@@ -420,8 +420,8 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             title={view.adDuration.over ? t("ad_duration_over_hint") : undefined}
             data-over={view.adDuration.over || undefined}
             style={{
-              border: `1px solid ${view.adDuration.over ? "var(--color-warm-ring)" : "var(--color-hairline)"}`,
-              color: view.adDuration.over ? "var(--color-warm)" : "var(--color-text-3)",
+              border: `1px solid ${view.adDuration.over ? "color-mix(in oklab, var(--warn) 30%, transparent)" : "var(--border)"}`,
+              color: view.adDuration.over ? "var(--warn)" : "var(--muted-foreground)",
             }}
           >
             {view.adDuration.total != null
@@ -431,7 +431,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         )}
         {!expanded && next && next.primary.length > 0 && (
           <span className="flex flex-wrap items-center gap-2">
-            <span className="text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+            <span className="text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
               {t("next_label")}
             </span>
             {next.primary.map((act) => (
@@ -457,7 +457,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
       </div>
 
       {error && (
-        <p className="mt-1 text-[11.5px]" role="status" style={{ color: "var(--color-text-3)" }}>
+        <p className="mt-1 text-[11.5px]" role="status" style={{ color: "var(--muted-foreground)" }}>
           {t("plan_refresh_failed")}
         </p>
       )}
@@ -513,7 +513,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             </ol>
           ) : (
             !shown && (
-              <p className="text-[12px]" style={{ color: "var(--color-text-3)" }}>
+              <p className="text-[12px]" style={{ color: "var(--muted-foreground)" }}>
                 {loading ? t("plan_loading") : t("plan_unavailable")}
               </p>
             )

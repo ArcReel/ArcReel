@@ -3,16 +3,16 @@ import { useTranslation } from "react-i18next";
 import type { MarketSourceInfo, MarketSourceStatus } from "@/types";
 
 export const KICKER_ACCENT_CLS =
-  "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2";
+  "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary";
 
-export const KICKER_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
+export const KICKER_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground";
 
 const STATUS_DOT_CLS: Record<MarketSourceStatus, string> = {
   ok: "bg-good",
-  never_fetched: "bg-text-4",
+  never_fetched: "bg-muted-foreground",
   unreachable: "bg-warn",
-  invalid_index: "bg-danger",
-  unsupported_schema: "bg-danger",
+  invalid_index: "bg-destructive",
+  unsupported_schema: "bg-destructive",
 };
 
 /** 市场源状态点：刷新中显示转圈，禁用的源淡化。 */
@@ -27,7 +27,7 @@ export function SourceStatusDot({
   if (refreshing) {
     return (
       <Loader2
-        className="h-3 w-3 shrink-0 animate-spin text-text-3"
+        className="h-3 w-3 shrink-0 animate-spin text-muted-foreground"
         role="img"
         aria-label={t("market_refreshing")}
       />

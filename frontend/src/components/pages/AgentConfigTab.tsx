@@ -128,11 +128,11 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       <div className={visible ? "px-1 py-8" : "hidden"}>
         <div
           role="alert"
-          className="flex items-start gap-1.5 rounded-[8px] border px-4 py-3 text-[12.5px]"
+          className="flex items-start gap-1.5 rounded-md border px-4 py-3 text-[12.5px]"
           style={{
-            borderColor: "var(--color-warm-ring)",
-            background: "var(--color-warm-tint)",
-            color: "var(--color-warm-bright)",
+            borderColor: "color-mix(in oklab, var(--warn) 30%, transparent)",
+            background: "color-mix(in oklab, var(--warn) 15%, transparent)",
+            color: "var(--warn)",
           }}
         >
           <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -151,11 +151,11 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
       <div
         className={
           visible
-            ? "flex items-center gap-2 px-1 py-12 text-text-3"
+            ? "flex items-center gap-2 px-1 py-12 text-muted-foreground"
             : "hidden"
         }
       >
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
           {t("common:loading")}
         </span>
@@ -174,7 +174,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               <FieldLabel htmlFor="agent-cleanup-delay" className="">
                 {t("session_cleanup_delay_label")}
               </FieldLabel>
-              <p className="mt-0.5 text-[11.5px] text-text-4">
+              <p className="mt-0.5 text-[11.5px] text-muted-foreground">
                 {t("session_cleanup_delay_desc")}
               </p>
               <input
@@ -192,7 +192,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
               <FieldLabel htmlFor="agent-max-sessions" className="">
                 {t("max_concurrent_sessions_label")}
               </FieldLabel>
-              <p className="mt-0.5 text-[11.5px] text-text-4">
+              <p className="mt-0.5 text-[11.5px] text-muted-foreground">
                 {t("max_concurrent_sessions_desc")}
               </p>
               <input

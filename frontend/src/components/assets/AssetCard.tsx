@@ -28,35 +28,35 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
   const derivativeCount = asset.derivatives.length;
 
   return (
-    <div className="group relative overflow-hidden rounded-[10px] border border-hairline-soft bg-bg-grad-a/55 transition-[transform,border-color] motion-safe:hover:-translate-y-0.5 hover:border-hairline">
+    <div className="group relative overflow-hidden rounded-lg border border-border/50 bg-card/55 transition-[transform,border-color] motion-safe:hover:-translate-y-0.5 hover:border-border">
       <div className="relative">
         <AssetThumb
           imageUrl={imageUrl}
           alt={asset.name}
-          fallback={<Icon className="h-10 w-10 text-text-4" />}
+          fallback={<Icon className="h-10 w-10 text-muted-foreground" />}
           variant="display"
         />
-        <span className="pointer-events-none absolute right-2 top-2 rounded border border-hairline bg-bg-grad-b/70 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-text-3 backdrop-blur-sm">
+        <span className="pointer-events-none absolute right-2 top-2 rounded-sm border border-border bg-sidebar/70 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground backdrop-blur-sm">
           {t(`type.${asset.type}`)}
         </span>
       </div>
       <div className="p-3">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[13.5px] font-semibold text-text">{asset.name}</div>
+            <div className="truncate text-[13.5px] font-semibold text-foreground">{asset.name}</div>
             {asset.description && (
-              <div className="mt-1 line-clamp-2 text-[12px] leading-[1.55] text-text-3">
+              <div className="mt-1 line-clamp-2 text-[12px] leading-[1.55] text-muted-foreground">
                 {asset.description}
               </div>
             )}
             {formattedDate || derivativeCount > 0 ? (
-              <div className="mt-2 flex items-center gap-2 font-mono text-[10.5px] text-text-4">
+              <div className="mt-2 flex items-center gap-2 font-mono text-[10.5px] text-muted-foreground">
                 {formattedDate ? (
                   <span className="tabular-nums">{t("meta_updated_at", { date: formattedDate })}</span>
                 ) : null}
                 {derivativeCount > 0 ? (
                   <span
-                    className="inline-flex items-center gap-1 rounded-full bg-bg-grad-b/70 px-1.5 py-0.5 text-accent-2"
+                    className="inline-flex items-center gap-1 rounded-full bg-sidebar/70 px-1.5 py-0.5 text-primary"
                     title={t("derivatives_with_count", { n: derivativeCount })}
                   >
                     <Layers aria-hidden className="h-3 w-3" />
@@ -72,7 +72,7 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
               type="button"
               onClick={() => onEdit(asset)}
               aria-label={t("edit")}
-              className="rounded-[5px] p-1 text-text-4 transition-colors hover:text-text focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Edit2 className="h-3.5 w-3.5" />
             </button>
@@ -80,7 +80,7 @@ function AssetCardImpl({ asset, onEdit, onDelete }: Props) {
               type="button"
               onClick={() => onDelete(asset)}
               aria-label={t("delete")}
-              className="rounded-[5px] p-1 text-text-4 transition-colors hover:text-warm-bright focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ring"
+              className="rounded-sm p-1 text-muted-foreground transition-colors hover:text-warn focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/30"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>

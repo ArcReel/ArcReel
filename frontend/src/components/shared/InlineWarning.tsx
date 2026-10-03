@@ -39,7 +39,7 @@ export function InlineWarning({ message, action, className }: InlineWarningProps
           onClick={action.onClick}
           disabled={action.disabled}
           title={action.title}
-          className="rounded-[6px] border border-hairline-soft px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-sm border border-border/50 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-subtle-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {action.label}
         </button>

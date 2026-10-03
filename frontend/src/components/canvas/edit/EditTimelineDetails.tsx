@@ -10,15 +10,15 @@ import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 const ISSUE_DOT: Record<EditTimelineIssueCode, string> = {
   trim_ignored: "bg-warn",
-  unit_deleted: "bg-danger",
-  unit_unused: "bg-text-4",
-  video_missing: "bg-danger",
+  unit_deleted: "bg-destructive",
+  unit_unused: "bg-muted-foreground",
+  video_missing: "bg-destructive",
   hold_too_long: "bg-warn",
-  narration_missing: "bg-danger",
+  narration_missing: "bg-destructive",
   narration_overrun: "bg-warn",
   narration_source_collision: "bg-warn",
   subtitle_missing_glyphs: "bg-warn",
-  bgm_missing: "bg-danger",
+  bgm_missing: "bg-destructive",
 };
 
 interface ClipInspectorProps {
@@ -32,7 +32,7 @@ interface ClipInspectorProps {
 export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: ClipInspectorProps) {
   const { t } = useTranslation("dashboard");
   if (!clip) {
-    return <p className="text-[12.5px] text-text-3">{t("edit_view_inspector_empty")}</p>;
+    return <p className="text-[12.5px] text-muted-foreground">{t("edit_view_inspector_empty")}</p>;
   }
   const deleted = clip.status === "unit_deleted";
   const transition = clip.transition_to_next;
@@ -43,16 +43,16 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
         <img
           src={API.getFileUrl(projectName, thumbnail)}
           alt=""
-          className="h-[68px] w-[120px] shrink-0 rounded-[6px] bg-black object-contain"
+          className="h-[68px] w-[120px] shrink-0 rounded-sm bg-black object-contain"
         />
       )}
       <div className="min-w-0 flex-1">
-        <h3 className="text-[14px] font-medium text-text">
-          {clip.id} <span className="text-text-3">· {itemIdWithinEpisode(clip.unit_id)}</span>
+        <h3 className="text-[14px] font-medium text-foreground">
+          {clip.id} <span className="text-muted-foreground">· {itemIdWithinEpisode(clip.unit_id)}</span>
         </h3>
         <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
-          <dt className="text-text-4">{t("edit_view_field_position")}</dt>
-          <dd className={deleted ? "text-danger-2" : "text-text-2"}>
+          <dt className="text-muted-foreground">{t("edit_view_field_position")}</dt>
+          <dd className={deleted ? "text-destructive" : "text-subtle-foreground"}>
             {deleted
               ? t("edit_view_position_deleted")
               : t("edit_view_position_value", {
@@ -63,10 +63,10 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
           </dd>
           {!deleted && (
             <>
-              <dt className="text-text-4">{t("edit_view_field_trim")}</dt>
-              <dd className="text-text-2">
+              <dt className="text-muted-foreground">{t("edit_view_field_trim")}</dt>
+              <dd className="text-subtle-foreground">
                 {clip.trim ? (
-                  <span className={trimIgnored ? "text-text-4 line-through" : ""}>
+                  <span className={trimIgnored ? "text-muted-foreground line-through" : ""}>
                     {t("edit_view_trim_value", {
                       in: formatSeconds(clip.trim.source_in),
                       out: formatSeconds(clip.trim.source_out),
@@ -78,17 +78,17 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
                 {sourceLength !== null && t("edit_view_source_length", { duration: formatSeconds(sourceLength) })}
                 {trimIgnored && <span className="ml-1.5 text-warn">{t("edit_view_trim_ignored_note")}</span>}
                 {clip.status === "video_missing" && (
-                  <span className="ml-1.5 text-text-3">{t("edit_view_video_missing_note")}</span>
+                  <span className="ml-1.5 text-muted-foreground">{t("edit_view_video_missing_note")}</span>
                 )}
               </dd>
               {clip.hold > 0 && (
                 <>
-                  <dt className="text-text-4">{t("edit_view_field_hold")}</dt>
-                  <dd className="text-text-2">{t("edit_view_hold_value", { duration: formatSeconds(clip.hold) })}</dd>
+                  <dt className="text-muted-foreground">{t("edit_view_field_hold")}</dt>
+                  <dd className="text-subtle-foreground">{t("edit_view_hold_value", { duration: formatSeconds(clip.hold) })}</dd>
                 </>
               )}
-              <dt className="text-text-4">{t("edit_view_field_transition")}</dt>
-              <dd className="text-text-2">
+              <dt className="text-muted-foreground">{t("edit_view_field_transition")}</dt>
+              <dd className="text-subtle-foreground">
                 {transition
                   ? t("edit_view_transition_value", {
                       type: t(`edit_transition_${transition.type}`, { defaultValue: transition.type }),
@@ -100,8 +100,8 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
           )}
           {clip.reason && (
             <>
-              <dt className="text-text-4">{t("edit_view_field_reason")}</dt>
-              <dd className="whitespace-pre-wrap text-text-2">{clip.reason}</dd>
+              <dt className="text-muted-foreground">{t("edit_view_field_reason")}</dt>
+              <dd className="whitespace-pre-wrap text-subtle-foreground">{clip.reason}</dd>
             </>
           )}
         </dl>
@@ -128,12 +128,12 @@ export function IssueList({ issues, clipIds, onSelectClip }: IssueListProps) {
       <h3
         id={ISSUE_LIST_HEADING_ID}
         tabIndex={-1}
-        className="mb-2 text-[13px] font-medium text-text focus:outline-none"
+        className="mb-2 text-[13px] font-medium text-foreground focus:outline-none"
       >
         {t("edit_view_issues_title", { count: issues.length })}
       </h3>
       {issues.length === 0 ? (
-        <p className="text-[12px] text-text-4">{t("edit_view_issues_none")}</p>
+        <p className="text-[12px] text-muted-foreground">{t("edit_view_issues_none")}</p>
       ) : (
         <ul className="space-y-1">
           {issues.map((issue, index) => {
@@ -150,20 +150,20 @@ export function IssueList({ issues, clipIds, onSelectClip }: IssueListProps) {
               ...params,
               defaultValue: t("edit_view_issue_other", params),
             });
-            const dot = <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${ISSUE_DOT[issue.code] ?? "bg-text-4"}`} />;
+            const dot = <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${ISSUE_DOT[issue.code] ?? "bg-muted-foreground"}`} />;
             return (
               <li key={`${issue.code}-${index}`}>
                 {clipId ? (
                   <button
                     type="button"
                     onClick={() => onSelectClip(clipId)}
-                    className="focus-ring flex w-full items-start gap-2 rounded-[6px] px-1.5 py-1 text-left text-[12px] text-text-2 hover:bg-bg-grad-b"
+                    className="focus-ring flex w-full items-start gap-2 rounded-sm px-1.5 py-1 text-left text-[12px] text-subtle-foreground hover:bg-sidebar"
                   >
                     {dot}
                     {text}
                   </button>
                 ) : (
-                  <p className="flex items-start gap-2 px-1.5 py-1 text-[12px] text-text-2">
+                  <p className="flex items-start gap-2 px-1.5 py-1 text-[12px] text-subtle-foreground">
                     {dot}
                     {text}
                   </p>

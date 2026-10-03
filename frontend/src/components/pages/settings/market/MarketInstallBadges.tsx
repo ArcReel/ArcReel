@@ -4,13 +4,13 @@ import { useTranslation } from "react-i18next";
 import type { MarketInstallationState } from "@/types";
 
 const BADGE_CLS =
-  "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[5px] border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em]";
+  "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-sm border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em]";
 
 const TONE_CLS = {
   good: "border-good/35 bg-good/10 text-good",
-  accent: "border-accent/35 bg-accent-dim text-accent-2",
+  accent: "border-primary/35 bg-primary/12 text-primary",
   warn: "border-warn/40 bg-warn/10 text-warn",
-  muted: "border-hairline-soft bg-bg-grad-a/55 text-text-3",
+  muted: "border-border/50 bg-card/55 text-muted-foreground",
 } as const;
 
 function Badge({ tone, children }: { tone: keyof typeof TONE_CLS; children: ReactNode }) {

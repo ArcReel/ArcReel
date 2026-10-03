@@ -99,7 +99,7 @@ export function CharacterDerivativeSheet({
     <div className="mt-2">
       <div
         className="relative overflow-hidden rounded-lg"
-        style={{ border: "1px solid var(--color-hairline-soft)" }}
+        style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
       >
         <PreviewableImageFrame src={sheetUrl && !imgError ? sheetUrl : null} alt={alt}>
           <AspectFrame ratio="16:9">
@@ -111,7 +111,7 @@ export function CharacterDerivativeSheet({
               fallback={
                 <div
                   className="flex h-full w-full flex-col items-center justify-center gap-1.5"
-                  style={{ color: "var(--color-text-4)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   <Shirt className="h-6 w-6" />
                   <span className="text-[10px]">
@@ -124,7 +124,7 @@ export function CharacterDerivativeSheet({
         </PreviewableImageFrame>
         {stale && (
           <span
-            className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+            className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium"
             style={{ background: "oklch(0.24 0.06 60 / 0.9)", color: "oklch(0.86 0.12 75)" }}
             title={t("assets:derivative_stale_hint")}
           >

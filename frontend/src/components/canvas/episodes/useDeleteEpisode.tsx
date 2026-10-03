@@ -71,7 +71,7 @@ export function useDeleteEpisode(projectName: string, onDeleted?: (episode: numb
         description={
           <>
             {pending.changed ? (
-              <span className="mb-2 block text-[var(--color-warm)]">{t("dashboard:episode_delete_changed")}</span>
+              <span className="mb-2 block text-warn">{t("dashboard:episode_delete_changed")}</span>
             ) : null}
             <span className="block whitespace-pre-line">{pending.impact.text}</span>
           </>

@@ -15,12 +15,12 @@ export function TestCard({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/30 p-3.5">
+    <div className="rounded-md border border-border/50 bg-card/30 p-3.5">
       <div className="flex items-center gap-2">
-        <span className="text-[13px] font-medium text-text">{title}</span>
-        {badge && <span className="text-[11px] text-warm-bright/90">{badge}</span>}
+        <span className="text-[13px] font-medium text-foreground">{title}</span>
+        {badge && <span className="text-[11px] text-warn/90">{badge}</span>}
       </div>
-      <p className="mb-2.5 mt-0.5 text-[12px] leading-[1.55] text-text-3">{desc}</p>
+      <p className="mb-2.5 mt-0.5 text-[12px] leading-[1.55] text-muted-foreground">{desc}</p>
       {children}
     </div>
   );
@@ -31,7 +31,7 @@ export function RequestPreview({ label, request }: { label: string; request: Pre
   return (
     <div>
       <span className={LABEL_CLS}>{label}</span>
-      <pre className="max-h-96 overflow-auto rounded-[8px] border border-hairline-soft bg-bg-grad-a/40 p-3 font-mono text-[11.5px] leading-[1.6] text-text-2">
+      <pre className="max-h-96 overflow-auto rounded-md border border-border/50 bg-card/40 p-3 font-mono text-[11.5px] leading-[1.6] text-subtle-foreground">
         {`${request.method} ${request.url}\n`}
         {Object.entries(request.headers)
           .map(([k, v]) => `${k}: ${v}`)

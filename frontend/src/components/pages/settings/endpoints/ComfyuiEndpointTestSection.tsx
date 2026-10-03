@@ -61,8 +61,8 @@ const FAILURE_ACTION_TEXT: Record<string, string | undefined> = {
 
 const STAGE_DOT_CLS: Record<TrialRunStageState, string> = {
   done: "bg-good",
-  pending: "bg-accent-2 motion-safe:animate-pulse",
-  skipped: "bg-hairline-strong",
+  pending: "bg-primary motion-safe:animate-pulse",
+  skipped: "bg-input",
 };
 
 export interface ComfyuiEndpointTestSectionProps {
@@ -247,7 +247,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
                 const files = Array.from(e.target.files ?? []);
                 setAssetFiles((current) => ({ ...current, [key]: files }));
               }}
-              className={`${INPUT_CLS} file:mr-3 file:rounded file:border-0 file:bg-bg-grad-a file:px-2 file:py-1 file:text-text-2`}
+              className={`${INPUT_CLS} file:mr-3 file:rounded-sm file:border-0 file:bg-card file:px-2 file:py-1 file:text-subtle-foreground`}
             />
           </label>
         ))}
@@ -307,13 +307,13 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
             </label>
           </>
         )}
-        <p className="self-end pb-1.5 text-[11.5px] leading-[1.5] text-text-4 sm:col-span-2">
+        <p className="self-end pb-1.5 text-[11.5px] leading-[1.5] text-muted-foreground sm:col-span-2">
           {t("ce_cf_test_credentials_note")}
         </p>
       </div>
 
       {blocked && (
-        <p role="status" className="text-[12px] text-warm-bright">
+        <p role="status" className="text-[12px] text-warn">
           {t("ce_cf_test_blocked")}
         </p>
       )}
@@ -329,7 +329,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
           {t("ce_cf_test_preview_run")}
         </button>
         {previewError && (
-          <p role="alert" className="mt-2 text-[12px] text-warm-bright">
+          <p role="alert" className="mt-2 text-[12px] text-warn">
             {previewError}
           </p>
         )}
@@ -369,10 +369,10 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
                 {t("common:cancel")}
               </button>
             )}
-          <span className="text-[11.5px] text-text-4">{t("ce_cf_test_trial_note")}</span>
+          <span className="text-[11.5px] text-muted-foreground">{t("ce_cf_test_trial_note")}</span>
         </div>
         {trial.error && (
-          <p role="alert" className="mt-2 text-[12px] text-warm-bright">
+          <p role="alert" className="mt-2 text-[12px] text-warn">
             {trial.error}
           </p>
         )}
@@ -380,7 +380,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
           {trial.run ? (
             <TrialRunReport run={trial.run} artifactUrl={trial.artifactUrl} stalled={trial.pollStopped} />
           ) : (
-            <p className="rounded-[8px] border border-hairline px-3 py-6 text-center text-[12px] text-text-3">
+            <p className="rounded-md border border-border px-3 py-6 text-center text-[12px] text-muted-foreground">
               {trial.cancelled ? t("ce_trial_cancelled") : t("ce_cf_test_trial_empty")}
             </p>
           )}
@@ -437,21 +437,21 @@ function ConversionsTable({
   return (
     <div>
       <span className={LABEL_CLS}>{t("ce_cf_test_conv_title")}</span>
-      <dl className="divide-y divide-hairline-soft overflow-hidden rounded-[8px] border border-hairline-soft">
+      <dl className="divide-y divide-border/50 overflow-hidden rounded-md border border-border/50">
         {rows.map((row) => (
           <div key={row.key} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-1.5 text-[11.5px]">
-            <dt className="w-16 shrink-0 text-text-3">{row.label}</dt>
+            <dt className="w-16 shrink-0 text-muted-foreground">{row.label}</dt>
             <dd className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-              <span className="font-mono text-text-4" translate="no">
+              <span className="font-mono text-muted-foreground" translate="no">
                 {row.from}
               </span>
-              <span aria-hidden className="text-text-4">
+              <span aria-hidden className="text-muted-foreground">
                 →
               </span>
               {row.to === null ? (
-                <span className="text-warm-bright/90">{t("ce_cf_test_conv_unbound")}</span>
+                <span className="text-warn/90">{t("ce_cf_test_conv_unbound")}</span>
               ) : (
-                <span className="font-mono tabular-nums text-text" translate="no">
+                <span className="font-mono tabular-nums text-foreground" translate="no">
                   {row.to}
                 </span>
               )}
@@ -460,21 +460,21 @@ function ConversionsTable({
         ))}
         {conversions.negative_prompt !== "" && (
           <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5 text-[11.5px]">
-            <dt className="w-16 shrink-0 text-text-3">{t("ce_cf_key_negative_prompt")}</dt>
-            <dd className="min-w-0 flex-1 break-words text-text-2">{conversions.negative_prompt}</dd>
+            <dt className="w-16 shrink-0 text-muted-foreground">{t("ce_cf_key_negative_prompt")}</dt>
+            <dd className="min-w-0 flex-1 break-words text-subtle-foreground">{conversions.negative_prompt}</dd>
           </div>
         )}
         {conversions.dropped_nodes.length > 0 && (
           <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5 text-[11.5px]">
-            <dt className="w-16 shrink-0 text-text-3">{t("ce_cf_test_conv_dropped")}</dt>
-            <dd className="min-w-0 flex-1 font-mono text-text-2" translate="no">
+            <dt className="w-16 shrink-0 text-muted-foreground">{t("ce_cf_test_conv_dropped")}</dt>
+            <dd className="min-w-0 flex-1 font-mono text-subtle-foreground" translate="no">
               {conversions.dropped_nodes.join(" · ")}
             </dd>
           </div>
         )}
         <div className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5 text-[11.5px]">
-          <dt className="w-16 shrink-0 text-text-3">{t("ce_cf_test_conv_fingerprint")}</dt>
-          <dd className="min-w-0 flex-1 truncate font-mono text-text-4" translate="no">
+          <dt className="w-16 shrink-0 text-muted-foreground">{t("ce_cf_test_conv_fingerprint")}</dt>
+          <dd className="min-w-0 flex-1 truncate font-mono text-muted-foreground" translate="no">
             {conversions.workflow_sha256}
           </dd>
         </div>
@@ -504,11 +504,11 @@ function TrialRunReport({
           return (
             <li key={stage} className="inline-flex items-baseline gap-1.5">
               <span aria-hidden className={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${STAGE_DOT_CLS[state]}`} />
-              <span className={state === "done" ? "text-text-2" : "text-text-4"}>
+              <span className={state === "done" ? "text-subtle-foreground" : "text-muted-foreground"}>
                 {t(`ce_cf_test_stage_${stage}`)}
               </span>
               {route && (
-                <span className="font-mono text-[10.5px] text-text-4" translate="no">
+                <span className="font-mono text-[10.5px] text-muted-foreground" translate="no">
                   {route}
                 </span>
               )}
@@ -517,10 +517,10 @@ function TrialRunReport({
           );
         })}
       </ol>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-text-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
         <span>{t(`ce_trial_status_${run.status}`)}</span>
         {run.provider_job_id !== null && (
-          <span className="font-mono text-text-4" translate="no">
+          <span className="font-mono text-muted-foreground" translate="no">
             prompt_id {run.provider_job_id}
           </span>
         )}
@@ -530,19 +530,19 @@ function TrialRunReport({
         {run.api_call_id !== null && (
           <a
             href={`/app/settings?section=usage&record=${run.api_call_id}`}
-            className="text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-text"
+            className="text-primary underline decoration-primary/40 underline-offset-2 hover:text-foreground"
           >
             {t("ce_trial_record", { id: run.api_call_id })}
           </a>
         )}
       </div>
-      {stalled && <p className="text-[11.5px] text-warm-bright/90">{t("ce_cf_test_poll_stopped")}</p>}
+      {stalled && <p className="text-[11.5px] text-warn/90">{t("ce_cf_test_poll_stopped")}</p>}
       {artifactUrl &&
         (run.media_type === "image" ? (
           <img
             src={artifactUrl}
             alt={t("ce_trial_artifact")}
-            className="w-full rounded-[8px] border border-good/35 bg-black object-contain"
+            className="w-full rounded-md border border-good/35 bg-black object-contain"
           />
         ) : (
           // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
@@ -551,19 +551,19 @@ function TrialRunReport({
             preload="metadata"
             src={artifactUrl}
             aria-label={t("ce_trial_artifact")}
-            className="w-full rounded-[8px] border border-good/35 bg-black"
+            className="w-full rounded-md border border-good/35 bg-black"
           />
         ))}
       {run.error !== null && (
-        <div role="alert" className="rounded-[8px] border border-danger/40 bg-danger/10 p-3 text-[12px]">
+        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-[12px]">
           {run.error_code !== null && (
-            <div className="mb-1 font-mono text-[11px] text-danger-2" translate="no">
+            <div className="mb-1 font-mono text-[11px] text-destructive" translate="no">
               {run.error_code}
             </div>
           )}
-          <p className="leading-[1.55] text-text-2">{run.error}</p>
+          <p className="leading-[1.55] text-subtle-foreground">{run.error}</p>
           {actionText !== undefined && (
-            <p className="mt-1.5 text-[11.5px] leading-[1.5] text-text-4">{t(actionText)}</p>
+            <p className="mt-1.5 text-[11.5px] leading-[1.5] text-muted-foreground">{t(actionText)}</p>
           )}
         </div>
       )}

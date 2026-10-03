@@ -16,8 +16,8 @@ import { episodeAgentRef } from "@/utils/episode-display";
 
 const FIELD_STYLE: CSSProperties = {
   background: "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -127,11 +127,11 @@ export function ScriptPlanDialog({ request, savedInstructions, onClose }: Dialog
         <h2
           id={titleId}
           className="display-serif text-[17px] font-semibold tracking-tight"
-          style={{ color: "var(--color-text)" }}
+          style={{ color: "var(--foreground)" }}
         >
           {regenerate ? t("script_plan_regenerate_title") : t("script_plan_title")}
         </h2>
-        <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--color-text-3)" }}>
+        <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
           {t("script_plan_desc")}
           {(replaces === "confirmed_plan" || replaces === "formal_script") && ` ${t("script_plan_replace_confirmed_hint")}`}
         </p>
@@ -146,7 +146,7 @@ export function ScriptPlanDialog({ request, savedInstructions, onClose }: Dialog
           </div>
         )}
 
-        <label htmlFor={fieldId} className="mt-4 block text-[12px] font-medium" style={{ color: "var(--color-text-2)" }}>
+        <label htmlFor={fieldId} className="mt-4 block text-[12px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
           {t("script_plan_instructions_label")}
         </label>
         <textarea

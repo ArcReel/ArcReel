@@ -206,13 +206,13 @@ export function UsageRecordsSection() {
   return (
     <section className="space-y-4">
       <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
           Usage Records
         </div>
-        <h3 className="mt-1 text-[14.5px] font-medium text-text">
+        <h3 className="mt-1 text-[14.5px] font-medium text-foreground">
           {t("usage_records_title")}
         </h3>
-        <p className="mt-1 text-[12px] leading-[1.55] text-text-3">
+        <p className="mt-1 text-[12px] leading-[1.55] text-muted-foreground">
           {t("usage_records_desc")}
         </p>
       </header>
@@ -231,7 +231,7 @@ export function UsageRecordsSection() {
       />
 
       {(summaryFailed || recordsFailed) && (
-        <p role="status" className="text-[12px] text-danger-2">
+        <p role="status" className="text-[12px] text-destructive">
           {t("usage_load_failed")}
         </p>
       )}

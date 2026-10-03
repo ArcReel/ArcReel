@@ -17,11 +17,11 @@ const PICKER_BG =
 export function AssetThumb({ imageUrl, alt, fallback, variant }: Props) {
   const isDisplay = variant === "display";
   const containerClass = isDisplay
-    ? "aspect-video flex items-center justify-center text-text-4"
-    : "aspect-video flex items-center justify-center rounded text-text-4 text-xs";
+    ? "aspect-video flex items-center justify-center text-muted-foreground"
+    : "aspect-video flex items-center justify-center rounded-sm text-muted-foreground text-xs";
   const imgClass = isDisplay
     ? "h-full w-full object-contain"
-    : "h-full w-full object-contain rounded";
+    : "h-full w-full object-contain rounded-sm";
   return (
     <div className={containerClass} style={{ background: isDisplay ? DISPLAY_BG : PICKER_BG }}>
       {imageUrl ? (

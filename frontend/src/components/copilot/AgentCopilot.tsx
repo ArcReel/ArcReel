@@ -55,15 +55,15 @@ function SessionSelector({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] transition-colors focus-ring"
-        style={{ color: "var(--color-text-3)" }}
+        className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11.5px] transition-colors focus-ring"
+        style={{ color: "var(--muted-foreground)" }}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
-          e.currentTarget.style.color = "var(--color-text)";
+          e.currentTarget.style.color = "var(--foreground)";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = "var(--color-text-3)";
+          e.currentTarget.style.color = "var(--muted-foreground)";
         }}
         title={t("switch_session")}
       >
@@ -93,10 +93,10 @@ function SessionSelector({
                   style={
                     isActive
                       ? {
-                          background: "var(--color-accent-dim)",
-                          color: "var(--color-accent-2)",
+                          background: "color-mix(in oklab, var(--primary) 12%, transparent)",
+                          color: "var(--primary)",
                         }
-                      : { color: "var(--color-text-2)" }
+                      : { color: "var(--subtle-foreground)" }
                   }
                   onMouseEnter={(e) => {
                     if (!isActive)
@@ -119,13 +119,13 @@ function SessionSelector({
                     type="button"
                     role="menuitem"
                     onClick={(e) => { e.stopPropagation(); if (confirm(t("confirm_delete_session"))) onDelete(session.id); }}
-                    className="focus-ring shrink-0 rounded p-0.5 opacity-0 transition-all group-hover:opacity-100 focus-visible:opacity-100"
-                    style={{ color: "var(--color-text-4)" }}
+                    className="focus-ring shrink-0 rounded-sm p-0.5 opacity-0 transition-all group-hover:opacity-100 focus-visible:opacity-100"
+                    style={{ color: "var(--muted-foreground)" }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.color = "var(--color-danger)";
+                      e.currentTarget.style.color = "var(--destructive)";
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.color = "var(--color-text-4)";
+                      e.currentTarget.style.color = "var(--muted-foreground)";
                     }}
                     title={t("delete_session")}
                     aria-label={t("delete_session")}
@@ -144,16 +144,16 @@ function SessionSelector({
 
 function StatusDot({ status }: { status: string }) {
   const colorMap: Record<string, string> = {
-    idle: "var(--color-text-4)",
-    running: "var(--color-warn)",
-    completed: "var(--color-good)",
-    error: "var(--color-danger)",
-    interrupted: "var(--color-text-3)",
+    idle: "var(--muted-foreground)",
+    running: "var(--warn)",
+    completed: "var(--good)",
+    error: "var(--destructive)",
+    interrupted: "var(--muted-foreground)",
   };
   return (
     <span
       className="h-1.5 w-1.5 shrink-0 rounded-full"
-      style={{ background: colorMap[status] ?? "var(--color-text-4)" }}
+      style={{ background: colorMap[status] ?? "var(--muted-foreground)" }}
     />
   );
 }
@@ -387,21 +387,21 @@ export function AgentCopilot() {
       {/* Header */}
       <div
         className="flex h-12 items-center gap-2 px-3"
-        style={{ borderBottom: "1px solid var(--color-hairline)" }}
+        style={{ borderBottom: "1px solid var(--border)" }}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <button
             type="button"
             onClick={toggleAssistantPanel}
-            className="shrink-0 rounded p-1 transition-colors focus-ring"
-            style={{ color: "var(--color-text-3)" }}
+            className="shrink-0 rounded-sm p-1 transition-colors focus-ring"
+            style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.color = "var(--foreground)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.color = "var(--muted-foreground)";
             }}
             title={t("collapse_panel")}
             aria-label={t("collapse_panel")}
@@ -412,7 +412,7 @@ export function AgentCopilot() {
             className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+                "linear-gradient(135deg, var(--primary), oklch(0.60 0.10 280))",
               color: "oklch(0.12 0 0)",
             }}
           >
@@ -421,12 +421,12 @@ export function AgentCopilot() {
           {isRunning || sending ? (
             <span
               className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px]"
-              style={{ color: "var(--color-accent-2)" }}
+              style={{ color: "var(--primary)" }}
               title={t("arcreel_agent")}
             >
               <span
                 className="h-1.5 w-1.5 animate-pulse rounded-full"
-                style={{ background: "var(--color-accent)" }}
+                style={{ background: "var(--primary)" }}
               />
               {t("thinking")}
             </span>
@@ -441,15 +441,15 @@ export function AgentCopilot() {
           <button
             type="button"
             onClick={createNewSession}
-            className="rounded p-1 transition-colors focus-ring"
-            style={{ color: "var(--color-text-3)" }}
+            className="rounded-sm p-1 transition-colors focus-ring"
+            style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
-              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.color = "var(--foreground)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.color = "var(--muted-foreground)";
             }}
             title={t("new_session")}
             aria-label={t("new_session")}
@@ -470,25 +470,25 @@ export function AgentCopilot() {
               className="mb-3 grid h-12 w-12 place-items-center rounded-2xl"
               style={{
                 background:
-                  "linear-gradient(135deg, var(--color-accent-dim), oklch(0.22 0.011 265 / 0.6))",
-                border: "1px solid var(--color-accent-soft)",
-                boxShadow: "0 0 24px -8px var(--color-accent-glow)",
+                  "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.22 0.011 265 / 0.6))",
+                border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+                boxShadow: "0 0 24px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
               }}
             >
               <Bot
                 className="h-5 w-5"
-                style={{ color: "var(--color-accent-2)" }}
+                style={{ color: "var(--primary)" }}
               />
             </div>
             <p
               className="display-serif text-[14px] font-semibold"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {t("start_chat_hint")}
             </p>
             <p
               className="mt-1 text-[11.5px]"
-              style={{ color: "var(--color-text-3)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {t("quick_skill_hint")}
             </p>
@@ -550,7 +550,7 @@ export function AgentCopilot() {
       {/* Input area */}
       <div
         className="p-3"
-        style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+        style={{ borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
       >
         {/* Thumbnail strip */}
         {attachedImages.length > 0 && (
@@ -567,7 +567,7 @@ export function AgentCopilot() {
                     src={img.dataUrl}
                     alt={t("assistant_input")}
                     className="h-16 w-16 rounded-md object-cover"
-                    style={{ border: "1px solid var(--color-hairline)" }}
+                    style={{ border: "1px solid var(--border)" }}
                   />
                 </button>
                 <button
@@ -576,18 +576,18 @@ export function AgentCopilot() {
                   className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full transition-colors focus-ring"
                   style={{
                     background: "oklch(0.14 0.008 265)",
-                    color: "var(--color-text-2)",
-                    border: "1px solid var(--color-hairline)",
+                    color: "var(--subtle-foreground)",
+                    border: "1px solid var(--border)",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--color-danger)";
+                    e.currentTarget.style.background = "var(--destructive)";
                     e.currentTarget.style.color = "oklch(0.14 0 0)";
-                    e.currentTarget.style.borderColor = "var(--color-danger)";
+                    e.currentTarget.style.borderColor = "var(--destructive)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = "oklch(0.14 0.008 265)";
-                    e.currentTarget.style.color = "var(--color-text-2)";
-                    e.currentTarget.style.borderColor = "var(--color-hairline)";
+                    e.currentTarget.style.color = "var(--subtle-foreground)";
+                    e.currentTarget.style.borderColor = "var(--border)";
                   }}
                   aria-label={t("remove_image")}
                 >
@@ -601,14 +601,14 @@ export function AgentCopilot() {
         <div
           className="relative flex items-end gap-2 rounded-lg px-3 py-2 transition-colors"
           style={{
-            border: `1px solid ${isDragOver ? "var(--color-accent)" : "var(--color-hairline)"}`,
+            border: `1px solid ${isDragOver ? "var(--primary)" : "var(--border)"}`,
             background: isDragOver
-              ? "var(--color-accent-dim)"
+              ? "color-mix(in oklab, var(--primary) 12%, transparent)"
               : "oklch(0.20 0.012 265 / 0.7)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
             boxShadow: isDragOver
-              ? "0 0 0 3px var(--color-accent-soft), inset 0 1px 0 oklch(1 0 0 / 0.04)"
+              ? "0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.04)"
               : "inset 0 1px 0 oklch(1 0 0 / 0.04)",
           }}
           onDragOver={handleDragOver}
@@ -647,7 +647,7 @@ export function AgentCopilot() {
             className="flex-1 resize-none overflow-hidden bg-transparent text-[13px] outline-none"
             style={{
               maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh`,
-              color: "var(--color-text)",
+              color: "var(--foreground)",
             }}
             disabled={inputDisabled}
           />
@@ -657,17 +657,17 @@ export function AgentCopilot() {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={attachDisabled}
-            className="shrink-0 rounded p-1.5 transition-colors focus-ring disabled:opacity-30"
-            style={{ color: "var(--color-text-3)" }}
+            className="shrink-0 rounded-sm p-1.5 transition-colors focus-ring disabled:opacity-30"
+            style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) => {
               if (!attachDisabled) {
                 e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
-                e.currentTarget.style.color = "var(--color-text)";
+                e.currentTarget.style.color = "var(--foreground)";
               }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.color = "var(--muted-foreground)";
             }}
             title={attachedImages.length >= MAX_ATTACHED_IMAGES ? t("max_images_hint", { count: MAX_ATTACHED_IMAGES }) : t("attach_image")}
             aria-label={t("attach_image")}
@@ -678,8 +678,8 @@ export function AgentCopilot() {
           {isRunning ? (
             <button
               onClick={voidPromise(interrupt)}
-              className="shrink-0 rounded p-1.5 transition-colors focus-ring"
-              style={{ color: "var(--color-danger)" }}
+              className="shrink-0 rounded-sm p-1.5 transition-colors focus-ring"
+              style={{ color: "var(--destructive)" }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = "oklch(0.70 0.18 25 / 0.15)";
               }}
@@ -701,9 +701,9 @@ export function AgentCopilot() {
               style={{
                 color: "oklch(0.14 0 0)",
                 background:
-                  "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
+                  "var(--primary)",
                 boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-accent-glow)",
+                  "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px color-mix(in oklab, var(--primary) 35%, transparent)",
               }}
               title={t("send_message")}
               aria-label={t("send_message")}

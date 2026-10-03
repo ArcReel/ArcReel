@@ -22,19 +22,19 @@ export function SourceTextReadonly({ text, className }: SourceTextReadonlyProps)
         <h4
           id={labelId}
           className="m-0 text-[10.5px] font-bold uppercase"
-          style={{ color: "var(--color-text-4)", letterSpacing: "1px", fontFamily: "var(--font-mono)" }}
+          style={{ color: "var(--muted-foreground)", letterSpacing: "1px", fontFamily: "var(--font-mono)" }}
         >
           {t("detail_section_source_text")}
         </h4>
-        <span className="text-[10px]" style={{ color: "var(--color-text-4)" }}>
+        <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
           {t("detail_source_text_readonly_hint")}
         </span>
       </div>
       <p
         className="m-0 whitespace-pre-wrap border-l-2 pl-3 text-[12px]"
         style={{
-          borderColor: "var(--color-hairline)",
-          color: hasContent ? "var(--color-text-3)" : "var(--color-text-4)",
+          borderColor: "var(--border)",
+          color: hasContent ? "var(--muted-foreground)" : "var(--muted-foreground)",
           lineHeight: 1.65,
           fontStyle: hasContent ? undefined : "italic",
         }}

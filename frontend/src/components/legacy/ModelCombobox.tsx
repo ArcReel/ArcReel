@@ -102,14 +102,14 @@ export function ModelCombobox({
         {filtered.length > 0 && (
           <ComboboxOptions
             anchor="bottom start"
-            className="z-50 mt-1 w-[var(--input-width)] max-h-60 overflow-auto rounded-[8px] border border-hairline py-1 shadow-xl backdrop-blur focus:outline-none"
+            className="z-50 mt-1 w-[var(--input-width)] max-h-60 overflow-auto rounded-md border border-border py-1 shadow-xl backdrop-blur focus:outline-none"
             style={DROPDOWN_PANEL_STYLE}
           >
             {filtered.map((option) => (
               <ComboboxOption
                 key={option}
                 value={option}
-                className="cursor-pointer select-none px-3 py-2 text-[12.5px] text-text-2 data-[focus]:bg-accent-dim data-[focus]:text-text"
+                className="cursor-pointer select-none px-3 py-2 text-[12.5px] text-subtle-foreground data-[focus]:bg-primary/12 data-[focus]:text-foreground"
               >
                 {option}
               </ComboboxOption>

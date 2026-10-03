@@ -170,10 +170,10 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
               if (el) itemRefs.current.set(i, el);
               else itemRefs.current.delete(i);
             }}
-            className={`scroll-mt-28 rounded-[10px] border p-3.5 ${violations.length > 0 ? "border-red-500/45" : "border-hairline"}`}
+            className={`scroll-mt-28 rounded-lg border p-3.5 ${violations.length > 0 ? "border-red-500/45" : "border-border"}`}
             style={CARD_STYLE}
           >
-            <span className="mb-2 inline-block rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">
+            <span className="mb-2 inline-block rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-[11px] text-subtle-foreground">
               {itemIdWithinEpisode(unitIds[i])}
             </span>
             <AutoTextarea
@@ -181,7 +181,7 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
               onChange={(text) => updateText(i, text)}
               disabled={busy}
               aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unitIds[i]) })}
-              className="text-text-3"
+              className="text-muted-foreground"
             />
             <DraftViolationList violations={violations} />
             <DraftSoftViolationList softViolations={softByUnit.get(i) ?? []} />

@@ -41,7 +41,7 @@ export function AssetSheetBatchControls({
         role="group"
         aria-label={t("sheet_filter_label")}
         className="inline-flex overflow-hidden rounded-md"
-        style={{ border: "1px solid var(--color-hairline)" }}
+        style={{ border: "1px solid var(--border)" }}
       >
         {FILTERS.map((value) => (
           <button
@@ -51,8 +51,8 @@ export function AssetSheetBatchControls({
             onClick={() => onFilterChange(value)}
             className="focus-ring px-2 py-1 text-[11px] transition-colors"
             style={{
-              color: filter === value ? "var(--color-text)" : "var(--color-text-3)",
-              background: filter === value ? "var(--color-accent-dim)" : "transparent",
+              color: filter === value ? "var(--foreground)" : "var(--muted-foreground)",
+              background: filter === value ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
             }}
           >
             {t(`sheet_filter_${value}`)}
@@ -65,9 +65,9 @@ export function AssetSheetBatchControls({
           onClick={() => setOpen(true)}
           className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] transition-colors"
           style={{
-            color: "var(--color-text-2)",
-            border: "1px solid var(--color-accent-soft)",
-            background: "var(--color-accent-dim)",
+            color: "var(--subtle-foreground)",
+            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+            background: "color-mix(in oklab, var(--primary) 12%, transparent)",
           }}
         >
           <Sparkles className="h-3.5 w-3.5" />
@@ -75,7 +75,7 @@ export function AssetSheetBatchControls({
         </button>
       )}
       {!readOnly && missingDescription > 0 && (
-        <span className="text-[11px]" style={{ color: "var(--color-text-4)" }}>
+        <span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
           {t("sheet_batch_missing_description", { count: missingDescription })}
         </span>
       )}

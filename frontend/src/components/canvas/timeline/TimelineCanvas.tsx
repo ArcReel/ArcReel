@@ -207,7 +207,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     return (
       <div
         className="flex h-full items-center justify-center"
-        style={{ color: "var(--color-text-4)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         {t("select_episode_hint")}
       </div>
@@ -269,7 +269,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       <div
         className="flex items-center gap-0.5 px-5"
         style={{
-          borderBottom: "1px solid var(--color-hairline)",
+          borderBottom: "1px solid var(--border)",
           background: "oklch(0.19 0.012 250 / 0.5)",
         }}
       >
@@ -281,16 +281,16 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             style={{
               color:
                 activeTab === "preprocessing"
-                  ? "var(--color-text)"
-                  : "var(--color-text-3)",
+                  ? "var(--foreground)"
+                  : "var(--muted-foreground)",
             }}
           >
             {t("tab_script_plan")}
             {activeTab === "preprocessing" && (
               <span
                 aria-hidden="true"
-                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
-                style={{ background: "var(--color-accent)" }}
+                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm"
+                style={{ background: "var(--primary)" }}
               />
             )}
           </button>
@@ -303,18 +303,18 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           style={{
             color:
               activeTab === "timeline"
-                ? "var(--color-text)"
+                ? "var(--foreground)"
                 : !hasScript
-                  ? "var(--color-text-4)"
-                  : "var(--color-text-3)",
+                  ? "var(--muted-foreground)"
+                  : "var(--muted-foreground)",
           }}
         >
           {t("tab_timeline")}
           {activeTab === "timeline" && (
             <span
               aria-hidden="true"
-              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
-              style={{ background: "var(--color-accent)" }}
+              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm"
+              style={{ background: "var(--primary)" }}
             />
           )}
         </button>
@@ -436,7 +436,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           // 或剧本回退后 tab 仍停留在 timeline——给出指引而非空白
           <div
             className="flex h-full items-center justify-center text-[13px]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             {hasScript ? t("timeline_no_editable_segments") : t("timeline_script_not_ready")}
           </div>

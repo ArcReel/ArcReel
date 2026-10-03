@@ -6,33 +6,33 @@
   font-family: var(--font-mono);
   font-size: 0.875rem;
   background: oklch(0.20 0.011 265 / 0.6);
-  border: 1px solid var(--color-hairline-soft);
+  border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
   border-radius: 0.5rem;
   padding: 0.75rem;
-  color: var(--color-text);
+  color: var(--foreground);
 }
 
 /* 强调色 */
 .accent-gradient {
-  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
+  background: var(--primary);
   color: oklch(0.14 0 0);
 }
 
 .accent-gradient-text {
-  color: var(--color-accent-2);
+  color: var(--primary);
 }
 
 /* 片段卡片 */
 .segment-card {
   background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35));
-  border: 1px solid var(--color-hairline-soft);
+  border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
   border-radius: 0.75rem;
 }
 
 /* 面板底色 */
 .studio-panel {
-  background: var(--color-bg-grad-a);
-  border-color: var(--color-hairline);
+  background: var(--card);
+  border-color: var(--border);
 }
 
 /* 顶栏使用记录入口的进行中呼吸态 */
@@ -127,15 +127,15 @@
   font-size: 0.71875rem;
   padding: 4px 10px;
   border-radius: 5px;
-  color: var(--color-text-2);
-  border: 1px solid var(--color-hairline);
+  color: var(--subtle-foreground);
+  border: 1px solid var(--border);
   background: oklch(0.22 0.011 265 / 0.5);
   transition: background .12s, color .12s;
   cursor: pointer;
 }
 .sv-navbtn:not(:disabled):hover {
   background: oklch(0.26 0.013 265 / 0.7);
-  color: var(--color-text);
+  color: var(--foreground);
 }
 .sv-navbtn:disabled {
   opacity: 0.5;
@@ -148,9 +148,9 @@
   padding: 10px 12px;
   font-size: 0.78125rem;
   line-height: 1.65;
-  color: var(--color-text);
+  color: var(--foreground);
   background: linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4));
-  border: 1px solid var(--color-hairline-soft);
+  border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
   border-radius: 8px;
   font-family: var(--font-sans);
   resize: vertical;
@@ -158,15 +158,15 @@
   outline: none;
 }
 .prompt-ta:focus {
-  border-color: var(--color-accent-soft);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
+  border-color: color-mix(in oklab, var(--primary) 22%, transparent);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px color-mix(in oklab, var(--primary) 12%, transparent);
 }
 .prompt-ta:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-/* 主题化 range slider — 用 accent 色填充已选区段 */
+/* 主题化 range slider — 用品牌紫填充已选区段 */
 .theme-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -177,7 +177,7 @@
   cursor: pointer;
 }
 .theme-slider:focus-visible {
-  box-shadow: 0 0 0 3px var(--color-accent-dim);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 12%, transparent);
 }
 .theme-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -185,9 +185,9 @@
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
-  border: 1px solid var(--color-accent-soft);
-  box-shadow: 0 2px 6px -2px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.35);
+  background: var(--primary);
+  border: 1px solid color-mix(in oklab, var(--primary) 22%, transparent);
+  box-shadow: 0 2px 6px -2px color-mix(in oklab, var(--primary) 35%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.35);
   cursor: pointer;
   margin-top: -5px;
 }
@@ -195,9 +195,9 @@
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
-  border: 1px solid var(--color-accent-soft);
-  box-shadow: 0 2px 6px -2px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.35);
+  background: var(--primary);
+  border: 1px solid color-mix(in oklab, var(--primary) 22%, transparent);
+  box-shadow: 0 2px 6px -2px color-mix(in oklab, var(--primary) 35%, transparent), inset 0 1px 0 oklch(1 0 0 / 0.35);
   cursor: pointer;
 }
 .theme-slider::-moz-range-track {
@@ -215,27 +215,27 @@
   padding: 5px 10px;
   font-size: 0.78125rem;
   line-height: 1.4;
-  color: var(--color-text);
+  color: var(--foreground);
   background: linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45));
-  border: 1px solid var(--color-hairline-soft);
+  border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
   border-radius: 6px;
   outline: none;
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.03);
   transition: border-color .12s, box-shadow .12s;
 }
 .dlg-input::placeholder {
-  color: var(--color-text-4);
+  color: var(--muted-foreground);
 }
 .dlg-input:focus {
-  border-color: var(--color-accent-soft);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px var(--color-accent-dim);
+  border-color: color-mix(in oklab, var(--primary) 22%, transparent);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 3px color-mix(in oklab, var(--primary) 12%, transparent);
 }
 .dlg-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 .dlg-input--speaker {
-  color: var(--color-accent-2);
+  color: var(--primary);
   font-weight: 500;
 }
 

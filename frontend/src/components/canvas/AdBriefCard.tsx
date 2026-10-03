@@ -7,14 +7,14 @@ import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 
 const CARD_STYLE: CSSProperties = {
-  border: "1px solid var(--color-hairline-soft)",
+  border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
   background: "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))",
   boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 8px 24px -10px oklch(0 0 0 / 0.5)",
 };
 const FIELD_STYLE: CSSProperties = {
   background: "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -65,11 +65,11 @@ export function AdBriefCard({ projectName, brief, targetDuration, readOnly = fal
   return (
     <section className="relative overflow-hidden rounded-2xl p-5" style={CARD_STYLE} aria-labelledby={briefFieldId + "-title"}>
       <div className="mb-3 flex items-center gap-2.5">
-        <Lightbulb className="h-3.5 w-3.5" style={{ color: "var(--color-accent-2)" }} aria-hidden="true" />
+        <Lightbulb className="h-3.5 w-3.5" style={{ color: "var(--primary)" }} aria-hidden="true" />
         <h2
           id={briefFieldId + "-title"}
           className="text-[10.5px] font-bold uppercase"
-          style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+          style={{ color: "var(--muted-foreground)", letterSpacing: "1.0px" }}
         >
           {t("ad_init_brief_label")}
         </h2>
@@ -78,7 +78,7 @@ export function AdBriefCard({ projectName, brief, targetDuration, readOnly = fal
           <button
             type="button"
             onClick={enterEdit}
-            className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)]"
+            className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-foreground"
           >
             <Pencil className="h-3 w-3" aria-hidden="true" />
             <span>{t("ad_brief_edit")}</span>
@@ -113,7 +113,7 @@ export function AdBriefCard({ projectName, brief, targetDuration, readOnly = fal
               type="button"
               onClick={() => setEditing(false)}
               disabled={saving}
-              className="focus-ring rounded-md px-3 py-1.5 text-[12px] text-[var(--color-text-3)] transition-colors hover:text-[var(--color-text)] disabled:opacity-50"
+              className="focus-ring rounded-md px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
             >
               {t("common:cancel")}
             </button>
@@ -123,16 +123,16 @@ export function AdBriefCard({ projectName, brief, targetDuration, readOnly = fal
         <>
           <p
             className="whitespace-pre-line text-[13px] leading-[1.7]"
-            style={{ color: brief.trim() ? "var(--color-text-2)" : "var(--color-text-4)" }}
+            style={{ color: brief.trim() ? "var(--subtle-foreground)" : "var(--muted-foreground)" }}
           >
             {brief.trim() || t("ad_brief_empty")}
           </p>
-          <p className="num mt-3 text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+          <p className="num mt-3 text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
             {targetDuration !== undefined
               ? t("ad_brief_target_duration", { value: targetDuration })
               : t("ad_brief_target_duration_unset")}
           </p>
-          <p className="mt-1.5 text-[11.5px] leading-[1.55]" style={{ color: "var(--color-text-4)" }}>
+          <p className="mt-1.5 text-[11.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
             {t("ad_brief_card_hint")}
           </p>
         </>

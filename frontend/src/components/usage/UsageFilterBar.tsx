@@ -30,7 +30,7 @@ const MEDIA_TYPES: CallType[] = ["image", "video", "text", "audio"];
 const ALL_PROJECTS = "__all__";
 
 const SELECT_CLS =
-  "focus-ring h-[30px] rounded-[7px] border border-hairline-soft bg-bg-grad-a/45 px-2 text-[11.5px] text-text-2 transition-colors hover:border-hairline";
+  "focus-ring h-[30px] rounded-md border border-border/50 bg-card/45 px-2 text-[11.5px] text-subtle-foreground transition-colors hover:border-border";
 
 export function UsageFilterBar({
   filters,
@@ -100,10 +100,10 @@ export function UsageFilterBar({
               aria-pressed={active}
               onClick={() => onChange({ range: range.value })}
               className={
-                "focus-ring rounded-[7px] border px-2.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors " +
+                "focus-ring rounded-md border px-2.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors " +
                 (active
-                  ? "border-accent/45 bg-accent-dim text-accent-2"
-                  : "border-hairline-soft bg-bg-grad-a/45 text-text-3 hover:border-hairline hover:text-text")
+                  ? "border-primary/45 bg-primary/12 text-primary"
+                  : "border-border/50 bg-card/45 text-muted-foreground hover:border-border hover:text-foreground")
               }
             >
               {t(range.labelKey)}
@@ -177,7 +177,7 @@ export function UsageFilterBar({
       <button
         type="button"
         onClick={onRefresh}
-        className="focus-ring ml-auto inline-flex items-center gap-1.5 rounded-[7px] px-2 py-1.5 text-[11.5px] text-text-3 transition-colors hover:text-text"
+        className="focus-ring ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
       >
         <RefreshCw
           aria-hidden="true"
@@ -191,14 +191,14 @@ export function UsageFilterBar({
           {chips.map((chip) => (
             <span
               key={chip.key}
-              className="inline-flex items-center gap-1 rounded-full border border-hairline-soft px-2 py-0.5 text-[11px] text-text-2"
+              className="inline-flex items-center gap-1 rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-subtle-foreground"
             >
               {chip.label}
               <button
                 type="button"
                 aria-label={t("usage_filter_chip_clear", { label: chip.label })}
                 onClick={() => onChange(chip.clear)}
-                className="focus-ring rounded-full text-text-4 transition-colors hover:text-text"
+                className="focus-ring rounded-full text-muted-foreground transition-colors hover:text-foreground"
               >
                 <X aria-hidden="true" className="h-3 w-3" />
               </button>

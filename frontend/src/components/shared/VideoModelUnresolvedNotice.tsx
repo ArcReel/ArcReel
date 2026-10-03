@@ -12,7 +12,7 @@ export function VideoModelUnresolvedNotice({ projectName }: { projectName: strin
   return (
     <div
       role="alert"
-      className="flex items-center justify-between gap-3 rounded-[10px] border border-amber-500/40 px-3.5 py-2.5"
+      className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 px-3.5 py-2.5"
     >
       <p className="flex items-center gap-1.5 text-[11.5px] text-amber-200">
         <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0 text-amber-400" />

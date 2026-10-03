@@ -16,7 +16,7 @@ export function MarketEntryStats({ aggregate }: { aggregate: MarketEntryAggregat
       : t("market_rating_summary", { average: average.toFixed(1), count });
 
   return (
-    <div className="flex shrink-0 items-center gap-2.5 text-[11px] tabular-nums text-text-3">
+    <div className="flex shrink-0 items-center gap-2.5 text-[11px] tabular-nums text-muted-foreground">
       <span className="inline-flex items-center gap-1" title={installsLabel}>
         <Download className="h-3 w-3" aria-hidden />
         <span className="sr-only">{installsLabel}</span>
@@ -25,7 +25,7 @@ export function MarketEntryStats({ aggregate }: { aggregate: MarketEntryAggregat
       {count > 0 && (
         <span className="inline-flex items-center gap-1" title={ratingLabel}>
           <Star
-            className={`h-3 w-3 ${average === null ? "text-text-4" : "fill-amber-300 text-amber-300"}`}
+            className={`h-3 w-3 ${average === null ? "text-muted-foreground" : "fill-amber-300 text-amber-300"}`}
             aria-hidden
           />
           <span className="sr-only">{ratingLabel}</span>

@@ -69,20 +69,20 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
       onClose={onClose}
       labelledBy="external-agent-modal-title"
       describedBy="external-agent-modal-subtitle"
-      className="z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto overscroll-contain rounded-2xl border border-hairline shadow-2xl shadow-black/60"
+      className="z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto overscroll-contain rounded-2xl border border-border shadow-2xl shadow-black/60"
       style={DROPDOWN_PANEL_STYLE}
     >
       <div
-        className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline px-5 py-4"
+        className="sticky top-0 z-10 flex items-center justify-between border-b border-border px-5 py-4"
         style={DROPDOWN_PANEL_STYLE}
       >
         <div className="flex items-center gap-2.5">
-          <Bot className="h-5 w-5 text-accent-2" aria-hidden />
+          <Bot className="h-5 w-5 text-primary" aria-hidden />
           <div>
-            <h2 id="external-agent-modal-title" className="text-[14px] font-semibold text-text">
+            <h2 id="external-agent-modal-title" className="text-[14px] font-semibold text-foreground">
               {t("dashboard:external_agent_guide")}
             </h2>
-            <p id="external-agent-modal-subtitle" className="text-[12px] text-text-4">
+            <p id="external-agent-modal-subtitle" className="text-[12px] text-muted-foreground">
               {t("dashboard:external_agent_modal_subtitle")}
             </p>
           </div>
@@ -104,22 +104,22 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
         {copyFailed && (
           <p
             role="alert"
-            className="rounded-lg border border-warm-bright/30 bg-warm-bright/[0.04] p-3 text-[11.5px] text-warm-bright"
+            className="rounded-lg border border-warn/30 bg-warn/4 p-3 text-[11.5px] text-warn"
           >
             {t("dashboard:external_agent_copy_failed")}
           </p>
         )}
 
-        <section className="rounded-xl border border-accent/25 bg-accent-dim/50 p-4">
+        <section className="rounded-xl border border-primary/25 bg-primary/6 p-4">
           <div className="flex items-start gap-3">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-accent/25 bg-bg-grad-a/60 text-accent-2">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-primary/25 bg-card/60 text-primary">
               <KeyRound className="h-4 w-4" aria-hidden />
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-[12px] font-semibold text-text-2">
+              <h3 className="text-[12px] font-semibold text-subtle-foreground">
                 {t("dashboard:external_agent_api_key_title")}
               </h3>
-              <p className="mt-1 text-[11.5px] leading-[1.55] text-text-4">
+              <p className="mt-1 text-[11.5px] leading-[1.55] text-muted-foreground">
                 {t("dashboard:external_agent_api_key_desc")}
               </p>
               <a
@@ -139,7 +139,7 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
         <div
           role="tablist"
           aria-label={t("dashboard:external_agent_install_method")}
-          className="grid grid-cols-2 rounded-[10px] border border-hairline bg-bg p-1"
+          className="grid grid-cols-2 rounded-lg border border-border bg-background p-1"
         >
           {(["manual", "agent"] as const).map((tab) => (
             <button
@@ -158,10 +158,10 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
                   selectTab(activeTab === "agent" ? "manual" : "agent");
                 }
               }}
-              className={`rounded-[7px] px-3 py-2 text-[12px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+              className={`rounded-md px-3 py-2 text-[12px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 activeTab === tab
-                  ? "bg-accent-dim text-accent-2 shadow-[inset_0_0_0_1px_oklch(0.76_0.09_295_/_0.28)]"
-                  : "text-text-4 hover:text-text-2"
+                  ? "bg-primary/12 text-primary shadow-[inset_0_0_0_1px_oklch(0.76_0.09_295_/_0.28)]"
+                  : "text-muted-foreground hover:text-subtle-foreground"
               }`}
             >
               {t(`dashboard:external_agent_tab_${tab}`)}
@@ -174,18 +174,18 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
             role="tabpanel"
             id="external-agent-agent-panel"
             aria-labelledby="external-agent-agent-tab"
-            className="rounded-xl border border-hairline-soft bg-bg-grad-a/40 p-4"
+            className="rounded-xl border border-border/50 bg-card/40 p-4"
           >
-            <h3 className="text-[12px] font-semibold text-text-2">
+            <h3 className="text-[12px] font-semibold text-subtle-foreground">
               {t("dashboard:external_agent_prompt_title")}
             </h3>
-            <p className="mt-1 text-[11.5px] leading-[1.55] text-text-4">
+            <p className="mt-1 text-[11.5px] leading-[1.55] text-muted-foreground">
               {t("dashboard:external_agent_prompt_desc")}
             </p>
-            <div className="mt-3 rounded-lg border border-hairline bg-bg p-3">
+            <div className="mt-3 rounded-lg border border-border bg-background p-3">
               <code
                 translate="no"
-                className="block whitespace-pre-wrap break-all text-[11.5px] leading-relaxed text-accent-2"
+                className="block whitespace-pre-wrap break-all text-[11.5px] leading-relaxed text-primary"
               >
                 {agentPrompt}
               </code>
@@ -210,17 +210,17 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
             role="tabpanel"
             id="external-agent-manual-panel"
             aria-labelledby="external-agent-manual-tab"
-            className="space-y-4 rounded-xl border border-hairline-soft bg-bg-grad-a/40 p-4"
+            className="space-y-4 rounded-xl border border-border/50 bg-card/40 p-4"
           >
             <div>
-              <h3 className="text-[12px] font-semibold text-text-2">
+              <h3 className="text-[12px] font-semibold text-subtle-foreground">
                 {t("dashboard:external_agent_install_command")}
               </h3>
-              <p className="mt-1 text-[11.5px] leading-[1.55] text-text-4">
+              <p className="mt-1 text-[11.5px] leading-[1.55] text-muted-foreground">
                 {t("dashboard:external_agent_install_command_desc")}
               </p>
-              <div className="mt-2 flex items-center gap-2 rounded-lg border border-hairline bg-bg p-2.5">
-                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-accent-2">
+              <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-background p-2.5">
+                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-primary">
                   {INSTALL_COMMAND}
                 </code>
                 <button
@@ -240,14 +240,14 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
             </div>
 
             <div>
-              <h3 className="text-[12px] font-semibold text-text-2">
+              <h3 className="text-[12px] font-semibold text-subtle-foreground">
                 {t("dashboard:external_agent_setup_command")}
               </h3>
-              <p className="mt-1 text-[11.5px] leading-[1.55] text-text-4">
+              <p className="mt-1 text-[11.5px] leading-[1.55] text-muted-foreground">
                 {t("dashboard:external_agent_setup_command_desc")}
               </p>
-              <div className="mt-2 flex items-center gap-2 rounded-lg border border-hairline bg-bg p-2.5">
-                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-accent-2">
+              <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-background p-2.5">
+                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-primary">
                   {SETUP_SKILL}
                 </code>
                 <button
@@ -267,14 +267,14 @@ export function ExternalAgentModal({ onClose }: ExternalAgentModalProps) {
             </div>
 
             <div>
-              <h3 className="text-[12px] font-semibold text-text-2">
+              <h3 className="text-[12px] font-semibold text-subtle-foreground">
                 {t("dashboard:external_agent_mcp_endpoint")}
               </h3>
-              <p className="mt-1 text-[11.5px] leading-[1.55] text-text-4">
+              <p className="mt-1 text-[11.5px] leading-[1.55] text-muted-foreground">
                 {t("dashboard:external_agent_mcp_endpoint_desc")}
               </p>
-              <div className="mt-2 flex items-center gap-2 rounded-lg border border-hairline bg-bg p-2.5">
-                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-accent-2">
+              <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-background p-2.5">
+                <code translate="no" className="min-w-0 flex-1 break-all text-[11.5px] text-primary">
                   {MCP_ENDPOINT}
                 </code>
                 <button

@@ -51,7 +51,7 @@ export function ArchiveDiagnosticsDialog({
     >
       <div
         className="flex items-start justify-between gap-4 px-6 py-5"
-        style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+        style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
       >
         <div className="flex items-start gap-3">
           <span
@@ -59,7 +59,7 @@ export function ArchiveDiagnosticsDialog({
             className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
             style={{
               background:
-                "linear-gradient(135deg, var(--color-warm-tint), var(--color-warm-tint-faint))",
+                "linear-gradient(135deg, color-mix(in oklab, var(--warn) 15%, transparent), color-mix(in oklab, var(--warn) 5%, transparent))",
               border: `1px solid ${WARM_TONE.ring}`,
               color: WARM_TONE.color,
               boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
@@ -71,13 +71,13 @@ export function ArchiveDiagnosticsDialog({
             <h2
               id={titleId}
               className="display-serif text-[17px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
+              style={{ color: "var(--foreground)" }}
             >
               {title}
             </h2>
             <p
               className="mt-1 text-[12.5px] leading-[1.55]"
-              style={{ color: "var(--color-text-3)" }}
+              style={{ color: "var(--muted-foreground)" }}
             >
               {description}
             </p>
@@ -120,7 +120,7 @@ export function ArchiveDiagnosticsDialog({
                 </h3>
                 <span
                   className="num text-[10px]"
-                  style={{ color: "var(--color-text-4)" }}
+                  style={{ color: "var(--muted-foreground)" }}
                 >
                   {section.items.length}
                 </span>
@@ -132,15 +132,15 @@ export function ArchiveDiagnosticsDialog({
                     className="rounded-lg px-3 py-2"
                     style={{
                       background: "oklch(0.16 0.010 265 / 0.5)",
-                      border: "1px solid var(--color-hairline-soft)",
-                      color: "var(--color-text-2)",
+                      border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+                      color: "var(--subtle-foreground)",
                     }}
                   >
                     <p>{item.message}</p>
                     {item.location && (
                       <p
                         className="num mt-1 text-[11px]"
-                        style={{ color: "var(--color-text-4)" }}
+                        style={{ color: "var(--muted-foreground)" }}
                       >
                         {item.location}
                       </p>

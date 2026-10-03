@@ -76,7 +76,7 @@ export function NoScriptBlankState({ projectName, episode, className = "" }: { p
   const { t } = useTranslation("dashboard");
   const { refusedReason } = useAdScriptEntry(projectName, episode);
   return (
-    <div className={`flex flex-col items-center justify-center gap-3 ${className}`.trim()} style={{ color: "var(--color-text-4)" }}>
+    <div className={`flex flex-col items-center justify-center gap-3 ${className}`.trim()} style={{ color: "var(--muted-foreground)" }}>
       <p className="m-0">{t("timeline_no_script_blank_hint")}</p>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <AdScriptButton
@@ -94,7 +94,7 @@ export function NoScriptBlankState({ projectName, episode, className = "" }: { p
       </div>
       {refusedReason && (
         <p className="m-0 text-[12px]">
-          {refusedReason} <AdScriptInputsLink className="text-[var(--color-accent-2)]" />
+          {refusedReason} <AdScriptInputsLink className="text-primary" />
         </p>
       )}
       <AdScriptProgress projectName={projectName} episode={episode} noScript className="w-full max-w-md" />

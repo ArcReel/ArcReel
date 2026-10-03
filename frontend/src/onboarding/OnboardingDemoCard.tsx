@@ -24,11 +24,11 @@ export function OnboardingDemoCard() {
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2
           id="onboarding-demo-heading"
-          className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-accent-2"
+          className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-primary"
         >
           {t("demo_section_eyebrow")}
         </h2>
-        <span className="font-mono text-[10.5px] text-text-3">{t("demo_section_note")}</span>
+        <span className="font-mono text-[10.5px] text-muted-foreground">{t("demo_section_note")}</span>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div data-onboarding={ONBOARDING_ANCHORS.lobbyDemoCard}>

@@ -191,10 +191,10 @@ export function MarketSourcesDialog({
         <div className="flex items-start justify-between gap-3 px-5 pt-5">
           <div className="min-w-0">
             <div className={KICKER_ACCENT_CLS}>Sources</div>
-            <h3 id={titleId} className="mt-1 text-[16px] font-medium text-text">
+            <h3 id={titleId} className="mt-1 text-[16px] font-medium text-foreground">
               {t("market_manage_sources")}
             </h3>
-            <p className="mt-0.5 text-[12px] text-text-3">{t("market_sources_desc")}</p>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">{t("market_sources_desc")}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
@@ -236,7 +236,7 @@ export function MarketSourcesDialog({
           ))}
         </ul>
 
-        <div className="space-y-3 border-t border-hairline-soft px-5 py-4">
+        <div className="space-y-3 border-t border-border/50 px-5 py-4">
           <AddSourceForm
             onAdded={(added) => {
               onSourcesChange((current) => [...current, added]);
@@ -321,13 +321,13 @@ function SourceRow({
         onDrop();
       }}
       onDragEnd={onDragEnd}
-      className={`flex items-center gap-2.5 rounded-[8px] border border-hairline-soft bg-bg-grad-a/40 px-2.5 py-2 ${
+      className={`flex items-center gap-2.5 rounded-md border border-border/50 bg-card/40 px-2.5 py-2 ${
         dragging ? "opacity-40" : ""
       }`}
     >
       <button
         type="button"
-        className="shrink-0 cursor-grab rounded-[5px] text-text-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="shrink-0 cursor-grab rounded-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={t("market_source_reorder", { name: source.display_name })}
         onKeyDown={onGripKeyDown}
       >
@@ -337,8 +337,8 @@ function SourceRow({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <input
-            className={`min-w-0 max-w-[260px] truncate rounded-[5px] border border-transparent bg-transparent px-1 py-0.5 text-[13px] hover:border-hairline focus:border-accent/55 focus-visible:outline-none ${
-              source.is_enabled ? "text-text" : "text-text-4"
+            className={`min-w-0 max-w-[260px] truncate rounded-sm border border-transparent bg-transparent px-1 py-0.5 text-[13px] hover:border-border focus:border-primary/55 focus-visible:outline-none ${
+              source.is_enabled ? "text-foreground" : "text-muted-foreground"
             }`}
             value={draft ?? source.display_name}
             maxLength={128}
@@ -348,7 +348,7 @@ function SourceRow({
             onKeyDown={onNameKeyDown}
           />
           {official && (
-            <span className="inline-flex shrink-0 items-center rounded-[5px] border border-accent/35 bg-accent-dim px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-accent-2">
+            <span className="inline-flex shrink-0 items-center rounded-sm border border-primary/35 bg-primary/12 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-primary">
               {t("market_source_official")}
             </span>
           )}
@@ -364,8 +364,8 @@ function SourceRow({
             </a>
           )}
         </div>
-        <div className="truncate px-1 font-mono text-[10.5px] text-text-4">{source.address}</div>
-        <div className="px-1 text-[11px] text-text-4">
+        <div className="truncate px-1 font-mono text-[10.5px] text-muted-foreground">{source.address}</div>
+        <div className="px-1 text-[11px] text-muted-foreground">
           {refreshing ? t("market_refreshing") : t(`market_status_${source.status}`)} ·{" "}
           {t("market_last_fetched", { time: fetchedAt })}
           {failed && source.last_error && (
@@ -444,12 +444,12 @@ function AddSourceForm({ onAdded }: { onAdded: (source: MarketSourceInfo) => voi
         </button>
       </div>
       {error && (
-        <p role="alert" className="break-words text-[11.5px] text-danger">
+        <p role="alert" className="break-words text-[11.5px] text-destructive">
           {error}
         </p>
       )}
-      <p className="text-[11px] leading-[1.5] text-text-4">
-        <strong className="text-text-3">{t("market_third_party_title")}</strong> —{" "}
+      <p className="text-[11px] leading-[1.5] text-muted-foreground">
+        <strong className="text-muted-foreground">{t("market_third_party_title")}</strong> —{" "}
         {t("market_third_party_body")}
       </p>
     </form>

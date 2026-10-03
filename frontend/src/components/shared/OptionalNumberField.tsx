@@ -72,16 +72,16 @@ export function OptionalNumberField({
             // 区间校验交给下面的行内提示与后端，输入过程中不吞用户的按键
             if (Number.isFinite(next)) onChange(next);
           }}
-          className="w-28 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="w-28 rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
-        <span className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-text-3">{unit}</span>
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">{unit}</span>
       </div>
       {invalid ? (
-        <p id={errorId} role="alert" className="mt-1 text-[11px] text-warm-bright">
+        <p id={errorId} role="alert" className="mt-1 text-[11px] text-warn">
           {errorMessage}
         </p>
       ) : (
-        <p className="mt-1 text-[11px] text-text-4">{hint}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
       )}
     </div>
   );

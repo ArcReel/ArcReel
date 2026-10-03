@@ -137,7 +137,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
     <section
       aria-labelledby="replan-candidate-title"
       className="space-y-2.5 rounded-md py-2 pl-3 pr-2"
-      style={{ borderLeft: "3px solid var(--color-accent-2)", background: "var(--color-accent-dim)" }}
+      style={{ borderLeft: "3px solid var(--primary)", background: "color-mix(in oklab, var(--primary) 12%, transparent)" }}
     >
       {children}
     </section>
@@ -146,11 +146,11 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
   if (generating) {
     return shell(
       <>
-        <h3 id="replan-candidate-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
-          <Loader2 aria-hidden className="h-3.5 w-3.5 text-accent-2 motion-safe:animate-spin" />
+        <h3 id="replan-candidate-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+          <Loader2 aria-hidden className="h-3.5 w-3.5 text-primary motion-safe:animate-spin" />
           {t("dashboard:replan_generating", { count: replan.new_count })}
         </h3>
-        <p className="m-0 text-[11.5px] leading-[1.6] text-text-3">{t("dashboard:replan_generating_hint")}</p>
+        <p className="m-0 text-[11.5px] leading-[1.6] text-muted-foreground">{t("dashboard:replan_generating_hint")}</p>
         <CompareLegend pending />
         {!stopRequested ? (
           <button type="button" className={GHOST_BTN_CLS} onClick={() => void stop()}>
@@ -175,16 +175,16 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
 
   return shell(
     <>
-      <h3 id="replan-candidate-title" className="text-[12.5px] font-medium text-text">
+      <h3 id="replan-candidate-title" className="text-[12.5px] font-medium text-foreground">
         {t("dashboard:replan_title")}
       </h3>
-      <p className="m-0 text-[11.5px] leading-[1.6] text-text-3">
+      <p className="m-0 text-[11.5px] leading-[1.6] text-muted-foreground">
         {t("dashboard:replan_detail", { name: name(replan.episode) })}
       </p>
       {replan.stale === null ? <CompareLegend pending={stopped} /> : null}
       {notice ? (
-        <p role="status" className="m-0 flex gap-1.5 rounded-md p-2 text-[11.5px] leading-[1.6] text-text-2" style={{ background: "var(--color-warm-soft)" }}>
-          <AlertTriangle aria-hidden className="mt-[3px] h-3.5 w-3.5 shrink-0" style={{ color: "var(--color-warm)" }} />
+        <p role="status" className="m-0 flex gap-1.5 rounded-md p-2 text-[11.5px] leading-[1.6] text-subtle-foreground" style={{ background: "color-mix(in oklab, var(--warn) 10%, transparent)" }}>
+          <AlertTriangle aria-hidden className="mt-[3px] h-3.5 w-3.5 shrink-0" style={{ color: "var(--warn)" }} />
           <span>
             {notice}
             {stopped && adoptable ? <span className="mt-1 block">{t("dashboard:replan_stopped_adopt_hint")}</span> : null}
@@ -227,7 +227,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
       </dl>
       {replan.episodes.length > 0 ? (
         <div className="space-y-1.5">
-          <h4 className="m-0 text-[11.5px] font-medium text-text-2">{t("dashboard:replan_changes")}</h4>
+          <h4 className="m-0 text-[11.5px] font-medium text-subtle-foreground">{t("dashboard:replan_changes")}</h4>
           <ol className="m-0 list-none space-y-1.5 p-0">
             {replan.episodes.map((draft, index) => (
               <li
@@ -236,18 +236,18 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
                 style={{ background: "oklch(0.2 0.011 265 / 0.55)" }}
               >
                 <span className="flex flex-wrap items-baseline gap-x-1.5">
-                  <span className="num text-text-3">{t("dashboard:replan_episode_index", { index: index + 1 })}</span>
-                  <span className="min-w-0 text-text">{draft.title.trim() || t("dashboard:episodes_view_untitled")}</span>
-                  <span className="num text-[10.5px] text-text-4">{formatVolume(t, draft.units, view.unit)}</span>
+                  <span className="num text-muted-foreground">{t("dashboard:replan_episode_index", { index: index + 1 })}</span>
+                  <span className="min-w-0 text-foreground">{draft.title.trim() || t("dashboard:episodes_view_untitled")}</span>
+                  <span className="num text-[10.5px] text-muted-foreground">{formatVolume(t, draft.units, view.unit)}</span>
                 </span>
-                <span className="mt-0.5 block text-text-3">{relation(t, draft.same_as, draft.overlaps, name, names)}</span>
+                <span className="mt-0.5 block text-muted-foreground">{relation(t, draft.same_as, draft.overlaps, name, names)}</span>
                 {draft.first_sentence ? (
-                  <span className="block truncate text-text-4" title={draft.first_sentence}>
+                  <span className="block truncate text-muted-foreground" title={draft.first_sentence}>
                     {t("dashboard:episodes_view_first_sentence", { sentence: draft.first_sentence })}
                   </span>
                 ) : null}
                 {draft.last_sentence ? (
-                  <span className="block truncate text-text-4" title={draft.last_sentence}>
+                  <span className="block truncate text-muted-foreground" title={draft.last_sentence}>
                     {t("dashboard:episodes_view_last_sentence", { sentence: draft.last_sentence })}
                   </span>
                 ) : null}
@@ -288,11 +288,11 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
           description={
             <>
               {adoption.changed ? (
-                <span className="mb-2 block text-[var(--color-warm)]">{t("dashboard:replan_adopt_changed")}</span>
+                <span className="mb-2 block text-warn">{t("dashboard:replan_adopt_changed")}</span>
               ) : null}
               <span className="block whitespace-pre-line">{adoption.impact.text}</span>
               {adoption.impact.retired.length > 0 ? (
-                <label className="mt-3 flex items-center gap-2 text-text-2">
+                <label className="mt-3 flex items-center gap-2 text-subtle-foreground">
                   <input
                     type="checkbox"
                     checked={adoption.deleteRetired}
@@ -303,7 +303,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
                 </label>
               ) : null}
               {adoption.deleteRetired ? (
-                <span className="mt-2 block whitespace-pre-line text-[var(--color-warm)]">{adoption.impact.delete_text}</span>
+                <span className="mt-2 block whitespace-pre-line text-warn">{adoption.impact.delete_text}</span>
               ) : null}
             </>
           }
@@ -325,7 +325,7 @@ function CompareLegend({ pending }: { pending: boolean }) {
     <span aria-hidden className="inline-block h-3 w-[3px] shrink-0 rounded-full" style={{ background }} />
   );
   return (
-    <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-1 p-0 text-[11px] text-text-3" aria-label={t("replan_legend")}>
+    <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-1 p-0 text-[11px] text-muted-foreground" aria-label={t("replan_legend")}>
       <li className="flex items-center gap-1.5">
         {bar(`linear-gradient(${episodeColor(1)} 50%, ${episodeColor(2)} 50%)`)}
         {t("replan_legend_old")}
@@ -335,12 +335,12 @@ function CompareLegend({ pending }: { pending: boolean }) {
         {t("replan_legend_new")}
       </li>
       <li className="flex items-center gap-1.5">
-        <span aria-hidden className="inline-block w-3 border-t border-dashed" style={{ borderColor: "var(--color-warm)" }} />
+        <span aria-hidden className="inline-block w-3 border-t border-dashed" style={{ borderColor: "var(--warn)" }} />
         {t("replan_legend_diff")}
       </li>
       {pending ? (
         <li className="flex items-center gap-1.5">
-          <span aria-hidden className="inline-block h-3 border-l-[3px] border-dashed border-hairline-strong" />
+          <span aria-hidden className="inline-block h-3 border-l-[3px] border-dashed border-input" />
           {t("replan_waiting")}
         </li>
       ) : null}
@@ -351,8 +351,8 @@ function CompareLegend({ pending }: { pending: boolean }) {
 function SummaryRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <dt className="text-text-4">{label}</dt>
-      <dd className="num m-0 text-text-2">{children}</dd>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="num m-0 text-subtle-foreground">{children}</dd>
     </>
   );
 }

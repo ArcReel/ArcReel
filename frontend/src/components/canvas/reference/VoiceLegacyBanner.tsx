@@ -109,15 +109,15 @@ export function VoiceLegacyBanner({
   return (
     <div
       className="flex shrink-0 items-start gap-2.5 border-b px-5 py-2.5"
-      style={{ borderColor: "var(--color-warm-ring)", background: "var(--color-warm-soft)" }}
+      style={{ borderColor: "color-mix(in oklab, var(--warn) 30%, transparent)", background: "color-mix(in oklab, var(--warn) 10%, transparent)" }}
     >
-      <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--color-warm)" }} aria-hidden="true" />
-      <p className="m-0 flex-1 text-[12px] leading-[1.55] text-[var(--color-text-2)]">{message}</p>
+      <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--warn)" }} aria-hidden="true" />
+      <p className="m-0 flex-1 text-[12px] leading-[1.55] text-subtle-foreground">{message}</p>
       <button
         type="button"
         onClick={onDismiss}
         aria-label={dismissLabel}
-        className="focus-ring grid h-5 w-5 shrink-0 place-items-center rounded text-[var(--color-text-3)] hover:bg-[oklch(1_0_0_/_0.06)]"
+        className="focus-ring grid h-5 w-5 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-[oklch(1_0_0_/_0.06)]"
       >
         <X className="h-3.5 w-3.5" aria-hidden="true" />
       </button>

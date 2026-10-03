@@ -30,13 +30,13 @@ const KIND_META: Record<ThumbnailAssetKind, KindMeta> = {
     badgeKey: "segment_refs_badge_character",
   },
   scene: {
-    shape: "rounded",
+    shape: "rounded-sm",
     Icon: MapPin,
     badgeClass: "bg-amber-800/60 text-amber-300",
     badgeKey: "segment_refs_badge_scene",
   },
   prop: {
-    shape: "rounded",
+    shape: "rounded-sm",
     Icon: Puzzle,
     badgeClass: "bg-emerald-800/60 text-emerald-300",
     badgeKey: "segment_refs_badge_prop",
@@ -99,10 +99,10 @@ function RefPopover({
           <img
             src={API.getFileUrl(projectName, sheetPath, sheetFp)}
             alt={displayName}
-            className="h-[120px] w-[90px] shrink-0 rounded object-cover"
+            className="h-[120px] w-[90px] shrink-0 rounded-sm object-cover"
           />
         ) : (
-          <div className="flex h-[120px] w-[90px] shrink-0 items-center justify-center rounded bg-gray-800">
+          <div className="flex h-[120px] w-[90px] shrink-0 items-center justify-center rounded-sm bg-gray-800">
             <Icon className="h-8 w-8 text-gray-600" aria-hidden />
           </div>
         )}
@@ -110,7 +110,7 @@ function RefPopover({
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-medium text-white">{displayName}</p>
             <span
-              className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}
+              className={`shrink-0 rounded-sm px-1 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}
             >
               {t(badgeKeyFor(kind, name))}
             </span>
