@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.33.0](https://github.com/ArcReel/ArcReel/compare/v0.32.0...v0.33.0) (2026-10-03)
+
+
+### ✨ 新功能
+
+* **agnes:** add Agnes 3.0/2.5 text, image and video models as the new defaults ([#2901](https://github.com/ArcReel/ArcReel/issues/2901)) ([b3a1270](https://github.com/ArcReel/ArcReel/commit/b3a1270c7a71c61ca8fbe12ff9a93c88312d0711))
+* **comfyui:** let inference rules register autogrow inputs by name prefix ([12e085c](https://github.com/ArcReel/ArcReel/commit/12e085c0c395e69f1faf4d74224cd59bb9dea519)), closes [#2665](https://github.com/ArcReel/ArcReel/issues/2665)
+* **frontend:** add a shared page shell and regroup global settings navigation ([7c53e29](https://github.com/ArcReel/ArcReel/commit/7c53e29272a8219d7030b7b4a9ce532a8c74846c)), closes [#2998](https://github.com/ArcReel/ArcReel/issues/2998)
+* **frontend:** adopt shadcn semantic tokens with a single brand purple, red destructive and Nova radius scale ([9525d92](https://github.com/ArcReel/ArcReel/commit/9525d920d9c5d7e10bde45d6a089f30bd93baa86)), closes [#2994](https://github.com/ArcReel/ArcReel/issues/2994)
+* **frontend:** ask before leaving unsaved changes and pin a save bar to settings forms ([c3d83a8](https://github.com/ArcReel/ArcReel/commit/c3d83a8f06334087d6dc3980bace3c321f53d41e)), closes [#2997](https://github.com/ArcReel/ArcReel/issues/2997)
+* **frontend:** browse providers in a preset/custom rail and manage keys in dialogs ([88b735c](https://github.com/ArcReel/ArcReel/commit/88b735ce2640119286b14e574a3aa9332031f775)), closes [#3002](https://github.com/ArcReel/ArcReel/issues/3002)
+* **frontend:** edit custom provider models in an expandable table ([d940b1c](https://github.com/ArcReel/ArcReel/commit/d940b1c1693d091f716013a9ca892056ea5f4de6)), closes [#3004](https://github.com/ArcReel/ArcReel/issues/3004)
+* **frontend:** grow multi-line inputs with their content and scroll past a height cap ([08d7d7e](https://github.com/ArcReel/ArcReel/commit/08d7d7e900037ef12b0953834a279b6d3a97a08b)), closes [#2996](https://github.com/ArcReel/ArcReel/issues/2996)
+* **frontend:** initialize shadcn/ui on Base UI, self-host fonts and move business components out of components/ui ([f795c54](https://github.com/ArcReel/ArcReel/commit/f795c5434db46764bda15e6591be6c4045470a4f)), closes [#2993](https://github.com/ArcReel/ArcReel/issues/2993)
+* **frontend:** keep dialog titles and actions in view, add undo to toasts and show scrollbars at rest ([d6c3080](https://github.com/ArcReel/ArcReel/commit/d6c308019523a4a7122909ec5fcaf2bf85cf1e9c)), closes [#2995](https://github.com/ArcReel/ArcReel/issues/2995)
+* **frontend:** rebuild the ArcReel Agent settings section around Agent providers ([07c4f0a](https://github.com/ArcReel/ArcReel/commit/07c4f0af5ec11a3f9bc1e7f0309e50bc4e0dce2f)), closes [#3000](https://github.com/ArcReel/ArcReel/issues/3000)
+* **frontend:** rebuild the endpoints section with a bottom save bar and the models using each endpoint ([676af0b](https://github.com/ArcReel/ArcReel/commit/676af0bc8d3253b0f622ddb7b181912424c88b84)), closes [#3003](https://github.com/ArcReel/ArcReel/issues/3003)
+* **frontend:** turn external Agent access into a settings page and rename API keys to access tokens ([a704fba](https://github.com/ArcReel/ArcReel/commit/a704fbad7b43d34831932eac60147f20d2d6c58a)), closes [#3001](https://github.com/ArcReel/ArcReel/issues/3001)
+* **grok:** add Grok Imagine Video 1.5 and 1.5 Lite with 1080p output ([ba57c9a](https://github.com/ArcReel/ArcReel/commit/ba57c9a2e6d97b576bfbdbd0588c87b4e7c42b1d)), closes [#2986](https://github.com/ArcReel/ArcReel/issues/2986)
+* **grok:** let Grok video turn its audio track off and bill 720p at the official rate ([6f8231c](https://github.com/ArcReel/ArcReel/commit/6f8231c7ae56361aeef6f3ecd976dc4b25ac07bb)), closes [#2950](https://github.com/ArcReel/ArcReel/issues/2950)
+* **market:** rebuild the market section with browse, my shares and settings tabs and keyboard-sortable sources ([302d63f](https://github.com/ArcReel/ArcReel/commit/302d63f9c8c147a82a3f27be9b1f74d136758c3c)), closes [#3005](https://github.com/ArcReel/ArcReel/issues/3005)
+* **settings:** rebuild default models, prompt templates and about, and show config issues in place ([0538b8c](https://github.com/ArcReel/ArcReel/commit/0538b8c80be8978d6815b68459a473316c51baac)), closes [#2999](https://github.com/ArcReel/ArcReel/issues/2999)
+* **usage:** show project titles in usage records and rebuild the usage section on the new design system ([1f6b701](https://github.com/ArcReel/ArcReel/commit/1f6b701e49de08191a25748481e760cfcab5a076)), closes [#3006](https://github.com/ArcReel/ArcReel/issues/3006)
+
+
+### 🐛 Bug 修复
+
+* **dashscope:** send qwen-long structured output requests straight to the compatible fallback ([#2897](https://github.com/ArcReel/ArcReel/issues/2897)) ([e530d88](https://github.com/ArcReel/ArcReel/commit/e530d88094306f26af240c6bff35fd897b10abf5))
+* **endpoint-test:** gate test-connection video requests on the same tier-narrowed capabilities as production ([e6ff287](https://github.com/ArcReel/ArcReel/commit/e6ff287e371a0ad89b3f833af76fa68a83258eda)), closes [#2988](https://github.com/ArcReel/ArcReel/issues/2988)
+* **frontend:** leave unsaved changes without losing history, in-flight saves or invalid edits ([66d4714](https://github.com/ArcReel/ArcReel/commit/66d47148fbcd35feb17233209d4fc79f51711556))
+* **gemini-video:** stream AI Studio video downloads to disk to cut peak memory ([9c15180](https://github.com/ArcReel/ArcReel/commit/9c151804ee649e421663b03251741ca30d08f2d7)), closes [#2951](https://github.com/ArcReel/ArcReel/issues/2951)
+* **gemini-video:** write Vertex video downloads atomically so failures leave no truncated file ([b0efbf1](https://github.com/ArcReel/ArcReel/commit/b0efbf11571e963f047ef54c245a1184b9e1cf8d)), closes [#2985](https://github.com/ArcReel/ArcReel/issues/2985)
+* **gemini:** switch Gemini 3.1 Flash Lite to its formal model ID and migrate saved selections ([#2898](https://github.com/ArcReel/ArcReel/issues/2898)) ([600b605](https://github.com/ArcReel/ArcReel/commit/600b605f74ab5420a3dd622ae7a30704109c243e))
+* **grid:** show interrupted grid generations and let them be regenerated, split or uploaded ([#2896](https://github.com/ArcReel/ArcReel/issues/2896)) ([9e7181b](https://github.com/ArcReel/ArcReel/commit/9e7181b89dcc03a867e845e316452bf4323f3b46))
+* **image-backends:** reject inline base64 that does not decode to PNG, JPEG or WebP ([#2927](https://github.com/ArcReel/ArcReel/issues/2927)) ([774d2d3](https://github.com/ArcReel/ArcReel/commit/774d2d3df317cc120ce7dfe665a121b033994c4a))
+* **settings:** keep edits, async loads and dialogs reliable across the rebuilt settings sections ([6a861b4](https://github.com/ArcReel/ArcReel/commit/6a861b4a25164f6d11242941f80aeb28e7975311))
+* **video:** settle stage integration fixes for Gemini downloads, Grok frame inputs and trial-run gating ([4df0b1e](https://github.com/ArcReel/ArcReel/commit/4df0b1ec0f479db5859c02cb31000cbd2e555ad0)), closes [#2951](https://github.com/ArcReel/ArcReel/issues/2951) [#2986](https://github.com/ArcReel/ArcReel/issues/2986) [#2988](https://github.com/ArcReel/ArcReel/issues/2988)
+
 ## [0.32.0](https://github.com/ArcReel/ArcReel/compare/v0.31.0...v0.32.0) (2026-10-02)
 
 
