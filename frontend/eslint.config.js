@@ -96,6 +96,10 @@ const REWORKED_FILES = [
   "src/components/pages/CredentialList.tsx",
   // 使用记录（设置页分区与顶栏弹层）
   "src/components/usage/**",
+  // 默认模型与模型选择字段族、提示词模版、关于与配置问题就地提示
+  "src/components/shared/{ProviderModelSelect,LayeredModelFields,ModelConfigSection,TextTierFields,NarrationDeliveryFields,ResolutionPicker,VideoModelSpecBar,InlineWarning}.tsx",
+  "src/components/pages/settings/{MediaModelSection,AboutSection,ConfigIssueNotice}.tsx",
+  "src/components/pages/settings/{Prompt*,promptTemplate*}.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

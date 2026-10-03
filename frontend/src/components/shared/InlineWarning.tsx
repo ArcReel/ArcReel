@@ -1,3 +1,7 @@
+import { cn } from "cn";
+
+import { Button } from "@/components/ui/button";
+
 export interface InlineWarningAction {
   label: string;
   onClick: () => void;
@@ -26,23 +30,12 @@ export interface InlineWarningProps {
  */
 export function InlineWarning({ message, action, className }: InlineWarningProps) {
   return (
-    <div
-      role="alert"
-      className={`flex flex-wrap items-center gap-2 text-[12px] leading-[1.5] text-amber-300${
-        className ? ` ${className}` : ""
-      }`}
-    >
+    <div role="alert" className={cn("flex flex-wrap items-center gap-2 text-xs text-warn", className)}>
       <span>{message}</span>
       {action && (
-        <button
-          type="button"
-          onClick={action.onClick}
-          disabled={action.disabled}
-          title={action.title}
-          className="rounded-sm border border-border/50 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-subtle-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <Button variant="outline" size="xs" onClick={action.onClick} disabled={action.disabled} title={action.title}>
           {action.label}
-        </button>
+        </Button>
       )}
     </div>
   );

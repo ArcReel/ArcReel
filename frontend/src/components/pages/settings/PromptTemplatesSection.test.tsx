@@ -119,17 +119,16 @@ describe("PromptTemplatesSection", () => {
   it("keeps the output structure collapsed until expanded", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "getPromptTemplate").mockResolvedValue(DRAFT_DETAIL);
-    const { container } = renderSection();
+    renderSection();
 
     await user.click(await screen.findByRole("button", { name: /实验草稿/ }));
 
-    await screen.findByText("输出结构");
-    const details = container.querySelector("details");
-    expect(details?.open).toBe(false);
-    expect(screen.getByText("shot_type")).not.toBeVisible();
+    const toggle = await screen.findByRole("button", { name: /输出结构/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("shot_type")).not.toBeInTheDocument();
 
-    await user.click(screen.getByText("输出结构"));
-    expect(details?.open).toBe(true);
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("shot_type")).toBeVisible();
     expect(screen.getByText("Long Shot")).toBeVisible();
     expect(screen.getByText("镜头类型")).toBeVisible();

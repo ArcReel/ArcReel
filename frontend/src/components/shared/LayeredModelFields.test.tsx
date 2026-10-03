@@ -20,6 +20,17 @@ function subField(overrides: Partial<LayeredSubField> = {}): LayeredSubField {
   };
 }
 
+/** 「按用途指定模型」折叠区的开关按钮。 */
+function disclosure() {
+  return screen.queryByRole("button", { name: /按用途指定模型/ });
+}
+
+/** 弹层异步打开：点击后等列表出现再查询选项。 */
+async function openSelect(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole("combobox", { name }));
+  await screen.findByRole("listbox");
+}
+
 function renderFields(overrides: Partial<ComponentProps<typeof LayeredModelFields>> = {}) {
   return render(
     <LayeredModelFields
@@ -47,9 +58,9 @@ describe("effectiveModel", () => {
 
 describe("LayeredModelFields", () => {
   it("keeps the default dropdown resident and the sub-fields collapsed", () => {
-    const { container } = renderFields();
+    renderFields();
     expect(screen.getByRole("combobox", { name: "默认视频模型" })).toBeInTheDocument();
-    expect(container.querySelector("details")?.open).toBe(false);
+    expect(disclosure()).toHaveAttribute("aria-expanded", "false");
     // 收起态没有计数徽标，因为无任何细分项被指定
     expect(screen.queryByText(/已指定/)).not.toBeInTheDocument();
   });
@@ -59,28 +70,28 @@ describe("LayeredModelFields", () => {
     const user = userEvent.setup();
     renderFields();
     expect(screen.getByRole("combobox", { name: "默认视频模型" })).toHaveTextContent("自动选择");
-    await user.click(screen.getByText("按用途指定模型"));
+    await user.click(disclosure()!);
     expect(screen.getByRole("combobox", { name: "图生视频" })).toHaveTextContent("跟随默认");
   });
 
   it("does not render the disclosure at all when no sub-fields are supplied", () => {
-    const { container } = renderFields({ subFields: undefined });
-    expect(container.querySelector("details")).toBeNull();
+    renderFields({ subFields: undefined });
+    expect(disclosure()).toBeNull();
     expect(screen.getAllByRole("combobox")).toHaveLength(1);
   });
 
   it("starts expanded and shows a count once a sub-field carries a value", () => {
-    const { container } = renderFields({
+    renderFields({
       subFields: [subField({ value: "gemini/veo-3" }), subField({ key: "r2v", label: "参考生视频" })],
     });
-    expect(container.querySelector("details")?.open).toBe(true);
+    expect(disclosure()).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
   });
 
   it("shows the resolved model behind 跟随默认 for an unset sub-field", async () => {
     const user = userEvent.setup();
     renderFields({ subFields: [subField({ effective: "ark/seedance" })] });
-    await user.click(screen.getByText("按用途指定模型"));
+    await user.click(disclosure()!);
     expect(screen.getByRole("combobox", { name: "图生视频" })).toHaveTextContent(
       /跟随默认 · Ark · seedance/,
     );
@@ -89,12 +100,12 @@ describe("LayeredModelFields", () => {
   it("offers the unfiltered list on the default layer and the per-purpose list on a sub-field", async () => {
     const user = userEvent.setup();
     renderFields();
-    await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
+    await openSelect(user, "默认视频模型");
     expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
-    await user.click(screen.getByText("按用途指定模型"));
-    await user.click(screen.getByRole("combobox", { name: "图生视频" }));
+    await user.click(disclosure()!);
+    await openSelect(user, "图生视频");
     expect(screen.getByRole("option", { name: /veo-3/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /seedance/ })).not.toBeInTheDocument();
   });
@@ -104,8 +115,8 @@ describe("LayeredModelFields", () => {
     const onChange = vi.fn();
     const onDefaultChange = vi.fn();
     renderFields({ onDefaultChange, subFields: [subField({ onChange })] });
-    await user.click(screen.getByText("按用途指定模型"));
-    await user.click(screen.getByRole("combobox", { name: "图生视频" }));
+    await user.click(disclosure()!);
+    await openSelect(user, "图生视频");
     await user.click(screen.getByRole("option", { name: /veo-3/ }));
     expect(onChange).toHaveBeenCalledWith("gemini/veo-3");
     expect(onDefaultChange).not.toHaveBeenCalled();
@@ -120,7 +131,7 @@ describe("LayeredModelFields", () => {
     it("默认层下拉不带细分项 key——它跨全部用途，没有单一生成路径", async () => {
       const user = userEvent.setup();
       renderFields({ renderOptionMeta: keyProbe });
-      await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
+      await openSelect(user, "默认视频模型");
       for (const option of screen.getAllByRole("option", { name: /veo-3|seedance/ })) {
         expect(option).toHaveTextContent(/no-key/);
       }
@@ -132,13 +143,13 @@ describe("LayeredModelFields", () => {
         renderOptionMeta: keyProbe,
         subFields: [subField(), subField({ key: "r2v", label: "参考生视频" })],
       });
-      await user.click(screen.getByText("按用途指定模型"));
+      await user.click(disclosure()!);
 
-      await user.click(screen.getByRole("combobox", { name: "图生视频" }));
+      await openSelect(user, "图生视频");
       expect(screen.getByRole("option", { name: /veo-3/ })).toHaveTextContent(/i2v/);
       await user.keyboard("{Escape}");
 
-      await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
+      await openSelect(user, "参考生视频");
       expect(screen.getByRole("option", { name: /veo-3/ })).toHaveTextContent(/r2v/);
     });
 
@@ -148,18 +159,17 @@ describe("LayeredModelFields", () => {
         renderOptionMeta: keyProbe,
         subFields: [subField({ key: "t2i", label: "文生图" })],
       });
-      await user.click(screen.getByText("按用途指定模型"));
-      await user.click(screen.getByRole("combobox", { name: "文生图" }));
+      await user.click(disclosure()!);
+      await openSelect(user, "文生图");
       expect(screen.getByRole("option", { name: /veo-3/ })).toHaveTextContent(/t2i/);
     });
   });
 
   it("force-opens the disclosure and shows an error notice with retry when subFieldsError is set, even with no sub-fields", () => {
     const onRetry = vi.fn();
-    const { container } = renderFields({ subFields: [], subFieldsError: { onRetry } });
+    renderFields({ subFields: [], subFieldsError: { onRetry } });
     // 无任何细分项本应让整块折叠区消失，但错误态下仍需展示，用户才能感知失败并重试
-    expect(container.querySelector("details")).not.toBeNull();
-    expect(container.querySelector("details")?.open).toBe(true);
+        expect(disclosure()).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("alert")).toHaveTextContent(/模型列表加载失败/);
     expect(screen.queryByText("留空的用途沿用上方默认模型。")).not.toBeInTheDocument();
   });
@@ -184,8 +194,8 @@ describe("LayeredModelFields", () => {
   it("expands the collapsed disclosure when the error appears after mount", () => {
     // 候选请求失败通常晚于挂载，初始 open 已经算过；只在初始渲染就带错误的用例下，
     // useState 初值即为 true，删掉挂载后的强制展开也照样通过。
-    const { container, rerender } = renderFields();
-    expect(container.querySelector("details")?.open).toBe(false);
+    const { rerender } = renderFields();
+    expect(disclosure()).toHaveAttribute("aria-expanded", "false");
 
     rerender(
       <LayeredModelFields
@@ -199,14 +209,14 @@ describe("LayeredModelFields", () => {
         subFieldsError={{ onRetry: () => {} }}
       />,
     );
-    expect(container.querySelector("details")?.open).toBe(true);
+    expect(disclosure()).toHaveAttribute("aria-expanded", "true");
   });
 
   it("lets the user collapse the disclosure again after the forced-open error state", async () => {
     const user = userEvent.setup();
-    const { container } = renderFields({ subFields: [], subFieldsError: { onRetry: () => {} } });
-    expect(container.querySelector("details")?.open).toBe(true);
-    await user.click(screen.getByText("按用途指定模型"));
-    expect(container.querySelector("details")?.open).toBe(false);
+    renderFields({ subFields: [], subFieldsError: { onRetry: () => {} } });
+    expect(disclosure()).toHaveAttribute("aria-expanded", "true");
+    await user.click(disclosure()!);
+    expect(disclosure()).toHaveAttribute("aria-expanded", "false");
   });
 });

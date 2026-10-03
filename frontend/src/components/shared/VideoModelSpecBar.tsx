@@ -1,4 +1,5 @@
 import { Mic, Quote, VolumeX } from "lucide-react";
+import { cn } from "cn";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { formatDurationsLabel } from "@/utils/duration_format";
@@ -23,29 +24,16 @@ const TIER_ICON: Record<VoiceConsistencyTier, typeof Mic> = {
   none: VolumeX,
 };
 
-const TIER_COLOR: Record<VoiceConsistencyTier, { fg: string; bg: string; border: string }> = {
-  native: {
-    fg: "var(--primary)",
-    bg: "color-mix(in oklab, var(--primary) 12%, transparent)",
-    border: "color-mix(in oklab, var(--primary) 22%, transparent)",
-  },
-  soft: {
-    fg: "var(--warn)",
-    bg: "oklch(0.80 0.12 70 / 0.12)",
-    border: "oklch(0.80 0.12 70 / 0.35)",
-  },
-  none: {
-    fg: "var(--muted-foreground)",
-    bg: "oklch(1 0 0 / 0.04)",
-    border: "var(--border)",
-  },
+const TIER_CLASS: Record<VoiceConsistencyTier, string> = {
+  native: "border-primary/25 bg-primary/10 text-primary",
+  soft: "border-warn/35 bg-warn/10 text-warn",
+  none: "border-border bg-foreground/5 text-muted-foreground",
 };
 
 /** 声音一致性档位徽章：图标 + 文案 + 悬停说明。 */
 export function VoiceConsistencyBadge({ tier }: { tier: VoiceConsistencyTier }) {
   const { t } = useTranslation("dashboard");
   const Icon = TIER_ICON[tier];
-  const color = TIER_COLOR[tier];
   const label = t(`voice_consistency_${tier}_label`);
   const desc = t(`voice_consistency_${tier}_desc`);
   return (
@@ -54,10 +42,9 @@ export function VoiceConsistencyBadge({ tier }: { tier: VoiceConsistencyTier }) 
       role="note"
       title={desc}
       aria-label={`${label}: ${desc}`}
-      className="inline-flex cursor-help items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10.5px] font-medium"
-      style={{ color: color.fg, background: color.bg, border: `1px solid ${color.border}` }}
+      className={cn("inline-flex w-fit cursor-help items-center gap-1 rounded-sm border px-1.5 py-0.5 text-xs font-medium", TIER_CLASS[tier])}
     >
-      <Icon className="h-3 w-3" aria-hidden />
+      <Icon className="size-3" aria-hidden />
       {label}
     </span>
   );
@@ -138,57 +125,53 @@ export function VideoModelSpecBar({ durations, resolutions, tier }: VideoModelSp
       label: t("video_spec_duration_label"),
       content:
         durations && durations.length > 0 ? (
-          <span className="font-mono text-[11.5px] tabular-nums text-subtle-foreground">
+          <span className="text-xs tabular-nums text-subtle-foreground">
             {formatDurationsLabel(durations)}
           </span>
         ) : (
-          <span className="text-[11.5px] text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">—</span>
         ),
     },
     {
       label: t("resolution_label"),
       content:
         resolutions.length > 0 ? (
-          <span className="font-mono text-[11.5px] text-subtle-foreground">{resolutions.join(" / ")}</span>
+          <span className="text-xs text-subtle-foreground">{resolutions.join(" / ")}</span>
         ) : (
-          <span className="text-[11.5px] text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">—</span>
         ),
     },
     {
       label: t("video_spec_audio_label"),
       content:
         tier !== null ? (
-          <span className="text-[11.5px] text-subtle-foreground">
+          <span className="text-xs text-subtle-foreground">
             {t(tier === "none" ? "video_spec_audio_none" : "video_spec_audio_has")}
           </span>
         ) : (
-          <span className="text-[11.5px] text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">—</span>
         ),
     },
     {
       label: t("voice_consistency_label"),
-      content: tier !== null ? <VoiceConsistencyBadge tier={tier} /> : <span className="text-[11.5px] text-muted-foreground">—</span>,
+      content: tier !== null ? <VoiceConsistencyBadge tier={tier} /> : <span className="text-xs text-muted-foreground">—</span>,
     },
   ];
 
+  // 两列还是四列取决于规格条自身的宽度：它会出现在全局设置、项目设置与新建项目向导里。
   return (
-    <div
-      className="mt-3 grid grid-cols-2 gap-y-3 rounded-md border border-border/50 px-3 py-2.5 sm:grid-cols-4 sm:gap-y-0"
-      style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
-    >
-      {cells.map((c, i) => (
-        <div
-          key={c.label}
-          className={`flex flex-col gap-1 pl-3 first:pl-0 ${
-            i > 0 ? "sm:border-l sm:border-border/50" : ""
-          }`}
-        >
-          <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-            {c.label}
-          </span>
-          {c.content}
-        </div>
-      ))}
+    <div className="@container">
+      <div className="grid grid-cols-2 gap-y-3 rounded-md border border-border bg-muted/40 px-3 py-2.5 @md:grid-cols-4 @md:gap-y-0">
+        {cells.map((c, i) => (
+          <div
+            key={c.label}
+            className={cn("flex flex-col gap-1 pl-3 first:pl-0", i > 0 && "@md:border-l @md:border-border")}
+          >
+            <span className="text-xs text-muted-foreground">{c.label}</span>
+            {c.content}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

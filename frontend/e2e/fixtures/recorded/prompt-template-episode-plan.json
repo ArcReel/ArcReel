@@ -1,0 +1,249 @@
+{
+  "method": "GET",
+  "path": "/api/v1/prompt-templates/text/episode_plan",
+  "status": 200,
+  "body": {
+    "template": {
+      "id": "text/episode_plan",
+      "category": "text",
+      "title": "分集规划",
+      "description": "把源文切分为若干集，每集给出标题、集尾钩子与结尾锚点，剧情演绎另给故事节点与下集预告语。",
+      "stage": "episode_plan",
+      "invoked_by": {
+        "kind": "agent_tool",
+        "name": "plan_episodes"
+      },
+      "applies_to": {
+        "content_mode": [
+          "drama",
+          "narration"
+        ],
+        "source_kind": [
+          "novel",
+          "screenplay"
+        ]
+      },
+      "slots": {
+        "content_mode": "创作类型轴值（drama / narration），用于解析命名变体片段",
+        "source_kind": "源文类型轴值（novel / screenplay），用于解析命名变体片段",
+        "synopsis": "故事概述；无时传 null",
+        "genre": "题材；无时传 null",
+        "unit_noun": "阅读单位量词（字 / 词），随源文语言",
+        "target_volume": "每集目标体量，键齐全的对象 {units, seconds, units_per_second}；seconds 与 units_per_second 仅按单集目标时长折算时有值，语速已格式化为文本；未设置时传 null",
+        "max_episodes": "本批最多规划的集数，由文本模型的输出上限推导",
+        "context_entries": "已规划末尾若干集，键齐全的对象列表 {episode, title, hook}，标题缺失时 title 为 null；无时传空列表",
+        "instructions": "附加指令正文；无时传 null",
+        "progress": "全局进度，键齐全的对象 {planned_count, remaining_units, window_units}；仅在有附加指令时传入，否则传 null",
+        "window_is_final": "本窗口是否已含全文结尾（规划一段未切分的原文时，是否已含这段原文的结尾）",
+        "followed_by_episode": "本窗口结尾之后紧接着已规划的集（规划一段未切分的原文且本窗口已含其结尾时为 true）",
+        "failure": "上一轮输出未通过校验的原因列表；首轮传 null",
+        "window": "本批源文窗口正文"
+      },
+      "protected": false,
+      "output_schema": "lib.episode.episode_planner:DramaPlanDraft"
+    },
+    "source": "{{ variant(\"text/episode_plan/intro\", source_kind) }}\n\n# 项目信息\n- 创作类型：{{ variant(\"text/episode_plan/content_mode_label\", content_mode) }}\n{% if synopsis %}\n- 故事概述：{{ synopsis }}\n{% endif %}\n{% if genre %}\n- 题材：{{ genre }}\n{% endif %}\n{% if target_volume %}\n- 每集目标体量：约 {{ target_volume.units }} {{ unit_noun }}（{% if target_volume.seconds %}按单集目标时长 {{ target_volume.seconds }} 秒、口播语速约 {{ target_volume.units_per_second }} {{ unit_noun }}/秒粗略折算，{% endif %}允许为剧情完整性上下浮动）\n{% else %}\n- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）\n{% endif %}\n{% if max_episodes %}\n- 本批最多规划 {{ max_episodes }} 集\n{% endif %}\n{% if context_entries %}\n\n# 已规划的前情（已定上下文，不可改动，续着它往下规划）\n{{ partial(\"text/episode_plan/lists/context_entries\") }}\n{% endif %}\n{% if instructions %}\n\n{{ partial(\"shared/additional_instructions\") }}\n{% endif %}\n{% if progress %}\n\n# 全局进度\n- 已规划 {{ progress.planned_count }} 集\n- 未规划余量约 {{ progress.remaining_units }} {{ unit_noun }}（含本窗口，含后续源文件）\n- 本窗口为其中前 {{ progress.window_units }} {{ unit_noun }}\n- 若附加指令含总集数、按章节对齐等全局约束，请结合以上进度与余量换算本批的切分节奏与集数。\n{% endif %}\n\n# 切分规则\n- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：这一刀为什么切在这、给观众留了什么悬念）、\n  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；\n  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。\n{{ variant(\"text/episode_plan/author_division_rule\", source_kind) }}\n{{ variant(\"text/episode_plan/outline_rule\", content_mode) }}\n- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。\n{% if window_is_final and followed_by_episode %}\n- 这段原文之后紧接着已经规划好的下一集：请规划到这段原文的结尾，最后一集的 end_anchor 取这段原文结尾处的片段，不要留尾巴。\n{% elif window_is_final %}\n- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。\n{% else %}\n- 这段原文只是全文的一个窗口：窗口尾部剧情弧不完整的内容不要硬凑成集，留给下一批规划即可。\n{% endif %}\n- 如果这段原文里找不到任何一个剧情弧完整的切分点，返回空的 episodes 列表，不要硬切。\n- 只输出符合 schema 的 JSON，不要输出其他内容。\n{% if failure %}\n\n# 上一轮输出未通过校验，请针对性修正后重新输出\n{{ partial(\"text/episode_plan/lists/failure\") }}\n{% endif %}\n\n{{ variant(\"text/episode_plan/source_heading\", source_kind) }}\n---\n{{ window }}\n---\n",
+    "partials": [
+      {
+        "name": "text/episode_plan/intro/novel",
+        "source": "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，\n并在集尾留下让观众想看下一集的钩子。",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/intro/screenplay",
+        "source": "你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集，提取而非重切。",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/content_mode_label/drama",
+        "source": "剧情演绎（drama）",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/content_mode_label/narration",
+        "source": "旁白/解说（narration）",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/lists/context_entries",
+        "source": "{% for entry in context_entries %}\n- 第 {{ entry.episode }} 集《{% if entry.title %}{{ entry.title }}{% else %}（无标题）{% endif %}》 钩子：{{ entry.hook }}\n{% endfor %}",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "shared/additional_instructions",
+        "source": "# 附加指令\n{{ instructions }}",
+        "protected": true,
+        "referenced_by": [
+          "text/ad_reference_video_prompt_authoring",
+          "text/ad_reference_video_script",
+          "text/ad_storyboard_prompt_authoring",
+          "text/ad_storyboard_script",
+          "text/draft_repair",
+          "text/drama_prompt_authoring",
+          "text/drama_script_plan",
+          "text/episode_plan",
+          "text/narration_prompt_authoring",
+          "text/narration_script_plan",
+          "text/reference_video_prompt_authoring",
+          "text/reference_video_script_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/author_division_rule/novel",
+        "source": "",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/author_division_rule/screenplay",
+        "source": "- 剧本自带分集时照用作者的分集：一集 = 从本集开头到下一集开头之前的全部文字，作者写在两个集开头之间的文字都归属前一集，end_anchor 取这段文字末尾的原文片段；title / hook 也取自剧本（作者写明的集标题、集尾钩子）。剧本未分集时按完整剧情弧切分，每一集都是一个完整的故事段落。",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/outline_rule/drama",
+        "source": "{{ variant(\"text/episode_plan/outline_rule/drama\", source_kind) }}",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/outline_rule/drama/novel",
+        "source": "- 每一集另给出 story_beats（本集故事节点列表，按顺序）与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）。",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/outline_rule/drama/screenplay",
+        "source": "- 每一集另给出 story_beats（本集故事节点列表，按顺序）与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）；剧本已写明本集节点 / 下集预告时照搬其原文，未写明再自行提炼。",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/outline_rule/narration",
+        "source": "",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/lists/failure",
+        "source": "{% for reason in failure %}\n- {{ reason }}\n{% endfor %}",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/source_heading/novel",
+        "source": "# 小说原文片段",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      },
+      {
+        "name": "text/episode_plan/source_heading/screenplay",
+        "source": "# 剧本原文片段",
+        "protected": false,
+        "referenced_by": [
+          "text/episode_plan"
+        ]
+      }
+    ],
+    "output_schema": {
+      "$defs": {
+        "DramaEpisodeDraft": {
+          "additionalProperties": false,
+          "description": "drama 条目加厚为分集大纲：故事节点 + 下集预告语。",
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "hook": {
+              "minLength": 1,
+              "title": "Hook",
+              "type": "string"
+            },
+            "end_anchor": {
+              "minLength": 2,
+              "title": "End Anchor",
+              "type": "string"
+            },
+            "story_beats": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Story Beats",
+              "type": "array"
+            },
+            "next_episode_teaser": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Next Episode Teaser"
+            }
+          },
+          "required": [
+            "title",
+            "hook",
+            "end_anchor",
+            "story_beats"
+          ],
+          "title": "DramaEpisodeDraft",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "空列表表示窗口内找不到剧情弧完整的切分点。",
+      "properties": {
+        "episodes": {
+          "items": {
+            "$ref": "#/$defs/DramaEpisodeDraft"
+          },
+          "title": "Episodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "episodes"
+      ],
+      "title": "DramaPlanDraft",
+      "type": "object"
+    }
+  }
+}

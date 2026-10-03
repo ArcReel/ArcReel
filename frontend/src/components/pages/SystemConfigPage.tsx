@@ -25,13 +25,14 @@ import { PageShell, type ContainerTier } from "@/components/shared/page-shell/Pa
 import { PageSidebar, type PageSidebarGroup } from "@/components/shared/page-shell/PageSidebar";
 import { useReturnTo } from "@/components/shared/page-shell/return-to";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
-import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useConfigStatusStore, useSectionConfigIssues } from "@/stores/config-status-store";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { ProviderSection } from "./ProviderSection";
 import { AboutSection } from "./settings/AboutSection";
 import { AccessTokensSection } from "./settings/agent-access/AccessTokensSection";
 import { ExternalAgentSection } from "./settings/agent-access/ExternalAgentSection";
+import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
 import { GeneralSection } from "./settings/GeneralSection";
 import { MarketSection } from "./settings/market/MarketSection";
@@ -77,18 +78,6 @@ const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
   "arcreel-agent": ONBOARDING_ANCHORS.settingsAgent,
 };
 
-/** 配置不完整时侧栏亮警告点的分区。 */
-const CONFIG_ISSUE_SECTIONS = new Set<SettingsSection>(["providers", "default-models", "arcreel-agent"]);
-
-/** 配置不完整时内容顶部显示问题列表的分区。 */
-const CONFIG_BANNER_SECTIONS = new Set<SettingsSection>([
-  "default-models",
-  "arcreel-agent",
-  "access-tokens",
-  "usage",
-  "about",
-]);
-
 function parseSection(search: string): SettingsSection {
   const value = new URLSearchParams(search).get("section");
   return SETTINGS_SECTIONS.find((section) => section === value) ?? "providers";
@@ -100,14 +89,19 @@ export function SystemConfigPage() {
   const activeSection = parseSection(search);
   const goBack = useReturnTo();
 
-  const configIssues = useConfigStatusStore((s) => s.issues);
+  const configIssues = useSectionConfigIssues();
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
 
   useEffect(() => {
     void fetchConfigStatus();
   }, [fetchConfigStatus]);
 
-  const hasConfigIssues = configIssues.length > 0;
+  // 侧栏警告点与就地提示都只落在问题所属的分区。
+  const issueSections = useMemo(() => new Set(configIssues.map((issue) => issue.section)), [configIssues]);
+  const activeIssues = useMemo(
+    () => configIssues.filter((issue) => issue.section === activeSection),
+    [configIssues, activeSection],
+  );
   const groups = useMemo<PageSidebarGroup[]>(
     () =>
       SECTION_GROUPS.map((group) => ({
@@ -120,14 +114,14 @@ export function SystemConfigPage() {
           href: settingsSectionPath(id),
           onboardingAnchor: SECTION_ONBOARDING_ANCHORS[id],
           badge:
-            hasConfigIssues && CONFIG_ISSUE_SECTIONS.has(id) ? (
+            issueSections.has(id) ? (
               <span role="img" aria-label={t("dashboard:config_incomplete")} className="text-warn">
                 <AlertTriangle aria-hidden className="size-3.5" />
               </span>
             ) : undefined,
         })),
       })),
-    [t, hasConfigIssues],
+    [t, issueSections],
   );
 
   return (
@@ -136,7 +130,12 @@ export function SystemConfigPage() {
       sidebar={<PageSidebar label={t("common:settings")} groups={groups} activeId={activeSection} replace />}
       tier={SECTIONS[activeSection].tier}
     >
-      {hasConfigIssues && CONFIG_BANNER_SECTIONS.has(activeSection) && <ConfigIssuesBanner />}
+      {/* 全出血分区没有统一的页头，提示放在分区顶部；限宽分区在自己的页头说明之后放提示 */}
+      {SECTIONS[activeSection].tier === "bleed" && activeIssues.length > 0 && (
+        <div className="shrink-0 px-6 pt-4">
+          <ConfigIssueNotice issues={activeIssues} />
+        </div>
+      )}
       <SectionContent section={activeSection} />
     </PageShell>
   );
@@ -174,23 +173,4 @@ function SectionContent({ section }: { section: SettingsSection }) {
     case "about":
       return <AboutSection />;
   }
-}
-
-function ConfigIssuesBanner() {
-  const { t } = useTranslation("dashboard");
-  const configIssues = useConfigStatusStore((s) => s.issues);
-  return (
-    <div className="mb-6 flex flex-col gap-2 rounded-lg border border-warn/30 bg-warn/10 p-4">
-      <p className="flex items-center gap-2 text-sm font-medium text-warn">
-        <AlertTriangle aria-hidden className="size-4" />
-        {t("config_issues")}
-      </p>
-      <p className="text-sm text-subtle-foreground">{t("config_issues_hint")}</p>
-      <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-subtle-foreground">
-        {configIssues.map((issue) => (
-          <li key={issue.key}>{t(issue.label)}</li>
-        ))}
-      </ul>
-    </div>
-  );
 }

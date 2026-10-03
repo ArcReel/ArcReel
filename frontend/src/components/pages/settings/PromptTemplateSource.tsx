@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PromptTemplateMeta, PromptTemplatePartial } from "@/types";
-import { LockBadge } from "./promptTemplateShared";
+import { LockBadge, SOURCE_BLOCK_CLS } from "./promptTemplateShared";
 
 type SourceProps = {
   text: string;
@@ -20,7 +21,7 @@ const PARTIAL_PATTERN =
 /** 展示模版语法与片段原文，不执行 Jinja 或填充项目数据。 */
 export function PromptTemplateSource(props: SourceProps) {
   return (
-    <div className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-sidebar/60 px-3.5 py-3 font-mono text-[12px] leading-[1.7] text-subtle-foreground">
+    <div className={SOURCE_BLOCK_CLS}>
       <SourceContent {...props} />
     </div>
   );
@@ -73,12 +74,12 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
       return (
         <span key={index} className="my-2 block border-l-2 border-border pl-3">
           <span role="group" aria-label={label}>
-            <span className="mb-1 block font-sans text-[11px] text-muted-foreground">{label}</span>
-            <mark className="bg-card/70 text-muted-foreground">{part.opening}</mark>
+            <span className="mb-1 block font-sans text-xs text-muted-foreground">{label}</span>
+            <mark className="bg-muted text-muted-foreground">{part.opening}</mark>
             <SourceNodes nodes={part.children} {...props} />
           </span>
           <SourceNodes nodes={part.alternate} {...props} />
-          <mark className="bg-card/70 text-muted-foreground">{part.closing}</mark>
+          <mark className="bg-muted text-muted-foreground">{part.closing}</mark>
         </span>
       );
     }
@@ -112,7 +113,7 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
       }
     }
     return /^\{[{%#]/.test(part) ? (
-      <mark key={index} className="rounded-sm bg-card/70 px-0.5 text-muted-foreground">
+      <mark key={index} className="rounded-sm bg-muted px-0.5 text-muted-foreground">
         {part}
       </mark>
     ) : (
@@ -137,6 +138,7 @@ function PartialReference({
   const [value, setValue] = useState(axis ? template.applies_to[axis]?.[0] : undefined);
   const partialName = axis ? `${name}/${value}` : name;
   const partial = partials.find((item) => item.name === partialName);
+  const axisLabel = axis ? t(`prompt_templates_axis_${axis}`, { defaultValue: axis }) : "";
 
   if (!partial) return <mark className="bg-warn/15 text-warn">{marker}</mark>;
 
@@ -146,18 +148,18 @@ function PartialReference({
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        className="rounded-sm bg-warn/15 px-1 text-left text-warn hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="rounded-sm bg-warn/15 px-1 text-left text-warn hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
       >
         {marker}
       </button>
       {expanded && (
         <span className="my-2 block rounded-sm border-l-2 border-warn/30 bg-warn/5 py-2 pl-3 pr-2">
-          <span className="mb-1 flex flex-wrap items-center gap-2 whitespace-normal text-[11px] text-warn">
+          <span className="mb-1 flex flex-wrap items-center gap-2 font-sans text-xs whitespace-normal text-warn">
             <button
               type="button"
               title={t("prompt_templates_open_partial")}
               onClick={() => onOpenPartial(partialName)}
-              className="rounded-xs underline decoration-warn/30 underline-offset-2 hover:decoration-warn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-xs underline decoration-warn/30 underline-offset-2 hover:decoration-warn focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
             >
               {partialName}
             </button>
@@ -168,18 +170,21 @@ function PartialReference({
               </span>
             )}
             {axis && (
-              <label className="inline-flex items-center gap-2">
-                {t(`prompt_templates_axis_${axis}`, { defaultValue: axis })}
-                <select
-                  value={value}
-                  onChange={(event) => setValue(event.target.value)}
-                  className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {template.applies_to[axis].map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
+              <span className="inline-flex items-center gap-2">
+                {axisLabel}
+                <Select value={value ?? null} onValueChange={(next) => next && setValue(next)}>
+                  <SelectTrigger size="sm" aria-label={axisLabel}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {template.applies_to[axis].map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </span>
             )}
           </span>
           {partial.source.trim() ? (

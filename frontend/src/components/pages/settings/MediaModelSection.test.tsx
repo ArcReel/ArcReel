@@ -65,9 +65,9 @@ describe("MediaModelSection", () => {
       expect(await screen.findByRole("combobox", { name })).toBeInTheDocument();
     }
     // video / image / text 三处折叠区，初始收起
-    const sections = Array.from(container.querySelectorAll("details"));
+    const sections = screen.getAllByRole("button", { name: /按用途指定模型/ });
     expect(sections).toHaveLength(3);
-    expect(sections.every((d) => !d.open)).toBe(true);
+    expect(sections.every((d) => d.getAttribute("aria-expanded") === "false")).toBe(true);
     // 界面文案不出现内部术语
     expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
   });
@@ -175,7 +175,7 @@ describe("MediaModelSection", () => {
     await waitFor(() => expect(screen.queryAllByRole("alert")).toHaveLength(0));
     // 失败态强制展开过折叠区，重试成功后仍展开，无需再次点开
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
-    expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
   });
 
   it("filters sub-field candidates by purpose while the default dropdown stays unfiltered", async () => {
@@ -184,13 +184,13 @@ describe("MediaModelSection", () => {
     const videoDefault = await screen.findByRole("combobox", { name: "默认视频模型" });
 
     await user.click(videoDefault);
-    expect(screen.getByRole("option", { name: /veo-3/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /veo-3/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
     await user.click(screen.getAllByText("按用途指定模型")[0]);
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
-    expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /veo-3/ })).not.toBeInTheDocument();
   });
 
@@ -214,7 +214,7 @@ describe("MediaModelSection", () => {
 
     await user.click(screen.getAllByText("按用途指定模型")[0]);
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
-    await user.click(screen.getByRole("option", { name: /seedance/ }));
+    await user.click(await screen.findByRole("option", { name: /seedance/ }));
     await user.click(screen.getByRole("button", { name: /保存|Save/ }));
 
     await waitFor(() =>
@@ -234,7 +234,7 @@ describe("MediaModelSection", () => {
 
     await screen.findByRole("combobox", { name: "默认视频模型" });
     await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
-    await user.click(screen.getByRole("option", { name: /seedance/ }));
+    await user.click(await screen.findByRole("option", { name: /seedance/ }));
     await user.click(screen.getByRole("button", { name: /保存|Save/ }));
 
     await waitFor(() =>
@@ -293,7 +293,7 @@ describe("MediaModelSection", () => {
       mockProviders("always_on");
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
-      expect(box).toBeDisabled();
+      expect(box).toHaveAttribute("aria-disabled", "true");
       expect(box).toBeChecked();
       expect(screen.getByText(/始终带声音/)).toBeInTheDocument();
 
@@ -350,7 +350,7 @@ describe("MediaModelSection", () => {
       mockProviders("always_off");
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
-      expect(box).toBeDisabled();
+      expect(box).toHaveAttribute("aria-disabled", "true");
       expect(box).not.toBeChecked();
       expect(screen.getByText(/没有声音/)).toBeInTheDocument();
     });
@@ -381,7 +381,7 @@ describe("MediaModelSection", () => {
       /** 打开指定下拉，读出 v3-omni 那一行的能力线，再关掉——同时只开一个下拉。 */
       async function omniRowIn(user: ReturnType<typeof userEvent.setup>, comboboxName: string) {
         await user.click(screen.getByRole("combobox", { name: comboboxName }));
-        const text = screen.getByRole("option", { name: /v3-omni/ }).textContent ?? "";
+        const text = (await screen.findByRole("option", { name: /v3-omni/ })).textContent ?? "";
         await user.keyboard("{Escape}");
         return text;
       }
@@ -403,10 +403,10 @@ describe("MediaModelSection", () => {
 
   it("auto-expands a channel whose sub-field is already configured", async () => {
     mockConfig({ default_image_backend_i2i: "openai/gpt-image-edit" });
-    const { container } = render(<MediaModelSection />);
+    render(<MediaModelSection />);
     await screen.findByRole("combobox", { name: "默认图片模型" });
-    const imageSection = container.querySelectorAll("details")[1];
-    expect(imageSection.open).toBe(true);
+    const imageSection = screen.getAllByRole("button", { name: /按用途指定模型/ })[1];
+    expect(imageSection).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
   });
 });
@@ -457,6 +457,6 @@ describe("MediaModelSection – 语言切换", () => {
 
     await user.click(trigger);
     // 选项行主行为译名，model id 仍在行内可辨识
-    expect(screen.getByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
+    expect(await screen.findByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
   });
 });

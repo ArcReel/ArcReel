@@ -75,7 +75,7 @@ export function TextTierFields({
       modelNames={modelNames}
       subFields={showTiers ? subFields : undefined}
       footnote={
-        <p className="border-t border-border/50 pt-3 text-[11px] leading-[1.5] text-muted-foreground">
+        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
           {t("text_tier_agent_boundary")}
         </p>
       }

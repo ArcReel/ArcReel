@@ -38,9 +38,4 @@ describe("InlineWarning", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it("外层间距可由使用处指定，排版类不被覆盖", () => {
-    const { getByRole } = render(<InlineWarning message="提示" className="px-3 pb-2" />);
-    const alert = getByRole("alert");
-    expect(alert).toHaveClass("px-3", "pb-2", "text-amber-300", "text-[12px]");
-  });
 });

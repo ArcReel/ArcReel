@@ -1,18 +1,21 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo, useId } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Check, Search } from "lucide-react";
+import { cn } from "cn";
+
+import { Button } from "@/components/ui/button";
 import {
-  FloatingPortal,
-  autoUpdate,
-  flip,
-  offset,
-  shift,
-  size,
-  useFloating,
-} from "@floating-ui/react";
+  Combobox,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxList,
+  ComboboxTrigger,
+} from "@/components/ui/combobox";
 import { ProviderIcon } from "./ProviderIcon";
-import { DROPDOWN_PANEL_STYLE } from "./darkroom-tokens";
-import { UI_LAYERS } from "@/utils/ui-layers";
 
 interface ProviderModelSelectProps {
   value: string; // "gemini-aistudio/veo-3.1-generate-001"
@@ -52,22 +55,27 @@ interface ProviderModelSelectProps {
   renderOptionMeta?: (fullValue: string) => React.ReactNode;
 }
 
-interface FlatOption {
-  type: "default" | "option";
-  fullValue: string;
-}
+/** 下拉里的一组：默认项单独成组（没有组标题），其余按供应商分组。 */
+// 用 type 而非 interface：Combobox 的分组类型带索引签名，interface 不能赋给它。
+type OptionGroup = {
+  /** 供应商 id；默认项组为 null。 */
+  provider: string | null;
+  items: string[];
+};
 
-function groupByProvider(options: string[]): Record<string, string[]> {
-  const groups: Record<string, string[]> = {};
+function groupByProvider(options: string[]): OptionGroup[] {
+  const groups = new Map<string, string[]>();
   for (const opt of options) {
     const slashIdx = opt.indexOf("/");
     if (slashIdx === -1) continue;
     const provider = opt.slice(0, slashIdx);
-    const model = opt.slice(slashIdx + 1);
-    if (!groups[provider]) groups[provider] = [];
-    groups[provider].push(model);
+    groups.set(provider, [...(groups.get(provider) ?? []), opt]);
   }
-  return groups;
+  return [...groups].map(([provider, items]) => ({ provider, items }));
+}
+
+function modelIdOf(fullValue: string): string {
+  return fullValue.slice(fullValue.indexOf("/") + 1);
 }
 
 export function ProviderModelSelect({
@@ -89,232 +97,40 @@ export function ProviderModelSelect({
   renderOptionMeta,
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("dashboard");
-  const resolvedPlaceholder = placeholder ?? t("select_model_placeholder");
-  // Per-instance ARIA id prefix — without this, multiple ProviderModelSelect
-  // instances on the same page (e.g. LayeredModelFields' default + sub-field slots)
-  // would all share the same listbox/option ids, breaking aria-controls and
-  // aria-activedescendant relationships for screen readers.
-  const reactId = useId();
-  const listboxId = `provider-model-listbox-${reactId}`;
-  const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
   const [query, setQuery] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-
-  // 用 FloatingPortal + useFloating 把面板渲染到 document.body，使其脱离任何
-  // overflow: hidden / overflow: auto 祖先（如 ProjectSettingsPage 的 SectionCard
-  // 或 SystemConfigPage 的 main 滚动容器）的视觉裁剪。fixed 策略 + autoUpdate
-  // 保证窗口滚动/缩放时面板跟随触发按钮。
-  const { refs, floatingStyles } = useFloating({
-    open,
-    onOpenChange: setOpen,
-    strategy: "fixed",
-    placement: "bottom-start",
-    whileElementsMounted: autoUpdate,
-    middleware: [
-      offset(4),
-      flip({ padding: 12 }),
-      shift({ padding: 12 }),
-      size({
-        padding: 8,
-        apply({ rects, elements }) {
-          // 同步面板宽度到触发按钮，保持视觉等宽（替代原本依赖父级 `w-full`）。
-          elements.floating.style.width = `${rects.reference.width}px`;
-        },
-      }),
-    ],
-  });
-
-  // 在 layout 阶段绑定 reference，避免首帧把面板钉在视窗左上。open 进入依赖
-  // 是为了 close→open 切换时让 floating-ui 重新计算位置（autoUpdate 仅在
-  // 元素同时存在时才生效）。
-  useLayoutEffect(() => {
-    refs.setReference(triggerRef.current);
-  }, [open, refs]);
 
   const showSearch = searchable && options.length >= searchThreshold;
+  // 搜索框隐藏时不让残留的查询继续过滤，否则用户会看到一个被「隐形」过滤的列表。
+  const activeQuery = showSearch ? query.trim().toLowerCase() : "";
 
-  // Memoize grouped so flatOptions below has a stable reference when options
-  // hasn't changed; otherwise every render creates a new `grouped` object,
-  // invalidates flatOptions, and resets activeIndex on the effect below,
-  // breaking keyboard ArrowUp/ArrowDown navigation.
-  const grouped = useMemo(() => groupByProvider(options), [options]);
+  const groups = useMemo(() => groupByProvider(options), [options]);
 
-  // Apply search filter to grouped options. When the search input is hidden
-  // (searchable=false or option count below threshold), any stale `query`
-  // value must NOT continue filtering the list — otherwise users would see
-  // an "invisibly filtered" list with no visible search box to clear.
-  const filteredGrouped = useMemo(() => {
-    if (!showSearch) return grouped;
-    const q = query.trim().toLowerCase();
-    if (!q) return grouped;
-    const out: Record<string, string[]> = {};
-    for (const [providerId, models] of Object.entries(grouped)) {
-      const providerLabel = (providerNames[providerId] || providerId).toLowerCase();
-      if (providerLabel.includes(q)) {
-        out[providerId] = models;
+  // 供应商名命中时保留该供应商的全部模型；否则按 model id 与译名逐项匹配——译名生效后按 id
+  // 搜索仍要命中（id 是用户在文档 / 供应商控制台里见到的那一串），反之按中文名搜也要能找到。
+  // 有查询时不显示默认项：它不是一个模型，混在结果里会被误当成匹配项。
+  const filteredGroups = useMemo(() => {
+    const defaultGroup: OptionGroup[] = allowDefault && !activeQuery ? [{ provider: null, items: [""] }] : [];
+    if (!activeQuery) return [...defaultGroup, ...groups];
+    const out: OptionGroup[] = [];
+    for (const group of groups) {
+      const providerLabel = (providerNames[group.provider!] || group.provider!).toLowerCase();
+      if (providerLabel.includes(activeQuery)) {
+        out.push(group);
         continue;
       }
-      // model id 与译名都参与匹配：译名生效后按 id 搜索仍要命中（id 是用户在文档 / 供应商
-      // 控制台里见到的那一串），反之按中文名搜也要能找到。
-      const matched = models.filter((m) => {
-        if (m.toLowerCase().includes(q)) return true;
-        const label = modelNames?.[`${providerId}/${m}`];
-        return !!label && label.toLowerCase().includes(q);
+      const items = group.items.filter((item) => {
+        if (modelIdOf(item).toLowerCase().includes(activeQuery)) return true;
+        const label = modelNames?.[item];
+        return !!label && label.toLowerCase().includes(activeQuery);
       });
-      if (matched.length > 0) out[providerId] = matched;
+      if (items.length > 0) out.push({ ...group, items });
     }
     return out;
-  }, [grouped, query, providerNames, modelNames, showSearch]);
+  }, [allowDefault, activeQuery, groups, providerNames, modelNames]);
 
-  const hasQuery = showSearch && query.trim().length > 0;
-  const showDefault = !!allowDefault && !hasQuery;
-
-  // Build a flat list of selectable options for keyboard navigation
-  const flatOptions = useMemo(() => {
-    const list: FlatOption[] = [];
-    if (showDefault) {
-      list.push({ type: "default", fullValue: "" });
-    }
-    for (const [providerId, models] of Object.entries(filteredGrouped)) {
-      for (const model of models) {
-        list.push({
-          type: "option",
-          fullValue: `${providerId}/${model}`,
-        });
-      }
-    }
-    return list;
-  }, [showDefault, filteredGrouped]);
-
-  // Close on outside click. 面板 portal 到 body 后已不在 containerRef 子树内，
-  // 必须同时检查 floating element，否则点击搜索框 / 选项会被判定为 outside 并立即关闭。
-  // 仅在 open=true 时挂载全局监听，避免大量关闭态实例长期占用 mousedown listener。
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const insideTrigger = containerRef.current?.contains(target);
-      const floatingEl = refs.floating.current;
-      const insidePanel = floatingEl?.contains(target);
-      if (!insideTrigger && !insidePanel) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open, refs]);
-
-  // Reset active index when opened — point to current value or 0
-  useEffect(() => {
-    if (open) {
-      const idx = flatOptions.findIndex((o) => o.fullValue === value);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- open 切换为 true 时的动作驱动重置，无法用派生 state 表达
-      setActiveIndex(idx >= 0 ? idx : 0);
-    }
-  }, [open, flatOptions, value]);
-
-  // Auto-focus search input when opening (if visible)
-  useEffect(() => {
-    if (open && showSearch) {
-      const id = requestAnimationFrame(() => inputRef.current?.focus());
-      return () => cancelAnimationFrame(id);
-    }
-  }, [open, showSearch]);
-
-  // Clear stale query whenever the search input is hidden, so a later
-  // showSearch flip back to true cannot resurface a forgotten query.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- showSearch 关闭时的动作驱动重置，无法用派生 state 表达
-    if (!showSearch) setQuery("");
-  }, [showSearch]);
-
-  // Scroll active item into view
-  useEffect(() => {
-    if (open) {
-      itemRefs.current.get(activeIndex)?.scrollIntoView?.({ block: "nearest" });
-    }
-  }, [activeIndex, open]);
-
-  const selectOption = useCallback(
-    (optValue: string) => {
-      onChange(optValue);
-      setOpen(false);
-      setQuery("");
-      triggerRef.current?.focus();
-    },
-    [onChange],
-  );
-
-  const handleListKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      switch (e.key) {
-        case "ArrowDown":
-          e.preventDefault();
-          if (flatOptions.length > 0) {
-            setActiveIndex((prev) => (prev + 1) % flatOptions.length);
-          }
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          if (flatOptions.length > 0) {
-            setActiveIndex((prev) => (prev - 1 + flatOptions.length) % flatOptions.length);
-          }
-          break;
-        case "Home":
-          e.preventDefault();
-          setActiveIndex(0);
-          break;
-        case "End":
-          e.preventDefault();
-          setActiveIndex(Math.max(0, flatOptions.length - 1));
-          break;
-        case "Enter": {
-          // Ignore Enter while an IME composition is in progress (e.g. selecting
-          // a Chinese/Japanese candidate). Otherwise the candidate confirmation
-          // would be hijacked into selecting a model.
-          if (e.nativeEvent.isComposing) return;
-          e.preventDefault();
-          const opt = flatOptions[activeIndex];
-          if (opt) selectOption(opt.fullValue);
-          break;
-        }
-        case "Escape":
-          e.preventDefault();
-          setOpen(false);
-          setQuery("");
-          triggerRef.current?.focus();
-          break;
-      }
-    },
-    [flatOptions, activeIndex, selectOption],
-  );
-
-  const handleTriggerKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (!open) {
-        if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setOpen(true);
-          return;
-        }
-        return;
-      }
-      // When search is hidden, the trigger button retains focus and handles
-      // navigation directly. With search visible, focus moves to the input.
-      if (e.key === " ") {
-        e.preventDefault();
-        const opt = flatOptions[activeIndex];
-        if (opt) selectOption(opt.fullValue);
-        return;
-      }
-      handleListKeyDown(e);
-    },
-    [open, flatOptions, activeIndex, selectOption, handleListKeyDown],
+  const allGroups = useMemo<OptionGroup[]>(
+    () => (allowDefault ? [{ provider: null, items: [""] }, ...groups] : groups),
+    [allowDefault, groups],
   );
 
   // 配置值也可以是不带 model 的裸 provider id（下游按该供应商默认模型执行）。按 "provider/model"
@@ -327,180 +143,90 @@ export function ProviderModelSelect({
   };
 
   const showFallback = !value && !!fallbackValue;
-
   const displayText = value
     ? describe(value)
     : showFallback
       ? `${fallbackLabel ?? t("follow_global_default")} · ${describe(fallbackValue)}`
-      : resolvedPlaceholder;
-
-  const activeDescendantId =
-    open && flatOptions.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined;
-
-  // Track flat index across grouped rendering
-  let flatIdx = showDefault ? 1 : 0;
+      : (placeholder ?? t("select_model_placeholder"));
 
   return (
-    <div ref={containerRef} className={`relative ${className || ""}`}>
-      {/* Trigger button */}
-      <button
-        ref={triggerRef}
-        type="button"
-        role="combobox"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={listboxId}
-        aria-activedescendant={activeDescendantId}
+    <Combobox<string>
+      items={allGroups}
+      filteredItems={filteredGroups}
+      // 默认项的值是空串；没有默认项时空串表示「未选择」，交给 null 显示占位文案。
+      value={value || allowDefault ? value : null}
+      onValueChange={(next) => {
+        if (next !== null) onChange(next);
+      }}
+      inputValue={query}
+      onInputValueChange={setQuery}
+      itemToStringLabel={(item) => (item ? describe(item) : (defaultLabel ?? t("follow_global_default")))}
+    >
+      <ComboboxTrigger
         aria-label={ariaLabel}
-        onClick={() => {
-          // Closing via the trigger should also clear any active query so the
-          // next open starts fresh — matches Escape / outside-click / select.
-          if (open) setQuery("");
-          setOpen(!open);
-        }}
-        onKeyDown={handleTriggerKeyDown}
-        className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-card/55 px-3 py-2 text-[13px] text-foreground transition-colors hover:border-input hover:bg-card/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        render={<Button variant="outline" className={cn("w-full justify-between", className)} />}
       >
-        <span className={`truncate ${showFallback ? "text-muted-foreground" : ""}`}>{displayText}</span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-
-      {/* Dropdown panel — portal 到 body 后由 floating-ui 用 fixed 策略定位，
-          脱离所有 overflow 祖先的视觉裁剪。z-layer 取 `modal` 与上层全屏容器同级，
-          portal 默认 append 到 body 末尾，DOM order 保证下拉盖在 modal/page 之上。 */}
-      {open && (
-        <FloatingPortal>
-          <div
-            // eslint-disable-next-line react-hooks/refs, @typescript-eslint/unbound-method -- setFloating 是 floating-ui 的稳定回调 ref，不读 ref.current；它是不访问 this 的属性型函数，无需绑定
-            ref={refs.setFloating}
-            className={`isolate overflow-hidden rounded-md border border-border shadow-xl ${UI_LAYERS.modal}`}
-            style={{ ...floatingStyles, ...DROPDOWN_PANEL_STYLE }}
-          >
-            {showSearch && (
-            <div className="relative border-b border-border/50 p-2">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setActiveIndex(0);
-                }}
-                onKeyDown={handleListKeyDown}
-                placeholder={t("search_model_placeholder")}
-                aria-label={t("search_model_aria")}
-                aria-controls={listboxId}
-                aria-activedescendant={activeDescendantId}
-                autoComplete="off"
-                spellCheck={false}
-                className="w-full rounded-sm border border-border bg-card/65 py-1.5 pl-8 pr-2 text-[12.5px] text-foreground placeholder:text-muted-foreground focus:border-primary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </div>
+        <span className={cn("min-w-0 flex-1 truncate text-left", showFallback && "text-muted-foreground")}>
+          {displayText}
+        </span>
+      </ComboboxTrigger>
+      <ComboboxContent aria-label={t("select_model_aria")}>
+        {showSearch && (
+          <ComboboxInput
+            showTrigger={false}
+            placeholder={t("search_model_placeholder")}
+            aria-label={t("search_model_aria")}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        )}
+        <ComboboxEmpty>{t("no_models_match")}</ComboboxEmpty>
+        <ComboboxList>
+          {(group: OptionGroup) => (
+            <ComboboxGroup key={group.provider ?? ""} items={group.items}>
+              {group.provider !== null && (
+                <ComboboxLabel>
+                  <span className="flex items-center gap-1.5">
+                    <ProviderIcon providerId={group.provider} className="size-3.5" />
+                    {providerNames[group.provider] || group.provider}
+                  </span>
+                </ComboboxLabel>
+              )}
+              <ComboboxCollection>
+                {(item: string) =>
+                  item === "" ? (
+                    <ComboboxItem key="" value="">
+                      <span className="min-w-0 flex-1 truncate">{defaultLabel ?? t("follow_global_default")}</span>
+                      {defaultHint && <span className="shrink-0 text-xs text-muted-foreground">{defaultHint}</span>}
+                    </ComboboxItem>
+                  ) : (
+                    <ModelOption
+                      key={item}
+                      value={item}
+                      label={modelNames?.[item] || modelIdOf(item)}
+                      meta={renderOptionMeta?.(item)}
+                    />
+                  )
+                }
+              </ComboboxCollection>
+            </ComboboxGroup>
           )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  );
+}
 
-          <div
-            id={listboxId}
-            role="listbox"
-            aria-label={t("select_model_aria")}
-            className="max-h-60 overflow-y-auto"
-          >
-            {showDefault && (
-              <button
-                ref={(el) => {
-                  if (el) itemRefs.current.set(0, el);
-                  else itemRefs.current.delete(0);
-                }}
-                id={`${listboxId}-option-0`}
-                role="option"
-                aria-selected={value === ""}
-                type="button"
-                onClick={() => selectOption("")}
-                onMouseEnter={() => setActiveIndex(0)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] transition-colors ${
-                  activeIndex === 0 ? "bg-primary/12 text-foreground" : "text-subtle-foreground hover:bg-card/45"
-                }`}
-              >
-                <span>{defaultLabel ?? t("follow_global_default")}</span>
-                {defaultHint && (
-                  <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">{defaultHint}</span>
-                )}
-              </button>
-            )}
-
-            {Object.entries(filteredGrouped).map(([providerId, models]) => (
-              <div key={providerId} role="presentation">
-                {/* Group header */}
-                <div
-                  role="presentation"
-                  className="flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground bg-card/35"
-                >
-                  <ProviderIcon providerId={providerId} className="h-3.5 w-3.5" />
-                  {providerNames[providerId] || providerId}
-                </div>
-                {/* Model options */}
-                {models.map((model) => {
-                  const currentFlatIdx = flatIdx++;
-                  const fullValue = `${providerId}/${model}`;
-                  const isSelected = fullValue === value;
-                  const isActive = currentFlatIdx === activeIndex;
-                  const label = modelNames?.[fullValue] || model;
-                  const meta = renderOptionMeta?.(fullValue);
-                  return (
-                    <button
-                      key={fullValue}
-                      ref={(el) => {
-                        if (el) itemRefs.current.set(currentFlatIdx, el);
-                        else itemRefs.current.delete(currentFlatIdx);
-                      }}
-                      id={`${listboxId}-option-${currentFlatIdx}`}
-                      role="option"
-                      aria-selected={isSelected}
-                      type="button"
-                      onClick={() => selectOption(fullValue)}
-                      onMouseEnter={() => setActiveIndex(currentFlatIdx)}
-                      className={`flex w-full items-start gap-1.5 px-3 py-2 pl-6 text-left text-[12.5px] transition-colors ${
-                        isActive
-                          ? "bg-primary/12 text-foreground"
-                          : "text-subtle-foreground hover:bg-card/45"
-                      }`}
-                    >
-                      {isSelected ? (
-                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-                      ) : (
-                        <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{label}</span>
-                        {/* 译名与 id 不同才补 id 行：品牌名类模型（译名 = id）补一行等于重复。 */}
-                        {label !== model && (
-                          <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
-                            {model}
-                          </span>
-                        )}
-                        {meta && (
-                          <span className="mt-0.5 block truncate font-mono text-[10px] tabular-nums text-muted-foreground">
-                            {meta}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-
-            {flatOptions.length === 0 && (
-              <div role="status" className="px-3 py-3 text-center text-[12.5px] text-muted-foreground">
-                {t("no_models_match")}
-              </div>
-            )}
-          </div>
-          </div>
-        </FloatingPortal>
-      )}
-    </div>
+function ModelOption({ value, label, meta }: { value: string; label: string; meta: React.ReactNode }) {
+  const modelId = modelIdOf(value);
+  return (
+    <ComboboxItem value={value} className="items-start">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate">{label}</span>
+        {/* 译名与 id 不同才补 id 行：品牌名类模型（译名 = id）补一行等于重复。 */}
+        {label !== modelId && <span className="truncate font-mono text-xs text-muted-foreground">{modelId}</span>}
+        {meta && <span className="truncate text-xs text-muted-foreground tabular-nums">{meta}</span>}
+      </span>
+    </ComboboxItem>
   );
 }

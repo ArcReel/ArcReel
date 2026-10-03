@@ -24,13 +24,6 @@ export const GHOST_BTN_CLS = `${GHOST_BTN_BASE_CLS} gap-1.5 px-3 py-1.5 text-[12
 
 export const GHOST_BTN_LG_CLS = `${GHOST_BTN_BASE_CLS} gap-2 px-3.5 py-2 text-[12.5px]`;
 
-export const DROPDOWN_PANEL_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.92), oklch(0.16 0.010 265 / 0.92))",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
-};
-
 // 背景写在 ACCENT_BUTTON_STYLE 的内联样式里，悬停用亮度变化表达；主按钮不再悬停上移。
 const ACCENT_BTN_BASE_CLS =
   "inline-flex items-center rounded-md font-semibold transition-[filter] enabled:hover:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";

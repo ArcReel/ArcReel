@@ -45,11 +45,12 @@ describe("PromptTemplateSource", () => {
     expect(screen.getByText("深层片段正文")).toBeVisible();
 
     const selectors = screen.getAllByRole("combobox", { name: "资产类型" });
-    expect(selectors[0]).toHaveValue("scene");
-    await user.selectOptions(selectors[0], "character");
+    expect(selectors[0]).toHaveTextContent("scene");
+    await user.click(selectors[0]);
+    await user.click(await screen.findByRole("option", { name: "character" }));
     expect(screen.getByText("角色三视图正文")).toBeVisible();
     expect(screen.getAllByText(/场景全景正文/)).toHaveLength(1);
-    expect(selectors[1]).toHaveValue("scene");
+    expect(selectors[1]).toHaveTextContent("scene");
     expect(screen.getByText("深层片段正文")).toBeVisible();
 
     await user.click(references[1]);
@@ -75,7 +76,8 @@ describe("PromptTemplateSource", () => {
     expect(screen.getByText("空片段：该取值下不追加措辞。")).toBeVisible();
     expect(screen.getByText('{{ partial("shared/style") | indent(2) }}')).toBeVisible();
     expect(screen.queryByRole("button", { name: /indent/ })).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox"), "character");
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "character" }));
     expect(screen.getByText("角色正文")).toBeVisible();
     expect(screen.queryByText("空片段：该取值下不追加措辞。")).not.toBeInTheDocument();
   });

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, Route } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -696,17 +697,22 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
       success: true, project: { title: "Demo" } as Awaited<ReturnType<typeof API.updateProject>>["project"],
     });
+    const user = userEvent.setup();
     renderAt("/app/projects/demo/settings");
     const i2v = await screen.findByRole("combobox", { name: /图生视频.*分辨率|Image to video.*Resolution/ });
     const r2v = screen.getByRole("combobox", { name: /参考生视频.*分辨率|Reference to video.*Resolution/ });
-    expect(i2v).toHaveValue("720p");
-    expect(r2v).toHaveValue(sharedModel ? "720p" : "1080p");
-    fireEvent.change(i2v, { target: { value: "1080p" } });
-    expect(i2v).toHaveValue("1080p");
-    expect(r2v).toHaveValue("1080p");
-    fireEvent.change(r2v, { target: { value: "720p" } });
-    expect(i2v).toHaveValue(sharedModel ? "720p" : "1080p");
-    expect(r2v).toHaveValue("720p");
+    const pick = async (trigger: HTMLElement, value: string) => {
+      await user.click(trigger);
+      await user.click(await screen.findByRole("option", { name: value }));
+    };
+    expect(i2v).toHaveTextContent("720p");
+    expect(r2v).toHaveTextContent(sharedModel ? "720p" : "1080p");
+    await pick(i2v, "1080p");
+    expect(i2v).toHaveTextContent("1080p");
+    expect(r2v).toHaveTextContent("1080p");
+    await pick(r2v, "720p");
+    expect(i2v).toHaveTextContent(sharedModel ? "720p" : "1080p");
+    expect(r2v).toHaveTextContent("720p");
     fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
     await waitFor(() => expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({
       model_settings: {
@@ -776,8 +782,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    // 等待 ResolutionPicker 出现并验证已加载的初始值
-    // select 模式的 ResolutionPicker 渲染为 <select>，当前值会是对应 option selected
+    // 等待 ResolutionPicker 出现并验证已加载的初始值：select 模式的触发按钮显示当前值
     await waitFor(() => {
       const selects = screen.getAllByRole("combobox");
       // 找到视频分辨率 select（aria-label 为 "分辨率"）
@@ -786,9 +791,9 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
       );
       expect(resSelects.length).toBeGreaterThan(0);
       // 验证已加载的值
-      const values = resSelects.map((el) => (el as HTMLSelectElement).value);
-      expect(values).toContain("1080p");
-      expect(values).toContain("720p");
+      const shown = resSelects.map((el) => el.textContent ?? "");
+      expect(shown.some((text) => text.includes("1080p"))).toBe(true);
+      expect(shown.some((text) => text.includes("720p"))).toBe(true);
     });
   });
 
