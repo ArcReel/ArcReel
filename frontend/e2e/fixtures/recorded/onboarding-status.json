@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/onboarding/status",
+  "status": 200,
+  "body": {
+    "seen": true
+  }
+}

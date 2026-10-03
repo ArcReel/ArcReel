@@ -18,7 +18,7 @@ ArcReel 的代码规范：写代码与审查代码时需要判断、工具替代
 | [`docs/standards/frontend-ui.md`](docs/standards/frontend-ui.md) | `frontend/src/**` |
 | [`docs/standards/general.md`](docs/standards/general.md) | `**` |
 | [`docs/standards/providers.md`](docs/standards/providers.md) | `lib/backends/**`, `lib/custom_provider/**`, `lib/config/**`, `lib/billing/**`, `lib/agent/agent_provider_catalog.py`, `lib/prompts/prompt_builders*.py`, `agent_runtime_profile/**`, `docs/api-docs/**` |
-| [`docs/standards/testing.md`](docs/standards/testing.md) | `tests/**`, `packages/*/tests/**`, `frontend/src/**/*.test.*`, `frontend/src/test/**`, `frontend/src/__mocks__/**` |
+| [`docs/standards/testing.md`](docs/standards/testing.md) | `tests/**`, `packages/*/tests/**`, `frontend/src/**/*.test.*`, `frontend/src/test/**`, `frontend/src/__mocks__/**`, `frontend/e2e/**` |
 | [`docs/standards/windows.md`](docs/standards/windows.md) | `lib/**`, `server/**`, `packages/*/src/**` |
 <!-- standards-index:end -->
 

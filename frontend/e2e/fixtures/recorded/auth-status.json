@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/auth/status",
+  "status": 200,
+  "body": {
+    "enabled": true
+  }
+}

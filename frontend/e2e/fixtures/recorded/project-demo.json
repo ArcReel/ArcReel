@@ -1,0 +1,62 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo",
+  "status": 200,
+  "body": {
+    "project": {
+      "schema_version": 17,
+      "title": "演示项目",
+      "content_mode": "narration",
+      "aspect_ratio": "9:16",
+      "style": "",
+      "episodes": [],
+      "whole_source_files": [],
+      "characters": {},
+      "scenes": {},
+      "props": {},
+      "narration_delivery": "post_production",
+      "metadata": {
+        "created_at": "2026-01-01T08:00:00.000Z",
+        "updated_at": "2026-01-01T08:00:00.000Z"
+      },
+      "generation_mode": "storyboard",
+      "grid_storyboard": false,
+      "status": {
+        "schema_version": 2,
+        "needs_repair": false,
+        "repair_reason": null,
+        "assets": {
+          "character": {
+            "total": 0,
+            "available": 0,
+            "stale": 0
+          },
+          "scene": {
+            "total": 0,
+            "available": 0,
+            "stale": 0
+          },
+          "prop": {
+            "total": 0,
+            "available": 0,
+            "stale": 0
+          },
+          "product": {
+            "total": 0,
+            "available": 0,
+            "stale": 0
+          }
+        },
+        "episodes_summary": {
+          "total": 0,
+          "scripted": 0,
+          "in_production": 0,
+          "completed": 0
+        },
+        "source_remaining": false
+      }
+    },
+    "scripts": {},
+    "asset_fingerprints": {}
+  }
+}

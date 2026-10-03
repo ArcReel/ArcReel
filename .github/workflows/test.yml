@@ -356,6 +356,47 @@ jobs:
           flags: frontend
           fail_ci_if_error: false
 
+  frontend-e2e:
+    # 页面级验收套件（溢出探针 + axe）。镜像版本必须与 frontend/package.json 的 @playwright/test
+    # 一致，否则找不到浏览器；升级 @playwright/test 时同步改这里。
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --user 1001 --ipc=host
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Run page-level suite
+        working-directory: frontend
+        run: pnpm e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 30
+
   website-checks:
     # 单一 job 串起文档站的各道闸：静态检查（typecheck / eslint / prettier）前置，
     # 秒级失败不必等构建 → CONTRIBUTING 复制（否则 gitignore 的中文副本缺席，其已提交
@@ -561,6 +602,7 @@ jobs:
         postgres-compat,
         frontend-static,
         frontend-tests,
+        frontend-e2e,
         docker-verify,
         website-checks,
         release-integrity,
