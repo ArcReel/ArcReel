@@ -86,6 +86,9 @@ const REWORKED_FILES = [
   "src/components/pages/settings/GeneralSection.tsx",
   // 外部 Agent 接入与访问令牌
   "src/components/pages/settings/agent-access/**",
+  // 全局设置「ArcReel Agent」：Agent 供应商列表、添加与编辑对话框、运行参数
+  "src/components/pages/AgentConfigTab.tsx",
+  "src/components/agent/{AddCredentialModal,CredentialList,CredentialsSection,ModelIdField,TestResultPanel}.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

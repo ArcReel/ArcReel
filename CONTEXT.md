@@ -104,7 +104,7 @@ _Avoid_: api_format、把它当模型调用协议开关。
 _Avoid_: default credential、已启用凭证——该词暗示可同时启用多条、把切换理解为自动轮换或负载均衡。
 
 **Agent 凭证（agent_credential）**：
-供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的 Agent 凭证表，与自定义供应商凭证互不相通（见 `docs/adr/0017`）。
+供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的 Agent 凭证表，与自定义供应商凭证互不相通（见 `docs/adr/0017`）。界面上称「Agent 供应商」（「添加供应商」「删除供应商」），每条对应一个网关。
 _Avoid_: 把它当成一个自定义供应商。
 
 ### 市场

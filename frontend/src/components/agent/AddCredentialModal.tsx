@@ -1,29 +1,28 @@
-import {
-  ChevronDown,
-  Download,
-  ExternalLink,
-  Loader2,
-  Search,
-  SlidersHorizontal,
-  Star,
-  X,
-} from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Download, ExternalLink, Loader2, Search, SlidersHorizontal, Star } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
-  ACCENT_BTN_CLS,
-  ACCENT_BUTTON_STYLE,
-  DROPDOWN_PANEL_STYLE,
-  GHOST_BTN_CLS,
-  INPUT_CLS,
-} from "@/components/shared/darkroom-tokens";
-import { ModelCombobox } from "@/components/legacy/ModelCombobox";
-import { Popover } from "@/components/legacy/FloatingPopover";
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useCredentialForm } from "@/hooks/useCredentialForm";
-import { useEscapeClose } from "@/hooks/useEscapeClose";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useAppStore } from "@/stores/app-store";
 import type {
   CreateAgentCredentialRequest,
@@ -38,6 +37,7 @@ import {
 } from "@/utils/anthropic-url";
 import { errMsg } from "@/utils/async";
 
+import { ModelIdField } from "./ModelIdField";
 import { PresetIcon } from "./PresetIcon";
 import { TestResultPanel } from "./TestResultPanel";
 
@@ -63,8 +63,6 @@ export function AddCredentialModal({
   onClose,
 }: Props) {
   const { t } = useTranslation("dashboard");
-  const panelRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(panelRef, open);
   const form = useCredentialForm(initial, customSentinelId, presets);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -80,9 +78,7 @@ export function AddCredentialModal({
   // 从自定义供应商导入：列出已配置 api_key 的 providers，选中后预填 baseUrl，
   // 提交时只带供应商 id，密钥由服务端从该供应商复制，前端不经手明文。
   const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
-  const [importPickerOpen, setImportPickerOpen] = useState(false);
   const [importSource, setImportSource] = useState<CustomProviderInfo | null>(null);
-  const importTriggerRef = useRef<HTMLButtonElement>(null);
 
   // 草稿态连接测试：保存前先验 base_url + api_key 是否能真实跑通
   const [testing, setTesting] = useState(false);
@@ -116,7 +112,7 @@ export function AddCredentialModal({
   }, [open, mode]);
 
   // 父组件复用 modal 时只切换 open/initial，本地一次性诊断状态不会自动清。
-  // 重开（或切换到另一条凭证）时把模型列表、错误、测试结果、popover、inflight
+  // 重开（或切换到另一条凭证）时把模型列表、错误、测试结果、inflight
   // loading 全部归零，按新 initial 重算 advancedOpen，bump sessionRef 让旧
   // session 的 await 返回时丢弃结果。
   useEffect(() => {
@@ -127,7 +123,6 @@ export function AddCredentialModal({
     setDiscoverError(null);
     setSubmitError(null);
     setTestResult(null);
-    setImportPickerOpen(false);
     setDiscovering(false);
     setTesting(false);
     setImportSource(null);
@@ -143,10 +138,6 @@ export function AddCredentialModal({
     if (form.presetId === customSentinelId) return null;
     return presets.find((p) => p.id === form.presetId) ?? null;
   }, [form.presetId, presets, customSentinelId]);
-
-  useEscapeClose(onClose, open);
-
-  if (!open) return null;
 
   // 供应商不提供模型列表接口时（如火山方舟两档套餐），下拉框回退到预设的建议模型，
   // 用户不必知道模型 ID 也能选中一个可用值。
@@ -228,7 +219,6 @@ export function AddCredentialModal({
   };
 
   const handleImportProvider = (provider: CustomProviderInfo) => {
-    setImportPickerOpen(false);
     // 切到 __custom__：避免预设的 messages_url 覆盖导入的 base_url
     form.setPreset(customSentinelId);
     form.setApiKey("");
@@ -316,320 +306,265 @@ export function AddCredentialModal({
     baseUrlRejected ||
     (mode === "edit" && !form.isDirty(initial));
 
+  const closeUnlessSubmitting = (nextOpen: boolean) => {
+    // 提交在途时不响应 Esc 与遮罩点击，避免对话框先于结果消失
+    if (!nextOpen && !submitting) onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <div
-        data-testid="modal-overlay"
-        aria-hidden="true"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/50"
-      />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cred-modal-title"
-        className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto overscroll-contain rounded-xl border border-border p-5"
-        style={DROPDOWN_PANEL_STYLE}
-      >
-        {/* Header */}
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <h3
-            id="cred-modal-title"
-            className="text-[15px] font-medium text-foreground"
-          >
-            {mode === "edit" ? t("edit_credential_title") : t("add_credential")}
-          </h3>
-          <div className="flex items-center gap-2">
-            {mode === "create" && providers.length > 0 && (
-              <>
-                <button
-                  ref={importTriggerRef}
-                  type="button"
-                  onClick={() => setImportPickerOpen((v) => !v)}
-                  data-testid="import-from-provider"
-                  className="inline-flex items-center gap-1.5 rounded-sm border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-subtle-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Download className="h-3 w-3" aria-hidden />
-                  {t("import_from_provider")}
-                </button>
-                <Popover
-                  open={importPickerOpen}
-                  onClose={() => setImportPickerOpen(false)}
-                  anchorRef={importTriggerRef}
-                  width="w-64"
-                  // modal 容器是 z-50；默认 Popover layer 是 z-40 会被 modal 遮挡
-                  layer="modal"
-                  className="rounded-md border border-border py-1 shadow-lg"
-                >
-                  {providers.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handleImportProvider(p)}
-                      data-testid="import-provider-option"
-                      className="block w-full truncate px-3 py-2 text-left text-[12px] text-subtle-foreground hover:bg-card/50"
-                    >
-                      {p.display_name}
-                    </button>
-                  ))}
-                </Popover>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label={t("common:close")}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Preset grid — 3 列固定网格,自定义永远固定首格,推荐项次之 */}
-        <div className="mb-5">
-          <div className="mb-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-subtle-foreground">
-            {t("select_provider")}
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            <PresetChip
-              dataTestid="preset-chip"
-              selected={form.presetId === customSentinelId}
-              onClick={() => handlePresetClick(customSentinelId)}
-              label={t("custom_config")}
-              disabled={mode === "edit"}
-              title={mode === "edit" ? t("preset_locked_in_edit") : undefined}
-            />
-            {presets.map((p) => (
-              <PresetChip
-                key={p.id}
-                dataTestid="preset-chip"
-                selected={form.presetId === p.id}
-                onClick={() => handlePresetClick(p.id)}
-                label={p.display_name}
-                iconKey={p.icon_key}
-                recommended={p.is_recommended}
-                disabled={mode === "edit"}
-                title={mode === "edit" ? t("preset_locked_in_edit") : undefined}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Form */}
-        <div className="space-y-4">
-          <Field label={t("display_name")} htmlFor="cred-name">
-            <input
-              id="cred-name"
-              value={form.displayName}
-              onChange={(e) => form.setDisplayName(e.target.value)}
-              className={INPUT_CLS}
-            />
-          </Field>
-
-          <Field label={t("api_base_url")} htmlFor="cred-url">
-            <input
-              id="cred-url"
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              spellCheck={false}
-              value={form.baseUrl}
-              onChange={(e) => {
-                form.setBaseUrl(e.target.value);
-                invalidateDiscoveredModels();
-                invalidateDraftTest();
-              }}
-              placeholder="https://api.example.com"
-              aria-invalid={baseUrlRejected}
-              aria-describedby="cred-url-preview"
-              className={INPUT_CLS}
-            />
-            <div id="cred-url-preview" className="mt-1 text-[11px] leading-[1.55]">
-              {baseUrlRejected ? (
-                <span className="text-warn">{t("base_url_unsupported_components")}</span>
-              ) : messagesUrlPreview ? (
-                <span className="text-muted-foreground">
-                  {t("messages_url_preview_hint")}{" "}
-                  <span className="font-mono text-muted-foreground" translate="no">
-                    {messagesUrlPreview}
-                  </span>
+    <Dialog open={open} onOpenChange={closeUnlessSubmitting}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>{mode === "edit" ? t("edit_credential_title") : t("add_credential")}</DialogTitle>
+          <DialogDescription>{t("agent_provider_dialog_desc")}</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <span id="cred-preset-label" className="text-sm font-medium">
+                  {t("select_provider")}
                 </span>
-              ) : null}
-            </div>
-          </Field>
-
-          <Field
-            label={t("anthropic_api_key")}
-            htmlFor="cred-key"
-            trailing={
-              importSource ? (
-                <button
-                  type="button"
-                  onClick={handleManualKeyEntry}
-                  data-testid="api-key-manual-entry"
-                  className="text-[11px] text-primary hover:underline"
-                >
-                  {t("api_key_manual_entry")}
-                </button>
-              ) : selected?.api_key_url ? (
-                <a
-                  href={selected.api_key_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-                >
-                  {t("get_api_key")}
-                  <ExternalLink className="h-3 w-3" aria-hidden />
-                </a>
-              ) : null
-            }
-          >
-            <input
-              id="cred-key"
-              type="password"
-              value={form.apiKey}
-              onChange={(e) => {
-                form.setApiKey(e.target.value);
-                invalidateDiscoveredModels();
-                invalidateDraftTest();
-              }}
-              disabled={importSource !== null}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder={
-                importSource
-                  ? t("api_key_from_provider_hint", { name: importSource.display_name })
-                  : mode === "edit"
-                    ? t("api_key_unchanged_hint")
-                    : undefined
-              }
-              aria-describedby={importSource ? "cred-key-import-note" : undefined}
-              className={INPUT_CLS}
-            />
-            {importSource && (
-              <div id="cred-key-import-note" className="mt-1 text-[11px] leading-[1.55] text-muted-foreground">
-                {t("api_key_from_provider_note")}
-              </div>
-            )}
-          </Field>
-
-          <Field
-            label={t("default_model")}
-            htmlFor="cred-model"
-            trailing={
-              <button
-                type="button"
-                onClick={() => void handleDiscover()}
-                disabled={discovering || importSource !== null}
-                className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {discovering ? (
-                  <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
-                ) : (
-                  <Search className="h-3 w-3" aria-hidden />
+                {mode === "create" && providers.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={<Button variant="outline" size="xs" data-testid="import-from-provider" />}
+                    >
+                      <Download aria-hidden data-icon="inline-start" />
+                      {t("import_from_provider")}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64">
+                      {providers.map((p) => (
+                        <DropdownMenuItem
+                          key={p.id}
+                          onClick={() => handleImportProvider(p)}
+                          data-testid="import-provider-option"
+                        >
+                          <span className="truncate">{p.display_name}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
-                {discovering ? t("discovering_models") : t("discover_models")}
-              </button>
-            }
-          >
-            <ModelCombobox
-              id="cred-model"
-              value={form.model}
-              onChange={(v) => {
-                form.setModel(v);
-                invalidateDraftTest();
-              }}
-              options={availableModels}
-              placeholder={selected?.default_model || ""}
-              clearable
-            />
-            {discoverError && (
-              <div className="mt-1 text-[11px] text-warn">{discoverError}</div>
+              </div>
+              {/* 自定义固定在首格，推荐项次之 */}
+              <ToggleGroup
+                aria-labelledby="cred-preset-label"
+                variant="outline"
+                value={[form.presetId]}
+                onValueChange={(next: string[]) => {
+                  // 单选：再次点击已选项不取消选择
+                  if (next[0]) handlePresetClick(next[0]);
+                }}
+                disabled={mode === "edit"}
+                spacing={1.5}
+                className="grid w-full grid-cols-3"
+              >
+                <ToggleGroupItem value={customSentinelId} data-testid="preset-chip" className="justify-start">
+                  <span className="truncate">{t("custom_config")}</span>
+                </ToggleGroupItem>
+                {presets.map((p) => (
+                  <ToggleGroupItem key={p.id} value={p.id} data-testid="preset-chip" className="min-w-0 justify-start">
+                    {p.is_recommended && (
+                      <Star role="img" aria-label={t("common:recommended")} className="fill-current text-primary" />
+                    )}
+                    <PresetIcon iconKey={p.icon_key} size={14} />
+                    <span className="truncate">{p.display_name}</span>
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              {mode === "edit" && <p className="text-xs text-muted-foreground">{t("preset_locked_in_edit")}</p>}
+            </div>
+
+            <Field label={t("display_name")} htmlFor="cred-name">
+              <Input id="cred-name" value={form.displayName} onChange={(e) => form.setDisplayName(e.target.value)} />
+            </Field>
+
+            <Field label={t("api_base_url")} htmlFor="cred-url">
+              <Input
+                id="cred-url"
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                spellCheck={false}
+                value={form.baseUrl}
+                onChange={(e) => {
+                  form.setBaseUrl(e.target.value);
+                  invalidateDiscoveredModels();
+                  invalidateDraftTest();
+                }}
+                placeholder="https://api.example.com"
+                aria-invalid={baseUrlRejected}
+                aria-describedby="cred-url-preview"
+              />
+              <p id="cred-url-preview" className="text-xs">
+                {baseUrlRejected ? (
+                  <span className="text-warn">{t("base_url_unsupported_components")}</span>
+                ) : messagesUrlPreview ? (
+                  <span className="text-muted-foreground">
+                    {t("messages_url_preview_hint")}{" "}
+                    <span className="font-mono break-all" translate="no">
+                      {messagesUrlPreview}
+                    </span>
+                  </span>
+                ) : null}
+              </p>
+            </Field>
+
+            <Field
+              label={t("anthropic_api_key")}
+              htmlFor="cred-key"
+              trailing={
+                importSource ? (
+                  <Button variant="link" size="xs" onClick={handleManualKeyEntry} data-testid="api-key-manual-entry">
+                    {t("api_key_manual_entry")}
+                  </Button>
+                ) : selected?.api_key_url ? (
+                  <a
+                    href={selected.api_key_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
+                  >
+                    {t("get_api_key")}
+                    <ExternalLink aria-hidden className="size-3" />
+                  </a>
+                ) : null
+              }
+            >
+              <Input
+                id="cred-key"
+                type="password"
+                value={form.apiKey}
+                onChange={(e) => {
+                  form.setApiKey(e.target.value);
+                  invalidateDiscoveredModels();
+                  invalidateDraftTest();
+                }}
+                disabled={importSource !== null}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={
+                  importSource
+                    ? t("api_key_from_provider_hint", { name: importSource.display_name })
+                    : mode === "edit"
+                      ? t("api_key_unchanged_hint")
+                      : undefined
+                }
+                aria-describedby={importSource ? "cred-key-import-note" : undefined}
+              />
+              {importSource && (
+                <p id="cred-key-import-note" className="text-xs text-muted-foreground">
+                  {t("api_key_from_provider_note")}
+                </p>
+              )}
+            </Field>
+
+            <Field
+              label={t("default_model")}
+              htmlFor="cred-model"
+              trailing={
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => void handleDiscover()}
+                  disabled={discovering || importSource !== null}
+                >
+                  {discovering ? (
+                    <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+                  ) : (
+                    <Search aria-hidden data-icon="inline-start" />
+                  )}
+                  {discovering ? t("discovering_models") : t("discover_models")}
+                </Button>
+              }
+            >
+              <ModelIdField
+                id="cred-model"
+                value={form.model}
+                onChange={(v) => {
+                  form.setModel(v);
+                  invalidateDraftTest();
+                }}
+                options={availableModels}
+                placeholder={selected?.default_model || ""}
+                aria-describedby={discoverError ? "cred-model-error" : undefined}
+              />
+              {discoverError && (
+                <p id="cred-model-error" className="text-xs text-warn">
+                  {discoverError}
+                </p>
+              )}
+            </Field>
+
+            <div className="rounded-lg border border-border p-1">
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                <CollapsibleTrigger render={<Button variant="ghost" className="w-full justify-start" />}>
+                  <SlidersHorizontal aria-hidden data-icon="inline-start" className="text-muted-foreground" />
+                  {t("advanced_model_routing")}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="flex flex-col gap-4 px-3 pt-2 pb-3">
+                    <p className="text-xs text-muted-foreground">{t("model_routing_hint")}</p>
+                    <RoutingField
+                      id="cred-haiku"
+                      label={t("haiku_model")}
+                      desc={t("haiku_desc")}
+                      envVar="ANTHROPIC_DEFAULT_HAIKU_MODEL"
+                      value={form.haikuModel}
+                      onChange={form.setHaikuModel}
+                      options={availableModels}
+                    />
+                    <RoutingField
+                      id="cred-sonnet"
+                      label={t("sonnet_model")}
+                      desc={t("sonnet_desc")}
+                      envVar="ANTHROPIC_DEFAULT_SONNET_MODEL"
+                      value={form.sonnetModel}
+                      onChange={form.setSonnetModel}
+                      options={availableModels}
+                    />
+                    <RoutingField
+                      id="cred-opus"
+                      label={t("opus_model")}
+                      desc={t("opus_desc")}
+                      envVar="ANTHROPIC_DEFAULT_OPUS_MODEL"
+                      value={form.opusModel}
+                      onChange={form.setOpusModel}
+                      options={availableModels}
+                    />
+                    <RoutingField
+                      id="cred-subagent"
+                      label={t("subagent_model")}
+                      desc={t("subagent_desc")}
+                      envVar="CLAUDE_CODE_SUBAGENT_MODEL"
+                      value={form.subagentModel}
+                      onChange={form.setSubagentModel}
+                      options={availableModels}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+
+            {selected?.notes && (
+              <p className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-subtle-foreground">
+                {selected.notes}
+              </p>
             )}
-          </Field>
 
-          {/* Advanced model routing - 折叠区 */}
-          <details
-            open={advancedOpen}
-            onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
-            className="rounded-md border border-border/50 bg-card/35 p-3"
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between">
-              <span className="inline-flex items-center gap-2 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-subtle-foreground">
-                <SlidersHorizontal className="h-3.5 w-3.5 text-primary" aria-hidden />
-                {t("advanced_model_routing")}
-              </span>
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/50 bg-card/55 text-muted-foreground">
-                <ChevronDown
-                  className={`h-3 w-3 transition-transform duration-200 ${
-                    advancedOpen ? "rotate-180 text-primary" : ""
-                  }`}
-                  aria-hidden
-                />
-              </span>
-            </summary>
-            <p className="mt-2 text-[11px] leading-[1.55] text-muted-foreground">
-              {t("model_routing_hint")}
-            </p>
-            <div className="mt-3 grid gap-3">
-              <RoutingField
-                id="cred-haiku"
-                label={t("haiku_model")}
-                desc={t("haiku_desc")}
-                envVar="ANTHROPIC_DEFAULT_HAIKU_MODEL"
-                value={form.haikuModel}
-                onChange={form.setHaikuModel}
-                options={availableModels}
-              />
-              <RoutingField
-                id="cred-sonnet"
-                label={t("sonnet_model")}
-                desc={t("sonnet_desc")}
-                envVar="ANTHROPIC_DEFAULT_SONNET_MODEL"
-                value={form.sonnetModel}
-                onChange={form.setSonnetModel}
-                options={availableModels}
-              />
-              <RoutingField
-                id="cred-opus"
-                label={t("opus_model")}
-                desc={t("opus_desc")}
-                envVar="ANTHROPIC_DEFAULT_OPUS_MODEL"
-                value={form.opusModel}
-                onChange={form.setOpusModel}
-                options={availableModels}
-              />
-              <RoutingField
-                id="cred-subagent"
-                label={t("subagent_model")}
-                desc={t("subagent_desc")}
-                envVar="CLAUDE_CODE_SUBAGENT_MODEL"
-                value={form.subagentModel}
-                onChange={form.setSubagentModel}
-                options={availableModels}
-              />
-            </div>
-          </details>
+            {submitError && (
+              <p role="alert" className="text-sm text-destructive">
+                {submitError}
+              </p>
+            )}
 
-          {selected?.notes && (
-            <div className="rounded-md border border-border/50 bg-card/45 px-3 py-2 text-[11.5px] text-muted-foreground">
-              {selected.notes}
-            </div>
-          )}
-
-          {submitError && (
-            <div className="text-[11.5px] text-warn">{submitError}</div>
-          )}
-
-          {testResult && <TestResultPanel result={testResult} />}
-        </div>
-
-        {/* Footer */}
-        <div className="mt-5 flex items-center justify-between gap-2">
-          <button
-            type="button"
+            {testResult && <TestResultPanel result={testResult} />}
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
             onClick={() => void handleTest()}
             disabled={
               testing ||
@@ -639,81 +574,22 @@ export function AddCredentialModal({
               !form.baseUrl.trim() ||
               baseUrlRejected
             }
-            className={GHOST_BTN_CLS}
             data-testid="test-connection"
+            className="mr-auto"
           >
-            {testing ? (
-              <Loader2 className="mr-1 inline-block h-3 w-3 motion-safe:animate-spin" aria-hidden />
-            ) : null}
+            {testing ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
             {testing ? t("cred_testing") : t("cred_test_label")}
-          </button>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className={GHOST_BTN_CLS}>
-              {t("common:cancel")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSubmit()}
-              disabled={submitDisabled}
-              className={ACCENT_BTN_CLS}
-              style={ACCENT_BUTTON_STYLE}
-            >
-              {submitting
-                ? t("common:loading")
-                : mode === "edit"
-                  ? t("common:save")
-                  : t("common:add")}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PresetChip({
-  selected,
-  onClick,
-  label,
-  iconKey,
-  recommended,
-  dataTestid,
-  disabled,
-  title,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  label: string;
-  iconKey?: string;
-  recommended?: boolean;
-  dataTestid?: string;
-  disabled?: boolean;
-  title?: string;
-}) {
-  const { t } = useTranslation("common");
-  return (
-    <button
-      type="button"
-      data-testid={dataTestid}
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={selected}
-      title={title}
-      className={`group inline-flex items-center justify-start gap-1.5 truncate rounded-md border px-2.5 py-1.5 text-left text-[12px] transition disabled:cursor-not-allowed disabled:opacity-60 ${
-        selected
-          ? "border-primary bg-primary/10 text-primary"
-          : "border-border bg-card/35 text-subtle-foreground hover:border-primary/40"
-      }`}
-    >
-      {recommended && (
-        <Star
-          className="h-3 w-3 shrink-0 fill-amber-300 text-amber-300"
-          aria-label={t("recommended")}
-        />
-      )}
-      {iconKey && <PresetIcon iconKey={iconKey} size={14} />}
-      <span className="truncate">{label}</span>
-    </button>
+          </Button>
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            {t("common:cancel")}
+          </Button>
+          <Button onClick={() => void handleSubmit()} disabled={submitDisabled}>
+            {submitting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+            {mode === "edit" ? t("common:save") : t("common:add")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -724,17 +600,14 @@ function Field({
   trailing,
 }: {
   label: string;
-  htmlFor?: string;
-  children: React.ReactNode;
-  trailing?: React.ReactNode;
+  htmlFor: string;
+  children: ReactNode;
+  trailing?: ReactNode;
 }) {
   return (
-    <div>
-      <div className="mb-1 flex items-center justify-between">
-        <label
-          htmlFor={htmlFor}
-          className="text-[11.5px] font-medium text-subtle-foreground"
-        >
+    <div className="flex flex-col gap-1.5">
+      <div className="flex min-h-6 items-center justify-between gap-3">
+        <label htmlFor={htmlFor} className="text-sm font-medium">
           {label}
         </label>
         {trailing}
@@ -762,22 +635,21 @@ function RoutingField({
   options: string[];
 }) {
   return (
-    <div>
-      <label htmlFor={id} className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-subtle-foreground">
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-medium">
         {label}
       </label>
-      <div className="text-[11px] text-muted-foreground">{desc}</div>
-      <div className="mt-1.5">
-        <ModelCombobox
-          id={id}
-          value={value}
-          onChange={onChange}
-          options={options}
-          placeholder={envVar}
-          aria-label={label}
-          clearable
-        />
-      </div>
+      <p id={`${id}-desc`} className="text-xs text-muted-foreground">
+        {desc}
+      </p>
+      <ModelIdField
+        id={id}
+        value={value}
+        onChange={onChange}
+        options={options}
+        placeholder={envVar}
+        aria-describedby={`${id}-desc`}
+      />
     </div>
   );
 }

@@ -34,7 +34,7 @@ describe("CredentialList", () => {
         onDelete={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /set active|activate|设为当前|Đặt làm mặc định/i }));
+    fireEvent.click(screen.getByRole("button", { name: "设为生效" }));
     expect(onActivate).toHaveBeenCalledWith(1);
   });
 
@@ -62,7 +62,7 @@ describe("CredentialList", () => {
         onDelete={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("credential-list-empty")).toBeInTheDocument();
+    expect(screen.getByText(/还没有 Agent 供应商/)).toBeInTheDocument();
   });
 
   it("calls onTest with credential id when test clicked", () => {
@@ -77,7 +77,7 @@ describe("CredentialList", () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /^check$|cred_test_label|连通性检查|Kiểm tra/i }),
+      screen.getByRole("button", { name: "测试连接" }),
     );
     expect(onTest).toHaveBeenCalledWith(1);
   });

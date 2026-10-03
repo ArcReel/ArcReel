@@ -1,12 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
 import { AddCredentialModal } from "@/components/agent/AddCredentialModal";
 import { CredentialList } from "@/components/agent/CredentialList";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
-import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
-import { SectionShell } from "@/components/shared/SectionShell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import type {
@@ -18,6 +27,10 @@ import type {
 } from "@/types/agent-credential";
 import { errMsg, voidCall } from "@/utils/async";
 
+/**
+ * Agent 供应商列表（数据上是 Agent 凭证）。增改、删除、切换生效都是即时动作：成功以列表变化为反馈，
+ * 失败弹出提示；删除不可撤销，先经 AlertDialog 确认。
+ */
 export function CredentialsSection() {
   const { t } = useTranslation("dashboard");
 
@@ -28,16 +41,13 @@ export function CredentialsSection() {
   const [busyCredId, setBusyCredId] = useState<number | null>(null);
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
   const [testedCredId, setTestedCredId] = useState<number | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AgentCredential | null>(null);
   const [deletingCred, setDeletingCred] = useState(false);
   const [editingCred, setEditingCred] = useState<AgentCredential | null>(null);
 
   const loadCreds = useCallback(async () => {
     try {
-      const [c, p] = await Promise.all([
-        API.listAgentCredentials(),
-        API.listAgentPresetProviders(),
-      ]);
+      const [c, p] = await Promise.all([API.listAgentCredentials(), API.listAgentPresetProviders()]);
       setCredentials(c.credentials);
       setPresets(p.providers);
       setCustomSentinelId(p.custom_sentinel_id);
@@ -47,23 +57,21 @@ export function CredentialsSection() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 时异步拉取凭证后回写，属于受控的初始化加载
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 时异步拉取 Agent 供应商后回写，属于受控的初始化加载
     void loadCreds();
   }, [loadCreds]);
 
-  const credentialsRef = useRef<AgentCredential[]>([]);
-  useEffect(() => {
-    credentialsRef.current = credentials;
-  }, [credentials]);
+  const afterChange = useCallback(async () => {
+    await loadCreds();
+    voidCall(useConfigStatusStore.getState().refresh());
+  }, [loadCreds]);
 
   const handleCreate = useCallback(
     async (req: CreateAgentCredentialRequest) => {
       await API.createAgentCredential(req);
-      await loadCreds();
-      voidCall(useConfigStatusStore.getState().refresh());
-      useAppStore.getState().pushToast(t("agent_config_saved"), "success");
+      await afterChange();
     },
-    [loadCreds, t],
+    [afterChange],
   );
 
   const handleUpdate = useCallback(
@@ -80,12 +88,9 @@ export function CredentialsSection() {
       };
       if (req.api_key) patch.api_key = req.api_key;
       await API.updateAgentCredential(editingCred.id, patch);
-      setEditingCred(null);
-      await loadCreds();
-      voidCall(useConfigStatusStore.getState().refresh());
-      useAppStore.getState().pushToast(t("agent_config_saved"), "success");
+      await afterChange();
     },
-    [editingCred, loadCreds, t],
+    [editingCred, afterChange],
   );
 
   const handleActivate = useCallback(
@@ -93,22 +98,14 @@ export function CredentialsSection() {
       setBusyCredId(id);
       try {
         await API.activateAgentCredential(id);
-        await loadCreds();
-        const c = credentialsRef.current.find((x) => x.id === id);
-        voidCall(useConfigStatusStore.getState().refresh());
-        useAppStore
-          .getState()
-          .pushToast(
-            t("cred_activated_toast", { name: c?.display_name ?? "" }),
-            "success",
-          );
+        await afterChange();
       } catch (err) {
         useAppStore.getState().pushToast(errMsg(err), "error");
       } finally {
         setBusyCredId(null);
       }
     },
-    [loadCreds, t],
+    [afterChange],
   );
 
   const handleTest = useCallback(async (id: number) => {
@@ -116,8 +113,7 @@ export function CredentialsSection() {
     setTestResult(null);
     setTestedCredId(id);
     try {
-      const res = await API.testAgentCredential(id);
-      setTestResult(res);
+      setTestResult(await API.testAgentCredential(id));
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
@@ -126,46 +122,44 @@ export function CredentialsSection() {
   }, []);
 
   const confirmDelete = useCallback(async () => {
-    if (confirmDeleteId == null) return;
+    if (deleteTarget == null) return;
     setDeletingCred(true);
     try {
-      await API.deleteAgentCredential(confirmDeleteId);
-      await loadCreds();
-      setConfirmDeleteId(null);
+      await API.deleteAgentCredential(deleteTarget.id);
+      await afterChange();
+      setDeleteTarget(null);
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
       setDeletingCred(false);
     }
-  }, [confirmDeleteId, loadCreds]);
+  }, [deleteTarget, afterChange]);
 
   return (
-    <>
-      <SectionShell
-        kicker="Credentials"
-        title={t("agent_credentials")}
-        description={t("anthropic_key_required_desc")}
-        trailing={
-          <button
-            type="button"
-            onClick={() => setAddModalOpen(true)}
-            className={GHOST_BTN_CLS}
-          >
-            + {t("add_credential")}
-          </button>
-        }
-      >
-        <CredentialList
-          credentials={credentials}
-          busyId={busyCredId}
-          testedId={testedCredId}
-          testResult={testResult}
-          onActivate={(id) => void handleActivate(id)}
-          onTest={(id) => void handleTest(id)}
-          onEdit={setEditingCred}
-          onDelete={setConfirmDeleteId}
-        />
-      </SectionShell>
+    <section aria-labelledby="agent-providers-title" className="flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h3 id="agent-providers-title" className="text-base font-medium">
+            {t("agent_credentials")}
+          </h3>
+          <p className="text-sm text-muted-foreground">{t("agent_providers_desc")}</p>
+        </div>
+        <Button variant="outline" onClick={() => setAddModalOpen(true)} className="shrink-0">
+          <Plus aria-hidden data-icon="inline-start" />
+          {t("add_credential")}
+        </Button>
+      </div>
+
+      <CredentialList
+        credentials={credentials}
+        busyId={busyCredId}
+        testedId={testedCredId}
+        testResult={testResult}
+        onActivate={(id) => void handleActivate(id)}
+        onTest={(id) => void handleTest(id)}
+        onEdit={setEditingCred}
+        onDelete={setDeleteTarget}
+      />
 
       <AddCredentialModal
         open={addModalOpen}
@@ -199,17 +193,29 @@ export function CredentialsSection() {
         onClose={() => setEditingCred(null)}
       />
 
-      <ConfirmDialog
-        open={confirmDeleteId !== null}
-        title={t("cred_delete_confirm_title")}
-        description={t("cred_delete_confirm")}
-        confirmLabel={t("common:delete")}
-        cancelLabel={t("common:cancel")}
-        tone="danger"
-        loading={deletingCred}
-        onConfirm={() => void confirmDelete()}
-        onCancel={() => setConfirmDeleteId(null)}
-      />
-    </>
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => {
+          // 删除请求在途时不响应 Esc，避免对话框先于结果消失
+          if (!next && !deletingCred) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("cred_delete_confirm_title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("cred_delete_confirm", { name: deleteTarget?.display_name ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingCred}>{t("common:cancel")}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" disabled={deletingCred} onClick={() => void confirmDelete()}>
+              {deletingCred ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+              {t("cred_delete_action")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </section>
   );
 }
