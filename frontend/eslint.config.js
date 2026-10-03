@@ -68,7 +68,10 @@ const RESTRICT_MODULE_MOCK = {
 // ---------------------------------------------------------------------------
 // 已重做区域：@shadcn/lint 与滚动、响应式守卫只对这里列出的 glob 生效。
 // 每个区域重做的 ticket 把自己的目录加进来；交付结束时整体替换为 "src/**"。
-const REWORKED_FILES = [];
+const REWORKED_FILES = [
+  // 自动撑高输入框（#2996）
+  "src/components/ui/textarea.tsx",
+];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [];
 const UI_PRIMITIVES = "src/components/ui/**";

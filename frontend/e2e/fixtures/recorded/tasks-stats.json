@@ -1,0 +1,15 @@
+{
+  "method": "GET",
+  "path": "/api/v1/tasks/stats",
+  "status": 200,
+  "body": {
+    "stats": {
+      "queued": 0,
+      "running": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "cancelled": 0,
+      "total": 0
+    }
+  }
+}

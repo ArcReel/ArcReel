@@ -4,7 +4,7 @@ import type { TFunction } from "i18next";
 import type { NewAssetDecision, NewAssetType, PlanNewAsset, ProjectData } from "@/types";
 import { useProjectsStore } from "@/stores/projects-store";
 import { SectionShell } from "@/components/shared/SectionShell";
-import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { Textarea } from "@/components/ui/textarea";
 import { normalizeAssetName } from "@/utils/reference-mentions";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 
@@ -192,7 +192,7 @@ function DescriptionField({
   return (
     <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
       <span>{label}</span>
-      <AutoTextarea value={value} onChange={onChange} disabled={disabled} aria-label={label} className="text-muted-foreground" />
+      <Textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} aria-label={label} className="text-muted-foreground" />
     </div>
   );
 }

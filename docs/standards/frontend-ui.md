@@ -63,6 +63,10 @@ shadcn 文档与社区示例多数基于 Radix，Base UI 版本有几处差异�
 
 Dependabot 只升级 npm 包，不会重新生成 `components/ui/*.tsx`。`@base-ui/react` 与 `shadcn` 的 minor、patch 升级归入 `shadcn-stack` 分组；major 升级单独开 PR，在同一个 PR 中对已安装组件逐个运行 `pnpm exec shadcn add <组件> --diff`，手动合并上游改动并保留本地注释说明的改动。遇到原语缺陷时，先用 `add --diff` 确认上游是否已经修复。不定期全量跟进。
 
+### 多行输入框使用 `components/ui/textarea` 的 `Textarea`，不手写测高
+
+`Textarea` 用 CSS `field-sizing: content` 随内容撑高；浏览器不支持时回退到 JS 测量，在值变化、输入和宽度变化时重算。默认高度上限是 `max-h-[40cqh]`，即最近的尺寸容器高度的 40%；没有尺寸容器时按视口高度计算。超出上限后在框内滚动。需要其他上限时，在调用处用 `max-h-*` 覆盖。不要在业务组件里读写 `scrollHeight` 或在 `onInput` 里设置高度。
+
 ### 区域重做完成后，把目录登记进 `eslint.config.js` 的 `REWORKED_FILES`
 
 `@shadcn/lint` 的样式规则与滚动、响应式守卫（禁止视口高度、原语之外的 `fixed inset-0` 与读写 `scrollHeight`、业务组件的视口断点前缀）只对 `REWORKED_FILES` 中的 glob 生效。重做某个区域的改动把该区域的目录加进列表，并让这些文件零报告；交付结束时，列表替换为 `src/**`。

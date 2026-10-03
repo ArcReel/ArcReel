@@ -32,7 +32,7 @@ import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSumma
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { Textarea } from "@/components/ui/textarea";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { PlanDurationSelect } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
@@ -375,9 +375,9 @@ function UnitCard({
 
       <div className="mt-3">
         {editing && unit.editable && onTextChange ? (
-          <AutoTextarea
+          <Textarea
             value={unit.scriptText}
-            onChange={onTextChange}
+            onChange={(e) => onTextChange(e.target.value)}
             disabled={busy}
             aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unit.key) })}
             className="text-muted-foreground"

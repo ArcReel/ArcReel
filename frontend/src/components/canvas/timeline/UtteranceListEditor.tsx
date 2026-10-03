@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import type { Utterance, UtteranceKind } from "@/types";
-import { AutoTextarea } from "@/components/legacy/AutoTextarea";
+import { Textarea } from "@/components/ui/textarea";
 
 interface UtteranceListEditorProps {
   utterances: Utterance[];
@@ -160,12 +160,13 @@ function UtteranceRow({
           </button>
         </div>
 
-        <AutoTextarea
+        <Textarea
           value={value.text}
           disabled={disabled}
-          onChange={(text) =>
-            onUpdate(isDialogue ? { kind: "dialogue", speaker, text } : { kind: "voiceover", speaker: null, text })
-          }
+          onChange={(e) => {
+            const text = e.target.value;
+            onUpdate(isDialogue ? { kind: "dialogue", speaker, text } : { kind: "voiceover", speaker: null, text });
+          }}
           placeholder={isDialogue ? t("utterance_dialogue_placeholder") : t("utterance_voiceover_placeholder")}
           aria-label={isDialogue ? t("utterance_kind_dialogue") : t("utterance_kind_voiceover")}
           className={value.kind === "voiceover" ? "italic text-subtle-foreground" : ""}
