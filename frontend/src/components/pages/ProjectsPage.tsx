@@ -14,6 +14,7 @@ import { AlertTriangle, Bot, Library, Loader2, Plus, Search, Settings, Upload } 
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { API } from "@/api";
+import { settingsSectionPath } from "@/app-routes";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -26,7 +27,6 @@ import { Typewriter, type TypewriterSegment } from "@/components/pages/Typewrite
 import { WARM_TONE } from "@/utils/severity-tone";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
-import { ExternalAgentModal } from "./ExternalAgentModal";
 import { ACCENT_BUTTON_STYLE, ICON_BTN_FILLED_CLS } from "@/components/shared/darkroom-tokens";
 import {
   ProjectCard,
@@ -384,7 +384,6 @@ interface TopBarProps {
   onCreate: () => void;
   onSettings: () => void;
   onAssets: () => void;
-  onOpenExternalAgent: () => void;
   importing: boolean;
   configIncomplete: boolean;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
@@ -397,7 +396,6 @@ function TopBar({
   onCreate,
   onSettings,
   onAssets,
-  onOpenExternalAgent,
   importing,
   configIncomplete,
   searchInputRef,
@@ -491,15 +489,14 @@ function TopBar({
             {t("dashboard:create_project")}
           </button>
           <span aria-hidden className="mx-1 h-5 w-px bg-border/50" />
-          <button
-            type="button"
-            onClick={onOpenExternalAgent}
+          <Link
+            href={settingsSectionPath("external-agent")}
             className="rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            title={t("dashboard:external_agent_guide")}
-            aria-label={t("dashboard:external_agent_guide")}
+            title={t("dashboard:settings_external_agent")}
+            aria-label={t("dashboard:settings_external_agent")}
           >
             <Bot className="h-4 w-4" aria-hidden />
-          </button>
+          </Link>
           <button
             type="button"
             onClick={onSettings}
@@ -755,7 +752,6 @@ export function ProjectsPage() {
     | { source: "failure"; diagnostics: ImportFailureDiagnostics };
   const [importDiagnostics, setImportDiagnostics] =
     useState<ImportDiagnosticsState | null>(null);
-  const [showExternalAgent, setShowExternalAgent] = useState(false);
   const [deletingProject, setDeletingProject] = useState<ProjectSummary | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [lobbyFilter, setLobbyFilter] = useState<LobbyFilter>("all");
@@ -970,7 +966,6 @@ export function ProjectsPage() {
         onCreate={() => setShowCreateModal(true)}
         onSettings={() => navigate("/app/settings")}
         onAssets={() => navigate("/app/assets")}
-        onOpenExternalAgent={() => setShowExternalAgent(true)}
         importing={importingProject}
         configIncomplete={!isConfigComplete}
         searchInputRef={searchInputRef}
@@ -1126,9 +1121,6 @@ export function ProjectsPage() {
         />
       )}
 
-      {showExternalAgent && (
-        <ExternalAgentModal onClose={() => setShowExternalAgent(false)} />
-      )}
       {showCreateModal && <CreateProjectModal />}
 
       <ConfirmDialog

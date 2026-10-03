@@ -804,8 +804,8 @@ _Avoid_: SandboxPolicy。
 _Avoid_: 把所有 bearer token 都叫 API Key。
 
 **API Key**：
-面向自动化访问的广泛权限凭证，可访问绝大多数业务与配置能力，但无权管理 API Key；泄漏仍属于高影响安全事件。
-_Avoid_: 与会话 JWT 完全等同、scoped token。
+面向自动化访问的广泛权限凭证，可访问绝大多数业务与配置能力，但无权管理 API Key；泄漏仍属于高影响安全事件。界面称「访问令牌」（英文 Access tokens），与媒体供应商下的「密钥」区分签发方向。
+_Avoid_: 与会话 JWT 完全等同、scoped token；界面上称「API 令牌」「API 密钥」。
 
 **下载 token（download token）**：
 为项目导出签发的短时效凭证，只对导出端点有效，是自带认证端点目前唯一的凭证形态（见 `docs/adr/0071`）。

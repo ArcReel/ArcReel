@@ -55,10 +55,10 @@ describe("ProjectsPage", () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
     renderPage();
 
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "外部智能体接入" }));
-
-    expect(screen.getByRole("dialog", { name: "外部智能体接入" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "外部 Agent 接入" })).toHaveAttribute(
+      "href",
+      "/app/settings?section=external-agent",
+    );
   });
 
   it("does not mark settings incomplete when only the embedded-agent credential is missing", async () => {

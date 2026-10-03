@@ -187,7 +187,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 - 文件日志固定写入数据根下的 `logs/`。旧变量 `ARCREEL_LOG_DIR` 已不再生效，仍设置时启动日志会提示一次；只需要 stdout 日志时设置 `ARCREEL_LOG_FILE_DISABLED=true`。
 - 第三方模型 API Key 通常在 ArcReel 设置页中管理，不要写入公开文档。
 
-远程 MCP 端点为 `/mcp`，始终要求 `arc-` 前缀 API Key；即使 `AUTH_ENABLED=false` 也不会匿名放行。外部接入不需要额外的 `MCP_*` 配置：把设置页「外部智能体接入」弹窗给出的端点地址与 API Key 填进客户端即可，通过保留 SSE 长连接的 HTTPS 反向代理、VPN 或安全隧道访问。
+远程 MCP 端点为 `/mcp`，始终要求 `arc-` 前缀 API Key；即使 `AUTH_ENABLED=false` 也不会匿名放行。外部接入不需要额外的 `MCP_*` 配置：把设置页「外部 Agent 接入」给出的端点地址，与在「访问令牌」创建的 API Key 填进客户端即可，通过保留 SSE 长连接的 HTTPS 反向代理、VPN 或安全隧道访问。
 
 服务端不校验请求的 `Host` 头，端点边界由每请求强制的 API Key 承担；域名归属交给部署形态，请在反向代理上限定 `server_name`（Nginx）或等价规则，只把预期域名的请求转发给 ArcReel。
 
