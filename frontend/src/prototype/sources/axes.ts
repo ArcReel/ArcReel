@@ -20,6 +20,14 @@ export const AXES = {
       collapse: "进入分集视图时折叠为图标栏，集清单只在画布里出现一次",
     },
   },
+  replanLayout: {
+    label: "有新方案时",
+    scope: "episodes",
+    values: {
+      keep: "集目录保留，方案栏加在右侧",
+      yield: "集目录让位，只留原文与右侧方案栏",
+    },
+  },
   tools: {
     label: "上传与规划入口",
     scope: "episodes",
@@ -85,12 +93,13 @@ export type AxisState = { [K in AxisKey]: AxisValue<K> };
 
 export const AXIS_KEYS = Object.keys(AXES) as AxisKey[];
 
-export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: Omit<AxisState, "mock"> }> = {
+export const PRESETS: Record<"A" | "B" | "C" | "D" | "E", { name: string; axes: Omit<AxisState, "mock"> }> = {
   A: {
     name: "现状",
     axes: {
       layout: "split",
       sidebar: "keep",
+      replanLayout: "keep",
       tools: "rail",
       list: "full",
       notices: "panel",
@@ -104,6 +113,7 @@ export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: Omit<A
     axes: {
       layout: "split",
       sidebar: "keep",
+      replanLayout: "keep",
       tools: "header",
       list: "compact",
       notices: "banner",
@@ -117,6 +127,7 @@ export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: Omit<A
     axes: {
       layout: "outline",
       sidebar: "collapse",
+      replanLayout: "keep",
       tools: "header",
       list: "compact",
       notices: "banner",
@@ -130,12 +141,27 @@ export const PRESETS: Record<"A" | "B" | "C" | "D", { name: string; axes: Omit<A
     axes: {
       layout: "tabs",
       sidebar: "keep",
+      replanLayout: "keep",
       tools: "header",
       list: "compact",
       notices: "banner",
       review: "planTab",
       planEntry: "inline",
       guide: "top",
+    },
+  },
+  E: {
+    name: "维护者选定",
+    axes: {
+      layout: "outline",
+      sidebar: "collapse",
+      replanLayout: "yield",
+      tools: "header",
+      list: "compact",
+      notices: "banner",
+      review: "planTab",
+      planEntry: "inline",
+      guide: "side",
     },
   },
 };

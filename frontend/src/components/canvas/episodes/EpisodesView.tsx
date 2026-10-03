@@ -297,8 +297,10 @@ export function EpisodesView({ projectName }: { projectName: string }) {
 
   let body: React.ReactNode;
   if (layout === "outline") {
+    const outlineYields = view.replan !== null && axes.replanLayout === "yield";
     body = (
       <>
+        {outlineYields ? null : (
         <aside className="w-[clamp(240px,26cqw,300px)] min-h-0 shrink-0 overflow-y-auto border-r border-border" aria-label="集目录">
           {!banner && view.unregistered.length > 0 ? (
             <div className="px-3 pt-3">
@@ -315,6 +317,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
             actions={menuActions}
           />
         </aside>
+        )}
         {manuscript}
         {replanAside}
       </>

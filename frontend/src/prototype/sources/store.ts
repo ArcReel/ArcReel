@@ -33,7 +33,7 @@ function readInitial(): State {
   } catch {
     // 原型：读不到就用默认
   }
-  return { preset: "B", overrides: {} };
+  return { preset: "E", overrides: {} };
 }
 
 let state: State = readInitial();
