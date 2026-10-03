@@ -1,0 +1,15 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/agent-memory",
+  "status": 200,
+  "body": {
+    "path": "<data-dir>/projects/demo/.arcreel/memory",
+    "index": {
+      "exists": false,
+      "line_count": 0,
+      "byte_size": 0,
+      "over_limit": false
+    },
+    "files": []
+  }
+}

@@ -347,7 +347,7 @@ describe("ScriptReviewGate", () => {
 
     const notice = await screen.findByRole("alert");
     expect(notice).toHaveTextContent("尚未配置可用的视频模型");
-    expect(screen.getByRole("link", { name: "前往项目设置" })).toHaveAttribute("href", "/app/projects/p/settings");
+    expect(screen.getByRole("link", { name: "前往项目设置" })).toHaveAttribute("href", "/app/projects/p/settings?tab=models");
     const button = screen.getByRole("button", { name: "确认并继续" });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("title", expect.stringContaining("尚未配置可用的视频模型"));

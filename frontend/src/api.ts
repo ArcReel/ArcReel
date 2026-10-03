@@ -496,8 +496,11 @@ class API {
     });
   }
 
-  static async getAgentProfileStatus(name: string): Promise<AgentProfileStatus> {
-    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile`);
+  static async getAgentProfileStatus(
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<AgentProfileStatus> {
+    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile`, { signal: options.signal });
   }
 
   static async resetAgentProfile(name: string): Promise<AgentProfileStatus> {

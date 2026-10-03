@@ -91,7 +91,7 @@ function AlertDialogHeader({
   )
 }
 
-// 本地新增：说明文字过长时只有这一段滚动
+// 本地新增：说明文字过长时只有这一段滚动。内容可能超高时由使用方加 tabIndex={0}，键盘才能滚动，聚焦环画在内侧以免被弹层裁掉
 function AlertDialogBody({
   className,
   ...props
@@ -100,7 +100,7 @@ function AlertDialogBody({
     <div
       data-slot="alert-dialog-body"
       className={cn(
-        "relative min-h-0 flex-1 overflow-y-auto px-5 pb-4 text-sm text-muted-foreground [scrollbar-gutter:stable]",
+        "relative min-h-0 flex-1 overflow-y-auto px-5 pb-4 text-sm text-muted-foreground outline-none [scrollbar-gutter:stable] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset",
         className
       )}
       {...props}

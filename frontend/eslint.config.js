@@ -120,6 +120,9 @@ const REWORKED_FILES = [
   // 资产库：页面、卡片与详情 Sheet、应用到项目，以及画廊里的入库预览与「从资产库导入」
   "src/components/pages/AssetLibraryPage.tsx",
   "src/components/assets/{AddToLibraryButton,ApplyToProjectDialog,AssetCard,AssetCreateDialog,AssetDetailSheet,AssetPickerModal,AssetThumb,DeleteAssetDialog,LoadMoreSentinel,asset-type-icons,useAssetPages}.{ts,tsx}",
+  // 项目设置：侧栏分页、风格对话框与 Agent 配置
+  "src/components/pages/ProjectSettingsPage.tsx",
+  "src/components/pages/project-settings/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
