@@ -199,6 +199,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 - **`SecondaryRail`**：传 `groups`（每组 `{ id, label, items, action?, emptyText? }`）与 `activeId`。条目是 `{ id, label, description?, icon, href }`：第二行 `description` 写状态或数量，选中经 `href` 走路由，离开拦截因此覆盖切换。`action` 是组末尾的动作条目（如「添加自定义供应商」），不计入 Tab 上的数量。二级栏按 `@container/page` 的宽度切换形态：内容区不窄于 64rem 时是 264px 的两行条目，多组时顶部是 Tab，每次只列一组；更窄时收为 56px 的图标栏，悬停或聚焦显示名称，多组上下叠放。没有手动切换过时 Tab 跟随选中项所在的组。只有一组时不显示 Tab。
 - **`DetailPane`**：分 `header`、正文与 `footer` 三段，只有正文滚动。设置类详情的 `SaveBar` 放进 `footer`，常驻底部。正文不带内边距，表单通常写 `max-w-190 px-6 py-6`，此时保存栏写 `max-w-178`，与表单列同宽、同起点。
 - 选中项换了就整栏重建：给详情组件传 `key`，上一项的未保存修改、在途请求与加载状态不会带到下一项。
+- 限宽页里放不下二级栏时（如项目设置的「项目记忆」），用 `SecondaryRailList` 单独列出同一组条目：列表不自带滚动，由外壳主体滚动，详情放在列表旁边并 `sticky` 吸顶，选中末尾的条目时详情仍在视野里。
 
 两种形态都在 DOM 里，靠容器查询只显示其中一种，被隐藏的一份不进入可访问树。jsdom 不计算样式，Vitest 中两份都可见：按条目查询时限定在 `getByRole("tabpanel")` 内，或用 `getAllBy*`。
 

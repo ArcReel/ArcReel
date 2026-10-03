@@ -4,7 +4,7 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 项目设置：侧栏分页（项目 / Agent 两组）、外壳底行的保存栏、风格对话框、模型分页的覆盖来源、
-// 配音分页与 Agent 配置的重置确认。项目记忆的编辑器由记忆编辑器区域重做，这里只探测入口分页。
+// 配音分页与 Agent 配置的重置确认。项目记忆的文件区见 agent-memory.spec.ts，这里只探测空目录时的入口分页。
 
 const RECORDED = loadRecordedResponses();
 const PROJECT_KEY = "GET /api/v1/projects/demo";

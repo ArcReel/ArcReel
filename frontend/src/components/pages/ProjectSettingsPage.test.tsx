@@ -165,7 +165,7 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "放弃修改" }));
 
     await waitFor(() => expect(location.history.at(-1)).toBe("/app/projects/demo/settings?tab=memory"));
-    expect(await screen.findByText("/projects/demo/.arcreel/memory")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "新建记忆文件" })).toBeInTheDocument();
     expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "project", projectName: "demo" }, expect.anything());
     // 记忆与 Agent 配置各管各的保存，不显示外壳保存栏
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
@@ -191,6 +191,34 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
       "demo",
       expect.objectContaining({ aspect_ratio: "16:9", style_template_id: null, clear_style_image: true }),
     );
+  });
+
+  it("项目记忆的未保存修改在返回项目或切到表单分页时被拦截，保存并离开先保存记忆文件", async () => {
+    mockProject({});
+    vi.spyOn(API, "getAgentMemory").mockResolvedValue({
+      path: "/projects/demo/.arcreel/memory",
+      index: { exists: true, line_count: 1, byte_size: 30, over_limit: false },
+      files: [],
+    });
+    vi.spyOn(API, "getAgentMemoryFile").mockResolvedValue("- [画幅](aspect.md)\n");
+    const saveFile = vi.spyOn(API, "saveAgentMemoryFile").mockResolvedValue({ name: "MEMORY.md" });
+    const { location } = renderAt("/app/projects/demo/settings?tab=memory");
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "MEMORY.md" }), { target: { value: "- 新条目\n" } });
+
+    fireEvent.click(within(sidebar()).getByRole("link", { name: "基础" }));
+    const switching = await screen.findByRole("alertdialog", { name: "「MEMORY.md」有未保存的修改" });
+    fireEvent.click(within(switching).getByRole("button", { name: "继续编辑" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(location.history.at(-1)).toBe("/app/projects/demo/settings?tab=memory");
+    expect(screen.getByRole("textbox", { name: "MEMORY.md" })).toHaveValue("- 新条目\n");
+
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    const leaving = await screen.findByRole("alertdialog", { name: "「MEMORY.md」有未保存的修改" });
+    fireEvent.click(within(leaving).getByRole("button", { name: "保存并离开" }));
+
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/projects/demo"));
+    expect(saveFile).toHaveBeenCalledWith({ level: "project", projectName: "demo" }, "MEMORY.md", "- 新条目\n");
   });
 
   it("新参考图在项目 PATCH 之后上传；上传失败时如实说明其他修改已保存，并保留未保存修改", async () => {

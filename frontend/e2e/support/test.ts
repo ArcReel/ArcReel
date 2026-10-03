@@ -6,7 +6,10 @@ import { FIXED_NOW, loadRecordedResponses, recordedKey, type RecordedResponse } 
 
 const RECORDED = loadRecordedResponses();
 
-/** 场景对某个接口的替换响应，用于长文本、多条目等压力变体；键形如 `GET /api/v1/projects`，带查询串的请求写全查询串。 */
+/**
+ * 场景对某个接口的替换响应，用于长文本、多条目等压力变体；键形如 `GET /api/v1/projects`，带查询串的请求写全查询串。
+ * `body` 是字符串时按 text/plain 原样返回，其余按 JSON 返回。
+ */
 export type ApiOverrides = Record<string, Pick<RecordedResponse, "status" | "body">>;
 
 export interface ApiStub {
@@ -36,6 +39,11 @@ export const test = base.extend<{ api: ApiStub }>({
         if (!response) {
           unrecorded.push(key);
           await route.fulfill({ status: 501, json: { detail: `没有录制 ${key}` } });
+          return;
+        }
+        // 记忆文件正文等接口按 text/plain 返回原文：替换响应的 body 写成字符串
+        if (typeof response.body === "string") {
+          await route.fulfill({ status: response.status, body: response.body, contentType: "text/plain; charset=utf-8" });
           return;
         }
         await route.fulfill({ status: response.status, json: response.body });

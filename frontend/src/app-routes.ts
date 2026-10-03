@@ -92,11 +92,17 @@ export type ProjectSettingsTab = (typeof PROJECT_SETTINGS_TABS)[number];
 
 /**
  * 项目设置某个分页的地址（顶层路由的绝对路径）。不传 `tab` 时落在默认的「基础」。
+ * `params` 是分页自己的地址参数，如项目记忆选中的文件（`file=`）。
  * 在项目工作区的嵌套路由里跳转时在前面加 `~`。
  */
-export function projectSettingsPath(projectName: string, tab?: ProjectSettingsTab): string {
+export function projectSettingsPath(
+  projectName: string,
+  tab?: ProjectSettingsTab,
+  params: Record<string, string> = {},
+): string {
   const path = `${ROUTE_APP_PROJECTS}/${encodeURIComponent(projectName)}/${WORKSPACE_ROUTE_SETTINGS}`;
-  return tab ? `${path}?${new URLSearchParams({ tab }).toString()}` : path;
+  const query = new URLSearchParams({ ...(tab ? { tab } : {}), ...params }).toString();
+  return query ? `${path}?${query}` : path;
 }
 
 export const WORKSPACE_ROUTE_CHARACTERS = "characters";

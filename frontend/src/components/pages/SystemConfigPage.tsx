@@ -19,7 +19,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { SETTINGS_SECTIONS, settingsSectionPath, type SettingsSection } from "@/app-routes";
-import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
+import { AgentMemorySection } from "@/components/agent-memory/AgentMemorySection";
 import { PageHeader } from "@/components/shared/page-shell/PageHeader";
 import { PageShell, type ContainerTier } from "@/components/shared/page-shell/PageShell";
 import { PageSidebar, type PageSidebarGroup } from "@/components/shared/page-shell/PageSidebar";
@@ -152,12 +152,7 @@ function SectionContent({ section }: { section: SettingsSection }) {
     case "arcreel-agent":
       return <AgentConfigTab />;
     case "agent-memory":
-      // 记忆编辑器重做前先整体放进一栏滚动；全出血档不提供内边距。
-      return (
-        <div className="relative min-h-0 flex-1 overflow-y-auto p-6 [scrollbar-gutter:stable]">
-          <AgentMemoryCabinet scope={{ level: "user" }} frame="section" />
-        </div>
-      );
+      return <AgentMemorySection />;
     case "external-agent":
       return <ExternalAgentSection />;
     case "access-tokens":

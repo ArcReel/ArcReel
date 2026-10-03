@@ -123,6 +123,8 @@ const REWORKED_FILES = [
   // 项目设置：侧栏分页、风格对话框与 Agent 配置
   "src/components/pages/ProjectSettingsPage.tsx",
   "src/components/pages/project-settings/**",
+  // 记忆编辑器：Agent 记忆分区与项目记忆分页共用的文件列表、编辑器与确认
+  "src/components/agent-memory/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
