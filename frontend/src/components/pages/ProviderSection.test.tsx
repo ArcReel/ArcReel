@@ -134,9 +134,9 @@ function customProvider(id: number, displayName: string): CustomProviderInfo {
 
 /** 在「新建自定义供应商」表单里填满必填项并保存。 */
 function saveNewCustomProvider() {
-  fireEvent.change(screen.getByLabelText(/名称/), { target: { value: "我的中转站" } });
-  fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "https://api.example.invalid" } });
-  fireEvent.change(screen.getByLabelText(/API Key/), { target: { value: "sk-live" } });
+  fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
+  fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://api.example.invalid" } });
+  fireEvent.change(screen.getByLabelText("密钥"), { target: { value: "sk-live" } });
   fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
   fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "gpt-4o" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -382,5 +382,25 @@ describe("ProviderSection", () => {
         tone: "warning",
       }),
     );
+  });
+
+  it("deleting a custom provider with unsaved edits goes straight to the first preset", async () => {
+    // 供应商已经删掉，未保存的修改无处可存：删除后的跳转不再弹离开拦截
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT] });
+    vi.spyOn(API, "getCustomProvider").mockResolvedValue(customProvider(1, "旧端点"));
+    vi.spyOn(API, "deleteCustomProvider").mockResolvedValue();
+
+    const { location } = renderAt("/app/settings?section=providers&custom=1");
+    fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "改过的名字" } });
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "删除供应商" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "删除供应商「旧端点」？" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除供应商" }));
+
+    await waitFor(() =>
+      expect(location.history.at(-1)).toBe("/app/settings?section=providers&provider=gemini-aistudio"),
+    );
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });

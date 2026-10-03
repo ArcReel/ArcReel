@@ -7,6 +7,7 @@ import { useProviderCatalog } from "@/hooks/useProviderCatalog";
 import type { CatalogRefreshResult } from "@/hooks/useProviderCatalog";
 import { useAppStore } from "@/stores/app-store";
 import { ProviderIcon } from "@/components/shared/ProviderIcon";
+import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { SecondaryRail, type SecondaryRailGroup } from "@/components/shared/master-detail/SecondaryRail";
 import { Button } from "@/components/ui/button";
 import { ProviderDetail } from "./ProviderDetail";
@@ -152,37 +153,41 @@ export function ProviderSection() {
     <div className="flex min-h-0 min-w-0 flex-1">
       <SecondaryRail label={t("provider_list")} groups={railGroups} activeId={railId(selection)} replace />
 
-      {selection?.kind === "preset" ? (
+      {selection?.kind === "preset" && (
         // 换供应商时整栏重建：未保存的高级配置、在途保存与加载状态都属于上一个供应商
         <ProviderDetail key={selection.id} providerId={selection.id} onSaved={refreshAfterSave} />
-      ) : (
-        <div className="relative min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-          {selection?.kind === "custom" && (
-            <CustomProviderDetail
-              providerId={selection.id}
-              initialModelId={modelId}
-              onDeleted={() => {
-                void refresh();
-                selectFirstPreset();
-              }}
-              onSaved={refreshAfterSave}
-            />
-          )}
-          {selection?.kind === "new-custom" && (
-            <CustomProviderForm
-              initialBaseUrl={prefill.baseUrl}
-              initialEndpoint={prefill.endpoint}
-              onSaved={(created) => {
-                // 选中用新建响应带回的 id，不等目录重取的结局：重取被后续请求接管时，
-                // 用户会留在填满的新建表单上，再保存一次就多出一个重复供应商。
-                if (created) navigate(providerSettingsPath({ custom: created.id }), { replace: true });
-                refreshAfterSave();
-              }}
-              onCancel={selectFirstPreset}
-            />
-          )}
-          {!selection && <p className="p-6 text-sm text-muted-foreground">{t("select_provider")}</p>}
-        </div>
+      )}
+      {selection?.kind === "custom" && (
+        // 深链换了要定位的模型时同样重建，按新的模型展开
+        <CustomProviderDetail
+          key={`${selection.id}:${modelId ?? ""}`}
+          providerId={selection.id}
+          initialModelId={modelId}
+          onDeleted={() => {
+            void refresh();
+            selectFirstPreset();
+          }}
+          onSaved={refreshAfterSave}
+        />
+      )}
+      {selection?.kind === "new-custom" && (
+        <CustomProviderForm
+          // 预填参数变了（从另一个端点接线过来）就是另一张新建表单
+          key={`new:${prefill.endpoint ?? ""}:${prefill.baseUrl ?? ""}`}
+          initialBaseUrl={prefill.baseUrl}
+          initialEndpoint={prefill.endpoint}
+          onSaved={(created) => {
+            // 选中用新建响应带回的 id，不等目录重取的结局：重取被后续请求接管时，
+            // 用户会留在填满的新建表单上，再保存一次就多出一个重复供应商。
+            if (created) navigate(providerSettingsPath({ custom: created.id }), { replace: true });
+            refreshAfterSave();
+          }}
+        />
+      )}
+      {!selection && (
+        <DetailPane>
+          <p className="p-6 text-sm text-muted-foreground">{t("select_provider")}</p>
+        </DetailPane>
       )}
     </div>
   );

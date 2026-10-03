@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -9,7 +10,7 @@ import { CustomProviderForm } from "./CustomProviderForm";
 // ---------------------------------------------------------------------------
 // CustomProviderForm —— discovery_format = comfyui 下的表单行为
 // ---------------------------------------------------------------------------
-// 该协议下表单有四处与别的协议不同：API Key 可留空、「发现模型」被说明取代、端点选择器只列
+// 该协议下表单有四处与别的协议不同：密钥可留空、「发现模型」被说明取代、端点选择器只列
 // ComfyUI 端点、模型行不给能力覆盖入口。四条各一例，并各配一条其他协议不受影响的对照。
 // 另收一例接线：从某个端点跳过来新建供应商时，协议由那个端点定。
 
@@ -86,18 +87,36 @@ const CREATED = {
 };
 
 function renderForm(initialEndpoint?: string) {
-  render(<CustomProviderForm onSaved={vi.fn()} onCancel={vi.fn()} initialEndpoint={initialEndpoint} />);
+  render(<CustomProviderForm onSaved={vi.fn()} initialEndpoint={initialEndpoint} />);
 }
 
-/** 切到某个模型发现协议；协议下拉是原生 select，按 option 的 value 选。 */
-function selectProtocol(format: string) {
-  fireEvent.change(screen.getByLabelText("模型发现协议"), { target: { value: format } });
+const PROTOCOL_LABELS: Record<string, string> = { openai: "OpenAI 兼容", google: "Google AI Studio", comfyui: "ComfyUI" };
+
+function protocolPicker() {
+  return screen.getByRole("combobox", { name: "模型发现协议" });
+}
+
+/** 在协议下拉里选中某个模型发现协议。 */
+async function selectProtocol(format: string) {
+  const user = userEvent.setup();
+  await user.click(protocolPicker());
+  await user.click(await screen.findByRole("option", { name: PROTOCOL_LABELS[format] }));
+}
+
+function endpointPicker() {
+  return screen.getByRole("combobox", { name: "调用端点" });
 }
 
 /** 打开端点选择器弹层并返回它的 listbox。 */
 async function openEndpointPicker() {
-  fireEvent.click(screen.getByRole("button", { name: "调用端点" }));
-  return await screen.findByRole("listbox", { name: "调用端点" });
+  await userEvent.setup().click(endpointPicker());
+  return await screen.findByRole("listbox");
+}
+
+/** 保存后保存栏上显示的失败原因。 */
+async function saveError() {
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  return await screen.findByRole("alert");
 }
 
 describe("CustomProviderForm（comfyui 协议）", () => {
@@ -108,33 +127,35 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     vi.spyOn(API, "createCustomProvider").mockRejectedValue(new Error("unexpected create"));
   });
 
-  it("offers ComfyUI in the protocol dropdown", () => {
+  it("offers ComfyUI in the protocol dropdown", async () => {
     renderForm();
 
-    expect(within(screen.getByLabelText("模型发现协议")).getByRole("option", { name: "ComfyUI" })).toBeInTheDocument();
+    await userEvent.setup().click(protocolPicker());
+
+    expect(await screen.findByRole("option", { name: "ComfyUI" })).toBeInTheDocument();
   });
 
   it("switches to the ComfyUI protocol when wired from a ComfyUI endpoint", async () => {
     // 协议留在 openai 上时那一行在端点选择器里是隐着的，保存又会被双向配对拒掉。
     renderForm("ce-2");
 
-    await waitFor(() => expect(screen.getByLabelText("模型发现协议")).toHaveValue("comfyui"));
+    await waitFor(() => expect(protocolPicker()).toHaveTextContent("ComfyUI"));
   });
 
   it("leaves the protocol alone when wired from a declarative endpoint", async () => {
     renderForm("ce-1");
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
 
-    expect(screen.getByLabelText("模型发现协议")).toHaveValue("openai");
+    expect(protocolPicker()).toHaveTextContent("OpenAI 兼容");
   });
 
   it("does not undo a protocol the user picked after being wired in", async () => {
     renderForm("ce-2");
-    await waitFor(() => expect(screen.getByLabelText("模型发现协议")).toHaveValue("comfyui"));
+    await waitFor(() => expect(protocolPicker()).toHaveTextContent("ComfyUI"));
 
-    selectProtocol("openai");
+    await selectProtocol("openai");
 
-    expect(screen.getByLabelText("模型发现协议")).toHaveValue("openai");
+    expect(protocolPicker()).toHaveTextContent("OpenAI 兼容");
   });
 
   it("re-points model rows that cannot hang on the new protocol", async () => {
@@ -143,20 +164,20 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
 
-    expect(screen.getByRole("button", { name: "调用端点" })).toHaveTextContent("我的 Wan workflow");
+    expect(endpointPicker()).toHaveTextContent("我的 Wan workflow");
   });
 
   it("re-points them back when the protocol leaves ComfyUI", async () => {
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
-    selectProtocol("openai");
+    await selectProtocol("openai");
 
-    expect(screen.getByRole("button", { name: "调用端点" })).toHaveTextContent("OpenAI 文本");
+    expect(endpointPicker()).toHaveTextContent("OpenAI 文本");
   });
 
   it("parks rows with nowhere to hang and holds back the save", async () => {
@@ -169,11 +190,15 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
 
-    expect(screen.getByRole("button", { name: "调用端点" })).toHaveTextContent("未选择端点");
-    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    expect(endpointPicker()).toHaveTextContent("未选择端点");
     expect(screen.getByText(/有模型行还没选 ComfyUI 端点/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
+    expect(await saveError()).toHaveTextContent("有模型行还没选 ComfyUI 端点");
+    expect(API.createCustomProvider).not.toHaveBeenCalled();
   });
 
   it("releases the save once the parked row gets an endpoint", async () => {
@@ -181,11 +206,11 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
 
-    // 有 ComfyUI 端点可挂时根本不会停在未选择上，保存照常可用。
-    expect(screen.getByRole("button", { name: "调用端点" })).toHaveTextContent("我的 Wan workflow");
-    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+    // 有 ComfyUI 端点可挂时根本不会停在未选择上，也不提示去选端点。
+    expect(endpointPicker()).toHaveTextContent("我的 Wan workflow");
+    expect(screen.queryByText(/有模型行还没选 ComfyUI 端点/)).not.toBeInTheDocument();
   });
 
   it("drops the capability override when the row is re-pointed onto ComfyUI", async () => {
@@ -196,14 +221,14 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
     const listbox = await openEndpointPicker();
-    fireEvent.click(within(listbox).getByRole("option", { name: /我的声明式端点/ }));
-    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: "我的 ComfyUI" } });
-    fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "http://comfy.invalid:8188" } });
+    await userEvent.setup().click(within(listbox).getByRole("option", { name: /我的声明式端点/ }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
     // model_id 与 endpoint 一改，覆盖本就随之作废；覆盖要设在它们之后才留得住。
     fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
     fireEvent.click(await screen.findByRole("radio", { name: "强制关" }));
 
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() =>
@@ -222,12 +247,12 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
-    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: "我的 ComfyUI" } });
-    fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "http://comfy.invalid:8188" } });
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
     fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
 
-    selectProtocol("comfyui");
-    fireEvent.click(screen.getByRole("button", { name: "默认" }));
+    await selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "将 wan-t2v 设为默认" }));
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() =>
@@ -251,10 +276,10 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     renderForm();
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     deliver({ endpoints: ALL_ENDPOINTS });
 
-    expect(await screen.findByRole("button", { name: "调用端点" })).toHaveTextContent("我的 Wan workflow");
+    expect(await screen.findByRole("combobox", { name: "调用端点" })).toHaveTextContent("我的 Wan workflow");
   });
 
   it("holds back the save while the wired endpoint is still unresolved", async () => {
@@ -262,19 +287,12 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     // 密钥也一并填上——协议回退成 openai 时它是必填的，那条校验排在前面，不填就走不到这一步。
     vi.spyOn(API, "listEndpointCatalog").mockReturnValue(new Promise(() => undefined));
     renderForm("ce-2");
-    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: "我的 ComfyUI" } });
-    fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "http://comfy.invalid:8188" } });
-    fireEvent.change(screen.getByLabelText(/API Key/), { target: { value: "sk-live" } });
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
+    fireEvent.change(screen.getByLabelText("密钥"), { target: { value: "sk-live" } });
     fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    await waitFor(() =>
-      expect(useAppStore.getState().toast).toMatchObject({
-        text: "端点目录还没加载完，这几行挂的端点能不能用还判不了。稍候再保存。",
-        tone: "error",
-      }),
-    );
+    expect(await saveError()).toHaveTextContent("端点目录还没加载完，这几行挂的端点能不能用还判不了。稍候再保存。");
     expect(API.createCustomProvider).not.toHaveBeenCalled();
   });
 
@@ -282,14 +300,14 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     renderForm();
     expect(screen.getByRole("button", { name: "获取模型列表" })).toBeInTheDocument();
 
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
 
     expect(screen.queryByRole("button", { name: "获取模型列表" })).not.toBeInTheDocument();
-    expect(screen.getByText(/「发现模型」对 ComfyUI 不适用/)).toBeInTheDocument();
+    expect(screen.getByText(/「获取模型列表」对 ComfyUI 不适用/)).toBeInTheDocument();
     await waitFor(() => expect(API.listEndpointCatalog).toHaveBeenCalled());
   });
 
-  it("saves with an empty API key", async () => {
+  it("saves with an empty key", async () => {
     vi.mocked(API.createCustomProvider).mockResolvedValue({
       id: 9,
       display_name: "我的 ComfyUI",
@@ -305,9 +323,9 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
 
-    selectProtocol("comfyui");
-    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: "我的 ComfyUI" } });
-    fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "http://comfy.invalid:8188" } });
+    await selectProtocol("comfyui");
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
     fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -323,25 +341,21 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     );
   });
 
-  it("still requires an API key on the other protocols", async () => {
+  it("still requires a key on the other protocols", async () => {
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
 
-    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: "我的中转站" } });
-    fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "https://api.example.invalid" } });
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://api.example.invalid" } });
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
     fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "gpt-4o" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    await waitFor(() =>
-      expect(useAppStore.getState().toast).toMatchObject({ text: "请填写 API Key", tone: "error" }),
-    );
+    expect(await saveError()).toHaveTextContent("请填写密钥");
   });
 
   it("lists only ComfyUI endpoints in the endpoint picker", async () => {
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     const listbox = await openEndpointPicker();
@@ -365,7 +379,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
   it("hides the capability override control on a ComfyUI model row", async () => {
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     expect(screen.queryByRole("radiogroup", { name: "尾帧能力覆盖" })).not.toBeInTheDocument();
@@ -377,7 +391,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     const listbox = await openEndpointPicker();
-    fireEvent.click(within(listbox).getByRole("option", { name: /我的声明式端点/ }));
+    await userEvent.setup().click(within(listbox).getByRole("option", { name: /我的声明式端点/ }));
 
     expect(await screen.findByRole("radiogroup", { name: "尾帧能力覆盖" })).toBeInTheDocument();
   });
@@ -389,7 +403,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     });
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     const durations = screen.getByLabelText("支持秒数");
@@ -415,7 +429,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     });
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     const durations = screen.getByLabelText("支持秒数");
@@ -442,7 +456,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     });
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     const durations = screen.getByLabelText("支持秒数");
@@ -456,7 +470,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
   it("keeps the duration tier editable when frames are bound", async () => {
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     expect(screen.getByLabelText("支持秒数")).toBeEnabled();
@@ -472,7 +486,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     });
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     const picker = screen.getByLabelText("分辨率");
@@ -489,7 +503,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     });
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     const picker = screen.getByLabelText("分辨率");
@@ -504,7 +518,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     });
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     const picker = screen.getByLabelText("分辨率");
@@ -512,11 +526,11 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     expect(picker).toHaveAttribute("placeholder", "workflow 原生（720p）");
   });
 
-  it("announces the per-protocol concurrency default of one", () => {
+  it("announces the per-protocol concurrency default of one", async () => {
     renderForm();
     expect(screen.getByLabelText("视频并发")).toHaveAttribute("placeholder", "默认");
 
-    selectProtocol("comfyui");
+    await selectProtocol("comfyui");
 
     expect(screen.getByLabelText("视频并发")).toHaveAttribute("placeholder", "默认 1");
     expect(screen.getByText(/该协议默认 1/)).toBeInTheDocument();
