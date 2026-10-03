@@ -136,7 +136,7 @@ export default {
   'demo_shot_6_video': 'Máy lùi ra khi cô bé co lại; váy đổ xuống, góc nhìn chuyển từ ngang mắt sang ngước lên cánh cửa thấp.',
   'demo_shot_6_audio': 'Một tiếng nuốt, vải trượt, chiếc lọ rỗng đặt xuống đất',
 
-  // Mục trong Cài đặt → Giới thiệu
+  // Mục trong Cài đặt → Chung
   'replay_title': 'Hướng dẫn sử dụng',
   'replay_desc': 'Xem lại phần hướng dẫn lần đầu, tìm hiểu giao diện chính và quy trình cơ bản.',
   'replay_action': 'Xem lại hướng dẫn',

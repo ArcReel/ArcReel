@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -45,13 +45,19 @@ export function CredentialsSection() {
   const [deletingCred, setDeletingCred] = useState(false);
   const [editingCred, setEditingCred] = useState<AgentCredential | null>(null);
 
+  const loadController = useRef<AbortController | null>(null);
   const loadCreds = useCallback(async () => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     try {
-      const [c, p] = await Promise.all([API.listAgentCredentials(), API.listAgentPresetProviders()]);
+      const [c, p] = await Promise.all([API.listAgentCredentials({ signal: controller.signal }), API.listAgentPresetProviders({ signal: controller.signal })]);
+      if (controller.signal.aborted) return;
       setCredentials(c.credentials);
       setPresets(p.providers);
       setCustomSentinelId(p.custom_sentinel_id);
     } catch (err) {
+      if (controller.signal.aborted) return;
       useAppStore.getState().pushToast(errMsg(err), "error");
     }
   }, []);
@@ -59,6 +65,7 @@ export function CredentialsSection() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 时异步拉取 Agent 供应商后回写，属于受控的初始化加载
     void loadCreds();
+    return () => loadController.current?.abort();
   }, [loadCreds]);
 
   const afterChange = useCallback(async () => {

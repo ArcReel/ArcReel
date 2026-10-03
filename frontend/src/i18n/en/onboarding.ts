@@ -135,7 +135,7 @@ export default {
   'demo_shot_6_video': 'The camera pulls back as she shrinks; the dress collapses and the angle tilts from eye level up toward the little door.',
   'demo_shot_6_audio': 'A single swallow, cloth sliding, the empty bottle set down',
 
-  // Settings → About entry
+  // Settings → General entry
   'replay_title': 'Product tour',
   'replay_desc': 'Replay the first-run tour covering the main interface and the basic workflow.',
   'replay_action': 'Replay tour',

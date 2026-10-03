@@ -73,6 +73,7 @@ export function MarketSection() {
   const [installationRevision, setInstallationRevision] = useState(0);
   const [selected, setSelected] = useState<MarketEntry | null>(null);
   const [official, setOfficial] = useState<OfficialServiceState | null>(null);
+  const [officialLoadError, setOfficialLoadError] = useState<string | null>(null);
   const [officialBusy, setOfficialBusy] = useState(false);
   const [aggregates, setAggregates] = useState<ReadonlyMap<string, MarketEntryAggregate>>(new Map());
   const [aggregatesRevision, setAggregatesRevision] = useState(0);
@@ -120,17 +121,26 @@ export function MarketSection() {
     return () => controller.abort();
   }, [sourcesLoaded, sourcesKey, installationRevision, pushToast, t]);
 
-  useEffect(() => {
+  // 读不到状态时「浏览」按关闭处理、不打扰：市场本身不依赖官方服务。错误只交给「设置」展示并提供重试，那里是开关的归属。
+  const officialController = useRef<AbortController | null>(null);
+  const loadOfficial = useCallback(async () => {
+    officialController.current?.abort();
     const controller = new AbortController();
-    API.getOfficialService({ signal: controller.signal })
-      .then((state) => {
-        if (!controller.signal.aborted) setOfficial(state);
-      })
-      .catch(() => {
-        // 读不到状态时按关闭处理：市场本身不依赖官方服务。
-      });
-    return () => controller.abort();
+    officialController.current = controller;
+    setOfficialLoadError(null);
+    try {
+      const state = await API.getOfficialService({ signal: controller.signal });
+      if (!controller.signal.aborted) setOfficial(state);
+    } catch (err) {
+      if (!controller.signal.aborted) setOfficialLoadError(errMsg(err));
+    }
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 后异步拉取状态，回调内回写状态
+    void loadOfficial();
+    return () => officialController.current?.abort();
+  }, [loadOfficial]);
 
   const officialEnabled = official?.enabled === true;
   useEffect(() => {
@@ -256,8 +266,9 @@ export function MarketSection() {
         <TabsContent value="shared" className="mt-2">
           <MarketSharedTab officialEnabled={officialEnabled} submissions={shownSubmissions} />
         </TabsContent>
-        <TabsContent value="settings" className="mt-2">
+        <TabsContent value="settings" keepMounted className="mt-2">
           <MarketSettingsTab
+            active={tab === "settings"}
             sources={sources}
             onSourcesChange={setSources}
             refreshingIds={refreshingIds}
@@ -265,6 +276,8 @@ export function MarketSection() {
             onRefresh={(id) => void refreshOne(id)}
             onRefreshAll={() => void refreshAll()}
             official={official}
+            officialLoadError={officialLoadError}
+            onOfficialRetry={() => void loadOfficial()}
             officialBusy={officialBusy}
             onOfficialChange={setOfficial}
             onOfficialUpdate={(patch) => void updateOfficial(patch)}

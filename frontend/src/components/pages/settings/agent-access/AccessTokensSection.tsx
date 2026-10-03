@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -39,12 +39,19 @@ export function AccessTokensSection() {
   const [createOpen, setCreateOpen] = useState(false);
   const [revoking, setRevoking] = useState<ApiKeyInfo | null>(null);
 
+  const loadController = useRef<AbortController | null>(null);
   const fetchTokens = useCallback(async () => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoad({ status: "loading" });
     try {
-      setTokens(await API.listApiKeys());
+      const listed = await API.listApiKeys({ signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setTokens(listed);
       setLoad({ status: "ready" });
     } catch (err) {
+      if (controller.signal.aborted) return;
       setLoad({ status: "error", message: errMsg(err) });
     }
   }, []);
@@ -52,6 +59,7 @@ export function AccessTokensSection() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时拉取令牌列表后回写，属于受控的初始化加载
     void fetchTokens();
+    return () => loadController.current?.abort();
   }, [fetchTokens]);
 
   const openCreate = () => setCreateOpen(true);
@@ -98,7 +106,15 @@ export function AccessTokensSection() {
       <CreateAccessTokenDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        onCreated={(token) => setTokens((prev) => [token, ...prev])}
+        onCreated={(token) => {
+          if (loadController.current && load.status === "loading") {
+            // 创建发生在首次列表加载期间，重新读取以保留既有令牌和刚创建的令牌。
+            void fetchTokens();
+          } else {
+            setTokens((prev) => [token, ...prev]);
+            setLoad({ status: "ready" });
+          }
+        }}
       />
       <RevokeTokenDialog
         token={revoking}

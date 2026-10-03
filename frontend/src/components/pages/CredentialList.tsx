@@ -98,15 +98,21 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
     onChangedRef.current = onChanged;
   }, [onChanged]);
 
+  const loadController = useRef<AbortController | null>(null);
   const load = useCallback(async () => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     try {
-      const { credentials: creds } = await API.listCredentials(providerId);
+      const { credentials: creds } = await API.listCredentials(providerId, { signal: controller.signal });
+      if (controller.signal.aborted) return;
       setCredentials(creds);
       setLoadError(null);
     } catch (err) {
+      if (controller.signal.aborted) return;
       setLoadError(errMsg(err));
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [providerId]);
 
@@ -116,23 +122,10 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
   }, [load]);
 
   useEffect(() => {
-    let cancelled = false;
-    API.listCredentials(providerId)
-      .then(({ credentials: creds }) => {
-        if (cancelled) return;
-        setCredentials(creds);
-        setLoadError(null);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setLoadError(errMsg(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [providerId]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载或换供应商后异步加载，取消域覆盖后续即时动作的刷新
+    void load();
+    return () => loadController.current?.abort();
+  }, [load]);
 
   const activate = useCallback(
     async (cred: ProviderCredential) => {
@@ -191,25 +184,23 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
         </ul>
       )}
 
-      <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
-        {dialog && (
-          <CredentialDialogContent
-            // 每次打开都是一份新表单，关闭后再打开不残留上一次的输入与错误
-            key={dialog.mode === "edit" ? dialog.cred.id : "add"}
-            cred={dialog.mode === "edit" ? dialog.cred : null}
-            providerId={providerId}
-            isVertex={isVertex}
-            supportsBaseUrl={supportsBaseUrl}
-            secretFields={secretFields}
-            secretFieldGroups={secretFieldGroups}
-            onDone={() => {
-              setDialog(null);
-              void handleChanged();
-            }}
-            onCancel={() => setDialog(null)}
-          />
-        )}
-      </Dialog>
+      {dialog && (
+        <CredentialDialog
+          // 每次打开都是一份新表单，关闭后再打开不残留上一次的输入与错误
+          key={dialog.mode === "edit" ? dialog.cred.id : "add"}
+          cred={dialog.mode === "edit" ? dialog.cred : null}
+          providerId={providerId}
+          isVertex={isVertex}
+          supportsBaseUrl={supportsBaseUrl}
+          secretFields={secretFields}
+          secretFieldGroups={secretFieldGroups}
+          onDone={() => {
+            setDialog(null);
+            void handleChanged();
+          }}
+          onCancel={() => setDialog(null)}
+        />
+      )}
 
       <DeleteCredentialDialog
         cred={deleting}
@@ -378,7 +369,7 @@ interface CredentialDialogProps {
   onCancel: () => void;
 }
 
-function CredentialDialogContent({
+function CredentialDialog({
   cred,
   providerId,
   isVertex,
@@ -462,112 +453,120 @@ function CredentialDialogContent({
   };
 
   return (
-    <DialogContent initialFocus={nameRef}>
-      <form
-        className="flex min-h-0 flex-col"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void handleSubmit();
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>{editing ? t("credential_edit_title") : t("credential_add_title")}</DialogTitle>
-          <DialogDescription>{t("credential_dialog_description")}</DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor={`${idPrefix}-name`} className={LABEL_CLS}>
-                {t("credential_name")}
-              </label>
-              <Input
-                id={`${idPrefix}-name`}
-                ref={nameRef}
-                required
-                autoComplete="off"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t("credential_name_placeholder")}
-              />
-            </div>
-
-            {isVertex && !editing ? (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        // 提交在途时不响应 Esc 与遮罩点击，避免对话框先于结果消失
+        if (!open && !submitting) onCancel();
+      }}
+    >
+      <DialogContent initialFocus={nameRef}>
+        <form
+          className="flex min-h-0 flex-col"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{editing ? t("credential_edit_title") : t("credential_add_title")}</DialogTitle>
+            <DialogDescription>{t("credential_dialog_description")}</DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <span className={LABEL_CLS}>{t("credential_file")}</span>
-                <Button variant="outline" className="self-start" onClick={() => fileRef.current?.click()}>
-                  <Upload data-icon="inline-start" />
-                  {file?.name ?? t("select_json_file")}
-                </Button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".json,application/json"
-                  aria-label={t("import_credential_file_aria")}
-                  className="hidden"
-                  onChange={(e) => {
-                    setError(null);
-                    setFile(e.currentTarget.files?.[0] ?? null);
-                  }}
+                <label htmlFor={`${idPrefix}-name`} className={LABEL_CLS}>
+                  {t("credential_name")}
+                </label>
+                <Input
+                  id={`${idPrefix}-name`}
+                  ref={nameRef}
+                  required
+                  autoComplete="off"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t("credential_name_placeholder")}
                 />
               </div>
-            ) : (
-              <>
-                {orHint && <p className="text-xs text-muted-foreground">{orHint}</p>}
-                {secretFields.map((field) => {
-                  const current = cred ? maskedForKey(cred, field.key) : null;
-                  return (
-                    <div key={field.key} className="flex flex-col gap-1.5">
-                      <label htmlFor={`${idPrefix}-${field.key}`} className={LABEL_CLS}>
-                        {secretInputLabel(t, field, secretFields.length)}
+
+              {isVertex && !editing ? (
+                <div className="flex flex-col gap-1.5">
+                  <span className={LABEL_CLS}>{t("credential_file")}</span>
+                  <Button variant="outline" className="self-start" onClick={() => fileRef.current?.click()}>
+                    <Upload data-icon="inline-start" />
+                    {file?.name ?? t("select_json_file")}
+                  </Button>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".json,application/json"
+                    aria-label={t("import_credential_file_aria")}
+                    className="hidden"
+                    onChange={(e) => {
+                      setError(null);
+                      setFile(e.currentTarget.files?.[0] ?? null);
+                    }}
+                  />
+                </div>
+              ) : (
+                <>
+                  {orHint && <p className="text-xs text-muted-foreground">{orHint}</p>}
+                  {secretFields.map((field) => {
+                    const current = cred ? maskedForKey(cred, field.key) : null;
+                    return (
+                      <div key={field.key} className="flex flex-col gap-1.5">
+                        <label htmlFor={`${idPrefix}-${field.key}`} className={LABEL_CLS}>
+                          {secretInputLabel(t, field, secretFields.length)}
+                        </label>
+                        <Input
+                          id={`${idPrefix}-${field.key}`}
+                          type="password"
+                          autoComplete="off"
+                          required={fieldsRequired}
+                          value={secrets[field.key] ?? ""}
+                          onChange={(e) => setSecrets((s) => ({ ...s, [field.key]: e.target.value }))}
+                          placeholder={current ? t("credential_keep_existing", { masked: current }) : undefined}
+                        />
+                      </div>
+                    );
+                  })}
+                  {supportsBaseUrl && (
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor={`${idPrefix}-base-url`} className={LABEL_CLS}>
+                        {t("base_url_optional")}
                       </label>
                       <Input
-                        id={`${idPrefix}-${field.key}`}
-                        type="password"
+                        id={`${idPrefix}-base-url`}
+                        type="url"
                         autoComplete="off"
-                        required={fieldsRequired}
-                        value={secrets[field.key] ?? ""}
-                        onChange={(e) => setSecrets((s) => ({ ...s, [field.key]: e.target.value }))}
-                        placeholder={current ? t("credential_keep_existing", { masked: current }) : undefined}
+                        value={baseUrl}
+                        onChange={(e) => setBaseUrl(e.target.value)}
+                        placeholder={t("default_url_placeholder")}
                       />
                     </div>
-                  );
-                })}
-                {supportsBaseUrl && (
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor={`${idPrefix}-base-url`} className={LABEL_CLS}>
-                      {t("base_url_optional")}
-                    </label>
-                    <Input
-                      id={`${idPrefix}-base-url`}
-                      type="url"
-                      autoComplete="off"
-                      value={baseUrl}
-                      onChange={(e) => setBaseUrl(e.target.value)}
-                      placeholder={t("default_url_placeholder")}
-                    />
-                  </div>
-                )}
-              </>
-            )}
+                  )}
+                </>
+              )}
 
-            {error && (
-              <p role="alert" className="text-sm wrap-break-word text-destructive">
-                {error}
-              </p>
-            )}
-          </div>
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" disabled={submitting} onClick={onCancel}>
-            {t("common:cancel")}
-          </Button>
-          <Button type="submit" disabled={submitting || !name.trim()}>
-            {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
-            {editing ? t("common:save") : t("add_key")}
-          </Button>
-        </DialogFooter>
-      </form>
-    </DialogContent>
+              {error && (
+                <p role="alert" className="text-sm wrap-break-word text-destructive">
+                  {error}
+                </p>
+              )}
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" disabled={submitting} onClick={onCancel}>
+              {t("common:cancel")}
+            </Button>
+            <Button type="submit" disabled={submitting || !name.trim()}>
+              {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+              {editing ? t("common:save") : t("add_key")}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

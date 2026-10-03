@@ -137,7 +137,7 @@ export default {
   'demo_shot_6_video': '镜头随她缩小而拉远，裙子塌落，视角从平视转为仰看矮门。',
   'demo_shot_6_audio': '咽下的一声，衣料滑动，空瓶轻放在地',
 
-  // 设置 → 关于 的入口
+  // 设置 → 通用 的入口
   'replay_title': '使用引导',
   'replay_desc': '重看首次使用引导，了解主要界面和基本流程。',
   'replay_action': '重看引导',

@@ -140,6 +140,27 @@ describe("UsageRecordsSection filters", () => {
     expect(vi.mocked(API.getUsageRecords).mock.calls.length).toBe(recordCalls);
   });
 
+  it("filters by a model whose ID looks like a placeholder value and clears it from the all option", async () => {
+    // 自定义供应商的模型 ID 不受限制，任何字符串都可能是真实模型。
+    vi.mocked(API.getUsageSummary).mockResolvedValue(
+      makeUsageSummary({
+        filter_options: { projects: [], providers: [], models: [{ provider: "custom-1", model: "__all__" }] },
+      }),
+    );
+    const { location } = renderUsageRecordsSection();
+    await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "模型" }));
+    await userEvent.click(await screen.findByRole("option", { name: "__all__" }));
+    await waitFor(() =>
+      expect(location.history.at(-1)).toBe("/app/settings?section=usage&u_model=__all__"),
+    );
+
+    await userEvent.click(screen.getByRole("combobox", { name: "模型" }));
+    await userEvent.click(await screen.findByRole("option", { name: "全部模型" }));
+    await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=usage"));
+  });
+
   it("returns to the first page when a filter changes", async () => {
     vi.mocked(API.getUsageRecords).mockResolvedValue({
       items: [makeUsageRecord()],

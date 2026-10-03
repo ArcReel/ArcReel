@@ -26,18 +26,18 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     voidCall(
-      API.getCustomProvider(providerId)
+      API.getCustomProvider(providerId, { signal: controller.signal })
         .then((data) => {
-          if (!cancelled) setProvider(data);
+          if (!controller.signal.aborted) setProvider(data);
         })
         .catch((err: unknown) => {
-          if (!cancelled) setLoadError(errMsg(err));
+          if (!controller.signal.aborted) setLoadError(errMsg(err));
         }),
     );
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [providerId, reloadKey]);
 

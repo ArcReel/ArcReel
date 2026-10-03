@@ -157,10 +157,6 @@ export function EndpointDetail({
   const [editorMode, setEditorMode] = useState<"form" | "json">("form");
   // JSON 片段编辑器自持文本状态：换端点或从 JSON 视图返回时递增，强制它按新定义重挂载。
   const [formEpoch, setFormEpoch] = useState(0);
-  const [jsonText, setJsonText] = useState("");
-  // parse：JSON 语法不通过；shape：语法通过但缺表单/头部直接解引用的容器结构。
-  // 两种情况都不写回定义，文本保留供继续编辑。
-  const [jsonIssue, setJsonIssue] = useState<"parse" | "shape" | null>(null);
   const [validation, setValidation] = useState<EndpointValidateResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
@@ -176,7 +172,7 @@ export function EndpointDetail({
     if (builtinKey === null) return;
     const controller = new AbortController();
     voidCall(
-      API.getBuiltinEndpointDefinition(builtinKey)
+      API.getBuiltinEndpointDefinition(builtinKey, { signal: controller.signal })
         .then((definition) => {
           if (!controller.signal.aborted) setBuiltinDefinition(definition);
         })
@@ -188,27 +184,46 @@ export function EndpointDetail({
   }, [builtinKey]);
 
   const hasErrors = (validation?.errors.length ?? 0) > 0;
-  const saveBlocked = hasErrors || jsonIssue !== null;
 
   const saveDefinition = useCallback(
-    async (value: EndpointDefinition | null): Promise<EndpointDefinition | void> => {
-      if (!value) return;
+    async (value: { definition: EndpointDefinition | null; jsonText: string | null }) => {
+      if (!value.definition) return;
+      if (value.jsonText !== null) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(value.jsonText);
+        } catch {
+          throw new Error(t("ce_json_parse_error"));
+        }
+        if (!isRenderableDefinition(parsed)) throw new Error(t("ce_json_shape_error"));
+      }
       // 诊断有错误或 JSON 视图里的文本不成立时，服务端也不会收；把原因留在保存栏里。
-      if (saveBlocked) throw new Error(t("ce_save_blocked"));
+      if (hasErrors) throw new Error(t("ce_save_blocked"));
       const saved =
         persistedId === null
-          ? await API.createCustomEndpoint(value)
-          : await API.updateCustomEndpoint(persistedId, value);
+          ? await API.createCustomEndpoint(value.definition)
+          : await API.updateCustomEndpoint(persistedId, value.definition);
       onSaved(saved);
-      return isRenderableDefinition(saved.definition) ? saved.definition : value;
+      return { definition: isRenderableDefinition(saved.definition) ? saved.definition : value.definition, jsonText: null };
     },
-    [saveBlocked, persistedId, onSaved, t],
+    [hasErrors, persistedId, onSaved, t],
   );
 
   const editableSource = selection.mode === "new" || selection.mode === "custom" ? selection.definition : null;
-  const unit = useEditUnit<EndpointDefinition | null>({ source: editableSource, save: saveDefinition });
-  const draft = editable ? unit.value : builtinDefinition;
-  const hasUnsavedChanges = unit.dirty || jsonIssue !== null;
+  // JSON 原文属于同一个编辑单元：语法错误也必须参与离开拦截与放弃修改。
+  const source = useMemo(() => ({ definition: editableSource, jsonText: null as string | null }), [editableSource]);
+  const unit = useEditUnit({ source, save: saveDefinition });
+  const draft = editable ? unit.value.definition : builtinDefinition;
+  const jsonText = unit.value.jsonText ?? JSON.stringify(draft ?? {}, null, 2);
+  const jsonIssue = useMemo(() => {
+    if (unit.value.jsonText === null) return null;
+    try {
+      return isRenderableDefinition(JSON.parse(unit.value.jsonText)) ? null : "shape";
+    } catch {
+      return "parse";
+    }
+  }, [unit.value.jsonText]);
+  const hasUnsavedChanges = unit.dirty;
 
   const draftJson = useMemo(() => (draft ? JSON.stringify(draft) : null), [draft]);
 
@@ -237,8 +252,6 @@ export function EndpointDetail({
   }, [draftJson, editable, persistedId]);
 
   const enterJsonMode = () => {
-    setJsonText(JSON.stringify(draft ?? {}, null, 2));
-    setJsonIssue(null);
     setEditorMode("json");
   };
 
@@ -253,9 +266,7 @@ export function EndpointDetail({
     const template = EXAMPLE_TEMPLATES.find((item) => item.id === id);
     const next = structuredClone(template ? template.definition : selection.definition);
     setTemplateId(id);
-    unit.setValue(next);
-    setJsonText(JSON.stringify(next, null, 2));
-    setJsonIssue(null);
+    unit.setValue({ definition: next, jsonText: null });
     setFormEpoch((n) => n + 1);
   };
 
@@ -647,20 +658,15 @@ export function EndpointDetail({
                     aria-label={t("ce_view_json")}
                     aria-invalid={jsonIssue !== null || undefined}
                     onChange={(e) => {
-                      setJsonText(e.target.value);
-                      let parsed: unknown;
+                      const text = e.target.value;
+                      let definition = draft;
                       try {
-                        parsed = JSON.parse(e.target.value);
+                        const parsed: unknown = JSON.parse(text);
+                        if (isRenderableDefinition(parsed)) definition = parsed;
                       } catch {
-                        setJsonIssue("parse");
-                        return;
+                        // 非法原文仍登记为修改，表单与诊断保留最后一份可渲染定义。
                       }
-                      if (!isRenderableDefinition(parsed)) {
-                        setJsonIssue("shape");
-                        return;
-                      }
-                      unit.setValue(parsed);
-                      setJsonIssue(null);
+                      unit.setValue({ definition, jsonText: text });
                     }}
                   />
                   {jsonIssue !== null && (
@@ -671,7 +677,7 @@ export function EndpointDetail({
                 </div>
               ) : (
                 <VariableInsertionProvider key={formEpoch}>
-                  <EndpointForm definition={draft} onChange={(next) => unit.setValue(next)} readOnly={readOnly} />
+                  <EndpointForm definition={draft} onChange={(next) => unit.setValue({ definition: next, jsonText: null })} readOnly={readOnly} />
                   <EndpointTestSection definition={draft} providers={providers} />
                 </VariableInsertionProvider>
               )}

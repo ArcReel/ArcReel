@@ -356,7 +356,7 @@ describe("ProviderSection", () => {
 
     // 保存后须切到刚建好的那一项，否则用户停在填满的表单上，再保存一次就多出一个重复供应商
     await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=2"));
-    await waitFor(() => expect(API.getCustomProvider).toHaveBeenCalledWith(2));
+    await waitFor(() => expect(API.getCustomProvider).toHaveBeenCalledWith(2, { signal: expect.any(AbortSignal) }));
   });
 
   it("still selects the created provider when the catalog refresh fails", async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Loader2, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -60,6 +60,7 @@ function SettingsBlock({
  * 市场源的增删、启停、排序与官方服务开关即时生效。这一区常驻，官方服务关闭后照常显示，是重新开启的入口。
  */
 export function MarketSettingsTab({
+  active,
   sources,
   onSourcesChange,
   refreshingIds,
@@ -67,10 +68,13 @@ export function MarketSettingsTab({
   onRefresh,
   onRefreshAll,
   official,
+  officialLoadError,
+  onOfficialRetry,
   officialBusy,
   onOfficialChange,
   onOfficialUpdate,
 }: {
+  active: boolean;
   sources: MarketSourceInfo[];
   onSourcesChange: (update: (current: MarketSourceInfo[]) => MarketSourceInfo[]) => void;
   refreshingIds: ReadonlySet<number>;
@@ -78,6 +82,8 @@ export function MarketSettingsTab({
   onRefresh: (id: number) => void;
   onRefreshAll: () => void;
   official: OfficialServiceState | null;
+  officialLoadError: string | null;
+  onOfficialRetry: () => void;
   officialBusy: boolean;
   onOfficialChange: (state: OfficialServiceState) => void;
   onOfficialUpdate: (patch: { enabled?: boolean }) => void;
@@ -92,15 +98,39 @@ export function MarketSettingsTab({
         onRefresh={onRefresh}
         onRefreshAll={onRefreshAll}
       />
-      <GithubProxySettings />
-      {official && (
+      <GithubProxySettings active={active} />
+      {official ? (
         <OfficialServiceSettings
           state={official}
           busy={officialBusy}
           onChange={onOfficialChange}
           onUpdate={onOfficialUpdate}
         />
+      ) : (
+        officialLoadError && <OfficialServiceLoadError message={officialLoadError} onRetry={onOfficialRetry} />
       )}
+    </div>
+  );
+}
+
+/** 官方服务状态读取失败：保留区块与重试，否则「设置」里没有重新开启的入口。 */
+function OfficialServiceLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useTranslation(["dashboard", "common"]);
+  return (
+    <SettingsBlock title={t("official_service_title")}>
+      <LoadErrorRow message={message} onRetry={onRetry} />
+    </SettingsBlock>
+  );
+}
+
+function LoadErrorRow({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useTranslation("common");
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm text-destructive" role="alert">
+      {message}
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        {t("retry")}
+      </Button>
     </div>
   );
 }
@@ -109,19 +139,25 @@ interface ProxyFields {
   market_github_proxy_prefix: string;
 }
 
-function GithubProxySettings() {
+function GithubProxySettings({ active }: { active: boolean }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const inputId = useId();
   const hintId = useId();
   const [saved, setSaved] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const loadController = useRef<AbortController | null>(null);
   const load = useCallback(async () => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoadError(null);
     try {
-      const { settings } = await API.getSystemConfig();
+      const { settings } = await API.getSystemConfig({ signal: controller.signal });
+      if (controller.signal.aborted) return;
       setSaved(settings.market_github_proxy_prefix ?? "");
     } catch (err) {
+      if (controller.signal.aborted) return;
       setLoadError(errMsg(err));
     }
   }, []);
@@ -129,6 +165,7 @@ function GithubProxySettings() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 后异步拉取配置，回调内回写状态
     void load();
+    return () => loadController.current?.abort();
   }, [load]);
 
   const source = useMemo<ProxyFields>(() => ({ market_github_proxy_prefix: saved ?? "" }), [saved]);
@@ -143,12 +180,7 @@ function GithubProxySettings() {
   return (
     <SettingsBlock title={t("market_proxy_label")}>
       {loadError ? (
-        <div className="flex flex-wrap items-center gap-3 text-sm text-destructive" role="alert">
-          {loadError}
-          <Button variant="outline" size="sm" onClick={() => void load()}>
-            {t("common:retry")}
-          </Button>
-        </div>
+        <LoadErrorRow message={loadError} onRetry={() => void load()} />
       ) : saved === null ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -170,9 +202,11 @@ function GithubProxySettings() {
               {t("market_proxy_hint")}
             </p>
           </div>
-          <PageShellFooter constrained>
-            <SaveBar unit={unit} />
-          </PageShellFooter>
+          {active && (
+            <PageShellFooter constrained>
+              <SaveBar unit={unit} />
+            </PageShellFooter>
+          )}
         </>
       )}
     </SettingsBlock>

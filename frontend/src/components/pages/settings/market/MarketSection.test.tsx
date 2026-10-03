@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -555,6 +555,23 @@ describe("MarketSection", () => {
       await waitFor(() => expect(enableSwitch("团队市场")).toBeChecked());
     });
 
+    it("keeps the latest source toggle when switching away and back before responses arrive", async () => {
+      const off = createDeferred<MarketSourceInfo>();
+      const on = createDeferred<MarketSourceInfo>();
+      vi.spyOn(API, "updateMarketSource").mockReturnValueOnce(off.promise).mockReturnValueOnce(on.promise);
+      renderMarket("settings");
+      await screen.findByRole("region", { name: "市场源" });
+      await userEvent.click(enableSwitch("团队市场"));
+      await userEvent.click(screen.getByRole("tab", { name: "浏览" }));
+      await userEvent.click(screen.getByRole("tab", { name: "设置" }));
+      await userEvent.click(enableSwitch("团队市场"));
+      await act(async () => {
+        on.resolve({ ...TEAM, is_enabled: true });
+        off.resolve({ ...TEAM, is_enabled: false });
+      });
+      expect(enableSwitch("团队市场")).toBeChecked();
+    });
+
     it("restores the last confirmed value when every queued toggle fails", async () => {
       const off = createDeferred<MarketSourceInfo>();
       const on = createDeferred<MarketSourceInfo>();
@@ -637,6 +654,25 @@ describe("MarketSection", () => {
       await userEvent.click(within(confirm).getByRole("button", { name: "取消" }));
       await waitFor(() => expect(confirm).not.toBeInTheDocument());
       expect(sourceOrder()).toContain("团队市场");
+
+      // 再次打开同一个源时不残留上一次的错误。
+      await chooseSourceAction("团队市场", "删除");
+      expect(within(await screen.findByRole("alertdialog")).queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("starts the rename dialog from the current name again after cancelling an edit", async () => {
+      renderMarket("settings");
+      await screen.findByRole("region", { name: "市场源" });
+
+      await chooseSourceAction("团队市场", "重命名");
+      const dialog = await screen.findByRole("dialog", { name: "重命名市场源" });
+      await userEvent.type(within(dialog).getByRole("textbox", { name: "显示名称" }), "草稿");
+      await userEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+      await waitFor(() => expect(dialog).not.toBeInTheDocument());
+
+      await chooseSourceAction("团队市场", "重命名");
+      const reopened = await screen.findByRole("dialog", { name: "重命名市场源" });
+      expect(within(reopened).getByRole("textbox", { name: "显示名称" })).toHaveValue("团队市场");
     });
 
     it("refreshes one source and keeps a rename made while the refresh is in flight", async () => {
@@ -787,6 +823,30 @@ describe("MarketSection", () => {
       expect(update).toHaveBeenCalledWith({ enabled: true });
       await waitFor(() => expect(toggle).toBeChecked());
       await waitFor(() => expect(API.listMarketSubmissions).toHaveBeenCalled());
+      expect(useAppStore.getState().toast).toBeNull();
+    });
+
+    it("keeps the official service block in settings with a retry when its status fails to load", async () => {
+      vi.mocked(API.getOfficialService)
+        .mockRejectedValueOnce(new Error("网络中断"))
+        .mockResolvedValue(OFFICIAL_SERVICE_OFF);
+      renderMarket("settings");
+
+      const failed = await screen.findByRole("region", { name: "官方服务" });
+      expect(within(failed).getByRole("alert")).toHaveTextContent("网络中断");
+      await userEvent.click(within(failed).getByRole("button", { name: "重试" }));
+
+      expect(await screen.findByRole("switch", { name: "使用官方服务" })).not.toBeChecked();
+      expect(within(screen.getByRole("region", { name: "官方服务" })).queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("stays quiet while browsing when the official service status fails to load", async () => {
+      vi.mocked(API.getOfficialService).mockRejectedValue(new Error("网络中断"));
+      renderMarket();
+
+      await screen.findAllByRole("article");
+      await waitFor(() => expect(API.getOfficialService).toHaveBeenCalled());
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(useAppStore.getState().toast).toBeNull();
     });
 

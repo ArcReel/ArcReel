@@ -134,7 +134,7 @@ function StandardList({
                 {item.icon}
               </span>
               <span className="flex min-w-0 flex-1 flex-col">
-                <TruncatedText text={item.label} />
+                <TruncatedText text={item.label} focusable={false} />
                 {item.description && (
                   <span className="truncate text-xs text-muted-foreground">{item.description}</span>
                 )}

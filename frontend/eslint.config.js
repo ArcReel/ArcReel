@@ -221,6 +221,9 @@ export default tseslint.config(
   {
     ignores: [
       "dist/**",
+      // Playwright 输出的报告与失败产物不属于项目源码。
+      "playwright-report/**",
+      "test-results/**",
       "coverage/**",
       "node_modules/**",
       "**/*.config.*",

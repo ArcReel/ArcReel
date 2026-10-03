@@ -147,7 +147,7 @@ function DetailBody({
               <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="-ml-2.5" />}>
                 <ChevronRight
                   aria-hidden
-                  className="text-muted-foreground motion-safe:transition-transform group-aria-expanded/button:rotate-90"
+                  className="text-muted-foreground transition-transform group-aria-expanded/button:rotate-90"
                 />
                 {t("prompt_templates_output_schema")}
               </CollapsibleTrigger>

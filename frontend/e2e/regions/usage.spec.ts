@@ -1,11 +1,20 @@
 import type { Locator, Page } from "@playwright/test";
 import { FIXED_NOW } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { expect, type ApiOverrides } from "../support/test.ts";
+import { expect, test, type ApiOverrides } from "../support/test.ts";
 
 // 使用记录：设置页内的铺满档分区（筛选、KPI、趋势、构成、需要关注、记录表、详情弹窗），
 // 以及工作台顶栏的使用记录弹层。录制环境没有任何调用，空态用录制数据；表格、图表与弹层
 // 的压力变体用手写数据：项目标题、模型名与集名都很长，记录满一页，失败行带各类短语。
+
+// 刻度测宽不能缓存回退字体：压力图表先收到数据，再释放项目字体，以握手稳定复现加载顺序。
+test.beforeEach(async ({ page }, testInfo) => {
+  if (!testInfo.title.includes("趋势、构成")) return;
+  await page.route("**/*inter-latin-wght-normal*.woff2", async (route) => {
+    await page.getByText("S19", { exact: true }).waitFor();
+    await route.continue();
+  });
+});
 
 const USAGE = "/app/settings?section=usage";
 

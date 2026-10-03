@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { cn } from "cn";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -652,7 +653,8 @@ function DurationButtonGroup({
   };
   return (
     <div
-      className="flex flex-wrap gap-2"
+      // 过期选项保留聚焦而不用原生 disabled，按钮自带的禁用淡化不生效，由整组淡化表明不可选
+      className={cn("flex flex-wrap gap-2", disabled && "opacity-50")}
       role="radiogroup"
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
@@ -709,7 +711,7 @@ function DurationSlider({
   const isAutoActive = value === null;
   const valueText = value === null ? autoLabel : t("duration_seconds_value_text", { value });
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className={cn("flex flex-wrap items-center gap-3", disabled && "opacity-50")}>
       <DurationOption
         checked={isAutoActive}
         label={autoLabel}
@@ -728,7 +730,7 @@ function DurationSlider({
         value={sliderValue}
         disabled={disabled}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
-        className="min-w-30 flex-1 accent-primary disabled:opacity-50"
+        className="min-w-30 flex-1 accent-primary"
       />
       <span className="min-w-10 text-right text-xs tabular-nums text-subtle-foreground">
         {valueText}

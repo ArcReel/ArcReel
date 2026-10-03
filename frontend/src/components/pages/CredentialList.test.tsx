@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { createDeferred } from "@/test/deferred";
 import type { CredentialSecretField, ProviderCredential } from "@/types";
 
 import { CredentialList } from "./CredentialList";
@@ -121,6 +122,22 @@ describe("pages/CredentialList", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("密钥无效");
     expect(onChanged).not.toHaveBeenCalled();
   });
+
+  it("ignores Esc while a key is being saved so a failure is still shown", async () => {
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
+    const pending = createDeferred<never>();
+    vi.spyOn(API, "createCredential").mockReturnValue(pending.promise);
+    renderList();
+
+    const dialog = await openAddDialog();
+    fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "主账号" } });
+    fireEvent.change(within(dialog).getByLabelText("密钥"), { target: { value: "sk-1" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "添加密钥" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    await act(async () => pending.reject(new Error("密钥无效")));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("密钥无效");
+  });
 });
 
 describe("pages/CredentialList two-secret (Kling)", () => {
@@ -204,14 +221,14 @@ describe("pages/CredentialList credential groups (api_key OR access_key+secret_k
     renderKling();
     const dialog = await openAddDialog();
 
-    expect(within(dialog).getByText("API Key 或 Access Key + Secret Key")).toBeInTheDocument();
-    for (const label of ["API Key", "Access Key", "Secret Key"]) {
+    expect(within(dialog).getByText("密钥 或 Access Key + Secret Key")).toBeInTheDocument();
+    for (const label of ["密钥", "Access Key", "Secret Key"]) {
       expect(within(dialog).getByLabelText(label)).not.toBeRequired();
     }
   });
 
   it.each([
-    { filled: { "API Key": "sk-api-1" }, expected: { api_key: "sk-api-1" } },
+    { filled: { "密钥": "sk-api-1" }, expected: { api_key: "sk-api-1" } },
     { filled: { "Access Key": "AK-1", "Secret Key": "SK-1" }, expected: { access_key: "AK-1", secret_key: "SK-1" } },
   ])("submits when one group is complete: $expected", async ({ filled, expected }) => {
     const createSpy = vi.spyOn(API, "createCredential").mockResolvedValue({} as never);

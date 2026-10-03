@@ -29,10 +29,6 @@ const RANGES: { value: UsageTimeRange; labelKey: string }[] = [
 
 const MEDIA_TYPES: CallType[] = ["image", "video", "text", "audio"];
 
-// 下拉的「全部」需要一个值：端点试跑记录的项目名是空串，不能用空串表示全部，另取一个哨兵值。
-// 同名项目只会失去在这个下拉里被单独选中的能力，不影响其记录的展示。
-const ALL = "__all__";
-
 interface FilterOption {
   value: string;
   label: string;
@@ -51,15 +47,19 @@ function FilterSelect({
   options: FilterOption[];
   onChange: (value: string | null) => void;
 }) {
-  const items = [{ value: ALL, label: allLabel }, ...options];
+  // 「全部」用 null 表示：项目名可以是空串（端点试跑记录），自定义模型 ID 不受限制，任何字符串哨兵都可能与真实取值相撞。
+  const items: { value: string | null; label: string }[] = [{ value: null, label: allLabel }, ...options];
   return (
-    <Select items={items} value={value ?? ALL} onValueChange={(next) => onChange(next === ALL ? null : next)}>
+    <Select items={items} value={value} onValueChange={onChange}>
       <SelectTrigger size="sm" aria-label={label} className="w-40">
         <SelectValue />
       </SelectTrigger>
       {/* 项目标题、供应商名可能很长：下拉可比触发器宽，超过上限的选项截断，悬停看全文 */}
       <SelectContent alignItemWithTrigger={false} align="start" className="w-auto max-w-md min-w-(--anchor-width)">
-        {items.map((item) => (
+        <SelectItem value={null}>
+          <TruncatedText text={allLabel} focusable={false} />
+        </SelectItem>
+        {options.map((item) => (
           <SelectItem key={item.value} value={item.value}>
             <TruncatedText text={item.label} focusable={false} />
           </SelectItem>
