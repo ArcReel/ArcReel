@@ -85,11 +85,19 @@ export default {
   'lorebook': '设定集',
   'no_episodes_yet': '暂无剧集',
   'confirm_delete_file': '确定要删除 "{{name}}" 吗？',
-  'agents': 'Agent',
+  // 全局设置侧栏
+  'settings_group_generation': '生成',
+  'settings_group_agent': 'Agent',
+  'settings_group_system': '系统',
+  'settings_default_models': '默认模型',
+  'settings_arcreel_agent': '[[brand]] Agent',
+  'settings_agent_memory': 'Agent 记忆',
+  'settings_external_agent': '外部 Agent 接入',
+  'settings_access_tokens': '访问令牌',
+  'settings_general': '通用',
+  'settings_interface_language': '界面语言',
   'providers': '供应商',
-  'models': '模型选择',
   'usage': '使用记录',
-  'api_keys': 'API 令牌',
   'about': '关于',
   'prompt_templates': '提示词模版',
   'prompt_templates_desc': '每个生成环节实际发给模型的完整提示词。随版本内置，只读；标记处在生成时填入项目数据。',
@@ -158,7 +166,6 @@ export default {
   'prompt_templates_schema_type': '类型或枚举',
   'prompt_templates_schema_description': '说明',
   'prompt_templates_schema_nullable': '可为空',
-  'system_config_title': '系统配置与 API 访问管理',
   'about_loading': '正在加载版本信息…',
   'about_current_version': '当前版本',
   'about_check_update': '检查更新',
@@ -1741,9 +1748,6 @@ export default {
   'confirm_delete_project': '确定要删除项目「{{title}}」吗？此操作不可撤销。',
   'delete_project_failed': '删除项目「{{title}}」失败：{{message}}',
   'deleting_project': '删除中...',
-
-  // SystemConfigPage - language
-  'language_setting': '语言',
 
   // ---- Workbench v3 ----
   'project_switcher_current': '当前项目',

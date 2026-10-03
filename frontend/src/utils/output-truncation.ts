@@ -1,5 +1,5 @@
 import { ApiRequestError } from "@/api/errors";
-import { ROUTE_APP_SETTINGS } from "@/app-routes";
+import { settingsSectionPath } from "@/app-routes";
 import type { TaskItem } from "@/types";
 
 const CUSTOM_PROVIDER_PREFIX = "custom-";
@@ -39,6 +39,5 @@ export function customModelSettingsPath(providerId: string, model: string): stri
   if (!providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) return null;
   const id = providerId.slice(CUSTOM_PROVIDER_PREFIX.length);
   if (!/^\d+$/.test(id)) return null;
-  const params = new URLSearchParams({ section: "providers", custom: id, model });
-  return `${ROUTE_APP_SETTINGS}?${params.toString()}`;
+  return settingsSectionPath("providers", { custom: id, model });
 }

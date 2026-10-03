@@ -150,11 +150,12 @@ export function ProviderSection() {
   }
 
   return (
-    <div className="flex">
+    // 全出血档：二级栏与详情栏各自滚动
+    <div className="flex min-h-0 flex-1">
       {/* Provider list sidebar */}
       <nav
         aria-label={t("provider_list")}
-        className="sticky top-0 max-h-screen w-56 shrink-0 self-start overflow-y-auto border-r border-border/50 px-3 py-5"
+        className="relative w-56 shrink-0 overflow-y-auto border-r border-border/50 px-3 py-5"
         style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
       >
         <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
@@ -204,7 +205,7 @@ export function ProviderSection() {
       </nav>
 
       {/* Detail panel */}
-      <div className="min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {selection?.kind === "preset" && (
           <div className="p-6">
             <ProviderDetail providerId={selection.id} onSaved={refreshAfterSave} />

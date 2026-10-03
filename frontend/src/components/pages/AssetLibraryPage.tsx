@@ -17,16 +17,8 @@ import {
   ICON_BTN_FILLED_CLS,
   INPUT_CLS,
 } from "@/components/shared/darkroom-tokens";
+import { useReturnTo } from "@/components/shared/page-shell/return-to";
 import type { Asset, AssetType } from "@/types/asset";
-
-const ASSET_LIBRARY_RETURN_TO_KEY = "assetLibrary:returnTo";
-
-/** 入口按钮点击前调用，记录返回目标。只接受应用内部路径，避免 open redirect 风险。 */
-export function rememberAssetLibraryReturnTo(pathname: string) {
-  if (pathname.startsWith("/app/")) {
-    sessionStorage.setItem(ASSET_LIBRARY_RETURN_TO_KEY, pathname);
-  }
-}
 
 interface TabDef {
   type: AssetType;
@@ -49,6 +41,7 @@ export function AssetLibraryPage() {
   const { t } = useTranslation("assets");
   const [, navigate] = useLocation();
   const search = useSearch();
+  const goBack = useReturnTo();
 
   const activeTab = useMemo((): AssetType => {
     const tab = new URLSearchParams(search).get("tab");
@@ -187,11 +180,7 @@ export function AssetLibraryPage() {
           <div className="flex items-start gap-4">
             <button
               type="button"
-              onClick={() => {
-                const returnTo = sessionStorage.getItem(ASSET_LIBRARY_RETURN_TO_KEY);
-                sessionStorage.removeItem(ASSET_LIBRARY_RETURN_TO_KEY);
-                navigate(returnTo && returnTo.startsWith("/app/") ? returnTo : "/app/projects");
-              }}
+              onClick={goBack}
               aria-label={t("back_to_projects")}
               title={t("back_to_projects")}
               className={`mt-1 ${ICON_BTN_FILLED_CLS}`}

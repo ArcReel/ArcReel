@@ -85,11 +85,19 @@ export default {
   'lorebook': 'Sổ tri thức',
   'no_episodes_yet': 'Chưa có tập nào',
   'confirm_delete_file': 'Bạn có chắc muốn xóa "{{name}}"?',
-  'agents': 'Agent',
+  // 全局设置侧栏
+  'settings_group_generation': 'Tạo nội dung',
+  'settings_group_agent': 'Agent',
+  'settings_group_system': 'Hệ thống',
+  'settings_default_models': 'Mô hình mặc định',
+  'settings_arcreel_agent': '[[brand]] Agent',
+  'settings_agent_memory': 'Bộ nhớ Agent',
+  'settings_external_agent': 'Kết nối Agent bên ngoài',
+  'settings_access_tokens': 'Token truy cập',
+  'settings_general': 'Chung',
+  'settings_interface_language': 'Ngôn ngữ giao diện',
   'providers': 'Nhà cung cấp',
-  'models': 'Mô hình',
   'usage': 'Bản ghi sử dụng',
-  'api_keys': 'Khóa API',
   'about': 'Giới thiệu',
   'prompt_templates': 'Mẫu prompt',
   'prompt_templates_desc': 'Toàn bộ prompt mà mỗi bước tạo gửi tới mô hình. Được tích hợp sẵn theo phiên bản và chỉ đọc; các vị trí được đánh dấu sẽ điền dữ liệu dự án khi tạo.',
@@ -158,7 +166,6 @@ export default {
   'prompt_templates_schema_type': 'Kiểu hoặc giá trị liệt kê',
   'prompt_templates_schema_description': 'Mô tả',
   'prompt_templates_schema_nullable': 'có thể rỗng',
-  'system_config_title': 'Cấu hình hệ thống và quản lý truy cập API',
   'about_loading': 'Đang tải thông tin phiên bản…',
   'about_current_version': 'Phiên bản hiện tại',
   'about_check_update': 'Kiểm tra cập nhật',
@@ -1732,9 +1739,6 @@ export default {
   'confirm_delete_project': 'Bạn có chắc muốn xóa dự án "{{title}}"? Thao tác không thể hoàn tác.',
   'delete_project_failed': 'Xóa dự án "{{title}}" thất bại: {{message}}',
   'deleting_project': 'Đang xóa...',
-
-  // SystemConfigPage - language
-  'language_setting': 'Ngôn ngữ',
 
   // Tab labels (timeline / grid canvas)
   'tab_grid_preview': 'Phân cảnh đa lưới',

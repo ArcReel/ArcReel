@@ -47,6 +47,7 @@ const RECORDINGS: Recording[] = [
   { file: "system-config", method: "GET", path: "/api/v1/system/config" },
   { file: "providers", method: "GET", path: "/api/v1/providers" },
   { file: "custom-providers", method: "GET", path: "/api/v1/custom-providers" },
+  { file: "custom-providers-endpoints", method: "GET", path: "/api/v1/custom-providers/endpoints" },
   { file: "onboarding-status", method: "GET", path: "/api/v1/onboarding/status" },
   { file: "projects", method: "GET", path: "/api/v1/projects" },
   { file: "project-demo", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}` },
@@ -68,6 +69,10 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-workflow-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workflow-status` },
   { file: "project-demo-workflow-plan", method: "POST", path: `/api/v1/projects/${DEMO_PROJECT}/workflow-plan`, json: { episode_id: 1 } },
   { file: "project-demo-cost-estimate", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/cost-estimate` },
+  // 全局设置：默认落地的供应商详情（列表第一项）与默认模型的候选。
+  { file: "provider-gemini-aistudio-config", method: "GET", path: "/api/v1/providers/gemini-aistudio/config" },
+  { file: "provider-gemini-aistudio-credentials", method: "GET", path: "/api/v1/providers/gemini-aistudio/credentials" },
+  { file: "system-config-model-candidates", method: "GET", path: "/api/v1/system/config/model-candidates" },
 ];
 
 // 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。

@@ -4,12 +4,12 @@ import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
 import { AgentLanguageRuleSection } from "@/components/agent/AgentLanguageRuleSection";
-import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
 import { AgentPageIntro } from "@/components/agent/AgentPageIntro";
 import { CredentialsSection } from "@/components/agent/CredentialsSection";
 import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { FieldLabel } from "@/components/shared/FieldLabel";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
+import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { SectionShell } from "@/components/shared/SectionShell";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -168,11 +168,11 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
           </div>
         </SectionShell>
         <AgentLanguageRuleSection />
-        <AgentMemoryCabinet scope={{ level: "user" }} frame="section" />
       </div>
 
-      {/* 设置页内容区是滚动容器，保存栏吸底常驻 */}
-      <SaveBar unit={unit} className="sticky bottom-0" />
+      <PageShellFooter>
+        <SaveBar unit={unit} />
+      </PageShellFooter>
       {showExternalGuide && (
         <ExternalAgentModal onClose={() => setShowExternalGuide(false)} />
       )}

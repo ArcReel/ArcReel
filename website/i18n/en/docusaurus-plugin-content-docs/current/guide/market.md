@@ -58,7 +58,7 @@ When you open the "Market" section, enabled market sources last refreshed more t
 
 ### 2.3 GitHub Raw Proxy Prefix {#github-proxy-prefix}
 
-If your deployment cannot reach `raw.githubusercontent.com` directly, find "GitHub raw proxy prefix" in the "Models" section of Settings. When set, ArcReel prepends the prefix to every `raw.githubusercontent.com` address, covering index, definition, and icon fetches. Leave it empty to connect directly.
+If your deployment cannot reach `raw.githubusercontent.com` directly, find "GitHub raw proxy prefix" in the "Default models" section of Settings. When set, ArcReel prepends the prefix to every `raw.githubusercontent.com` address, covering index, definition, and icon fetches. Leave it empty to connect directly.
 
 This is a single global setting, empty by default, and ArcReel does not preconfigure any proxy address. Once set, failed requests do not fall back to a direct connection. The proxy can see the requests passing through it, so only use a proxy you trust.
 

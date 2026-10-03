@@ -76,7 +76,7 @@ describe("ExternalAgentModal", () => {
 
     expect(screen.getByRole("link", { name: "创建 API Key" })).toHaveAttribute(
       "href",
-      "/app/settings?section=api-keys",
+      "/app/settings?section=access-tokens",
     );
     expect(screen.getByRole("link", { name: "创建 API Key" })).toHaveAttribute("target", "_blank");
     expect(onClose).not.toHaveBeenCalled();

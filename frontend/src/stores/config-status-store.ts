@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
+import type { SettingsSection } from "@/app-routes";
 import { useEndpointCatalogStore } from "./endpoint-catalog-store";
 
 // ---------------------------------------------------------------------------
@@ -8,7 +9,8 @@ import { useEndpointCatalogStore } from "./endpoint-catalog-store";
 
 export interface ConfigIssue {
   key: string;
-  tab: "agent" | "providers" | "media" | "usage";
+  /** 问题所属的全局设置分区。 */
+  section: SettingsSection;
   label: string;
 }
 
@@ -49,21 +51,21 @@ async function getConfigStatus(): Promise<{
   if (!hasMediaType("video")) {
     issues.push({
       key: "no-video-provider",
-      tab: "providers",
+      section: "providers",
       label: "video_provider_not_configured",
     });
   }
   if (!hasMediaType("image")) {
     issues.push({
       key: "no-image-provider",
-      tab: "providers",
+      section: "providers",
       label: "image_provider_not_configured",
     });
   }
   if (!hasMediaType("text")) {
     issues.push({
       key: "no-text-provider",
-      tab: "providers",
+      section: "providers",
       label: "text_provider_not_configured",
     });
   }

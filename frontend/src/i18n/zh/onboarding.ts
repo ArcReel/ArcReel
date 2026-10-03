@@ -10,8 +10,8 @@ export default {
   'lobby_settings_body': '开始制作前需要完成两项配置。按钮上的红点表示还有必填项未配置。',
   'settings_providers_title': '配置供应商',
   'settings_providers_body': '图像和视频由这里配置的供应商生成。至少配置一个供应商：填入 API Key，通过「连通性检查」确认可用。',
-  'settings_agent_title': '配置 Agent',
-  'settings_agent_body': 'Agent（智能体）负责分析原文、编写脚本和执行制作。可以在这里配置内嵌智能体使用的模型服务，也可配置外部 agent 接入。',
+  'settings_agent_title': '配置 [[brand]] Agent',
+  'settings_agent_body': '[[brand]] Agent 能完成 [[brand]] 中的全部制作任务。在这里添加一个 Agent 供应商并填入密钥。',
   'lobby_demo_title': '演示项目',
   'lobby_demo_body': '点击卡片打开演示工作台，查看项目的制作界面。',
   'workbench_overview_title': '项目概览',
@@ -25,7 +25,7 @@ export default {
   'workbench_export_title': '导出项目',
   'workbench_export_body': '需要备份或迁移时，从顶栏「导出项目」打包下载整个项目。成片与剪映草稿在各集的剪辑视图中导出。演示项目不能导出，导出按钮不可用。',
   'finish_title': '开始你的第一个项目',
-  'finish_body': '新建项目并导入小说或剧本，即可开始制作。本引导可随时在「设置 → 关于」中重新查看。',
+  'finish_body': '新建项目并导入小说或剧本，即可开始制作。本引导可随时在「设置 → 通用」中重新查看。',
 
   // 引导控件
   'next': '下一步',

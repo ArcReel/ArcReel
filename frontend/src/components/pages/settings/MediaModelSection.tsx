@@ -20,6 +20,7 @@ import { TextTierFields } from "@/components/shared/TextTierFields";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
 import { InlineWarning } from "@/components/shared/InlineWarning";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
+import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -576,8 +577,9 @@ export function MediaModelSection() {
         />
       </SectionCard>
 
-      {/* 设置页内容区是滚动容器，保存栏吸底常驻 */}
-      <SaveBar unit={unit} className="sticky bottom-0" />
+      <PageShellFooter>
+        <SaveBar unit={unit} />
+      </PageShellFooter>
     </div>
   );
 }

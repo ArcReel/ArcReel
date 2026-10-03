@@ -10,8 +10,8 @@ export default {
   'lobby_settings_body': 'Trước khi bắt đầu sản xuất cần hoàn tất hai mục cấu hình. Chấm đỏ trên nút nghĩa là còn mục bắt buộc chưa được cấu hình.',
   'settings_providers_title': 'Cấu hình nhà cung cấp',
   'settings_providers_body': 'Hình ảnh và video do các nhà cung cấp cấu hình tại đây tạo ra. Cấu hình ít nhất một nhà cung cấp: nhập API Key và xác nhận khả dụng bằng "Kiểm tra kết nối".',
-  'settings_agent_title': 'Cấu hình Agent',
-  'settings_agent_body': 'Agent phụ trách phân tích nguyên tác, viết kịch bản và thực hiện sản xuất. Hãy cấu hình dịch vụ mô hình cho Agent tích hợp tại đây, hoặc kết nối một Agent bên ngoài.',
+  'settings_agent_title': 'Cấu hình [[brand]] Agent',
+  'settings_agent_body': '[[brand]] Agent có thể đảm nhận mọi tác vụ sản xuất trong [[brand]]. Hãy thêm một nhà cung cấp Agent tại đây và nhập khóa.',
   'lobby_demo_title': 'Dự án minh hoạ',
   'lobby_demo_body': 'Nhấp vào thẻ để mở bàn làm việc minh hoạ và xem giao diện sản xuất của dự án.',
   'workbench_overview_title': 'Tổng quan dự án',
@@ -25,7 +25,7 @@ export default {
   'workbench_export_title': 'Xuất dự án',
   'workbench_export_body': 'Khi cần sao lưu hoặc chuyển dự án, dùng Xuất dự án trên thanh trên cùng để tải cả dự án về. Video thành phẩm và bản nháp Jianying được xuất trong chế độ dựng của từng tập. Dự án minh hoạ không xuất được nên nút này không khả dụng.',
   'finish_title': 'Bắt đầu dự án đầu tiên của bạn',
-  'finish_body': 'Tạo dự án và nhập tiểu thuyết hoặc kịch bản là có thể bắt đầu sản xuất. Có thể xem lại phần hướng dẫn này bất cứ lúc nào trong Cài đặt → Giới thiệu.',
+  'finish_body': 'Tạo dự án và nhập tiểu thuyết hoặc kịch bản là có thể bắt đầu sản xuất. Có thể xem lại phần hướng dẫn này bất cứ lúc nào trong Cài đặt → Chung.',
 
   // Điều khiển hướng dẫn
   'next': 'Tiếp theo',

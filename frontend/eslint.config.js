@@ -80,9 +80,18 @@ const REWORKED_FILES = [
   "src/components/layout/ToastOverlay.tsx",
   // 编辑单元、保存栏、内联未保存提示条与离开拦截
   "src/components/shared/edit-unit/**",
+  // 页面外壳与全局设置导航
+  "src/components/shared/page-shell/**",
+  "src/components/pages/SystemConfigPage.tsx",
+  "src/components/pages/settings/GeneralSection.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
-const VIEWPORT_BREAKPOINT_ALLOWLIST = [];
+const VIEWPORT_BREAKPOINT_ALLOWLIST = [
+  // 外壳按 xl 切换标准档与紧凑档：侧栏宽度、内容内边距与顶栏右侧留白
+  "src/components/shared/page-shell/PageShell.tsx",
+  "src/components/shared/page-shell/PageHeader.tsx",
+  "src/components/shared/page-shell/PageSidebar.tsx",
+];
 const UI_PRIMITIVES = "src/components/ui/**";
 
 // 字符串字面量与模板片段里的 class 守卫；先匹配含该 token 的字符串，再由 message 说明替代写法。
