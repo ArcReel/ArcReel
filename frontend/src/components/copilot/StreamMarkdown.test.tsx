@@ -104,6 +104,17 @@ const PAYLOADS: Record<string, string> = {
   "style 标签": "<style>body{background:url(javascript:window.__marker=1)}</style>",
 };
 
+describe("StreamMarkdown 横向滚动区", () => {
+  it("代码块与表格可用键盘聚焦，并带有区域名称", async () => {
+    await renderLoaded("```ts\nconst answer = 42;\n```\n\n| 列 A | 列 B |\n| --- | --- |\n| 1 | 2 |\n");
+
+    const code = await screen.findByRole("region", { name: "代码块" });
+    expect(code).toHaveAttribute("tabindex", "0");
+    expect(code.querySelector("pre")).not.toBeNull();
+    expect(screen.getByRole("table", { name: "表格" })).toHaveAttribute("tabindex", "0");
+  });
+});
+
 describe("StreamMarkdown 渲染惰性", () => {
   it.each(Object.entries(PAYLOADS))("%s 渲染为惰性内容", async (_name, payload) => {
     await renderLoaded(`前文\n\n${payload}\n\n后文`);

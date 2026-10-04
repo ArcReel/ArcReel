@@ -40,6 +40,8 @@ export default {
   'config_incomplete': 'Cấu hình chưa đầy đủ',
   'refresh': 'Làm mới',
   'close': 'Đóng',
+  'jump_to_latest': 'Đến tin mới nhất',
+  'jump_to_start': 'Về đầu',
   'unsaved_changes': 'Có thay đổi chưa lưu',
   'save_status_saving': 'Đang lưu…',
   'save_status_saved': 'Đã lưu',

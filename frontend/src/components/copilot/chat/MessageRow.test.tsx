@@ -350,6 +350,18 @@ describe("MessageRow", () => {
     expect(onSubmitEdit).not.toHaveBeenCalled();
   });
 
+  it("shows the user's text exactly as typed instead of parsing it as Markdown", () => {
+    render(<MessageRow turn={{ ...userTurn, content: [{ type: "text", text: "把 **第 3 集** 改短" }] }} />);
+
+    expect(screen.getByText("把 **第 3 集** 改短")).toBeInTheDocument();
+  });
+
+  it("marks an interrupted round with a separator line", () => {
+    render(<MessageRow turn={{ type: "system", uuid: "s-1", content: [{ type: "interrupt_notice" }] }} />);
+
+    expect(screen.getByText("已停止，这一轮的回复没有完成")).toBeInTheDocument();
+  });
+
   it("gives a streaming draft no action row", () => {
     render(<MessageRow turn={{ ...userTurn, type: "assistant" }} streaming />);
 

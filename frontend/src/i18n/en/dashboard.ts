@@ -203,8 +203,8 @@ export default {
   'max_concurrent_sessions': 'Max Concurrent Sessions',
   'max_sessions_desc': 'Max number of agents allowed to run simultaneously',
   'field_cleared': 'cleared',
-  'thinking_process_label': 'Thinking',
-  'thinking_streaming': 'Thinking…',
+  'thinking_process_label': 'Thought process',
+  'thinking_streaming': 'Thinking',
   'skill_chip_unknown': 'skill',
   'subagent_card_label': 'Subagent',
   'subagent_status_running': 'Running',
@@ -653,7 +653,6 @@ export default {
   'prompt_preview_saved_only_dirty': 'You have unsaved changes; the preview still reflects the saved script.',
   'prompt_preview_warnings_label': 'Generation notices',
   'message_edit': 'Edit this message and resend from here',
-  'message_edit_title': 'Editing',
   'message_edit_attachment': 'Attachment {{index}} of {{total}} being edited',
   'message_edit_remove_attachment': 'Remove image {{index}} of {{total}} being edited',
   'message_edit_historical_attachment_gif_hint': 'Historical attachment {{index}} is a GIF, so it was removed; upload it again as PNG or JPEG if needed',
@@ -1928,8 +1927,13 @@ export default {
   'tool_call_todo_updated': 'Todo list updated',
   'tool_call_question_label': 'Question',
   // Timeline typed entries (interrupt / AskUserQuestion answer)
-  'chat_interrupt_notice': 'Session interrupted by user',
-  'chat_question_answer_label': 'Answered',
+  'chat_interrupt_notice': 'Stopped. This reply was not finished',
+  // Agent message stream
+  'chat_transcript_label': 'Conversation',
+  'chat_code_block_label': 'Code block',
+  'chat_table_label': 'Table',
+  'chat_image_attachment': 'Image attachment {{index}}',
+  'chat_image_enlarge': 'Enlarge image attachment {{index}}',
   // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
   // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
   // enforces all locales stay in sync — adding a backend tool without wiring zh/en/vi fails CI)

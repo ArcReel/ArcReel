@@ -2,15 +2,6 @@ import type { TFunction } from "i18next";
 import type { ImagePayload, SessionStatus, Turn } from "@/types";
 
 // ---------------------------------------------------------------------------
-// cn – lightweight className concatenation utility.
-// Filters out falsy values and joins the rest with spaces.
-// ---------------------------------------------------------------------------
-
-export function cn(...classes: (string | false | null | undefined)[]): string {
-  return classes.filter(Boolean).join(" ");
-}
-
-// ---------------------------------------------------------------------------
 // TERMINAL_SESSION_STATUSES – session statuses treated as "done" for the
 // purpose of freezing running/pending indicators (subagent cards, task rows).
 // ---------------------------------------------------------------------------

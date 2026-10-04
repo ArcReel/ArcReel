@@ -205,7 +205,7 @@ export default {
   'max_sessions_desc': '系统允许同时运行的最大 Agent 数量',
   'field_cleared': '已清除',
   'thinking_process_label': '思考过程',
-  'thinking_streaming': '思考中…',
+  'thinking_streaming': '正在思考',
   'skill_chip_unknown': 'skill',
   'subagent_card_label': '子智能体',
   'subagent_status_running': '运行中',
@@ -652,7 +652,6 @@ export default {
   'prompt_preview_saved_only_dirty': '有未保存的修改，预览仍按已保存的内容渲染。',
   'prompt_preview_warnings_label': '生成提示',
   'message_edit': '编辑此消息并从这里重新发送',
-  'message_edit_title': '编辑中',
   'message_edit_attachment': '编辑中的附件 {{index}}/{{total}}',
   'message_edit_remove_attachment': '移除编辑中的图片 {{index}}/{{total}}',
   'message_edit_historical_attachment_gif_hint': '第 {{index}} 张历史附图不支持 GIF，已移除；如需保留请重新上传 PNG 或 JPEG',
@@ -1927,8 +1926,13 @@ export default {
   'tool_call_todo_updated': '任务清单已更新',
   'tool_call_question_label': '提问',
   // 时间线 typed 条目（interrupt / AskUserQuestion 答复）
-  'chat_interrupt_notice': '用户中断了会话',
-  'chat_question_answer_label': '已答复',
+  'chat_interrupt_notice': '已停止，这一轮的回复没有完成',
+  // Agent 消息流
+  'chat_transcript_label': '对话记录',
+  'chat_code_block_label': '代码块',
+  'chat_table_label': '表格',
+  'chat_image_attachment': '图片附件 {{index}}',
+  'chat_image_enlarge': '放大图片附件 {{index}}',
   // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
   // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
   // 会校验缺漏，新增 backend tool 必须同步补全 zh/en/vi)

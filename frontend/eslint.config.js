@@ -134,6 +134,11 @@ const REWORKED_FILES = [
   "src/components/canvas/WorkspaceNotFound.tsx",
   // 分集视图：集目录与原文、页头工具行、方案栏，以及上传原文、新建一集等对话框
   "src/components/canvas/episodes/**",
+  // Agent 面板消息流：滚动跟随、消息行与原地编辑器、思考块、Markdown 正文、复制按钮与演示面板
+  "src/components/copilot/chat/{MessageFlow,MessageRow,MessageEditor,ChatImage,ContentBlockRenderer,ThinkingBlock,TextBlock,display-items}.{ts,tsx}",
+  "src/components/copilot/StreamMarkdown.tsx",
+  "src/components/shared/CopyButton.tsx",
+  "src/onboarding/DemoAssistantPanel.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
