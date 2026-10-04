@@ -1,55 +1,48 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Paperclip, Pencil, TriangleAlert, X } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ImagePayload, Turn } from "@/types";
+import type { ContentBlock, ImagePayload, Turn } from "@/types";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Button } from "@/components/ui/button";
+import { Message, MessageContent } from "@/components/ui/message";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/shared/CopyButton";
 import { formatClockTime } from "@/utils/date-format";
-import { ChatMessage } from "./ChatMessage";
-import {
-  BUBBLE_LABEL_CLASS,
-  BUBBLE_LABEL_STYLE,
-  BUBBLE_SHELL_CLASS,
-  USER_BUBBLE_LAYOUT_CLASS,
-  USER_BUBBLE_STYLE,
-} from "./bubble";
+import { ChatImage } from "./ChatImage";
+import { ContentBlockRenderer } from "./ContentBlockRenderer";
+import { MessageEditor } from "./MessageEditor";
+import { TextBlock } from "./TextBlock";
 import { turnImageAttachments, turnPlainText } from "./utils";
-import {
-  attachmentToImagePayload,
-  imagePayloadToAttachment,
-  MAX_ATTACHED_IMAGES,
-  useImageAttachments,
-} from "@/hooks/useImageAttachments";
 
 // ---------------------------------------------------------------------------
-// MessageRow — 一条时间线消息及其操作行。
+// MessageRow — 消息流里的一项，按 turn 类型分发：
+//   user      → 靠右的浅色气泡，编辑态原地换成 MessageEditor
+//   assistant → 无气泡的正文，正文限宽 40em；工序、思考等块交给 ContentBlockRenderer
+//   system    → 逐块交给 ContentBlockRenderer（中断分隔线、故障卡片、后台任务等）
 //
-// 操作行常驻行高、hover 只改透明度，消息列表不因悬停而跳动。用户消息右对齐
-// 「时间 · 复制 · 编辑」，Agent 消息左对齐「复制 · 时间」，两侧行高一致。
-// 不可编辑时编辑按钮不渲染（不置灰、不加 tooltip）——入口的存在本身即判据。
+// 操作行常驻行高、悬停或聚焦时才显示，消息列表不因悬停而跳动。用户消息右对齐
+// 「时间、复制、编辑」，Agent 消息左对齐「复制、时间」。不可编辑时编辑按钮不渲染
+// （不置灰、不加提示），入口是否存在本身就是判据。
 // ---------------------------------------------------------------------------
-
-/** 后果说明用的琥珀色：语义是「这一步的代价」，与错误红区分开。 */
-const AMBER = "oklch(0.80 0.12 80)";
 
 interface MessageRowProps {
   turn: Turn;
-  /** 该 turn 是流式草稿——末尾块处于生成中，不给操作行。 */
+  /** 该 turn 含流式草稿：末尾块仍在生成，不给操作行。 */
   streaming?: boolean;
   /** 此刻是否给出改写入口（判据见 utils.canEditUserTurn）。 */
   editable?: boolean;
   /** 该条消息是否处于原地编辑态。 */
   editing?: boolean;
-  /** 改写请求在途——编辑器锁定。 */
+  /** 改写请求在途，编辑器锁定。 */
   submitting?: boolean;
   onStartEdit?: (turnUuid: string, text: string) => void;
   onCancelEdit?: () => void;
-  /** 提交改写。`images` 是锚点消息的图片附件，原样随改写后的文本一同透传。 */
+  /** 提交改写。`images` 是编辑器里保留下来的图片附件，随改写后的文本一同提交。 */
   onSubmitEdit?: (turnUuid: string, text: string, images: ImagePayload[]) => void;
 }
 
 export function MessageRow({
   turn,
-  streaming,
+  streaming = false,
   editable = false,
   editing = false,
   submitting = false,
@@ -57,276 +50,170 @@ export function MessageRow({
   onCancelEdit,
   onSubmitEdit,
 }: MessageRowProps) {
-  const { t } = useTranslation("dashboard");
-  const text = turnPlainText(turn);
-  const time = formatClockTime(turn.timestamp);
   const turnUuid = turn.uuid;
-  const images = turnImageAttachments(turn);
 
-  if (editing && turnUuid) {
-    // 编辑期间会话可能开跑或弹出问答卡片。此时不关编辑器（用户写到一半的草稿不能
+  if (turn.type === "user" && editing && turnUuid) {
+    // 编辑期间会话可能开跑或弹出问答卡片。此时不关编辑器（用户写到一半的内容不能
     // 被夺走），但重新发送要跟着 editable 一起关：否则一次改写会把刚开的那一轮
     // 连同它已经做出的文件修改一起作废。
     return (
       <MessageEditor
-        initialText={text}
-        initialImages={images}
+        initialText={turnPlainText(turn)}
+        initialImages={turnImageAttachments(turn)}
         submitting={submitting}
         canSubmit={editable}
         onCancel={() => onCancelEdit?.()}
-        onSubmit={(draft, retainedImages) => onSubmitEdit?.(turnUuid, draft, retainedImages)}
+        onSubmit={(text, images) => onSubmitEdit?.(turnUuid, text, images)}
       />
     );
   }
 
-  // 操作行只服务于有正文或附件的已落库消息：草稿、工具卡片、系统事件没有消息操作
-  const showActions = !streaming && (Boolean(text.trim()) || images.length > 0)
-    && (turn.type === "user" || turn.type === "assistant");
-  if (!showActions) {
-    return <ChatMessage message={turn} streaming={streaming} />;
+  switch (turn.type) {
+    case "user":
+      return (
+        <UserMessage
+          turn={turn}
+          onStartEdit={editable && turnUuid ? (text) => onStartEdit?.(turnUuid, text) : undefined}
+        />
+      );
+    case "assistant":
+      return <AgentMessage turn={turn} streaming={streaming} />;
+    case "system":
+      return <SystemEvent turn={turn} />;
+    default:
+      return null;
   }
+}
 
-  const isUser = turn.type === "user";
+function UserMessage({ turn, onStartEdit }: { turn: Turn; onStartEdit?: (text: string) => void }) {
+  const { t } = useTranslation("dashboard");
+  const blocks = turn.content ?? [];
+  const text = turnPlainText(turn);
+  const time = formatClockTime(turn.timestamp);
+  const images = blocks.flatMap((block) =>
+    block.type === "image" && block.source?.data
+      ? [`data:${block.source.media_type};base64,${block.source.data}`]
+      : [],
+  );
+  // 问答回执是 Agent 问卷的答复，不是用户写的消息，没有复制与改写
+  const isAnswer = blocks.some((block) => block.type === "question_answer");
+  const showActions = !isAnswer && (Boolean(text.trim()) || images.length > 0);
 
   return (
-    <div className="group">
-      <ChatMessage message={turn} />
-      <div
-        className={`flex h-7 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 ${
-          isUser ? "justify-end pr-0.5" : "pl-0.5"
-        }`}
-      >
-        {isUser && time && <TimeStamp time={time} className="mr-1" />}
-        {Boolean(text.trim()) && <CopyButton text={text} />}
-        {isUser && editable && turnUuid && (
-          <button
-            type="button"
-            onClick={() => onStartEdit?.(turnUuid, text)}
-            title={t("message_edit")}
-            aria-label={t("message_edit")}
-            className="focus-ring grid h-6 w-6 place-items-center rounded-md transition-colors hover:bg-white/10"
-            style={{ color: "var(--muted-foreground)" }}
-          >
-            <Pencil aria-hidden className="h-3.5 w-3.5" />
-          </button>
+    <Message align="end">
+      <MessageContent>
+        <Bubble variant="tinted" align="end" className="max-w-[85%]">
+          <BubbleContent>
+            <div className="flex flex-col gap-2">
+              {images.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {/* 图片块没有 id，顺序即身份，消息落库后不再变化 */}
+                  {images.map((src, index) => (
+                    <ChatImage key={index} src={src} index={index + 1} />
+                  ))}
+                </div>
+              )}
+              {blocks.map((block, index) => (
+                <UserBlock key={block.id ?? index} block={block} index={index} />
+              ))}
+            </div>
+          </BubbleContent>
+        </Bubble>
+        {showActions && (
+          <ActionRow align="end">
+            {time && <time className="mr-1 text-xs text-muted-foreground tabular-nums">{time}</time>}
+            {Boolean(text.trim()) && <CopyButton text={text} />}
+            {onStartEdit && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={t("message_edit")}
+                      onClick={() => onStartEdit(text)}
+                    />
+                  }
+                >
+                  <Pencil aria-hidden />
+                </TooltipTrigger>
+                <TooltipContent>{t("message_edit")}</TooltipContent>
+              </Tooltip>
+            )}
+          </ActionRow>
         )}
-        {!isUser && time && <TimeStamp time={time} className="ml-1" />}
-      </div>
+      </MessageContent>
+    </Message>
+  );
+}
+
+/** 用户消息里的文字原样显示（不按 Markdown 解析），图片在气泡顶部单独成排。 */
+function UserBlock({ block, index }: { block: ContentBlock; index: number }) {
+  switch (block.type) {
+    case "text":
+      return block.text?.trim() ? <p className="whitespace-pre-wrap">{block.text}</p> : null;
+    case "image":
+      return null;
+    default:
+      return <ContentBlockRenderer block={block} index={index} />;
+  }
+}
+
+function AgentMessage({ turn, streaming }: { turn: Turn; streaming: boolean }) {
+  const blocks = turn.content ?? [];
+  const text = turnPlainText(turn);
+  const time = formatClockTime(turn.timestamp);
+
+  return (
+    <Message align="start">
+      <MessageContent>
+        {blocks.map((block, index) =>
+          block.type === "text" ? (
+            <div key={block.id ?? index} className="max-w-[40em]">
+              <TextBlock text={block.text} />
+            </div>
+          ) : (
+            <ContentBlockRenderer
+              key={block.id ?? index}
+              block={block}
+              index={index}
+              streaming={streaming && index === blocks.length - 1}
+            />
+          ),
+        )}
+        {!streaming && Boolean(text.trim()) && (
+          <ActionRow align="start">
+            <CopyButton text={text} />
+            {time && <time className="ml-1 text-xs text-muted-foreground tabular-nums">{time}</time>}
+          </ActionRow>
+        )}
+      </MessageContent>
+    </Message>
+  );
+}
+
+function SystemEvent({ turn }: { turn: Turn }) {
+  const blocks = turn.content ?? [];
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      {blocks.map((block, index) => (
+        <ContentBlockRenderer key={block.id ?? index} block={block} index={index} />
+      ))}
     </div>
   );
 }
 
-function TimeStamp({ time, className }: { time: string; className: string }) {
+/** 消息下方的操作行：占住行高，悬停所在消息或焦点进入时才显示。 */
+function ActionRow({ align, children }: { align: "start" | "end"; children: React.ReactNode }) {
   return (
-    <span className={`${className} text-[10.5px] tabular-nums`} style={{ color: "var(--muted-foreground)" }}>
-      {time}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// MessageEditor — 气泡原地变编辑框，形态与位置不变。
-// ---------------------------------------------------------------------------
-
-function MessageEditor({
-  initialText,
-  initialImages,
-  submitting,
-  canSubmit,
-  onCancel,
-  onSubmit,
-}: {
-  initialText: string;
-  /** 锚点消息带的图片附件，可在改写前逐张移除。 */
-  initialImages: ImagePayload[];
-  submitting: boolean;
-  /** 此刻允许提交改写；false 时保留草稿但锁住重新发送。 */
-  canSubmit: boolean;
-  onCancel: () => void;
-  onSubmit: (text: string, images: ImagePayload[]) => void;
-}) {
-  const { t } = useTranslation("dashboard");
-  const [draft, setDraft] = useState(initialText);
-  const {
-    images,
-    error: attachError,
-    isReading: isReadingImages,
-    addFiles,
-    removeImage,
-    invalidatePendingTranscodes,
-  } = useImageAttachments(() => initialImages.map(imagePayloadToAttachment));
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // 部分输入法在组合确认的那次 keydown 上不置 isComposing，靠组合事件补齐
-  const isComposingRef = useRef(false);
-
-  // 进入编辑态即聚焦、光标置尾、按内容撑开高度
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, []);
-
-  const hasContent = Boolean(draft.trim()) || images.length > 0;
-  const attachDisabled = submitting || isReadingImages || images.length >= MAX_ATTACHED_IMAGES;
-
-  const submit = useCallback(() => {
-    if (submitting || !canSubmit || !hasContent || isReadingImages) return;
-    invalidatePendingTranscodes();
-    onSubmit(draft, images.map(attachmentToImagePayload));
-  }, [
-    draft,
-    images,
-    hasContent,
-    isReadingImages,
-    submitting,
-    canSubmit,
-    onSubmit,
-    invalidatePendingTranscodes,
-  ]);
-
-  const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (attachDisabled) return;
-    const imageFiles = Array.from(event.clipboardData.items)
-      .filter((item) => item.type.startsWith("image/"))
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => file !== null);
-    if (imageFiles.length === 0) return;
-    event.preventDefault();
-    addFiles(imageFiles);
-  }, [addFiles, attachDisabled]);
-
-  return (
-    <div className={`${USER_BUBBLE_LAYOUT_CLASS} ${BUBBLE_SHELL_CLASS}`} style={USER_BUBBLE_STYLE}>
-      <div
-        className={BUBBLE_LABEL_CLASS}
-        style={{ ...BUBBLE_LABEL_STYLE, color: "var(--primary)" }}
-      >
-        {t("message_edit_title")}
-      </div>
-      {images.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {images.map(({ id, dataUrl }, index) => (
-            <div key={id} className="relative">
-              <img
-                src={dataUrl}
-                alt={t("message_edit_attachment", { index: index + 1, total: images.length })}
-                className="h-14 w-14 rounded-md object-cover"
-                style={{ border: "1px solid var(--border)" }}
-              />
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => removeImage(id)}
-                className="focus-ring absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full transition-colors hover:bg-destructive disabled:cursor-not-allowed disabled:opacity-50"
-                style={{
-                  background: "oklch(0.14 0.008 265)",
-                  color: "var(--subtle-foreground)",
-                  border: "1px solid var(--border)",
-                }}
-                aria-label={t("message_edit_remove_attachment", { index: index + 1, total: images.length })}
-              >
-                <X aria-hidden className="h-2.5 w-2.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="mb-2 flex items-center gap-2">
-        <button
-          type="button"
-          disabled={attachDisabled}
-          onClick={() => fileInputRef.current?.click()}
-          className="focus-ring flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ color: "var(--muted-foreground)", border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-          title={images.length >= MAX_ATTACHED_IMAGES
-            ? t("max_images_hint", { count: MAX_ATTACHED_IMAGES })
-            : t("attach_image")}
-        >
-          <Paperclip aria-hidden className="h-3 w-3" />
-          {t("attach_image")}
-        </button>
-        {attachError && <span role="alert" className="text-[10.5px] text-destructive">{attachError}</span>}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/*"
-          aria-label={t("upload_attachment_aria")}
-          className="hidden"
-          disabled={submitting}
-          onChange={(event) => {
-            addFiles(Array.from(event.target.files ?? []));
-            event.target.value = "";
-          }}
-        />
-      </div>
-      <textarea
-        ref={textareaRef}
-        value={draft}
-        rows={2}
-        disabled={submitting}
-        aria-label={t("message_edit_textarea_label")}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          e.currentTarget.style.height = "auto";
-          e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
-        }}
-        onPaste={handlePaste}
-        onCompositionStart={() => {
-          isComposingRef.current = true;
-        }}
-        onCompositionEnd={() => {
-          isComposingRef.current = false;
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            if (submitting) return;
-            e.preventDefault();
-            onCancel();
-          } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            // 组合中的这一下确认的是候选词，不是提交（与主输入框同口径）
-            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || isComposingRef.current) return;
-            e.preventDefault();
-            submit();
-          }
-        }}
-        className="focus-ring w-full resize-none rounded-md px-2 py-1.5 text-[12.5px] leading-[1.55] disabled:opacity-60"
-        style={{
-          background: "oklch(0.17 0.01 260 / 0.6)",
-          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-          color: "var(--foreground)",
-        }}
-      />
-      <p className="mt-1.5 flex items-start gap-1 text-[10.5px] leading-[1.5]" style={{ color: AMBER }}>
-        <TriangleAlert aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
-        {t("message_edit_consequence")}
-      </p>
-      <div className="mt-2 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          // 改写在途时取消无从撤回请求：关掉编辑器只会让随后的会话切换显得无端
-          disabled={submitting}
-          onClick={onCancel}
-          className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ color: "var(--muted-foreground)", border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-        >
-          {t("message_edit_cancel")}
-        </button>
-        <button
-          type="button"
-          disabled={submitting || !canSubmit || !hasContent || isReadingImages}
-          onClick={submit}
-          title={t("message_edit_resend_hint")}
-          className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ background: "var(--primary)", color: "oklch(0.12 0 0)" }}
-        >
-          {submitting ? t("message_edit_resending") : t("message_edit_resend")}
-        </button>
-      </div>
+    <div
+      className={
+        align === "end"
+          ? "flex h-7 items-center gap-0.5 self-end opacity-0 transition-opacity duration-fast group-hover/message:opacity-100 group-focus-within/message:opacity-100"
+          : "flex h-7 items-center gap-0.5 self-start opacity-0 transition-opacity duration-fast group-hover/message:opacity-100 group-focus-within/message:opacity-100"
+      }
+    >
+      {children}
     </div>
   );
 }

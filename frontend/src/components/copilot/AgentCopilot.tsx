@@ -17,9 +17,7 @@ import { PendingQuestionWizard } from "./PendingQuestionWizard";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
-import { MessageRow } from "./chat/MessageRow";
-import { AgentFailureCard } from "./chat/AgentFailureCard";
-import { canEditUserTurn, composeAllTurns } from "./chat/utils";
+import { MessageFlow, type MessageFlowHandle } from "./chat/MessageFlow";
 import { formatShortDateTime } from "@/utils/date-format";
 
 // ---------------------------------------------------------------------------
@@ -169,8 +167,8 @@ function formatTime(isoStr: string | undefined, t: TFunction): string {
 export function AgentCopilot() {
   const { t } = useTranslation(["dashboard", "common"]);
   const {
-    turns, draftTurn, messagesLoading, editingTurnUuid, setEditingTurnUuid,
-    sending, sessionStatus, pendingQuestion, answeringQuestion, error, startupFailure, startupFailureOrigin,
+    turns, draftTurn, currentSessionId, sending, sessionStatus, pendingQuestion, answeringQuestion, error,
+    startupFailureOrigin,
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
@@ -178,7 +176,7 @@ export function AgentCopilot() {
   const { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
     useAssistantSession(currentProjectName);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const flowRef = useRef<MessageFlowHandle>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -196,7 +194,6 @@ export function AgentCopilot() {
   } = useImageAttachments();
   const [isDragOver, setIsDragOver] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const allTurns = composeAllTurns(turns, draftTurn);
   const isRunning = sessionStatus === "running";
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
   const attachDisabled = inputDisabled || isReadingImages || attachedImages.length >= MAX_ATTACHED_IMAGES;
@@ -246,6 +243,8 @@ export function AgentCopilot() {
     if (inputDisabled || isReadingImages || (!localInput.trim() && attachedImages.length === 0)) return;
     invalidatePendingTranscodes();
     setShowSlashMenu(false);
+    // 发送即回到最新处，随后到达的这条消息与回复都在视野里
+    flowRef.current?.scrollToEnd();
     // 发送期间输入锁定（sending 置位）；受理成功才清空，失败保留内容供重试
     voidCall(
       sendMessage(localInput.trim(), attachedImages.length > 0 ? attachedImages : undefined).then(
@@ -271,6 +270,12 @@ export function AgentCopilot() {
   const handleSubmitEdit = useCallback((turnUuid: string, text: string, images: ImagePayload[]) => {
     voidCall(rewriteMessage(turnUuid, text, images));
   }, [rewriteMessage]);
+
+  // 提交回答与发送消息同理：回到最新处等 Agent 接着回复
+  const handleSubmitAnswers = useCallback((questionId: string, answers: Record<string, string>) => {
+    flowRef.current?.scrollToEnd();
+    voidCall(answerQuestion(questionId, answers));
+  }, [answerQuestion]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Delegate to slash menu when open
@@ -362,12 +367,6 @@ export function AgentCopilot() {
     });
   }, []);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [allTurns.length]);
-
   return (
     <div
       className="relative isolate flex h-full flex-col"
@@ -414,7 +413,7 @@ export function AgentCopilot() {
               title={t("arcreel_agent")}
             >
               <span
-                className="h-1.5 w-1.5 animate-pulse rounded-full"
+                className="h-1.5 w-1.5 animate-breath rounded-full"
                 style={{ background: "var(--primary)" }}
               />
               {t("thinking")}
@@ -452,70 +451,21 @@ export function AgentCopilot() {
       <ContextBanner />
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 min-w-0 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3">
-        {allTurns.length === 0 && !messagesLoading && !startupFailure && (
-          <div className="flex h-full flex-col items-center justify-center text-center">
-            <div
-              className="mb-3 grid h-12 w-12 place-items-center rounded-2xl"
-              style={{
-                background:
-                  "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.22 0.011 265 / 0.6))",
-                border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-                boxShadow: "0 0 24px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
-              }}
-            >
-              <Bot
-                className="h-5 w-5"
-                style={{ color: "var(--primary)" }}
-              />
-            </div>
-            <p
-              className="display-serif text-[14px] font-semibold"
-              style={{ color: "var(--foreground)" }}
-            >
-              {t("start_chat_hint")}
-            </p>
-            <p
-              className="mt-1 text-[11.5px]"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              {t("quick_skill_hint")}
-            </p>
-          </div>
-        )}
-        {allTurns.map((turn, i) => (
-          <MessageRow
-            key={turn.uuid || `turn-${i}`}
-            turn={turn}
-            streaming={turn === draftTurn}
-            editable={canEditUserTurn(turn, {
-              sessionStatus,
-              hasPendingQuestion: Boolean(pendingQuestion),
-              isSending: sending,
-            })}
-            editing={Boolean(turn.uuid) && turn.uuid === editingTurnUuid}
-            submitting={sending}
-            onStartEdit={setEditingTurnUuid}
-            onCancelEdit={() => setEditingTurnUuid(null)}
-            onSubmitEdit={handleSubmitEdit}
-          />
-        ))}
-        {startupFailure && (
-          // 改写失败时原始输入留在仍开着的编辑器里，重试由它的「重新发送」发起：
-          // 卡片这里给重试只会重放主输入框的无关内容（为空时更是毫无反应）
-          <AgentFailureCard
-            failure={startupFailure}
-            onRetry={startupFailureOrigin === "rewrite" ? undefined : handleSend}
-          />
-        )}
-      </div>
+      <MessageFlow
+        key={currentSessionId ?? "draft"}
+        ref={flowRef}
+        onSubmitEdit={handleSubmitEdit}
+        // 改写失败时原始输入留在仍开着的编辑器里，重试由它的「重新发送」发起：
+        // 卡片这里给重试只会重放主输入框的无关内容（为空时更是毫无反应）
+        onRetryStartup={startupFailureOrigin === "rewrite" ? undefined : handleSend}
+      />
 
       {pendingQuestion && (
         <PendingQuestionWizard
           pendingQuestion={pendingQuestion}
           answeringQuestion={answeringQuestion}
           error={error}
-          onSubmitAnswers={voidPromise(answerQuestion)}
+          onSubmitAnswers={handleSubmitAnswers}
         />
       )}
 

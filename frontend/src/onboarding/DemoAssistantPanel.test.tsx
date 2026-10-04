@@ -39,6 +39,6 @@ describe("DemoAssistantPanel", () => {
     render(<DemoAssistantPanel />);
 
     expect(screen.getByRole("textbox")).toBeDisabled();
-    expect(screen.getByRole("button")).toBeDisabled();
+    expect(screen.getByRole("button", { name: i18n.t("dashboard:send_message") })).toBeDisabled();
   });
 });

@@ -39,6 +39,8 @@ export default {
   'config_incomplete': 'Configuration incomplete',
   'refresh': 'Refresh',
   'close': 'Close',
+  'jump_to_latest': 'Jump to latest',
+  'jump_to_start': 'Jump to start',
   'unsaved_changes': 'Unsaved changes',
   'save_status_saving': 'Saving…',
   'save_status_saved': 'Saved',

@@ -2,15 +2,17 @@ import { useMemo } from "react";
 import { Bot, Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Turn } from "@/types";
-import { ChatMessage } from "@/components/copilot/chat/ChatMessage";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { MessageRow } from "@/components/copilot/chat/MessageRow";
 import { ONBOARDING_ANCHORS } from "./anchors";
 
 /**
  * 演示工作台的 Agent 面板。
  *
  * 真实 Agent 面板（`AgentCopilot`）从头到尾都是写路径——建会话、SSE 订阅、跑工具，演示态
- * 一概不接。但 Agent 全程参与制作是产品核心，演示工作台不能没有它：这里用同一套消息气泡
- * （`ChatMessage`）渲染三条静态演示对话，把首次制作的时序演出来——Agent 汇报小说分析
+ * 一概不接。但 Agent 全程参与制作是产品核心，演示工作台不能没有它：这里用消息区同一个
+ * 消息组件（`MessageRow`）渲染三条静态演示对话，把首次制作的时序演出来——Agent 汇报小说分析
  * 完成 → 用户发「开始制作」→ Agent 汇报推进。Agent 的每条消息都是对上一步动作的回应，
  * 不伪造工具调用卡片，输入框禁用并标「演示中不可用」。
  *
@@ -43,73 +45,33 @@ export function DemoAssistantPanel() {
   );
 
   return (
-    <div
-      data-onboarding={ONBOARDING_ANCHORS.workbenchAgent}
-      className="relative isolate flex h-full flex-col"
-      style={{ background: "oklch(0.19 0.011 250 / 0.5)" }}
-    >
+    <div data-onboarding={ONBOARDING_ANCHORS.workbenchAgent} className="relative isolate flex h-full flex-col">
       {/* 头部：与真实面板同款标识，不带会话切换/新建——演示里没有会话可管理 */}
-      <div
-        className="flex h-12 items-center gap-2 px-3"
-        style={{ borderBottom: "1px solid var(--border)" }}
-      >
-        <div
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-md"
-          style={{
-            background:
-              "linear-gradient(135deg, var(--primary), oklch(0.60 0.10 280))",
-            color: "oklch(0.12 0 0)",
-          }}
-        >
-          <Bot className="h-3.5 w-3.5" />
-        </div>
-        <span className="display-serif min-w-0 truncate text-[13px] font-semibold leading-[1.1]">
-          {t("dashboard:arcreel_agent")}
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
+        <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
+          <Bot aria-hidden className="size-3.5" />
         </span>
+        <span className="min-w-0 truncate text-sm font-semibold">{t("dashboard:arcreel_agent")}</span>
       </div>
 
       {/* 静态演示对话 */}
-      <div className="flex-1 min-w-0 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4">
         {turns.map((turn) => (
-          <ChatMessage key={turn.uuid} message={turn} />
+          <MessageRow key={turn.uuid} turn={turn} />
         ))}
       </div>
 
       {/* 输入区：只作形态展示，演示中不可用 */}
-      <div
-        className="p-3"
-        style={{ borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-      >
-        <div
-          className="flex items-end gap-2 rounded-lg px-3 py-2"
-          style={{
-            border: "1px solid var(--border)",
-            background: "oklch(0.20 0.012 265 / 0.7)",
-          }}
-        >
-          <textarea
-            rows={1}
-            disabled
-            placeholder={t("onboarding:demo_action_unavailable")}
-            aria-label={t("dashboard:assistant_input")}
-            className="flex-1 resize-none overflow-hidden bg-transparent text-[13px] outline-none disabled:cursor-not-allowed"
-            style={{ color: "var(--foreground)" }}
-          />
-          <button
-            type="button"
-            disabled
-            className="shrink-0 rounded-md p-1.5 disabled:cursor-not-allowed disabled:opacity-30"
-            style={{
-              color: "oklch(0.14 0 0)",
-              background:
-                "var(--primary)",
-            }}
-            title={t("onboarding:demo_action_unavailable")}
-            aria-label={t("dashboard:send_message")}
-          >
-            <Send className="h-4 w-4" />
-          </button>
-        </div>
+      <div className="flex shrink-0 items-end gap-2 border-t border-border p-3">
+        <Textarea
+          rows={1}
+          disabled
+          placeholder={t("onboarding:demo_action_unavailable")}
+          aria-label={t("dashboard:assistant_input")}
+        />
+        <Button size="icon-sm" disabled aria-label={t("dashboard:send_message")}>
+          <Send aria-hidden />
+        </Button>
       </div>
     </div>
   );

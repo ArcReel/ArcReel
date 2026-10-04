@@ -40,6 +40,8 @@ export default {
   'config_incomplete': '配置不完整',
   'refresh': '刷新',
   'close': '关闭',
+  'jump_to_latest': '跳到最新',
+  'jump_to_start': '回到开头',
   'unsaved_changes': '有未保存的修改',
   'save_status_saving': '正在保存',
   'save_status_saved': '已保存',

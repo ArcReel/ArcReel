@@ -45,21 +45,21 @@ describe("SkillChip", () => {
 });
 
 describe("ThinkingBlock", () => {
-  it("shows an animated single-line thinking indicator while streaming", () => {
+  it("shows a single-line thinking indicator while streaming", () => {
     render(<ThinkingBlock thinking="部分推理" streaming />);
 
-    expect(screen.getByText("思考中…")).toBeInTheDocument();
+    expect(screen.getByText("正在思考")).toBeInTheDocument();
+    expect(screen.queryByText("部分推理")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("collapses to a one-line summary and expands full text on click", () => {
+  it("collapses to one labelled line and expands the full text on click", () => {
     const thinking = "先分析项目状态\n再决定生成顺序";
     render(<ThinkingBlock thinking={thinking} />);
 
-    const toggle = screen.getByRole("button");
+    const toggle = screen.getByRole("button", { name: "思考过程" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByText("先分析项目状态")).toBeInTheDocument();
-    expect(screen.queryByText(/再决定生成顺序/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/先分析项目状态/)).not.toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");

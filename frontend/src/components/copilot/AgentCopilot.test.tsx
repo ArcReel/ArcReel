@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import type { Turn } from "@/types";
 import { UI_LAYERS } from "@/utils/ui-layers";
 import { AgentCopilot } from "./AgentCopilot";
 
@@ -19,13 +20,53 @@ vi.mock("./SlashCommandMenu", () => ({
   SlashCommandMenu: vi.fn(() => null),
 }));
 
-vi.mock("./chat/ChatMessage", () => ({
-  ChatMessage: ({ message }: { message: { type: string } }) => (
-    <div data-testid="chat-message">{message.type}</div>
-  ),
-}));
-
 const mockedUseAssistantSession = vi.mocked(useAssistantSession);
+
+// jsdom 没有布局：消息区的视口按 400px 高、每条消息按 300px 高打桩，滚动位置按元素记住，
+// scrollTo 直接写入并派发 scroll 事件。
+const VIEWPORT_HEIGHT = 400;
+const ITEM_HEIGHT = 300;
+
+function stubMessageLayout() {
+  const scrollTops = new WeakMap<Element, number>();
+  const isViewport = (el: Element) => el instanceof HTMLElement && el.dataset.slot === "message-scroller-viewport";
+  const itemsOf = (viewport: Element) =>
+    Array.from(viewport.querySelectorAll<HTMLElement>('[data-slot="message-scroller-item"]'));
+
+  vi.spyOn(Element.prototype, "scrollTop", "get").mockImplementation(function (this: Element) {
+    return scrollTops.get(this) ?? 0;
+  });
+  vi.spyOn(Element.prototype, "scrollTop", "set").mockImplementation(function (this: Element, value: number) {
+    scrollTops.set(this, value);
+  });
+  vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
+    return isViewport(this) ? VIEWPORT_HEIGHT : 0;
+  });
+  vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (this: Element) {
+    return isViewport(this) ? itemsOf(this).length * ITEM_HEIGHT : 0;
+  });
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    if (isViewport(this)) return new DOMRect(0, 0, 420, VIEWPORT_HEIGHT);
+    const viewport = this.closest('[data-slot="message-scroller-viewport"]');
+    if (!viewport || !(this instanceof HTMLElement) || this.dataset.slot !== "message-scroller-item") {
+      return new DOMRect();
+    }
+    const index = itemsOf(viewport).indexOf(this);
+    return new DOMRect(0, index * ITEM_HEIGHT - viewport.scrollTop, 420, ITEM_HEIGHT);
+  });
+  Element.prototype.scrollTo = function (this: Element, options?: ScrollToOptions | number) {
+    if (typeof options === "object" && options.top !== undefined) this.scrollTop = options.top;
+    this.dispatchEvent(new Event("scroll"));
+  } as Element["scrollTo"];
+}
+
+function makeTurns(count: number): Turn[] {
+  return Array.from({ length: count }, (_, index) => ({
+    type: index % 2 === 0 ? "user" : "assistant",
+    uuid: `turn-${index}`,
+    content: [{ type: "text", text: `第 ${index + 1} 条消息` }],
+  }));
+}
 
 function makePendingQuestion() {
   return {
@@ -167,4 +208,41 @@ describe("AgentCopilot", () => {
     });
   });
 
+  describe("message flow scrolling", () => {
+    const scrollTo = Element.prototype.scrollTo;
+
+    beforeEach(() => {
+      stubMessageLayout();
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      Element.prototype.scrollTo = scrollTo;
+    });
+
+    it("offers jump-to-latest once the user scrolls up, and returns to the end on send", async () => {
+      useAssistantStore.setState({ currentSessionId: "session-1", turns: makeTurns(6) });
+      render(<AgentCopilot />);
+
+      const viewport = screen.getByRole("region", { name: "对话记录" });
+      const jump = screen.getByRole("button", { name: "跳到最新" });
+      const end = 6 * ITEM_HEIGHT - VIEWPORT_HEIGHT;
+      await waitFor(() => expect(viewport.scrollTop).toBe(end));
+      expect(jump).toHaveAttribute("data-active", "false");
+
+      // 上翻：滚轮表明是用户在滚动，跟随随之停止
+      fireEvent.wheel(viewport, { deltaY: -600 });
+      viewport.scrollTop = 0;
+      fireEvent.scroll(viewport);
+      await waitFor(() => expect(jump).toHaveAttribute("data-active", "true"));
+
+      const input = screen.getByLabelText("Agent 输入");
+      fireEvent.change(input, { target: { value: "继续" } });
+      fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+      expect(sendMessage).toHaveBeenCalledWith("继续", undefined);
+      expect(viewport.scrollTop).toBe(end);
+      await waitFor(() => expect(jump).toHaveAttribute("data-active", "false"));
+    });
+  });
 });
