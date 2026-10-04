@@ -68,12 +68,39 @@ describe("工具调用的工序行", () => {
 });
 
 describe("Skill 的工序行", () => {
-  it("shows the skill name and arguments without an expandable body", () => {
-    renderBlock({ type: "skill_invocation", skill_name: "generate-storyboard", skill_args: "第一集所有场景" });
+  it("expands a successful skill to reveal its recorded arguments and result", () => {
+    renderBlock({
+      type: "tool_use",
+      id: "tu-skill",
+      name: "Skill",
+      input: { skill: "generate-storyboard", args: "第一集所有场景" },
+      result: "Launching skill: generate-storyboard",
+    });
+
+    const row = screen.getByRole("button", { name: /\/generate-storyboard.*第一集所有场景/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("参数")).not.toBeInTheDocument();
+    expect(screen.queryByText("Launching skill: generate-storyboard")).not.toBeInTheDocument();
+
+    fireEvent.click(row);
+    expect(screen.getByText("参数")).toBeInTheDocument();
+    expect(screen.getByText("结果")).toBeInTheDocument();
+    expect(screen.getByText("Launching skill: generate-storyboard")).toBeInTheDocument();
+  });
+
+  it("keeps a skill without recorded arguments or result non-expandable", () => {
+    renderBlock({ type: "skill_invocation", skill_name: "generate-storyboard" });
 
     expect(screen.getByText("/generate-storyboard")).toBeInTheDocument();
-    expect(screen.getByText("第一集所有场景")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("expands the arguments of a standalone skill invocation", () => {
+    renderBlock({ type: "skill_invocation", skill_name: "generate-storyboard", skill_args: "第一集所有场景" });
+
+    fireEvent.click(screen.getByRole("button", { name: /\/generate-storyboard.*第一集所有场景/ }));
+    expect(screen.getByText("参数")).toBeInTheDocument();
+    expect(screen.queryByText("结果")).not.toBeInTheDocument();
   });
 
   it("dispatches Skill tool_use blocks to the skill row and exposes the error when it fails", () => {
@@ -92,7 +119,7 @@ describe("Skill 的工序行", () => {
 });
 
 describe("后台任务的工序行", () => {
-  it("reports the outcome of a finished task", () => {
+  it("reports a task failure when collapsed and expands its description and outcome", () => {
     renderBlock({
       type: "task_progress",
       task_id: "t1",
@@ -103,6 +130,14 @@ describe("后台任务的工序行", () => {
     });
     expect(screen.getByText("供应商拒绝了请求")).toBeInTheDocument();
     expect(screen.getByText("失败")).toBeInTheDocument();
+    const row = screen.getByRole("button", { name: /后台任务.*供应商拒绝了请求.*失败/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("批量生成分镜图")).not.toBeInTheDocument();
+
+    fireEvent.click(row);
+    expect(screen.getByText("参数")).toBeInTheDocument();
+    expect(screen.getByText("批量生成分镜图")).toBeInTheDocument();
+    expect(screen.getByText("结果")).toBeInTheDocument();
   });
 });
 

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { EpisodeMeta, UnregisteredSourceFile } from "@/types";
+import type { EpisodeMeta, ProjectData, UnregisteredSourceFile } from "@/types";
 
 import { UnregisteredFilesBanner } from "./UnregisteredFiles";
 
@@ -17,6 +17,14 @@ const FILES: UnregisteredSourceFile[] = [
   { name: "旧稿.txt", size: 10, can_join_whole_source: true },
   { name: "_notes.txt", size: 5, can_join_whole_source: false },
 ];
+
+const REFRESHED_PROJECT: ProjectData = {
+  title: "Demo",
+  content_mode: "drama",
+  style: "Anime",
+  episodes: EPISODES,
+  characters: {},
+};
 
 function renderBanner(files: UnregisteredSourceFile[] = FILES) {
   const onChanged = vi.fn();
@@ -34,7 +42,7 @@ describe("UnregisteredFilesBanner", () => {
     vi.restoreAllMocks();
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    vi.spyOn(API, "getProject").mockResolvedValue({ project: REFRESHED_PROJECT, scripts: {} });
   });
 
   it("names the files in a banner and sums up the rest", () => {
@@ -62,6 +70,7 @@ describe("UnregisteredFilesBanner", () => {
 
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(adopt).toHaveBeenCalledWith("demo", "旧稿.txt", { target: "whole_source" });
+    expect(useProjectsStore.getState().currentProjectData).toEqual(REFRESHED_PROJECT);
   });
 
   it("offers a new episode or an episode without source as the target", async () => {

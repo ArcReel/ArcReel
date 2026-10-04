@@ -301,7 +301,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
         {view.replan !== null ? (
           <section
             aria-label={t("episodes_plan_column_label")}
-            className="w-[clamp(320px,30cqw,400px)] shrink-0 overflow-y-auto border-l px-4 py-4"
+            className="relative w-[clamp(320px,30cqw,400px)] shrink-0 overflow-y-auto border-l px-4 py-4"
           >
             <ReplanCandidatePanel
               projectName={projectName}

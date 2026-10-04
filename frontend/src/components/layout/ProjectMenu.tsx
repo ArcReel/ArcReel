@@ -107,7 +107,7 @@ export function ProjectMenu() {
             aria-label={t("dashboard:project_switcher_search")}
           />
           {list.status === "ready" ? (
-            <CommandList>
+            <CommandList label={t("dashboard:project_switcher_projects")}>
               <CommandEmpty>{t("dashboard:project_switcher_no_match")}</CommandEmpty>
               <CommandGroup heading={t("dashboard:project_switcher_projects")}>
                 {list.projects.map((project) => {

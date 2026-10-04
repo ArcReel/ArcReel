@@ -177,6 +177,22 @@ describe("GlobalHeader", () => {
     });
   });
 
+  it("closes an already-open export dialog when the workbench switches to another real project", async () => {
+    useProjectsStore.setState({ currentProjectName: "project-a", currentProjectData: PROJECT_WITH_EPISODES as never });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出项目归档" }).click();
+    expect(await screen.findByText("选择导出范围")).toBeInTheDocument();
+
+    // 对话框打开时记下的是项目 A；经浏览器前进/后退复用同一个 GlobalHeader 切到项目 B 后，
+    // 弹窗须随之关闭，不能让选定范围后导出的仍是 A
+    useProjectsStore.setState({ currentProjectName: "project-b", currentProjectData: PROJECT_WITH_EPISODES as never });
+
+    await waitFor(() => {
+      expect(screen.queryByText("选择导出范围")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders the usage entry for the current project", () => {
     useProjectsStore.setState({ currentProjectName: "real-project" });
 

@@ -6,6 +6,7 @@ import { cn } from "cn";
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogBody,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -219,9 +220,12 @@ function DeleteSessionDialog({
           <AlertDialogDescription>{t("dashboard:delete_session_desc")}</AlertDialogDescription>
         </AlertDialogHeader>
         {failed && (
-          <p role="alert" className="px-6 text-sm text-destructive">
-            {t("dashboard:delete_session_failed")}
-          </p>
+          // 失败说明放进唯一的滚动区：窗口很矮时不会被头尾夹住裁掉
+          <AlertDialogBody>
+            <p role="alert" className="text-destructive">
+              {t("dashboard:delete_session_failed")}
+            </p>
+          </AlertDialogBody>
         )}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={deleting}>{t("common:cancel")}</AlertDialogCancel>

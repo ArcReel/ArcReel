@@ -60,6 +60,11 @@ function renderOverview(props: Partial<Parameters<typeof OverviewCanvas>[0]> = {
   return { ...view, location, rerender: (next: Partial<Parameters<typeof OverviewCanvas>[0]>) => view.rerender(element(next)) };
 }
 
+function StoreOverview() {
+  const projectData = useProjectsStore((state) => state.currentProjectData);
+  return <OverviewCanvas projectName="demo" projectData={projectData} />;
+}
+
 function setCost(
   projectName: string,
   actual: Record<string, Record<string, number>>,
@@ -84,7 +89,7 @@ describe("OverviewCanvas", () => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useCostStore.setState(useCostStore.getInitialState(), true);
     vi.restoreAllMocks();
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    vi.spyOn(API, "getProject").mockResolvedValue({ project: makeProjectData(), scripts: {} });
   });
 
   it("summarizes mode, aspect ratio, episode count and script length in the header", () => {
@@ -93,6 +98,19 @@ describe("OverviewCanvas", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Demo" })).toBeInTheDocument();
     expect(screen.getByText("剧情演绎 · 竖屏 9:16 · 2 集 · 脚本时长 1:30")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "项目设置" })).toHaveAttribute("href", "/app/projects/demo/settings");
+  });
+
+  it("rounds a fractional script length before splitting it into minutes and seconds", () => {
+    renderOverview({
+      projectData: makeProjectData({
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", duration_seconds: 59.6 },
+          { episode: 2, title: "EP2", script_file: "scripts/episode_2.json", duration_seconds: 60 },
+        ],
+      }),
+    });
+
+    expect(screen.getByText("剧情演绎 · 竖屏 9:16 · 2 集 · 脚本时长 2:00")).toBeInTheDocument();
   });
 
   it("links each asset kind to its gallery and appends the outdated count", () => {
@@ -154,7 +172,7 @@ describe("OverviewCanvas", () => {
     setCost("demo", {}, { missing_local_calls: true });
     view.rerender({});
     expect(screen.getByText("已花 —")).toBeInTheDocument();
-    expect(screen.getByText(/本机没有这个项目的调用记录/)).toBeInTheDocument();
+    expect(screen.getByText(/本机没有这个项目的生成记录/)).toBeInTheDocument();
   });
 
   it("explains unpriced estimates and calls and links each custom model to its price", () => {
@@ -178,6 +196,40 @@ describe("OverviewCanvas", () => {
       "href",
       "/app/settings?section=providers&custom=3&model=img",
     );
+  });
+
+  it("marks only the unpriced media type as unknown in the details popover", async () => {
+    const user = userEvent.setup();
+    const relay = { provider: "custom-3", provider_name: "Relay", count: 1 } as const;
+    setCost(
+      "demo",
+      {},
+      {
+        project_totals: { estimate: { image: { USD: 2 } }, actual: { image: { USD: 4 } } },
+        unpriced: {
+          estimate: [{ ...relay, call_type: "audio", model: "tts" }],
+          actual: [
+            { ...relay, call_type: "image", model: "img" },
+            { ...relay, call_type: "video", model: "vid" },
+          ],
+        },
+      },
+    );
+    renderOverview();
+
+    await user.click(screen.getByRole("button", { name: "明细" }));
+    const popover = await screen.findByRole("dialog", { name: "费用明细" });
+    // 按预估、已花的列序取同名行的值；某列没有这一行时不出现
+    const values = (label: string) =>
+      within(popover)
+        .getAllByText(label, { selector: "dt" })
+        .map((term) => term.nextElementSibling?.textContent);
+
+    // 同一类型部分没计价时仍显示已计价的金额
+    expect(values("分镜")).toEqual(["$2.00", "$4.00"]);
+    expect(values("视频")).toEqual(["0", "—"]);
+    // 只有没计价的配音时也要列出这一行，不能让它从明细里消失
+    expect(values("旁白配音")).toEqual(["—"]);
   });
 
   it("does not fetch cost on a read-only project and cancels a real project's queued request", async () => {
@@ -297,6 +349,22 @@ describe("OverviewCanvas", () => {
     expect(screen.getByRole("textbox", { name: "梗概" })).toBeInTheDocument();
   });
 
+  it("says the story setting was generated when only the follow-up refresh fails", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "generateOverview").mockResolvedValue({ success: true, overview: {} as never });
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    renderOverview({
+      projectData: makeProjectData({ ...EMPTY_PROJECT, whole_source_files: [{ source_file: "source/novel.txt" }] }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "从原文生成" }));
+
+    // 生成已落盘、只是没取回：不能把它报成生成失败，也不能静默停在旧内容上引人再生成一次
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("故事设定已生成，但页面数据刷新失败，请刷新页面查看最新结果。");
+    expect(alert).not.toHaveTextContent("生成失败");
+  });
+
   it("shows the read-only story setting as text without edit or generate entries", () => {
     renderOverview({ projectName: "onboarding_demo", readOnly: true });
 
@@ -329,7 +397,17 @@ describe("OverviewCanvas", () => {
             finishGenerate = () => resolve({ success: true, overview: {} as never });
           }),
       );
-      const view = renderOverview({ projectData: makeProjectData(EMPTY_PROJECT) });
+      useProjectsStore.getState().setCurrentProject("demo", makeProjectData(EMPTY_PROJECT));
+      vi.spyOn(API, "getProject")
+        .mockResolvedValueOnce({
+          project: makeProjectData({ ...EMPTY_PROJECT, whole_source_files: [{ source_file: "source/novel.txt" }] }),
+          scripts: {},
+        })
+        .mockResolvedValueOnce({
+          project: makeProjectData({ episodes: [], whole_source_files: [{ source_file: "source/novel.txt" }] }),
+          scripts: {},
+        });
+      render(withRouter(<StoreOverview />));
 
       fireEvent.drop(screen.getByRole("button", { name: /拖入原文/ }), {
         dataTransfer: { files: [new File(["x"], "novel.txt", { type: "text/plain" })] },
@@ -342,9 +420,6 @@ describe("OverviewCanvas", () => {
 
       // 生成完成，项目刷新带回故事设定
       await act(async () => finishGenerate());
-      view.rerender({
-        projectData: makeProjectData({ episodes: [], whole_source_files: [{ source_file: "source/novel.txt" }] }),
-      });
 
       await waitFor(() => expect(screen.queryByText("正在读取原文…")).not.toBeInTheDocument());
       expect(screen.getByRole("textbox", { name: "梗概" })).toHaveValue("summary");

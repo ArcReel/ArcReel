@@ -2440,24 +2440,30 @@ class TestUnpricedCosts:
         assert result["unpriced"]["actual"] == []
 
     @pytest.mark.parametrize(
-        ("generated", "has_call", "expected"),
+        ("generated", "call", "expected"),
         [
-            ("asset", False, True),
-            ("storyboard", False, True),
-            ("asset", True, False),
-            (None, False, False),
+            ("asset", None, True),
+            ("storyboard", None, True),
+            ("asset", ("image", "success"), False),
+            # 文本调用与失败的媒体调用都算不出产物的费用，不能让未知的已花变成真实的 0
+            ("asset", ("text", "success"), True),
+            ("asset", ("image", "failed"), True),
+            (None, None, False),
         ],
     )
     async def test_missing_local_calls_flags_generated_media_without_call_records(
-        self, db_factory, generated, has_call, expected
+        self, db_factory, generated, call, expected
     ):
-        """没有本机调用记录（如导入的项目）时实际费用无从统计；什么都还没生成的新项目则是真实的 0。"""
+        """没有本机媒体调用记录（如导入的项目）时实际费用无从统计；什么都还没生成的新项目则是真实的 0。"""
         project_name = "test-imported"
-        if has_call:
+        if call is not None:
+            call_type, status = call
             async with db_factory() as session:
-                await UsageRepository(session).start_call(
-                    project_name=project_name, call_type="image", model="m", provider=PROVIDER_GEMINI
+                repo = UsageRepository(session)
+                call_id = await repo.start_call(
+                    project_name=project_name, call_type=call_type, model="m", provider=PROVIDER_GEMINI
                 )
+                await repo.finish_call(call_id, status=status, settlement=SettlementInput())
         script = _make_script(
             1,
             ["E1S001"],

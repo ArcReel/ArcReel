@@ -720,8 +720,8 @@ class CostEstimationService:
             provider_names = await usage_repo.provider_display_names(
                 {provider for _, provider, _ in (*estimate_unpriced, *actual_unpriced)}
             )
-            # 有产物却没有本机调用记录（如导入的项目、在别的机器上生成）：实际费用无从统计
-            missing_local_calls = not await usage_repo.has_calls(project_name) and _has_generated_media(
+            # 有产物却没有本机的媒体调用记录（如导入的项目、在别的机器上生成）：实际费用无从统计
+            missing_local_calls = not await usage_repo.has_media_calls(project_name) and _has_generated_media(
                 project_data, scripts
             )
         for asset_type in ("characters", "scenes", "props", "products"):

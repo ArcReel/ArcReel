@@ -92,4 +92,26 @@ describe("SidebarEpisodeList", () => {
 
     expect(onMove).toHaveBeenCalledWith(1, 2);
   });
+
+  it("accepts no further move from the menu or the keyboard until the pending move is saved", async () => {
+    const user = userEvent.setup();
+    let finish = () => {};
+    const onMove = renderList(vi.fn(() => new Promise<void>((resolve) => (finish = resolve))));
+
+    await user.click(screen.getByRole("button", { name: "「番外」的操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "后移" }));
+    expect(onMove).toHaveBeenCalledTimes(1);
+
+    // 上一次移动还在保存：校验与提交仍按旧顺序，叠加的移动会算错落点
+    await user.click(screen.getByRole("button", { name: "「番外」的操作" }));
+    expect(await screen.findByRole("menuitem", { name: "后移" })).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
+
+    await pickUp("番外");
+    await userEvent.keyboard("{ArrowDown}");
+    await userEvent.keyboard(" ");
+    expect(await screen.findByText(/「番外」不能移到这里/)).toBeInTheDocument();
+    expect(onMove).toHaveBeenCalledTimes(1);
+    finish();
+  });
 });

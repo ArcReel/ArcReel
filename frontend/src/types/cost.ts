@@ -52,6 +52,6 @@ export interface CostEstimateResponse {
   project_totals: { estimate: CostByType; actual: CostByType };
   /** 两侧没有价格、未计入合计的部分；为空时合计是完整的。 */
   unpriced: { estimate: UnpricedModel[]; actual: UnpricedModel[] };
-  /** 项目已有生成出的内容，本机却没有它的调用记录（如导入的项目）：已花无法统计。 */
+  /** 项目已有生成出的内容，本机却没有它成功的媒体调用记录（如导入的项目）：已花无法统计。 */
   missing_local_calls: boolean;
 }
