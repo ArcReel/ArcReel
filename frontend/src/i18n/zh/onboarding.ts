@@ -15,7 +15,7 @@ export default {
   'lobby_demo_title': '演示项目',
   'lobby_demo_body': '点击卡片打开演示工作台，查看项目的制作界面。',
   'workbench_overview_title': '项目概览',
-  'workbench_overview_body': '工作台首页是项目概览，包含 Agent 生成的项目概述和分集列表，每一集的制作状态和进度都在这里查看。',
+  'workbench_overview_body': '工作台首页是项目概览。故事设定（梗概、类型、主题、世界观）由 AI 从原文读出，可以直接修改；上方两行是资产图完成度与费用。',
   'workbench_agent_title': 'Agent',
   'workbench_agent_body': '右侧是 Agent，制作由它执行并汇报进度。新项目进入工作台后先导入小说或剧本，分析完成后发送「开始制作」，它会依次生成项目概述、角色形象图和每一集的分镜与视频。',
   'workbench_lorebook_title': '角色、场景与道具',

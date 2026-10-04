@@ -33,7 +33,7 @@ vi.mock("./edit/EditTimelineView", () => ({
   ),
 }));
 
-vi.mock("./OverviewCanvas", () => ({
+vi.mock("./overview/OverviewCanvas", () => ({
   OverviewCanvas: () => <div data-testid="overview-canvas">Overview</div>,
 }));
 

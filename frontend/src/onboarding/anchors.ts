@@ -12,7 +12,7 @@
  * | `settings-providers` | 设置 4 | 设置页侧栏「供应商」入口 |
  * | `settings-agent` | 设置 5 | 设置页侧栏「ArcReel Agent」入口（不是整个「Agent」分组） |
  * | `lobby-demo-card` | 大厅 6 | 引导期间注入大厅的演示项目卡（进演示工作台的桥） |
- * | `workbench-overview` | 工作台 7 | 项目概览的项目概述卡 |
+ * | `workbench-overview` | 工作台 7 | 项目概览的故事设定区 |
  * | `workbench-agent` | 工作台 8 | 演示工作台右侧的 Agent 面板（静态演示对话） |
  * | `workbench-lorebook` | 工作台 9 | 角色集页面的卡片区 |
  * | `workbench-timeline` | 工作台 10 | 剧集分镜画布的分镜主体 |
