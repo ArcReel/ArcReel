@@ -7,7 +7,7 @@ import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/canvas/shared/AspectFrame";
 import { GenerateButton } from "@/components/canvas/lorebook/GenerateButton";
-import { ImageFlipReveal } from "@/components/canvas/shared/ImageFlipReveal";
+import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
 import { PreviewableImageFrame } from "@/components/canvas/shared/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -103,7 +103,7 @@ export function CharacterDerivativeSheet({
       >
         <PreviewableImageFrame src={sheetUrl && !imgError ? sheetUrl : null} alt={alt}>
           <AspectFrame ratio="16:9">
-            <ImageFlipReveal
+            <CrossfadeImage
               src={sheetUrl && !imgError ? sheetUrl : null}
               alt={alt}
               className="h-full w-full object-contain"

@@ -93,7 +93,7 @@ describe("MediaCard in the demo workbench", () => {
 
     expect(container.querySelector('input[type="file"]')).not.toBeNull();
     expect(getByRole("button", { name: /版本/ })).toBeInTheDocument();
-    expect(getByRole("button", { name: /编辑/ })).toBeInTheDocument();
+    expect(getByRole("button", { name: /局部修改/ })).toBeInTheDocument();
     expect(getByRole("button", { name: /重新生成分镜/ })).toBeInTheDocument();
   });
 });

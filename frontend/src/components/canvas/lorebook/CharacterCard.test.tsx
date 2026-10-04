@@ -6,12 +6,6 @@ import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 
-vi.mock("@/components/canvas/timeline/VersionTimeMachine", async () => {
-  const { versionTimeMachineMock } = await import("@/__mocks__/VersionTimeMachine");
-  return versionTimeMachineMock();
-});
-
-
 describe("CharacterCard", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
@@ -112,59 +106,6 @@ describe("CharacterCard", () => {
         audioFile: null,
       });
     });
-  });
-
-  it("disables add-to-library while an image_edit/generation task is in flight", () => {
-    render(
-      <CharacterCard
-        name="Hero"
-        character={{ description: "hero desc", voice_style: "warm" }}
-        projectName="demo"
-        onSave={vi.fn()}
-        onGenerate={vi.fn()}
-        generating
-      />,
-    );
-
-    const addButton = screen.getByRole("button", { name: "加入资产库" });
-    expect(addButton).toBeDisabled();
-    expect(addButton).toHaveAttribute("title", "生成或编辑进行中，暂无法加入资产库");
-  });
-
-  it("rejects sheet upload submitted after the resource became busy post-open", async () => {
-    const uploadFile = vi.spyOn(API, "uploadFile").mockResolvedValue({ path: "x" } as never);
-    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
-    render(
-      <CharacterCard
-        name="Hero"
-        character={{ description: "hero desc", voice_style: "warm" }}
-        projectName="demo"
-        onSave={vi.fn()}
-        onGenerate={vi.fn()}
-      />,
-    );
-
-    const sheetInput = screen.getByLabelText("上传资产图", { selector: "input" });
-    // 面板打开（点击上传按钮）之后、选完文件之前，该角色被别处入队占用。
-    useTasksStore.setState({
-      tasks: [
-        makeTask({
-          project_name: "demo",
-          task_type: "character",
-          media_type: "image",
-          resource_id: "Hero",
-          status: "running",
-        }),
-      ],
-    });
-
-    const file = new File(["sheet"], "hero-sheet.png", { type: "image/png" });
-    fireEvent.change(sheetInput as HTMLInputElement, { target: { files: [file] } });
-
-    await waitFor(() => {
-      expect(pushToast).toHaveBeenCalledWith("生成或编辑进行中，暂无法上传资产图", "info");
-    });
-    expect(uploadFile).not.toHaveBeenCalled();
   });
 
   it("auto-resizes the description textarea as content grows", async () => {

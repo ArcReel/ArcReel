@@ -1,0 +1,168 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
+import { useTasksStore } from "@/stores/tasks-store";
+import { makeTask } from "@/test/factories";
+import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
+import { AssetGallery } from "./AssetGallery";
+
+interface Source {
+  description: string;
+  scene_sheet?: string;
+}
+
+const SCENES: Record<string, Source> = {
+  庭院: { description: "阴森古朴", scene_sheet: "scenes/庭院.png" },
+  书房: { description: "堆满古籍" },
+  卧室: { description: "雕花木床", scene_sheet: "scenes/卧室.png" },
+};
+
+function row(name: string, status: AssetSheetStatusRow["status"], type: AssetSheetType = "scene"): AssetSheetStatusRow {
+  return {
+    unit_id: `${type}/${name}`,
+    asset_type: type,
+    name,
+    derivative: null,
+    status,
+    description_missing: false,
+    image_to_image: false,
+  };
+}
+
+const libraryPreview = (source: Source) => ({ description: source.description, sheetPath: source.scene_sheet });
+
+function renderGallery(overrides: Partial<Parameters<typeof AssetGallery<Source>>[0]> = {}) {
+  return render(
+    <AssetGallery<Source>
+      projectName="demo"
+      assetType="scene"
+      title="场景"
+      assets={SCENES}
+      readOnly={false}
+      onGenerate={vi.fn()}
+      onAdd={vi.fn()}
+      libraryPreview={libraryPreview}
+      renderEditor={(name) => <p>编辑 {name}</p>}
+      {...overrides}
+    />,
+  );
+}
+
+function cardNames() {
+  const list = screen.getByRole("list", { name: "场景" });
+  return within(list)
+    .getAllByRole("article")
+    .map((card) => card.id);
+}
+
+async function openMenu(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole("button", { name: `「${name}」的更多操作` }));
+  return screen.findByRole("menu");
+}
+
+describe("AssetGallery", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.spyOn(API, "getAssetSheetStatus").mockResolvedValue({
+      assets: [row("庭院", "stale"), row("书房", "missing"), row("卧室", "current")],
+    });
+  });
+
+  afterEach(() => {
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    vi.restoreAllMocks();
+  });
+
+  it("narrows the grid to pending or stale sheets and marks each card", async () => {
+    const user = userEvent.setup();
+    renderGallery();
+    expect(await within(screen.getByRole("article", { name: "庭院" })).findByText("已过期")).toBeInTheDocument();
+    expect(cardNames()).toEqual(["scene-庭院", "scene-书房", "scene-卧室"]);
+
+    await user.click(screen.getByRole("button", { name: /^待生成/ }));
+    expect(cardNames()).toEqual(["scene-书房"]);
+
+    await user.click(screen.getByRole("button", { name: /^已过期/ }));
+    expect(cardNames()).toEqual(["scene-庭院"]);
+  });
+
+  it("opens the asset detail when the card is clicked", async () => {
+    const user = userEvent.setup();
+    renderGallery();
+
+    await user.click(screen.getByRole("button", { name: "书房" }));
+
+    const sheet = await screen.findByRole("dialog", { name: "书房" });
+    expect(within(sheet).getByText("编辑 书房")).toBeInTheDocument();
+  });
+
+  it("collects the secondary actions in the card menu", async () => {
+    const user = userEvent.setup();
+    renderGallery();
+
+    const menu = await openMenu(user, "庭院");
+
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "查看大图",
+      "重新生成资产图",
+      "上传资产图",
+      "局部修改",
+      "版本历史",
+      "加入资产库",
+      "并入…",
+    ]);
+  });
+
+  it("keeps library actions out of product cards", async () => {
+    const user = userEvent.setup();
+    renderGallery({ assetType: "product", title: "商品", libraryPreview: undefined });
+
+    const menu = await openMenu(user, "庭院");
+
+    expect(within(menu).queryByRole("menuitem", { name: "加入资产库" })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "并入…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "从资产库选择" })).not.toBeInTheDocument();
+  });
+
+  it("offers only the image viewer when read-only", async () => {
+    const user = userEvent.setup();
+    renderGallery({ readOnly: true });
+
+    const menu = await openMenu(user, "庭院");
+
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["查看大图"]);
+    expect(screen.queryByRole("button", { name: /添加场景/ })).not.toBeInTheDocument();
+  });
+
+  it("refuses to open a sheet-writing dialog once the asset became busy", async () => {
+    const user = userEvent.setup();
+    renderGallery();
+    const menu = await openMenu(user, "庭院");
+    // 菜单打开之后，该场景被 Agent 入队占用；渲染快照里它还是空闲的。
+    useTasksStore.setState({
+      tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
+    });
+
+    await user.click(within(menu).getByRole("menuitem", { name: "加入资产库" }));
+
+    expect(useAppStore.getState().toast?.text).toBe("资产图正在生成或修改，请等它结束后再操作");
+    expect(screen.queryByRole("dialog", { name: /加入资产库/ })).not.toBeInTheDocument();
+  });
+
+  it("drops an upload chosen after the asset became busy", async () => {
+    const uploadFile = vi.spyOn(API, "uploadFile").mockResolvedValue({ path: "x" } as never);
+    renderGallery();
+    const card = screen.getByRole("article", { name: "庭院" });
+    useTasksStore.setState({
+      tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
+    });
+
+    const file = new File(["sheet"], "scene.png", { type: "image/png" });
+    fireEvent.change(within(card).getByLabelText("上传资产图", { selector: "input" }), { target: { files: [file] } });
+
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法上传资产图"));
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
+});

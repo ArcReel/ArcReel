@@ -1,8 +1,20 @@
-import { useId, useState, type CSSProperties } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Wand2 } from "lucide-react";
+import { Loader2, Wand2 } from "lucide-react";
 import { enqueueImageEdit } from "@/actions/generation";
-import { GlassModal } from "@/components/legacy/GlassModal";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import {
   isResourceBusy,
@@ -11,10 +23,11 @@ import {
   type ImageEditResourceKind,
 } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
+import { TooltipIconButton } from "./TooltipIconButton";
 
 export type ImageEditResourceType = ImageEditResourceKind;
 
-interface ImageEditButtonProps {
+interface ImageEditTarget {
   projectName: string;
   resourceType: ImageEditResourceType;
   resourceId: string;
@@ -26,43 +39,49 @@ interface ImageEditButtonProps {
   busy?: boolean;
 }
 
-const FIELD_STYLE: CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--border)",
-  color: "var(--foreground)",
-  boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
-};
+/**
+ * 图片卡片上的图标式「局部修改」入口：图标按钮 + 指令对话框。
+ */
+export function ImageEditButton(props: ImageEditTarget) {
+  const { t } = useTranslation("dashboard");
+  const [open, setOpen] = useState(false);
+  const disabled = Boolean(props.busy) || !props.hasImage;
+  const label = t("image_edit_action");
+
+  return (
+    <>
+      <TooltipIconButton
+        label={label}
+        hint={props.hasImage ? undefined : t("image_edit_no_image_hint")}
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
+        <Wand2 aria-hidden />
+      </TooltipIconButton>
+      <ImageEditDialog {...props} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
 
 /**
- * 图片卡片头部的图标式编辑入口：7x7 图标按钮 + 指令输入弹窗。
- * 提交即以当前图为底图、指令为 prompt 入队 i2i 编辑；完成后经 SSE fingerprint 自动刷新。
+ * 局部修改的指令对话框：以当前图为底图、指令为 prompt 入队 i2i 编辑；完成后经 SSE fingerprint 自动刷新。
+ * 受控打开，供卡片的「更多」菜单等没有专属按钮的入口使用。
  */
-export function ImageEditButton({
+export function ImageEditDialog({
   projectName,
   resourceType,
   resourceId,
   scriptFile,
   hasImage,
   busy = false,
-}: ImageEditButtonProps) {
-  const { t } = useTranslation("dashboard");
-  const [open, setOpen] = useState(false);
+  open,
+  onOpenChange,
+}: ImageEditTarget & { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { t } = useTranslation(["dashboard", "common"]);
   const [instruction, setInstruction] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const titleId = useId();
-  const descId = useId();
   const fieldId = useId();
-
   const disabled = busy || !hasImage;
-  const triggerTitle = hasImage
-    ? t("image_edit_action")
-    : t("image_edit_no_image_hint");
-
-  const close = () => {
-    if (submitting) return;
-    setOpen(false);
-  };
 
   const handleSubmit = async () => {
     const trimmed = instruction.trim();
@@ -100,7 +119,7 @@ export function ImageEditButton({
         scriptFile: resourceType === "storyboard" ? scriptFile ?? null : null,
       });
       setInstruction("");
-      setOpen(false);
+      onOpenChange(false);
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
@@ -109,97 +128,49 @@ export function ImageEditButton({
   };
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        title={triggerTitle}
-        aria-label={t("image_edit_action")}
-        className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-        style={{ color: "var(--muted-foreground)" }}
-      >
-        <Wand2 className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-
-      <GlassModal
-        open={open}
-        onClose={close}
-        labelledBy={titleId}
-        describedBy={descId}
-        closeOnBackdrop={!submitting}
-        closeOnEscape={!submitting}
-      >
-        <div className="p-5">
-          <h2
-            id={titleId}
-            className="display-serif text-[17px] font-semibold tracking-tight"
-            style={{ color: "var(--foreground)" }}
-          >
-            {t("image_edit_modal_title")}
-          </h2>
-          <p
-            id={descId}
-            className="mt-1.5 text-[12.5px] leading-[1.55]"
-            style={{ color: "var(--muted-foreground)" }}
-          >
-            {t("image_edit_modal_desc", { name: resourceId })}
-          </p>
-
-          <label
-            htmlFor={fieldId}
-            className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em]"
-            style={{ color: "var(--muted-foreground)" }}
-          >
-            {t("image_edit_instruction_label")}
-          </label>
-          <textarea
-            id={fieldId}
-            value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                void handleSubmit();
-              }
-            }}
-            rows={3}
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- 弹窗打开即聚焦指令输入，符合“点开就写”的心智
-            autoFocus
-            placeholder={t("image_edit_instruction_placeholder")}
-            className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
-            style={FIELD_STYLE}
-          />
-
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={close}
-              disabled={submitting}
-              className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ color: "var(--subtle-foreground)" }}
-            >
-              {t("common:cancel")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSubmit()}
-              disabled={submitting || instruction.trim().length === 0 || disabled}
-              className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                color: "oklch(0.14 0 0)",
-                background:
-                  "var(--primary)",
-                boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // 提交在途时忽略 Esc 与遮罩点击
+        if (!next && submitting) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent showCloseButton={!submitting}>
+        <DialogHeader>
+          <DialogTitle>{t("image_edit_modal_title")}</DialogTitle>
+          <DialogDescription>{t("image_edit_modal_desc", { name: resourceId })}</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={fieldId}>{t("image_edit_instruction_label")}</Label>
+            <Textarea
+              id={fieldId}
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  void handleSubmit();
+                }
               }}
-            >
-              <Wand2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {submitting ? t("image_edit_submitting") : t("image_edit_submit")}
-            </button>
+              rows={3}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- 对话框打开即聚焦指令输入，符合“点开就写”的心智
+              autoFocus
+              placeholder={t("image_edit_instruction_placeholder")}
+            />
           </div>
-        </div>
-      </GlassModal>
-    </>
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />} disabled={submitting}>
+            {t("common:cancel")}
+          </DialogClose>
+          <Button onClick={() => void handleSubmit()} disabled={submitting || instruction.trim().length === 0 || disabled}>
+            {submitting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : <Wand2 aria-hidden data-icon="inline-start" />}
+            {submitting ? t("image_edit_submitting") : t("image_edit_submit")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

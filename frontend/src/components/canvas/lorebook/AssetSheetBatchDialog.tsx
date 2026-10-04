@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAppStore } from "@/stores/app-store";
 import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { errMsg } from "@/utils/async";
@@ -32,24 +42,22 @@ export function AssetSheetBatchDialog({
   scope: AssetSheetBatchScope;
   onClose: () => void;
 }) {
-  const { t } = useTranslation("assets");
+  const { t } = useTranslation(["assets", "common"]);
   const [preview, setPreview] = useState<AssetSheetBatchPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const scopeKey = JSON.stringify(scope);
 
   useEffect(() => {
-    let cancelled = false;
-    API.previewAssetSheetBatch(projectName, JSON.parse(scopeKey) as AssetSheetBatchScope)
+    const controller = new AbortController();
+    API.previewAssetSheetBatch(projectName, JSON.parse(scopeKey) as AssetSheetBatchScope, { signal: controller.signal })
       .then((res) => {
-        if (!cancelled) setPreview(res);
+        if (!controller.signal.aborted) setPreview(res);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(errMsg(err));
+        if (!controller.signal.aborted) setError(errMsg(err));
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [projectName, scopeKey]);
 
   const groups = useMemo(
@@ -85,30 +93,28 @@ export function AssetSheetBatchDialog({
 
   let body;
   if (error) {
-    body = <p>{t("sheet_batch_load_failed", { message: error })}</p>;
+    body = <p role="alert" className="text-destructive">{t("sheet_batch_load_failed", { message: error })}</p>;
   } else if (!preview) {
-    body = <p>{t("sheet_batch_loading")}</p>;
+    body = <p className="text-subtle-foreground">{t("sheet_batch_loading")}</p>;
   } else {
     body = (
-      <div className="space-y-3" data-testid="asset-sheet-batch-preview">
+      <div className="flex flex-col gap-3" data-testid="asset-sheet-batch-preview">
         {groups.length === 0 ? (
           <p>{t("sheet_batch_nothing")}</p>
         ) : (
           <div>
-            <p className="font-medium" style={{ color: "var(--subtle-foreground)" }}>
+            <p className="font-medium">
               {t("sheet_batch_targets", { count: preview.targets.length })}
             </p>
             {groups.map((group) => (
-              <div key={group.type} className="mt-1.5">
-                <p className="text-[11px] uppercase tracking-[0.08em]" style={{ color: "var(--muted-foreground)" }}>
-                  {t(`type.${group.type}`)}
-                </p>
-                <ul className="mt-0.5 space-y-0.5">
+              <div key={group.type} className="mt-2">
+                <p className="text-xs font-medium text-muted-foreground">{t(`type.${group.type}`)}</p>
+                <ul className="mt-0.5 flex flex-col gap-0.5 text-subtle-foreground">
                   {group.targets.map((item) => (
                     <li key={item.unit_id}>
                       {refLabel(item)}
                       {item.depends_on && (
-                        <span style={{ color: "var(--muted-foreground)" }}>
+                        <span className="text-muted-foreground">
                           {" · "}
                           {t("sheet_batch_after_owner", { owner: ownerOf(item.depends_on) })}
                         </span>
@@ -122,14 +128,12 @@ export function AssetSheetBatchDialog({
         )}
         {preview.skipped.length > 0 && (
           <div>
-            <p className="font-medium" style={{ color: "var(--subtle-foreground)" }}>
-              {t("sheet_batch_skipped", { count: preview.skipped.length })}
-            </p>
-            <ul className="mt-0.5 space-y-0.5">
+            <p className="font-medium">{t("sheet_batch_skipped", { count: preview.skipped.length })}</p>
+            <ul className="mt-0.5 flex flex-col gap-0.5 text-subtle-foreground">
               {preview.skipped.map((item) => (
                 <li key={item.unit_id}>
                   {t(`type.${item.asset_type}`)} · {refLabel(item)}
-                  <span style={{ color: "var(--muted-foreground)" }}>
+                  <span className="text-muted-foreground">
                     {" · "}
                     {t(`sheet_batch_skip.${item.reason}`)}
                   </span>
@@ -145,17 +149,33 @@ export function AssetSheetBatchDialog({
     );
   }
 
+  const title = "episode_id" in scope ? t("sheet_batch_title_episode") : t("sheet_batch_title_type");
+
   return (
-    <ConfirmDialog
+    <Dialog
       open
-      title={"episode_id" in scope ? t("sheet_batch_title_episode") : t("sheet_batch_title_type")}
-      description={body}
-      confirmLabel={t("sheet_batch_confirm")}
-      loadingLabel={t("sheet_batch_submitting")}
-      loading={submitting}
-      confirmDisabled={!preview || preview.targets.length === 0}
-      onConfirm={handleConfirm}
-      onCancel={onClose}
-    />
+      onOpenChange={(next) => {
+        // 提交在途时忽略 Esc 与遮罩点击
+        if (!next && !submitting) onClose();
+      }}
+    >
+      <DialogContent showCloseButton={!submitting}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <DialogBody tabIndex={0} role="region" aria-label={title}>
+          <div className="text-sm">{body}</div>
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />} disabled={submitting}>
+            {t("common:cancel")}
+          </DialogClose>
+          <Button disabled={submitting || !preview || preview.targets.length === 0} onClick={() => void handleConfirm()}>
+            {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+            {submitting ? t("sheet_batch_submitting") : t("sheet_batch_confirm")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

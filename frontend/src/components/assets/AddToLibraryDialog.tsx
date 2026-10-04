@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Loader2, Package } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,46 +45,37 @@ interface Props {
   busy?: boolean;
 }
 
-/** 把项目里的资产复制到全局资产库。弹窗只读预览将要复制的内容，只有名称可以修改。 */
-export function AddToLibraryButton({ resourceType, resourceId, projectName, preview, busy = false }: Props) {
-  const { t } = useTranslation("assets");
-  const [open, setOpen] = useState(false);
+/**
+ * 把项目里的资产复制到全局资产库。对话框只读预览将要复制的内容，只有名称可以修改。
+ * 受控打开：入口是画廊卡片「更多」菜单里的「加入资产库」。
+ */
+export function AddToLibraryDialog({
+  open,
+  onOpenChange,
+  busy = false,
+  ...props
+}: Props & { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [submitting, setSubmitting] = useState(false);
 
   return (
-    <>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        disabled={busy}
-        aria-label={t("add_to_library")}
-        title={busy ? t("add_to_library_busy_hint") : t("add_to_library")}
-        onClick={() => setOpen(true)}
-      >
-        <Package aria-hidden />
-      </Button>
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          // 请求在途时不响应 Esc 与遮罩点击，避免入库结果还没回来对话框先消失
-          if (!next && submitting) return;
-          setOpen(next);
-        }}
-      >
-        <DialogContent showCloseButton={!submitting}>
-          <AddToLibraryForm
-            resourceType={resourceType}
-            resourceId={resourceId}
-            projectName={projectName}
-            preview={preview}
-            busy={busy}
-            submitting={submitting}
-            setSubmitting={setSubmitting}
-            onDone={() => setOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
-    </>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // 请求在途时不响应 Esc 与遮罩点击，避免入库结果还没回来对话框先消失
+        if (!next && submitting) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent showCloseButton={!submitting}>
+        <AddToLibraryForm
+          {...props}
+          busy={busy}
+          submitting={submitting}
+          setSubmitting={setSubmitting}
+          onDone={() => onOpenChange(false)}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 

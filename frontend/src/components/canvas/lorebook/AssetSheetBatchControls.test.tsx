@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import type { AssetSheetStatusRow } from "@/types";
 import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
 
@@ -18,7 +18,6 @@ function row(overrides: Partial<AssetSheetStatusRow>): AssetSheetStatusRow {
 
 describe("AssetSheetBatchControls", () => {
   it("offers the type batch with its count and notes the ones lacking a description", () => {
-    const onFilterChange = vi.fn();
     render(
       <AssetSheetBatchControls
         projectName="demo"
@@ -29,15 +28,11 @@ describe("AssetSheetBatchControls", () => {
           row({ unit_id: "scene/阁楼", name: "阁楼", description_missing: true }),
           row({ unit_id: "scene/卧室", name: "卧室", status: "current" }),
         ]}
-        filter="all"
-        onFilterChange={onFilterChange}
       />,
     );
 
     expect(screen.getByRole("button", { name: /生成待生成的场景（2）/ })).toBeInTheDocument();
     expect(screen.getByText("另有 1 个资产缺少描述")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "过期" }));
-    expect(onFilterChange).toHaveBeenCalledWith("stale");
   });
 });
 

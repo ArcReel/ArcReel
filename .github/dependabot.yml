@@ -178,7 +178,6 @@ updates:
           - "patch"
       ui-libs:
         patterns:
-          - "framer-motion"
           - "lucide-react"
           - "@floating-ui/*"
           - "@lobehub/*"

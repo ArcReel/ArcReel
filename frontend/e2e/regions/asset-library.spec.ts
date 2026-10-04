@@ -1,10 +1,11 @@
 import type { Locator, Page } from "@playwright/test";
 import { loadRecordedResponses, recordedKey } from "../support/recorded.ts";
+import { clearAgentOverlay } from "../support/region-helpers.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 资产库：铺满档的页面外壳，类型标签带计数，网格滚动到底自动加载下一页；点卡片打开右侧详情 Sheet。
-// 项目画廊里的「从资产库导入」选择器与「加入资产库」预览对话框也在这里探测（画廊本体尚未重做）。
+// 项目画廊里的「从资产库导入」选择器与「加入资产库」预览对话框也在这里探测。
 
 const LIBRARY_PATH = "/app/assets";
 const GALLERY_PATH = "/app/projects/demo/characters";
@@ -86,8 +87,7 @@ async function openDetail(page: Page, name: string): Promise<Locator> {
   return sheet;
 }
 
-// 内联 SVG 资产图：getFileUrl 原样使用 data: 地址，不发请求。画廊卡片没有资产图时的占位会被裁切，
-// 那是画廊本体的问题，这里给角色一张图避开。
+// 内联 SVG 资产图：getFileUrl 原样使用 data: 地址，不发请求。
 const SHEET_SVG = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="1280" height="720" fill="#2a2d3a"/><circle cx="640" cy="300" r="120" fill="#5b5f7a"/><rect x="460" y="440" width="360" height="200" rx="40" fill="#5b5f7a"/></svg>',
 )}`;
@@ -110,7 +110,7 @@ function projectWithCharacter() {
 }
 
 async function galleryReady(page: Page) {
-  await page.getByRole("button", { name: "从资产库选择" }).waitFor();
+  await page.getByRole("button", { name: "从资产库选择" }).first().waitFor();
 }
 
 defineRegionScenarios("资产库", [
@@ -194,9 +194,8 @@ defineRegionScenarios("资产库", [
     api: { ...EVENT_STREAM, ...MANY_ASSETS },
     ready: galleryReady,
     act: async (page) => {
-      // 紧凑档的 Agent 面板默认展开并盖住画布右侧，先收起面板再点画布右上角的按钮
-      await page.getByRole("button", { name: "Agent", exact: true }).click();
-      await page.getByRole("button", { name: "从资产库选择" }).click();
+      await clearAgentOverlay(page);
+      await page.getByRole("button", { name: "从资产库选择" }).first().click();
       const dialog = page.getByRole("dialog", { name: "从资产库选择角色" });
       await dialog.waitFor();
       await settled(dialog);
@@ -216,19 +215,12 @@ defineRegionScenarios("资产库", [
     api: {
       ...EVENT_STREAM,
       "GET /api/v1/projects/demo": projectWithCharacter(),
-      // 角色卡的声音试听会请求参考音频；页面级套件不回放媒体文件。
-      "GET /api/v1/files/demo/characters/refs_audio/林夕.wav": { status: 404, body: { detail: "页面级套件不回放媒体" } },
     },
     ready: galleryReady,
     act: async (page) => {
-      // 画廊角色卡的资产图框比内容矮几像素，属于尚未重做的画廊本体，这里只豁免这一个元素，其余照常探测。
-      await page.evaluate(() => {
-        document
-          .getElementById("character-林夕")
-          ?.querySelector(".aspect-video")
-          ?.setAttribute("data-overflow-ok", "画廊角色卡的资产图框，随画廊重做修复");
-      });
-      await page.getByRole("button", { name: "加入资产库" }).click();
+      await clearAgentOverlay(page);
+      await page.getByRole("button", { name: "「林夕」的更多操作" }).click();
+      await page.getByRole("menuitem", { name: "加入资产库" }).click();
       const dialog = page.getByRole("dialog", { name: "加入资产库：林夕" });
       await dialog.waitFor();
       await settled(dialog);

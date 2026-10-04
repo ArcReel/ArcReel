@@ -55,15 +55,6 @@ export function useSheetStatusByName(
   );
 }
 
-export type SheetStatusFilter = "all" | "pending" | "stale";
-
-/** 按画廊筛选保留资产：待生成即产物清单判 missing，过期即 stale。 */
-export function matchesSheetFilter(row: AssetSheetStatusRow | undefined, filter: SheetStatusFilter): boolean {
-  if (filter === "all") return true;
-  if (!row) return false;
-  return filter === "pending" ? row.status === "missing" : row.status === "stale";
-}
-
 /**
  * 一类资产里一次批量生成会提交几张、另有几张缺描述。
  *

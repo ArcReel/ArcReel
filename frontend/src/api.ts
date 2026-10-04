@@ -1001,11 +1001,13 @@ class API {
   /** 规划一批但不建任务：要生成的名单、跳过项与能算出时的预估费用。 */
   static async previewAssetSheetBatch(
     projectName: string,
-    scope: AssetSheetBatchScope
+    scope: AssetSheetBatchScope,
+    options?: { signal?: AbortSignal }
   ): Promise<AssetSheetBatchPreview> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/asset-sheets/batch/preview`, {
       method: "POST",
       body: JSON.stringify(scope),
+      signal: options?.signal,
     });
   }
 

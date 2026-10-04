@@ -1,0 +1,199 @@
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { API } from "@/api";
+import type { LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
+import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
+import { ImageLightbox } from "@/components/shared/ImageLightbox";
+import { Button } from "@/components/ui/button";
+import { useScrollTarget } from "@/hooks/useScrollTarget";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import type { AssetSheetStatusRow, AssetSheetType, WorkspaceFocusTarget } from "@/types";
+import { errMsg } from "@/utils/async";
+import { AssetBrowseCard } from "./AssetBrowseCard";
+import { AssetEditorSheet } from "./AssetEditorSheet";
+import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
+import { GalleryEmptyState } from "./GalleryEmptyState";
+import { GalleryToolbar } from "./GalleryToolbar";
+import {
+  markerOf,
+  matchesGalleryFilter,
+  toGalleryAsset,
+  type GalleryAssetSource,
+  type GalleryFilter,
+} from "./gallery-model";
+import { useAssetSheetStatus, useSheetStatusByName } from "./useAssetSheetStatus";
+
+export interface AssetGalleryProps<T extends GalleryAssetSource> {
+  projectName: string;
+  assetType: AssetSheetType;
+  title: string;
+  assets: Record<string, T>;
+  /** 有资产图任务在跑的资产名。 */
+  generatingNames?: Set<string>;
+  /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传等改写入口。 */
+  readOnly: boolean;
+  onGenerate: (name: string) => void;
+  onRestoreVersion?: () => Promise<void> | void;
+  onReload?: () => Promise<unknown> | void;
+  onAdd?: () => void;
+  /**
+   * 入库预览的内容。传入即表示这类资产与全局资产库互通：卡片可加入资产库、并入同类资产，
+   * 工具栏可从资产库选择。商品不入资产库，不传。需传稳定引用。
+   */
+  libraryPreview?: (asset: T) => LibraryImportPreview;
+  /** 详情 Sheet 的正文。资产已不存在时返回 null。 */
+  renderEditor: (name: string, context: { sheetStatus: AssetSheetStatusRow | undefined; generating: boolean }) => ReactNode;
+}
+
+/**
+ * 角色、场景、道具、商品共用的画廊：工具栏、按画布宽度加列的浏览卡网格、详情 Sheet 与大图查看。
+ * 画廊只负责浏览，点卡片打开详情，次要操作在卡片的「更多」里。
+ */
+export function AssetGallery<T extends GalleryAssetSource>({
+  projectName,
+  assetType,
+  title,
+  assets,
+  generatingNames,
+  readOnly,
+  onGenerate,
+  onRestoreVersion,
+  onReload,
+  onAdd,
+  libraryPreview,
+  renderEditor,
+}: AssetGalleryProps<T>) {
+  const { t } = useTranslation("assets");
+  const rows = useAssetSheetStatus(projectName);
+  const statusByName = useSheetStatusByName(rows, assetType);
+  const [filter, setFilter] = useState<GalleryFilter>("all");
+  const [openName, setOpenName] = useState<string | null>(null);
+  const [viewName, setViewName] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  const getFingerprint = useProjectsStore((s) => s.getAssetFingerprint);
+
+  const items = useMemo(
+    () => Object.entries(assets).map(([name, source]) => ({ asset: toGalleryAsset(assetType, name, source), source })),
+    [assets, assetType],
+  );
+  const previews = useMemo(
+    () => (libraryPreview ? new Map(items.map(({ asset, source }) => [asset.name, libraryPreview(source)])) : null),
+    [items, libraryPreview],
+  );
+  const shown = items.filter(({ asset }) => matchesGalleryFilter(asset, statusByName.get(asset.name), filter));
+  const filterCounts = {
+    pending: items.filter(({ asset }) => matchesGalleryFilter(asset, statusByName.get(asset.name), "pending")).length,
+    stale: items.filter(({ asset }) => matchesGalleryFilter(asset, statusByName.get(asset.name), "stale")).length,
+  };
+
+  // Agent 改动某个资产时定位到它的卡片；被筛选藏起来时先回到「全部」。
+  const prepareTarget = useCallback(
+    (target: WorkspaceFocusTarget) => {
+      if (!(target.id in assets)) return false;
+      setFilter("all");
+      return true;
+    },
+    [assets],
+  );
+  useScrollTarget(assetType, { prepareTarget });
+
+  const openAsset = useCallback((name: string) => setOpenName(name), []);
+  const viewAsset = useCallback((name: string) => setViewName(name), []);
+
+  const importable = libraryPreview !== undefined && assetType !== "product";
+  const onPickFromLibrary = importable && !readOnly ? () => setPicking(true) : undefined;
+  const handleImport = async (ids: string[]) => {
+    try {
+      await API.applyAssetsToProject({ asset_ids: ids, target_project: projectName, conflict_policy: "skip" });
+      await onReload?.();
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const viewed = viewName !== null ? items.find(({ asset }) => asset.name === viewName)?.asset : undefined;
+  const viewUrl = viewed?.sheetPath
+    ? API.getFileUrl(projectName, viewed.sheetPath, getFingerprint(viewed.sheetPath))
+    : null;
+
+  return (
+    <section aria-label={title} className="relative flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
+      <GalleryToolbar
+        assetType={assetType}
+        title={title}
+        count={items.length}
+        filter={filter}
+        onFilterChange={setFilter}
+        filterCounts={filterCounts}
+        onAdd={readOnly ? undefined : onAdd}
+        onPickFromLibrary={onPickFromLibrary}
+      >
+        {!readOnly && <AssetSheetBatchControls projectName={projectName} assetType={assetType} rows={rows} />}
+      </GalleryToolbar>
+      <div className="flex shrink-0 flex-col px-5 py-5" data-onboarding={ONBOARDING_ANCHORS.workbenchLorebook}>
+        {items.length === 0 ? (
+          <GalleryEmptyState
+            assetType={assetType}
+            onAdd={readOnly ? undefined : onAdd}
+            onPickFromLibrary={onPickFromLibrary}
+          />
+        ) : shown.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-muted-foreground">
+            <p>{t("gallery_no_match")}</p>
+            <Button variant="outline" size="sm" onClick={() => setFilter("all")}>
+              {t("gallery_show_all")}
+            </Button>
+          </div>
+        ) : (
+          <ul aria-label={title} className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+            {shown.map(({ asset }) => {
+              const row = statusByName.get(asset.name);
+              const generating = generatingNames?.has(asset.name) ?? false;
+              return (
+                <li key={asset.name} className="flex min-w-0">
+                  <AssetBrowseCard
+                    projectName={projectName}
+                    asset={asset}
+                    sheetStatus={row}
+                    marker={markerOf(asset, row, generating)}
+                    generating={generating}
+                    readOnly={readOnly}
+                    libraryPreview={previews?.get(asset.name)}
+                    onOpen={openAsset}
+                    onView={viewAsset}
+                    onGenerate={onGenerate}
+                    onRestoreVersion={onRestoreVersion}
+                    onReload={onReload}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <AssetEditorSheet name={openName !== null && openName in assets ? openName : null} onClose={() => setOpenName(null)}>
+        {(name) =>
+          renderEditor(name, { sheetStatus: statusByName.get(name), generating: generatingNames?.has(name) ?? false })
+        }
+      </AssetEditorSheet>
+
+      {picking && assetType !== "product" && (
+        <AssetPickerModal
+          type={assetType}
+          existingNames={new Set(Object.keys(assets))}
+          onClose={() => setPicking(false)}
+          onImport={(ids) => void handleImport(ids)}
+        />
+      )}
+
+      {viewUrl && viewed && (
+        <ImageLightbox src={viewUrl} alt={viewed.name} onClose={() => setViewName(null)} />
+      )}
+    </section>
+  );
+}
