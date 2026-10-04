@@ -8,8 +8,6 @@ import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
 import { useAppStore } from "@/stores/app-store";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
-import { EpisodeDeleteButton } from "@/components/canvas/episodes/EpisodeDeleteButton";
 import { SourceKindSelect } from "@/components/canvas/episodes/SourceKindSelect";
 import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import type { EpisodeMeta } from "@/types";
@@ -34,24 +32,11 @@ function sourceOriginOf(meta: EpisodeMeta | undefined): SourceOrigin {
 }
 
 // ---------------------------------------------------------------------------
-// 标题区：播出位置徽标 + 标题 + 状态 chip + 删除 + 源文元信息 + 起步入口
+// 状态行：脚本未生成 + 源文元信息 + 起步入口（集标题与删除在集页页头）
 // ---------------------------------------------------------------------------
 
-function EpisodeHeader({
-  episode,
-  episodes,
-  meta,
-  onSaveTitle,
-  actions,
-}: {
-  episode: number;
-  episodes: EpisodeMeta[];
-  meta: EpisodeMeta | undefined;
-  onSaveTitle: (next: string) => Promise<void>;
-  actions: React.ReactNode;
-}) {
+function SourceStatusRow({ meta, actions }: { meta: EpisodeMeta | undefined; actions: React.ReactNode }) {
   const { t } = useTranslation("dashboard");
-  const position = episodePosition(episodes, episode);
   const r = meta?.source_range;
   // 跨文件的原文范围：起止偏移在不同文件里，不能直接相减，只显示起止文件
   const crossesFiles = r?.end_file != null && r.end_file !== r.source_file;
@@ -59,28 +44,9 @@ function EpisodeHeader({
   const fileName = (path: string | undefined) => path?.replace(/^source\//, "");
   const sourceName = crossesFiles ? `${fileName(r?.source_file)} – ${fileName(r?.end_file)}` : fileName(r?.source_file);
   return (
-    <header className="flex items-start gap-3.5">
-      <div
-        className="num grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[13px] font-bold"
-        style={{
-          background: "linear-gradient(135deg, var(--primary) 0%, oklch(0.45 0.12 285) 100%)",
-          color: "oklch(0.14 0 0)",
-          boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 4px 12px -4px color-mix(in oklab, var(--primary) 35%, transparent)",
-        }}
-      >
-        {position ?? "—"}
-      </div>
+    <div className="flex items-start gap-3.5">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2.5">
-          <EditableEpisodeTitle
-            title={meta?.title ?? ""}
-            placeholder={episodeDisplayName(episodes, episode, t)}
-            canEdit={meta !== undefined}
-            onSave={onSaveTitle}
-            headingClassName="truncate text-[17px] font-semibold leading-tight"
-            headingStyle={{ color: "var(--foreground)" }}
-          />
           <span
             className="shrink-0 rounded-full px-2.5 py-0.5 text-[10.5px]"
             style={{
@@ -91,7 +57,6 @@ function EpisodeHeader({
           >
             {t("episode_workspace_script_pending")}
           </span>
-          <EpisodeDeleteButton episode={episode} />
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
           {sourceName ? <span className="truncate">{sourceName}</span> : null}
@@ -114,7 +79,7 @@ function EpisodeHeader({
         </div>
       </div>
       <div className="mt-0.5 flex shrink-0 items-center gap-2">{actions}</div>
-    </header>
+    </div>
   );
 }
 
@@ -406,28 +371,11 @@ export function EpisodeSourceReview({
     [projectName, episode, t],
   );
 
-  const handleSaveTitle = useCallback(
-    async (title: string) => {
-      try {
-        await API.updateEpisode(projectName, episode, { title });
-        await useProjectsStore.getState().refreshProject(projectName);
-        useAppStore.getState().pushToast(t("episode_title_updated"), "success");
-      } catch (err) {
-        useAppStore.getState().pushToast(t("episode_title_update_failed", { message: errMsg(err) }), "error");
-        throw err;
-      }
-    },
-    [projectName, episode, t],
-  );
-
   return (
     <div className="flex h-full flex-col p-6">
       <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
-        <EpisodeHeader
-          episode={episode}
-          episodes={episodes}
+        <SourceStatusRow
           meta={meta}
-          onSaveTitle={handleSaveTitle}
           actions={
             <>
               <StartBlankScriptButton

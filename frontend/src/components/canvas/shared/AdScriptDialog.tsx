@@ -5,6 +5,7 @@ import { Bot, CheckCircle2, Loader2, RotateCcw, Sparkles, X } from "lucide-react
 import { ApiRequestError } from "@/api";
 import { enqueueAdScript, promptAuthoringResourceId } from "@/actions/generation";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
+import { Button } from "@/components/ui/button";
 import { GlassModal } from "@/components/legacy/GlassModal";
 import { PrimaryButton } from "@/components/legacy/PrimaryButton";
 import { SecondaryButton } from "@/components/legacy/SecondaryButton";
@@ -192,30 +193,31 @@ interface ButtonProps {
   projectName: string;
   episode: number;
   regenerate: boolean;
-  className?: string;
+  /** 页头动作用描边小按钮；空状态里的主操作用实心按钮。 */
+  prominent?: boolean;
 }
 
 /**
  * 打开广告/短片「AI 生成脚本」弹窗的入口；`regenerate` 时为「重新生成脚本」。
  * 任务在跑或缺创作灵感与商品时照常显示、置灰，悬停说明原因。
  */
-export function AdScriptButton({ projectName, episode, regenerate, className = "" }: ButtonProps) {
+export function AdScriptButton({ projectName, episode, regenerate, prominent = false }: ButtonProps) {
   const { t } = useTranslation("dashboard");
   const open = useAdScriptStore((s) => s.open);
   const { busy, refusedReason } = useAdScriptEntry(projectName, episode);
   const reason = busy ? t("ad_script_busy") : refusedReason;
   const Icon = busy ? Loader2 : regenerate ? RotateCcw : Sparkles;
   return (
-    <button
-      type="button"
-      className={`inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50 ${className}`.trim()}
+    <Button
+      variant={prominent ? "default" : "outline"}
+      size={prominent ? "default" : "sm"}
       disabled={reason !== null}
       title={reason ?? undefined}
       onClick={() => open({ projectName, episode, regenerate })}
     >
-      <Icon className={`h-3.5 w-3.5${busy ? " motion-safe:animate-spin" : ""}`} aria-hidden="true" />
-      <span>{regenerate ? t("ad_script_regenerate") : t("ad_script_generate")}</span>
-    </button>
+      <Icon className={busy ? "animate-spin" : undefined} aria-hidden data-icon="inline-start" />
+      {regenerate ? t("ad_script_regenerate") : t("ad_script_generate")}
+    </Button>
   );
 }
 

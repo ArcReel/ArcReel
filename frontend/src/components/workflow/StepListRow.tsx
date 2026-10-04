@@ -70,7 +70,8 @@ function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: 
         <span className="font-medium" style={{ color: "var(--primary)" }}>
           {t("next_step", { step: next.title })}
         </span>
-        {next.detail && <span style={{ color: "var(--muted-foreground)" }}> {next.detail}</span>}
+        {/* 下一步所在行带强调色底，muted 色在上面对比度不足；这一块的次要文字与行状态同用 subtle */}
+        {next.detail && <span style={{ color: "var(--subtle-foreground)" }}> {next.detail}</span>}
       </p>
       {next.hint && <NoteLine note={next.hint} onRun={onRun} />}
       {next.instruction && (
@@ -99,7 +100,7 @@ function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: 
           ))}
           {next.alternatives.length > 0 && (
             <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
+              <span className="text-[11.5px]" style={{ color: "var(--subtle-foreground)" }}>
                 {t("alternatives_lead")}
               </span>
               {next.alternatives.map((act) => (

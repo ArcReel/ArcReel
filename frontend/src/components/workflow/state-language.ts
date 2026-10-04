@@ -36,9 +36,6 @@ export const ARTIFACT_TONES: Record<ArtifactStatus, ToneTokens> = {
   blocked: SEVERITY_TONES.blocking,
 };
 
-/** 项目整体不可用（阻断）的色调。 */
-export const BLOCKED_TONE: ToneTokens = SEVERITY_TONES.blocking;
-
 /** 任务这一轴的色调：进行中用强调色，终态失败用告警色，其余中性。 */
 export function taskTone(status: string): ToneTokens {
   if (status === "queued" || status === "running") return CURRENT_TONE;

@@ -10,7 +10,6 @@ import {
   Plus,
   Save,
   Scissors,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { UnitList } from "./UnitList";
@@ -21,12 +20,14 @@ import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { deriveUnitStatus } from "./unit-status";
 import { tierProblemText } from "./unit-tier-problem";
 import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
-import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
 import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { AdScriptButton, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
+import { BatchFillButton, useBatchGap } from "@/components/canvas/episode-page/BatchFillButton";
+import { EpisodeHeaderActions } from "@/components/canvas/episode-page/EpisodeHeaderActions";
+import type { EpisodeCanvasContext } from "@/components/canvas/episode-page/EpisodePage";
 import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
@@ -50,7 +51,6 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
-import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { errMsg } from "@/utils/async";
 import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 import {
@@ -67,13 +67,10 @@ import type {
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { stepAnchor } from "@/utils/move-anchor";
 
-export interface ReferenceVideoCanvasProps {
+export interface ReferenceVideoCanvasProps extends EpisodeCanvasContext {
   projectName: string;
   episode: number;
-  episodeTitle?: string;
-  onSaveTitle?: (next: string) => Promise<void>;
-  canEditTitle?: boolean;
-  /** prompt_authoring 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
+  /** prompt_authoring 剧本（scripts/episode_N.json）是否已生成：没有时单元列表无脚本可读，不拉取。 */
   hasScript?: boolean;
   /** ad 参考生视频一阶段产出，不展示 script_plan 脚本规划页。 */
   showPreprocess?: boolean;
@@ -165,9 +162,8 @@ function unitNarrationText(unit: ReferenceVideoUnit | null): string {
 export function ReferenceVideoCanvas({
   projectName,
   episode,
-  episodeTitle,
-  onSaveTitle,
-  canEditTitle,
+  view,
+  onViewChange,
   hasScript = true,
   showPreprocess = true,
   freeDuration = false,
@@ -808,32 +804,9 @@ export function ReferenceVideoCanvas({
     }
   }, [selected, drafts, patchUnit, projectName, episode, clearFlushedDraft]);
 
-  // Reset tab to units on project/episode change (render-time derived-state pattern).
-  // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：prompt_authoring 剧本未生成时（仅 segmented）
-  // units 面板无脚本可读、请求会 404，应先落到内容确认。
-  const [tab, setTab] = useState<"units" | "preproc">(
-    hasScript || !showPreprocess ? "units" : "preproc",
-  );
-  const [lastEpisode, setLastEpisode] = useState(episode);
-  const [lastProject, setLastProject] = useState(projectName);
-  if (lastEpisode !== episode || lastProject !== projectName) {
-    setLastEpisode(episode);
-    setLastProject(projectName);
-    setTab(hasScript || !showPreprocess ? "units" : "preproc");
-  }
+  const videoGap = useBatchGap(projectName, episode, "videos", "reference_video");
 
-  useEffect(() => {
-    // 剧本生成完成后（hasScript 由 false 变 true）自动切到 units，同一 episode 内组件不 remount。
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 镜像 GridImageToVideoCanvas 同款效果
-    if (hasScript || !showPreprocess) setTab("units");
-  }, [hasScript, showPreprocess]);
-
-  useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
-    if (showPreprocess) setTab("preproc");
-  });
-  useEpisodeSurfaceRequest(projectName, episode, "prompt_authoring_draft", () => setTab("units"));
-
-  // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
+  // 通知回跳：收到 reference_unit scroll target 时切到视频单元视图并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
@@ -841,12 +814,12 @@ export function ReferenceVideoCanvas({
     if (scrollTarget?.type !== "reference_unit") return;
     const requestId = scrollTarget.request_id;
     if (units.some((u) => u.unit_id === scrollTarget.id)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅通知 store，触发后切 tab + 选中
-      setTab("units");
+      onViewChange("board", { replace: true });
       select(scrollTarget.id);
       // 应用内链接要求打开该单元的预览时，窄屏下把预览子页签切到前台。
       const start = useAppStore.getState().playbackStart;
       if (start?.resource_type === "reference_videos" && start.resource_id === scrollTarget.id) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- 订阅通知 store，触发后切到预览子页签
         setStackTab("preview");
       }
       clearScrollTarget(requestId);
@@ -865,21 +838,7 @@ export function ReferenceVideoCanvas({
     }
     const timer = setTimeout(() => clearScrollTarget(requestId), remaining);
     return () => clearTimeout(timer);
-  }, [scrollTarget, units, loading, select, clearScrollTarget]);
-
-  const preprocStatus: "loading" | "error" | "empty" | "ready" = loading
-    ? "loading"
-    : error
-      ? "error"
-      : units.length === 0
-        ? "empty"
-        : "ready";
-  const preprocDot: Record<typeof preprocStatus, string> = {
-    loading: "bg-gray-500",
-    error: "bg-red-500",
-    empty: "bg-gray-500",
-    ready: "bg-emerald-500",
-  };
+  }, [scrollTarget, units, loading, select, clearScrollTarget, onViewChange]);
 
   useEffect(() => {
     if (!hasAnyDraft) return;
@@ -944,95 +903,31 @@ export function ReferenceVideoCanvas({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <EpisodeHeader
-        episode={episode}
-        title={episodeTitle ?? ""}
-        units={units}
-        onSaveTitle={onSaveTitle}
-        canEditTitle={canEditTitle}
-      />
+      {view === "board" && (
+        <EpisodeHeaderActions>
+          {/* 没有预处理的参考画布只用于广告/短片：有正式脚本时可整份重新生成。 */}
+          {hasScript && !showPreprocess && (
+            <AdScriptButton projectName={projectName} episode={episode} regenerate />
+          )}
+          {hasScript && (
+            <PromptAuthoringButton
+              projectName={projectName}
+              episode={episode}
+              scope={selectedUnitId ? "current" : "pending"}
+              currentEntryId={selectedUnitId}
+            />
+          )}
+          <BatchFillButton
+            kind="videos"
+            count={videoGap}
+            units
+            disabled={batchTargets.length === 0}
+            onClick={() => void handleBatchGenerate()}
+          />
+        </EpisodeHeaderActions>
+      )}
 
-      {/* Tabs + request-local generation controls */}
-      <div className="flex items-center gap-0.5 border-b border-border bg-[oklch(0.19_0.012_250_/_0.5)] px-5">
-        <div role="tablist" aria-label={t("reference_main_tab_aria")} className="flex items-center gap-0.5">
-          {showPreprocess && <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "preproc"}
-            onClick={() => setTab("preproc")}
-            className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
-              tab === "preproc" ? "text-foreground" : "text-muted-foreground"
-            }`}
-          >
-            <span>{t("reference_tab_script_plan")}</span>
-            {preprocStatus === "loading" ? (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />
-            ) : (
-              <span
-                aria-hidden="true"
-                className={`h-1.5 w-1.5 rounded-full ${preprocDot[preprocStatus]}`}
-              />
-            )}
-            {tab === "preproc" && (
-              <span
-                aria-hidden="true"
-                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm bg-primary"
-              />
-            )}
-          </button>}
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "units"}
-            onClick={() => setTab("units")}
-            className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
-              tab === "units" ? "text-foreground" : "text-muted-foreground"
-            }`}
-          >
-            {t("reference_tab_units")}
-            {tab === "units" && (
-              <span
-                aria-hidden="true"
-                className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm bg-primary"
-              />
-            )}
-          </button>
-        </div>
-        <span className="flex-1" />
-        {tab === "units" && (
-          <>
-            {/* 没有预处理的参考画布只用于广告/短片：有正式脚本时可整份重新生成。 */}
-            {hasScript && !showPreprocess && (
-              <AdScriptButton
-                projectName={projectName}
-                episode={episode}
-                regenerate
-                className="focus-ring rounded-md border border-border bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-subtle-foreground transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-foreground"
-              />
-            )}
-            {hasScript && (
-              <PromptAuthoringButton
-                projectName={projectName}
-                episode={episode}
-                scope={selectedUnitId ? "current" : "pending"}
-                currentEntryId={selectedUnitId}
-                className="focus-ring rounded-md border border-border bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-subtle-foreground transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-foreground"
-              />
-            )}
-            <button
-              type="button"
-              onClick={() => void handleBatchGenerate()}
-              disabled={batchTargets.length === 0}
-              className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-border bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-subtle-foreground transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{t("reference_batch_generate")}</span>
-            </button>
-          </>
-        )}
-      </div>
-
-      {tab === "units" && voiceLegacyNotice.count > 0 && (
+      {view === "board" && voiceLegacyNotice.count > 0 && (
         <VoiceLegacyBanner
           message={t("voice_legacy_banner_message", { count: voiceLegacyNotice.count })}
           dismissLabel={t("voice_legacy_banner_dismiss")}
@@ -1040,7 +935,7 @@ export function ReferenceVideoCanvas({
         />
       )}
 
-      {tab === "units" && promptDraft?.editable_by === "agent" && (
+      {view === "board" && promptDraft?.editable_by === "agent" && (
         <div className="border-b border-border/50 px-5 py-2">
           <PromptAuthoringDraftPanel
             key={`${projectName}:${episode}`}
@@ -1052,11 +947,11 @@ export function ReferenceVideoCanvas({
         </div>
       )}
 
-      {tab === "units" && hasScript && !showPreprocess && (
+      {view === "board" && hasScript && !showPreprocess && (
         <AdScriptProgress projectName={projectName} episode={episode} noScript={false} className="mx-5 my-2" />
       )}
 
-      {error && tab === "units" && (
+      {error && view === "board" && (
         <p
           role="alert"
           className="border-b border-border/50 bg-red-500/10 px-5 py-2 text-xs text-red-400"
@@ -1065,7 +960,7 @@ export function ReferenceVideoCanvas({
         </p>
       )}
 
-      {tab === "preproc" ? (
+      {view === "plan" ? (
         <div className="min-h-0 flex-1 overflow-auto bg-[oklch(0.18_0.011_250_/_0.25)]">
           <div className="mx-auto w-full max-w-3xl px-6 py-5">
             <ReferenceScriptPlanPreviewPanel
@@ -1075,7 +970,7 @@ export function ReferenceVideoCanvas({
               lookup={mentionLookup}
               videoModelUnresolved={videoModelUnresolved}
               planningDurations={planDurationOptions}
-              onOpenTimeline={() => setTab("units")}
+              onOpenTimeline={() => onViewChange("board")}
             />
           </div>
         </div>

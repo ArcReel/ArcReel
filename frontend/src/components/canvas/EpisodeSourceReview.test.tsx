@@ -40,12 +40,11 @@ describe("EpisodeSourceReview", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders header meta, guide beats/hook, and the loaded source text", async () => {
+  it("renders the source status row, guide beats/hook, and the loaded source text", async () => {
     vi.spyOn(API, "getSourceContent").mockResolvedValue("这是本集源文……");
 
     render(<EpisodeSourceReview projectName="demo" episode={1} episodes={[makeEpisode()]} />);
 
-    expect(screen.getByText("第一章：初遇")).toBeInTheDocument();
     expect(screen.getByText("脚本未生成")).toBeInTheDocument();
     expect(screen.getByText("episode_1.txt")).toBeInTheDocument();
     expect(screen.getByText("100–340")).toBeInTheDocument();
@@ -119,30 +118,6 @@ describe("EpisodeSourceReview", () => {
     expect(save).toHaveBeenCalledWith("demo", 4, "粘贴进来的本集原文", undefined, false);
     expect(refresh).toHaveBeenCalledWith("demo");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  });
-
-  it("names an untitled new episode by its position, renames it, and offers deletion", async () => {
-    const first = makeEpisode();
-    const blank = makeEpisode({ episode: 7, title: "", source_origin: "none", source_range: undefined, outline: undefined, hook: undefined });
-    useProjectsStore.setState({
-      currentProjectName: "demo",
-      currentProjectData: { content_mode: "narration", episodes: [first, blank] } as never,
-    });
-    const rename = vi.spyOn(API, "updateEpisode").mockResolvedValue(undefined as never);
-    const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
-
-    render(<EpisodeSourceReview projectName="demo" episode={7} episodes={[first, blank]} />);
-
-    expect(screen.getByRole("heading", { name: "第 2 集" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "删除这一集" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "编辑分集标题" }));
-    const input = screen.getByRole("textbox", { name: "编辑分集标题" });
-    expect(input).toHaveAttribute("placeholder", "第 2 集");
-    fireEvent.change(input, { target: { value: "番外：雪夜" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(rename).toHaveBeenCalledWith("demo", 7, { title: "番外：雪夜" }));
-    expect(refresh).toHaveBeenCalledWith("demo");
   });
 
   it("records the chosen source kind when a drama episode fills in its source", async () => {

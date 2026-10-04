@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
+import { ListChecks } from "lucide-react";
 import { useLocation } from "wouter";
 import { API } from "@/api";
 import {
@@ -12,6 +12,17 @@ import {
   promptAuthoringResourceId,
   scriptPlanResourceId,
 } from "@/actions/generation";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { AssetSheetBatchDialog } from "@/components/canvas/lorebook/AssetSheetBatchDialog";
 import { StoryboardBatchDialog } from "@/components/canvas/timeline/StoryboardBatchDialog";
 import { createScriptEditTimeline } from "@/components/canvas/edit-render/create-script-timeline";
@@ -39,9 +50,7 @@ import {
   WORKSPACE_ROUTE_SCENES,
 } from "@/app-routes";
 import { ProblemList } from "./ProblemList";
-import { StepActButton } from "./StepActButton";
 import { StepListRow } from "./StepListRow";
-import { BLOCKED_TONE } from "./state-language";
 import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
 import { buildStepList, type StepAct } from "./step-list";
 
@@ -92,6 +101,19 @@ function useEditOverview(projectName: string, episodeId: number | null, refetchO
   return timelineCount > 0 && overview?.key === key ? overview.value : null;
 }
 
+const CLOSES_POPOVER = new Set<StepAct["intent"]["type"]>([
+  "agent",
+  "open_author_prompts",
+  "open_script_plan",
+  "open_ad_script",
+  "open_script_plan_over_draft",
+  "asset_batch",
+  "storyboard_batch",
+  "show_surface",
+  "view_unit",
+  "route",
+]);
+
 interface PendingDiscard {
   docType: DraftDocType;
   revision: string | null;
@@ -111,20 +133,20 @@ interface Props {
 }
 
 /**
- * 集页的制作进度面板（步骤清单）。
+ * 集页的制作进度（步骤清单），挂在集页页头第一行的行尾。
  *
  * 它投影后端给出的制作状态：每行一类内容的现状，建议的下一步就地展开在所属行，入口按
  * 「交给 Agent」为主、直接 AI 调用为次。界面不自行推断下一步；准入不满足的入口照常显示，
  * 悬停说明原因。过期、缺描述这类提醒只挂在对应行。
  *
- * 默认收起成一行：制作进度 · 一句话现状 · 下一步的主次入口。展开状态在会话内保留。
+ * 页头只放一枚入口：制作进度 · 一句话现状 · 阻断数；点开是非模态弹层，弹层是唯一的滚动区。
+ * 计划的刷新也由它驱动，页头的批量补齐按钮读同一份计划。
  */
 export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, onAuthorPrompts }: Props) {
   const { t, i18n } = useTranslation(["workflow", "dashboard", "assets"]);
-  const panelId = useId();
   const alertId = useId();
   const [, setLocation] = useLocation();
-  const [expanded, setExpanded] = useState(false);
+  const [open, setOpen] = useState(false);
   const [assetBatchEpisode, setAssetBatchEpisode] = useState<number | null>(null);
   const [storyboardBatch, setStoryboardBatch] = useState<{ episodeId: number; kind: StoryboardBatchKind } | null>(
     null,
@@ -225,6 +247,8 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
     async (act: StepAct) => {
       if (episodeId == null) return;
       const intent = act.intent;
+      // 交给 Agent、打开对话框或跳走的入口收起弹层，焦点和视线都在别处；就地执行的入口留着弹层看结果。
+      if (CLOSES_POPOVER.has(intent.type)) setOpen(false);
       switch (intent.type) {
         case "agent":
           prefillAssistant(withInstruction(intent.text));
@@ -360,6 +384,17 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
     [episodeId, episode, withInstruction, onAuthorPrompts, projectName, onViewUnit, setLocation, instruction, shown, t, episodeRef, pushToast, refreshPlan],
   );
 
+  const viewUnit = useMemo(
+    () =>
+      onViewUnit
+        ? (unitId: string) => {
+            setOpen(false);
+            onViewUnit(unitId);
+          }
+        : undefined,
+    [onViewUnit],
+  );
+
   const confirmDiscard = async () => {
     if (!pendingDiscard || episodeId == null) return;
     setDiscarding(true);
@@ -388,109 +423,63 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         : t("plan_unavailable");
 
   return (
-    <section
-      className="border-b px-4 py-2"
-      style={{ borderColor: "var(--border)" }}
-      data-testid="workflow-panel"
-    >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-controls={panelId}
-          onClick={() => setExpanded((value) => !value)}
-          className="focus-ring flex items-center gap-1.5 rounded-sm text-[12.5px] font-medium hover:opacity-80"
-          style={{ color: "var(--foreground)" }}
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          data-testid="workflow-panel"
+          render={<Button variant="outline" size="sm" className="max-w-[24em] min-w-0" />}
         >
-          <ChevronDown
-            aria-hidden
-            className="h-3.5 w-3.5 motion-safe:transition-transform"
-            style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}
-          />
-          {t("panel_title")}
-        </button>
-        <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: "var(--muted-foreground)" }}>
-          {headline}
-        </span>
-        {view?.adDuration && (
-          <span
-            className="rounded-full px-2 py-0.5 text-[11px] tabular-nums"
-            title={view.adDuration.over ? t("ad_duration_over_hint") : undefined}
-            data-over={view.adDuration.over || undefined}
-            style={{
-              border: `1px solid ${view.adDuration.over ? "color-mix(in oklab, var(--warn) 30%, transparent)" : "var(--border)"}`,
-              color: view.adDuration.over ? "var(--warn)" : "var(--muted-foreground)",
-            }}
-          >
-            {view.adDuration.total != null
-              ? t("ad_duration", { total: view.adDuration.total, target: view.adDuration.target })
-              : t("ad_duration_no_script", { target: view.adDuration.target })}
-          </span>
-        )}
-        {!expanded && next && next.primary.length > 0 && (
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
-              {t("next_label")}
-            </span>
-            {next.primary.map((act) => (
-              <StepActButton key={act.key} act={act} onRun={(target) => void run(target)} size="sm" busy={running} />
-            ))}
-            {/* 主入口都不可点时，把下一步里的跳转提示一并带到收起行。 */}
-            {next.hint?.act && next.primary.every((act) => act.disabledReason) && (
-              <StepActButton act={next.hint.act} onRun={(target) => void run(target)} size="sm" asLink busy={running} />
-            )}
-          </span>
-        )}
-        {blockers.length > 0 && (
-          <span
-            className="rounded-full px-2 py-0.5 text-[11px]"
-            style={{
-              border: `1px solid ${BLOCKED_TONE.ring}`,
-              color: BLOCKED_TONE.color,
-            }}
-          >
-            {t("panel_blocker_count", { count: blockers.length })}
-          </span>
-        )}
-      </div>
-
-      {error && (
-        <p className="mt-1 text-[11.5px]" role="status" style={{ color: "var(--muted-foreground)" }}>
-          {t("plan_refresh_failed")}
-        </p>
-      )}
-
-      {expanded && (
-        <div id={panelId} className="mt-2 space-y-3">
+          <ListChecks aria-hidden data-icon="inline-start" />
+          <span className="shrink-0 font-medium text-foreground">{t("panel_title")}</span>
+          <span className="min-w-0 truncate text-muted-foreground">{headline}</span>
           {blockers.length > 0 && (
-            <div
-              role="alert"
-              className="rounded-lg px-3 py-2"
-              style={{
-                background: BLOCKED_TONE.soft,
-                border: `1px solid ${BLOCKED_TONE.ring}`,
-              }}
+            <Badge variant="destructive">
+              <span aria-hidden>{blockers.length}</span>
+              <span className="sr-only">{t("panel_blocker_count", { count: blockers.length })}</span>
+            </Badge>
+          )}
+        </PopoverTrigger>
+        {/* 非模态，贴着页头向下展开：不挤压画布，空间不够时收矮、弹层内部滚动，不翻到侧面盖住 Agent 面板。 */}
+        <PopoverContent
+          align="end"
+          collisionAvoidance={{ side: "none" }}
+          className="w-140 max-h-[min(70dvh,640px,var(--available-height))]"
+        >
+          <PopoverHeader>
+            <PopoverTitle>{t("panel_title")}</PopoverTitle>
+            <PopoverDescription>{headline}</PopoverDescription>
+          </PopoverHeader>
+
+          {view?.adDuration && (
+            <Badge
+              variant={view.adDuration.over ? "destructive" : "outline"}
+              title={view.adDuration.over ? t("ad_duration_over_hint") : undefined}
+              data-over={view.adDuration.over || undefined}
             >
-              <h3
-                id={alertId}
-                className="text-[12px] font-medium"
-                style={{ color: BLOCKED_TONE.color }}
-              >
-                {t("blockers_title", { count: blockers.length })}
-              </h3>
-              <ProblemList
-                problems={blockers}
-                labelledBy={alertId}
-                className="mt-1 space-y-1.5 text-[12px]"
-              />
-            </div>
+              {view.adDuration.total != null
+                ? t("ad_duration", { total: view.adDuration.total, target: view.adDuration.target })
+                : t("ad_duration_no_script", { target: view.adDuration.target })}
+            </Badge>
           )}
 
-          {issues.length > 0 && <ProblemList problems={issues} className="space-y-1.5 text-[12px]" />}
-
-          {planProblems.length > 0 && (
-            <ProblemList problems={planProblems} className="space-y-1.5 text-[12px]" />
+          {error && (
+            <p className="text-xs text-muted-foreground" role="status">
+              {t("plan_refresh_failed")}
+            </p>
           )}
+
+          {blockers.length > 0 && (
+            <Alert variant="destructive">
+              <AlertTitle id={alertId}>{t("blockers_title", { count: blockers.length })}</AlertTitle>
+              <AlertDescription>
+                <ProblemList problems={blockers} labelledBy={alertId} className="mt-1 space-y-1.5 text-xs" />
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {issues.length > 0 && <ProblemList problems={issues} className="space-y-1.5 text-xs" />}
+
+          {planProblems.length > 0 && <ProblemList problems={planProblems} className="space-y-1.5 text-xs" />}
 
           {view ? (
             <ol className="m-0 list-none p-0">
@@ -502,7 +491,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
                   instruction={instruction}
                   onInstructionChange={(value) => instructionKey && setInstructionDraft({ key: instructionKey, value })}
                   onRun={(act) => void run(act)}
-                  onViewUnit={onViewUnit}
+                  onViewUnit={viewUnit}
                   onRegenerate={onRegenerate}
                   onConfirmDurations={confirmDurations}
                   busy={loading || running}
@@ -511,13 +500,13 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             </ol>
           ) : (
             !shown && (
-              <p className="text-[12px]" style={{ color: "var(--muted-foreground)" }}>
+              <p className="text-xs text-muted-foreground">
                 {loading ? t("plan_loading") : t("plan_unavailable")}
               </p>
             )
           )}
-        </div>
-      )}
+        </PopoverContent>
+      </Popover>
       {assetBatchEpisode !== null && (
         <AssetSheetBatchDialog
           projectName={projectName}
@@ -543,6 +532,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           onCancel={() => setPendingDiscard(null)}
         />
       )}
-    </section>
+    </>
   );
 }

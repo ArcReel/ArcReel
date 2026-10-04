@@ -43,10 +43,6 @@ vi.mock("@/components/canvas/timeline/ScriptReviewGate", async () => {
   return scriptReviewGateMock();
 });
 vi.mock("@/components/canvas/timeline/ShotSplitView", () => ({ ShotSplitView: () => null }));
-vi.mock("@/components/canvas/timeline/EpisodeHeader", async () => {
-  const { episodeHeaderMock } = await import("@/__mocks__/EpisodeHeader");
-  return episodeHeaderMock();
-});
 
 function renderLobby() {
   const { hook } = memoryLocation({ path: "/app/projects" });
@@ -112,6 +108,8 @@ const RENDERERS: Record<OnboardingAnchor, () => void> = {
   [ONBOARDING_ANCHORS.workbenchTimeline]: () => {
     render(
       <TimelineCanvas
+        view="board"
+        onViewChange={vi.fn()}
         projectName={DEMO_PROJECT_NAME}
         episode={DEMO_SCRIPTED_EPISODE}
         hasDraft
