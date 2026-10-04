@@ -8,9 +8,7 @@ import {
   enqueueAdScript,
   enqueueDraftRepair,
   enqueuePromptAuthoring,
-  enqueueScriptPlan,
   promptAuthoringResourceId,
-  scriptPlanResourceId,
 } from "@/actions/generation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -215,7 +213,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
       adTargetSeconds: projectData?.content_mode === "ad" ? (projectData.target_duration ?? null) : null,
       assetRoute: (name) => assetRouteIn(projectData, name),
       savedPromptInstructions: episodeMeta?.prompt_authoring_instructions ?? "",
-      savedScriptPlanInstructions: episodeMeta?.script_plan_instructions ?? "",
       canAuthorPrompts: Boolean(onAuthorPrompts),
       canViewUnit: Boolean(onViewUnit),
       editOverview,
@@ -309,21 +306,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
               instructions: instruction.trim() || null,
               overwrite_revision: null,
             });
-            break;
-          case "plan_script_to_agent": {
-            const extra = instruction.trim();
-            await API.saveScriptPlanInstructions(projectName, episodeId, extra);
-            const lines = [t("dashboard:script_plan_agent_prefill", { episodeRef })];
-            if (extra) lines.push(t("dashboard:script_plan_agent_prefill_instructions", { instructions: extra }));
-            prefillAssistant(lines.join("\n"));
-            break;
-          }
-          case "plan_script":
-            if (isResourceBusy("text_script_plan", projectName, scriptPlanResourceId(episodeId))) {
-              pushToast(t("dashboard:script_plan_busy"), "error");
-              break;
-            }
-            await enqueueScriptPlan(projectName, episodeId, { instructions: instruction.trim() || null });
             break;
           case "generate_ad_script":
             if (isResourceBusy("text_episode_script", projectName, promptAuthoringResourceId(episodeId))) {

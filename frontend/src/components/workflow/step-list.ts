@@ -47,8 +47,6 @@ export type StepIntent =
   | { type: "author_prompts" }
   | { type: "author_prompts_to_agent" }
   | { type: "open_author_prompts" }
-  | { type: "plan_script" }
-  | { type: "plan_script_to_agent" }
   | { type: "start_blank_script" }
   | { type: "open_script_plan" }
   | { type: "generate_ad_script" }
@@ -96,7 +94,7 @@ export interface StepRowView {
 /** 附加指令：`persist` 非空时按集保存到对应字段，为 null 时只随本次调用带上。 */
 export interface StepInstruction {
   initial: string;
-  persist: "prompt_authoring" | "script_plan" | null;
+  persist: "prompt_authoring" | null;
 }
 
 export interface NextStepView {
@@ -135,8 +133,6 @@ export interface StepListContext {
   assetRoute: (name: string) => string | null;
   /** 本集保存的提示词编写附加指令。 */
   savedPromptInstructions: string;
-  /** 本集保存的 AI 规划脚本附加指令。 */
-  savedScriptPlanInstructions: string;
   /** 集页上是否挂着「编写提示词」的宿主（有正式脚本时才有）。 */
   canAuthorPrompts: boolean;
   /** 能否跳到画布上的某个单元。 */
@@ -216,6 +212,16 @@ function provideSourceAct(t: TFunction): StepAct {
     label: t("workflow:act_provide_source"),
     kind: "nav",
     intent: { type: "show_surface", surface: "episode_source" },
+  };
+}
+
+/** 去「脚本规划」tab 的起步区规划脚本，附加指令在那里填写。 */
+function goPlanScriptAct(t: TFunction): StepAct {
+  return {
+    key: "go-plan",
+    label: t("workflow:act_go_plan_script"),
+    kind: "nav",
+    intent: { type: "show_surface", surface: "script_plan" },
   };
 }
 
@@ -342,15 +348,8 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     const planOffered = !planDraft && planState === "missing" && nextType !== "prepare_script_plan" && operationApplies(planOp);
     let planActs: StepAct[] = [];
     if (planOffered && formal !== "present") {
-      planActs = [
-        {
-          key: "agent-plan",
-          label: t("workflow:act_agent_plan_script"),
-          kind: "agent",
-          intent: { type: "agent", text: t("dashboard:script_plan_agent_prefill", { episodeRef: ctx.episodeRef }) },
-          disabledReason: refusalReason(t, planOp),
-        },
-      ];
+      // 首次规划只在「脚本规划」tab 的起步区里做，这里只跳过去。
+      planActs = [{ ...goPlanScriptAct(t), disabledReason: refusalReason(t, planOp) }];
     } else if (planOffered && formal === "present") {
       // 已有正式脚本（如从空白开始）时也能整集交给 AI 规划；新规划待确认，经覆盖确认才替换正式脚本。
       planActs = [
@@ -787,11 +786,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
       return {
         ...base,
         detail: t("workflow:next_detail_prepare_script_plan"),
-        instruction: { initial: ctx.savedScriptPlanInstructions, persist: "script_plan" },
-        primary: [
-          { key: "agent", label: t("workflow:act_agent"), kind: "agent", intent: { type: "plan_script_to_agent" } },
-          { key: "plan", label: t("dashboard:script_plan_open"), kind: "ai", intent: { type: "plan_script" } },
-        ],
+        primary: [goPlanScriptAct(t)],
         alternatives,
       };
     case "start_blank_script":

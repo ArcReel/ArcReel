@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Lock, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Loader2, Lock, RotateCcw, Save } from "lucide-react";
+import { cn } from "cn";
 import type {
   DraftSoftViolation,
   DramaNormalizedScript,
@@ -39,15 +40,10 @@ import { useModelCapabilities, type DurationOutOfRangeReason } from "@/hooks/use
 import { PlanDurationSelect, durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
 import { speakerCandidates } from "@/utils/plan-new-assets";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { ScriptPlanStart } from "@/components/canvas/shared/ScriptPlanStart";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  ACCENT_BUTTON_STYLE,
-  ACCENT_BTN_CLS,
-  CARD_STYLE,
-  GHOST_BTN_CLS,
-  GHOST_BTN_LG_CLS,
-} from "@/components/shared/darkroom-tokens";
 import { sumItemDuration } from "@/utils/script-shape";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, itemIdWithinEpisode } from "@/utils/episode-display";
@@ -84,11 +80,10 @@ function durationOutOfTier(seconds: number, options: number[] | null): boolean {
   return options != null && options.length > 0 && !options.includes(seconds);
 }
 
-const SECTION_LABEL_STYLE: React.CSSProperties = {
-  color: "var(--muted-foreground)",
-  letterSpacing: "0.08em",
-  fontFamily: "var(--font-mono)",
-};
+/** 条目卡里正文区块的小标题。 */
+function SectionLabel({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <h4 className={cn("mb-1.5 text-xs font-medium text-muted-foreground", className)}>{children}</h4>;
+}
 
 /** 两条 script_plan 变体（drama / narration）的可编辑草稿联合。 */
 type ReviewDraft = DramaNormalizedScript | NarrationScriptPlanDraft;
@@ -104,12 +99,9 @@ function MetaChips({ items }: { items: string[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {items.map((name) => (
-        <span
-          key={name}
-          className="rounded-sm border border-border bg-card/50 px-1.5 py-0.5 text-[10.5px] text-muted-foreground"
-        >
+        <Badge key={name} variant="outline">
           {name}
-        </span>
+        </Badge>
       ))}
     </div>
   );
@@ -139,15 +131,13 @@ function ItemHeader({
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-[11px] text-subtle-foreground">{shortId}</span>
+        <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium text-subtle-foreground tabular-nums">
+          {shortId}
+        </span>
         {readOnly ? (
           <>
-            <span className="text-[11px] text-muted-foreground">{durationSeconds}s</span>
-            {segmentBreak && (
-              <span className="rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {t("review_segment_break")}
-              </span>
-            )}
+            <span className="text-xs text-muted-foreground tabular-nums">{durationSeconds}s</span>
+            {segmentBreak && <Badge variant="outline">{t("review_segment_break")}</Badge>}
           </>
         ) : (
           <>
@@ -168,8 +158,8 @@ function ItemHeader({
         )}
       </div>
       {outOfTier && context.durationOptions && (
-        <p className="flex items-start gap-1.5 text-[11px] leading-snug text-red-300">
-          <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+        <p className="flex items-start gap-1.5 text-xs leading-snug text-destructive">
+          <AlertTriangle className="mt-px size-3 shrink-0" aria-hidden="true" />
           <span>
             {durationIncompatibleLabel(
               t,
@@ -221,7 +211,7 @@ function ItemReferences({
 /** 只读正文：保留换行，空值不渲染。 */
 function ReadOnlyText({ text, className = "" }: { text: string; className?: string }) {
   if (!text) return null;
-  return <p className={`whitespace-pre-wrap text-[12.5px] leading-relaxed ${className}`}>{text}</p>;
+  return <p className={cn("text-sm leading-relaxed whitespace-pre-wrap", className)}>{text}</p>;
 }
 
 function ReadOnlyUtterances({ utterances }: { utterances: Utterance[] }) {
@@ -229,10 +219,10 @@ function ReadOnlyUtterances({ utterances }: { utterances: Utterance[] }) {
   return (
     <ul className="flex flex-col gap-1.5">
       {utterances.map((u, i) => (
-        <li key={String(i)} className="flex items-start gap-2 text-[12.5px] leading-relaxed">
-          <span className="mt-0.5 shrink-0 rounded-sm border border-border bg-card/55 px-1.5 py-px text-[10.5px] text-muted-foreground">
+        <li key={String(i)} className="flex items-start gap-2 text-sm leading-relaxed">
+          <Badge variant="outline" className="mt-0.5">
             {u.kind === "dialogue" ? u.speaker : t("utterance_kind_voiceover")}
-          </span>
+          </Badge>
           <span className={u.kind === "voiceover" ? "italic text-subtle-foreground" : "text-foreground"}>{u.text}</span>
         </li>
       ))}
@@ -252,8 +242,7 @@ function ItemCardShell({ notes, children }: { notes?: ItemDraftNotes; children: 
   return (
     <article
       ref={notes?.anchorRef}
-      className={`scroll-mt-28 rounded-lg border p-3.5 ${violating ? "border-red-500/45" : "border-border"}`}
-      style={CARD_STYLE}
+      className={cn("scroll-mt-28 rounded-lg border bg-card p-3.5", violating ? "border-destructive/45" : "border-border")}
     >
       {children}
       {notes && (
@@ -308,9 +297,7 @@ function DramaSceneCard({
         />
       )}
 
-      <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
-        {t("review_utterances_label")}
-      </label>
+      <SectionLabel>{t("review_utterances_label")}</SectionLabel>
       {readOnly ? (
         <ReadOnlyUtterances utterances={scene.utterances} />
       ) : (
@@ -322,9 +309,7 @@ function DramaSceneCard({
         />
       )}
 
-      <label className="mb-1 mt-3 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
-        {t("review_source_text_label")}
-      </label>
+      <SectionLabel className="mt-3">{t("review_source_text_label")}</SectionLabel>
       {readOnly ? (
         <ReadOnlyText text={scene.source_text} className="text-muted-foreground" />
       ) : (
@@ -334,7 +319,6 @@ function DramaSceneCard({
           onChange={(e) => onChange({ source_text: e.target.value })}
           placeholder={t("review_source_text_placeholder")}
           aria-label={t("review_source_text_label")}
-          className="text-muted-foreground"
         />
       )}
     </ItemCardShell>
@@ -383,9 +367,7 @@ function NarrationSegmentCard({
         />
       )}
 
-      <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
-        {t("review_novel_text_label")}
-      </label>
+      <SectionLabel>{t("review_novel_text_label")}</SectionLabel>
       {readOnly ? (
         <ReadOnlyText text={segment.novel_text} className="text-foreground" />
       ) : (
@@ -549,6 +531,9 @@ export function ScriptReviewGate({
   });
 
   const projectCharacters = useProjectsStore((s) => s.currentProjectData?.characters);
+  const savedInstructions = useProjectsStore(
+    (s) => s.currentProjectData?.episodes?.find((entry) => entry.episode === episode)?.script_plan_instructions ?? "",
+  );
   const shownContent = quarantine != null && quarantine.editable_by === "user" ? draftEditor.content : draft;
   const shownNewAssets = shownContent?.new_assets;
   const itemContext = useMemo<PlanItemContext>(() => {
@@ -606,34 +591,35 @@ export function ScriptReviewGate({
   if (loadError) {
     return (
       <div role="alert" className="flex h-64 flex-col items-center justify-center gap-3 text-center">
-        <AlertTriangle className="h-6 w-6 text-amber-400" aria-hidden="true" />
+        <AlertTriangle className="size-6 text-warn" aria-hidden="true" />
         <div className="flex flex-col gap-1">
-          <p className="text-[13px] font-medium text-subtle-foreground">{t("dashboard:review_load_failed")}</p>
-          {loadError.message && (
-            <p className="max-w-sm px-4 font-mono text-[11px] text-muted-foreground">{loadError.message}</p>
-          )}
+          <p className="text-sm font-medium text-subtle-foreground">{t("dashboard:review_load_failed")}</p>
+          {loadError.message && <p className="max-w-sm px-4 text-xs text-muted-foreground">{loadError.message}</p>}
         </div>
-        <button type="button" onClick={handleRetry} className={GHOST_BTN_LG_CLS}>
-          <RotateCcw className="h-3.5 w-3.5" />
+        <Button variant="outline" size="sm" onClick={handleRetry}>
+          <RotateCcw aria-hidden data-icon="inline-start" />
           {t("dashboard:review_retry")}
-        </button>
+        </Button>
       </div>
     );
   }
 
   const status = state?.status ?? "no_script_plan";
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
-    // 没有规划时也能在这里发起 AI 规划；已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
+    // 没有规划也没有正式脚本：首次规划，给出起步区。已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
+    const formalScript = state?.script_overwrite != null || onOpenTimeline !== undefined;
+    if (status === "no_script_plan" && !formalScript) {
+      return (
+        <div className="mx-auto w-full max-w-190">
+          <ScriptPlanStart projectName={projectName} episode={episode} savedInstructions={savedInstructions} />
+        </div>
+      );
+    }
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
         <p>{t("dashboard:no_script_plan_content")}</p>
         {status === "no_script_plan" && (
-          <ScriptPlanButton
-            projectName={projectName}
-            episode={episode}
-            replaces={state?.script_overwrite != null ? "formal_script" : "none"}
-            className={GHOST_BTN_LG_CLS}
-          />
+          <ScriptPlanButton projectName={projectName} episode={episode} replaces="formal_script" />
         )}
       </div>
     );
@@ -657,7 +643,7 @@ export function ScriptReviewGate({
   // 本集还没有正式脚本、规划也未确认时，可以不用这份规划、从空白开始手写；规划与待修复草稿随之弃置，先确认。
   const blankStartAction =
     state?.script_overwrite == null && status !== "confirmed" ? (
-      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan className={GHOST_BTN_CLS} />
+      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan variant="ghost" />
     ) : null;
 
   // 待修复草稿在场：面板呈现草稿本身，正式内容此刻不可确认（确认端点按同一判据拒绝）。
@@ -678,7 +664,7 @@ export function ScriptReviewGate({
       },
     });
     return (
-      <div className="flex flex-col gap-3">
+      <div className="mx-auto flex w-full max-w-240 flex-col gap-3">
         <InvalidDraftBar
           violationCount={quarantine.violations.length}
           itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
@@ -703,7 +689,7 @@ export function ScriptReviewGate({
           regenerateAction={
             <>
               {blankStartAction}
-              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" />
             </>
           }
         />
@@ -781,7 +767,7 @@ export function ScriptReviewGate({
       : undefined;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mx-auto flex w-full max-w-240 flex-col gap-3">
       {agentEditing ? (
         <AgentDraftBar
           busy={draftBusy}
@@ -801,40 +787,46 @@ export function ScriptReviewGate({
                 projectName={projectName}
                 episode={episode}
                 replaces={confirmed ? "confirmed_plan" : "pending_plan"}
-                className={GHOST_BTN_CLS}
                 disabledReason={dirty && !confirmed ? t("dashboard:script_plan_dirty_hint") : null}
               />
             </>
           }
           saveAction={
             dirty && !confirmed ? (
-              <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
-                <Save className="h-3.5 w-3.5" />
+              <Button variant="outline" size="sm" onClick={voidPromise(handleSave)} disabled={busy}>
+                {saving ? (
+                  <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <Save aria-hidden data-icon="inline-start" />
+                )}
                 {saving ? t("common:saving") : t("dashboard:review_save_action")}
-              </button>
+              </Button>
             ) : null
           }
           confirmAction={
             overwrite ? (
-              <PrimaryButton
-                tone="danger"
+              <Button
+                variant="destructive"
+                size="sm"
                 onClick={() => setOverwriteOpen(true)}
                 disabled={busy || confirmBlocked}
                 title={confirmBlockedHint}
-                leadingIcon={<AlertTriangle className="h-3.5 w-3.5" />}
               >
+                <AlertTriangle aria-hidden data-icon="inline-start" />
                 {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
-              </PrimaryButton>
+              </Button>
             ) : (
-              <button
-                type="button"
+              <Button
+                size="sm"
                 onClick={voidPromise(() => handleConfirm())}
                 disabled={busy || confirmLocked || confirmBlocked}
                 title={confirmBlockedHint}
-                className={ACCENT_BTN_CLS}
-                style={ACCENT_BUTTON_STYLE}
               >
-                {confirmLocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                {confirmLocked ? (
+                  <Lock aria-hidden data-icon="inline-start" />
+                ) : (
+                  <CheckCircle2 aria-hidden data-icon="inline-start" />
+                )}
                 {confirming
                   ? t("dashboard:review_confirming")
                   : scriptMissing
@@ -842,7 +834,7 @@ export function ScriptReviewGate({
                     : confirmed
                       ? t("dashboard:review_confirmed_badge")
                       : t("dashboard:review_confirm_action")}
-              </button>
+              </Button>
             )
           }
         />
@@ -935,17 +927,18 @@ function ReviewStatusBar({
 }) {
   const { t } = useTranslation("dashboard");
   return (
-    <header
-      className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-lg border border-border px-3.5 py-2.5 backdrop-blur-md"
-      style={CARD_STYLE}
-    >
-      <div className="flex items-center gap-2">
-        {confirmed ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Clock className="h-4 w-4 text-amber-400" />}
-        <div className="flex flex-col">
-          <span className="text-[12.5px] font-medium text-foreground">
+    <header className="sticky top-0 z-sticky flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-border bg-card px-3.5 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        {confirmed ? (
+          <CheckCircle2 aria-hidden className="size-4 shrink-0 text-good" />
+        ) : (
+          <Clock aria-hidden className="size-4 shrink-0 text-warn" />
+        )}
+        <div className="flex min-w-0 flex-col">
+          <span className="text-sm font-medium text-foreground">
             {confirmed ? t("review_status_confirmed") : t("review_status_pending")}
           </span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {scriptMissing
               ? t("review_script_missing_hint")
               : confirmed
@@ -957,12 +950,12 @@ function ReviewStatusBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {onOpenTimeline && (
-          <button type="button" onClick={onOpenTimeline} className={GHOST_BTN_CLS}>
-            <ArrowRight className="h-3.5 w-3.5" />
+          <Button variant="ghost" size="sm" onClick={onOpenTimeline}>
+            <ArrowRight aria-hidden data-icon="inline-start" />
             {t("review_open_timeline")}
-          </button>
+          </Button>
         )}
         {regenerateAction}
         {saveAction}

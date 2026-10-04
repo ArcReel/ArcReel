@@ -1,13 +1,36 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 import type { EpisodeView, EpisodeViewTab } from "./episode-view";
 
 /** 视图 tab 的元素 id，视图区以它作为无障碍名。 */
 export function episodeViewTabId(view: EpisodeView): string {
   return `episode-view-tab-${view}`;
+}
+
+/**
+ * 置灰的视图 tab：目前只在还没有正式脚本时出现（分镜、多宫格分镜图），悬停与读屏都说明「脚本生成后可用」。
+ * 置灰的 tab 不接收指针事件，提示挂在外层；方向键仍能聚焦到它，焦点进入时同样显示提示。
+ */
+function DisabledViewTab({ view, label }: { view: EpisodeView; label: string }) {
+  const { t } = useTranslation("dashboard");
+  const hintId = useId();
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="flex h-full" />}>
+        <TabsTrigger value={view} id={episodeViewTabId(view)} disabled aria-describedby={hintId}>
+          {label}
+        </TabsTrigger>
+        <span id={hintId} className="sr-only">
+          {t("episode_view_needs_script")}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{t("episode_view_needs_script")}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 /**
@@ -49,11 +72,15 @@ export function EpisodePageHeader({
       <div className="flex h-10 items-center gap-3 px-4">
         <Tabs value={view} onValueChange={(next: EpisodeView) => onViewChange(next)} className="shrink-0">
           <TabsList aria-label={t("episode_view_aria")}>
-            {tabs.map((tab) => (
-              <TabsTrigger key={tab.view} value={tab.view} id={episodeViewTabId(tab.view)} disabled={tab.disabled}>
-                {label[tab.view]}
-              </TabsTrigger>
-            ))}
+            {tabs.map((tab) =>
+              tab.disabled ? (
+                <DisabledViewTab key={tab.view} view={tab.view} label={label[tab.view]} />
+              ) : (
+                <TabsTrigger key={tab.view} value={tab.view} id={episodeViewTabId(tab.view)}>
+                  {label[tab.view]}
+                </TabsTrigger>
+              ),
+            )}
           </TabsList>
         </Tabs>
         {/* 动作多到放不下时横向滚动；插槽靠右，溢出时从左端开始滚，不裁掉第一个动作。 */}

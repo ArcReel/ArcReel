@@ -31,9 +31,10 @@ import { sumItemDuration } from "@/utils/script-shape";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
+import { ScriptPlanStart } from "@/components/canvas/shared/ScriptPlanStart";
 import { PlanDurationSelect } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
@@ -45,9 +46,6 @@ import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, itemIdsInEpisodeText, itemIdWithinEpisode } from "@/utils/episode-display";
 import { tierProblemText } from "./unit-tier-problem";
 import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
-
-/** 面板里的次要动作（重新规划、从空白开始等共享按钮）用同一外观。 */
-const SECONDARY_ACTION_CLS = buttonVariants({ variant: "outline", size: "sm" });
 
 interface ReferenceScriptPlanPreviewPanelProps {
   projectName: string;
@@ -447,6 +445,10 @@ export function ReferenceScriptPlanPreviewPanel({
   const unitTiers = (capability: ReferenceUnitCapability | null | undefined): number[] | null =>
     capability?.duration_endpoint_fixed ? fixedPlanningDurations : (capability?.allowed_durations ?? null);
   const pushToast = useAppStore((s) => s.pushToast);
+  const savedInstructions = useProjectsStore(
+    (s) =>
+      s.currentProjectData?.episodes?.find((ep) => ep.episode === episode)?.script_plan_instructions ?? "",
+  );
 
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
@@ -555,17 +557,15 @@ export function ReferenceScriptPlanPreviewPanel({
 
   const status = state?.status ?? "no_script_plan";
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
-    // 没有规划时也能在这里发起 AI 规划；已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
+    // 本集还没有正式脚本时这里就是首次规划的起步区；已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
+    if (status === "no_script_plan" && state?.script_overwrite == null) {
+      return <ScriptPlanStart projectName={projectName} episode={episode} savedInstructions={savedInstructions} />;
+    }
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
         <p>{t("dashboard:no_script_plan_content")}</p>
         {status === "no_script_plan" && (
-          <ScriptPlanButton
-            projectName={projectName}
-            episode={episode}
-            replaces={state?.script_overwrite != null ? "formal_script" : "none"}
-            className={buttonVariants({ variant: "outline" })}
-          />
+          <ScriptPlanButton projectName={projectName} episode={episode} replaces="formal_script" />
         )}
       </div>
     );
@@ -590,7 +590,7 @@ export function ReferenceScriptPlanPreviewPanel({
   // Agent 正在编辑草稿时不给入口，服务端同样拒绝。
   const blankStartAction =
     state?.script_overwrite == null && status !== "confirmed" && quarantine?.editable_by !== "agent" ? (
-      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan className={SECONDARY_ACTION_CLS} />
+      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan />
     ) : null;
 
   if (quarantine != null && quarantine.editable_by === "user") {
@@ -633,7 +633,7 @@ export function ReferenceScriptPlanPreviewPanel({
           regenerateAction={
             <>
               {blankStartAction}
-              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={SECONDARY_ACTION_CLS} />
+              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" />
             </>
           }
         />
@@ -777,7 +777,7 @@ export function ReferenceScriptPlanPreviewPanel({
               projectName={projectName}
               episode={episode}
               replaces={confirmed ? "confirmed_plan" : "pending_plan"}
-              className={SECONDARY_ACTION_CLS}
+             
               disabledReason={!readOnly && dirty ? t("dashboard:script_plan_dirty_hint") : null}
             />
             {!readOnly && dirty && (
