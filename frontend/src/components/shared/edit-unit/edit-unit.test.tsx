@@ -11,7 +11,7 @@ import { createDeferred } from "@/test/deferred";
 import { LeaveGuardProvider, useConfirmLeave } from "./LeaveGuard";
 import { SaveBar } from "./SaveBar";
 import { UnsavedChangesBar } from "./UnsavedChangesBar";
-import { useEditUnit, type SaveAndGenerateOptions } from "./useEditUnit";
+import { PartialSaveError, useEditUnit, type SaveAndGenerateOptions } from "./useEditUnit";
 
 type SaveNote = (value: string) => Promise<string | void>;
 
@@ -108,6 +108,26 @@ describe("保存栏", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("保存失败：备注过长");
     expect(note()).toHaveValue("原始备注，补充");
     expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+  });
+
+  it("部分保存：已落盘的部分成为已保存内容，放弃修改回到它，再次保存以它为基准", async () => {
+    const user = userEvent.setup();
+    const save = vi
+      .fn<SaveNote>()
+      .mockRejectedValueOnce(new PartialSaveError("附件上传失败", { saved: "原始备注，补充" }))
+      .mockResolvedValue(undefined);
+    render(<NoteEditor source="原始备注" save={save} />);
+
+    await user.type(note(), "，补充");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("保存失败：附件上传失败");
+    await user.type(note(), "！");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(save).toHaveBeenLastCalledWith("原始备注，补充！", "原始备注，补充");
+
+    await user.type(note(), "？");
+    await user.click(screen.getByRole("button", { name: "放弃修改" }));
+    expect(note()).toHaveValue("原始备注，补充！");
   });
 });
 

@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { FieldLabel } from "./FieldLabel";
+import { Input } from "@/components/ui/input";
 
 export interface OptionalNumberFieldProps {
   /** 已翻译的字段名。 */
@@ -48,10 +48,12 @@ export function OptionalNumberField({
   const errorId = `${id}-error`;
 
   return (
-    <div>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+        {label}
+      </label>
       <div className="flex items-center gap-2">
-        <input
+        <Input
           id={id}
           type="number"
           inputMode={inputMode}
@@ -72,16 +74,16 @@ export function OptionalNumberField({
             // 区间校验交给下面的行内提示与后端，输入过程中不吞用户的按键
             if (Number.isFinite(next)) onChange(next);
           }}
-          className="w-28 rounded-md border border-border bg-card/55 px-3 py-2 text-[12.5px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-28"
         />
-        <span className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">{unit}</span>
+        <span className="text-xs text-muted-foreground">{unit}</span>
       </div>
       {invalid ? (
-        <p id={errorId} role="alert" className="mt-1 text-[11px] text-warn">
+        <p id={errorId} role="alert" className="text-xs text-destructive">
           {errorMessage}
         </p>
       ) : (
-        <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
+        <p className="text-xs text-muted-foreground">{hint}</p>
       )}
     </div>
   );

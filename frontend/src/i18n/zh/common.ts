@@ -65,6 +65,7 @@ export default {
   'show': '显示',
   'hide': '隐藏',
   'not_found_title': '页面未找到',
+  'not_found_description': '地址可能有误，或这个页面已被移除。',
   'not_found_back': '返回首页',
   'recommended': '推荐',
   'elapsed_seconds': '{{seconds}}秒',

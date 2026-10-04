@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
+import { projectSettingsPath } from "@/app-routes";
 import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
 
 /**
@@ -18,7 +19,7 @@ export function VideoModelUnresolvedNotice({ projectName }: { projectName: strin
         <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0 text-amber-400" />
         {t("review_video_model_unresolved_hint")}
       </p>
-      <Link href={`~/app/projects/${encodeURIComponent(projectName)}/settings`} className={GHOST_BTN_CLS}>
+      <Link href={`~${projectSettingsPath(projectName, "models")}`} className={GHOST_BTN_CLS}>
         <ArrowRight className="h-3.5 w-3.5" />
         {t("review_video_model_unresolved_action")}
       </Link>

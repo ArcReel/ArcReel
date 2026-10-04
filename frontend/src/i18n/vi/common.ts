@@ -65,6 +65,7 @@ export default {
   'show': 'Hiển thị',
   'hide': 'Ẩn',
   'not_found_title': 'Không tìm thấy trang',
+  'not_found_description': 'Địa chỉ có thể không đúng, hoặc trang này đã bị gỡ bỏ.',
   'not_found_back': 'Về trang chủ',
   'recommended': 'Được khuyến nghị',
   'elapsed_seconds': '{{seconds}} giây',

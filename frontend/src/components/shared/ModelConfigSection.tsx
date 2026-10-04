@@ -1,11 +1,14 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { cn } from "cn";
 import { useTranslation } from "react-i18next";
+import { RotateCcw } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { InlineWarning } from "@/components/shared/InlineWarning";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import {
   durationOutOfRangeReason,
   useModelCapabilities,
@@ -30,6 +33,7 @@ import {
   type LayeredSubField,
 } from "./LayeredModelFields";
 import { TextTierFields } from "./TextTierFields";
+import { CHANNEL_MODEL_FIELDS, channelOverridden, countModelOverrides, type ModelChannel } from "./model-overrides";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type { ProviderInfo, VoiceConsistencyTier } from "@/types/provider";
@@ -120,6 +124,11 @@ export interface ModelConfigSectionProps {
    * 时长选项据此过滤——该模式由所在页面持有，故从外部传入而非在本组件推断。
    */
   usesReferenceImages?: boolean;
+  /**
+   * 标出各通道的来源（项目设置用）：顶部说明本项目覆盖了几项全局默认，并可全部恢复；每个通道标题行
+   * 显示「本项目」与「恢复全局」，或「跟随全局 · 全局默认模型名」。
+   */
+  showOverrideSources?: boolean;
   enable?: {
     video?: boolean;
     image?: boolean;
@@ -128,10 +137,13 @@ export interface ModelConfigSectionProps {
   };
 }
 
-function ChannelCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChannelCard({ title, source, children }: { title: string; source?: ReactNode; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium">{title}</h3>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <h3 className="shrink-0 text-sm font-medium">{title}</h3>
+        {source}
+      </div>
       {children}
     </section>
   );
@@ -157,6 +169,7 @@ export function ModelConfigSection({
   globalVideoGenerateAudio = true,
   onVideoGenerateAudioChange,
   usesReferenceImages,
+  showOverrideSources = false,
   enable,
 }: ModelConfigSectionProps) {
   const { t } = useTranslation(["templates", "dashboard"]);
@@ -190,26 +203,47 @@ export function ModelConfigSection({
   // 新模型声明全集之外的时长退回自动。两条路径共用一处，避免只有主下拉做校验、细分项漏做。
   // 全集在目录里同步可得；新模型走参考图路径时若把该值收窄掉，由下方按成因的提示引导重选，
   // 事件处理器里拿不到服务端的收窄结果。
-  const applyVideoLayer = (patch: Partial<ModelConfigValue>) => {
-    const next = { ...value, ...patch };
+  const withVideoLayer = (base: ModelConfigValue, patch: Partial<ModelConfigValue>): ModelConfigValue => {
+    const next = { ...base, ...patch };
     const nextExecuting = executingVideoModel(next, globalDefaults, usesReferenceImages);
-    if (nextExecuting === executingVideo) {
-      onChange(next);
-      return;
-    }
+    if (nextExecuting === executingVideoModel(base, globalDefaults, usesReferenceImages)) return next;
     const nextDurations = catalogDurations(providers, customProviders, nextExecuting);
     const keepDuration = next.defaultDuration !== null && !!nextDurations?.includes(next.defaultDuration);
-    onChange({
+    return {
       ...next,
       defaultDuration: keepDuration ? next.defaultDuration : null,
-      videoResolution: value.videoResolutions ? (value.videoResolutions[nextExecuting] ?? null) : null,
-    });
+      videoResolution: base.videoResolutions ? (base.videoResolutions[nextExecuting] ?? null) : null,
+    };
   };
 
-  const applyImageLayer = (patch: Partial<ModelConfigValue>) => {
-    const next = { ...value, ...patch };
+  const withImageLayer = (base: ModelConfigValue, patch: Partial<ModelConfigValue>): ModelConfigValue => {
+    const next = { ...base, ...patch };
     const nextExecuting = executingImageModel(next, globalDefaults);
-    onChange(nextExecuting === executingImage ? next : { ...next, imageResolution: null });
+    return nextExecuting === executingImageModel(base, globalDefaults) ? next : { ...next, imageResolution: null };
+  };
+
+  const applyVideoLayer = (patch: Partial<ModelConfigValue>) => onChange(withVideoLayer(value, patch));
+  const applyImageLayer = (patch: Partial<ModelConfigValue>) => onChange(withImageLayer(value, patch));
+
+  // 恢复全局：清空通道的模型字段，经与下拉相同的路径校正时长与分辨率；视频通道连同「生成有声视频」。
+  const clearedFields = (channel: ModelChannel): Partial<ModelConfigValue> =>
+    Object.fromEntries(CHANNEL_MODEL_FIELDS[channel].map((field) => [field, ""]));
+  const resetChannel = (channel: ModelChannel) => {
+    if (channel === "video") {
+      applyVideoLayer(clearedFields("video"));
+      onVideoGenerateAudioChange?.(null);
+    } else if (channel === "image") {
+      applyImageLayer(clearedFields("image"));
+    } else {
+      onChange({ ...value, ...clearedFields("text") });
+    }
+  };
+  const resetAllChannels = () => {
+    onChange({
+      ...withImageLayer(withVideoLayer(value, clearedFields("video")), clearedFields("image")),
+      ...clearedFields("text"),
+    });
+    onVideoGenerateAudioChange?.(null);
   };
 
   const videoSubFields: LayeredSubField[] | undefined = showSubFields
@@ -384,12 +418,70 @@ export function ModelConfigSection({
     );
   };
 
+  // 项目只记录覆盖了哪些字段；「生成有声视频」只在本表单渲染它时计入。
+  const audioOverride = onVideoGenerateAudioChange ? (videoGenerateAudio ?? null) : null;
+  const overrideCount = countModelOverrides(value, audioOverride);
+
+  const modelLabel = (fullValue: string | undefined) => {
+    if (!fullValue) return t("dashboard:auto_select");
+    const idx = fullValue.indexOf("/");
+    if (idx === -1) return options.providerNames[fullValue] || fullValue;
+    return options.modelNames?.[fullValue] || fullValue.slice(idx + 1);
+  };
+  // 跟随全局时实际生效的全局模型：视频按本项目走的路径取细分项，图片取文生图，文本取默认档。
+  const globalChannelModel: Record<ModelChannel, string | undefined> = {
+    video: effectiveModel(usesReferenceImages ? globalDefaults.videoR2V : globalDefaults.videoI2V, globalDefaults.video),
+    image: effectiveModel(globalDefaults.imageT2I, globalDefaults.image),
+    text: effectiveModel(globalDefaults.textDefault),
+  };
+
+  const channelSource = (channel: ModelChannel, title: string) => {
+    if (!showOverrideSources) return undefined;
+    if (!channelOverridden(channel, value, audioOverride)) {
+      return (
+        <TruncatedText
+          text={t("dashboard:model_follow_global_source", { model: modelLabel(globalChannelModel[channel]) })}
+          className="text-xs text-muted-foreground"
+        />
+      );
+    }
+    return (
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Badge variant="secondary">{t("dashboard:model_project_source")}</Badge>
+        <Button
+          variant="ghost"
+          size="xs"
+          aria-label={t("dashboard:model_channel_reset_aria", { channel: title })}
+          onClick={() => resetChannel(channel)}
+        >
+          {t("dashboard:model_channel_reset")}
+        </Button>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">{t("default_hint")}</p>
+      {showOverrideSources ? (
+        <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm">
+          <p className="text-subtle-foreground">
+            {overrideCount === 0
+              ? t("dashboard:model_overrides_none")
+              : t("dashboard:model_overrides_notice", { count: overrideCount })}
+          </p>
+          {overrideCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={resetAllChannels}>
+              <RotateCcw data-icon="inline-start" />
+              {t("dashboard:model_overrides_reset_all")}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">{t("default_hint")}</p>
+      )}
 
       {showVideo && (
-        <ChannelCard title={t("model_video")}>
+        <ChannelCard title={t("model_video")} source={channelSource("video", t("model_video"))}>
           <LayeredModelFields
             defaultLabel={t("model_video_default")}
             defaultValue={value.videoBackend}
@@ -520,7 +612,7 @@ export function ModelConfigSection({
       )}
 
       {showImage && (
-        <ChannelCard title={t("model_image")}>
+        <ChannelCard title={t("model_image")} source={channelSource("image", t("model_image"))}>
           <LayeredModelFields
             defaultLabel={t("model_image_default")}
             defaultValue={value.imageBackendDefault}
@@ -546,7 +638,7 @@ export function ModelConfigSection({
       )}
 
       {showText && (
-        <ChannelCard title={t("model_text")}>
+        <ChannelCard title={t("model_text")} source={channelSource("text", t("model_text"))}>
           <TextTierFields
             value={{
               default: value.textBackendDefault,

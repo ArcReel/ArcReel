@@ -2,8 +2,6 @@ import { useCallback, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
 import { Route, Switch, Redirect, useSearchParams } from "wouter";
 import {
-  WORKSPACE_ROUTE_LOREBOOK,
-  WORKSPACE_ROUTE_CLUES,
   WORKSPACE_ROUTE_CHARACTERS,
   WORKSPACE_ROUTE_SCENES,
   WORKSPACE_ROUTE_PROPS,
@@ -625,14 +623,6 @@ export function StudioCanvasRouter() {
           projectData={currentProjectData}
           readOnly={demoMode}
         />
-      </Route>
-
-      <Route path={`/${WORKSPACE_ROUTE_LOREBOOK}`}>
-        <Redirect to={`/${WORKSPACE_ROUTE_CHARACTERS}`} />
-      </Route>
-
-      <Route path={`/${WORKSPACE_ROUTE_CLUES}`}>
-        <Redirect to={`/${WORKSPACE_ROUTE_SCENES}`} />
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_EPISODES}`}>

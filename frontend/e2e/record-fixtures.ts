@@ -3,7 +3,7 @@
 // 时间戳、临时数据目录、仓库检出路径、令牌与项目修订号改写成固定值，重录后只有接口形状的变化会出现在 diff 里。
 // 后端改动接口形状的 PR 同时重录。
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -78,6 +78,8 @@ const RECORDINGS: Recording[] = [
   // 全局设置「ArcReel Agent」：Agent 供应商列表（录制环境为空）与添加对话框的预设供应商目录。
   { file: "agent-credentials", method: "GET", path: "/api/v1/agent/credentials" },
   { file: "agent-preset-providers", method: "GET", path: "/api/v1/agent/preset-providers" },
+  // 全局设置「Agent 记忆」：用户记忆目录（录制环境没有记忆文件，多条目与正文由场景替换）。
+  { file: "agent-memory", method: "GET", path: "/api/v1/agent/memory" },
   // 全局设置「使用记录」：默认最近 30 天（起点由固定时间与 Asia/Shanghai 推出）与进行中的调用。
   { file: "usage-summary-30d", method: "GET", path: "/api/v1/usage/summary?since=2025-12-02T16:00:00.000Z&tz=Asia/Shanghai" },
   {
@@ -101,6 +103,23 @@ const RECORDINGS: Recording[] = [
   // 全局设置「市场」：市场源（录制环境只有内置的官方源，从未刷新）与条目快照（为空）；刷新、聚合与条目详情访问外网，由场景替换。
   { file: "market-sources", method: "GET", path: "/api/v1/market/sources" },
   { file: "market-entries", method: "GET", path: "/api/v1/market/entries?type=endpoint" },
+  // 新建项目向导：TTS 配音的预填值（全局默认）。
+  { file: "narration-defaults", method: "GET", path: "/api/v1/system/narration-defaults" },
+  // 资产库：默认的「角色」标签首页（项目画廊「从资产库导入」同一请求）、画廊的资产图状态，以及入库预览按名称查重。
+  { file: "assets-character", method: "GET", path: "/api/v1/assets?limit=60&type=character" },
+  { file: "project-demo-asset-sheets-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status` },
+  { file: "assets-character-search-lin-xi", method: "GET", path: `/api/v1/assets?q=${encodeURIComponent("林夕")}&type=character` },
+  // 项目设置：Agent 配置状态与项目记忆（演示项目没有定制配置与记忆文件，多条目由场景替换）。
+  { file: "project-demo-agent-profile", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-profile` },
+  { file: "project-demo-agent-memory", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-memory` },
+];
+
+// 资产库里的演示资产：两个角色、一个场景、一个道具，都没有图片。
+const LIBRARY_ASSETS: Record<string, string>[] = [
+  { type: "character", name: "林夕", description: "二十出头的旧城茶馆老板娘，短发，常穿靛蓝布衫。", voice_style: "温和、语速偏慢" },
+  { type: "character", name: "陈默", description: "沉默寡言的修表匠，左手腕上有一道旧疤。", voice_style: "" },
+  { type: "scene", name: "旧城茶馆", description: "临街的两层木楼，一楼摆着八张方桌。", voice_style: "" },
+  { type: "prop", name: "青铜罗盘", description: "巴掌大的罗盘，指针总是指向茶馆。", voice_style: "" },
 ];
 
 // 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。
@@ -109,11 +128,25 @@ const FIXED_VALUES = new Map<string, string>([
   ["project_revision", "sha256-v1:<project-revision>"],
 ]);
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// 同一次录制里相同的 uuid 映射到同一个固定值，按首次出现的顺序编号。
+const uuidAliases = new Map<string, string>();
+
+function fixedUuid(value: string): string {
+  let alias = uuidAliases.get(value);
+  if (!alias) {
+    alias = `00000000-0000-4000-8000-${String(uuidAliases.size + 1).padStart(12, "0")}`;
+    uuidAliases.set(value, alias);
+  }
+  return alias;
+}
+
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
 
 function normalize(value: unknown, dataDir: string): unknown {
   if (typeof value === "string") {
     if (ISO_TIMESTAMP.test(value)) return FIXED_NOW;
+    if (UUID.test(value)) return fixedUuid(value);
     return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>");
   }
   if (Array.isArray(value)) return value.map((item) => normalize(item, dataDir));
@@ -180,8 +213,16 @@ async function postJson(baseUrl: string, token: string, path: string, payload: u
   if (!resp.ok) throw new Error(`POST ${path} 返回 ${resp.status}：${await resp.text()}`);
 }
 
+async function postForm(baseUrl: string, token: string, path: string, fields: Record<string, string>) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  const resp = await fetch(`${baseUrl}${path}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+  if (!resp.ok) throw new Error(`POST ${path} 返回 ${resp.status}：${await resp.text()}`);
+}
+
 async function main() {
-  const dataDir = mkdtempSync(join(tmpdir(), "arcreel-e2e-"));
+  // 取真实路径：macOS 的临时目录经 /var → /private/var 符号链接，后端返回的是解析后的路径
+  const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "arcreel-e2e-")));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = {
@@ -219,6 +260,8 @@ async function main() {
     // 一集还没有分镜的空正式脚本，集页显示「新增第一个分镜」。
     await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes`, { title: "第一集" });
     await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes/1/blank-script`, {});
+    // 资产库按更新时间倒序列出，逐个创建使顺序与 LIBRARY_ASSETS 相反、且每次录制一致。
+    for (const asset of LIBRARY_ASSETS) await postForm(baseUrl, token, "/api/v1/assets", asset);
 
     rmSync(RECORDED_DIR, { recursive: true, force: true });
     mkdirSync(RECORDED_DIR, { recursive: true });

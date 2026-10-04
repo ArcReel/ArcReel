@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/agent-profile",
+  "status": 200,
+  "body": {
+    "customized": false,
+    "customized_files": []
+  }
+}

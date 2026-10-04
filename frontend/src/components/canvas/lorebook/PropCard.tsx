@@ -216,10 +216,8 @@ export function PropCard({
             resourceType="prop"
             resourceId={name}
             projectName={projectName}
-            initialDescription={prop.description}
-            sheetPath={prop.prop_sheet}
+            preview={{ description: prop.description, sheetPath: prop.prop_sheet }}
             busy={generating || uploadingSheet}
-            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
           />
           <VersionTimeMachine
             projectName={projectName}

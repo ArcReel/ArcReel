@@ -1,35 +1,21 @@
 import { useEffect, useId, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ImagePlus, Landmark, Package, User } from "lucide-react";
-import { AssetThumb } from "./AssetThumb";
-import { API } from "@/api";
-import type { Asset, AssetDerivative, AssetType } from "@/types/asset";
+import { ImagePlus, Landmark, Package, User } from "lucide-react";
+import type { AssetType } from "@/types/asset";
 import { GlassModal } from "@/components/legacy/GlassModal";
 import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
 import { PrimaryButton } from "@/components/legacy/PrimaryButton";
 import { SecondaryButton } from "@/components/legacy/SecondaryButton";
 import { sanitizeImageSrc } from "@/utils/safe-url";
-import { WARM_TONE } from "@/utils/severity-tone";
-
-type Mode = "create" | "edit" | "import";
 
 interface Props {
   type: AssetType;
-  mode: Mode;
-  initialData?: Partial<Asset>;
-  previewImageUrl?: string;
-  /** 资产库里挂在这条角色下的衍生；只读展示，衍生的编辑入口在项目的角色卡上。 */
-  derivatives?: AssetDerivative[];
-  /** 用于给衍生缩略图 URL 加指纹，与本体资产图同口径。 */
-  imageFingerprint?: string | null;
-  conflictWith?: Asset;
   onClose: () => void;
   onSubmit: (payload: {
     name: string;
     description: string;
     voice_style: string;
     image?: File | null;
-    overwrite?: boolean;
   }) => Promise<void>;
 }
 
@@ -39,13 +25,12 @@ const TYPE_ICON: Record<AssetType, React.ComponentType<{ className?: string }>> 
   prop: Package,
 };
 
-export function AssetFormModal({
-  type, mode, initialData, previewImageUrl, derivatives, imageFingerprint, conflictWith, onClose, onSubmit,
-}: Props) {
+/** 项目画廊里新增角色、场景或道具的表单弹窗。 */
+export function AssetFormModal({ type, onClose, onSubmit }: Props) {
   const { t } = useTranslation("assets");
-  const [name, setName] = useState(initialData?.name ?? "");
-  const [description, setDescription] = useState(initialData?.description ?? "");
-  const [voiceStyle, setVoiceStyle] = useState(initialData?.voice_style ?? "");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [voiceStyle, setVoiceStyle] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -68,21 +53,17 @@ export function AssetFormModal({
     return () => URL.revokeObjectURL(url);
   }, [image]);
 
-  const displayedPreview = sanitizeImageSrc(localPreview ?? previewImageUrl);
+  const displayedPreview = sanitizeImageSrc(localPreview);
   const TypeIcon = TYPE_ICON[type];
 
   const isCharacter = type === "character";
   const typeLabel = t(`type.${type}`);
-  const title = mode === "create" ? t("create_title", { type: typeLabel })
-    : mode === "edit" ? t("edit_title", { type: typeLabel, name: initialData?.name })
-    : t("import_title", { name: initialData?.name });
+  const title = t("create_title", { type: typeLabel });
 
-  const primaryLabel = mode === "create" ? t("create") : mode === "edit" ? t("save") : t("confirm_import");
-
-  const submit = async (overwrite = false) => {
+  const submit = async () => {
     setSubmitting(true);
     try {
-      await onSubmit({ name: name.trim(), description, voice_style: voiceStyle, image, overwrite });
+      await onSubmit({ name: name.trim(), description, voice_style: voiceStyle, image });
       onClose();
     } finally {
       setSubmitting(false);
@@ -129,26 +110,12 @@ export function AssetFormModal({
                 letterSpacing: "1.0px",
               }}
             >
-              {mode === "import" ? t("library_subtitle") : typeLabel}
+              {typeLabel}
             </p>
           </div>
           <ModalCloseButton onClick={onClose} />
         </div>
 
-        {/* Conflict warning */}
-        {conflictWith && (
-          <div
-            className="flex items-start gap-2 px-6 py-3 text-[12px]"
-            style={{
-              borderBottom: `1px solid ${WARM_TONE.ring}`,
-              background: WARM_TONE.soft,
-              color: WARM_TONE.color,
-            }}
-          >
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span>{t("conflict_warning", { name: conflictWith.name })}</span>
-          </div>
-        )}
 
         {/* Body */}
         <div className="grid grid-cols-[200px_1fr] gap-5 p-6">
@@ -283,51 +250,6 @@ export function AssetFormModal({
           </div>
         </div>
 
-        {isCharacter && derivatives && derivatives.length > 0 && (
-          <div className="px-6 pb-6">
-            <div
-              className="num text-[10px] uppercase"
-              style={{ color: "var(--muted-foreground)", letterSpacing: "1.0px" }}
-            >
-              {t("derivatives_with_count", { n: derivatives.length })}
-            </div>
-            <p className="mt-1.5 text-[11.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
-              {t("library_derivatives_note")}
-            </p>
-            <ul className="mt-3 grid grid-cols-3 gap-3">
-              {derivatives.map((derivative) => (
-                <li key={derivative.name} className="min-w-0">
-                  <div
-                    className="overflow-hidden rounded-lg"
-                    style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-                  >
-                    <AssetThumb
-                      imageUrl={API.getGlobalAssetUrl(derivative.image_path, imageFingerprint)}
-                      alt={t("library_derivative_thumb", { name: derivative.name })}
-                      fallback={<span className="px-2 text-center text-[10.5px]">{t("derivative_no_sheet")}</span>}
-                      variant="picker"
-                    />
-                  </div>
-                  <div
-                    className="mt-1.5 truncate text-[12px] font-medium"
-                    style={{ color: "var(--subtle-foreground)" }}
-                    title={derivative.name}
-                  >
-                    {derivative.name}
-                  </div>
-                  {derivative.description ? (
-                    <div
-                      className="mt-0.5 line-clamp-2 text-[11px] leading-[1.5]"
-                      style={{ color: "var(--muted-foreground)" }}
-                    >
-                      {derivative.description}
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* Footer */}
         <div
@@ -340,23 +262,13 @@ export function AssetFormModal({
           <SecondaryButton size="sm" onClick={onClose}>
             {t("cancel")}
           </SecondaryButton>
-          {mode === "import" && conflictWith && (
-            <PrimaryButton
-              size="sm"
-              tone="warm"
-              onClick={() => void submit(true)}
-              disabled={submitting}
-            >
-              {t("overwrite_existing")}
-            </PrimaryButton>
-          )}
           <PrimaryButton
             size="sm"
             className="ml-auto"
-            onClick={() => void submit(false)}
+            onClick={() => void submit()}
             disabled={submitting || !name.trim()}
           >
-            {primaryLabel}
+            {t("create")}
           </PrimaryButton>
         </div>
     </GlassModal>

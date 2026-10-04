@@ -118,7 +118,7 @@ import type {
   PresentationRequestOptions,
   PresentationResourceType,
 } from "@/types/presentation";
-import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
+import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
 import type {
@@ -377,8 +377,10 @@ class API {
   }
 
   /** 新建 TTS 项目的预填值（全局默认的 TTS 模型、音色与语速）。 */
-  static async getNarrationDefaults(): Promise<NarrationDefaultsResponse> {
-    return this.request("/system/narration-defaults");
+  static async getNarrationDefaults(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<NarrationDefaultsResponse> {
+    return this.request("/system/narration-defaults", { signal: options.signal });
   }
 
   /** 所选 TTS 模型（provider/model）的能力，目前只回答是否支持配音语速。 */
@@ -457,8 +459,8 @@ class API {
 
   // ==================== 项目管理 ====================
 
-  static async listProjects(): Promise<{ projects: ProjectSummary[] }> {
-    return this.request("/projects");
+  static async listProjects(options: { signal?: AbortSignal } = {}): Promise<{ projects: ProjectSummary[] }> {
+    return this.request("/projects", { signal: options.signal });
   }
 
   static async createProject(
@@ -494,8 +496,11 @@ class API {
     });
   }
 
-  static async getAgentProfileStatus(name: string): Promise<AgentProfileStatus> {
-    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile`);
+  static async getAgentProfileStatus(
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<AgentProfileStatus> {
+    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile`, { signal: options.signal });
   }
 
   static async resetAgentProfile(name: string): Promise<AgentProfileStatus> {
@@ -3628,7 +3633,7 @@ class API {
     if (params.q) usp.set("q", params.q);
     if (params.limit) usp.set("limit", String(params.limit));
     if (params.offset) usp.set("offset", String(params.offset));
-    return this.request<{ items: Asset[] }>(`/assets?${usp.toString()}`, options);
+    return this.request<AssetListPage>(`/assets?${usp.toString()}`, options);
   }
 
   static async getAsset(id: string) {

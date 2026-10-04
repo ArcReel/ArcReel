@@ -107,6 +107,24 @@ const REWORKED_FILES = [
   // 市场分区（浏览、我的分享、设置）与全仓共用的可排序列表
   "src/components/pages/settings/market/**",
   "src/components/shared/sortable/**",
+  // 登录页、404 页与导出范围对话框
+  "src/components/pages/{LoginPage,NotFoundPage}.tsx",
+  "src/components/layout/ExportScopeDialog.tsx",
+  // 新建项目向导、共用的时长档位选择器、风格选择器与生成方式等字段
+  "src/components/pages/CreateProjectModal.tsx",
+  "src/components/pages/create-project/**",
+  "src/components/shared/{DurationTierPicker,StylePicker,GenerationRouteCards,GridStoryboardBar,OptionalNumberField,EpisodeTargetDurationField,SpeechRateField}.tsx",
+  // 项目大厅：顶栏、问候区、筛选工具栏、海报卡与项目对话框
+  "src/components/pages/ProjectsPage.tsx",
+  "src/components/pages/lobby/**",
+  // 资产库：页面、卡片与详情 Sheet、应用到项目，以及画廊里的入库预览与「从资产库导入」
+  "src/components/pages/AssetLibraryPage.tsx",
+  "src/components/assets/{AddToLibraryButton,ApplyToProjectDialog,AssetCard,AssetCreateDialog,AssetDetailSheet,AssetPickerModal,AssetThumb,DeleteAssetDialog,LoadMoreSentinel,asset-type-icons,useAssetPages}.{ts,tsx}",
+  // 项目设置：侧栏分页、风格对话框与 Agent 配置
+  "src/components/pages/ProjectSettingsPage.tsx",
+  "src/components/pages/project-settings/**",
+  // 记忆编辑器：Agent 记忆分区与项目记忆分页共用的文件列表、编辑器与确认
+  "src/components/agent-memory/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

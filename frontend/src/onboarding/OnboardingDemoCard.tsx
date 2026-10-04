@@ -10,7 +10,7 @@
 
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ProjectCard } from "@/components/pages/ProjectCard";
+import { ProjectCard } from "@/components/pages/lobby/ProjectCard";
 import { ONBOARDING_ANCHORS } from "./anchors";
 import { buildDemoProject } from "./demo-project";
 
@@ -30,9 +30,9 @@ export function OnboardingDemoCard() {
         </h2>
         <span className="font-mono text-[10.5px] text-muted-foreground">{t("demo_section_note")}</span>
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div data-onboarding={ONBOARDING_ANCHORS.lobbyDemoCard}>
-          <ProjectCard project={project} styleLabel={t("demo_project_style")} readOnly />
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+        <div data-onboarding={ONBOARDING_ANCHORS.lobbyDemoCard} className="flex min-w-0 flex-col">
+          <ProjectCard project={project} readOnly />
         </div>
       </div>
     </section>

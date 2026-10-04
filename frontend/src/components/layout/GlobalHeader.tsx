@@ -43,7 +43,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportDiagnostics, setExportDiagnostics] = useState<ExportDiagnostics | null>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
-  const exportAnchorRef = useRef<HTMLDivElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
@@ -236,11 +235,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           />
 
           {/* Export project archive */}
-          <div
-            className="relative"
-            ref={exportAnchorRef}
-            data-onboarding={ONBOARDING_ANCHORS.workbenchExport}
-          >
+          <div className="relative" data-onboarding={ONBOARDING_ANCHORS.workbenchExport}>
             <button
               type="button"
               onClick={() => setExportDialogOpen(!exportDialogOpen)}
@@ -279,7 +274,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               open={exportDialogOpen}
               onClose={() => setExportDialogOpen(false)}
               onSelect={(scope) => void handleExportProject(scope)}
-              anchorRef={exportAnchorRef}
               editViewEpisode={editViewEpisode}
               onOpenEditView={(episode) => {
                 setExportDialogOpen(false);

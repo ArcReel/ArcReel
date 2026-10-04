@@ -105,6 +105,8 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 弹层内容由原语限高，不超过视口高度减去 2rem。`DialogHeader`、`DialogFooter` 固定在两端，`DialogBody`（Sheet、AlertDialog 中对应 `SheetBody`、`AlertDialogBody`）是唯一的滚动区。主操作放在 Footer，窗口再矮也不会被滚出视野。Body 预留滚动条槽位，内容变长出现滚动条时不会横向跳动。
 
 - 宽度用 `size` 选择：Dialog 有 `sm`、`default`、`lg`、`xl`，AlertDialog 有 `sm`、`default`、`lg`。调用处不写 `max-w-*`。
+- 多步向导用 Dialog 的 `size="wizard"`：宽 720px，高度固定为 `min(760px, 100dvh - 48px)`，各步骤同高，切换步骤时外框与底部按钮不移动。各步骤共用一个 `DialogBody`，进入新步骤时把它的 `scrollTop` 置 0。
+- Body 里没有可聚焦元素、内容又可能超高（如很长的文件列表）时，给 Body 加 `tabIndex={0}`、`role="region"` 与 `aria-label`，键盘才能滚动它。`AlertDialogBody` 自带画在内侧的聚焦环。
 - Body 自带内边距。内部的纵向间距写在 Body 里的一层 `flex flex-col gap-*` 包裹元素上，不写在 Body 上；后者会被 `@shadcn/lint` 的 `no-restyle` 报告。
 - 每个弹层都要有 Title。没有可见标题时，给 Title 加 `sr-only`。
 - 关闭按钮由 Content 的 `showCloseButton` 渲染；Footer 已有「关闭」按钮时，传 `showCloseButton={false}` 去掉右上角的那个。
@@ -127,7 +129,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 ### 层级只用 z-index token，调用处不写 `z-*`
 
-弹层（Dialog、Sheet、AlertDialog、Popover、菜单、Tooltip）使用 `z-overlay`，提示使用 `z-toast`，首次使用引导使用 `z-onboarding`，三者依次升高，原语已经自带。`#app-root` 是独立的层叠上下文（`isolation: isolate`），挂在 `body` 上的 Portal 总在应用之上，应用内部的 `z-*` 不必与弹层比较大小。
+弹层（Dialog、Sheet、AlertDialog、Popover、菜单、Tooltip）使用 `z-overlay`，提示使用 `z-toast`，首次使用引导使用 `z-onboarding`，三者依次升高，原语已经自带。`#app-root` 是独立的层叠上下文（`isolation: isolate`），挂在 `body` 上的 Portal 总在应用之上，应用内部的 `z-*` 不必与弹层比较大小。应用内吸顶的工具栏用 `z-sticky`，盖住同一滚动区里带定位的内容。
 
 ### 弹层表面不透明，不使用背景模糊
 
@@ -197,6 +199,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 - **`SecondaryRail`**：传 `groups`（每组 `{ id, label, items, action?, emptyText? }`）与 `activeId`。条目是 `{ id, label, description?, icon, href }`：第二行 `description` 写状态或数量，选中经 `href` 走路由，离开拦截因此覆盖切换。`action` 是组末尾的动作条目（如「添加自定义供应商」），不计入 Tab 上的数量。二级栏按 `@container/page` 的宽度切换形态：内容区不窄于 64rem 时是 264px 的两行条目，多组时顶部是 Tab，每次只列一组；更窄时收为 56px 的图标栏，悬停或聚焦显示名称，多组上下叠放。没有手动切换过时 Tab 跟随选中项所在的组。只有一组时不显示 Tab。
 - **`DetailPane`**：分 `header`、正文与 `footer` 三段，只有正文滚动。设置类详情的 `SaveBar` 放进 `footer`，常驻底部。正文不带内边距，表单通常写 `max-w-190 px-6 py-6`，此时保存栏写 `max-w-178`，与表单列同宽、同起点。
 - 选中项换了就整栏重建：给详情组件传 `key`，上一项的未保存修改、在途请求与加载状态不会带到下一项。
+- 限宽页里放不下二级栏时（如项目设置的「项目记忆」），用 `SecondaryRailList` 单独列出同一组条目：列表不自带滚动，由外壳主体滚动，详情放在列表旁边并 `sticky` 吸顶，选中末尾的条目时详情仍在视野里。
 
 两种形态都在 DOM 里，靠容器查询只显示其中一种，被隐藏的一份不进入可访问树。jsdom 不计算样式，Vitest 中两份都可见：按条目查询时限定在 `getByRole("tabpanel")` 内，或用 `getAllBy*`。
 
@@ -237,7 +240,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 一个设置视图或一块画布内容是一个编辑单元（见 `CONTEXT.md`），用 `components/shared/edit-unit/useEditUnit` 持有已保存内容与未保存修改。字段（描述、提示词、时长、引用，设置表单里的开关与下拉）一律写进 `unit.setValue`，由单元统一保存或放弃；上传、生成、改名、删除、排序这类动作不进入未保存修改，立即执行。同一视图里回车即存、松手即存与手动保存混用时，创作者分不清哪些修改已经生效。
 
 - 已保存内容经 `source` 传入，加载结果与之后的推送都从这里进来。不要在 effect 里把本地状态重置成服务端数据：没有未保存修改时 hook 直接采用新内容，有修改时保留修改，并在保存栏或提示条上标出「此内容已被 Agent 更新」。
-- `save(value, savedValue)` 提交修改，返回保存后的内容，失败时抛错。错误显示在保存栏或提示条上；保存成功不弹提示。
+- `save(value, savedValue)` 提交修改，返回保存后的内容，失败时抛错。错误显示在保存栏或提示条上；保存成功不弹提示。一次保存分几步提交、前几步已经落盘时抛 `PartialSaveError`，带上已落盘的内容：放弃修改与下次保存都以它为基准，否则会把旧值写回。
 - 设置表单用常驻的 `SaveBar`，放在表单滚动区之外的底部：限宽与铺满档经 `PageShellFooter` 放进外壳底行，全出血档放在详情栏底部。画布内容用 `UnsavedChangesBar`，放在所属内容下方。不再另设「编辑模式」开关。
 - 有未保存修改时，生成按钮写「保存并生成」（`common:save_and_generate`），点击时调用 `unit.saveAndGenerate(generate, { confirm })`。`confirm` 是「重新生成会让下游失效」这类确认：取消时什么都不保存，保存失败时不生成。
 - 界面文案与代码命名不单称「草稿」，这个词已指待修复草稿与可编辑草稿。

@@ -67,7 +67,9 @@
 
     /* 层级。弹层 Portal 到 body，与隔离了层叠上下文的 #app-root 同级，z-index 只需在三者间排序：
        弹层（Dialog、Sheet、Popover、菜单、Tooltip）< Toast < 新手引导（driver.js 遮罩与气泡）。
-       同层弹层按打开顺序叠放：后打开的 Portal 节点排在 DOM 后面。 */
+       同层弹层按打开顺序叠放：后打开的 Portal 节点排在 DOM 后面。
+       sticky 是 #app-root 内部的层级：吸顶工具栏盖住同一滚动区里带定位的内容（如卡片角上的菜单按钮）。 */
+    --z-sticky: 10;
     --z-overlay: 50;
     --z-toast: 60;
     --z-onboarding: 10000;
@@ -93,6 +95,14 @@
     @keyframes breath {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.3; }
+    }
+
+    /* 打字机光标：吐字时持续闪烁，吐完再闪 3 次后停在熄灭态 */
+    --animate-caret-blink: caret-blink 1.4s steps(2, end) infinite;
+    --animate-caret-linger: caret-blink 1.4s steps(2, end) 3 forwards;
+    @keyframes caret-blink {
+        0%, 50% { opacity: 1; }
+        50.01%, 100% { opacity: 0; }
     }
 }
 
@@ -148,6 +158,7 @@
 
     --shadow-overlay: 0 16px 40px -12px oklch(0 0 0 / 0.6);
 
+    --z-index-sticky: var(--z-sticky);
     --z-index-overlay: var(--z-overlay);
     --z-index-toast: var(--z-toast);
     --z-index-onboarding: var(--z-onboarding);
@@ -256,12 +267,6 @@ body {
 /* 统一焦点指示（a11y） */
 @utility focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
-}
-
-/* 打字机 caret 闪烁 */
-@keyframes tw-blink {
-    0%, 50% { opacity: 1; }
-    50.01%, 100% { opacity: 0; }
 }
 
 /* 条件呈现的从属条滑入 — 表达「随上方选择展开」的从属关系 */

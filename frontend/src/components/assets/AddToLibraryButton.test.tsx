@@ -1,81 +1,115 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { AddToLibraryButton } from "./AddToLibraryButton";
+import type { Asset } from "@/types/asset";
+import { AddToLibraryButton, type LibraryImportPreview } from "./AddToLibraryButton";
+
+const PREVIEW: LibraryImportPreview = {
+  description: "白衣少年，腰间佩剑",
+  voiceStyle: "清亮少年音",
+  hasReferenceAudio: true,
+  sheetPath: null,
+  derivativeCount: 2,
+};
+
+const EXISTING: Asset = {
+  id: "lib-1",
+  type: "character",
+  name: "Hero",
+  description: "",
+  voice_style: "",
+  image_path: null,
+  audio_path: null,
+  source_project: null,
+  updated_at: null,
+  derivatives: [],
+};
+
+function renderButton(busy = false) {
+  return render(
+    <AddToLibraryButton resourceType="character" resourceId="Hero" projectName="demo" preview={PREVIEW} busy={busy} />,
+  );
+}
 
 describe("AddToLibraryButton", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
-    vi.spyOn(API, "listAssets").mockResolvedValue({ items: [] });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("rejects submit if the resource becomes busy while the import modal is open", async () => {
-    const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({} as never);
+  it("previews the project asset read-only and submits only the edited name", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "listAssets").mockResolvedValue({ items: [], total: 0, counts: { character: 0, scene: 0, prop: 0 } });
+    const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({ asset: EXISTING });
+    renderButton();
 
-    const { rerender } = render(
-      <AddToLibraryButton
-        resourceType="character"
-        resourceId="Hero"
-        projectName="demo"
-        initialDescription="hero desc"
-        busy={false}
-      />,
+    await user.click(screen.getByRole("button", { name: "加入资产库" }));
+    const dialog = await screen.findByRole("dialog", { name: "加入资产库：Hero" });
+    expect(within(dialog).getByText("白衣少年，腰间佩剑")).toBeInTheDocument();
+    expect(within(dialog).getByText("清亮少年音")).toBeInTheDocument();
+    expect(within(dialog).getByText("附带参考音频")).toBeInTheDocument();
+    expect(within(dialog).getByText("2 个衍生")).toBeInTheDocument();
+    // 名称是唯一可编辑的字段
+    expect(within(dialog).getAllByRole("textbox")).toEqual([within(dialog).getByLabelText("名称")]);
+
+    const name = within(dialog).getByLabelText("名称");
+    await user.clear(name);
+    await user.type(name, "少年剑客");
+    await user.click(within(dialog).getByRole("button", { name: "加入资产库" }));
+
+    await waitFor(() =>
+      expect(addSpy).toHaveBeenCalledWith({
+        project_name: "demo",
+        resource_type: "character",
+        resource_id: "Hero",
+        override_name: "少年剑客",
+        overwrite: false,
+      }),
     );
-
-    // 打开时资源未占用，弹窗正常打开
-    fireEvent.click(screen.getByRole("button", { name: "加入资产库" }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "确认入库" })).toBeInTheDocument();
-    });
-
-    // 弹窗打开期间，资源通过 SSE/另一个标签页进入生成或 image_edit 占用态
-    rerender(
-      <AddToLibraryButton
-        resourceType="character"
-        resourceId="Hero"
-        projectName="demo"
-        initialDescription="hero desc"
-        busy
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "确认入库" }));
-
-    await waitFor(() => {
-      expect(useAppStore.getState().toast?.tone).toBe("error");
-    });
-    expect(addSpy).not.toHaveBeenCalled();
   });
 
-  it("allows submit when the resource stays idle throughout", async () => {
-    const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({} as never);
+  it("offers overwrite only while the name matches an existing library asset", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "listAssets").mockImplementation(async (params) => ({
+      items: params?.q === "Hero" ? [EXISTING] : [],
+      total: params?.q === "Hero" ? 1 : 0,
+      counts: { character: 0, scene: 0, prop: 0 },
+    }));
+    const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({ asset: EXISTING });
+    renderButton();
 
-    render(
-      <AddToLibraryButton
-        resourceType="character"
-        resourceId="Hero"
-        projectName="demo"
-        initialDescription="hero desc"
-        busy={false}
-      />,
+    await user.click(screen.getByRole("button", { name: "加入资产库" }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByRole("button", { name: "覆盖已有" });
+    expect(within(dialog).getByRole("button", { name: "加入资产库" })).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText("名称"), "2");
+    await waitFor(() => expect(within(dialog).queryByRole("button", { name: "覆盖已有" })).not.toBeInTheDocument());
+    await user.type(within(dialog).getByLabelText("名称"), "{Backspace}");
+    await user.click(await within(dialog).findByRole("button", { name: "覆盖已有" }));
+
+    await waitFor(() => expect(addSpy).toHaveBeenCalledWith(expect.objectContaining({ overwrite: true })));
+  });
+
+  it("refuses to submit when the resource becomes busy while the dialog is open", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "listAssets").mockResolvedValue({ items: [], total: 0, counts: { character: 0, scene: 0, prop: 0 } });
+    const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({ asset: EXISTING });
+    const { rerender } = renderButton(false);
+
+    await user.click(screen.getByRole("button", { name: "加入资产库" }));
+    const dialog = await screen.findByRole("dialog");
+    rerender(
+      <AddToLibraryButton resourceType="character" resourceId="Hero" projectName="demo" preview={PREVIEW} busy />,
     );
+    await user.click(within(dialog).getByRole("button", { name: "加入资产库" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "加入资产库" }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "确认入库" })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "确认入库" }));
-
-    await waitFor(() => {
-      expect(addSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ project_name: "demo", resource_type: "character", resource_id: "Hero" }),
-      );
-    });
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("生成或编辑进行中，暂无法加入资产库");
+    expect(addSpy).not.toHaveBeenCalled();
   });
 });
