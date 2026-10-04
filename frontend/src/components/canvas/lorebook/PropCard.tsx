@@ -1,20 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
-import { Package, Upload } from "lucide-react";
+import { Package } from "lucide-react";
 import { API } from "@/api";
 import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
-import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
-import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
-import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/canvas/shared/AspectFrame";
 import { GenerateButton } from "@/components/canvas/lorebook/GenerateButton";
 import { PreviewableImageFrame } from "@/components/canvas/shared/PreviewableImageFrame";
-import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { errMsg } from "@/utils/async";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
-import { MergeAssetMenu } from "./MergeAssetMenu";
 import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
@@ -30,8 +23,6 @@ interface PropCardProps {
   projectName: string;
   onUpdate: (name: string, updates: Partial<Prop>) => void;
   onGenerate: (name: string) => void;
-  onRestoreVersion?: () => void | Promise<void>;
-  onReload?: () => void | Promise<unknown>;
   generating?: boolean;
   /** 产物清单对这张资产图的判定；未取到时按项目数据展示。 */
   sheetStatus?: AssetSheetStatusRow;
@@ -57,8 +48,6 @@ export function PropCard({
   projectName,
   onUpdate,
   onGenerate,
-  onRestoreVersion,
-  onReload,
   generating = false,
   sheetStatus,
   readOnly = false,
@@ -69,26 +58,8 @@ export function PropCard({
   );
   const [description, setDescription] = useState(prop.description);
   const [imgError, setImgError] = useState(false);
-  const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const sheetInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (rejectIfAssetBusy("prop", projectName, name, t)) return;
-    setUploadingSheet(true);
-    try {
-      await API.uploadFile(projectName, "prop", file, name);
-      await onReload?.();
-      useAppStore.getState().pushToast(t("assets:upload_sheet_success", { name }), "success");
-    } catch (err) {
-      useAppStore.getState().pushToast(errMsg(err), "error");
-    } finally {
-      setUploadingSheet(false);
-    }
-  };
 
   const isDirty = description !== prop.description;
 
@@ -182,60 +153,8 @@ export function PropCard({
           name={name}
           assetType="prop"
           readOnly={readOnly}
-          busy={generating || uploadingSheet}
+          busy={generating}
         />
-        {readOnly ? null : (
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => sheetInputRef.current?.click()}
-            disabled={uploadingSheet || generating}
-            title={t("assets:upload_sheet")}
-            aria-label={t("assets:upload_sheet")}
-            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ color: "var(--muted-foreground)" }}
-          >
-            <Upload className="h-3.5 w-3.5" />
-          </button>
-          <input
-            ref={sheetInputRef}
-            type="file"
-            accept=".png,.jpg,.jpeg,.webp"
-            aria-label={t("assets:upload_sheet")}
-            className="hidden"
-            onChange={(e) => void handleSheetUpload(e)}
-          />
-          <ImageEditButton
-            projectName={projectName}
-            resourceType="prop"
-            resourceId={name}
-            hasImage={Boolean(prop.prop_sheet)}
-            busy={generating || uploadingSheet}
-          />
-          <AddToLibraryButton
-            resourceType="prop"
-            resourceId={name}
-            projectName={projectName}
-            preview={{ description: prop.description, sheetPath: prop.prop_sheet }}
-            busy={generating || uploadingSheet}
-          />
-          <VersionTimeMachine
-            projectName={projectName}
-            resourceType="props"
-            resourceId={name}
-            onRestore={onRestoreVersion}
-            iconOnly
-            busy={generating || uploadingSheet}
-          />
-          <MergeAssetMenu
-            projectName={projectName}
-            assetType="prop"
-            name={name}
-            description={prop.description}
-            busy={generating || uploadingSheet}
-          />
-        </div>
-        )}
       </div>
 
       {/* ---- Image area ---- */}

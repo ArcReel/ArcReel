@@ -1,17 +1,9 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ShoppingBag } from "lucide-react";
-import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
-import { GalleryToolbar } from "./GalleryToolbar";
-import { matchesSheetFilter, useAssetSheetStatus, useSheetStatusByName, type SheetStatusFilter } from "./useAssetSheetStatus";
-import { ProductCard } from "./ProductCard";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
-import { useScrollTarget } from "@/hooks/useScrollTarget";
 import type { Product } from "@/types";
-import { GalleryEmptyState } from "./GalleryEmptyState";
+import { AssetGallery } from "./AssetGallery";
+import { ProductCard } from "./ProductCard";
+import { ProductCreateDialog } from "./ProductCreateDialog";
 
 interface Props {
   projectName: string;
@@ -22,14 +14,11 @@ interface Props {
   onRestoreProductVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingProductNames?: Set<string>;
-  /** 只读展示（引导演示项目）：不渲染新增 / 生成 / 上传入口。 */
+  /** 只读展示（引导演示项目）：不渲染新增、生成、上传入口。 */
   readOnly?: boolean;
 }
 
-/**
- * 商品资产页：审核原图与资产图、编辑卖点/品牌、触发 sheet 生成与版本回滚。
- * 商品不入全局资产库（多图列表模型），故无「从资产库选择」入口。
- */
+/** 商品画廊。商品不入全局资产库（多图列表模型），没有「从资产库选择」「加入资产库」与「并入…」。 */
 export function ProductsPage({
   projectName,
   products,
@@ -41,64 +30,41 @@ export function ProductsPage({
   generatingProductNames,
   readOnly = false,
 }: Props) {
-  const { t } = useTranslation(["dashboard", "assets"]);
+  const { t } = useTranslation("dashboard");
   const [adding, setAdding] = useState(false);
 
-  useScrollTarget("product");
-  const sheetRows = useAssetSheetStatus(projectName);
-  const sheetStatus = useSheetStatusByName(sheetRows, "product");
-  const [sheetFilter, setSheetFilter] = useState<SheetStatusFilter>("all");
-
-  const entries = Object.entries(products);
-  const shownEntries = entries.filter(([name]) => matchesSheetFilter(sheetStatus.get(name), sheetFilter));
-
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <GalleryToolbar
-        title={t("dashboard:products")}
-        count={entries.length}
-        onAdd={readOnly ? undefined : () => setAdding(true)}
-      >
-        <AssetSheetBatchControls
-          projectName={projectName}
-          assetType="product"
-          rows={sheetRows}
-          filter={sheetFilter}
-          onFilterChange={setSheetFilter}
-          readOnly={readOnly}
-        />
-      </GalleryToolbar>
-      <div className="px-5 py-5">
-        {entries.length === 0 ? (
-          <GalleryEmptyState
-            icon={<ShoppingBag className="h-6 w-6" />}
-            label={t("dashboard:products")}
-            hint={t(readOnly ? "dashboard:no_products_hint" : "dashboard:no_products_hint_clickable")}
-            onClick={readOnly ? undefined : () => setAdding(true)}
-          />
-        ) : (
-          <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
-            {shownEntries.map(([name, product]) => (
-              <ProductCard
-                key={name}
-                name={name}
-                product={product}
-                projectName={projectName}
-                onUpdate={onUpdateProduct}
-                onGenerate={onGenerateProduct}
-                onRestoreVersion={onRestoreProductVersion}
-                onReload={onRefreshProject}
-                generating={generatingProductNames?.has(name)}
-                sheetStatus={sheetStatus.get(name)}
-                readOnly={readOnly}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+    <>
+      <AssetGallery
+        projectName={projectName}
+        assetType="product"
+        title={t("products")}
+        assets={products}
+        generatingNames={generatingProductNames}
+        readOnly={readOnly}
+        onGenerate={onGenerateProduct}
+        onRestoreVersion={onRestoreProductVersion}
+        onReload={onRefreshProject}
+        onAdd={() => setAdding(true)}
+        renderEditor={(name, { sheetStatus, generating }) =>
+          products[name] ? (
+            <ProductCard
+              name={name}
+              product={products[name]}
+              projectName={projectName}
+              onUpdate={onUpdateProduct}
+              onGenerate={onGenerateProduct}
+              onReload={onRefreshProject}
+              generating={generating}
+              sheetStatus={sheetStatus}
+              readOnly={readOnly}
+            />
+          ) : null
+        }
+      />
 
       {adding && !readOnly && (
-        <ProductFormModal
+        <ProductCreateDialog
           onClose={() => setAdding(false)}
           onSubmit={async ({ name, description, brand }) => {
             await onAddProduct(name, description, brand);
@@ -106,136 +72,6 @@ export function ProductsPage({
           }}
         />
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ProductFormModal — 商品专用创建表单（名称 + 描述 + 品牌）
-// ---------------------------------------------------------------------------
-
-const FIELD_STYLE: React.CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--border)",
-  color: "var(--foreground)",
-  boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
-};
-
-function ProductFormModal({
-  onClose,
-  onSubmit,
-}: {
-  onClose: () => void;
-  onSubmit: (payload: { name: string; description: string; brand: string }) => Promise<void>;
-}) {
-  const { t } = useTranslation(["dashboard", "assets", "common"]);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [brand, setBrand] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const titleId = useId();
-  const nameId = useId();
-  const descId = useId();
-  const brandId = useId();
-
-  const canSubmit = !submitting && name.trim() !== "";
-
-  const handleSubmit = async () => {
-    if (!canSubmit) return;
-    setSubmitting(true);
-    try {
-      await onSubmit({ name: name.trim(), description: description.trim(), brand: brand.trim() });
-    } catch {
-      // 失败时保持弹窗打开（toast 由上层回调发出）
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <GlassModal open onClose={onClose} labelledBy={titleId}>
-      <div className="p-5">
-        <div className="mb-4 flex items-center gap-2.5">
-          <ShoppingBag className="h-4 w-4" style={{ color: "var(--primary)" }} />
-          <h2
-            id={titleId}
-            className="display-serif flex-1 text-[16px] font-semibold tracking-tight"
-            style={{ color: "var(--foreground)" }}
-          >
-            {t("dashboard:add_product")}
-          </h2>
-          <ModalCloseButton onClick={onClose} />
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <label
-              htmlFor={nameId}
-              className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              {t("dashboard:ad_init_product_name_label")}
-            </label>
-            <input
-              id={nameId}
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={submitting}
-              className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none"
-              style={FIELD_STYLE}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor={descId}
-              className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              {t("dashboard:description")}
-            </label>
-            <textarea
-              id={descId}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={submitting}
-              rows={3}
-              className="focus-ring mt-1.5 w-full resize-y rounded-lg px-3 py-2 text-[13px] leading-[1.6] outline-none"
-              style={FIELD_STYLE}
-              placeholder={t("dashboard:product_desc_placeholder")}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor={brandId}
-              className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              {t("dashboard:product_brand_label")}
-            </label>
-            <input
-              id={brandId}
-              type="text"
-              value={brand}
-              onChange={(e) => setBrand(e.target.value)}
-              disabled={submitting}
-              className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none"
-              style={FIELD_STYLE}
-              placeholder={t("dashboard:product_brand_placeholder")}
-            />
-          </div>
-        </div>
-
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <SecondaryButton onClick={onClose} disabled={submitting}>
-            {t("common:cancel")}
-          </SecondaryButton>
-          <PrimaryButton onClick={() => void handleSubmit()} disabled={!canSubmit}>
-            {submitting ? t("common:saving") : t("common:save")}
-          </PrimaryButton>
-        </div>
-      </div>
-    </GlassModal>
+    </>
   );
 }

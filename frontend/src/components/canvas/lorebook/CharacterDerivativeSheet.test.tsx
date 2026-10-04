@@ -69,9 +69,9 @@ describe("CharacterDerivativeSheet", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
 
-    expect(await screen.findByRole("dialog")).toHaveTextContent("2 张分镜图、1 段视频");
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("2 张分镜图、1 段视频");
     expect(spy).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "重新生成" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "重新生成" }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装"));
     expect(useTasksStore.getState().optimisticActive.size).toBeGreaterThan(0);

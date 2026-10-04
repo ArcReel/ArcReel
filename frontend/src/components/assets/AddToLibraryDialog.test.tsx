@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import type { Asset } from "@/types/asset";
-import { AddToLibraryButton, type LibraryImportPreview } from "./AddToLibraryButton";
+import { AddToLibraryDialog, type LibraryImportPreview } from "./AddToLibraryDialog";
 
 const PREVIEW: LibraryImportPreview = {
   description: "白衣少年，腰间佩剑",
@@ -27,13 +27,25 @@ const EXISTING: Asset = {
   derivatives: [],
 };
 
-function renderButton(busy = false) {
-  return render(
-    <AddToLibraryButton resourceType="character" resourceId="Hero" projectName="demo" preview={PREVIEW} busy={busy} />,
+function dialogFor(busy: boolean) {
+  return (
+    <AddToLibraryDialog
+      resourceType="character"
+      resourceId="Hero"
+      projectName="demo"
+      preview={PREVIEW}
+      busy={busy}
+      open
+      onOpenChange={() => {}}
+    />
   );
 }
 
-describe("AddToLibraryButton", () => {
+function renderDialog(busy = false) {
+  return render(dialogFor(busy));
+}
+
+describe("AddToLibraryDialog", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
   });
@@ -46,9 +58,8 @@ describe("AddToLibraryButton", () => {
     const user = userEvent.setup();
     vi.spyOn(API, "listAssets").mockResolvedValue({ items: [], total: 0, counts: { character: 0, scene: 0, prop: 0 } });
     const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({ asset: EXISTING });
-    renderButton();
+    renderDialog();
 
-    await user.click(screen.getByRole("button", { name: "加入资产库" }));
     const dialog = await screen.findByRole("dialog", { name: "加入资产库：Hero" });
     expect(within(dialog).getByText("白衣少年，腰间佩剑")).toBeInTheDocument();
     expect(within(dialog).getByText("清亮少年音")).toBeInTheDocument();
@@ -81,9 +92,8 @@ describe("AddToLibraryButton", () => {
       counts: { character: 0, scene: 0, prop: 0 },
     }));
     const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({ asset: EXISTING });
-    renderButton();
+    renderDialog();
 
-    await user.click(screen.getByRole("button", { name: "加入资产库" }));
     const dialog = await screen.findByRole("dialog");
     await within(dialog).findByRole("button", { name: "覆盖已有" });
     expect(within(dialog).getByRole("button", { name: "加入资产库" })).toBeDisabled();
@@ -100,13 +110,10 @@ describe("AddToLibraryButton", () => {
     const user = userEvent.setup();
     vi.spyOn(API, "listAssets").mockResolvedValue({ items: [], total: 0, counts: { character: 0, scene: 0, prop: 0 } });
     const addSpy = vi.spyOn(API, "addAssetFromProject").mockResolvedValue({ asset: EXISTING });
-    const { rerender } = renderButton(false);
+    const { rerender } = renderDialog(false);
 
-    await user.click(screen.getByRole("button", { name: "加入资产库" }));
     const dialog = await screen.findByRole("dialog");
-    rerender(
-      <AddToLibraryButton resourceType="character" resourceId="Hero" projectName="demo" preview={PREVIEW} busy />,
-    );
+    rerender(dialogFor(true));
     await user.click(within(dialog).getByRole("button", { name: "加入资产库" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("生成或编辑进行中，暂无法加入资产库");

@@ -1,5 +1,3 @@
-import { motion } from "framer-motion";
-
 // ---------------------------------------------------------------------------
 // Ratio → Tailwind class mapping
 // ---------------------------------------------------------------------------
@@ -25,12 +23,11 @@ export function AspectFrame({ ratio, children, className }: AspectFrameProps) {
   const ratioClass = RATIO_CLASSES[ratio] ?? RATIO_CLASSES["16:9"];
 
   return (
-    <motion.div
-      layout
+    <div
       className={`overflow-hidden rounded-lg ${ratioClass} ${className ?? ""}`}
       style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
     >
       {children}
-    </motion.div>
+    </div>
   );
 }

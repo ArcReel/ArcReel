@@ -1,18 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Package } from "lucide-react";
-import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
-import { GalleryToolbar } from "./GalleryToolbar";
-import { matchesSheetFilter, useAssetSheetStatus, useSheetStatusByName, type SheetStatusFilter } from "./useAssetSheetStatus";
-import { PropCard } from "./PropCard";
+import type { LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
-import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
-import { API } from "@/api";
-import { useAppStore } from "@/stores/app-store";
-import { useScrollTarget } from "@/hooks/useScrollTarget";
-import { errMsg } from "@/utils/async";
 import type { Prop } from "@/types";
-import { GalleryEmptyState } from "./GalleryEmptyState";
+import { AssetGallery } from "./AssetGallery";
+import { PropCard } from "./PropCard";
 
 interface Props {
   projectName: string;
@@ -23,82 +15,60 @@ interface Props {
   onRestorePropVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingPropNames?: Set<string>;
-  /** 只读展示（引导演示项目）：不渲染新增 / 入库 / 生成 / 上传入口。 */
+  /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传入口。 */
   readOnly?: boolean;
 }
 
-export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, onAddProp, onRestorePropVersion, onRefreshProject, generatingPropNames, readOnly = false }: Props) {
-  const { t } = useTranslation(["dashboard", "assets"]);
+const libraryPreview = (prop: Prop): LibraryImportPreview => ({
+  description: prop.description,
+  sheetPath: prop.prop_sheet,
+});
+
+export function PropsPage({
+  projectName,
+  props,
+  onUpdateProp,
+  onGenerateProp,
+  onAddProp,
+  onRestorePropVersion,
+  onRefreshProject,
+  generatingPropNames,
+  readOnly = false,
+}: Props) {
+  const { t } = useTranslation("dashboard");
   const [adding, setAdding] = useState(false);
-  const [picking, setPicking] = useState(false);
-
-  useScrollTarget("prop");
-  const sheetRows = useAssetSheetStatus(projectName);
-  const sheetStatus = useSheetStatusByName(sheetRows, "prop");
-  const [sheetFilter, setSheetFilter] = useState<SheetStatusFilter>("all");
-
-  const entries = Object.entries(props);
-  const shownEntries = entries.filter(([name]) => matchesSheetFilter(sheetStatus.get(name), sheetFilter));
-
-  const handleImport = async (ids: string[]) => {
-    try {
-      await API.applyAssetsToProject({
-        asset_ids: ids,
-        target_project: projectName,
-        conflict_policy: "skip",
-      });
-      useAppStore.getState().pushToast(t("assets:import_count", { count: ids.length }), "success");
-      await onRefreshProject?.();
-    } catch (err) {
-      useAppStore.getState().pushToast(errMsg(err), "error");
-    } finally {
-      setPicking(false);
-    }
-  };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <GalleryToolbar
-        title={t("dashboard:props")}
-        count={entries.length}
-        onAdd={readOnly ? undefined : () => setAdding(true)}
-        onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
-      >
-        <AssetSheetBatchControls
-          projectName={projectName}
-          assetType="prop"
-          rows={sheetRows}
-          filter={sheetFilter}
-          onFilterChange={setSheetFilter}
-          readOnly={readOnly}
-        />
-      </GalleryToolbar>
-      <div className="px-5 py-5">
-        {entries.length === 0 ? (
-          <GalleryEmptyState
-            icon={<Package className="h-6 w-6" />}
-            label={t("dashboard:props")}
-            hint={t(readOnly ? "dashboard:no_props_hint" : "dashboard:no_props_hint_clickable")}
-            onClick={readOnly ? undefined : () => setAdding(true)}
-          />
-        ) : (
-          <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
-            {shownEntries.map(([name, prop]) => (
-              <PropCard key={name} name={name} prop={prop} projectName={projectName}
-                onUpdate={onUpdateProp}
-                onGenerate={onGenerateProp}
-                onRestoreVersion={onRestorePropVersion}
-                onReload={onRefreshProject}
-                generating={generatingPropNames?.has(name)}
-                sheetStatus={sheetStatus.get(name)}
-                readOnly={readOnly}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+    <>
+      <AssetGallery
+        projectName={projectName}
+        assetType="prop"
+        title={t("props")}
+        assets={props}
+        generatingNames={generatingPropNames}
+        readOnly={readOnly}
+        onGenerate={onGenerateProp}
+        onRestoreVersion={onRestorePropVersion}
+        onReload={onRefreshProject}
+        onAdd={() => setAdding(true)}
+        libraryPreview={libraryPreview}
+        renderEditor={(name, { sheetStatus, generating }) =>
+          props[name] ? (
+            <PropCard
+              name={name}
+              prop={props[name]}
+              projectName={projectName}
+              onUpdate={onUpdateProp}
+              onGenerate={onGenerateProp}
+              generating={generating}
+              sheetStatus={sheetStatus}
+              readOnly={readOnly}
+            />
+          ) : null
+        }
+      />
 
-      {adding && (
+      {adding && !readOnly && (
         <AssetFormModal
           type="prop"
           onClose={() => setAdding(false)}
@@ -108,15 +78,6 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
           }}
         />
       )}
-
-      {picking && (
-        <AssetPickerModal
-          type="prop"
-          existingNames={new Set(Object.keys(props))}
-          onClose={() => setPicking(false)}
-          onImport={(ids) => { void handleImport(ids); }}
-        />
-      )}
-    </div>
+    </>
   );
 }

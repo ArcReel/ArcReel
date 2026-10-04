@@ -707,7 +707,7 @@ describe("WorkflowPanel 集层资产图入口", () => {
       }),
     );
     fireEvent.click(await screen.findByRole("button", { name: "生成 1 张资产图" }));
-    await waitFor(() => expect(preview).toHaveBeenCalledWith("proj", { episode_id: 1 }));
+    await waitFor(() => expect(preview).toHaveBeenCalledWith("proj", { episode_id: 1 }, expect.anything()));
   });
 });
 

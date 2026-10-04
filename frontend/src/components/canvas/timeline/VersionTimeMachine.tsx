@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Download, History } from "lucide-react";
 import { cn } from "cn";
@@ -40,6 +40,13 @@ interface VersionTimeMachineProps {
    * 仍会发出恢复请求，与在跑的任务并发写同一个资源文件。返回 true 即拒绝本次恢复。
    */
   checkBusy?: () => boolean;
+  /**
+   * 受控打开：由外部（如卡片的「更多」菜单）决定开合，不渲染自己的触发按钮，
+   * 弹层按 `anchor` 定位，关闭后焦点回到它。
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchor?: RefObject<HTMLElement | null>;
 }
 
 function getImagePreviewHeightClass(
@@ -64,6 +71,9 @@ export function VersionTimeMachine({
   busy = false,
   onRestoringChange,
   checkBusy,
+  open: controlledOpen,
+  onOpenChange,
+  anchor,
 }: VersionTimeMachineProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const titleId = useId();
@@ -80,7 +90,13 @@ export function VersionTimeMachine({
     resourceType === "grids" ? `grids/${resourceId}.png` :
     `props/${resourceId}.png`;
   const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (controlled) onOpenChange?.(next);
+    else setUncontrolledOpen(next);
+  };
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [currentVersion, setCurrentVersion] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -154,7 +170,7 @@ export function VersionTimeMachine({
       : null;
   const label = t("version_mgmt");
 
-  const trigger = iconOnly ? (
+  const trigger = controlled ? null : iconOnly ? (
     <Tooltip>
       <TooltipTrigger
         render={<PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label={label} />} />}
@@ -178,7 +194,7 @@ export function VersionTimeMachine({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       {trigger}
-      <PopoverContent align="end">
+      <PopoverContent align="end" anchor={anchor} finalFocus={anchor}>
         <div className="flex items-center justify-between gap-2">
           <PopoverTitle id={titleId}>{t("history_versions")}</PopoverTitle>
           {currentVersion > 0 && (

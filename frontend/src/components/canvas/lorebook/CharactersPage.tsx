@@ -1,19 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { User } from "lucide-react";
-import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
-import { GalleryToolbar } from "./GalleryToolbar";
-import { matchesSheetFilter, useAssetSheetStatus, useSheetStatusByName, type SheetStatusFilter } from "./useAssetSheetStatus";
-import { CharacterCard } from "./CharacterCard";
+import type { LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
-import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
-import { API } from "@/api";
-import { useAppStore } from "@/stores/app-store";
-import { useScrollTarget } from "@/hooks/useScrollTarget";
-import { errMsg } from "@/utils/async";
 import type { Character, CharacterVoiceBinding } from "@/types";
-import { GalleryEmptyState } from "./GalleryEmptyState";
-import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { AssetGallery } from "./AssetGallery";
+import { CharacterCard } from "./CharacterCard";
 
 interface Props {
   projectName: string;
@@ -24,87 +15,68 @@ interface Props {
   onRestoreCharacterVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingCharacterNames?: Set<string>;
-  /** 项目的角色声音绑定方式；决定角色卡是否把参考音频区折叠为可选。 */
+  /** 项目的角色声音绑定方式；决定角色详情是否把参考音频区折叠为可选。 */
   voiceBinding?: CharacterVoiceBinding;
-  /** 只读展示（引导演示项目）：不渲染新增 / 入库 / 生成 / 上传入口。 */
+  /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传入口。 */
   readOnly?: boolean;
 }
 
-export function CharactersPage({ projectName, characters, onSaveCharacter, onGenerateCharacter, onAddCharacter, onRestoreCharacterVersion, onRefreshProject, generatingCharacterNames, voiceBinding, readOnly = false }: Props) {
-  const { t } = useTranslation(["dashboard", "assets"]);
+const libraryPreview = (character: Character): LibraryImportPreview => ({
+  description: character.description,
+  voiceStyle: character.voice_style ?? "",
+  hasReferenceAudio: Boolean(character.reference_audio),
+  sheetPath: character.character_sheet,
+  derivativeCount: Object.keys(character.derivatives ?? {}).length,
+});
+
+export function CharactersPage({
+  projectName,
+  characters,
+  onSaveCharacter,
+  onGenerateCharacter,
+  onAddCharacter,
+  onRestoreCharacterVersion,
+  onRefreshProject,
+  generatingCharacterNames,
+  voiceBinding,
+  readOnly = false,
+}: Props) {
+  const { t } = useTranslation("dashboard");
   const [adding, setAdding] = useState(false);
-  const [picking, setPicking] = useState(false);
-
-  useScrollTarget("character");
-  const sheetRows = useAssetSheetStatus(projectName);
-  const sheetStatus = useSheetStatusByName(sheetRows, "character");
-  const [sheetFilter, setSheetFilter] = useState<SheetStatusFilter>("all");
-
-  const entries = Object.entries(characters);
-  const shownEntries = entries.filter(([name]) => matchesSheetFilter(sheetStatus.get(name), sheetFilter));
-
-  const handleImport = async (ids: string[]) => {
-    try {
-      await API.applyAssetsToProject({
-        asset_ids: ids,
-        target_project: projectName,
-        conflict_policy: "skip",
-      });
-      useAppStore.getState().pushToast(t("assets:import_count", { count: ids.length }), "success");
-      await onRefreshProject?.();
-    } catch (err) {
-      useAppStore.getState().pushToast(errMsg(err), "error");
-    } finally {
-      setPicking(false);
-    }
-  };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <GalleryToolbar
-        title={t("dashboard:characters")}
-        count={entries.length}
-        onAdd={readOnly ? undefined : () => setAdding(true)}
-        onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
-      >
-        <AssetSheetBatchControls
-          projectName={projectName}
-          assetType="character"
-          rows={sheetRows}
-          filter={sheetFilter}
-          onFilterChange={setSheetFilter}
-          readOnly={readOnly}
-        />
-      </GalleryToolbar>
-      <div className="px-5 py-5" data-onboarding={ONBOARDING_ANCHORS.workbenchLorebook}>
-        {entries.length === 0 ? (
-          <GalleryEmptyState
-            icon={<User className="h-6 w-6" />}
-            label={t("dashboard:characters")}
-            hint={t(
-              readOnly ? "dashboard:no_characters_hint" : "dashboard:no_characters_hint_clickable",
-            )}
-            onClick={readOnly ? undefined : () => setAdding(true)}
-          />
-        ) : (
-          <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
-            {shownEntries.map(([name, char]) => (
-              <CharacterCard key={name} name={name} character={char} projectName={projectName}
-                onSave={onSaveCharacter}
-                onGenerate={onGenerateCharacter}
-                onRestoreVersion={onRestoreCharacterVersion}
-                onReload={onRefreshProject}
-                generating={generatingCharacterNames?.has(name)}
-                voiceBinding={voiceBinding}
-                sheetStatus={sheetStatus.get(name)}
-                readOnly={readOnly}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+    <>
+      <AssetGallery
+        projectName={projectName}
+        assetType="character"
+        title={t("characters")}
+        assets={characters}
+        generatingNames={generatingCharacterNames}
+        readOnly={readOnly}
+        onGenerate={onGenerateCharacter}
+        onRestoreVersion={onRestoreCharacterVersion}
+        onReload={onRefreshProject}
+        onAdd={() => setAdding(true)}
+        libraryPreview={libraryPreview}
+        renderEditor={(name, { sheetStatus, generating }) =>
+          characters[name] ? (
+            <CharacterCard
+              name={name}
+              character={characters[name]}
+              projectName={projectName}
+              onSave={onSaveCharacter}
+              onGenerate={onGenerateCharacter}
+              onReload={onRefreshProject}
+              generating={generating}
+              voiceBinding={voiceBinding}
+              sheetStatus={sheetStatus}
+              readOnly={readOnly}
+            />
+          ) : null
+        }
+      />
 
-      {adding && (
+      {adding && !readOnly && (
         <AssetFormModal
           type="character"
           onClose={() => setAdding(false)}
@@ -114,15 +86,6 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
           }}
         />
       )}
-
-      {picking && (
-        <AssetPickerModal
-          type="character"
-          existingNames={new Set(Object.keys(characters))}
-          onClose={() => setPicking(false)}
-          onImport={(ids) => { void handleImport(ids); }}
-        />
-      )}
-    </div>
+    </>
   );
 }

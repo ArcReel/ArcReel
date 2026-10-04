@@ -1,7 +1,16 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { errMsg } from "@/utils/async";
 import type { AssetRegenerationImpact, AssetSheetStatusRow, AssetSheetType } from "@/types";
 
@@ -35,7 +44,7 @@ export function useStaleRegenerateConfirm({
   hasSheet: boolean;
   onGenerate: () => void;
 }): { request: () => void; dialog: ReactNode } {
-  const { t } = useTranslation("assets");
+  const { t } = useTranslation(["assets", "common"]);
   const [state, setState] = useState<ImpactState>({ phase: "closed" });
 
   const request = () => {
@@ -64,34 +73,45 @@ export function useStaleRegenerateConfirm({
   if (state.phase === "ready") {
     description = (
       <>
-        <p>
-          {t("sheet_regenerate_stale_impact", {
-            storyboards: state.impact.storyboards,
-            videos: state.impact.videos,
-          })}
-        </p>
-        {state.impact.derivatives > 0 && (
-          <p>{t("sheet_regenerate_stale_derivatives", { count: state.impact.derivatives })}</p>
-        )}
+        {t("sheet_regenerate_stale_impact", {
+          storyboards: state.impact.storyboards,
+          videos: state.impact.videos,
+        })}
+        {state.impact.derivatives > 0 && <> {t("sheet_regenerate_stale_derivatives", { count: state.impact.derivatives })}</>}
       </>
     );
   } else if (state.phase === "failed") {
     description = t("sheet_regenerate_impact_failed", { message: state.message });
+  } else if (state.phase === "loading") {
+    description = t("common:loading");
   }
 
   const dialog = (
-    <ConfirmDialog
+    <AlertDialog
       open={state.phase !== "closed" && state.phase !== "checking"}
-      title={t("sheet_regenerate_stale_title")}
-      description={description}
-      confirmLabel={t("sheet_regenerate_confirm")}
-      loading={state.phase === "loading"}
-      onConfirm={() => {
-        close();
-        onGenerate();
+      onOpenChange={(next) => {
+        if (!next) close();
       }}
-      onCancel={close}
-    />
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("sheet_regenerate_stale_title")}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={state.phase === "loading"}
+            onClick={() => {
+              close();
+              onGenerate();
+            }}
+          >
+            {t("sheet_regenerate_confirm")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 
   return { request, dialog };

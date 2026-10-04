@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -200,6 +201,23 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
         generate-grid-video-await
       </button>
     </div>
+  ),
+}));
+
+// 画廊替身直接渲染每个资产的详情正文，路由测试经详情卡片的替身触发回调。
+vi.mock("./lorebook/AssetGallery", () => ({
+  AssetGallery: ({
+    assets,
+    renderEditor,
+  }: {
+    assets: Record<string, unknown>;
+    renderEditor: (name: string, context: { sheetStatus: undefined; generating: boolean }) => ReactNode;
+  }) => (
+    <>
+      {Object.keys(assets).map((name) => (
+        <div key={name}>{renderEditor(name, { sheetStatus: undefined, generating: false })}</div>
+      ))}
+    </>
   ),
 }));
 

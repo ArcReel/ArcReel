@@ -58,7 +58,7 @@ describe("ImageEditButton", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "编辑图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "局部修改" }));
     const instructionField = await screen.findByLabelText("编辑指令");
     fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
 
@@ -91,7 +91,7 @@ describe("ImageEditButton", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "编辑图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "局部修改" }));
     const instructionField = await screen.findByLabelText("编辑指令");
     fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
 
@@ -125,7 +125,7 @@ describe("ImageEditButton", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "编辑图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "局部修改" }));
     const instructionField = await screen.findByLabelText("编辑指令");
     fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
 
@@ -160,7 +160,7 @@ describe("ImageEditButton", () => {
     };
     const { rerender } = render(<ImageEditButton {...props} busy={false} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "编辑图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "局部修改" }));
     const instructionField = await screen.findByLabelText("编辑指令");
     fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
 

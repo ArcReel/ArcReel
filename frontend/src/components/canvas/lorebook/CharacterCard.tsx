@@ -3,12 +3,9 @@ import { useTranslation } from "react-i18next";
 import { ImagePlus, Pause, Play, Upload, User, X } from "lucide-react";
 import { API } from "@/api";
 import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
-import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
-import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
-import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/canvas/shared/AspectFrame";
 import { GenerateButton } from "@/components/canvas/lorebook/GenerateButton";
-import { ImageFlipReveal } from "@/components/canvas/shared/ImageFlipReveal";
+import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
 import { PreviewableImageFrame } from "@/components/canvas/shared/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -16,7 +13,6 @@ import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { CharacterDerivativesButton } from "./CharacterDerivativesButton";
 import { EditableAssetName } from "./EditableAssetName";
-import { MergeAssetMenu } from "./MergeAssetMenu";
 import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
@@ -46,7 +42,6 @@ interface CharacterCardProps {
   projectName: string;
   onSave: (name: string, payload: CharacterSavePayload) => Promise<void>;
   onGenerate: (name: string) => void;
-  onRestoreVersion?: () => Promise<void> | void;
   onReload?: () => Promise<unknown> | void;
   generating?: boolean;
   /** 产物清单对这张资产图的判定；未取到时按项目数据展示。 */
@@ -95,7 +90,6 @@ export function CharacterCard({
   projectName,
   onSave,
   onGenerate,
-  onRestoreVersion,
   onReload,
   generating = false,
   sheetStatus,
@@ -124,32 +118,14 @@ export function CharacterCard({
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const [deletingAudio, setDeletingAudio] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const audioElRef = useRef<HTMLAudioElement>(null);
-  const sheetInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const descId = useId();
   const voiceId = useId();
 
-  const handleSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (rejectIfAssetBusy("character", projectName, name, t)) return;
-    setUploadingSheet(true);
-    try {
-      await API.uploadFile(projectName, "character", file, name);
-      await onReload?.();
-      useAppStore.getState().pushToast(t("assets:upload_sheet_success", { name }), "success");
-    } catch (err) {
-      useAppStore.getState().pushToast(errMsg(err), "error");
-    } finally {
-      setUploadingSheet(false);
-    }
-  };
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游角色变化时同步本地草稿字段
@@ -387,73 +363,17 @@ export function CharacterCard({
           readOnly={readOnly}
           /* 改名会搬动落盘文件：与本卡片自身在途的写请求交错会留下旧名孤儿文件，
              因此改名比兄弟控件多禁用一档，把卡片本地的在途标志也算进占用态。 */
-          busy={generating || uploadingSheet || saving || deletingAudio}
+          busy={generating || saving || deletingAudio}
         />
         {readOnly ? null : (
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => sheetInputRef.current?.click()}
-            disabled={uploadingSheet || generating}
-            title={t("assets:upload_sheet")}
-            aria-label={t("assets:upload_sheet")}
-            className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ color: "var(--muted-foreground)" }}
-          >
-            <Upload className="h-3.5 w-3.5" />
-          </button>
-          <input
-            ref={sheetInputRef}
-            type="file"
-            accept=".png,.jpg,.jpeg,.webp"
-            aria-label={t("assets:upload_sheet")}
-            className="hidden"
-            onChange={(e) => void handleSheetUpload(e)}
-          />
-          <CharacterDerivativesButton
-            projectName={projectName}
-            characterName={name}
-            derivatives={character.derivatives ?? {}}
-            ownerHasSheet={Boolean(character.character_sheet)}
-            busy={generating || uploadingSheet || saving || deletingAudio}
-            onReload={onReload}
-          />
-          <ImageEditButton
-            projectName={projectName}
-            resourceType="character"
-            resourceId={name}
-            hasImage={Boolean(character.character_sheet)}
-            busy={generating || uploadingSheet}
-          />
-          <AddToLibraryButton
-            resourceType="character"
-            resourceId={name}
-            projectName={projectName}
-            preview={{
-              description: character.description,
-              voiceStyle: character.voice_style ?? "",
-              hasReferenceAudio: Boolean(character.reference_audio),
-              sheetPath: character.character_sheet,
-              derivativeCount: Object.keys(character.derivatives ?? {}).length,
-            }}
-            busy={generating || uploadingSheet}
-          />
-          <VersionTimeMachine
-            projectName={projectName}
-            resourceType="characters"
-            resourceId={name}
-            onRestore={onRestoreVersion}
-            iconOnly
-            busy={generating || uploadingSheet}
-          />
-          <MergeAssetMenu
-            projectName={projectName}
-            assetType="character"
-            name={name}
-            description={character.description}
-            busy={generating || uploadingSheet || saving || deletingAudio}
-          />
-        </div>
+        <CharacterDerivativesButton
+          projectName={projectName}
+          characterName={name}
+          derivatives={character.derivatives ?? {}}
+          ownerHasSheet={Boolean(character.character_sheet)}
+          busy={generating || saving || deletingAudio}
+          onReload={onReload}
+        />
         )}
       </div>
 
@@ -470,7 +390,7 @@ export function CharacterCard({
               alt={`${name} ${t("character_design")}`}
             >
               <AspectFrame ratio="16:9">
-                <ImageFlipReveal
+                <CrossfadeImage
                   src={sheetUrl && !imgError ? sheetUrl : null}
                   alt={`${name} ${t("character_design")}`}
                   className="h-full w-full object-contain"
