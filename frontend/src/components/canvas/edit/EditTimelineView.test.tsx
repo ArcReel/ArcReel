@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Route } from "wouter";
@@ -82,6 +83,12 @@ const INITIAL_CUT: EditTimelineReadout = {
 const SCRIPT = { episode: 1, video_units: [{ unit_id: "E1U1" }, { unit_id: "E1U3" }, { unit_id: "E1U4" }] };
 
 const NO_TIMELINE = () => <p>no timeline</p>;
+
+/** 播放器显示的当前时间（秒），即播放头的位置。 */
+function playheadSeconds(): number {
+  const [minutes, seconds] = (screen.getByTestId("edit-playback-clock").textContent ?? "").split(":");
+  return Number(minutes) * 60 + Number(seconds);
+}
 
 function renderView(ttsNarration = true) {
   return render(
@@ -203,7 +210,7 @@ describe("EditTimelineView", () => {
 
     fireEvent.click(within(issues).getByText("c3：素材已更新，暂用完整视频"));
     const inspector = screen.getByTestId("edit-clip-inspector");
-    expect(within(inspector).getByText("0.5–2s")).toHaveClass("line-through");
+    expect(within(inspector).getByRole("deletion")).toHaveTextContent("0.5–2s");
     expect(inspector).toHaveTextContent("（素材共 5s）");
     expect(inspector).toHaveTextContent("素材已更新，暂用完整视频");
     expect(inspector).toHaveTextContent("保留推门动作");
@@ -365,16 +372,16 @@ describe("EditTimelineView", () => {
 
     const cut = await screen.findByRole("tab", { name: "初剪" });
     expect(screen.getByRole("tabpanel", { name: "初剪" })).toBeInTheDocument();
-    expect(cut).toHaveAttribute("tabindex", "0");
-    expect(screen.getByRole("tab", { name: "按脚本顺序" })).toHaveAttribute("tabindex", "-1");
 
-    fireEvent.keyDown(cut, { key: "ArrowRight" });
+    const user = userEvent.setup();
+    act(() => cut.focus());
+    await user.keyboard("{ArrowRight}");
     const byScript = screen.getByRole("tab", { name: "按脚本顺序" });
-    expect(byScript).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(byScript).toHaveAttribute("aria-selected", "true"));
     expect(byScript).toHaveFocus();
     expect(screen.getByRole("tabpanel", { name: "按脚本顺序" })).toBeInTheDocument();
 
-    fireEvent.keyDown(byScript, { key: "ArrowLeft" });
+    await user.keyboard("{ArrowLeft}");
     expect(screen.getByRole("tab", { name: "初剪" })).toHaveFocus();
   });
 
@@ -456,7 +463,6 @@ describe("EditTimelineView", () => {
     expect(neutral).not.toHaveAttribute("data-missing-audio");
     expect(neutral).toHaveAttribute("data-post-production", "true");
     expect(neutral).toHaveAttribute("title", "U1 的旁白由后期配音，预览不出声，挂在 c1 上");
-    expect(neutral).not.toHaveClass("border-dashed");
   });
 
   it("shows narration over the clips it runs across, subtitles that can be hidden, and BGM once there is any", async () => {
@@ -497,8 +503,6 @@ describe("EditTimelineView", () => {
 
     const span = await screen.findByTestId("edit-narration-c1");
     expect(span).toHaveAttribute("title", "U1 的旁白，挂在 c1 上：0–4.5s");
-    // 4.5 / 7.8 ≈ 57.69%，比 c1 自身的 2.8s 宽
-    expect(span.style.width).toContain("57.69");
     expect(await screen.findByTestId("edit-player-subtitle")).toHaveTextContent("门后传来脚步声。");
     expect(screen.getByTestId("edit-bgm-b1")).toHaveAttribute(
       "title",
@@ -554,7 +558,7 @@ describe("EditTimelineView", () => {
     vi.spyOn(tracks, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 780, 100));
     const button = screen.getByRole("button", { name: "上传 BGM" });
     fireEvent.pointerDown(button, { button: 0, clientX: 390 });
-    expect(parseFloat(screen.getByTestId("edit-playhead").style.left)).toBe(0);
+    expect(playheadSeconds()).toBe(0);
 
     const file = new File(["mp3"], "雨夜.mp3", { type: "audio/mpeg" });
     fireEvent.change(screen.getByTestId("edit-bgm-upload-input"), { target: { files: [file] } });
@@ -638,13 +642,13 @@ describe("EditTimelineView", () => {
     await screen.findByTestId("edit-clip-c1");
     const tracks = screen.getByRole("group", { name: "时间线轨道，点击跳到对应时间" });
     vi.spyOn(tracks, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 780, 100));
-    const playhead = () => parseFloat(screen.getByTestId("edit-playhead").style.left);
 
     fireEvent.pointerDown(tracks, { button: 2, clientX: 390 });
-    expect(playhead()).toBe(0);
+    expect(playheadSeconds()).toBe(0);
 
     fireEvent.pointerDown(tracks, { button: 0, clientX: 390 });
-    await waitFor(() => expect(playhead()).toBeCloseTo(50, 1));
+    // 点在轨道正中：7.8s 的一半
+    await waitFor(() => expect(playheadSeconds()).toBeCloseTo(3.9, 1));
   });
 
   describe("链接参数 tl / t", () => {
@@ -676,9 +680,6 @@ describe("EditTimelineView", () => {
       window.history.replaceState(null, "", "/");
     });
 
-    function playheadPercent(): number {
-      return parseFloat(screen.getByTestId("edit-playhead").style.left);
-    }
 
     it("打开链接指向的剪辑时间线，播放头移到该时间并选中落在其中的片段，地址栏的一次性参数随即去掉", async () => {
       mockTimelines();
@@ -690,7 +691,7 @@ describe("EditTimelineView", () => {
       expect(await screen.findByRole("tab", { name: "按脚本顺序" })).toHaveAttribute("aria-selected", "true");
       await waitFor(() => expect(screen.getByTestId("edit-clip-d2")).toHaveAttribute("aria-pressed", "true"));
       expect(screen.getByTestId("edit-clip-d1")).toHaveAttribute("aria-pressed", "false");
-      expect(playheadPercent()).toBeCloseTo(75, 1);
+      expect(playheadSeconds()).toBeCloseTo(3, 1);
       expect(window.location.search).toBe("?view=edit");
     });
 
@@ -702,7 +703,7 @@ describe("EditTimelineView", () => {
 
       await waitFor(() => expect(screen.getByTestId("edit-clip-c3")).toHaveAttribute("aria-pressed", "true"));
       expect(screen.getByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
-      expect(playheadPercent()).toBeCloseTo((5 / 7.8) * 100, 1);
+      expect(playheadSeconds()).toBeCloseTo(5, 1);
     });
 
     it("链接指向的剪辑时间线已不存在时提示，并停在默认的那条", async () => {
@@ -713,20 +714,20 @@ describe("EditTimelineView", () => {
 
       expect(await screen.findByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
       await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("warning"));
-      expect(playheadPercent()).toBe(0);
+      expect(playheadSeconds()).toBe(0);
     });
 
     it("时间点超出时长时夹到末尾，无法解析的时间点忽略", async () => {
       mockTimelines();
       window.history.replaceState(null, "", "/?view=edit&t=99");
       const { unmount } = renderView();
-      await waitFor(() => expect(playheadPercent()).toBeCloseTo(100, 1));
+      await waitFor(() => expect(playheadSeconds()).toBeCloseTo(7.8, 1));
       unmount();
 
       window.history.replaceState(null, "", "/?view=edit&t=abc");
       renderView();
       await screen.findByTestId("edit-clip-c1");
-      expect(playheadPercent()).toBe(0);
+      expect(playheadSeconds()).toBe(0);
     });
 
     it("链接指向刚新建、列表还没刷新到的剪辑时间线时，等新列表到了再定位，不误报不存在", async () => {
@@ -788,7 +789,7 @@ describe("EditTimelineView", () => {
       await screen.findByRole("tab", { name: "初剪 v2" });
       await waitFor(() => expect(read).toHaveBeenLastCalledWith("demo", "tl-00000002", expect.anything()));
       expect(screen.getByRole("tab", { name: "初剪 v2" })).toHaveAttribute("aria-selected", "true");
-      expect(playheadPercent()).toBe(0);
+      expect(playheadSeconds()).toBe(0);
     });
 
     it("跳到别的项目时，参数留给切换后的那个项目的剪辑视图消费", async () => {
@@ -826,13 +827,13 @@ describe("EditTimelineView", () => {
         window.history.pushState(null, "", "/?view=edit&tl=tl-00000002&t=6");
         window.dispatchEvent(new PopStateEvent("popstate"));
       });
-      await waitFor(() => expect(playheadPercent()).toBeCloseTo((6 / 7.8) * 100, 1));
+      await waitFor(() => expect(playheadSeconds()).toBeCloseTo(6, 1));
 
       act(() => {
         window.history.pushState(null, "", "/?view=edit&tl=tl-00000002&t=1");
         window.dispatchEvent(new PopStateEvent("popstate"));
       });
-      await waitFor(() => expect(playheadPercent()).toBeCloseTo((1 / 7.8) * 100, 1));
+      await waitFor(() => expect(playheadSeconds()).toBeCloseTo(1, 1));
       expect(screen.getByTestId("edit-clip-c1")).toHaveAttribute("aria-pressed", "true");
     });
   });

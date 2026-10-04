@@ -49,11 +49,12 @@ const NARRATION_MISSING: EditTimelineIssueRef = {
 function renderDialog({
   issues = [],
   narrationAvailable = false,
-}: { issues?: EditTimelineIssueRef[]; narrationAvailable?: boolean } = {}) {
+  onClose = vi.fn(),
+}: { issues?: EditTimelineIssueRef[]; narrationAvailable?: boolean; onClose?: () => void } = {}) {
   return render(
     <RenderDialog
       open
-      onClose={vi.fn()}
+      onClose={onClose}
       projectName="demo"
       timelineId="tl-1"
       timelineName="初剪"
@@ -193,6 +194,24 @@ describe("RenderDialog", () => {
     expect(screen.getByRole("button", { name: "渲染成片" })).toBeEnabled();
   });
 
+  it("提交请求在途时忽略关闭，任务开始后可以关掉", async () => {
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
+    let accept: (value: { task_id: string; deduped: boolean; artifact_path: string }) => void = () => {};
+    vi.spyOn(API, "renderFinalCut").mockReturnValue(new Promise((resolve) => (accept = resolve)));
+    vi.spyOn(API, "getTask").mockResolvedValue(task("running"));
+    const onClose = vi.fn();
+
+    renderDialog({ onClose });
+    await userEvent.click(await screen.findByRole("button", { name: "渲染成片" }));
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+
+    accept({ task_id: "task-1", deduped: false, artifact_path: "renders/x.mp4" });
+    expect(await screen.findByText("正在渲染成片…")).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("提交被入队前检查拒绝时显示原因", async () => {
     vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
     vi.spyOn(API, "renderFinalCut").mockRejectedValue(new Error("E1S03 还没有可用视频"));
@@ -217,7 +236,7 @@ describe("RenderDialog", () => {
     const download = screen.getByRole("button", { name: "下载" });
     expect(download).toBeDisabled();
     await userEvent.type(screen.getByLabelText("草稿目录路径"), "/Users/me/Drafts");
-    await userEvent.selectOptions(screen.getByLabelText("剪映版本"), "5");
+    await userEvent.click(screen.getByRole("radio", { name: "剪映 5.x" }));
     await userEvent.click(download);
 
     await waitFor(() => expect(downloads).toHaveLength(1));
@@ -236,12 +255,12 @@ describe("RenderDialog", () => {
     renderDialog();
     await userEvent.click(screen.getByRole("radio", { name: /剪映草稿/ }));
     await userEvent.type(screen.getByLabelText("草稿目录路径"), "/Users/me/Drafts");
-    await userEvent.selectOptions(screen.getByLabelText("剪映版本"), "5");
+    await userEvent.click(screen.getByRole("radio", { name: "剪映 5.x" }));
     await userEvent.click(screen.getByRole("radio", { name: /成片/ }));
     await userEvent.click(screen.getByRole("radio", { name: /剪映草稿/ }));
 
     expect(screen.getByLabelText("草稿目录路径")).toHaveValue("/Users/me/Drafts");
-    expect(screen.getByLabelText("剪映版本")).toHaveValue("5");
+    expect(screen.getByRole("radio", { name: "剪映 5.x" })).toBeChecked();
   });
 
   it("剪映草稿走自己的提交端点", async () => {
@@ -277,7 +296,7 @@ describe("RenderDialog", () => {
     renderDialog({ issues: [NARRATION_MISSING] });
 
     expect(await screen.findByRole("button", { name: "渲染成片" })).toBeEnabled();
-    expect(screen.queryByLabelText("旁白版本")).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "旁白版本" })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /烧入字幕/ })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: /剪映草稿/ }));
     expect(screen.queryByRole("checkbox", { name: /烧入字幕/ })).not.toBeInTheDocument();
@@ -312,7 +331,7 @@ describe("RenderDialog", () => {
 
     renderDialog({ issues: [NARRATION_MISSING], narrationAvailable: true });
 
-    expect(screen.getByLabelText("旁白版本")).toHaveValue("with_narration");
+    expect(within(screen.getByRole("radiogroup", { name: "旁白版本" })).getByRole("radio", { name: "带旁白" })).toBeChecked();
     expect(await screen.findByRole("button", { name: "渲染成片" })).toBeDisabled();
     expect(screen.getByText("当前剪辑时间线有 1 个问题阻断出片，涉及 S04，处理后才能出片")).toBeInTheDocument();
     expect(API.getFinalCutStatus).toHaveBeenCalledWith(
@@ -321,10 +340,10 @@ describe("RenderDialog", () => {
       expect.objectContaining({ narration: "with_narration", subtitles: "burned_subtitles" }),
     );
 
-    await userEvent.selectOptions(screen.getByLabelText("旁白版本"), "without_narration");
+    await userEvent.click(screen.getByRole("radio", { name: "不带旁白" }));
     expect(await screen.findByRole("button", { name: "渲染成片" })).toBeEnabled();
     await userEvent.click(screen.getByRole("radio", { name: /剪映草稿/ }));
-    expect(screen.getByLabelText("旁白版本")).toHaveValue("without_narration");
+    expect(screen.getByRole("radio", { name: "不带旁白" })).toBeChecked();
     expect(API.getJianyingDraftStatus).toHaveBeenCalledWith(
       "demo",
       "tl-1",

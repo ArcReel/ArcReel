@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "wouter";
 
 import { API } from "@/api";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
@@ -97,7 +100,6 @@ export function EditTimelineView({
   const [chosenId, setChosenId] = useState<string | null>(null);
   const reload = useCallback(() => setRetry((n) => n + 1), []);
   const tabIdPrefix = useId();
-  const tabs = useRef(new Map<string, HTMLButtonElement>());
 
   // 链接参数 tl / t 读入后立刻从地址栏去掉：它们是一次性的定位指令，刷新页面不应再次跳走。
   const [searchParams, setSearchParams] = useSearchParams();
@@ -231,77 +233,49 @@ export function EditTimelineView({
     // 手动切换标签后放弃尚未完成的链接定位。
     setJump(null);
   };
-  // tablist 的键盘约定：Tab 进出控件组，方向键在组内切换。
-  const onTabKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const step = event.key === "ArrowRight" ? 1 : -1;
-    const index = timelines.findIndex((item) => item.id === selected.id);
-    const next = timelines[(index + step + timelines.length) % timelines.length];
-    choose(next.id);
-    tabs.current.get(next.id)?.focus();
-  };
   const authorName = t(`edit_view_author_${selected.updated_by.kind}`);
   const updatedJustNow = isJustNow(selected.updated_at);
   const updatedAt = formatRelativeTime(selected.updated_at, i18n.language) ?? selected.updated_at;
 
+  // 整个视图不滚动：标签行固定高度，下方的播放器、详情栏与轨道分掉剩余高度，只有详情栏自己滚动。
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto px-6 py-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center rounded-lg border border-border bg-card/55 p-0.5">
-          <div role="tablist" aria-label={t("edit_view_timelines_aria")} className="flex flex-wrap">
-            {timelines.map((item) => (
-              <button
-                key={item.id}
-                ref={(node) => {
-                  if (node) tabs.current.set(item.id, node);
-                  else tabs.current.delete(item.id);
-                }}
-                type="button"
-                role="tab"
-                id={tabId(item.id)}
-                aria-selected={item.id === selected.id}
-                aria-controls={panelId}
-                tabIndex={item.id === selected.id ? 0 : -1}
-                onClick={() => choose(item.id)}
-                onKeyDown={onTabKeyDown}
-                className={`focus-ring rounded-md px-3 py-1.5 text-[12.5px] transition-colors ${
-                  item.id === selected.id ? "bg-primary/12 text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {item.name}
-              </button>
-            ))}
-          </div>
-          <EditTimelineMenu
-            projectName={projectName}
-            timeline={selected}
-            onRenamed={reload}
-            onDeleted={handleDeleted}
-          />
+    <div className="@container-size/edit-view flex h-full min-h-0 flex-col">
+      <div className="flex h-12 shrink-0 items-center gap-2 px-4 edit-short:h-10">
+        {/* 剪辑时间线多、名称长时标签横向滚动，不把标签行撑高 */}
+        <div className="relative flex min-w-0 overflow-x-auto scroll-fade-x">
+          {/* 方向键移动焦点即切换：切换标签只换预览内容，不卸载别的东西 */}
+          <Tabs value={selected.id} onValueChange={(value: string) => choose(value)} className="shrink-0">
+            <TabsList aria-label={t("edit_view_timelines_aria")} activateOnFocus>
+              {timelines.map((item) => (
+                <TabsTrigger key={item.id} value={item.id} id={tabId(item.id)} aria-controls={panelId}>
+                  {item.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         </div>
-        <span className="text-[12px] text-muted-foreground">
-          {updatedJustNow
-            ? t("edit_view_updated_just_now", { author: authorName })
-            : t("edit_view_updated", { author: authorName, time: updatedAt })}
-        </span>
-        {renderActions && (
-          <div className="ml-auto flex items-center gap-2">
-            {renderActions({
-              timelineId: selected.id,
-              timelineName: selected.name,
-              issues: current && "value" in current ? current.value.issues : null,
-              showIssues,
-            })}
-          </div>
-        )}
+        <EditTimelineMenu projectName={projectName} timeline={selected} onRenamed={reload} onDeleted={handleDeleted} />
+        <TruncatedText
+          className="min-w-0 text-xs text-muted-foreground"
+          text={
+            updatedJustNow
+              ? t("edit_view_updated_just_now", { author: authorName })
+              : t("edit_view_updated", { author: authorName, time: updatedAt })
+          }
+        />
+        {renderActions?.({
+          timelineId: selected.id,
+          timelineName: selected.name,
+          issues: current && "value" in current ? current.value.issues : null,
+          showIssues,
+        })}
       </div>
 
       <div
         role="tabpanel"
         id={panelId}
         aria-labelledby={tabId(selected.id)}
-        className="flex flex-1 flex-col gap-4"
+        className="flex min-h-0 flex-1 flex-col px-4 pb-4 edit-short:pb-2"
       >
         {current && "value" in current ? (
           <TimelinePreview
@@ -347,6 +321,7 @@ function TimelinePreview({
   seekRequest,
   onSeekHandled,
 }: TimelinePreviewProps) {
+  const { t } = useTranslation("dashboard");
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [showSubtitles, setShowSubtitles] = useState(true);
 
@@ -420,53 +395,65 @@ function TimelinePreview({
   const selectedClip = readout.clips.find((clip) => clip.id === selectedClipId);
   const clipIds = useMemo(() => new Set(readout.clips.map((clip) => clip.id)), [readout]);
 
+  // 播放器在左、详情栏在右，轨道横跨底部全宽。详情栏随画布宽度取 280px 或 340px。
   return (
-    <>
-      <EditTimelinePlayer
-        plan={plan}
-        playback={playback}
-        aspect={aspect}
-        current={currentClip}
-        trimIgnored={currentClip ? trimIgnored.has(currentClip.id) : false}
-        subtitles={subtitles}
-        showSubtitles={showSubtitles}
-        onToggleSubtitles={() => setShowSubtitles((shown) => !shown)}
-      />
-      <EditTimelineTracks
-        projectName={projectName}
-        readout={readout}
-        t={playback.t}
-        selectedClipId={selectedClipId}
-        activeClipId={activeClipId}
-        trimIgnored={trimIgnored}
-        unusedUnits={unused}
-        thumbnails={thumbnails}
-        narration={narration}
-        subtitles={subtitles}
-        bgm={bgm}
-        onSelectClip={setSelectedClipId}
-        onSeek={playback.seek}
-      />
-      <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
-        <div className="rounded-lg border border-border bg-card p-4">
+    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] grid-rows-[minmax(0,1fr)_auto] gap-3 edit-short:gap-2 @6xl/canvas:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="min-h-0 min-w-0">
+        <EditTimelinePlayer
+          plan={plan}
+          playback={playback}
+          aspect={aspect}
+          current={currentClip}
+          trimIgnored={currentClip ? trimIgnored.has(currentClip.id) : false}
+          subtitles={subtitles}
+          showSubtitles={showSubtitles}
+          onToggleSubtitles={() => setShowSubtitles((shown) => !shown)}
+        />
+      </div>
+      {/* 详情栏是视图里唯一的滚动区；可以只有说明文字，所以自身可聚焦，键盘也能滚动 */}
+      <div
+        role="region"
+        aria-label={t("edit_view_details_aria")}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 详情栏可能只有说明文字，须能用键盘聚焦后滚动
+        tabIndex={0}
+        className="focus-ring relative flex min-h-0 flex-col gap-4 overflow-y-auto rounded-lg border border-border bg-card p-4"
+      >
+        <section className="shrink-0" aria-label={t("edit_view_inspector_aria")}>
           <ClipInspector
             projectName={projectName}
             clip={selectedClip}
             trimIgnored={selectedClip ? trimIgnored.has(selectedClip.id) : false}
             thumbnail={selectedClip ? thumbnails.get(selectedClip.unit_id) : undefined}
           />
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
+        </section>
+        <div className="shrink-0 border-t border-border pt-4">
           <IssueList issues={readout.issues} clipIds={clipIds} onSelectClip={setSelectedClipId} />
         </div>
       </div>
-    </>
+      <div className="col-span-2 min-w-0">
+        <EditTimelineTracks
+          projectName={projectName}
+          readout={readout}
+          t={playback.t}
+          selectedClipId={selectedClipId}
+          activeClipId={activeClipId}
+          trimIgnored={trimIgnored}
+          unusedUnits={unused}
+          thumbnails={thumbnails}
+          narration={narration}
+          subtitles={subtitles}
+          bgm={bgm}
+          onSelectClip={setSelectedClipId}
+          onSeek={playback.seek}
+        />
+      </div>
+    </div>
   );
 }
 
 function Centered({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-[200px] flex-col items-center justify-center px-6 text-center text-[12.5px] text-muted-foreground">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
       {children}
     </div>
   );
@@ -479,9 +466,9 @@ function LoadFailed({ message, onRetry }: { message: string; onRetry: () => void
       <p role="alert" className="text-destructive">
         {t("edit_view_load_failed", { message })}
       </p>
-      <button type="button" onClick={onRetry} className="sv-navbtn mt-3">
+      <Button variant="outline" size="sm" onClick={onRetry}>
         {t("edit_view_retry")}
-      </button>
+      </Button>
     </Centered>
   );
 }

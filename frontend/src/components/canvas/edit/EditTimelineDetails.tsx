@@ -1,3 +1,4 @@
+import { cn } from "cn";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
@@ -32,25 +33,27 @@ interface ClipInspectorProps {
 export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: ClipInspectorProps) {
   const { t } = useTranslation("dashboard");
   if (!clip) {
-    return <p className="text-[12.5px] text-muted-foreground">{t("edit_view_inspector_empty")}</p>;
+    return <p className="text-sm text-muted-foreground">{t("edit_view_inspector_empty")}</p>;
   }
   const deleted = clip.status === "unit_deleted";
   const transition = clip.transition_to_next;
   const sourceLength = clip.source_duration ?? null;
+  const trimText = (trim: NonNullable<EditClip["trim"]>) =>
+    t("edit_view_trim_value", { in: formatSeconds(trim.source_in), out: formatSeconds(trim.source_out) });
   return (
-    <div className="flex gap-4" data-testid="edit-clip-inspector">
+    <div className="flex flex-col gap-3" data-testid="edit-clip-inspector">
       {thumbnail && (
         <img
           src={API.getFileUrl(projectName, thumbnail)}
           alt=""
-          className="h-[68px] w-[120px] shrink-0 rounded-sm bg-black object-contain"
+          className="aspect-video w-32 shrink-0 rounded-sm bg-black object-contain"
         />
       )}
       <div className="min-w-0 flex-1">
-        <h3 className="text-[14px] font-medium text-foreground">
+        <h3 className="text-sm font-medium text-foreground">
           {clip.id} <span className="text-muted-foreground">· {itemIdWithinEpisode(clip.unit_id)}</span>
         </h3>
-        <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+        <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs tabular-nums">
           <dt className="text-muted-foreground">{t("edit_view_field_position")}</dt>
           <dd className={deleted ? "text-destructive" : "text-subtle-foreground"}>
             {deleted
@@ -66,12 +69,12 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
               <dt className="text-muted-foreground">{t("edit_view_field_trim")}</dt>
               <dd className="text-subtle-foreground">
                 {clip.trim ? (
-                  <span className={trimIgnored ? "text-muted-foreground line-through" : ""}>
-                    {t("edit_view_trim_value", {
-                      in: formatSeconds(clip.trim.source_in),
-                      out: formatSeconds(clip.trim.source_out),
-                    })}
-                  </span>
+                  trimIgnored ? (
+                    // 作废的截取划掉显示，读屏读作删除内容
+                    <del className="text-muted-foreground">{trimText(clip.trim)}</del>
+                  ) : (
+                    <span>{trimText(clip.trim)}</span>
+                  )
                 ) : (
                   t("edit_view_trim_whole")
                 )}
@@ -101,7 +104,7 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
           {clip.reason && (
             <>
               <dt className="text-muted-foreground">{t("edit_view_field_reason")}</dt>
-              <dd className="whitespace-pre-wrap text-subtle-foreground">{clip.reason}</dd>
+              <dd className="whitespace-pre-wrap break-words text-subtle-foreground">{clip.reason}</dd>
             </>
           )}
         </dl>
@@ -128,12 +131,12 @@ export function IssueList({ issues, clipIds, onSelectClip }: IssueListProps) {
       <h3
         id={ISSUE_LIST_HEADING_ID}
         tabIndex={-1}
-        className="mb-2 text-[13px] font-medium text-foreground focus:outline-none"
+        className="mb-2 rounded-sm text-sm font-medium text-foreground focus-ring"
       >
         {t("edit_view_issues_title", { count: issues.length })}
       </h3>
       {issues.length === 0 ? (
-        <p className="text-[12px] text-muted-foreground">{t("edit_view_issues_none")}</p>
+        <p className="text-xs text-muted-foreground">{t("edit_view_issues_none")}</p>
       ) : (
         <ul className="space-y-1">
           {issues.map((issue, index) => {
@@ -150,20 +153,20 @@ export function IssueList({ issues, clipIds, onSelectClip }: IssueListProps) {
               ...params,
               defaultValue: t("edit_view_issue_other", params),
             });
-            const dot = <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${ISSUE_DOT[issue.code] ?? "bg-muted-foreground"}`} />;
+            const dot = <span aria-hidden className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", ISSUE_DOT[issue.code] ?? "bg-muted-foreground")} />;
             return (
               <li key={`${issue.code}-${index}`}>
                 {clipId ? (
                   <button
                     type="button"
                     onClick={() => onSelectClip(clipId)}
-                    className="focus-ring flex w-full items-start gap-2 rounded-sm px-1.5 py-1 text-left text-[12px] text-subtle-foreground hover:bg-sidebar"
+                    className="focus-ring flex w-full items-start gap-2 rounded-sm px-1.5 py-1 text-left text-xs text-subtle-foreground hover:bg-muted"
                   >
                     {dot}
                     {text}
                   </button>
                 ) : (
-                  <p className="flex items-start gap-2 px-1.5 py-1 text-[12px] text-subtle-foreground">
+                  <p className="flex items-start gap-2 px-1.5 py-1 text-xs text-subtle-foreground">
                     {dot}
                     {text}
                   </p>

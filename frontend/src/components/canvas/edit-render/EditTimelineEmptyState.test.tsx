@@ -73,7 +73,8 @@ describe("EditTimelineEmptyState", () => {
     expect(create).toHaveBeenCalledWith("demo", 2, "完整版");
     expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo");
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
-    expect(useAppStore.getState().toast?.text).toBe("已新建剪辑时间线「完整版」");
+    // 新建的剪辑时间线随即成为选中的标签，不另弹提示
+    expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("显示名与「剪辑」行同一规则：集内已有「完整版」时加序号", async () => {

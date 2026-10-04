@@ -26,6 +26,8 @@ export interface RenderArtifactState {
   task: TaskItem | null;
   /** 从提交到任务终态都为 true。 */
   submitting: boolean;
+  /** 提交请求在途（还没拿到 task_id）时为 true；接回已有任务时不经过这一段。 */
+  requesting: boolean;
   /** 提交请求本身失败的原因（如入队前检查不通过）。 */
   submitError: string | null;
   /** 提交一次出片任务并开始轮询。 */
@@ -106,6 +108,7 @@ export function useRenderArtifact(
   const [loadError, setLoadError] = useState<string | null>(null);
   const [task, setTask] = useState<TaskItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const scopeRef = useRef<AbortController | null>(null);
 
@@ -181,11 +184,15 @@ export function useRenderArtifact(
   const submit = useCallback(async () => {
     const signal = scopeRef.current?.signal;
     if (!signal || signal.aborted) return;
-    await follow(
-      async () => (await submitRender(projectName, timelineId, kind, { narration, subtitles })).task_id,
-      signal,
-    );
+    await follow(async () => {
+      setRequesting(true);
+      try {
+        return (await submitRender(projectName, timelineId, kind, { narration, subtitles })).task_id;
+      } finally {
+        if (!signal.aborted) setRequesting(false);
+      }
+    }, signal);
   }, [projectName, timelineId, kind, narration, subtitles, follow]);
 
-  return { artifact, loading, loadError, task, submitting, submitError, submit };
+  return { artifact, loading, loadError, task, submitting, requesting, submitError, submit };
 }
