@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import { Bot, Send } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Turn } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui/input-group";
 import { MessageRow } from "@/components/copilot/chat/MessageRow";
 import { ONBOARDING_ANCHORS } from "./anchors";
 
@@ -46,13 +46,10 @@ export function DemoAssistantPanel() {
 
   return (
     <div data-onboarding={ONBOARDING_ANCHORS.workbenchAgent} className="relative isolate flex h-full flex-col">
-      {/* 头部：与真实面板同款标识，不带会话切换/新建——演示里没有会话可管理 */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
-        <span className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
-          <Bot aria-hidden className="size-3.5" />
-        </span>
-        <span className="min-w-0 truncate text-sm font-semibold">{t("dashboard:arcreel_agent")}</span>
-      </div>
+      {/* 头部：真实面板在这里显示会话标题与历史、新建入口；演示里没有会话可管理，只写面板名 */}
+      <header className="flex h-12 shrink-0 items-center border-b border-border px-3">
+        <h2 className="min-w-0 truncate text-sm font-medium">{t("dashboard:arcreel_agent")}</h2>
+      </header>
 
       {/* 静态演示对话 */}
       <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4">
@@ -61,17 +58,22 @@ export function DemoAssistantPanel() {
         ))}
       </div>
 
-      {/* 输入区：只作形态展示，演示中不可用 */}
-      <div className="flex shrink-0 items-end gap-2 border-t border-border p-3">
-        <Textarea
-          rows={1}
-          disabled
-          placeholder={t("onboarding:demo_action_unavailable")}
-          aria-label={t("dashboard:assistant_input")}
-        />
-        <Button size="icon-sm" disabled aria-label={t("dashboard:send_message")}>
-          <Send aria-hidden />
-        </Button>
+      {/* 输入区：与真实面板同一外形，只作展示，演示中不可用 */}
+      <div className="shrink-0 border-t border-border p-3">
+        <InputGroup>
+          <InputGroupTextarea
+            rows={1}
+            disabled
+            placeholder={t("onboarding:demo_action_unavailable")}
+            aria-label={t("dashboard:assistant_input")}
+            className="min-h-9"
+          />
+          <InputGroupAddon align="block-end">
+            <Button size="icon-sm" className="ml-auto" disabled aria-label={t("dashboard:send_message")}>
+              <ArrowUp aria-hidden />
+            </Button>
+          </InputGroupAddon>
+        </InputGroup>
       </div>
     </div>
   );

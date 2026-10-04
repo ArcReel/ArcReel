@@ -1,19 +1,14 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { LucideIcon } from "lucide-react";
-import {
-  AudioLines,
-  Clapperboard,
-  Film,
-  Grid2x2,
-  Images,
-  Scissors,
-  Users,
-  Zap,
-} from "lucide-react";
+import { AudioLines, Clapperboard, Film, Grid2x2, Images, Scissors, Users, Zap } from "lucide-react";
+import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import { useAssistantStore } from "@/stores/assistant-store";
+import type { SkillInfo } from "@/types";
 
-/** Lucide icon name → component mapping for icons provided by the API. */
+/** 接口给出的 Lucide 图标名 → 图标组件。 */
 const ICON_MAP: Record<string, LucideIcon> = {
   clapperboard: Clapperboard,
   images: Images,
@@ -24,157 +19,137 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "audio-lines": AudioLines,
 };
 
-/** Resolve skill display name from i18n; returns undefined on miss so caller can fall back to /skill-name. */
-function useSkillLabel(): (skillName: string) => string | undefined {
-  const { t } = useTranslation("dashboard");
-  return (skillName: string) => {
-    const key = `skill_name_${skillName.replace(/-/g, "_")}`;
-    // i18next defaultValue: undefined → returns undefined if key missing.
-    const value = t(key, { defaultValue: undefined });
-    return typeof value === "string" && value.length > 0 ? value : undefined;
-  };
+/** 技能的本地化显示名；没有译名时返回 undefined，由调用方回退到 /技能名。 */
+function skillLabel(t: TFunction, skillName: string): string | undefined {
+  const value = t(`dashboard:skill_name_${skillName.replace(/-/g, "_")}`, { defaultValue: undefined });
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-export interface SlashCommandMenuHandle {
-  /** Returns true if the key was consumed (caller should preventDefault). */
-  handleKeyDown: (key: string) => boolean;
-  /** ID of the currently active option for aria-activedescendant. */
-  activeDescendantId: string | undefined;
+/** 按「/」后面的文字筛选技能：匹配技能名、说明或本地化显示名。 */
+export function useSlashCommands(filter: string | null): SkillInfo[] {
+  const { t } = useTranslation("dashboard");
+  const skills = useAssistantStore((s) => s.skills);
+  return useMemo(() => {
+    if (filter === null) return [];
+    const query = filter.toLowerCase();
+    // 后端已滤掉用户不能直接调用的技能
+    return skills.filter(
+      (skill) =>
+        skill.name.toLowerCase().includes(query) ||
+        skill.description.toLowerCase().includes(query) ||
+        (skillLabel(t, skill.name) ?? "").toLowerCase().includes(query),
+    );
+  }, [filter, skills, t]);
 }
 
 interface SlashCommandMenuProps {
-  readonly filter: string;
-  readonly onSelect: (command: string) => void;
+  /** 输入框外框：菜单浮在它的上方，与它同宽。 */
+  anchor: RefObject<HTMLElement | null>;
+  /** 已筛选的技能；为空时不显示菜单。 */
+  skills: SkillInfo[];
+  /** 当前高亮的技能名，由输入框的方向键驱动。 */
+  active: string | undefined;
+  onActiveChange: (name: string) => void;
+  onSelect: (command: string) => void;
+  onClose: () => void;
+  /** 列表与高亮项渲染后的 DOM id，供输入框的 aria-controls 与 aria-activedescendant 引用。 */
+  onIdsChange: (listId: string | undefined, activeId: string | undefined) => void;
 }
 
-const MENU_ID = "slash-command-menu";
+// ---------------------------------------------------------------------------
+// SlashCommandMenu — 输入「/」时浮在输入框上方的技能菜单。
+// 焦点始终留在输入框里：方向键与回车由输入框处理，菜单只负责展示与指针选择。
+// ---------------------------------------------------------------------------
 
-/**
- * Slash command popover — appears above the input when user types "/".
- * Filters skills by the text after "/", supports keyboard navigation.
- */
-export const SlashCommandMenu = forwardRef<SlashCommandMenuHandle, SlashCommandMenuProps>(
-  function SlashCommandMenu({ filter, onSelect }, ref) {
-    const { skills } = useAssistantStore();
-    const resolveLabel = useSkillLabel();
-    const [activeIndex, setActiveIndex] = useState(0);
+export function SlashCommandMenu({
+  anchor,
+  skills,
+  active,
+  onActiveChange,
+  onSelect,
+  onClose,
+  onIdsChange,
+}: SlashCommandMenuProps) {
+  const { t } = useTranslation("dashboard");
+  const open = skills.length > 0;
+  const activeName = useMemo(
+    () => (active && skills.some((skill) => skill.name === active) ? active : skills[0]?.name),
+    [active, skills],
+  );
 
-    const query = filter.toLowerCase();
-    // Backend already filters out non-user-invocable skills
-    const filtered = skills.filter(
-      (s) =>
-        s.name.toLowerCase().includes(query) ||
-          s.description.toLowerCase().includes(query) ||
-          (resolveLabel(s.name) ?? "").toLowerCase().includes(query),
-    );
+  // cmdk 给列表与选项生成自己的 id，并在自己的提交里异步更新选中项；输入框要引用它们，只能等 DOM
+  // 落定后读出来。弹层在打开后的下一次提交才挂上列表，所以列表元素记在 state 里，挂上后监听变化
+  const [list, setList] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !list) {
+      onIdsChange(undefined, undefined);
+      return;
+    }
+    const sync = () => {
+      const activeItem = list.querySelector<HTMLElement>('[cmdk-item][aria-selected="true"]');
+      onIdsChange(list.id || undefined, activeItem?.id || undefined);
+      activeItem?.scrollIntoView?.({ block: "nearest" });
+    };
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(list, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-selected"] });
+    return () => observer.disconnect();
+  }, [open, list, onIdsChange]);
 
-    // Reset active index when filter or list changes
-    useEffect(() => {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 输入或匹配列表变化时把选中项重置回首项，是有意的 UI 同步
-      setActiveIndex(0);
-    }, [filter, filtered.length]);
-
-    // Scroll active item into view
-    const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-    useEffect(() => {
-      itemRefs.current.get(activeIndex)?.scrollIntoView?.({ block: "nearest" });
-    }, [activeIndex]);
-
-    // Expose keyboard handler to parent
-    useImperativeHandle(ref, () => ({
-      handleKeyDown(key: string): boolean {
-        if (filtered.length === 0) return false;
-        switch (key) {
-          case "ArrowDown":
-            setActiveIndex((prev) => (prev + 1) % filtered.length);
-            return true;
-          case "ArrowUp":
-            setActiveIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
-            return true;
-          case "Enter": {
-            const skill = filtered[activeIndex];
-            if (skill) onSelect(`/${skill.name}`);
-            return true;
-          }
-          case "Escape":
-            return true; // parent handles close
-          default:
-            return false;
-        }
-      },
-      get activeDescendantId() {
-        return filtered.length > 0 ? `${MENU_ID}-option-${activeIndex}` : undefined;
-      },
-    }), [activeIndex, filtered, onSelect]);
-
-    if (filtered.length === 0) return null;
-
-    return (
-      <div
-        id={MENU_ID}
-        role="listbox"
-        aria-label="技能命令菜单"
-        className="arc-glass-panel absolute bottom-full left-0 right-0 mb-1 max-h-52 overflow-y-auto rounded-lg py-1"
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <PopoverContent
+        anchor={anchor}
+        side="top"
+        align="start"
+        sideOffset={6}
+        initialFocus={false}
+        finalFocus={false}
+        className="w-(--anchor-width)"
       >
-        {filtered.map((skill, i) => {
-          const Icon = (skill.icon && ICON_MAP[skill.icon]) || Zap;
-          const label = resolveLabel(skill.name);
-          const isActive = i === activeIndex;
-          return (
-            <button
-              key={skill.name}
-              ref={(el) => {
-                if (el) itemRefs.current.set(i, el);
-                else itemRefs.current.delete(i);
-              }}
-              id={`${MENU_ID}-option-${i}`}
-              role="option"
-              aria-selected={isActive}
-              type="button"
-              // Use onMouseDown + preventDefault to keep textarea focus
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect(`/${skill.name}`);
-              }}
-              onMouseEnter={() => setActiveIndex(i)}
-              className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] transition-colors"
-              style={{
-                background: isActive ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
-              }}
-            >
-              <Icon
-                className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                style={{ color: "var(--primary)" }}
-              />
-              <div className="min-w-0">
-                <span
-                  className="font-medium"
-                  style={{ color: "var(--foreground)" }}
-                >
-                  {label && (
-                    <>
-                      {label}
-                      <span
-                        className="ml-1.5"
-                        style={{ color: "var(--muted-foreground)" }}
-                      >
-                        /{skill.name}
+        <Command
+          shouldFilter={false}
+          loop
+          value={activeName ?? ""}
+          onValueChange={onActiveChange}
+          label={t("slash_menu_label")}
+          className="-m-1.5"
+        >
+          {/* cmdk 列表的可访问名称取自 label，默认是英文「Suggestions」 */}
+          <CommandList ref={setList} label={t("slash_menu_label")}>
+            <CommandGroup>
+              {skills.map((skill) => {
+                const Icon = (skill.icon && ICON_MAP[skill.icon]) || Zap;
+                const label = skillLabel(t, skill.name);
+                return (
+                  <CommandItem
+                    key={skill.name}
+                    value={skill.name}
+                    onSelect={() => onSelect(`/${skill.name}`)}
+                    // 按下时不让输入框失焦，选择后光标仍在原处
+                    onMouseDown={(event) => event.preventDefault()}
+                    className="items-start"
+                  >
+                    <Icon aria-hidden className="mt-0.5 text-primary" />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate">
+                        {label ?? `/${skill.name}`}
+                        {label && <span className="ml-1.5 text-muted-foreground">/{skill.name}</span>}
                       </span>
-                    </>
-                  )}
-                  {!label && <>/{skill.name}</>}
-                </span>
-                <p
-                  className="truncate text-[11px]"
-                  style={{ color: "var(--muted-foreground)" }}
-                >
-                  {skill.description}
-                </p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    );
-  },
-);
+                      <span className="truncate text-xs text-muted-foreground">{skill.description}</span>
+                    </span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
