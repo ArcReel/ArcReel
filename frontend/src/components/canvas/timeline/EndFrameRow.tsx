@@ -32,6 +32,8 @@ interface EndFrameRowProps {
   onSubmittingChange?: (submitting: boolean) => void;
   /** 视频卡的手动上传占用：同一分镜的视频文件正在上传时反向禁用本行的写入通道，避免与其共享的资产落盘并发冲突。 */
   videoUploadBusy?: boolean;
+  /** 本分镜的修改正在保存：「保存并生成」落定后紧接着入队视频，期间改尾帧会让视频用上旧尾帧。 */
+  shotSaving?: boolean;
 }
 
 /**
@@ -59,6 +61,7 @@ export function EndFrameRow({
   readOnly = false,
   onSubmittingChange,
   videoUploadBusy = false,
+  shotSaving = false,
 }: EndFrameRowProps) {
   const { t } = useTranslation("dashboard");
   const panelId = useId();
@@ -83,10 +86,16 @@ export function EndFrameRow({
   // 兄弟控件同步：更换 / 清除 / 选图器的提交入口共读这一个值。
   // 只含占用维度——能力维度（不支持、以及「尚未查到」）一律不参与门控：既然不支持都不
   // 拦，等待查询结果更没有可拦的理由，否则换模型后又会凭能力管线短暂灰掉写入控件。
-  const controlsDisabled = videoBusy || submitting || viewOnly;
+  const controlsDisabled = videoBusy || shotSaving || submitting || viewOnly;
 
   // 灰化控件的 hover 原因。
-  const disabledHint = !viewOnly && videoBusy ? t("end_frame_busy_hint") : undefined;
+  const disabledHint = viewOnly
+    ? undefined
+    : videoBusy
+      ? t("end_frame_busy_hint")
+      : shotSaving
+        ? t("common:save_status_saving")
+        : undefined;
 
   // 已设尾帧 + 模型明确不支持才告警：未设尾帧的分镜没有会被拒绝的东西，不该打扰。
   const showUnsupportedNotice = unsupported && !!endFramePath;
@@ -96,6 +105,10 @@ export function EndFrameRow({
    * 一个竞态窗口。命中则拒绝并给出可见反馈。
    */
   const rejectIfDisabled = (): boolean => {
+    if (shotSaving) {
+      useAppStore.getState().pushToast(t("common:save_status_saving"), "info");
+      return true;
+    }
     if (videoUploadBusy) {
       useAppStore.getState().pushToast(t("end_frame_busy_hint"), "info");
       return true;

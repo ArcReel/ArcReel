@@ -8,6 +8,7 @@ import { EpisodeHeaderActions } from "../episode-page/EpisodeHeaderActions";
 import type { EpisodeCanvasContext } from "../episode-page/EpisodePage";
 import { ScriptReviewGate } from "../timeline/ScriptReviewGate";
 import { PromptAuthoringButton } from "../shared/PromptAuthoringButton";
+import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { ShotSplitView } from "../timeline/ShotSplitView";
 import { EmptyScriptState } from "../timeline/EmptyScriptState";
 import { StoryboardBatchDialog } from "../timeline/StoryboardBatchDialog";
@@ -256,7 +257,7 @@ export function GridImageToVideoCanvas({
       )}
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {view === "plan" && hasDraft && editorContentMode ? (
+        <RetainedEditUnit identity={episodeScript && segments.length > 0 ? "shots" : "empty"} message={t("shot_externally_removed")} value={view === "plan" && hasDraft && editorContentMode ? (
           <div className="relative h-full overflow-y-auto p-4">
             <ScriptReviewGate
               key={`${projectName}:${episode}`}
@@ -310,7 +311,9 @@ export function GridImageToVideoCanvas({
             contentMode={editorContentMode}
             onInsert={handleInsertShot}
           />
-        ) : null}
+        ) : null}>
+          {(content) => content}
+        </RetainedEditUnit>
       </div>
     </div>
   );

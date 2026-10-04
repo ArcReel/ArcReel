@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import type { Locator, Page } from "@playwright/test";
+import { box, viewport, waitForEntrance, clearAgentOverlay } from "../support/region-helpers.ts";
+import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { FIXED_NOW, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 集页页头：集头与制作进度入口一行，视图 tab 与当前视图的批量动作一行。
@@ -12,9 +11,6 @@ const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-function recorded<T>(file: string): T {
-  return (JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse).body as T;
-}
 
 interface RecordedProject {
   project: { episodes: Record<string, unknown>[] } & Record<string, unknown>;
@@ -211,38 +207,16 @@ const NO_SCRIPT_PLAN: ApiOverrides = {
 
 // 两行页头：44px 与 40px 两行加 1px 底边。
 const HEADER_HEIGHT = 85;
-const COMPACT_TIER_MAX_WIDTH = 1279;
 
 const viewTabs = (page: Page) => page.getByRole("tablist", { name: "集视图" });
 const header = (page: Page) => page.getByRole("main").locator("header").filter({ has: viewTabs(page) });
 const viewArea = (page: Page) => page.getByRole("tabpanel");
 const progress = (page: Page) => page.getByTestId("workflow-panel");
 const progressPopover = (page: Page) => page.getByRole("dialog", { name: "制作进度" });
-const agentToggle = (page: Page) => page.getByRole("button", { name: "Agent", exact: true });
 
-async function box(locator: Locator) {
-  const rect = await locator.boundingBox();
-  if (!rect) throw new Error("元素不可见");
-  return rect;
-}
 
-function viewport(page: Page) {
-  const size = page.viewportSize();
-  if (!size) throw new Error("没有视口尺寸");
-  return size;
-}
 
 /** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
-async function waitForEntrance(target: Locator) {
-  await target.evaluate((el) =>
-    Promise.allSettled(
-      el
-        .getAnimations({ subtree: true })
-        .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
-        .map((animation) => animation.finished),
-    ),
-  );
-}
 
 async function pageReady(page: Page) {
   await viewTabs(page).waitFor();
@@ -250,11 +224,6 @@ async function pageReady(page: Page) {
 }
 
 /** 紧凑档 Agent 面板盖在画布右侧，页头行尾的入口在它底下：先收起再操作。 */
-async function clearAgentOverlay(page: Page) {
-  if (viewport(page).width > COMPACT_TIER_MAX_WIDTH) return;
-  await agentToggle(page).click();
-  await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "false");
-}
 
 defineRegionScenarios("集页页头", [
   {

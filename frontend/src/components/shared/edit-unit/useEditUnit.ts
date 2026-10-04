@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useState } from "react";
 
 import { errMsg } from "@/utils/async";
+
+import { EditUnitRetentionContext } from "./RetainedEditUnit";
 
 import { useLeaveGuard } from "./LeaveGuard";
 
@@ -51,6 +53,8 @@ export interface EditUnit<T> {
   error: string | null;
   /** 有未保存修改期间，已保存内容被外部更新。放弃修改即采用新内容。 */
   externallyUpdated: boolean;
+  /** 外部移除或替换了当前单元，保留可见内容时的说明。 */
+  externalChangeMessage?: string;
   /** 提交未保存修改，返回是否成功；没有修改时直接返回 true。 */
   save: () => Promise<boolean>;
   /** 丢弃未保存修改，回到最新的已保存内容。 */
@@ -134,6 +138,12 @@ export function useEditUnit<T>({
 
   const { value, saved, status, error } = current;
   const dirty = !isEqual(value, saved);
+  const retention = useContext(EditUnitRetentionContext);
+  const protect = retention?.protect;
+  useLayoutEffect(() => {
+    protect?.(dirty || status === "saving");
+    return () => protect?.(false);
+  }, [protect, dirty, status]);
 
   useEffect(() => {
     if (status !== "saved") return;
@@ -202,7 +212,8 @@ export function useEditUnit<T>({
     [save],
   );
 
-  useLeaveGuard({ dirty, saving: status === "saving", save, discard, title: leaveTitle, allowNavigation });
+  // 外部替换后，可见单元已与真实视图分离，旧视图的放行规则不能继续用于主动跳转。
+  useLeaveGuard({ dirty, saving: status === "saving", save, discard, title: leaveTitle, allowNavigation: retention?.message ? undefined : allowNavigation });
 
   return {
     value,
@@ -211,7 +222,8 @@ export function useEditUnit<T>({
     dirty,
     status,
     error,
-    externallyUpdated: current.externallyUpdated && dirty,
+    externallyUpdated: (current.externallyUpdated || Boolean(retention?.message)) && dirty,
+    externalChangeMessage: retention?.message,
     save,
     discard,
     saveAndGenerate,

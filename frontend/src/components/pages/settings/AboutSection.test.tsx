@@ -110,7 +110,7 @@ describe("AboutSection release notes", () => {
     await user.click(toggle);
 
     expect(await screen.findByText(/faster exports/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /打开 GitHub Release/ })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /打开 GitHub Release/ })).toHaveAttribute(
       "href",
       "https://github.com/example/ArcReel/releases/tag/v1.1.0",
     );

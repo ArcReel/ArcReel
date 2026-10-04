@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScriptReviewGate } from "./ScriptReviewGate";
 import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
+import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { ShotSplitView } from "./ShotSplitView";
 import { StoryboardBatchDialog } from "./StoryboardBatchDialog";
 import { EmptyScriptState } from "./EmptyScriptState";
@@ -249,7 +250,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
       {/* 主体 */}
       <div className="flex min-h-0 flex-1 flex-col" data-onboarding={ONBOARDING_ANCHORS.workbenchTimeline}>
-        {view === "plan" && hasDraft && editorContentMode !== "ad" ? (
+        <RetainedEditUnit identity={episodeScript && segments.length > 0 ? "shots" : "empty"} message={t("shot_externally_removed")} value={view === "plan" && hasDraft && editorContentMode !== "ad" ? (
           <div className="relative h-full overflow-y-auto p-4">
             <ScriptReviewGate
               key={`${projectName}:${episode}`}
@@ -297,7 +298,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             {hasScript ? t("timeline_no_editable_segments") : t("timeline_script_not_ready")}
           </div>
-        )}
+        )}>
+          {(content) => content}
+        </RetainedEditUnit>
       </div>
     </div>
   );

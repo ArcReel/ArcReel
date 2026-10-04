@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "wouter";
 
+import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
+import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { EPISODE_VIEW_PARAM } from "@/app-routes";
 import { EditTimelineView } from "@/components/canvas/edit/EditTimelineView";
 import { EditTimelineEmptyState } from "@/components/canvas/edit-render/EditTimelineEmptyState";
@@ -51,7 +53,7 @@ export interface EpisodeCanvasContext {
  * 切换时画布不卸载；画布里的编辑单元只挂在某一个视图下，经 `EpisodeViewFactsProvider` 判断哪些跳转会卸载自己。
  * 剪辑视图替换整个画布。剧本还没生成时脚本规划视图是集原文确认。
  */
-export function EpisodePage({
+function EpisodePageContent({
   projectName,
   episode,
   projectData,
@@ -105,6 +107,23 @@ export function EpisodePage({
     [view, tabs, facts, setSearchParams],
   );
 
+  // 制作进度里的「查看」：分镜与视频单元只在分镜视图里选得中。不在该视图时，切视图与定位合成一次离开拦截，
+  // 放行后才发出定位请求；选择继续编辑时什么都不变，也不留下等分镜视图挂载后才消费的定位。
+  const confirmLeave = useConfirmLeave();
+  const viewUnit = useCallback(
+    (unitId: string) => {
+      if (view === "board") {
+        onViewUnit(unitId);
+        return;
+      }
+      confirmLeave(() => {
+        changeView("board", { replace: true });
+        onViewUnit(unitId);
+      });
+    },
+    [view, changeView, onViewUnit, confirmLeave],
+  );
+
   useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => changeView("plan"));
   useEpisodeSurfaceRequest(projectName, episode, "prompt_authoring_draft", () => changeView("board"));
 
@@ -153,7 +172,7 @@ export function EpisodePage({
   } else if (demo && !script) {
     body = <DemoEpisodePlaceholder />;
   } else if (sourceReview) {
-    body = <EpisodeSourceReview projectName={projectName} episode={episode} episodes={projectData?.episodes ?? []} />;
+    body = <EpisodeViewFactsProvider value={facts}><EpisodeSourceReview projectName={projectName} episode={episode} episodes={projectData?.episodes ?? []} /></EpisodeViewFactsProvider>;
   } else {
     body = <EpisodeViewFactsProvider value={facts}>{renderCanvas({ view, onViewChange: changeView })}</EpisodeViewFactsProvider>;
   }
@@ -181,7 +200,7 @@ export function EpisodePage({
               <WorkflowPanel
                 projectName={projectName}
                 episode={episode}
-                onViewUnit={onViewUnit}
+                onViewUnit={viewUnit}
                 onRegenerate={onRegenerate}
                 onAuthorPrompts={script ? openAuthorPrompts : undefined}
               />
@@ -215,5 +234,20 @@ export function EpisodePage({
         </div>
       </div>
     </EpisodeHeaderSlotProvider>
+  );
+}
+
+/** 保留的是可见集页；原文编辑期间脚本到达，不让异步事件卸载编辑器。 */
+export function EpisodePage(props: Parameters<typeof EpisodePageContent>[0]) {
+  const { t } = useTranslation("dashboard");
+  const meta = props.projectData?.episodes?.find((entry) => entry.episode === props.episode);
+  const source = Boolean(meta) && !props.script && meta?.script_status !== "segmented" && meta?.script_status !== "generated"
+    && props.projectData?.content_mode !== "ad" && !props.demo;
+  const identity = `${props.projectName}:${props.episode}:${!meta ? "missing" : source ? "source" : props.script ? "script" : "draft"}`;
+  const message = !meta ? "episode_externally_removed" : props.script || meta.script_status === "generated" || meta.script_status === "segmented" ? "episode_source_replaced" : "episode_script_removed";
+  return (
+    <RetainedEditUnit identity={identity} value={props} message={t(message)}>
+      {(shown) => <EpisodePageContent {...shown} />}
+    </RetainedEditUnit>
   );
 }

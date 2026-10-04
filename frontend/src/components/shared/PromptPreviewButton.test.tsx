@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PromptPreviewButton } from "./PromptPreviewButton";
+import { createDeferred } from "@/test/deferred";
 import { copyText } from "@/utils/clipboard";
 import type { RenderedPromptPreview } from "@/types";
 
@@ -119,4 +120,15 @@ describe("PromptPreviewButton", () => {
 
     expect(await within(dialog).findByRole("list", { name: "参考图" })).toHaveTextContent("角色A.png");
   });
+  it("前置保存期间卸载后，不再打开或请求预览", async () => {
+    const saved = createDeferred<boolean>();
+    const load = vi.fn().mockResolvedValue(rendered());
+    const { unmount } = render(<PromptPreviewButton title="分镜图最终提示词" load={load} saveFirst beforeOpen={() => saved.promise} />);
+    fireEvent.click(screen.getByRole("button", { name: "保存并预览" }));
+    unmount();
+    await act(async () => saved.resolve(true));
+    expect(load).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
 });

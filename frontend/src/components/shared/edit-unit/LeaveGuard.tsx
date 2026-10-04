@@ -64,6 +64,7 @@ interface PendingLeave {
 interface LeaveGuardRegistry {
   register: (id: string, unit: LeaveGuardOptions) => () => void;
   confirmLeave: (proceed: () => void, options?: ConfirmLeaveOptions) => void;
+  hasUnsavedChanges: () => boolean;
 }
 
 const LeaveGuardContext = createContext<LeaveGuardRegistry | null>(null);
@@ -96,6 +97,15 @@ export function useConfirmLeave(): (proceed: () => void, options?: ConfirmLeaveO
     },
     [registry],
   );
+}
+
+/**
+ * 返回一个稳定的查询函数：此刻是否有挂载中的编辑单元带着未保存修改。
+ * 供不该打断编辑的自动行为使用（如 Agent 改动带来的自动定位），用户发起的切换仍走 `useConfirmLeave`。
+ */
+export function useHasUnsavedChanges(): () => boolean {
+  const registry = useContext(LeaveGuardContext);
+  return useCallback(() => registry?.hasUnsavedChanges() ?? false, [registry]);
 }
 
 function currentUrl(): string {
@@ -197,8 +207,9 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
         };
       },
       confirmLeave: (proceed, options) => requestLeave(proceed, options),
+      hasUnsavedChanges: () => dirtyUnitIds().length > 0,
     };
-  }, [requestLeave]);
+  }, [requestLeave, dirtyUnitIds]);
 
   const aroundNav = useCallback<AroundNavHandler>(
     (go, to, options) => {

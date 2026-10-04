@@ -21,8 +21,13 @@ interface PendingDeletion {
 /**
  * 删除一集：先向服务端取丢失清单，确认框只呈现服务端成文的清单。没有产物、原文也能重建时用普通确认，
  * 否则按危险操作确认。确认时清单已变，换成新清单再确认一次，不删除。删除后这一集从列表里消失，不另行提示。
+ * `guard` 包住确认删除这一步（如离开拦截）：放在确认之后，取消删除时未保存修改原样保留。
  */
-export function useDeleteEpisode(projectName: string, onDeleted?: (episode: number) => void) {
+export function useDeleteEpisode(
+  projectName: string,
+  onDeleted?: (episode: number) => void,
+  guard?: (proceed: () => void) => void,
+) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [pending, setPending] = useState<PendingDeletion | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,7 +86,7 @@ export function useDeleteEpisode(projectName: string, onDeleted?: (episode: numb
             }
       }
       busy={busy}
-      onConfirm={() => void confirm()}
+      onConfirm={() => (guard ? guard(() => void confirm()) : void confirm())}
       onCancel={() => setPending(null)}
     />
   );

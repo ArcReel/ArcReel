@@ -1,3 +1,6 @@
+import { useRef, useState } from "react";
+import { isResourceBusy } from "@/stores/tasks-store";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { AudioLines, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
@@ -9,6 +12,7 @@ import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { VersionTimeMachine } from "./VersionTimeMachine";
 
 interface NarrationAudioCardProps {
+  readOnly?: boolean;
   projectName: string;
   segmentId: string;
   /** 只读小说原文（旁白文本来源） */
@@ -30,6 +34,7 @@ interface NarrationAudioCardProps {
 }
 
 export function NarrationAudioCard({
+  readOnly = false,
   projectName,
   segmentId,
   novelText,
@@ -42,6 +47,11 @@ export function NarrationAudioCard({
   generateLabel: generateLabelOverride,
 }: NarrationAudioCardProps) {
   const { t } = useTranslation("dashboard");
+  const demo = useDemoWorkbench();
+  const [restoring, setRestoring] = useState(false);
+  const restoringRef = useRef(false);
+  const checkBusy = () => restoringRef.current || isResourceBusy("tts", projectName, segmentId);
+  const onRestoringChange = (next: boolean) => { restoringRef.current = next; setRestoring(next); };
   // 与 ShotDetail 的按钮禁用判定共用同一套 trim 规则，避免"卡片有正文、按钮却禁用"的矛盾态
   const hasNovelText = novelText.trim().length > 0;
 
@@ -64,7 +74,10 @@ export function NarrationAudioCard({
             resourceType="audio"
             resourceId={segmentId}
             iconOnly
-            busy={Boolean(generating)}
+            readOnly={readOnly || demo}
+            busy={Boolean(generating) || restoring}
+            checkBusy={checkBusy}
+            onRestoringChange={onRestoringChange}
           />
         </div>
       </div>
@@ -97,7 +110,7 @@ export function NarrationAudioCard({
           className="mt-2.5 w-full"
           size="lg"
           onClick={onGenerate}
-          disabled={generateDisabled || generating}
+          disabled={generateDisabled || generating || restoring || readOnly || demo}
           title={generateDisabled ? generateDisabledHint : undefined}
         >
           <Sparkles aria-hidden data-icon="inline-start" />

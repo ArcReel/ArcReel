@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 
+import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,7 +77,9 @@ export function EpisodeHead({
   const cost = useCostStore((s) =>
     s.costData?.project_name === projectName ? s._episodeIndex.get(episode) : undefined,
   );
-  const deletion = useDeleteEpisode(projectName, () => setLocation(episodesViewPath()));
+  const confirmLeave = useConfirmLeave();
+  // 离开拦截放在确认删除这一步：先问未保存修改再确认删除，放弃后取消删除就白丢了修改
+  const deletion = useDeleteEpisode(projectName, () => setLocation(episodesViewPath()), confirmLeave);
 
   const facts: string[] = [];
   if (meta?.item_count != null) facts.push(t(itemCountKey(route), { count: meta.item_count }));

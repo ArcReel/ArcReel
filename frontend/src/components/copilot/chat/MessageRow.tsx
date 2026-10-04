@@ -220,8 +220,8 @@ function ActionRow({ align, children }: { align: "start" | "end"; children: Reac
     <div
       className={
         align === "end"
-          ? "flex h-7 items-center gap-0.5 self-end opacity-0 transition-opacity duration-fast group-hover/message:opacity-100 group-focus-within/message:opacity-100"
-          : "flex h-7 items-center gap-0.5 self-start opacity-0 transition-opacity duration-fast group-hover/message:opacity-100 group-focus-within/message:opacity-100"
+          ? "flex h-7 items-center gap-0.5 self-end opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
+          : "flex h-7 items-center gap-0.5 self-start opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
       }
     >
       {children}

@@ -134,6 +134,8 @@ function RenameDialog({ open, projectName, timeline, onClose, onRenamed }: Dialo
       onClose();
     } catch (cause) {
       setError(t("edit_view_rename_failed", { message: errMsg(cause) }));
+    } finally {
+      // 改名不换 id，对话框不会重新挂载：成功后也要复位，否则下次打开时整个对话框都是禁用的
       setSaving(false);
     }
   };

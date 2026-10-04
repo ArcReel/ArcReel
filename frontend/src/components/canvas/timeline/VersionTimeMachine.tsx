@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Download, History } from "lucide-react";
 import { cn } from "cn";
@@ -80,53 +80,40 @@ export function VersionTimeMachine({
     resourceType === "grids" ? `grids/${resourceId}.png` :
     `props/${resourceId}.png`;
   const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
-  // 每次底层资源切换递增；在途的版本列表请求返回时若已不是同一资源，结果丢弃。
-  const resourceEpochRef = useRef(0);
-
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [currentVersion, setCurrentVersion] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [loadedOnce, setLoadedOnce] = useState(false);
+  const [reload, setReload] = useState(0);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
 
-  // Reset version list when the underlying resource changes so it's re-fetched
-  // on next open. Do NOT close the panel — if it's open and a new generation
-  // completes, the user should stay in context and see the refreshed list.
-  useEffect(() => {
-    resourceEpochRef.current += 1;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 底层资源切换时重置版本列表与加载状态，等下次打开面板时重新拉取
-    setVersions([]);
-    setCurrentVersion(0);
-    setLoading(false);
-    setLoadedOnce(false);
-    setSelectedVersion(null);
-    setRestoringVersion(null);
-  }, [resourceFp, projectName, resourceId, resourceType]);
-
-  // Fetch versions once when panel first opens
-  useEffect(() => {
-    if (!open || loadedOnce || !resourceId) return;
-    void loadVersions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadVersions 是组件内普通函数，无法稳定化；加入 deps 会导致每次渲染重复触发
-  }, [open, loadedOnce, resourceId]);
-
-  async function loadVersions() {
-    const epoch = resourceEpochRef.current;
+  const loadVersions = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
     try {
-      const data = await API.getVersions(projectName, resourceType, resourceId);
-      if (epoch !== resourceEpochRef.current) return;
+      const data = await API.getVersions(projectName, resourceType, resourceId, { signal });
+      if (signal.aborted) return;
       setVersions(data.versions);
       setCurrentVersion(data.current_version);
-      setLoadedOnce(true);
     } catch {
-      if (epoch === resourceEpochRef.current) setVersions([]);
+      if (!signal.aborted) setVersions([]);
     } finally {
-      if (epoch === resourceEpochRef.current) setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
-  }
+  }, [projectName, resourceType, resourceId]);
+
+  useEffect(() => {
+    if (!open || !resourceId) return;
+    const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开或资源更新时启动带取消信号的版本加载，并同步展示加载状态
+    void loadVersions(controller.signal);
+    return () => controller.abort();
+  }, [open, resourceId, resourceFp, reload, loadVersions]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 资源身份或版本改变，预览选中态不沿用另一份资源
+    setSelectedVersion(null);
+  }, [projectName, resourceId, resourceType, resourceFp]);
 
   async function handleRestore(version: number) {
     // disabled 是响应式的 restoringVersion/busy：面板打开期间资源转为占用中时随之更新，
@@ -145,7 +132,7 @@ export function VersionTimeMachine({
         useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
       }
       await onRestore?.(version);
-      await loadVersions();
+      setReload((current) => current + 1);
       // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示
       setSelectedVersion(version);
     } catch (err) {

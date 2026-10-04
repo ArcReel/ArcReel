@@ -1,6 +1,13 @@
 import type enDashboard from "@/i18n/en/dashboard";
 
 export default {
+  reference_prompt_draft_replaced: "Tập này có bản nháp lời nhắc mới. Lưu hoặc bỏ thay đổi để xem bản nháp.",
+  episode_externally_removed: "Tập này đã bị xóa. Việc lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.",
+  episode_script_removed: "Kịch bản của tập đã bị xóa. Việc lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.",
+  shot_externally_removed: 'Phân cảnh này đã bị xóa. Lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.',
+  reference_unit_externally_removed: 'Đơn vị video này đã bị xóa. Lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.',
+  episode_source_replaced: 'Tập này có nội dung kịch bản mới. Lưu hoặc bỏ thay đổi để mở bảng phân cảnh.',
+  prompt_preview_save_first: 'Lưu và xem trước',
   'app_title': '[[brand]]',
   'projects': 'Dự án',
   'create_project': 'Tạo dự án',
@@ -652,7 +659,6 @@ export default {
   'prompt_form_to_structured_desc': 'Lời nhắc dạng văn bản sẽ bị bỏ và không được phân tích ngược thành các trường có cấu trúc, bạn cần nhập lại.',
   'prompt_form_to_structured_confirm': 'Bỏ và chuyển',
   'reference_prompt_preview_title': 'Lời nhắc video tham chiếu',
-  'reference_prompt_preview_notice': 'Tính theo khả năng hiện tại của mô hình; lấy kết quả thực thi làm chuẩn',
   'reference_prompt_preview_images': 'Ảnh tham chiếu gửi cùng yêu cầu',
   'reference_prompt_preview_image': 'Ảnh {{index}} · {{name}}',
   'reference_prompt_preview_no_images': 'Yêu cầu này không gửi kèm ảnh tham chiếu',
@@ -662,8 +668,6 @@ export default {
   'prompt_preview_copy': 'Sao chép lời nhắc cuối cùng',
   'prompt_preview_refresh': 'Kết xuất lại',
   'prompt_preview_loading': 'Đang kết xuất…',
-  'prompt_preview_saved_only': 'Kết xuất từ nội dung đã lưu; đây chính là lời nhắc cuối cùng gửi tới mô hình.',
-  'prompt_preview_saved_only_dirty': 'Bạn có thay đổi chưa lưu; bản xem trước vẫn theo nội dung đã lưu.',
   'prompt_preview_warnings_label': 'Lưu ý khi tạo',
   'message_edit': 'Sửa tin nhắn này và gửi lại từ đây',
   'message_edit_attachment': 'Tệp đính kèm {{index}}/{{total}} đang chỉnh sửa',

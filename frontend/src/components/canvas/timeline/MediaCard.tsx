@@ -1,3 +1,5 @@
+import { useRef, useState } from "react";
+import { isResourceBusy } from "@/stores/tasks-store";
 import { Sparkles, ImageIcon, Film } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
@@ -23,6 +25,9 @@ type MediaKind = "storyboard" | "video";
 
 interface MediaCardProps {
   kind: MediaKind;
+  restoring?: boolean;
+  onRestoringChange?: (restoring: boolean) => void;
+  checkBusy?: () => boolean;
   projectName: string;
   segmentId: string;
   /** 资产相对路径，如 storyboards/E1S2_v1.png */
@@ -78,8 +83,19 @@ export function MediaCard({
   uploading,
   uploadDisabled,
   editScriptFile,
+  restoring: externalRestoring,
+  onRestoringChange,
+  checkBusy,
 }: MediaCardProps) {
   const { t } = useTranslation("dashboard");
+  const [restoring, setRestoring] = useState(false);
+  const restoringRef = useRef(false);
+  const freshBusy = () => restoringRef.current || Boolean(checkBusy?.()) || isResourceBusy(kind, projectName, segmentId);
+  const setRestoreBusy = (next: boolean) => {
+    restoringRef.current = next;
+    setRestoring(next);
+    onRestoringChange?.(next);
+  };
   // 演示态只读：卡片上的四个写入口（上传 / 编辑 / 版本恢复 / 生成）从同一处判定关闭，
   // 不再各自靠「对应回调是否传入」推断——那让版本入口与其余入口分属两套机制。
   const demoReadOnly = useDemoWorkbench();
@@ -106,7 +122,7 @@ export function MediaCard({
     kind === "storyboard" ? "storyboards" : "videos";
   // uploadDisabled 是本卡片之外的互斥占用（如同一分镜另一张卡在上传中）；
   // 编辑/版本恢复/生成同样写这个资源，须一并禁用，否则会与占用中的写操作并发冲突。
-  const resourceBusy = generating || uploading || uploadDisabled;
+  const resourceBusy = generating || uploading || uploadDisabled || restoring || externalRestoring;
 
   return (
     <div>
@@ -123,8 +139,8 @@ export function MediaCard({
                 : t("media_upload_video")
             }
             busy={uploading}
-            disabled={generating || uploadDisabled}
-            onSelect={(f) => void onUpload(f)}
+            disabled={resourceBusy}
+            onSelect={(f) => { if (!freshBusy()) void onUpload(f); }}
           />
         )}
         {kind === "storyboard" && editScriptFile && !demoReadOnly && (
@@ -144,6 +160,8 @@ export function MediaCard({
             resourceId={segmentId}
             onRestore={onRestore}
             busy={resourceBusy}
+            checkBusy={freshBusy}
+            onRestoringChange={setRestoreBusy}
           />
         )}
       </div>

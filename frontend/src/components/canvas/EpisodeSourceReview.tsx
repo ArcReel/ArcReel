@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Anchor, ChevronRight } from "lucide-react";
 import { Link } from "wouter";
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
+import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeMeta } from "@/types";
 import type { SourceKind } from "@/types/episodes-view";
@@ -163,6 +164,12 @@ interface SourceValue {
   kind: SourceKind | null;
 }
 
+/** 原文编辑单元交给同页规划入口的句柄：规划读的是已保存的原文。 */
+interface SourceEditHandle {
+  /** 保存未保存的修改，返回是否可以继续；没有修改时直接返回 true，保存在途时返回 false。 */
+  save: () => Promise<boolean>;
+}
+
 /** 自带原文与无原文的集：原文就地编辑，保存前按需确认改类型。保存后由调用方采用新内容并刷新项目。 */
 function SourceEditor({
   projectName,
@@ -170,15 +177,18 @@ function SourceEditor({
   episodes,
   saved,
   onSaved,
+  editRef,
 }: {
   projectName: string;
   episode: number;
   episodes: EpisodeMeta[];
   saved: SourceValue;
   onSaved: (text: string) => void;
+  editRef: RefObject<SourceEditHandle | null>;
 }) {
   const { t } = useTranslation("dashboard");
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   // 改类型的确认：受影响的集，以及等确认结果的保存
   const [pending, setPending] = useState<number[] | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -222,6 +232,23 @@ function SourceEditor({
   const allowNavigation = useStaysInEpisodeView();
   const unit = useEditUnit({ source: saved, save, allowNavigation });
 
+  const saveUnit = unit.save;
+  const saving = unit.status === "saving";
+  useEffect(() => {
+    editRef.current = {
+      save: async () => {
+        if (saving) return false;
+        const done = await saveUnit();
+        // 保存失败的原因显示在原文下方的提示条上：把它带到眼前，规划不提交
+        if (!done) barRef.current?.scrollIntoView({ block: "nearest" });
+        return done;
+      },
+    };
+    return () => {
+      editRef.current = null;
+    };
+  }, [editRef, saveUnit, saving]);
+
   useEpisodeSurfaceRequest(projectName, episode, "episode_source", () => {
     fieldRef.current?.focus();
     fieldRef.current?.scrollIntoView({ block: "center" });
@@ -236,7 +263,7 @@ function SourceEditor({
           <SourceKindSelect
             value={unit.value.kind}
             onChange={(kind) => unit.setValue((prev) => ({ ...prev, kind }))}
-            disabled={unit.status === "saving"}
+            disabled={saving}
             label={t("source_kind")}
           />
         </label>
@@ -248,12 +275,16 @@ function SourceEditor({
           variant="plain"
           value={unit.value.text}
           onChange={(event) => unit.setValue((prev) => ({ ...prev, text: event.target.value }))}
+          // 保存期间只读：规划等这次保存落定后读已保存的原文，期间再改会让规划用上旧内容
+          readOnly={saving}
           placeholder={t("episode_workspace_source_placeholder")}
           aria-label={t("episode_workspace_source_title")}
           className="-mx-2.5 min-h-40 max-h-none"
         />
       </div>
-      <UnsavedChangesBar unit={unit} className="max-w-[40em]" />
+      <div ref={barRef}>
+        <UnsavedChangesBar unit={unit} className="max-w-[40em]" />
+      </div>
       <ImpactConfirmDialog
         request={
           pending && {
@@ -290,11 +321,13 @@ function EpisodeSource({
   episode,
   episodes,
   meta,
+  editRef,
 }: {
   projectName: string;
   episode: number;
   episodes: EpisodeMeta[];
   meta: EpisodeMeta | undefined;
+  editRef: RefObject<SourceEditHandle | null>;
 }) {
   const { t } = useTranslation("dashboard");
   const titleId = useId();
@@ -304,6 +337,7 @@ function EpisodeSource({
   // 无原文的集没有集原文文件：盘上同名的 episode_N.txt 是未登记文件，不当作本集原文读取
   const withoutSource = meta !== undefined && origin === "none";
   const fetchKey = `${projectName}::${episode}`;
+  const sourceRevision = useAppStore((s) => s.getEntityRevision(`episode:${episode}`) + s.getEntityRevision("project:project"));
   // 取到的原文带上归属 key，加载中由 key 是否匹配派生；无原文的集只显示本页刚保存的内容
   const [fetched, setFetched] = useState<{ key: string; text: string | null } | null>(null);
 
@@ -316,7 +350,7 @@ function EpisodeSource({
         if (!controller.signal.aborted) setFetched({ key: `${projectName}::${episode}`, text });
       });
     return () => controller.abort();
-  }, [projectName, episode, withoutSource]);
+  }, [projectName, episode, withoutSource, sourceRevision]);
 
   const loading = !withoutSource && fetched?.key !== fetchKey;
   const text = fetched?.key === fetchKey ? fetched.text : null;
@@ -340,6 +374,7 @@ function EpisodeSource({
         episodes={episodes}
         saved={saved}
         onSaved={handleSaved}
+        editRef={editRef}
       />
     );
   } else if (text) {
@@ -387,6 +422,9 @@ export function EpisodeSourceReview({
 }) {
   const meta = episodes.find((e) => e.episode === episode);
   const guide = hasGuide(meta);
+  // 规划读的是已保存的原文：同页原文有未保存修改时先保存，保存失败或不确认改类型时不提交
+  const sourceRef = useRef<SourceEditHandle | null>(null);
+  const saveSource = useCallback(() => sourceRef.current?.save() ?? Promise.resolve(true), []);
   return (
     <div className="@container/plan-start relative flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
       <div
@@ -401,9 +439,10 @@ export function EpisodeSourceReview({
             projectName={projectName}
             episode={episode}
             savedInstructions={meta?.script_plan_instructions ?? ""}
+            prepare={saveSource}
           />
           {guide && <GuideCollapsible key={episode} meta={meta} className="@min-[860px]/plan-start:hidden" />}
-          <EpisodeSource projectName={projectName} episode={episode} episodes={episodes} meta={meta} />
+          <EpisodeSource projectName={projectName} episode={episode} episodes={episodes} meta={meta} editRef={sourceRef} />
         </div>
         {guide && (
           <GuideRail

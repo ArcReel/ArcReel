@@ -19,6 +19,9 @@ export function UnsavedChangesBar({ unit, className }: { unit: EditUnitControls;
     <div className={cn("flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2", className)}>
       <div className="min-w-0 flex-1">
         <SaveStatus unit={unit} />
+        {unit.externalChangeMessage ? (
+          <p role="status" className="text-sm text-subtle-foreground">{unit.externalChangeMessage}</p>
+        ) : null}
       </div>
       {unit.dirty ? (
         <div className="flex shrink-0 items-center gap-1.5">

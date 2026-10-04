@@ -97,6 +97,22 @@ describe("EditTimelineView tab menu", () => {
     expect(screen.queryByRole("textbox", { name: "显示名" })).not.toBeInTheDocument();
   });
 
+  it("can rename the same timeline again right after a successful rename", async () => {
+    const list = vi.spyOn(API, "listEditTimelines").mockResolvedValue({ timelines: [FIRST, SECOND] });
+    vi.spyOn(API, "renameEditTimeline").mockResolvedValue({ ...SECOND, name: "定稿" });
+
+    renderView();
+    fireEvent.click(within(await openMenu("快节奏版")).getByRole("menuitem", { name: "重命名" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "显示名" }), { target: { value: "定稿" } });
+    list.mockResolvedValue({ timelines: [FIRST, { ...SECOND, name: "定稿" }] });
+    fireEvent.click(screen.getByRole("button", { name: "重命名" }));
+    await screen.findByRole("tab", { name: "定稿" });
+
+    fireEvent.click(within(await openMenu("定稿")).getByRole("menuitem", { name: "重命名" }));
+    expect(await screen.findByRole("textbox", { name: "显示名" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
+  });
+
   it("keeps the rename dialog open and explains a failure", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({ timelines: [FIRST, SECOND] });
     vi.spyOn(API, "renameEditTimeline").mockRejectedValue(new Error("第 1 集已有名为「完整版」的剪辑时间线"));

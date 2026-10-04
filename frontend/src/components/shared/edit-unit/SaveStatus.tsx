@@ -8,7 +8,7 @@ import type { EditUnit } from "./useEditUnit";
 /** 保存栏与内联提示条只用到编辑单元里与内容类型无关的部分。 */
 export type EditUnitControls = Pick<
   EditUnit<unknown>,
-  "dirty" | "status" | "error" | "externallyUpdated" | "save" | "discard"
+  "dirty" | "status" | "error" | "externallyUpdated" | "externalChangeMessage" | "save" | "discard"
 >;
 
 /** 保存栏与内联提示条左侧的状态：有未保存的修改、正在保存、已保存、保存失败、外部更新。 */

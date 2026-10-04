@@ -79,6 +79,22 @@ describe("ShotSplitView 切换拦截与快捷键", () => {
     await waitFor(() => expect(onUpdatePrompt).toHaveBeenLastCalledWith("E1S01", { image_prompt: "雨停后的街道" }));
   });
 
+  it("外部删除当前分镜时保留可见修改，放弃后才显示真实列表里的分镜", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("分镜已不存在"));
+    const view = (items: typeof segments) => <LeaveGuardProvider><ShotSplitView segments={items} contentMode="narration" aspectRatio="9:16" projectName="demo" scriptFile="episode_1.json" onUpdatePrompt={save} /></LeaveGuardProvider>;
+    const { rerender } = render(view(segments));
+    fireEvent.change(screen.getByDisplayValue("雨夜街道"), { target: { value: "保留我的修改" } });
+    rerender(view([segments[1]]));
+    expect(screen.getByDisplayValue("保留我的修改")).toBeInTheDocument();
+    expect(screen.getByText(/这个分镜已被删除/)).toHaveAttribute("role", "status");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("分镜已不存在");
+    expect(screen.getByDisplayValue("保留我的修改")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
+    expect(screen.getByDisplayValue("清晨码头")).toBeInTheDocument();
+  });
+
   it("分镜列表底部常驻快捷键提示", () => {
     renderView();
 

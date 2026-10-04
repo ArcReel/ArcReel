@@ -1,16 +1,12 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import type { Locator, Page } from "@playwright/test";
+import { box, clearAgentOverlay } from "../support/region-helpers.ts";
+import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { FIXED_NOW, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 集页「多宫格分镜图」视图：按章节切分点分组，每组一张卡片，信息栏加联合图媒体栏。
 const GRID_PATH = "/app/projects/demo/episodes/1?view=grid";
 
-function recorded<T>(file: string): T {
-  return (JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse).body as T;
-}
 
 interface RecordedProject {
   project: Record<string, unknown>;
@@ -136,16 +132,9 @@ const API: ApiOverrides = {
   ...Object.fromEntries(GRIDS.map((g) => [`GET /api/v1/projects/demo/grids/${g.id}`, { status: 200, body: g }])),
 };
 
-const COMPACT_TIER_MAX_WIDTH = 1279;
 
 const groupCard = (page: Page, index: number) => page.getByRole("region", { name: new RegExp(`^第 ${index} 组`) });
-const agentToggle = (page: Page) => page.getByRole("button", { name: "Agent", exact: true });
 
-async function box(locator: Locator) {
-  const rect = await locator.boundingBox();
-  if (!rect) throw new Error("元素不可见");
-  return rect;
-}
 
 async function gridReady(page: Page) {
   await page.getByRole("tab", { name: "多宫格分镜图" }).waitFor();
@@ -153,12 +142,6 @@ async function gridReady(page: Page) {
 }
 
 /** 紧凑档 Agent 面板盖在画布右侧：先收起再点卡片右侧的控件。 */
-async function clearAgentOverlay(page: Page) {
-  const size = page.viewportSize();
-  if (!size || size.width > COMPACT_TIER_MAX_WIDTH) return;
-  await agentToggle(page).click();
-  await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "false");
-}
 
 defineRegionScenarios("多宫格分镜图", [
   {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import type { NarrationSegment } from "@/types";
@@ -65,8 +65,44 @@ describe("ShotDetail 保存并生成", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("没能载入最新剧本");
     expect(onGenerateNarration).not.toHaveBeenCalled();
+    // 再点也不能绕过刷新失败，直到真正的剧本内容到达。
+    const generate = screen.getByRole("button", { name: /^生成旁白/ });
+    expect(generate).toBeDisabled();
+    fireEvent.click(generate);
+    expect(onGenerateNarration).not.toHaveBeenCalled();
     // 已写入的内容成为已保存内容，不再标为未保存
     expect(screen.queryByRole("button", { name: "放弃修改" })).not.toBeInTheDocument();
+  });
+
+  it("视频「保存并生成」等保存落定期间，尾帧不能更换或清除，落定后再生成", async () => {
+    let finishSave: (refreshed: boolean) => void = () => {};
+    const onUpdatePrompt = vi.fn(() => new Promise<boolean>((resolve) => { finishSave = resolve; }));
+    const onGenerateVideo = vi.fn();
+    const segment = makeNarrationSegment({
+      end_frame_image: "end_frames/E1S01.png",
+      generated_assets: {
+        storyboard_image: "storyboards/E1S01.png",
+        storyboard_last_image: null,
+        grid_id: null,
+        grid_cell_index: null,
+        video_clip: null,
+        video_thumbnail: null,
+        video_uri: null,
+        status: "storyboard_ready",
+      },
+    });
+    renderDetail({ onUpdatePrompt, onGenerateVideo, lastFrame: true }, segment);
+
+    fireEvent.click(screen.getByRole("button", { name: /^尾帧/ }));
+    fireEvent.change(screen.getByDisplayValue("雨夜街道"), { target: { value: "雨后的街道" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存并生成/ }));
+
+    expect(screen.getByRole("button", { name: "更换图片" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "清除" })).toBeDisabled();
+    expect(onGenerateVideo).not.toHaveBeenCalled();
+
+    await act(async () => finishSave(true));
+    await waitFor(() => expect(onGenerateVideo).toHaveBeenCalledWith("E1S01"));
   });
 
   it("没有未保存修改时直接生成，不提交修改", async () => {

@@ -1,6 +1,13 @@
 import type enDashboard from '../en/dashboard';
 
 export default {
+  reference_prompt_draft_replaced: "本集有新的提示词草稿，保存或放弃修改后查看草稿。",
+  episode_externally_removed: "本集已被删除，保存会失败；可以复制内容后放弃修改。",
+  episode_script_removed: "本集脚本已被移除，保存会失败；可以复制内容后放弃修改。",
+  shot_externally_removed: '这个分镜已被删除，保存会失败；可以复制内容后放弃修改。',
+  reference_unit_externally_removed: '这个视频单元已被删除，保存会失败；可以复制内容后放弃修改。',
+  episode_source_replaced: '本集已有新的脚本内容，保存或放弃修改后进入分镜。',
+  prompt_preview_save_first: '保存并预览',
   'app_title': '[[brand]]',
   'projects': '项目',
   'create_project': '创建项目',
@@ -654,7 +661,6 @@ export default {
   'prompt_form_to_structured_desc': '当前文本提示词会被丢弃，且不会解析回结构化字段，需要重新填写。',
   'prompt_form_to_structured_confirm': '丢弃并切换',
   'reference_prompt_preview_title': '参考生视频提示词',
-  'reference_prompt_preview_notice': '按当前模型能力计算，执行时以实际为准',
   'reference_prompt_preview_images': '随请求发出的参考图',
   'reference_prompt_preview_image': '图片{{index}} · {{name}}',
   'reference_prompt_preview_no_images': '本次请求不携带参考图',
@@ -664,8 +670,6 @@ export default {
   'prompt_preview_copy': '复制最终提示词',
   'prompt_preview_refresh': '重新渲染',
   'prompt_preview_loading': '渲染中…',
-  'prompt_preview_saved_only': '预览按已保存的内容渲染，即实际发送给模型的最终提示词。',
-  'prompt_preview_saved_only_dirty': '有未保存的修改，预览仍按已保存的内容渲染。',
   'prompt_preview_warnings_label': '生成提示',
   'message_edit': '编辑此消息并从这里重新发送',
   'message_edit_attachment': '编辑中的附件 {{index}}/{{total}}',
@@ -1065,7 +1069,7 @@ export default {
   'reference_preview_generating': '生成中…',
   'reference_meta_unit': '视频单元',
   'reference_meta_duration': '时长',
-  'reference_units_count': '{{count}} 个 Unit',
+  'reference_units_count': '{{count}} 个视频单元',
   'reference_needs_replan': '该单元需先重新规划，修复后才能生成。',
   'reference_preview_video_aria': '视频单元 {{id}} 的预览视频',
   // Reference video unit UI status labels — derived from task queue state.
@@ -1076,7 +1080,7 @@ export default {
   'reference_generate_queued': '已加入生成队列',
   'enqueue_deduped_toast': '已有同资源任务在处理中，本次未新建任务',
   'reference_generate_request_failed': '生成请求失败：{{error}}，请稍后重试',
-  'reference_generation_task_failed': 'Unit {{unitId}} 生成失败：{{reason}}，请稍后重试',
+  'reference_generation_task_failed': '视频单元 {{unitId}} 生成失败：{{reason}}，请稍后重试',
   'storyboard_task_failed': '分镜 "{{id}}" 生成失败：{{reason}}',
   'video_task_failed': '视频 "{{id}}" 生成失败：{{reason}}',
   'character_task_failed': '角色 "{{id}}" 生成失败：{{reason}}',
@@ -1451,7 +1455,7 @@ export default {
   // ArcReel 工作台 v3 — 参考生视频
   'no_episode_search_results': '没有匹配的分集',
   'episode_collapsed_button_label': '{{position}} · {{title}}',
-  'reference_batch_nothing_to_do': '所有 Unit 都已生成或正在生成中',
+  'reference_batch_nothing_to_do': '所有视频单元都已生成或正在生成中',
   'reference_generate_busy': '该视频单元正在生成，请稍后再试',
   'reference_duration_seconds': '{{value}} 秒',
   'reference_duration_confirm_title': '确认视频生成档位变化',
