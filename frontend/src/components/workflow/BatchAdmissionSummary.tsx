@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import type { WorkflowAdmission } from "@/types/workflow";
 import { ProblemList } from "./ProblemList";
@@ -23,7 +24,8 @@ interface Props {
  *   扣下的列在后面并标明原因，用户一眼分得清该去修哪几个。
  *
  * 正文与外壳分开：参考生视频把它装进弹窗当场拍板，工作流面板把它就地摊在视频步骤下，
- * 两处陈述同一份结论、共用同一段判定，不各推一遍。
+ * 两处陈述同一份结论、共用同一段判定，不各推一遍。正文自己不滚动：外壳（弹窗 Body、
+ * 制作进度弹层）是唯一的滚动区。
  */
 export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: Props) {
   const { t } = useTranslation("workflow");
@@ -39,19 +41,14 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
   const skippedCount = skippedUnitIds?.length ?? 0;
 
   return (
-    <div className={className ?? "space-y-2 text-[12.5px] leading-relaxed"}>
+    <div className={cn("flex flex-col gap-2 text-sm leading-relaxed", className)}>
       {blocked ? (
         <>
-          <p style={{ color: "var(--muted-foreground)" }}>{t("admission_blocked_intro")}</p>
-          <ProblemList
-            problems={admissionUnitViews(t, failing, seconds)}
-            className="max-h-56 space-y-2 overflow-y-auto"
-          />
+          <p className="text-subtle-foreground">{t("admission_blocked_intro")}</p>
+          <ProblemList problems={admissionUnitViews(t, failing, seconds)} className="gap-2" />
           {withheld.length > 0 && (
-            <div className="space-y-1">
-              <p style={{ color: "var(--muted-foreground)" }}>
-                {t("admission_withheld_title", { count: withheld.length })}
-              </p>
+            <div className="flex flex-col gap-1">
+              <p className="text-subtle-foreground">{t("admission_withheld_title", { count: withheld.length })}</p>
               <div className="flex flex-wrap gap-1">
                 {withheld.map((unit) => (
                   <UnitTag key={unit.unit_id} unitId={unit.unit_id} />
@@ -62,27 +59,23 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
         </>
       ) : (
         <>
-          <p style={{ color: "var(--muted-foreground)" }}>
-            {t("admission_confirm_intro", { count: confirmingUnitCount })}
-          </p>
-          <ul className="max-h-56 space-y-2 overflow-y-auto">
+          <p className="text-subtle-foreground">{t("admission_confirm_intro", { count: confirmingUnitCount })}</p>
+          <ul className="flex flex-col gap-2">
             {tiers.map((tier) => (
-              <li key={tier.request_duration_seconds ?? "unknown"} className="space-y-1">
+              <li key={tier.request_duration_seconds ?? "unknown"} className="flex flex-col gap-1">
                 <span className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="tabular-nums font-medium" style={{ color: "var(--foreground)" }}>
+                  <span className="font-medium text-foreground tabular-nums">
                     {tierSeconds(tier.request_duration_seconds)}
                   </span>
-                  <span aria-hidden style={{ color: "var(--muted-foreground)" }}>
+                  <span aria-hidden className="text-subtle-foreground">
                     ×
                   </span>
-                  <span className="tabular-nums" style={{ color: "var(--subtle-foreground)" }}>
+                  <span className="text-subtle-foreground tabular-nums">
                     {t("tier_units", { count: tier.unit_count })}
                   </span>
-                  <span style={{ color: "var(--subtle-foreground)" }}>
+                  <span className="text-subtle-foreground">
                     {tier.cost_amount != null && tier.cost_currency
-                      ? t("tier_cost", {
-                          cost: formatCurrencyAmount(tier.cost_currency, tier.cost_amount),
-                        })
+                      ? t("tier_cost", { cost: formatCurrencyAmount(tier.cost_currency, tier.cost_amount) })
                       : t("tier_cost_unknown")}
                   </span>
                 </span>
@@ -94,14 +87,10 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
               </li>
             ))}
           </ul>
-          <p style={{ color: "var(--muted-foreground)" }}>{t("admission_confirm_note")}</p>
+          <p className="text-subtle-foreground">{t("admission_confirm_note")}</p>
         </>
       )}
-      {skippedCount > 0 && (
-        <p style={{ color: "var(--muted-foreground)" }}>
-          {t("admission_skipped", { count: skippedCount })}
-        </p>
-      )}
+      {skippedCount > 0 && <p className="text-subtle-foreground">{t("admission_skipped", { count: skippedCount })}</p>}
     </div>
   );
 }

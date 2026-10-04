@@ -192,7 +192,7 @@ function GuideButtonView({
     else if (button.kind === "agent") prefillAssistant(withInstruction(t, button.prefill, instruction));
     else void planEpisodes();
   };
-  return <StepActButton act={act} onRun={onRun} size={primary ? "md" : "sm"} asLink={!primary} busy={submitting} />;
+  return <StepActButton act={act} onRun={onRun} asLink={!primary} busy={submitting} />;
 }
 
 function NextPanel({

@@ -8,10 +8,10 @@ from lib.generation.generation_result import (
     GenerationAction,
     GenerationProblem,
     GenerationSelectionMode,
-    ProviderCheckpoint,
 )
 from lib.workflow.workflow_plan import (
     WorkflowPlanRequest,
+    WorkflowProviderCheckpoint,
     WorkflowStepState,
     WorkflowTaskObservation,
     build_workflow_plan,
@@ -212,8 +212,8 @@ def test_use_tts_preserves_structured_admission_blockers() -> None:
 
     video = _step(plan, "video")
     assert video.state is WorkflowStepState.BLOCKED
-    assert video.problems == [problem]
     assert video.admission["decision"] == "blocked"
+    assert video.admission["units"][0]["problems"][0]["code"] == "reference_asset_missing"
     assert plan.next_action.type == GenerationAction.FIX_INPUT.value
 
 
@@ -242,7 +242,13 @@ def test_multiple_admission_repairs_preserve_the_first_structured_action() -> No
         admission=admission.to_payload(),
     )
 
-    assert plan.problems == [fix_input, configure_provider]
+    # 逐单元问题只在视频一步的准入结论里陈述一次，不再复制到步骤问题与顶层汇总。
+    assert [p.code for step in plan.steps for p in step.problems] == []
+    assert plan.problems == []
+    assert [p["code"] for unit in _step(plan, "video").admission["units"] for p in unit["problems"]] == [
+        "reference_asset_missing",
+        "video_capability_missing_i2v",
+    ]
     assert plan.next_action.type == GenerationAction.FIX_INPUT.value
 
 
@@ -321,11 +327,7 @@ def test_artifact_task_and_checkpoint_axes_remain_distinct() -> None:
         task_id="task-1",
         task_type="video",
         status="running",
-        provider_checkpoint=ProviderCheckpoint(
-            submitted=True,
-            provider_id="provider-a",
-            provider_job_id="job-1",
-        ),
+        provider_checkpoint=WorkflowProviderCheckpoint(submitted=True),
     )
 
     plan = build_workflow_plan(
@@ -389,3 +391,29 @@ def test_branch_alternatives_travel_with_the_unchanged_next_action() -> None:
     assert plan.next_action == status.next_action
     assert plan.next_alternatives == [alternative]
     assert _step(plan, "script_plan_content").state is WorkflowStepState.READY
+
+
+def test_structure_problem_is_stated_once_on_its_step_with_its_unit() -> None:
+    """同一提示只在所属步骤下发一次，带单元标识与稳定问题码，不带原始理由码。"""
+    problem = GenerationProblem(
+        code="mixed_speech",
+        detail="character_and_narrator_mixed",
+        action=GenerationAction.REPLAN_UNIT,
+        params={"unit_id": "E1S02", "speech_admission": {"unit_id": "E1S02", "problems": []}},
+    )
+
+    plan = build_workflow_plan(
+        _status(action="generate_storyboards"),
+        structure_problems=[problem],
+        script_revision="sha256-v1:script",
+    )
+
+    stated = [(step.id, p) for step in plan.steps for p in step.problems]
+    assert [(step_id, p.code, p.unit_id) for step_id, p in stated] == [("script_structure", "mixed_speech", "E1S02")]
+    assert plan.problems == []
+    assert stated[0][1].model_dump() == {
+        "code": "mixed_speech",
+        "action": "replan_unit",
+        "unit_id": "E1S02",
+        "params": {},
+    }

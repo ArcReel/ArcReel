@@ -1,53 +1,49 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { WorkflowPlanStep } from "@/types/workflow";
 import { BatchAdmissionSummary } from "./BatchAdmissionSummary";
 import { ProblemList } from "./ProblemList";
 import { StaleArtifacts } from "./StaleArtifacts";
 import { TaskChips } from "./TaskChips";
 import { StepActButton } from "./StepActButton";
-import { INLINE_ACTION_CLS } from "./state-language";
 import { problemViews } from "./problem-views";
 import type { NextStepView, StepAct, StepNote, StepRowTone, StepRowView } from "./step-list";
 
-const TONE_COLOR: Record<StepRowTone, string> = {
-  done: "var(--primary)",
-  todo: "var(--muted-foreground)",
-  partial: "var(--subtle-foreground)",
-  running: "var(--primary)",
-  warn: "var(--warn)",
-  danger: "var(--destructive)",
-};
-
-const NOTE_COLOR: Record<StepNote["tone"], string> = {
-  warn: "var(--warn)",
-  danger: "var(--destructive)",
-  info: "var(--muted-foreground)",
-};
-
-/** 行首圆点：已齐实心、还没有虚线空心、部分半填、进行中脉动。形状先于颜色，灰度下仍可区分。 */
+/** 行首圆点：已齐实心、还没有虚线空心、部分半填、进行中呼吸。形状先于颜色，灰度下仍可区分。 */
 function ToneDot({ tone }: { tone: StepRowTone }) {
-  const color = TONE_COLOR[tone];
-  const base = "inline-block h-2 w-2 shrink-0 rounded-full";
-  if (tone === "todo") return <span aria-hidden className={base} style={{ border: `1px dashed ${color}` }} />;
+  if (tone === "todo") return <span aria-hidden className="size-2 rounded-full border border-dashed border-muted-foreground" />;
   if (tone === "partial") {
     return (
-      <span
-        aria-hidden
-        className={base}
-        style={{ background: `linear-gradient(90deg, ${color} 50%, transparent 50%)`, border: `1px solid ${color}` }}
-      />
+      <span aria-hidden className="relative size-2 overflow-hidden rounded-full border border-subtle-foreground">
+        <span className="absolute inset-y-0 left-0 w-1/2 bg-subtle-foreground" />
+      </span>
     );
   }
-  if (tone === "running") return <span aria-hidden className={`${base} motion-safe:animate-pulse`} style={{ background: color }} />;
-  return <span aria-hidden className={base} style={{ background: color }} />;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-2 rounded-full",
+        tone === "warn" ? "bg-warn" : tone === "danger" ? "bg-destructive" : "bg-primary",
+        tone === "running" && "animate-breath",
+      )}
+    />
+  );
 }
 
 function NoteLine({ note, onRun }: { note: StepNote; onRun: (act: StepAct) => void }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 text-[11.5px]" style={{ color: NOTE_COLOR[note.tone] }}>
+    <div
+      className={cn(
+        "flex flex-wrap items-baseline gap-x-2 text-xs",
+        note.tone === "warn" ? "text-warn" : note.tone === "danger" ? "text-destructive" : "text-subtle-foreground",
+      )}
+    >
       <span>{note.text}</span>
-      {note.act && <StepActButton act={note.act} onRun={onRun} size="sm" asLink />}
+      {note.act && <StepActButton act={note.act} onRun={onRun} asLink />}
     </div>
   );
 }
@@ -60,36 +56,30 @@ interface NextProps {
   busy: boolean;
 }
 
-/** 就地展开的下一步：说明、附加指令、主次入口、「或者 …」。 */
+/**
+ * 就地展开的下一步：说明、附加指令、主次入口、「或者 …」。强调色底只铺在这一块上，
+ * 块里的次要文字一律用 subtle 档：muted 叠在弹层底色加强调色上不到 4.5:1。
+ */
 function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: NextProps) {
   const { t } = useTranslation("workflow");
   const inputId = useId();
   return (
-    <div className="space-y-1.5 pt-1" data-testid="workflow-next-step">
-      <p className="text-[12px] leading-relaxed">
-        <span className="font-medium" style={{ color: "var(--primary)" }}>
-          {t("next_step", { step: next.title })}
-        </span>
-        {/* 下一步所在行带强调色底，muted 色在上面对比度不足；这一块的次要文字与行状态同用 subtle */}
-        {next.detail && <span style={{ color: "var(--subtle-foreground)" }}> {next.detail}</span>}
+    <div className="flex flex-col gap-2 rounded-md bg-primary/10 p-2" data-testid="workflow-next-step">
+      <p className="text-xs leading-relaxed">
+        <span className="font-medium text-primary">{t("next_step", { step: next.title })}</span>
+        {next.detail && <span className="text-subtle-foreground"> {next.detail}</span>}
       </p>
       {next.hint && <NoteLine note={next.hint} onRun={onRun} />}
       {next.instruction && (
-        <div className="max-w-[440px]">
+        <div className="max-w-110">
           <label htmlFor={inputId} className="sr-only">
             {t(next.instruction.persist ? "instruction_label_saved" : "instruction_label")}
           </label>
-          <input
+          <Input
             id={inputId}
             value={instruction}
             onChange={(event) => onInstructionChange(event.target.value)}
             placeholder={t(next.instruction.persist ? "instruction_placeholder_saved" : "instruction_placeholder")}
-            className="focus-ring w-full rounded-md px-2 py-1 text-[12px]"
-            style={{
-              background: "var(--muted)",
-              border: "1px solid var(--border)",
-              color: "var(--foreground)",
-            }}
           />
         </div>
       )}
@@ -100,11 +90,9 @@ function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: 
           ))}
           {next.alternatives.length > 0 && (
             <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="text-[11.5px]" style={{ color: "var(--subtle-foreground)" }}>
-                {t("alternatives_lead")}
-              </span>
+              <span className="text-xs text-subtle-foreground">{t("alternatives_lead")}</span>
               {next.alternatives.map((act) => (
-                <StepActButton key={act.key} act={act} onRun={onRun} size="sm" asLink busy={busy} />
+                <StepActButton key={act.key} act={act} onRun={onRun} asLink busy={busy} />
               ))}
             </span>
           )}
@@ -131,6 +119,10 @@ interface Props {
 /** 分镜图与视频的过期产物可以就地查看与重生；资产图的过期只作提醒并跳到画廊。 */
 const REGENERABLE_STEPS = new Set(["storyboard", "video"]);
 
+/**
+ * 归到这一行的后端步骤的明细：过期产物、进行中的任务、步骤自己的问题与视频整批准入。
+ * 每条提示只出自一处——视频整批准入的逐单元问题只在准入结论里，计划不再把它复制到步骤问题。
+ */
 function StepDetails({ step, onViewUnit, onRegenerate, onConfirmDurations, busy }: {
   step: WorkflowPlanStep;
   onViewUnit?: (unitId: string) => void;
@@ -159,22 +151,16 @@ function StepDetails({ step, onViewUnit, onRegenerate, onConfirmDurations, busy 
         busy={busy}
       />
       <TaskChips tasks={step.tasks} />
-      {step.problems.length > 0 && (
-        <ProblemList problems={problemViews(t, step.problems, step.id)} className="space-y-1.5 text-[12px]" />
-      )}
+      <ProblemList problems={problemViews(t, step.problems, step.id)} />
       {admission && admission.decision !== "admitted" && (
-        <div className="space-y-1.5">
-          <BatchAdmissionSummary admission={admission} />
+        <div className="flex flex-col gap-1.5">
+          <BatchAdmissionSummary admission={admission} className="text-xs" />
           {admission.decision === "confirmation_required" && onConfirmDurations && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={confirm}
-              className={INLINE_ACTION_CLS}
-              style={{ color: "var(--primary)" }}
-            >
-              {t("admission_confirm_cta")}
-            </button>
+            <div>
+              <Button variant="outline" size="xs" disabled={busy} onClick={confirm}>
+                {t("admission_confirm_cta")}
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -182,62 +168,60 @@ function StepDetails({ step, onViewUnit, onRegenerate, onConfirmDurations, busy 
   );
 }
 
-/** 一行内容：现状一句话、提醒、常驻入口；下一步属于这一行时就地展开。 */
+/** 一行内容：现状一句话、提醒、常驻入口；下一步属于这一行时就地展开，行首加强调色竖条。 */
 export function StepListRow({ row, next, instruction, onInstructionChange, onRun, onViewUnit, onRegenerate, onConfirmDurations, busy }: Props) {
   const owns = next !== null;
   return (
     <li
-      className="flex gap-2.5 rounded-md py-1 pl-1.5 pr-2"
+      className={cn(
+        "grid grid-cols-[0.5rem_6rem_minmax(0,1fr)] items-baseline gap-x-2.5 gap-y-1 border-l-2 py-1.5 pr-2 pl-1.5",
+        owns ? "border-primary" : "border-transparent",
+      )}
       data-testid={`workflow-row-${row.key}`}
       aria-current={owns ? "step" : undefined}
-      style={owns ? { background: "color-mix(in oklab, var(--primary) 12%, transparent)", boxShadow: "inset 2px 0 0 var(--primary)" } : undefined}
     >
-      <span className="mt-[6px] flex">
+      <span className="flex self-center">
         <ToneDot tone={row.tone} />
       </span>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          <h3 className="w-24 shrink-0 text-[12.5px] font-medium" style={{ color: "var(--foreground)" }}>
-            {row.title}
-          </h3>
-          <span
-            className="text-[12px]"
-            style={{ color: row.tone === "warn" || row.tone === "danger" ? TONE_COLOR[row.tone] : "var(--subtle-foreground)" }}
-          >
-            {row.status}
-          </span>
-        </div>
-        <div className="space-y-1 sm:pl-[104px]">
-          {row.notes.map((note) => (
-            <NoteLine key={note.key} note={note} onRun={onRun} />
-          ))}
-          {row.acts.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {row.acts.map((act) => (
-                <StepActButton key={act.key} act={act} onRun={onRun} size="sm" asLink busy={busy} />
-              ))}
-            </div>
-          )}
-          {row.steps.map((step) => (
-            <StepDetails
-              key={step.id}
-              step={step}
-              onViewUnit={onViewUnit}
-              onRegenerate={onRegenerate}
-              onConfirmDurations={onConfirmDurations}
-              busy={busy}
-            />
-          ))}
-          {next && (
-            <NextStepBlock
-              next={next}
-              instruction={instruction}
-              onInstructionChange={onInstructionChange}
-              onRun={onRun}
-              busy={busy}
-            />
-          )}
-        </div>
+      <h3 className="text-sm font-medium text-foreground">{row.title}</h3>
+      <span
+        className={cn(
+          "text-xs",
+          row.tone === "warn" ? "text-warn" : row.tone === "danger" ? "text-destructive" : "text-subtle-foreground",
+        )}
+      >
+        {row.status}
+      </span>
+      <div className="col-span-2 col-start-2 flex min-w-0 flex-col gap-1.5 empty:hidden">
+        {row.notes.map((note) => (
+          <NoteLine key={note.key} note={note} onRun={onRun} />
+        ))}
+        {row.acts.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {row.acts.map((act) => (
+              <StepActButton key={act.key} act={act} onRun={onRun} asLink busy={busy} />
+            ))}
+          </div>
+        )}
+        {row.steps.map((step) => (
+          <StepDetails
+            key={step.id}
+            step={step}
+            onViewUnit={onViewUnit}
+            onRegenerate={onRegenerate}
+            onConfirmDurations={onConfirmDurations}
+            busy={busy}
+          />
+        ))}
+        {next && (
+          <NextStepBlock
+            next={next}
+            instruction={instruction}
+            onInstructionChange={onInstructionChange}
+            onRun={onRun}
+            busy={busy}
+          />
+        )}
       </div>
     </li>
   );

@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from lib.generation.generation_result import GenerationAction, GenerationProblem, ProviderCheckpoint
+from lib.generation.generation_result import GenerationAction, GenerationProblem
 from lib.project.asset_types import ASSET_SPECS
 from lib.script.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING
 from lib.workflow.workflow_rules import WorkflowStepRule, workflow_rule
@@ -59,8 +59,58 @@ class WorkflowPlanRequest(BaseModel):
         return value
 
 
+class WorkflowProblem(BaseModel):
+    """计划里的一条提示：稳定问题码、所属单元与可本地化参数。
+
+    只下发界面与 Agent 能据以陈述的结构：``code`` 是本地化的机器 key，``params`` 是文案参数。
+    原始理由文本（``GenerationProblem.detail``）与发声准入的整份载荷不进这里；需要逐字段定位
+    改脚本时，Agent 读 ``patch_episode_script`` 动作 ``args.problems`` 里的完整问题。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    action: GenerationAction
+    unit_id: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+#: 不作为文案参数下发的 params 键：单元 ID 已提为 ``unit_id``，发声准入载荷是逐字段定位用的原始结构。
+_UNLOCALIZABLE_PARAMS = frozenset({"unit_id", "speech_admission"})
+
+
+def _problem_unit_id(problem: GenerationProblem) -> str | None:
+    unit_id = problem.params.get("unit_id")
+    if not isinstance(unit_id, str):
+        admission = problem.params.get("speech_admission")
+        unit_id = admission.get("unit_id") if isinstance(admission, dict) else None
+    return unit_id if isinstance(unit_id, str) and unit_id else None
+
+
+def workflow_problem(problem: GenerationProblem) -> WorkflowProblem:
+    """把生成契约里的问题投影成计划提示：提出所属单元，去掉原始理由与定位载荷。"""
+
+    return WorkflowProblem(
+        code=problem.code,
+        action=problem.action,
+        unit_id=_problem_unit_id(problem),
+        params={key: value for key, value in problem.params.items() if key not in _UNLOCALIZABLE_PARAMS},
+    )
+
+
+class WorkflowProviderCheckpoint(BaseModel):
+    """供应商侧是否已收单。只陈述这一条事实：供应商 ID 与作业号是内部句柄，不进计划。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    submitted: bool
+
+
 class WorkflowTaskObservation(BaseModel):
-    """One task axis, kept separate from provider submission and artifact currency."""
+    """One task axis, kept separate from provider submission and artifact currency.
+
+    计划只观测排队中与运行中的任务，它们是进度而不是问题，所以这里不带问题。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -69,8 +119,7 @@ class WorkflowTaskObservation(BaseModel):
     batch_id: str | None = None
     task_type: str
     status: str
-    provider_checkpoint: ProviderCheckpoint | None = None
-    problem: GenerationProblem | None = None
+    provider_checkpoint: WorkflowProviderCheckpoint | None = None
 
 
 class WorkflowStepContracts(BaseModel):
@@ -93,7 +142,7 @@ class WorkflowPlanStep(BaseModel):
     action: WorkflowNextAction | None = None
     requested_ids: list[str] = Field(default_factory=list)
     artifacts: dict[str, Any] = Field(default_factory=dict)
-    problems: list[GenerationProblem] = Field(default_factory=list)
+    problems: list[WorkflowProblem] = Field(default_factory=list)
     tasks: list[WorkflowTaskObservation] = Field(default_factory=list)
     admission: dict[str, Any] | None = None
     contracts: WorkflowStepContracts = Field(default_factory=WorkflowStepContracts)
@@ -108,7 +157,8 @@ class WorkflowPlan(BaseModel):
     status: WorkflowStatus
     steps: list[WorkflowPlanStep]
     blockers: list[WorkflowBlocker]
-    problems: list[GenerationProblem]
+    problems: list[WorkflowProblem]
+    """不属于任何步骤的项目级提示（如数据升级失败）；步骤自己的提示只在 ``steps[].problems`` 下发一次。"""
     next_action: WorkflowNextAction
     next_alternatives: list[WorkflowNextAction] = Field(default_factory=list)
 
@@ -278,11 +328,8 @@ def _admission_problems(admission: dict[str, Any] | None) -> list[GenerationProb
 def _problem_unit_ids(problems: list[GenerationProblem]) -> list[str]:
     ids: list[str] = []
     for problem in problems:
-        unit_id = problem.params.get("unit_id")
-        if not isinstance(unit_id, str):
-            admission = problem.params.get("speech_admission")
-            unit_id = admission.get("unit_id") if isinstance(admission, dict) else None
-        if isinstance(unit_id, str) and unit_id and unit_id not in ids:
+        unit_id = _problem_unit_id(problem)
+        if unit_id is not None and unit_id not in ids:
             ids.append(unit_id)
     return ids
 
@@ -299,7 +346,7 @@ def _structure_action(
             "problems": [problem.model_dump(mode="json") for problem in problems],
         },
         requested_ids=_problem_unit_ids(problems),
-        reason=problems[0].detail,
+        reason=problems[0].code,
     )
 
 
@@ -315,19 +362,26 @@ def _admission_action(
         args={"admission": admission},
         requested_ids=requested_ids,
         requires_confirmation=requires_confirmation,
-        reason=problems[0].detail if problems else "video batch requires confirmation",
+        reason=problems[0].code if problems else "video batch requires confirmation",
     )
 
 
 def build_workflow_plan(
     status: WorkflowStatus,
     *,
+    project_problems: list[GenerationProblem] | None = None,
     structure_problems: list[GenerationProblem] | None = None,
     script_revision: str | None = None,
     task_observations: list[WorkflowTaskObservation] | None = None,
     admission: dict[str, Any] | None = None,
 ) -> WorkflowPlan:
-    """Project one immutable status snapshot and transient request observations."""
+    """Project one immutable status snapshot and transient request observations.
+
+    每条提示只下发一次：``project_problems``（项目级，如数据升级失败）在顶层 ``problems``，
+    ``structure_problems`` 在「脚本结构」一步，视频整批准入的逐单元问题只在视频一步的 ``admission`` 里。
+    """
+
+    plan_problems = [workflow_problem(problem) for problem in project_problems or []]
 
     try:
         rules = workflow_rule(status.project.content_mode, status.project.generation_mode).steps
@@ -342,7 +396,7 @@ def build_workflow_plan(
                 )
             ],
             blockers=list(status.blockers),
-            problems=list(structure_problems or []),
+            problems=plan_problems,
             next_action=status.next_action,
         )
     owner = _owner_step(status)
@@ -379,7 +433,7 @@ def build_workflow_plan(
     structure_step = by_id["script_structure"]
     if structure_problems:
         structure_step.state = WorkflowStepState.BLOCKED
-        structure_step.problems = structure_problems
+        structure_step.problems = [workflow_problem(problem) for problem in structure_problems]
         structure_step.requested_ids = _problem_unit_ids(structure_problems)
         structure_step.action = _structure_action(structure_problems, script_revision=script_revision)
         for media_step in ("storyboard", "video"):
@@ -398,7 +452,6 @@ def build_workflow_plan(
 
     video_step = by_id["video"]
     video_step.admission = admission
-    video_step.problems = admission_problems
     if admission is not None and admission.get("decision") != "admitted" and not video_step.tasks:
         video_step.state = WorkflowStepState.BLOCKED
 
@@ -436,7 +489,7 @@ def build_workflow_plan(
         status=status,
         steps=steps,
         blockers=list(status.blockers),
-        problems=[*structure_problems, *admission_problems],
+        problems=plan_problems,
         next_action=next_action,
         next_alternatives=list(status.next_alternatives) if next_action is status.next_action else [],
     )
@@ -446,8 +499,11 @@ __all__ = [
     "WorkflowPlan",
     "WorkflowPlanRequest",
     "WorkflowPlanStep",
+    "WorkflowProblem",
+    "WorkflowProviderCheckpoint",
     "WorkflowStepContracts",
     "WorkflowStepState",
     "WorkflowTaskObservation",
     "build_workflow_plan",
+    "workflow_problem",
 ]

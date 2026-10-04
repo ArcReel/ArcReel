@@ -784,7 +784,14 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     expect(screen.getByText(/仍然保留，可以在画布上查看/)).toBeInTheDocument();
   });
 
-  it("进行中的任务落在所属行，已提交给供应商时说明重试可能再次计费", async () => {
+  it("进行中的任务落在所属行，供应商已收单的单元合在一句里说明重试可能再次计费", async () => {
+    const task = (unitId: string, submitted: boolean) => ({
+      unit_id: unitId,
+      task_id: `task-${unitId}`,
+      task_type: "video",
+      status: "running",
+      provider_checkpoint: { submitted },
+    });
     await renderExpanded(
       scenario({
         next: nextAction("wait_for_task", { args: {} }),
@@ -792,23 +799,68 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
           makeStep({
             id: "video",
             state: "active",
-            tasks: [
-              {
-                unit_id: "E1U1",
-                task_id: "t1",
-                task_type: "video",
-                status: "running",
-                provider_checkpoint: { submitted: true, provider_id: "vidu", provider_job_id: "job-9" },
-              },
-            ],
+            tasks: [task("E1S01", true), task("E1S02", true), task("E1S03", false)],
           }),
         ],
       }),
     );
     const row = screen.getByTestId("workflow-row-videos");
-    expect(within(row).getByText(/视频 · 生成中/)).toBeInTheDocument();
-    expect(within(row).getByText(/已提交给 vidu/)).toBeInTheDocument();
+    expect(within(row).getAllByText(/视频 · 生成中/)).toHaveLength(3);
+    const note = within(row).getByText("已提交给供应商，重试可能再次计费。").parentElement as HTMLElement;
+    expect(within(note).getAllByText(/^S0\d$/).map((tag) => tag.textContent)).toEqual(["S01", "S02"]);
     expect(within(row).getByText("下一步：等待生成完成")).toBeInTheDocument();
+  });
+
+  it("脚本结构的问题只在正式脚本行陈述一次，并标出是哪个单元", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("patch_episode_script", { requested_ids: ["E1S02"] }),
+        steps: [
+          makeStep({
+            id: "script_structure",
+            state: "blocked",
+            problems: [{ code: "mixed_speech", action: "replan_unit", unit_id: "E1S02", params: {} }],
+          }),
+        ],
+      }),
+    );
+    const summary = "这个单元同时有角色台词和旁白，需要拆开。";
+    expect(screen.getAllByText(summary)).toHaveLength(1);
+    const row = screen.getByTestId("workflow-row-script");
+    const line = within(row).getByText(summary).closest("li");
+    expect(line).not.toBeNull();
+    expect(within(line as HTMLElement).getByText("S02")).toBeInTheDocument();
+  });
+
+  it("视频整批被拒时逐单元的原因只在准入结论里出现一次，不露出服务端原文", async () => {
+    await renderExpanded(
+      videoScenario({
+        state: "blocked",
+        admission: {
+          decision: "blocked",
+          operation: "generate_videos",
+          selection: "missing_only",
+          units: [
+            {
+              unit_id: "E1S03",
+              admitted: false,
+              problems: [{ code: "empty_speaker", detail: "character_speaker_empty", action: "fix_input", params: {} }],
+            },
+            {
+              unit_id: "E1S04",
+              admitted: true,
+              withheld: true,
+              problems: [{ code: "generation_batch_admission_withheld", detail: "withheld", action: "none", params: {} }],
+            },
+          ],
+        },
+      }),
+    );
+    const row = screen.getByTestId("workflow-row-videos");
+    expect(screen.getAllByText("这个单元有台词没有指定说话的角色。")).toHaveLength(1);
+    expect(within(row).getByText("S03")).toBeInTheDocument();
+    expect(within(row).getByText("S04")).toBeInTheDocument();
+    expect(screen.queryByText(/character_speaker_empty/)).not.toBeInTheDocument();
   });
 
   it("分集规划在跑时下一步落在原文行，给出查看规划进度的入口", async () => {

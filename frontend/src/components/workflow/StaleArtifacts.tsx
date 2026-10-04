@@ -1,8 +1,8 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { UnitTag } from "./UnitTag";
-import { ARTIFACT_TONES, INLINE_ACTION_CLS } from "./state-language";
+import { Button } from "@/components/ui/button";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { UnitTag } from "./UnitTag";
 
 interface Props {
   staleIds: string[];
@@ -27,64 +27,45 @@ export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) 
   if (staleIds.length === 0) return null;
 
   return (
-    <section
-      aria-labelledby={headingId}
-      className="rounded-lg px-3 py-2"
-      style={{
-        background: ARTIFACT_TONES.stale.soft,
-        border: `1px solid ${ARTIFACT_TONES.stale.ring}`,
-      }}
-    >
-      <h4
-        id={headingId}
-        className="text-[12px] font-medium"
-        style={{ color: ARTIFACT_TONES.stale.color }}
-      >
+    <section aria-labelledby={headingId} className="flex flex-col gap-1.5 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2">
+      <h4 id={headingId} className="text-xs font-medium text-warn">
         {t("stale_title", { count: staleIds.length })}
       </h4>
-      <p className="mt-0.5 text-[11.5px] leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
-        {t("stale_still_usable")}
-      </p>
-      <ul className="mt-1.5 max-h-56 space-y-1 overflow-y-auto">
+      <p className="text-xs leading-relaxed text-subtle-foreground">{t("stale_still_usable")}</p>
+      <ul className="flex flex-col gap-1">
         {staleIds.map((unitId) => (
           <li key={unitId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <UnitTag unitId={unitId} />
             {onView && (
-              <button
-                type="button"
+              <Button
+                variant="link"
+                size="xs"
                 onClick={() => onView(unitId)}
                 aria-label={t("stale_view_unit", { id: itemIdWithinEpisode(unitId) })}
-                className={INLINE_ACTION_CLS}
-                style={{ color: "var(--subtle-foreground)" }}
               >
                 {t("stale_view")}
-              </button>
+              </Button>
             )}
             {onRegenerate && (
-              <button
-                type="button"
+              <Button
+                variant="link"
+                size="xs"
                 disabled={busy}
                 onClick={() => onRegenerate([unitId])}
                 aria-label={t("stale_regenerate_unit", { id: itemIdWithinEpisode(unitId) })}
-                className={INLINE_ACTION_CLS}
-                style={{ color: ARTIFACT_TONES.stale.color }}
               >
                 {t("stale_regenerate")}
-              </button>
+              </Button>
             )}
           </li>
         ))}
       </ul>
       {onRegenerate && staleIds.length > 1 && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onRegenerate(staleIds)}
-          className={`mt-2 ${INLINE_ACTION_CLS}`}
-          style={{ color: ARTIFACT_TONES.stale.color }}
-        >
-          {t("stale_regenerate_all", { count: staleIds.length })}
-        </button>
+        <div>
+          <Button variant="outline" size="xs" disabled={busy} onClick={() => onRegenerate(staleIds)}>
+            {t("stale_regenerate_all", { count: staleIds.length })}
+          </Button>
+        </div>
       )}
     </section>
   );
