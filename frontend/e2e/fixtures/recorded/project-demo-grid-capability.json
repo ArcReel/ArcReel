@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/grid-capability",
+  "status": 200,
+  "body": {
+    "large_grid_allowed": false,
+    "max_cell_count": 9
+  }
+}

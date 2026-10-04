@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BatchFillButton, useBatchGap } from "../episode-page/BatchFillButton";
 import { EpisodeHeaderActions } from "../episode-page/EpisodeHeaderActions";
 import type { EpisodeCanvasContext } from "../episode-page/EpisodePage";
@@ -176,10 +177,7 @@ export function GridImageToVideoCanvas({
 
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
-      <div
-        className="flex h-full items-center justify-center"
-        style={{ color: "var(--muted-foreground)" }}
-      >
+      <div className="flex h-full items-center justify-center text-muted-foreground">
         {t("select_episode_hint")}
       </div>
     );
@@ -211,19 +209,26 @@ export function GridImageToVideoCanvas({
     <div className="flex h-full flex-col overflow-hidden">
       {view === "grid" && hasScript && onGenerateGrid && scriptFile && (
         <EpisodeHeaderActions>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleGenerateAllGrids()}
-            disabled={generatingAllGrids}
-          >
-            {generatingAllGrids ? (
-              <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
-            ) : (
-              <Sparkles aria-hidden data-icon="inline-start" />
-            )}
-            {generatingAllGrids ? t("submitting") : t("generate_all_grids")}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleGenerateAllGrids()}
+                  disabled={generatingAllGrids}
+                />
+              }
+            >
+              {generatingAllGrids ? (
+                <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <Sparkles aria-hidden data-icon="inline-start" />
+              )}
+              {generatingAllGrids ? t("submitting") : t("generate_all_grids")}
+            </TooltipTrigger>
+            <TooltipContent>{t("generate_all_grids_hint")}</TooltipContent>
+          </Tooltip>
         </EpisodeHeaderActions>
       )}
 
@@ -258,7 +263,7 @@ export function GridImageToVideoCanvas({
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {view === "plan" && hasDraft && editorContentMode ? (
-          <div className="h-full overflow-y-auto p-4">
+          <div className="relative h-full overflow-y-auto p-4">
             <ScriptReviewGate
               key={`${projectName}:${episode}`}
               projectName={projectName}
