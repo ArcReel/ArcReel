@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { assetColor } from "./asset-colors";
-import { Popover } from "@/components/legacy/FloatingPopover";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import { API } from "@/api";
 import { formatReferenceName, normalizeAssetName, splitDerivativeReference } from "@/utils/reference-mentions";
 import type { AssetKind } from "@/types/reference-video";
@@ -30,10 +30,7 @@ export interface MentionPickerProps {
   listboxId?: string;
   /** Called whenever the keyboard-active option changes; receives the option's DOM id (null when empty). */
   onActiveChange?: (optionId: string | null) => void;
-  /** Element the picker anchors to. The picker is portaled (via Popover) so
-   * ancestor overflow-hidden / stacking contexts cannot clip it. Also doubles
-   * as the outside-pointerdown exclusion target so a toggle button round-trips
-   * cleanly (floating-ui's useDismiss treats the reference element as "not outside"). */
+  /** 弹层定位的锚点（编辑器里的光标占位元素）。弹层经 Portal 渲染，祖先的 overflow 与层叠上下文裁不到它。 */
   anchorElement?: HTMLElement | null;
 }
 
@@ -152,7 +149,7 @@ export function MentionPicker({
     clampedRef.current = clampedActive;
   });
 
-  // 仅处理导航/补全键；Esc + 外部点击由 Popover 的 useDismiss 统一接管。
+  // 仅处理导航/补全键；Esc 与外部点击由 Popover 的 onOpenChange 统一接管。
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -190,26 +187,20 @@ export function MentionPicker({
   return (
     <Popover
       open={open}
-      onClose={onClose}
-      anchorElement={anchorElement ?? null}
-      align="start"
-      sideOffset={4}
-      maxHeight={288}
-      width="w-64"
-      backgroundColor="rgb(3 7 18)" // gray-950
-      className="overflow-hidden rounded-md border border-gray-800 shadow-xl"
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        id={listboxId ?? MENTION_PICKER_DEFAULT_ID}
-        role="listbox"
-        aria-label={t("reference_picker_title")}
-        className={className}
+      {/* 焦点留在编辑器里：方向键与回车由上面的键盘监听处理，选项用 aria-activedescendant 指向。 */}
+      <PopoverContent
+        anchor={anchorElement ?? undefined}
+        align="start"
+        sideOffset={4}
+        initialFocus={false}
+        finalFocus={false}
+        className="w-64"
       >
-        <div
-          role="tablist"
-          aria-label={t("reference_picker_title")}
-          className="sticky top-0 z-10 flex gap-0 border-b border-gray-800 bg-gray-950 px-1"
-        >
+        <div role="tablist" aria-label={t("reference_picker_title")} className="flex border-b border-border">
           {TAB_ORDER.map((tab) => {
             const count =
               tab === "all"
@@ -224,23 +215,26 @@ export function MentionPicker({
                 aria-selected={isActive}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setActiveTab(tab)}
-                className={`flex items-center gap-1 border-b-2 px-2 py-1.5 text-[11px] transition-colors focus-ring ${
+                className={`focus-ring flex items-center gap-1 border-b-2 px-1.5 py-1.5 text-xs transition-colors duration-fast ${
                   isActive
-                    ? "border-indigo-500 font-medium text-indigo-300"
-                    : "border-transparent text-gray-500 hover:text-gray-300"
+                    ? "border-primary font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <span>{t(`reference_picker_tab_${tab}`)}</span>
-                <span className="tabular-nums text-[10px] text-gray-600">{count}</span>
+                <span className="tabular-nums">{count}</span>
               </button>
             );
           })}
         </div>
-        <div className="max-h-60 overflow-y-auto">
+        <div
+          id={listboxId ?? MENTION_PICKER_DEFAULT_ID}
+          role="listbox"
+          aria-label={t("reference_picker_title")}
+          className={`relative max-h-60 overflow-y-auto ${className ?? ""}`}
+        >
           {empty && (
-            <div className="px-3 py-4 text-center text-xs text-gray-500">
-              {t("reference_picker_empty")}
-            </div>
+            <p className="px-3 py-4 text-center text-xs text-muted-foreground">{t("reference_picker_empty")}</p>
           )}
           {!empty &&
             GROUP_ORDER.map((kind) => {
@@ -249,14 +243,16 @@ export function MentionPicker({
               const palette = assetColor(kind);
               // activeTab==="all" 时保留分组小标题；选中单 tab 时把小标题去掉避免视觉重复。
               const showGroupHeader = activeTab === "all";
+              const groupLabel = t(`reference_picker_group_${kind}`);
               return (
-                <div key={kind}>
+                <div key={kind} role="group" aria-label={groupLabel}>
                   {showGroupHeader && (
                     <div
+                      aria-hidden="true"
                       data-testid={`picker-group-${kind}`}
-                      className={`px-2 py-1 text-[10px] font-semibold uppercase ${palette.textClass}`}
+                      className={`px-2 py-1 text-xs font-medium ${palette.textClass}`}
                     >
-                      {t(`reference_picker_group_${kind}`)}
+                      {groupLabel}
                     </div>
                   )}
                   {items.map((item) => {
@@ -275,6 +271,7 @@ export function MentionPicker({
                         type="button"
                         role="option"
                         aria-selected={active}
+                        tabIndex={-1}
                         onMouseMove={(e) => {
                           lastPointerXY.current = { x: e.clientX, y: e.clientY };
                           if (clampedActive !== globalIndex) setActiveIndex(globalIndex);
@@ -287,8 +284,8 @@ export function MentionPicker({
                         }}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => onSelect({ type: kind, name: item.name })}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors focus-visible:ring-1 focus-visible:ring-indigo-400 focus-visible:outline-none ${
-                          active ? "bg-indigo-500/15 text-indigo-200" : "text-gray-300 hover:bg-gray-900"
+                        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-fast ${
+                          active ? "bg-primary/15 text-foreground" : "text-subtle-foreground hover:bg-muted"
                         }`}
                       >
                         {thumbUrl ? (
@@ -297,21 +294,19 @@ export function MentionPicker({
                             alt=""
                             aria-hidden="true"
                             loading="lazy"
-                            className={`h-7 w-7 shrink-0 rounded-sm object-cover ${palette.borderClass} border`}
+                            className={`size-7 shrink-0 rounded-sm border object-cover ${palette.borderClass}`}
                           />
                         ) : (
                           <span
                             aria-hidden="true"
-                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-sm ${palette.bgClass} ${palette.borderClass} border`}
+                            className={`flex size-7 shrink-0 items-center justify-center rounded-sm border ${palette.bgClass} ${palette.borderClass}`}
                           >
-                            <span className={`h-2 w-2 rounded-full ${palette.bgClass} ${palette.borderClass} border`} />
+                            <span className={`size-2 rounded-full ${palette.dotClass}`} />
                           </span>
                         )}
-                        <span className="truncate" title={formatReferenceName(item.name)}>
-                          {formatReferenceName(item.name)}
-                        </span>
+                        <span className="truncate">{formatReferenceName(item.name)}</span>
                         {splitDerivativeReference(item.name)[1] && (
-                          <span className="shrink-0 rounded-sm bg-indigo-800/60 px-1 py-0.5 text-[10px] font-semibold text-indigo-300">
+                          <span className="shrink-0 rounded-sm bg-primary/15 px-1 py-0.5 text-xs font-medium text-primary">
                             {t("reference_picker_derivative_tag")}
                           </span>
                         )}
@@ -322,7 +317,7 @@ export function MentionPicker({
               );
             })}
         </div>
-      </div>
+      </PopoverContent>
     </Popover>
   );
 }

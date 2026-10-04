@@ -1,13 +1,20 @@
-import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "lucide-react";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { BatchAdmissionSummary } from "@/components/workflow/BatchAdmissionSummary";
 import { ProblemList } from "@/components/workflow/ProblemList";
 import { enqueueFailureViews } from "@/components/workflow/problem-views";
-import { WARM_TONE } from "@/utils/severity-tone";
 import type { ReferenceBatchAdmission } from "@/types";
 import { referenceBatchOutcome, type ReferenceBatchOutcome } from "./batch-outcome";
 
@@ -45,105 +52,69 @@ export function ReferenceBatchAdmissionDialog({ admission, onConfirm, onClose }:
   const { t } = useTranslation("dashboard");
   const { t: tWorkflow } = useTranslation("workflow");
   const { t: tCommon } = useTranslation("common");
-  const titleId = useId();
-  const descId = useId();
 
   const outcome = admission && referenceBatchOutcome(admission);
   // 入队留下缺口的两路正文相同——都是逐个列出没排上的单元，只有标题与开场白分开：
   // 还有任务在跑，与一个任务也没建成，对用户不是同一件事。
   const enqueueGap = outcome === "interrupted" || outcome === "none_queued";
   const open = outcome !== null && outcome !== "queued";
-  // 受阻与入队中断都是已经发生的坏消息，共用暖色外壳；需确认那一种还没出事，用强调色。
+  // 受阻与入队中断都是已经发生的坏消息，标题前加警告图标；需确认那一种还没出事，不加。
   const warned = enqueueGap || outcome === "blocked";
+  const title = outcome && outcome !== "queued" ? t(TITLE_KEYS[outcome]) : "";
 
   return (
-    <GlassModal
+    <AlertDialog
       open={open}
-      onClose={onClose}
-      labelledBy={titleId}
-      describedBy={descId}
-      hairlineTone={warned ? "warm" : "accent"}
-      widthClassName="w-full max-w-lg"
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div className="px-6 pb-6 pt-5">
-        <div className="flex items-start gap-3">
+      <AlertDialogContent size="lg">
+        <AlertDialogHeader>
           {warned && (
-            <span
-              aria-hidden
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
-              style={{
-                background:
-                  "linear-gradient(135deg, color-mix(in oklab, var(--warn) 15%, transparent), color-mix(in oklab, var(--warn) 5%, transparent))",
-                border: `1px solid ${WARM_TONE.ring}`,
-                color: WARM_TONE.color,
-                boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
-              }}
-            >
-              <AlertTriangle className="h-4 w-4" />
-            </span>
+            <AlertDialogMedia>
+              <AlertTriangle aria-hidden className="text-warn" />
+            </AlertDialogMedia>
           )}
-          <div className="min-w-0 flex-1">
-            <h2
-              id={titleId}
-              className="display-serif text-[17px] font-semibold tracking-tight"
-              style={{ color: "var(--foreground)" }}
-            >
-              {outcome && outcome !== "queued" && t(TITLE_KEYS[outcome])}
-            </h2>
-            <div id={descId} className="mt-1">
-              {admission &&
-                (enqueueGap ? (
-                  <div className="space-y-2 text-[12.5px] leading-relaxed">
-                    <p style={{ color: "var(--muted-foreground)" }}>
-                      {t(
-                        outcome === "interrupted"
-                          ? "reference_batch_enqueue_interrupted_intro"
-                          : "reference_batch_enqueue_none_queued_intro",
-                        { count: admission.enqueue_failures.length },
-                      )}
-                    </p>
-                    <ProblemList
-                      problems={enqueueFailureViews(tWorkflow, admission.enqueue_failures)}
-                      labelledBy={titleId}
-                      className="max-h-56 space-y-2 overflow-y-auto"
-                    />
-                    {/* 另两种形态由 BatchAdmissionSummary 交代已跳过的单元，这一路的正文
-                        不走它，同一句话在这里补上，免得「这一批发生了什么」缺一角。 */}
-                    {admission.skipped_unit_ids.length > 0 && (
-                      <p style={{ color: "var(--muted-foreground)" }}>
-                        {tWorkflow("admission_skipped", {
-                          count: admission.skipped_unit_ids.length,
-                        })}
-                      </p>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+        </AlertDialogHeader>
+        {/* 未排上队列的单元可能很多，正文可以用键盘滚动 */}
+        <AlertDialogBody tabIndex={0} role="region" aria-label={title}>
+          <AlertDialogDescription render={<div />}>
+            {admission &&
+              (enqueueGap ? (
+                <div className="space-y-2">
+                  <p>
+                    {t(
+                      outcome === "interrupted"
+                        ? "reference_batch_enqueue_interrupted_intro"
+                        : "reference_batch_enqueue_none_queued_intro",
+                      { count: admission.enqueue_failures.length },
                     )}
-                  </div>
-                ) : (
-                  <BatchAdmissionSummary
-                    admission={admission}
-                    skippedUnitIds={admission.skipped_unit_ids}
-                  />
-                ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5 flex justify-end gap-2">
+                  </p>
+                  <ProblemList problems={enqueueFailureViews(tWorkflow, admission.enqueue_failures)} />
+                  {/* 另两种形态由 BatchAdmissionSummary 交代已跳过的单元，这一路的正文
+                      不走它，同一句话在这里补上，免得「这一批发生了什么」缺一角。 */}
+                  {admission.skipped_unit_ids.length > 0 && (
+                    <p>{tWorkflow("admission_skipped", { count: admission.skipped_unit_ids.length })}</p>
+                  )}
+                </div>
+              ) : (
+                <BatchAdmissionSummary admission={admission} skippedUnitIds={admission.skipped_unit_ids} />
+              ))}
+          </AlertDialogDescription>
+        </AlertDialogBody>
+        <AlertDialogFooter>
           {warned ? (
-            <PrimaryButton size="sm" tone="warm" onClick={onClose}>
-              {t("reference_batch_ack_cta")}
-            </PrimaryButton>
+            <AlertDialogAction onClick={onClose}>{t("reference_batch_ack_cta")}</AlertDialogAction>
           ) : (
             <>
-              <SecondaryButton size="sm" onClick={onClose}>
-                {tCommon("cancel")}
-              </SecondaryButton>
-              <PrimaryButton size="sm" onClick={onConfirm}>
-                {t("reference_batch_confirm_cta")}
-              </PrimaryButton>
+              <AlertDialogCancel>{tCommon("cancel")}</AlertDialogCancel>
+              <AlertDialogAction onClick={onConfirm}>{t("reference_batch_confirm_cta")}</AlertDialogAction>
             </>
           )}
-        </div>
-      </div>
-    </GlassModal>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

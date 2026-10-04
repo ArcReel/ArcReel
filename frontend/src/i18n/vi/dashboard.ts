@@ -1441,7 +1441,7 @@ export default {
   'no_script_plan_content': 'Không có kết quả kế hoạch kịch bản',
   'reference_tab_editor': 'Kịch bản',
   'reference_tab_preview': 'Video',
-  'reference_tab_aria': 'Tab bảng đơn vị tham chiếu',
+  'reference_tab_aria': 'Chuyển giữa soạn thảo và xem trước',
 
   // ArcReel Workbench v3 — Video Tham Chiếu
   'reference_batch_nothing_to_do': 'Tất cả đơn vị đã được tạo hoặc đang xử lý',
@@ -1477,8 +1477,10 @@ export default {
   'reference_batch_request_failed': 'Yêu cầu tạo hàng loạt thất bại: {{error}}',
   'reference_unit_search_placeholder': 'Tìm kiếm đơn vị / prompt…',
   'reference_unit_search_empty': 'Không tìm thấy đơn vị nào',
-  'reference_unit_dirty_hint': 'Chưa lưu',
   'reference_unit_rail_expand': 'Mở rộng danh sách',
+  'reference_unit_reorder': 'Sắp xếp “{{id}}”',
+  'reference_unit_leave_title': '“{{id}}” có thay đổi chưa lưu',
+  'reference_notices_aria': 'Thông báo của bàn làm việc',
   'reference_unit_prev': 'Đơn vị trước',
   'reference_unit_next': 'Đơn vị sau',
   'reference_unit_remove': 'Gỡ đơn vị',
@@ -1486,7 +1488,7 @@ export default {
   'reference_unit_remove_desc': 'Đơn vị này sẽ bị gỡ khỏi kịch bản. Video và các sản phẩm đã tạo sẽ bị gỡ cùng và không còn hiển thị.',
   'reference_unit_remove_confirm': 'Gỡ đơn vị',
   'reference_preview_label': 'Xem trước video',
-  'reference_preview_metadata': 'Siêu dữ liệu',
+  'reference_preview_metadata': 'Thông tin đơn vị',
   'reference_preview_in_flight': 'Đang tạo video…',
   'reference_preview_in_flight_meta': '{{duration}}s',
   'reference_preview_failed_title': 'Tạo thất bại',
@@ -1497,8 +1499,6 @@ export default {
   'reference_meta_status': 'Trạng thái',
   'reference_meta_cost': 'Chi phí',
   'reference_meta_cost_spent': 'đã chi',
-  'reference_unsaved': 'Chưa lưu thay đổi',
-  'reference_synced': 'Đã đồng bộ',
 
   // Source file normalization toasts
 

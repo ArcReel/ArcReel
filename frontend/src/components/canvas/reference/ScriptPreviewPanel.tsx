@@ -102,19 +102,19 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
 
   return (
     <div className="flex min-h-0 flex-1 flex-col p-3">
-      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         <span>{t("script_preview_hint")}</span>
         <span className="flex-1" />
         {(stale || loading) && (
           <span role="status" className="inline-flex items-center">
-            <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
             <span className="sr-only">{t("script_preview_loading")}</span>
           </span>
         )}
       </div>
 
       {error && (
-        <p role="alert" className="mb-2 rounded-md bg-red-500/10 px-2.5 py-1.5 text-[11.5px] text-red-300">
+        <p role="alert" className="mb-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
           {t("script_preview_failed", { error })}
         </p>
       )}
@@ -124,12 +124,12 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           aria-label={t("script_preview_warnings_label")}
           aria-live="polite"
           aria-busy={stale || undefined}
-          className={`mb-3 flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 ${
+          className={`mb-3 flex flex-col gap-1 rounded-md border border-warn/30 bg-warn/10 p-2 ${
             stale ? "opacity-45" : ""
           }`}
         >
           {warnings.map((w, i) => (
-            <li key={`${w.key}-${i}`} className="flex gap-1.5 text-[11.5px] leading-relaxed text-amber-200">
+            <li key={`${w.key}-${i}`} className="flex gap-1.5 text-xs leading-relaxed text-warn">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
               <span>{w.message}</span>
             </li>
@@ -140,12 +140,12 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
       <ScriptHighlight
         text={text}
         lookup={lookup}
-        className="rounded-md border border-border/50 bg-[oklch(0.16_0.010_265_/_0.6)] p-3"
+        className="rounded-md border border-border/50 bg-background/60 p-3"
       />
 
       <dl
         aria-busy={stale || undefined}
-        className={`mt-3 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-2 border-t border-border/50 pt-3 text-[11.5px] ${
+        className={`mt-3 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-2 border-t border-border/50 pt-3 text-xs ${
           stale ? "opacity-45" : ""
         }`}
       >
@@ -164,7 +164,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
       {utterances.length > 0 && (
         <ul
           aria-busy={stale || undefined}
-          className={`mt-2 flex flex-col gap-1 text-[11.5px] ${stale ? "opacity-45" : ""}`}
+          className={`mt-2 flex flex-col gap-1 text-xs ${stale ? "opacity-45" : ""}`}
         >
           {utterances.map((u, i) => {
             const palette = assetColor(u.kind === "dialogue" ? "character" : "unknown");
