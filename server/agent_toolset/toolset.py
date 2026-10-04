@@ -40,7 +40,8 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
 )
 
 # 工具 id 是短名（SDK 注册时另加 ``mcp__arcreel__`` 前缀）。前端显示名在 ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``
-# 的 ``tool_name_<id>`` 键下，``tests/unit/test_frontend_mcp_tool_i18n.py`` 校验每个 id 在全部语言都有翻译。
+# 的 ``tool_name_<id>`` 键下，工序行的摘要格式登记在 ``frontend/src/components/copilot/chat/arcreel-tool-summaries.ts``；
+# ``tests/unit/test_frontend_mcp_tool_i18n.py`` 校验每个 id 在全部语言都有翻译，并且都登记了摘要格式。
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = tuple(declaration.name for declaration in AGENT_TOOLSET)
 
 # 项目迁移裁决为失败时在共享声明入口拒绝的工具，按各声明的迁移阻断策略派生。

@@ -146,9 +146,11 @@ function buildRehypePlugins(defaults: Record<string, unknown>): unknown[] {
 
 interface StreamMarkdownProps {
   content: string;
+  /** compact 用于工序行展开区（子时间线、子智能体结论），与工序行同为小字号。 */
+  size?: "default" | "compact";
 }
 
-export function StreamMarkdown({ content }: StreamMarkdownProps) {
+export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProps) {
   const [streamdown, setStreamdown] = useState<LoadedStreamdown | null>(null);
 
   useEffect(() => {
@@ -170,7 +172,7 @@ export function StreamMarkdown({ content }: StreamMarkdownProps) {
 
   return (
     <streamdown.Component
-      className="markdown-body text-sm leading-6"
+      className={size === "compact" ? "markdown-body text-xs leading-5" : "markdown-body text-sm leading-6"}
       parseIncompleteMarkdown={true}
       remarkPlugins={streamdown.remarkPlugins}
       rehypePlugins={streamdown.rehypePlugins}

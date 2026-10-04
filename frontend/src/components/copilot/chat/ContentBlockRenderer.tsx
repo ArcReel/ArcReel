@@ -3,7 +3,9 @@ import type { ContentBlock } from "@/types";
 import { Marker, MarkerContent } from "@/components/ui/marker";
 import { ChatImage } from "./ChatImage";
 import { TextBlock } from "./TextBlock";
-import { ToolCallWithResult } from "./ToolCallWithResult";
+import { ToolCallWithResult, stringifyResult } from "./ToolCallWithResult";
+import { WorkDetail, WorkRow } from "./WorkRow";
+import { TOOL_RESULT_ICON } from "./work-label";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { SkillChip } from "./SkillChip";
 import { SubagentCard } from "./SubagentCard";
@@ -18,8 +20,8 @@ import { CompactionMarker } from "./CompactionMarker";
 // Block types:
 //   text             -> TextBlock (markdown)
 //   tool_use         -> SubagentCard (Agent/Task) / SkillChip (Skill)
-//                       / ToolCallWithResult (unified tool + result)
-//   tool_result      -> inline fallback (standalone results are rare)
+//                       / ToolCallWithResult，三者都是单行工序（WorkRow）
+//   tool_result      -> StandaloneToolResult（孤立结果，很少见）
 //   thinking         -> ThinkingBlock (single line; streaming or summary)
 //   skill_invocation -> SkillChip (standalone, no anchoring tool_use)
 //   task_progress    -> TaskProgressBlock (in-place updated task state)
@@ -62,7 +64,9 @@ export function ContentBlockRenderer({ block, index, streaming }: ContentBlockRe
             key={block.id ?? `block-${index}`}
             name={extractSkillName(block.input)}
             args={extractSkillArgs(block.input)}
-            status={block.result === undefined ? "running" : block.is_error ? "error" : "ok"}
+            pending={block.result === undefined}
+            failed={block.is_error}
+            result={block.result}
           />
         );
       }
@@ -150,21 +154,20 @@ function extractSkillArgs(input: Record<string, unknown> | undefined): string {
   return typeof input.args === "string" ? input.args : "";
 }
 
+// 孤立的工具结果（没有对应的 tool_use，很少见）：同样是一行工序，展开看结果原文。
 function StandaloneToolResult({ block }: Readonly<{ block: ContentBlock }>) {
   const { t } = useTranslation("dashboard");
+  const result = stringifyResult(block.content);
+  const firstLine = result.split("\n").find((line) => line.trim())?.trim() ?? "";
   return (
-    <div className="max-w-[40em] rounded-lg border border-border bg-muted/30 px-3 py-2">
-      <p className="mb-1 text-xs text-muted-foreground">
-        {block.is_error ? t("tool_call_error_label") : t("tool_call_result_label")}
-      </p>
-      <pre className="font-mono text-xs whitespace-pre-wrap text-subtle-foreground wrap-break-word">
-        {typeof block.content === "string"
-          ? block.content
-          : block.content
-            ? JSON.stringify(block.content, null, 2)
-            : ""}
-      </pre>
-    </div>
+    <WorkRow
+      icon={TOOL_RESULT_ICON}
+      name={t("work_tool_result")}
+      summary={firstLine}
+      status={block.is_error ? "error" : "ok"}
+    >
+      {result && <WorkDetail label={t("tool_call_result_label")} text={result} error={block.is_error} />}
+    </WorkRow>
   );
 }
 

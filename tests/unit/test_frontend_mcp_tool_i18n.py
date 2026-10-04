@@ -1,4 +1,4 @@
-"""Cross-check that every backend ArcReel MCP tool has a frontend display name.
+"""Cross-check that every backend ArcReel MCP tool has a frontend display name and summary format.
 
 The single source of truth is :data:`ARCREEL_MCP_TOOL_IDS` in
 ``server/agent_toolset/toolset.py``. The frontend renders each
@@ -52,3 +52,19 @@ def test_no_orphan_tool_name_keys_in_any_locale() -> None:
             f"frontend/src/i18n/{locale}/dashboard.ts 存在与 backend 不匹配的 tool_name_* key: "
             f"{sorted(orphans)}。请删除或更新 backend ARCREEL_MCP_TOOL_IDS。"
         )
+
+
+SUMMARIES_TS = "frontend/src/components/copilot/chat/arcreel-tool-summaries.ts"
+# ARCREEL_TOOL_SUMMARIES 的条目一行一个：两格缩进 + 工具 id + 冒号。
+_SUMMARY_KEY_RE = re.compile(r"^  ([a-z0-9_]+):", re.MULTILINE)
+
+
+def test_every_backend_tool_has_frontend_summary_format() -> None:
+    """工序行的一句摘要按工具 id 登记，缺漏时界面退回截断的参数原文，多余的条目是过时格式。"""
+    text = (REPO_ROOT / SUMMARIES_TS).read_text(encoding="utf-8")
+    keys = set(_SUMMARY_KEY_RE.findall(text))
+    expected = set(ARCREEL_MCP_TOOL_IDS)
+    assert keys == expected, (
+        f"{SUMMARIES_TS} 的 ARCREEL_TOOL_SUMMARIES 与 ARCREEL_MCP_TOOL_IDS 不一致："
+        f"缺少 {sorted(expected - keys)}，多余 {sorted(keys - expected)}。"
+    )

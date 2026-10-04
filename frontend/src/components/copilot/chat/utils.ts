@@ -1,4 +1,3 @@
-import type { TFunction } from "i18next";
 import type { ImagePayload, SessionStatus, Turn } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -27,26 +26,6 @@ export function composeAllTurns(turns: Turn[], draftTurn: Turn | null): Turn[] {
     return [...turns.slice(0, -1), draftTurn, last];
   }
   return [...turns, draftTurn];
-}
-
-// ---------------------------------------------------------------------------
-// getRoleLabel – maps a turn role (user | assistant | system) to a display label.
-//
-// 标签是面向用户的文本，翻译由调用方的 `useTranslation("dashboard")` 传入——这个函数
-// 在组件之外（纯函数）复用，自己拿不到 hook。未知 role 原样透出，只有空值才落兜底文案。
-// ---------------------------------------------------------------------------
-
-export function getRoleLabel(role: string, t: TFunction<"dashboard">): string {
-  switch (role) {
-    case "assistant":
-      return t("chat_role_assistant");
-    case "user":
-      return t("chat_role_user");
-    case "system":
-      return t("chat_role_system");
-    default:
-      return role || t("chat_role_message");
-  }
 }
 
 // ---------------------------------------------------------------------------

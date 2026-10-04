@@ -143,6 +143,8 @@ const REWORKED_FILES = [
   "src/components/copilot/{AgentCopilot,AgentComposer,AgentQuestionnaire,SessionHistory,SlashCommandMenu,TodoProgress}.tsx",
   // Agent 消息区的会话投影：失败卡片与「上下文已压缩」分隔线
   "src/components/copilot/chat/{AgentFailureCard,CompactionMarker}.tsx",
+  // Agent 工序行：工具调用、子智能体、Skill、后台任务，及显示名与摘要格式
+  "src/components/copilot/chat/{WorkRow,ToolCallWithResult,SubagentCard,SkillChip,TaskProgressBlock,work-label,arcreel-tool-summaries}.{ts,tsx}",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

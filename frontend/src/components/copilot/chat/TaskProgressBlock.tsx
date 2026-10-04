@@ -1,89 +1,36 @@
 import { useTranslation } from "react-i18next";
 import type { ContentBlock } from "@/types";
-import { useAssistantStore } from "@/stores/assistant-store";
-import { TERMINAL_SESSION_STATUSES } from "./utils";
+import { WorkRow, useSessionDone } from "./WorkRow";
+import { BACKGROUND_TASK_ICON, type WorkStatus } from "./work-label";
 
 // ---------------------------------------------------------------------------
-// TaskProgressBlock – 无锚点 tool_use 的后台任务进度行。
+// TaskProgressBlock – 没有锚点 tool_use 的后台任务，显示为一行工序，就地更新状态。
 //
 // 有锚点的 task 块由投影折叠进 SubagentCard（task_info），不经过本组件。
 // ---------------------------------------------------------------------------
 
-interface TaskProgressBlockProps {
-  block: ContentBlock;
+function taskStatus(block: ContentBlock, sessionDone: boolean): WorkStatus | null {
+  switch (block.status) {
+    case "task_started":
+    case "task_progress":
+      return sessionDone ? "stopped" : "running";
+    case "task_notification":
+      if (block.task_status === "failed") return "error";
+      return block.task_status === "completed" ? "ok" : "stopped";
+    default:
+      return null;
+  }
 }
 
-export function TaskProgressBlock({ block }: TaskProgressBlockProps) {
+export function TaskProgressBlock({ block }: { block: ContentBlock }) {
   const { t } = useTranslation("dashboard");
-  const sessionStatus = useAssistantStore((s) => s.sessionStatus);
-  const sessionDone = sessionStatus != null && TERMINAL_SESSION_STATUSES.has(sessionStatus);
+  const sessionDone = useSessionDone();
+  const status = taskStatus(block, sessionDone);
+  if (!status) return null;
 
-  const status = block.status;
-  const description = block.description || "";
-  const summary = block.summary || "";
-  const taskStatus = block.task_status;
+  const text = (status === "running" || status === "stopped" ? block.description : block.summary || block.description) ?? "";
+  const tokens = status === "running" ? block.usage?.total_tokens : undefined;
+  const summary = [text, tokens != null ? t("subagent_tokens", { count: tokens }) : ""].filter(Boolean).join(" · ");
 
-  if (status === "task_started" || status === "task_progress") {
-    // When session is no longer running, show cancelled state instead of spinner
-    if (sessionDone) {
-      return (
-        <div
-          className="my-1 flex items-center gap-1.5 text-[11.5px]"
-          style={{ color: "var(--muted-foreground)" }}
-        >
-          <span>–</span>
-          <span>{t("task_progress_cancelled", { description })}</span>
-        </div>
-      );
-    }
-
-    const tokens = status === "task_progress" ? block.usage?.total_tokens : undefined;
-    return (
-      <div
-        className="my-1 flex items-center gap-1.5 text-[11.5px]"
-        style={{ color: "var(--muted-foreground)" }}
-      >
-        <span
-          className="inline-block h-3 w-3 animate-spin rounded-full border-t-transparent"
-          style={{
-            borderTop: "1px solid transparent",
-            border: "1px solid var(--primary)",
-            borderTopColor: "transparent",
-          }}
-        />
-        <span>
-          {status === "task_started" ? t("task_progress_started", { description }) : description}
-          {tokens != null && ` ${t("subagent_tokens", { count: tokens })}`}
-        </span>
-      </div>
-    );
-  }
-
-  if (status === "task_notification") {
-    const isCompleted = taskStatus === "completed";
-    const isFailed = taskStatus === "failed";
-    const color = isFailed
-      ? "var(--destructive)"
-      : isCompleted
-        ? "var(--good)"
-        : "var(--muted-foreground)";
-    const label = isCompleted
-      ? t("task_progress_completed")
-      : isFailed
-        ? t("task_progress_failed")
-        : t("task_progress_ended");
-    return (
-      <div
-        className="my-1 flex items-center gap-1.5 text-[11.5px]"
-        style={{ color }}
-      >
-        <span>{isCompleted ? "✓" : isFailed ? "✗" : "–"}</span>
-        <span>
-          {label}: {summary || description}
-        </span>
-      </div>
-    );
-  }
-
-  return null;
+  return <WorkRow icon={BACKGROUND_TASK_ICON} name={t("work_background_task")} summary={summary} status={status} />;
 }

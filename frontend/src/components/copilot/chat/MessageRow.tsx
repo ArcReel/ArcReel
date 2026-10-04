@@ -12,11 +12,13 @@ import { ContentBlockRenderer } from "./ContentBlockRenderer";
 import { MessageEditor } from "./MessageEditor";
 import { TextBlock } from "./TextBlock";
 import { turnImageAttachments, turnPlainText } from "./utils";
+import { segmentWorkBlocks } from "./work-label";
 
 // ---------------------------------------------------------------------------
 // MessageRow — 消息流里的一项，按 turn 类型分发：
 //   user      → 靠右的浅色气泡，编辑态原地换成 MessageEditor
-//   assistant → 无气泡的正文，正文限宽 40em；工序、思考等块交给 ContentBlockRenderer
+//   assistant → 无气泡的正文，正文限宽 40em；工序、思考等块交给 ContentBlockRenderer，
+//               连续的工序合成一列单行工序
 //   system    → 逐块交给 ContentBlockRenderer（中断分隔线、故障卡片、后台任务等）
 //
 // 操作行常驻行高、悬停或聚焦时才显示，消息列表不因悬停而跳动。用户消息右对齐
@@ -167,20 +169,29 @@ function AgentMessage({ turn, streaming }: { turn: Turn; streaming: boolean }) {
   return (
     <Message align="start">
       <MessageContent>
-        {blocks.map((block, index) =>
-          block.type === "text" ? (
-            <div key={block.id ?? index} className="max-w-[40em]">
-              <TextBlock text={block.text} />
+        {segmentWorkBlocks(blocks).map(({ work, items }) => {
+          const renderBlock = ({ block, index }: { block: ContentBlock; index: number }) =>
+            block.type === "text" ? (
+              <div key={block.id ?? index} className="max-w-[40em]">
+                <TextBlock text={block.text} />
+              </div>
+            ) : (
+              <ContentBlockRenderer
+                key={block.id ?? index}
+                block={block}
+                index={index}
+                streaming={streaming && index === blocks.length - 1}
+              />
+            );
+          // 连续的工序排成没有段距的一列，正文与工序之间才留段距
+          return work ? (
+            <div key={items[0].block.id ?? items[0].index} className="flex min-w-0 flex-col">
+              {items.map(renderBlock)}
             </div>
           ) : (
-            <ContentBlockRenderer
-              key={block.id ?? index}
-              block={block}
-              index={index}
-              streaming={streaming && index === blocks.length - 1}
-            />
-          ),
-        )}
+            renderBlock(items[0])
+          );
+        })}
         {!streaming && Boolean(text.trim()) && (
           <ActionRow align="start">
             <CopyButton text={text} />
