@@ -15,6 +15,7 @@ import { ExportScopeDialog } from "./ExportScopeDialog";
 import { episodeDisplayName } from "@/utils/episode-display";
 import { ProjectMenu } from "./ProjectMenu";
 import { ProjectStatusBar } from "./ProjectStatusBar";
+import { AgentPanelToggle } from "./AgentPanelToggle";
 
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
@@ -31,7 +32,7 @@ interface GlobalHeaderProps {
  * 工作台顶栏（48px，玻璃面板）。三段式 grid：
  * - 左：返回按钮 + ProjectMenu（项目切换菜单）
  * - 中：ProjectStatusBar（集进度与项目层的下一步；数据升级失败时是迁移重试）
- * - 右：通知 / 使用记录 / 导出 / 资产库 / 设置
+ * - 右：通知 / 使用记录 / 导出 / 资产库 / 设置 / Agent 面板开关
  */
 export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const { t } = useTranslation();
@@ -338,6 +339,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               />
             )}
           </button>
+
+          <AgentPanelToggle />
         </div>
       </header>
 

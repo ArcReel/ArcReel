@@ -130,6 +130,7 @@ describe("StudioCanvasRouter edit view mounts", () => {
       .mockResolvedValue({ timelines: [SUMMARY] });
     const create = vi.spyOn(API, "createEditTimeline").mockResolvedValue(readout([]));
     vi.spyOn(API, "getEditTimeline").mockResolvedValue(readout([]));
+    useAppStore.setState({ assistantPanelOpen: false });
 
     renderEditView(makeScript("videos/scene_SEG-1.mp4"));
 

@@ -125,6 +125,8 @@ const REWORKED_FILES = [
   "src/components/pages/project-settings/**",
   // 记忆编辑器：Agent 记忆分区与项目记忆分页共用的文件列表、编辑器与确认
   "src/components/agent-memory/**",
+  // 项目工作区外壳：侧栏、画布区与 Agent 面板的分栏、顶栏 Agent 开关
+  "src/components/layout/{StudioLayout,AssetSidebar,AgentPanelToggle,WorkspaceResizeHandle,workspace-layout}.{ts,tsx}",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

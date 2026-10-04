@@ -6,9 +6,6 @@ import { UI_LAYERS } from "@/utils/ui-layers";
 
 const AUTO_DISMISS_MS = 6500;
 
-// Agent 面板宽度（与 StudioLayout 中保持一致）
-const ASSISTANT_PANEL_WIDTH = 505;
-
 interface AgentHandoffHintProps {
   /** 当 overview 在当前会话内首次从 null → 有值，外部把这个 key 递增触发一次引导。 */
   triggerKey: number;
@@ -20,6 +17,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
   const { t } = useTranslation("dashboard");
   // 不订阅 assistantPanelOpen —— 避免触发时调用 setAssistantPanelOpen(true) 让 effect cleanup 清掉计时器
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
+  const assistantPanelWidth = useAppStore((s) => s.assistantPanelWidth);
 
   const [visible, setVisible] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -87,7 +85,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
   if (!visible) return null;
 
   // 紧贴 Agent 面板左边沿；面板收起时（理论上不会，触发时强制打开了）退到右上角
-  const cardRight = assistantPanelOpen ? ASSISTANT_PANEL_WIDTH + 12 : 80;
+  const cardRight = assistantPanelOpen ? assistantPanelWidth + 12 : 12;
 
   return (
     <div

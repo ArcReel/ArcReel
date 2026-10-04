@@ -8,7 +8,6 @@ import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import { ProgressBar } from "@/components/shared/ProgressBar";
 import { PrimaryButton } from "@/components/legacy/PrimaryButton";
 import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
-import { useAppStore } from "@/stores/app-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode } from "@/types";
 import { episodePosition } from "@/utils/episode-display";
@@ -105,8 +104,6 @@ export function EpisodesRail({
   const groups = railFileGroups(view, episodes);
   const others = otherEpisodes(view, episodes);
   const percent = view.units === 0 ? 0 : Math.round((view.cut_units / view.units) * 100);
-  // 助手面板收起时右上角浮着 Agent 球，标题行右端的上传按钮要给它让出位置。
-  const assistantFloating = !useAppStore((s) => s.assistantPanelOpen);
   const activePlanning = useActiveResourceIds("text_episode_plan", projectName);
   const planning = EPISODE_PLANNING_SLOTS.some((slot) => activePlanning.has(slot));
   const fresh = useFreshEpisodes(planning && view.replan === null, episodes);
@@ -121,7 +118,7 @@ export function EpisodesRail({
 
   return (
     <div className="space-y-5 px-4 py-5 pb-24">
-      <header className={`flex items-center gap-2 ${assistantFloating ? "pr-12" : ""}`}>
+      <header className="flex items-center gap-2">
         <h2 className="display-serif text-[16px] font-semibold tracking-tight text-foreground">
           {t("dashboard:workspace_nav_episodes")}
         </h2>

@@ -29,9 +29,9 @@ interface FocusedContext {
 const PLAYBACK_START_TTL_MS = 8000;
 const ALL_ENTITIES_REVISION_KEY = "__all__";
 
-export const ASSISTANT_PANEL_DEFAULT_WIDTH = 505;
-export const ASSISTANT_PANEL_MIN_WIDTH = 360;
-export const ASSISTANT_PANEL_MAX_WIDTH = 720;
+export const ASSISTANT_PANEL_DEFAULT_WIDTH = 420;
+export const ASSISTANT_PANEL_MIN_WIDTH = 320;
+export const ASSISTANT_PANEL_MAX_WIDTH = 640;
 const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "arcreel_assistant_panel_width";
 const ASSISTANT_PANEL_OPEN_STORAGE_KEY = "arcreel_assistant_panel_open";
 
@@ -75,8 +75,6 @@ function persistAssistantPanelOpen(open: boolean): void {
   }
 }
 
-const initialAssistantPanelOpen = readPersistedAssistantPanelOpen();
-
 interface AppState {
   // Context focus (design doc "Context-Aware" feature)
   focusedContext: FocusedContext | null;
@@ -107,12 +105,12 @@ interface AppState {
   removeWorkspaceNotification: (id: string) => void;
   clearWorkspaceNotifications: () => void;
 
-  // Panels
+  // Agent 面板：默认展开，用户手动开合（toggleAssistantPanel）后记住选择；
+  // 程序打开（setAssistantPanelOpen，如把指令预填进输入框）只影响本次，不覆盖用户的选择。
   assistantPanelOpen: boolean;
-  assistantPanelInitialized: boolean;
-  initializeAssistantPanel: (openByDefault: boolean) => void;
   toggleAssistantPanel: () => void;
   setAssistantPanelOpen: (open: boolean) => void;
+  /** 展开时的宽度；挤压画布时实际宽度还受画布最小宽度约束。 */
   assistantPanelWidth: number;
   setAssistantPanelWidth: (width: number) => void;
   persistAssistantPanelWidth: () => void;
@@ -259,24 +257,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   clearWorkspaceNotifications: () => set({ workspaceNotifications: [] }),
 
-  assistantPanelOpen: initialAssistantPanelOpen ?? false,
-  assistantPanelInitialized: initialAssistantPanelOpen !== null,
-  initializeAssistantPanel: (openByDefault) =>
-    set((s) => {
-      if (s.assistantPanelInitialized) return s;
-      return {
-        assistantPanelOpen: readPersistedAssistantPanelOpen() ?? openByDefault,
-        assistantPanelInitialized: true,
-      };
-    }),
+  assistantPanelOpen: readPersistedAssistantPanelOpen() ?? true,
   toggleAssistantPanel: () =>
     set((s) => {
       const open = !s.assistantPanelOpen;
       persistAssistantPanelOpen(open);
-      return { assistantPanelOpen: open, assistantPanelInitialized: true };
+      return { assistantPanelOpen: open };
     }),
-  setAssistantPanelOpen: (open) =>
-    set({ assistantPanelOpen: open, assistantPanelInitialized: true }),
+  setAssistantPanelOpen: (open) => set({ assistantPanelOpen: open }),
   assistantPanelWidth: readPersistedAssistantPanelWidth(),
   setAssistantPanelWidth: (width) =>
     set({ assistantPanelWidth: clampAssistantPanelWidth(width) }),
