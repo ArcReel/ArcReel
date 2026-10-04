@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeMeta } from "@/types";
@@ -10,6 +9,7 @@ import type { EpisodesViewFile, SourceKind } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
+import { ImpactConfirmDialog } from "./ImpactConfirmDialog";
 import { SourceKindSelect } from "./SourceKindSelect";
 
 interface SourceFileKindControlProps {
@@ -56,26 +56,32 @@ export function SourceFileKindControl({ projectName, file, episodes }: SourceFil
         disabled={busy || file.missing || file.changed_outside}
         label={t("source_kind_of", { name: file.name })}
       />
-      <ConfirmDialog
-        open={pending !== null}
-        title={t("source_kind_change_title", { name: file.name })}
-        description={
-          <>
-            <span className="block">{t("source_kind_change_desc")}</span>
-            <ul className="mt-2 list-disc space-y-0.5 pl-5">
-              {(pending?.episodes ?? []).map((episode) => (
-                <li key={episode}>
-                  {t("source_kind_change_episode", {
-                    position: episodePosition(episodes, episode) ?? "?",
-                    name: episodeDisplayName(episodes, episode, t),
-                  })}
-                </li>
-              ))}
-            </ul>
-          </>
+      <ImpactConfirmDialog
+        request={
+          pending === null
+            ? null
+            : {
+                title: t("source_kind_change_title", { name: file.name }),
+                body: (
+                  <div className="flex flex-col gap-2">
+                    <p>{t("source_kind_change_desc")}</p>
+                    <ul className="list-disc pl-5">
+                      {pending.episodes.map((episode) => (
+                        <li key={episode}>
+                          {t("source_kind_change_episode", {
+                            position: episodePosition(episodes, episode) ?? "?",
+                            name: episodeDisplayName(episodes, episode, t),
+                          })}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ),
+                confirmLabel: t("source_kind_change_confirm"),
+                destructive: false,
+              }
         }
-        confirmLabel={t("source_kind_change_confirm")}
-        loading={busy}
+        busy={busy}
         onConfirm={() => {
           if (pending) void apply(pending.kind, true);
         }}

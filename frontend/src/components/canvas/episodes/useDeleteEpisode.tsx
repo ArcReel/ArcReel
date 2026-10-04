@@ -2,12 +2,13 @@ import { useCallback, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeDeletionImpact } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName } from "@/utils/episode-display";
+
+import { ImpactConfirmDialog, ImpactText } from "./ImpactConfirmDialog";
 
 interface PendingDeletion {
   episode: number;
@@ -19,7 +20,7 @@ interface PendingDeletion {
 
 /**
  * 删除一集：先向服务端取丢失清单，确认框只呈现服务端成文的清单。没有产物、原文也能重建时用普通确认，
- * 否则按危险操作确认。确认时清单已变，换成新清单再确认一次，不删除。
+ * 否则按危险操作确认。确认时清单已变，换成新清单再确认一次，不删除。删除后这一集从列表里消失，不另行提示。
  */
 export function useDeleteEpisode(projectName: string, onDeleted?: (episode: number) => void) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -54,7 +55,6 @@ export function useDeleteEpisode(projectName: string, onDeleted?: (episode: numb
       setPending(null);
       onDeleted?.(pending.episode);
       await useProjectsStore.getState().refreshProject(projectName);
-      useAppStore.getState().pushToast(t("dashboard:episode_delete_done", { name: pending.name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(t("dashboard:episode_delete_failed", { message: errMsg(err) }), "error");
     } finally {
@@ -62,27 +62,29 @@ export function useDeleteEpisode(projectName: string, onDeleted?: (episode: numb
     }
   };
 
-  const dialog: ReactNode =
-    pending === null ? null : (
-      <ConfirmDialog
-        open
-        tone={pending.impact.recoverable ? "default" : "danger"}
-        title={t("dashboard:episode_delete_title", { name: pending.name })}
-        description={
-          <>
-            {pending.changed ? (
-              <span className="mb-2 block text-warn">{t("dashboard:episode_delete_changed")}</span>
-            ) : null}
-            <span className="block whitespace-pre-line">{pending.impact.text}</span>
-          </>
-        }
-        confirmLabel={t("dashboard:episode_delete_confirm")}
-        loadingLabel={t("dashboard:episode_delete_running")}
-        loading={busy}
-        onConfirm={confirm}
-        onCancel={() => setPending(null)}
-      />
-    );
+  const dialog: ReactNode = (
+    <ImpactConfirmDialog
+      request={
+        pending === null
+          ? null
+          : {
+              title: t("dashboard:episode_delete_title", { name: pending.name }),
+              body: (
+                <ImpactText
+                  text={pending.impact.text}
+                  changedNotice={pending.changed ? t("dashboard:episode_delete_changed") : null}
+                />
+              ),
+              confirmLabel: t("dashboard:episode_delete_confirm"),
+              runningLabel: t("dashboard:episode_delete_running"),
+              destructive: !pending.impact.recoverable,
+            }
+      }
+      busy={busy}
+      onConfirm={() => void confirm()}
+      onCancel={() => setPending(null)}
+    />
+  );
 
   return { requestDelete, dialog };
 }

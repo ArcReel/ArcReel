@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent } from "react";
+import { cn } from "cn";
 import { useTranslation } from "react-i18next";
 import { ArrowDown, ArrowUp, FileText, GripVertical, Loader2, Lock, Upload, X } from "lucide-react";
 
 import { API } from "@/api";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
-import { ICON_BTN_CLS, radioCardClass } from "@/components/shared/darkroom-tokens";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
@@ -77,7 +84,8 @@ function toNewRows(files: File[], sourceKind: SourceKind = "novel"): { rows: Row
  * - 整本源文：已有文件锁定显示，新文件默认排在最后、可以拖到任意位置，按列表顺序逐个登记到对应位置。
  * - 逐集原文：「文件 → 将成为第 N 集」，确认后按列表顺序追加到播出顺序末尾。
  *
- * 文件名不决定先后。上传中途失败时停下，已上传的文件保留，剩下的文件留在列表里。
+ * 文件名不决定先后。上传中途失败时停下，已上传的文件保留，剩下的文件留在列表里。全部上传完成后关闭，
+ * 只有服务端改了文件名（同名文件改名保存）时提示改成了什么。
  *
  * 剧情演绎项目逐个文件选源文件类型，缺省为小说；逐集原文另有一个整批选择，选一次套用到列表里的全部文件，
  * 之后加入的文件也取这个类型，单个文件仍可以再改。
@@ -90,7 +98,7 @@ export function SourceUploadDialog({
   onUploaded,
 }: SourceUploadDialogProps) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
-  const titleId = useId();
+  const modeName = useId();
   const project = useProjectsStore((s) => s.currentProjectData);
   const episodeCount = project?.episodes?.length ?? 0;
   const withSourceKind = project?.content_mode === "drama";
@@ -232,19 +240,15 @@ export function SourceUploadDialog({
       if (result.wholeSourceFiles.length > 0 || result.episodes.length > 0) onUploaded?.(result);
       return;
     }
-    useAppStore
-      .getState()
-      .pushToast(
-        mode === "episode"
-          ? t("dashboard:source_upload_episodes_done", { count: result.episodes.length })
-          : renamed.length > 0
-            ? t("dashboard:source_upload_whole_done_renamed", {
-                count: result.wholeSourceFiles.length,
-                names: formatNameList(renamed, i18n.language),
-              })
-            : t("dashboard:source_upload_whole_done", { count: result.wholeSourceFiles.length }),
-        "success",
+    if (renamed.length > 0) {
+      useAppStore.getState().pushToast(
+        t("dashboard:source_upload_whole_done_renamed", {
+          count: result.wholeSourceFiles.length,
+          names: formatNameList(renamed, i18n.language),
+        }),
+        "info",
       );
+    }
     onUploaded?.(result);
     onClose();
   };
@@ -259,252 +263,238 @@ export function SourceUploadDialog({
         : t("dashboard:source_upload_confirm_episode", { position: firstPosition });
 
   return (
-    <GlassModal
+    <Dialog
       open
-      onClose={busy ? () => {} : onClose}
-      labelledBy={titleId}
-      widthClassName="w-full max-w-2xl"
-      closeOnBackdrop={!busy}
-      closeOnEscape={!busy}
+      onOpenChange={(next) => {
+        // 上传在途时不响应 Esc 与遮罩点击；关闭会中止剩下的上传
+        if (!next && !busy) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[min(86vh,760px)] flex-col"
-        onDragOver={(event) => {
-          if (!hasFiles(event) || busy) return;
-          event.preventDefault();
-          setFileDragOver(true);
-        }}
-        onDragLeave={(event) => {
-          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-          setFileDragOver(false);
-        }}
-        onDrop={(event) => {
-          if (!hasFiles(event)) return;
-          event.preventDefault();
-          setFileDragOver(false);
-          if (!busy) addFiles(Array.from(event.dataTransfer.files));
-        }}
-      >
-        <header className="flex items-start justify-between gap-3 px-6 pt-5">
-          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-foreground">
-            {t("dashboard:source_upload_title")}
-          </h2>
-          <ModalCloseButton onClick={onClose} disabled={busy} />
-        </header>
-
-        <fieldset className="mt-4 flex gap-2.5 px-6" disabled={busy}>
-          <legend className="sr-only">{t("dashboard:source_upload_mode_legend")}</legend>
-          {(["whole_source", "episode"] as const).map((value) => (
-            <label key={value} className={`${radioCardClass(mode === value)} text-left`}>
-              <input
-                type="radio"
-                name={`${titleId}-mode`}
-                value={value}
-                checked={mode === value}
-                onChange={() => setMode(value)}
-                className="sr-only"
-              />
-              <span className="block text-[13px] font-medium text-foreground">
-                {t(value === "whole_source" ? "dashboard:source_upload_mode_whole" : "dashboard:source_upload_mode_episode")}
-              </span>
-              <span className="mt-0.5 block text-[11.5px] leading-[1.5] text-muted-foreground">
-                {t(
-                  value === "whole_source"
-                    ? "dashboard:source_upload_mode_whole_hint"
-                    : "dashboard:source_upload_mode_episode_hint",
-                )}
-              </span>
-            </label>
-          ))}
-        </fieldset>
-
-        <p className="mt-4 px-6 text-[12px] leading-[1.6] text-muted-foreground">
-          {mode === "whole_source" ? t("dashboard:source_upload_order_whole") : t("dashboard:source_upload_order_episode")}
-        </p>
-        {withSourceKind && mode === "episode" ? (
-          <div className="mt-2 flex items-center gap-2 px-6 text-[12px] text-muted-foreground">
-            <span>{t("dashboard:source_upload_batch_kind")}</span>
-            <SourceKindSelect
-              value={batchKind}
-              onChange={applyBatchKind}
-              disabled={busy}
-              label={t("dashboard:source_upload_batch_kind")}
-            />
-          </div>
-        ) : null}
-
-        <div
-          className="mx-6 mt-2 min-h-[140px] flex-1 overflow-y-auto rounded-lg border transition-colors"
-          style={{
-            borderColor: fileDragOver ? "var(--primary)" : "var(--border)",
-            borderStyle: fileDragOver ? "dashed" : "solid",
-            background: "oklch(0.17 0.010 265 / 0.55)",
+      <DialogContent size="lg" showCloseButton={!busy}>
+        <DialogHeader>
+          <DialogTitle>{t("dashboard:source_upload_title")}</DialogTitle>
+        </DialogHeader>
+        <DialogBody
+          onDragOver={(event) => {
+            if (!hasFiles(event) || busy) return;
+            event.preventDefault();
+            setFileDragOver(true);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+            setFileDragOver(false);
+          }}
+          onDrop={(event) => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            setFileDragOver(false);
+            if (!busy) addFiles(Array.from(event.dataTransfer.files));
           }}
         >
-          {visibleRows.length === 0 ? (
-            <div className="grid h-full min-h-[140px] place-items-center px-6 text-center text-[12px] text-muted-foreground">
-              {t("dashboard:source_upload_empty")}
-            </div>
-          ) : (
-            <ol aria-label={t("dashboard:source_upload_list_label")}>
-              {visibleRows.map((row, index) => {
-                const isNew = row.kind === "new";
-                const name = isNew ? row.file.name : row.name;
-                const rowReserved = mode === "whole_source" && isNew && isReservedEpisodeFileName(name);
-                return (
-                  <li
-                    key={row.key}
-                    draggable={isNew && !busy}
-                    onDragStart={(event) => {
-                      setDragKey(row.key);
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("text/plain", row.key);
-                    }}
-                    onDragOver={(event) => onRowDragOver(event, row.key)}
-                    onDragEnd={() => setDragKey(null)}
-                    className="flex items-center gap-2.5 px-3 py-2 text-[12.5px]"
-                    style={{
-                      borderTop: index === 0 ? "none" : "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-                      opacity: dragKey === row.key ? 0.45 : 1,
-                    }}
-                  >
-                    <span className="num w-6 shrink-0 text-right text-[10.5px] text-muted-foreground">{index + 1}</span>
-                    {isNew ? (
-                      <GripVertical
-                        className="h-3.5 w-3.5 shrink-0 cursor-grab text-muted-foreground"
-                        aria-hidden
-                      />
-                    ) : (
-                      <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <div className="flex flex-col gap-3">
+            <fieldset className="flex gap-2.5" disabled={busy}>
+              <legend className="sr-only">{t("dashboard:source_upload_mode_legend")}</legend>
+              {(["whole_source", "episode"] as const).map((value) => (
+                <label
+                  key={value}
+                  className="flex flex-1 cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-fast has-checked:border-primary has-checked:bg-primary/10 has-focus-visible:ring-3 has-focus-visible:ring-ring/50 has-disabled:cursor-not-allowed has-disabled:opacity-50"
+                >
+                  <input
+                    type="radio"
+                    name={modeName}
+                    value={value}
+                    checked={mode === value}
+                    onChange={() => setMode(value)}
+                    className="sr-only"
+                  />
+                  <span className="text-sm font-medium text-foreground">
+                    {t(
+                      value === "whole_source"
+                        ? "dashboard:source_upload_mode_whole"
+                        : "dashboard:source_upload_mode_episode",
                     )}
-                    <FileText className={`h-3.5 w-3.5 shrink-0 ${isNew ? "text-primary" : "text-muted-foreground"}`} aria-hidden />
-                    <div className="min-w-0 flex-1">
-                      <div className={`truncate ${isNew ? "text-foreground" : "text-muted-foreground"}`} title={name}>
-                        {name}
-                      </div>
-                      {rowReserved ? (
-                        <div className="mt-0.5 text-[11px] text-warn">
-                          {t("dashboard:source_upload_reserved_name")}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {t(
+                      value === "whole_source"
+                        ? "dashboard:source_upload_mode_whole_hint"
+                        : "dashboard:source_upload_mode_episode_hint",
+                    )}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+
+            <p className="text-muted-foreground">
+              {mode === "whole_source"
+                ? t("dashboard:source_upload_order_whole")
+                : t("dashboard:source_upload_order_episode")}
+            </p>
+            {withSourceKind && mode === "episode" ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span>{t("dashboard:source_upload_batch_kind")}</span>
+                <SourceKindSelect
+                  value={batchKind}
+                  onChange={applyBatchKind}
+                  disabled={busy}
+                  label={t("dashboard:source_upload_batch_kind")}
+                />
+              </div>
+            ) : null}
+
+            <div
+              className={cn(
+                "min-h-36 rounded-lg border bg-muted/30 transition-colors duration-fast",
+                fileDragOver && "border-dashed border-primary",
+              )}
+            >
+              {visibleRows.length === 0 ? (
+                <div className="grid min-h-36 place-items-center px-6 text-center text-xs text-muted-foreground">
+                  {t("dashboard:source_upload_empty")}
+                </div>
+              ) : (
+                <ol aria-label={t("dashboard:source_upload_list_label")} className="divide-y divide-border/50">
+                  {visibleRows.map((row, index) => {
+                    const isNew = row.kind === "new";
+                    const name = isNew ? row.file.name : row.name;
+                    const rowReserved = mode === "whole_source" && isNew && isReservedEpisodeFileName(name);
+                    return (
+                      <li
+                        key={row.key}
+                        draggable={isNew && !busy}
+                        onDragStart={(event) => {
+                          setDragKey(row.key);
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", row.key);
+                        }}
+                        onDragOver={(event) => onRowDragOver(event, row.key)}
+                        onDragEnd={() => setDragKey(null)}
+                        className={cn("flex items-center gap-2.5 px-3 py-2", dragKey === row.key && "opacity-45")}
+                      >
+                        <span className="num w-6 shrink-0 text-right text-xs text-muted-foreground">{index + 1}</span>
+                        {isNew ? (
+                          <GripVertical className="size-3.5 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
+                        ) : (
+                          <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        )}
+                        <FileText
+                          className={cn("size-3.5 shrink-0", isNew ? "text-primary" : "text-muted-foreground")}
+                          aria-hidden
+                        />
+                        <div className="flex min-w-0 flex-1 flex-col">
+                          <TruncatedText text={name} className={isNew ? "text-foreground" : "text-muted-foreground"} />
+                          {rowReserved ? (
+                            <span className="text-xs text-warn">{t("dashboard:source_upload_reserved_name")}</span>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </div>
-                    {isNew ? (
-                      <span className="num shrink-0 text-[10.5px] text-muted-foreground">{fileSizeLabel(row.file.size)}</span>
-                    ) : (
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {withSourceKind
-                          ? t("dashboard:source_upload_existing_kind", {
-                              kind: t(
-                                row.sourceKind === "screenplay"
-                                  ? "dashboard:source_kind_screenplay"
-                                  : "dashboard:source_kind_novel",
-                              ),
-                            })
-                          : t("dashboard:source_upload_existing")}
-                      </span>
-                    )}
-                    {isNew && withSourceKind ? (
-                      <SourceKindSelect
-                        value={row.sourceKind}
-                        onChange={(value) => setRowKind(row.key, value)}
-                        disabled={busy}
-                        label={t("dashboard:source_kind_of", { name })}
-                      />
-                    ) : null}
-                    {isNew && mode === "episode" ? (
-                      <span className="shrink-0 text-[11.5px] text-primary">
-                        {t("dashboard:source_upload_becomes", { position: episodeCount + index + 1 })}
-                      </span>
-                    ) : null}
-                    {isNew ? (
-                      <span className="flex shrink-0 items-center">
-                        <button
-                          type="button"
-                          className={ICON_BTN_CLS}
-                          disabled={busy || index === 0}
-                          onClick={() => moveBy(row.key, -1)}
-                          aria-label={t("dashboard:source_upload_move_up", { name })}
-                        >
-                          <ArrowUp className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          className={ICON_BTN_CLS}
-                          disabled={busy || index === visibleRows.length - 1}
-                          onClick={() => moveBy(row.key, 1)}
-                          aria-label={t("dashboard:source_upload_move_down", { name })}
-                        >
-                          <ArrowDown className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          className={ICON_BTN_CLS}
-                          disabled={busy}
-                          onClick={() => setRows((prev) => prev.filter((item) => item.key !== row.key))}
-                          aria-label={t("dashboard:source_upload_remove", { name })}
-                        >
-                          <X className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                      </span>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-        </div>
+                        {isNew ? (
+                          <span className="num shrink-0 text-xs text-muted-foreground">{fileSizeLabel(row.file.size)}</span>
+                        ) : (
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {withSourceKind
+                              ? t("dashboard:source_upload_existing_kind", {
+                                  kind: t(
+                                    row.sourceKind === "screenplay"
+                                      ? "dashboard:source_kind_screenplay"
+                                      : "dashboard:source_kind_novel",
+                                  ),
+                                })
+                              : t("dashboard:source_upload_existing")}
+                          </span>
+                        )}
+                        {isNew && withSourceKind ? (
+                          <SourceKindSelect
+                            value={row.sourceKind}
+                            onChange={(value) => setRowKind(row.key, value)}
+                            disabled={busy}
+                            label={t("dashboard:source_kind_of", { name })}
+                          />
+                        ) : null}
+                        {isNew && mode === "episode" ? (
+                          <span className="shrink-0 text-xs text-primary">
+                            {t("dashboard:source_upload_becomes", { position: episodeCount + index + 1 })}
+                          </span>
+                        ) : null}
+                        {isNew ? (
+                          <span className="flex shrink-0 items-center">
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              disabled={busy || index === 0}
+                              onClick={() => moveBy(row.key, -1)}
+                              aria-label={t("dashboard:source_upload_move_up", { name })}
+                            >
+                              <ArrowUp aria-hidden />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              disabled={busy || index === visibleRows.length - 1}
+                              onClick={() => moveBy(row.key, 1)}
+                              aria-label={t("dashboard:source_upload_move_down", { name })}
+                            >
+                              <ArrowDown aria-hidden />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              disabled={busy}
+                              onClick={() => setRows((prev) => prev.filter((item) => item.key !== row.key))}
+                              aria-label={t("dashboard:source_upload_remove", { name })}
+                            >
+                              <X aria-hidden />
+                            </Button>
+                          </span>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-3 px-6">
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept={SOURCE_FILE_ACCEPT}
-            className="hidden"
-            aria-label={t("dashboard:source_upload_pick")}
-            onChange={(event) => {
-              addFiles(Array.from(event.target.files ?? []));
-              event.target.value = "";
-            }}
-          />
-          <SecondaryButton
-            size="sm"
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
-            leadingIcon={<Upload className="h-3.5 w-3.5" aria-hidden />}
-          >
-            {t("dashboard:source_upload_pick")}
-          </SecondaryButton>
-          <span className="text-[11.5px] text-muted-foreground">
-            {t("dashboard:source_upload_pick_hint", { formats: SOURCE_FILE_FORMATS_LABEL })}
-          </span>
-        </div>
-        {skipped.length > 0 ? (
-          <p role="status" className="mt-2 px-6 text-[11.5px] text-warn">
-            {t("dashboard:source_upload_skipped", { names: formatNameList(skipped, i18n.language) })}
-          </p>
-        ) : null}
-
-        <footer className="mt-5 flex items-center justify-end gap-2 border-t border-border/50 px-6 py-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                accept={SOURCE_FILE_ACCEPT}
+                hidden
+                aria-label={t("dashboard:source_upload_pick")}
+                onChange={(event) => {
+                  addFiles(Array.from(event.target.files ?? []));
+                  event.target.value = "";
+                }}
+              />
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
+                <Upload aria-hidden data-icon="inline-start" />
+                {t("dashboard:source_upload_pick")}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {t("dashboard:source_upload_pick_hint", { formats: SOURCE_FILE_FORMATS_LABEL })}
+              </span>
+            </div>
+            {skipped.length > 0 ? (
+              <p role="status" className="text-xs text-warn">
+                {t("dashboard:source_upload_skipped", { names: formatNameList(skipped, i18n.language) })}
+              </p>
+            ) : null}
+          </div>
+        </DialogBody>
+        <DialogFooter>
           {progress ? (
-            <span role="status" className="mr-auto flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 shrink-0 motion-safe:animate-spin" aria-hidden />
+            <span role="status" className="mr-auto flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
               <span className="truncate">{t("dashboard:source_upload_progress", progress)}</span>
             </span>
           ) : null}
-          <SecondaryButton size="sm" onClick={onClose} disabled={busy}>
-            {t("common:cancel")}
-          </SecondaryButton>
-          <PrimaryButton
-            size="sm"
-            onClick={() => void submit()}
-            disabled={busy || newRows.length === 0 || reserved}
-          >
+          <DialogClose render={<Button variant="outline" disabled={busy} />}>{t("common:cancel")}</DialogClose>
+          <Button onClick={() => void submit()} disabled={busy || newRows.length === 0 || reserved}>
             {confirmLabel}
-          </PrimaryButton>
-        </footer>
-      </div>
-      {change.dialog}
-    </GlassModal>
+          </Button>
+        </DialogFooter>
+        {change.dialog}
+      </DialogContent>
+    </Dialog>
   );
 }

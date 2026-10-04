@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -162,9 +163,10 @@ describe("EpisodeSourceReview", () => {
     render(<EpisodeSourceReview projectName="demo" episode={4} episodes={[noSource]} />);
 
     const box = await screen.findByRole("textbox", { name: "填写或粘贴本集的集原文" });
-    expect(screen.getByRole("combobox", { name: "源文件类型" })).toHaveValue("novel");
+    expect(screen.getByRole("combobox", { name: "源文件类型" })).toHaveTextContent("小说");
     fireEvent.change(box, { target: { value: "剧本原文" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "源文件类型" }), { target: { value: "screenplay" } });
+    await userEvent.click(screen.getByRole("combobox", { name: "源文件类型" }));
+    await userEvent.click(await screen.findByRole("option", { name: /^剧本/ }));
     fireEvent.click(screen.getByRole("button", { name: "保存集原文" }));
 
     await waitFor(() => expect(save).toHaveBeenCalledWith("demo", 4, "剧本原文", "screenplay", false));
@@ -187,7 +189,8 @@ describe("EpisodeSourceReview", () => {
     render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[own]} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "编辑集原文" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "源文件类型" }), { target: { value: "screenplay" } });
+    await userEvent.click(screen.getByRole("combobox", { name: "源文件类型" }));
+    await userEvent.click(await screen.findByRole("option", { name: /^剧本/ }));
     fireEvent.click(screen.getByRole("button", { name: "保存集原文" }));
 
     const dialog = await screen.findByRole("dialog", { name: "修改本集的源文件类型？" });

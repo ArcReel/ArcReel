@@ -9,7 +9,7 @@ import {
   formatVolume,
   isReservedEpisodeFileName,
   otherEpisodes,
-  railFileGroups,
+  outlineFileGroups,
 } from "./episodes-view-model";
 
 function segment(overrides: Partial<EpisodesViewSegment>): EpisodesViewSegment {
@@ -91,7 +91,7 @@ describe("episodes-view-model", () => {
       episodes: [info(1), info(2), info(3, { origin: "own", placed: false, source_file: null })],
     });
 
-    const groups = railFileGroups(layout, [meta(1), meta(2), meta(3)]);
+    const groups = outlineFileGroups(layout, [meta(1), meta(2), meta(3)]);
 
     expect(groups).toHaveLength(1);
     expect(groups[0].file.name).toBe("a.txt");
@@ -128,7 +128,7 @@ describe("episodes-view-model", () => {
       episodes: [info(1, { end_file: "source/b.txt" }), info(2, { source_file: "source/b.txt", end_file: "source/b.txt" })],
     });
 
-    const groups = railFileGroups(layout, [meta(1), meta(2)]);
+    const groups = outlineFileGroups(layout, [meta(1), meta(2)]);
 
     expect(groups.map((group) => [group.file.name, group.rows.map((row) => row.kind === "episode" && row.episode.episode)])).toEqual([
       ["a.txt", [1]],

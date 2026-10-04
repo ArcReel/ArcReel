@@ -1,6 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -51,11 +50,13 @@ function openMenuItem(name: string) {
 }
 
 describe("SourceFileActions", () => {
+  let refresh: MockInstance;
+
   beforeEach(() => {
     vi.restoreAllMocks();
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
   });
 
   it("shows the server's impact list before moving, then applies with its revision", async () => {
@@ -73,7 +74,8 @@ describe("SourceFileActions", () => {
     expect(await screen.findByText("原文没变，只平移位置：第 2 集、第 3 集")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "移动" }));
 
-    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("已更新「中卷.txt」"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo"));
+    expect(screen.queryByText("原文没变，只平移位置：第 2 集、第 3 集")).not.toBeInTheDocument();
     expect(move.mock.calls).toEqual([
       ["demo", "中卷.txt", "up", null],
       ["demo", "中卷.txt", "up", "r1"],
@@ -117,7 +119,7 @@ describe("SourceFileActions", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", "中卷.txt", null));
-    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("已删除「中卷.txt」"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo"));
   });
 
   it("disables moving past either end of the file list", () => {
@@ -144,8 +146,7 @@ describe("SourceFileActions", () => {
     await waitFor(() => expect(screen.queryByRole("textbox")).not.toBeInTheDocument());
   });
 
-  it("keeps Tab inside the impact confirmation opened over the editor", async () => {
-    const user = userEvent.setup();
+  it("opens the impact confirmation over the editor with focus on Cancel", async () => {
     vi.spyOn(API, "getSourceContent").mockResolvedValue("第二章。夜雨。");
     vi.spyOn(API, "editSourceFile").mockResolvedValue({
       status: "confirmation_required",
@@ -160,12 +161,9 @@ describe("SourceFileActions", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await screen.findByText("原文有变化、已有产物：夜雨");
 
-    const confirm = within(screen.getAllByRole("dialog").at(-1)!);
-    expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus();
-    await user.tab();
-    expect(confirm.getByRole("button", { name: "保存" })).toHaveFocus();
-    await user.tab();
-    expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus();
+    const confirm = within(screen.getByRole("alertdialog"));
+    await waitFor(() => expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus());
+    expect(area).toHaveValue("第二章。夜雨潇潇。");
   });
 
   it("keeps only deletion available while the file was changed outside ArcReel", () => {

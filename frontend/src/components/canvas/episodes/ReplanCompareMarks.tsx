@@ -1,24 +1,23 @@
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 
 import type { CompareLane, LanePiece } from "./replan-compare-model";
 
-/** 新方案的色条：同一色相的深浅两档交替，与现有分集按集 ID 取色的多色相区分开。 */
-export function newLaneColor(index: number): string {
-  return index % 2 === 0 ? "oklch(0.8 0.09 295)" : "oklch(0.6 0.08 295)";
+/** 新方案的色条：品牌色深浅两档交替，与现有分集按集 ID 取色的多色相区分开；方案还没生成到的原文是虚线。 */
+function laneClass(lane: CompareLane) {
+  return cn(
+    lane.kind === "pending"
+      ? "border-l-3 border-dashed border-input"
+      : lane.index % 2 === 0
+        ? "w-0.75 rounded-full bg-primary"
+        : "w-0.75 rounded-full bg-primary/55",
+  );
 }
-
-const PENDING_LANE = "repeating-linear-gradient(to bottom, var(--input) 0 4px, transparent 4px 8px)";
-
-function laneBackground(lane: CompareLane): string {
-  return lane.kind === "pending" ? PENDING_LANE : newLaneColor(lane.index);
-}
-
-/** 段落间距（`space-y-3`）：与下一行属于同一集时色条向下延伸这么多，连成一条。 */
-const PARAGRAPH_GAP = "0.75rem";
 
 /**
  * 一行原文右侧的新方案色条：按这一行里各段原文的字数比例分高度。
- * `continues` 为 true 时最后一段延伸过段落间距，与下一行的色条连上。
+ * `continues` 为 true 时最后一段延伸过段落间距（`space-y-3`，0.75rem），与下一行的色条连上。
  */
 export function LaneBar({
   pieces,
@@ -41,26 +40,26 @@ export function LaneBar({
         key={piece.from}
         aria-hidden
         data-replan-lane={piece.lane.kind}
-        className="pointer-events-none absolute -right-5 w-[3px] rounded-full"
-        style={{
-          top: `${top}%`,
-          bottom: extend ? `calc(${bottom}% - ${PARAGRAPH_GAP})` : `${bottom}%`,
-          background: laneBackground(piece.lane),
-        }}
+        className={cn("pointer-events-none absolute -right-5 top-(--lane-top) bottom-(--lane-bottom)", laneClass(piece.lane))}
+        style={
+          {
+            "--lane-top": `${top}%`,
+            "--lane-bottom": extend ? `calc(${bottom}% - 0.75rem)` : `${bottom}%`,
+          } as CSSProperties
+        }
       />
     );
   });
 }
 
-/** 落在两行之间的不同分界：横跨正文与右侧色条的琥珀色虚线，画在下一行的上方。 */
+/** 落在两行之间的不同分界：横跨正文与右侧色条的琥珀色虚线，画在下一行上方的段落间距正中。 */
 export function BoundaryRule() {
   const { t } = useTranslation("dashboard");
   return (
     <span
       data-no-caret
       data-replan-diff
-      className="pointer-events-none absolute -right-6 left-0 border-t border-dashed"
-      style={{ top: `calc(${PARAGRAPH_GAP} / -2)`, borderColor: "var(--warn)" }}
+      className="pointer-events-none absolute -top-1.5 -right-6 left-0 border-t border-dashed border-warn"
     >
       <span className="sr-only">{t("replan_boundary_differs")}</span>
     </span>
@@ -71,17 +70,8 @@ export function BoundaryRule() {
 export function BoundaryTick() {
   const { t } = useTranslation("dashboard");
   return (
-    <span
-      data-no-caret
-      data-replan-diff
-      className="relative inline-block h-[1.35em] w-0 align-text-bottom"
-      title={t("replan_boundary_differs")}
-    >
-      <span
-        aria-hidden
-        className="absolute -left-px top-0 h-full border-l-2 border-dashed"
-        style={{ borderColor: "var(--warn)" }}
-      />
+    <span data-no-caret data-replan-diff className="relative inline-block h-[1.35em] w-0 align-text-bottom">
+      <span aria-hidden className="absolute -left-px top-0 h-full border-l-2 border-dashed border-warn" />
       <span className="sr-only">{t("replan_boundary_differs")}</span>
     </span>
   );
@@ -91,10 +81,7 @@ export function BoundaryTick() {
 export function WaitingBadge() {
   const { t } = useTranslation("dashboard");
   return (
-    <span
-      className="inline-flex items-center rounded-sm px-1.5 py-px text-[10.5px] leading-[1.6] text-muted-foreground"
-      style={{ border: "1px dashed var(--input)" }}
-    >
+    <span className="inline-flex shrink-0 items-center rounded-sm border border-dashed border-input px-1.5 text-xs text-muted-foreground">
       {t("replan_waiting")}
     </span>
   );

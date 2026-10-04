@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import type { SourceFileImpact } from "@/types/episodes-view";
+
+import { ImpactConfirmDialog } from "./ImpactConfirmDialog";
 
 /** 整本源文文件改动命令的响应：上传接口在 `status` 之外还带别的字段，这里只看确认协议需要的部分。 */
 export interface SourceFileChangeReply {
@@ -94,28 +95,30 @@ export function useSourceFileChange() {
 
   const respond = (confirmed: boolean) => answer.current?.(confirmed);
 
-  const dialog: ReactNode =
-    pending === null ? null : (
-      <ConfirmDialog
-        open
-        tone={pending.danger ? "danger" : "default"}
-        title={pending.title}
-        description={
-          <>
-            {pending.changed ? (
-              <span className="mb-2 block text-warn">{t("source_file_change_changed")}</span>
-            ) : null}
-            <span className="block">{t("source_file_change_impact")}</span>
-            <span className="mt-1 block whitespace-pre-line">{pending.text}</span>
-          </>
-        }
-        confirmLabel={pending.confirmLabel}
-        loadingLabel={t("source_file_change_running")}
-        loading={busy}
-        onConfirm={() => respond(true)}
-        onCancel={() => respond(false)}
-      />
-    );
+  const dialog: ReactNode = (
+    <ImpactConfirmDialog
+      request={
+        pending === null
+          ? null
+          : {
+              title: pending.title,
+              body: (
+                <div className="flex flex-col gap-2">
+                  {pending.changed ? <p className="text-warn">{t("source_file_change_changed")}</p> : null}
+                  <p>{t("source_file_change_impact")}</p>
+                  <p className="whitespace-pre-line">{pending.text}</p>
+                </div>
+              ),
+              confirmLabel: pending.confirmLabel,
+              runningLabel: t("source_file_change_running"),
+              destructive: pending.danger,
+            }
+      }
+      busy={busy}
+      onConfirm={() => respond(true)}
+      onCancel={() => respond(false)}
+    />
+  );
 
   return { run, busy, dialog };
 }

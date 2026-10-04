@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { Trash2 } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { useProjectsStore } from "@/stores/projects-store";
 
 import { episodesViewPath } from "./episodes-view-model";
@@ -17,15 +18,10 @@ export function EpisodeDeleteButton({ episode }: { episode: number }) {
   if (!projectName || isAd) return null;
   return (
     <>
-      <button
-        type="button"
-        onClick={() => void deletion.requestDelete(episode)}
-        className="focus-ring ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-warn"
-        title={t("episode_menu_delete")}
-      >
-        <Trash2 className="h-3 w-3" aria-hidden />
+      <Button variant="ghost" size="xs" className="ml-auto" onClick={() => void deletion.requestDelete(episode)}>
+        <Trash2 aria-hidden data-icon="inline-start" />
         {t("episode_menu_delete")}
-      </button>
+      </Button>
       {deletion.dialog}
     </>
   );

@@ -1,24 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useSearch } from "wouter";
 import { BookOpen, Upload } from "lucide-react";
 
 import { API } from "@/api";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { EPISODE_PLANNING_SLOTS } from "@/actions/generation";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { EpisodesView as EpisodesViewData } from "@/types";
 import { errMsg } from "@/utils/async";
 
-import { EpisodesRail } from "./EpisodesRail";
+import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
+import { EpisodeOutline, type EpisodeMenuActions } from "./EpisodeOutline";
+import { EpisodesHeader } from "./EpisodesHeader";
 import { ExternalChangeNotice } from "./ExternalChangeNotice";
+import { ManualSplitToolbar, caretEpisode } from "./ManualSplitToolbar";
+import { ReplanCandidatePanel } from "./ReplanCandidatePanel";
 import { SourceManuscript } from "./SourceManuscript";
 import { SourceUploadDialog } from "./SourceUploadDialog";
-import { ManualSplitToolbar, caretColor } from "./ManualSplitToolbar";
-import { useManualSplit } from "./useManualSplit";
-import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
-import { useDeleteEpisode } from "./useDeleteEpisode";
-import { useReplanEpisode } from "./useReplanEpisode";
+import { UnregisteredFilesBanner } from "./UnregisteredFiles";
 import { replanCompare } from "./replan-compare-model";
+import { useDeleteEpisode } from "./useDeleteEpisode";
+import { useManualSplit } from "./useManualSplit";
+import { useReplanEpisode } from "./useReplanEpisode";
 import {
   EPISODES_VIEW_CREATE_PARAM,
   EPISODES_VIEW_EPISODE_PARAM,
@@ -82,9 +88,43 @@ function useEpisodesViewData(projectName: string) {
 }
 
 /**
- * 项目层「分集」视图：左栏是整本源文全文、按集分段，右栏是上传、源文进度与集清单。
+ * 原文视口顶部所在的集：观察原文里每个集段落，取与视口上沿一带相交的最靠上的一段。
+ * 视口上沿落在未切分的原文里时保持上一集。原文重新渲染（数据刷新）后重新挂观察。
+ */
+function useCurrentEpisode(scrollRoot: RefObject<HTMLElement | null>, view: EpisodesViewData | null) {
+  const [current, setCurrent] = useState<number | null>(null);
+  useEffect(() => {
+    const root = scrollRoot.current;
+    if (root === null || view === null || typeof IntersectionObserver === "undefined") return;
+    const visible = new Set<HTMLElement>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const target = entry.target as HTMLElement;
+          if (entry.isIntersecting) visible.add(target);
+          else visible.delete(target);
+        }
+        let top: { y: number; episode: number } | null = null;
+        for (const target of visible) {
+          const y = target.getBoundingClientRect().top;
+          if (top === null || y < top.y) top = { y, episode: Number(target.dataset.episodeBlock) };
+        }
+        if (top !== null) setCurrent(top.episode);
+      },
+      // 只看视口上沿往下四分之一的一带：哪一集占着这里，读者就在读哪一集
+      { root, rootMargin: "0px 0px -75% 0px" },
+    );
+    for (const block of root.querySelectorAll<HTMLElement>("[data-episode-block]")) observer.observe(block);
+    return () => observer.disconnect();
+  }, [scrollRoot, view]);
+  return [current, setCurrent] as const;
+}
+
+/**
+ * 项目层「分集」视图：页头工具行，左侧是集目录，右侧是整本源文全文、按集分段。
+ * 有新的分集方案时集目录让位，原文右侧出现方案栏，对照现有分集与新方案。
  *
- * 查询参数 `upload=whole_source|episode` 打开上传对话框，`episode=<集 ID>` 选中这一集并滚动到它，
+ * 查询参数 `upload=whole_source|episode` 打开上传对话框，`episode=<集 ID>` 把原文滚到这一集，
  * `create` 打开新建一集对话框。
  */
 export function EpisodesView({ projectName }: { projectName: string }) {
@@ -92,18 +132,27 @@ export function EpisodesView({ projectName }: { projectName: string }) {
   const { view, error, reload, episodes } = useEpisodesViewData(projectName);
   const search = useSearch();
   const [, setLocation] = useLocation();
-  const [selected, setSelected] = useState<number | null>(null);
   const [upload, setUpload] = useState<SourceUploadMode | null>(null);
   /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
   const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
-  const deletion = useDeleteEpisode(projectName, (episode) => {
-    if (selected === episode) setSelected(null);
-  });
+  const deletion = useDeleteEpisode(projectName);
+  const manuscriptRef = useRef<HTMLElement>(null);
+  const [current, setCurrent] = useCurrentEpisode(manuscriptRef, view);
   const episodeHeaders = useRef(new Map<number, HTMLElement>());
   const fileBars = useRef(new Map<string, HTMLElement>());
-  // 开始重新规划时左栏滚到重新规划的起点：发起的那一集
-  const onReplanStarted = useCallback((episode: number) => scrollIntoViewTop(episodeHeaders.current.get(episode)), []);
-  const replan = useReplanEpisode(projectName, onReplanStarted);
+  const activePlanning = useActiveResourceIds("text_episode_plan", projectName);
+  const planning = EPISODE_PLANNING_SLOTS.some((slot) => activePlanning.has(slot));
+
+  const locate = useCallback(
+    (episode: number) => {
+      setCurrent(episode);
+      scrollIntoViewTop(episodeHeaders.current.get(episode));
+    },
+    [setCurrent],
+  );
+  const locateFile = useCallback((sourceFile: string) => scrollIntoViewTop(fileBars.current.get(sourceFile)), []);
+  // 开始重新规划时原文滚到重新规划的起点：发起的那一集
+  const replan = useReplanEpisode(projectName, locate);
   const compare = useMemo(() => (view === null ? null : replanCompare(view, view.replan)), [view]);
 
   const registerEpisodeHeader = useCallback((episode: number, el: HTMLElement | null) => {
@@ -115,24 +164,26 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     else fileBars.current.delete(sourceFile);
   }, []);
 
-  const selectFromRail = useCallback((episode: number) => {
-    setSelected(episode);
-    scrollIntoViewTop(episodeHeaders.current.get(episode));
-  }, []);
-  const scrollToFile = useCallback((sourceFile: string) => scrollIntoViewTop(fileBars.current.get(sourceFile)), []);
+  // 待滚动到的集：地址参数、新建与切分完成后指定，原文渲染出这一集时滚过去一次
+  const [scrollTarget, setScrollTarget] = useState<{ episode: number } | null>(null);
+  const scrolledTarget = useRef<{ episode: number } | null>(null);
+  useEffect(() => {
+    if (scrollTarget === null || scrolledTarget.current === scrollTarget) return;
+    const header = episodeHeaders.current.get(scrollTarget.episode);
+    if (header === undefined) return;
+    scrolledTarget.current = scrollTarget;
+    setCurrent(scrollTarget.episode);
+    scrollIntoViewTop(header);
+  }, [view, scrollTarget, setCurrent]);
 
   // 查询参数只消费一次：渲染时读出并记下已消费的地址，effect 再把参数从地址里去掉，返回或刷新不会再次打开对话框
   const [consumedSearch, setConsumedSearch] = useState<string | null>(null);
-  const [scrollTarget, setScrollTarget] = useState<{ episode: number } | null>(null);
   const request = parseViewRequest(search);
   if (request !== null && search !== consumedSearch) {
     setConsumedSearch(search);
     if (request.upload !== null) setUpload(request.upload);
     if (request.create) setCreateAfter(null);
-    if (request.episode !== null) {
-      setSelected(request.episode);
-      setScrollTarget({ episode: request.episode });
-    }
+    if (request.episode !== null) setScrollTarget({ episode: request.episode });
   } else if (request === null && consumedSearch !== null) {
     // 参数已从地址去掉：清掉记录，同一地址再次到达时照常生效
     setConsumedSearch(null);
@@ -142,17 +193,10 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     if (parseViewRequest(search) !== null) setLocation(episodesViewPath(), { replace: true });
   }, [search, setLocation]);
 
-  const loaded = view !== null;
-  useEffect(() => {
-    if (loaded && scrollTarget !== null) scrollIntoViewTop(episodeHeaders.current.get(scrollTarget.episode));
-  }, [loaded, scrollTarget]);
-
-  const openUpload = useCallback(() => setUpload("whole_source"), []);
-
   const onSplitApplied = useCallback(
     (episode: number | null) => {
       reload();
-      if (episode !== null) setSelected(episode);
+      if (episode !== null) setScrollTarget({ episode });
     },
     [reload],
   );
@@ -161,7 +205,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     view !== null && split.pending !== null && split.action !== null
       ? {
           point: split.pending,
-          color: caretColor(split.action),
+          episode: caretEpisode(split.action),
           toolbar: (
             <ManualSplitToolbar
               view={view}
@@ -179,63 +223,97 @@ export function EpisodesView({ projectName }: { projectName: string }) {
 
   if (view === null) {
     return (
-      <div className="grid h-full place-items-center px-6 text-center text-[12.5px] text-muted-foreground" aria-busy={!error}>
+      <div
+        className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground"
+        aria-busy={!error}
+      >
         {error ? t("episodes_view_load_failed", { message: error }) : t("episodes_view_loading")}
       </div>
     );
   }
 
+  const menuActions: EpisodeMenuActions = {
+    splitBusy: split.busy,
+    planBlocked:
+      view.replan !== null ? t("replan_pending_hint") : planning ? t("episode_planning_busy") : null,
+    onCreateAfter: setCreateAfter,
+    onMergeWithNext: split.mergeWithNext,
+    onClearAfter: split.clearAfter,
+    onReplan: (episode) => void replan.requestReplan(episode),
+    onDelete: (episode) => void deletion.requestDelete(episode),
+  };
+  const replanPending = view.replan !== null;
+
   return (
-    <div className="flex h-full flex-col lg:flex-row">
-      <main className="min-h-0 flex-1 overflow-y-auto px-6 lg:px-10" aria-label={t("episodes_view_source_label")}>
-        <div className="mx-auto max-w-[44em]">
-          <ExternalChangeNotice
-            projectName={projectName}
-            changes={view.external_changes}
-            onLocate={scrollToFile}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <EpisodesHeader
+        projectName={projectName}
+        view={view}
+        episodeCount={episodes.length}
+        planning={planning}
+        onUpload={setUpload}
+        onCreate={() => setCreateAfter(null)}
+      />
+      <UnregisteredFilesBanner
+        projectName={projectName}
+        files={view.unregistered}
+        episodes={episodes}
+        onChanged={reload}
+      />
+      <div className="flex min-h-0 flex-1">
+        {!replanPending && episodes.length > 0 ? (
+          <EpisodeOutline
+            view={view}
+            episodes={episodes}
+            current={current}
+            onLocate={locate}
+            onLocateFile={locateFile}
+            actions={menuActions}
           />
-          {view.files.length === 0 ? (
-            <EmptySource hasEpisodes={episodes.length > 0} onUpload={openUpload} />
-          ) : (
-            <SourceManuscript
+        ) : null}
+        <section
+          ref={manuscriptRef}
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 原文是长文本只读区，须能用键盘聚焦后以方向键与翻页键滚动
+          tabIndex={0}
+          aria-label={t("episodes_view_source_label")}
+          className="focus-ring relative min-h-0 min-w-0 flex-1 overflow-y-auto px-6 [scrollbar-gutter:stable]"
+        >
+          <div className="mx-auto max-w-[40em] pt-4">
+            <ExternalChangeNotice projectName={projectName} changes={view.external_changes} onLocate={locateFile} />
+            {view.files.length === 0 ? (
+              <EmptySource hasEpisodes={episodes.length > 0} onUpload={() => setUpload("whole_source")} />
+            ) : (
+              <SourceManuscript
+                projectName={projectName}
+                view={view}
+                episodes={episodes}
+                registerEpisodeHeader={registerEpisodeHeader}
+                registerFileBar={registerFileBar}
+                caret={caret}
+                moving={split.moving}
+                onPlace={split.place}
+                onToggleMoving={split.toggleMoving}
+                compare={compare}
+              />
+            )}
+          </div>
+        </section>
+        {view.replan !== null ? (
+          <section
+            aria-label={t("episodes_plan_column_label")}
+            className="w-[clamp(320px,30cqw,400px)] shrink-0 overflow-y-auto border-l px-4 py-4"
+          >
+            <ReplanCandidatePanel
               projectName={projectName}
               view={view}
+              replan={view.replan}
               episodes={episodes}
-              selected={selected}
-              onSelect={setSelected}
-              registerEpisodeHeader={registerEpisodeHeader}
-              registerFileBar={registerFileBar}
-              caret={caret}
-              moving={split.moving}
-              onPlace={split.place}
-              onToggleMoving={split.toggleMoving}
-              compare={compare}
+              generating={planning}
+              onChanged={reload}
             />
-          )}
-        </div>
-      </main>
-      <aside
-        className="min-h-0 shrink-0 overflow-y-auto border-border max-lg:max-h-[45%] max-lg:border-t lg:w-[360px] lg:border-l"
-        style={{ background: "oklch(0.18 0.01 265 / 0.5)" }}
-        aria-label={t("episodes_view_rail_label")}
-      >
-        <EpisodesRail
-          projectName={projectName}
-          view={view}
-          episodes={episodes}
-          selected={selected}
-          onSelect={selectFromRail}
-          onScrollToFile={scrollToFile}
-          onUpload={openUpload}
-          onChanged={reload}
-          splitBusy={split.busy}
-          onMergeWithNext={split.mergeWithNext}
-          onClearAfter={split.clearAfter}
-          onCreate={setCreateAfter}
-          onDelete={(episode) => void deletion.requestDelete(episode)}
-          onReplan={(episode) => void replan.requestReplan(episode)}
-        />
-      </aside>
+          </section>
+        ) : null}
+      </div>
       {upload !== null ? (
         <SourceUploadDialog projectName={projectName} initialMode={upload} onClose={() => setUpload(null)} />
       ) : null}
@@ -246,7 +324,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
           onClose={() => setCreateAfter(undefined)}
           onCreated={(episode) => {
             setCreateAfter(undefined);
-            setSelected(episode);
+            setScrollTarget({ episode });
             reload();
           }}
         />
@@ -261,17 +339,22 @@ export function EpisodesView({ projectName }: { projectName: string }) {
 function EmptySource({ hasEpisodes, onUpload }: { hasEpisodes: boolean; onUpload: () => void }) {
   const { t } = useTranslation("dashboard");
   return (
-    <div className="mx-auto mt-24 max-w-md text-center">
-      <BookOpen className="mx-auto h-6 w-6 text-muted-foreground" aria-hidden />
-      <h2 className="display-serif mt-4 text-[17px] font-semibold tracking-tight text-foreground">
-        {t("episodes_view_empty_title")}
-      </h2>
-      <p className="mt-2 text-[12.5px] leading-[1.7] text-muted-foreground">
-        {hasEpisodes ? t("episodes_view_empty_has_episodes") : t("episodes_view_empty_hint")}
-      </p>
-      <PrimaryButton className="mt-5" onClick={onUpload} leadingIcon={<Upload className="h-4 w-4" aria-hidden />}>
-        {t("source_upload_title")}
-      </PrimaryButton>
-    </div>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <BookOpen aria-hidden />
+        </EmptyMedia>
+        <EmptyTitle>{t("episodes_view_empty_title")}</EmptyTitle>
+        <EmptyDescription>
+          {hasEpisodes ? t("episodes_view_empty_has_episodes") : t("episodes_view_empty_hint")}
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button onClick={onUpload}>
+          <Upload aria-hidden data-icon="inline-start" />
+          {t("source_upload_title")}
+        </Button>
+      </EmptyContent>
+    </Empty>
   );
 }

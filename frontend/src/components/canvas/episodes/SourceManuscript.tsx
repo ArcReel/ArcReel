@@ -1,8 +1,11 @@
-import { Fragment, memo, useMemo, type MouseEvent, type ReactNode } from "react";
+import { Fragment, memo, useMemo, type MouseEvent, type ReactNode, type CSSProperties } from "react";
+import { cn } from "cn";
 import { useTranslation } from "react-i18next";
 import { FileText, MoveHorizontal, TriangleAlert } from "lucide-react";
 
 import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode, EpisodesViewFile, EpisodesViewSegment } from "@/types";
+import { Button } from "@/components/ui/button";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
 import { PlanGapButton } from "./PlanGapButton";
@@ -10,26 +13,21 @@ import { BoundaryRule, BoundaryTick, LaneBar, WaitingBadge } from "./ReplanCompa
 import { ReplannedBadge } from "./ReplannedBadge";
 import { SourceFileActions } from "./SourceFileActions";
 import { SourceFileKindControl } from "./SourceFileKindControl";
-import { episodeColor, formatSpoken, formatVolume } from "./episodes-view-model";
+import { episodeHue, formatSpoken, formatVolume } from "./episodes-view-model";
 import { adjacentBoundaries, pointInRun, textRuns, type ManuscriptPoint, type TextRun } from "./manual-split-model";
 import { lanesContinue, type ReplanCompare } from "./replan-compare-model";
 
-/** 原文阅读列：衬线正文，行长控制在约 40 个汉字。 */
-const MANUSCRIPT_TEXT_CLS = "cursor-text text-[14.5px] leading-[1.95] [font-family:var(--font-editorial)]";
-
-/** 对照新方案时正文右侧留出的位置：右侧色条画在这里，不被 `content-visibility` 的绘制裁剪裁掉。 */
-const COMPARE_GUTTER_CLS = "pr-6";
+/** 原文阅读列：衬线正文，行距加大；行长由视图的 40em 限宽控制在约 40 个汉字。 */
+const MANUSCRIPT_TEXT_CLS = "flex cursor-text flex-col gap-3 font-editorial text-base leading-loose";
 
 interface SourceManuscriptProps {
   projectName: string;
   view: EpisodesView;
   episodes: EpisodeMeta[];
-  selected: number | null;
-  onSelect: (episode: number) => void;
   registerEpisodeHeader: (episode: number, el: HTMLElement | null) => void;
   registerFileBar: (sourceFile: string, el: HTMLElement | null) => void;
-  /** 手工切分的插入光标与它下方的操作条；没有落点时为 null。 */
-  caret: { point: ManuscriptPoint; color: string; toolbar: ReactNode } | null;
+  /** 手工切分的插入光标与它下方的操作条；`episode` 是光标取色的集，null 取品牌色。没有落点时为 null。 */
+  caret: { point: ManuscriptPoint; episode: number | null; toolbar: ReactNode } | null;
   /** 正在移动的分界（左侧一集的集 ID）。 */
   moving: number | null;
   onPlace: (point: ManuscriptPoint) => void;
@@ -45,11 +43,11 @@ type CaretMark = InlineMark | null;
 type SegmentCompare = { compare: ReplanCompare; diffs: number[] } | null;
 
 /**
- * 正文容器的样式。屏幕外的段落跳过渲染；插入光标所在的段落照常绘制，
+ * 正文容器跳过屏幕外段落的渲染（`offscreen-skip`）。插入光标所在的段落照常绘制：
  * `content-visibility: auto` 的绘制裁剪会把伸出正文的操作条裁掉。
  */
-function manuscriptTextStyle(hostsCaret: boolean) {
-  return hostsCaret ? undefined : { contentVisibility: "auto" as const, containIntrinsicSize: "auto 600px" };
+function manuscriptTextClass(hostsCaret: boolean) {
+  return cn(!hostsCaret && "offscreen-skip");
 }
 
 /** 光标画在哪一行：文件内第一个结尾不早于落点的行；落在行与行之间的空白里时画在下一行开头。 */
@@ -101,8 +99,6 @@ export function SourceManuscript({
   projectName,
   view,
   episodes,
-  selected,
-  onSelect,
   registerEpisodeHeader,
   registerFileBar,
   caret,
@@ -127,7 +123,7 @@ export function SourceManuscript({
   );
   const caretMark = (fileIndex: number): CaretMark =>
     caret !== null && caret.point.file === fileIndex
-      ? { offset: caret.point.offset, node: <CaretMarker color={caret.color}>{caret.toolbar}</CaretMarker> }
+      ? { offset: caret.point.offset, node: <CaretMarker episode={caret.episode}>{caret.toolbar}</CaretMarker> }
       : null;
 
   const onMouseUp = (event: MouseEvent) => {
@@ -184,13 +180,11 @@ export function SourceManuscript({
                       info={episodeInfo}
                       position={episodePosition(episodes, segment.episode)}
                       unit={view.unit}
-                      selected={selected === segment.episode}
                       dimmed={dimmed}
                       caret={hosted}
                       hostRun={hosted ? hostRun : null}
                       compare={fileCompares[index]}
                       waiting={compare?.waiting.has(segment.episode) ?? false}
-                      onSelect={onSelect}
                       register={registerEpisodeHeader}
                     />
                   </Fragment>
@@ -219,13 +213,19 @@ export function SourceManuscript({
   );
 }
 
-function CaretMarker({ color, children }: { color: string; children: ReactNode }) {
+function CaretMarker({ episode, children }: { episode: number | null; children: ReactNode }) {
   return (
-    <span data-no-caret className="relative inline-block h-[1.35em] w-0 align-text-bottom">
+    <span
+      data-no-caret
+      className="relative inline-block h-[1.35em] w-0 align-text-bottom"
+      style={{ "--episode-hue": episodeHue(episode ?? 0) } as CSSProperties}
+    >
       <span
         aria-hidden
-        className="absolute -left-px top-0 h-full w-[2px] rounded-sm motion-safe:animate-pulse"
-        style={{ background: color, boxShadow: `0 0 8px ${color}` }}
+        className={cn(
+          "absolute top-0 -left-px h-full w-0.5 animate-caret-blink rounded-sm",
+          episode === null ? "bg-primary" : "bg-episode",
+        )}
       />
       {children}
     </span>
@@ -313,25 +313,14 @@ function BoundaryButton({
   activeLabel: string;
   onClick: () => void;
 }) {
-  const line = active ? "var(--primary)" : "var(--input)";
   return (
     <div data-no-caret className="-mt-3 mb-3 flex items-center gap-2">
-      <span aria-hidden className="h-px flex-1" style={{ background: line }} />
-      <button
-        type="button"
-        onClick={onClick}
-        aria-pressed={active}
-        className="focus-ring inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] transition-colors hover:border-primary hover:text-foreground"
-        style={{
-          borderColor: line,
-          color: active ? "var(--primary)" : "var(--muted-foreground)",
-          background: active ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.2 0.01 265)",
-        }}
-      >
-        <MoveHorizontal className="h-3 w-3" aria-hidden />
+      <span aria-hidden className={cn("h-px flex-1", active ? "bg-primary" : "bg-input")} />
+      <Button variant={active ? "secondary" : "outline"} size="xs" onClick={onClick} aria-pressed={active}>
+        <MoveHorizontal aria-hidden data-icon="inline-start" />
         {active ? activeLabel : label}
-      </button>
-      <span aria-hidden className="h-px flex-1" style={{ background: line }} />
+      </Button>
+      <span aria-hidden className={cn("h-px flex-1", active ? "bg-primary" : "bg-input")} />
     </div>
   );
 }
@@ -358,30 +347,35 @@ function FileBar({
     <div
       ref={(el) => register(file.source_file, el)}
       data-no-caret
-      className="mb-4 mt-10 flex scroll-mt-4 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-input px-3 py-2 first:mt-2"
-      style={{ background: "oklch(0.225 0.012 265 / 0.9)" }}
-      title={t("episodes_view_file_original", { name: file.original_filename ?? file.name })}
+      className="mt-10 mb-4 flex scroll-mt-4 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-input bg-card px-3 py-2 text-xs first:mt-4"
     >
-      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-      <span className="num text-[11px] text-muted-foreground">
+      <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="num text-muted-foreground">
         {index + 1} / {total}
       </span>
-      <span className="min-w-0 truncate text-[12.5px] font-medium text-foreground">{file.name}</span>
-      <span className="flex-1" />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <TruncatedText text={file.name} className="text-sm font-medium text-foreground" />
+        {file.original_filename && file.original_filename !== file.name ? (
+          <TruncatedText
+            text={t("episodes_view_file_original", { name: file.original_filename })}
+            className="text-muted-foreground"
+          />
+        ) : null}
+      </span>
       <SourceFileKindControl projectName={projectName} file={file} episodes={episodes} />
       {file.changed_outside ? (
-        <span className="inline-flex items-center gap-1 text-[11.5px] text-warn">
-          <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
+        <span className="inline-flex items-center gap-1 text-warn">
+          <TriangleAlert className="size-3.5" aria-hidden />
           {t("episodes_view_file_changed_outside")}
         </span>
       ) : null}
       {file.missing ? (
-        <span className="inline-flex items-center gap-1 text-[11.5px] text-warn">
-          <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
+        <span className="inline-flex items-center gap-1 text-warn">
+          <TriangleAlert className="size-3.5" aria-hidden />
           {t("episodes_view_file_missing")}
         </span>
       ) : (
-        <span className="num text-[11px] text-muted-foreground">
+        <span className="num text-muted-foreground">
           {t("episodes_view_file_coverage", {
             cut: file.cut_units.toLocaleString(),
             total: formatVolume(t, file.units, unit),
@@ -400,13 +394,11 @@ const EpisodeBlock = memo(function EpisodeBlock({
   info,
   position,
   unit,
-  selected,
   dimmed,
   caret,
   hostRun,
   compare,
   waiting,
-  onSelect,
   register,
 }: {
   fileIndex: number;
@@ -415,68 +407,58 @@ const EpisodeBlock = memo(function EpisodeBlock({
   info: EpisodesViewEpisode | undefined;
   position: number | null;
   unit: EpisodesView["unit"];
-  selected: boolean;
   dimmed: boolean;
   caret: CaretMark;
   hostRun: number | null;
   compare: SegmentCompare;
   /** 新的分集方案还没生成到这一集。 */
   waiting: boolean;
-  onSelect: (episode: number) => void;
   register: (episode: number, el: HTMLElement | null) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const id = segment.episode ?? 0;
-  const color = episodeColor(id);
   const title = episode?.title?.trim();
   const name =
     position === null ? t("common:episode_unlisted_name") : t("common:episode_position_name", { position });
+  const blockCls = cn("mb-6 transition-opacity duration-fast", dimmed && "opacity-45");
   // 跨文件的一集只在起点所在文件里显示完整集头（也只有它登记为滚动目标）；后续文件里的部分只标明接续
   if (segment.continued) {
     return (
-      <article className="mb-6 transition-opacity" style={{ opacity: dimmed ? 0.45 : 1 }} aria-label={name}>
-        <button
-          type="button"
+      <article
+        data-episode-block={id}
+        className={blockCls}
+        style={{ "--episode-hue": episodeHue(id) } as CSSProperties}
+        aria-label={name}
+      >
+        <p
           data-no-caret
-          onClick={() => onSelect(id)}
-          aria-pressed={selected}
-          className="focus-ring mb-2 block w-full rounded-md px-3 py-1 text-left text-[12px] text-muted-foreground transition-colors"
-          style={{
-            borderLeft: `3px solid ${color}`,
-            background: selected ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.21 0.01 265 / 0.4)",
-          }}
+          className="mb-2 flex items-baseline gap-2.5 rounded-md border-l-3 border-episode bg-muted/40 px-3 py-1 text-xs"
         >
-          <span style={{ color }}>{t("dashboard:episodes_view_episode_continued", { name })}</span>
-          <span className="num ml-2.5 text-[11px] text-muted-foreground">{formatVolume(t, segment.units, unit)}</span>
-        </button>
-        <EpisodeBody id={id} fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
+          <span className="text-episode">{t("dashboard:episodes_view_episode_continued", { name })}</span>
+          <span className="num text-muted-foreground">{formatVolume(t, segment.units, unit)}</span>
+        </p>
+        <EpisodeBody fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
       </article>
     );
   }
   return (
     <article
-      className="mb-6 transition-opacity"
-      style={{ opacity: dimmed ? 0.45 : 1 }}
+      data-episode-block={id}
+      className={blockCls}
+      style={{ "--episode-hue": episodeHue(id) } as CSSProperties}
       aria-labelledby={`episode-${id}-title`}
     >
-      <button
-        type="button"
+      <header
         data-no-caret
         ref={(el) => register(id, el)}
-        onClick={() => onSelect(id)}
-        aria-pressed={selected}
-        className="focus-ring mb-2 block w-full scroll-mt-4 rounded-md px-3 py-2 text-left transition-colors"
-        style={{
-          borderLeft: `3px solid ${color}`,
-          background: selected ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.21 0.01 265 / 0.6)",
-        }}
+        className="mb-2 flex scroll-mt-4 flex-col gap-1 rounded-md border-l-3 border-episode bg-muted/40 px-3 py-2"
       >
         <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-          <span id={`episode-${id}-title`} className="text-[13px] font-semibold" style={{ color }}>
-            {name}
-          </span>
-          <span className="min-w-0 text-[13px] text-foreground">{title || t("dashboard:episodes_view_untitled")}</span>
-          <span className="num text-[11px] text-muted-foreground">
+          <h3 id={`episode-${id}-title`} className="flex items-baseline gap-2.5 text-sm">
+            <span className="shrink-0 font-semibold whitespace-nowrap text-episode">{name}</span>
+            <span className="text-foreground">{title || t("dashboard:episodes_view_untitled")}</span>
+          </h3>
+          <span className="num text-xs text-muted-foreground">
             {formatVolume(t, segment.units, unit)}
             {info?.spoken_seconds != null ? ` · ${formatSpoken(t, info.spoken_seconds)}` : ""}
           </span>
@@ -484,25 +466,23 @@ const EpisodeBlock = memo(function EpisodeBlock({
           {waiting ? <WaitingBadge /> : null}
         </span>
         {episode?.hook?.trim() ? (
-          <span className="mt-1 block text-[12px] leading-[1.6] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {t("dashboard:episodes_view_hook", { hook: episode.hook.trim() })}
           </span>
         ) : null}
-      </button>
-      <EpisodeBody id={id} fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
+      </header>
+      <EpisodeBody fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
     </article>
   );
 });
 
 function EpisodeBody({
-  id,
   fileIndex,
   segment,
   caret,
   hostRun,
   compare,
 }: {
-  id: number;
   fileIndex: number;
   segment: EpisodesViewSegment;
   caret: CaretMark;
@@ -511,10 +491,14 @@ function EpisodeBody({
 }) {
   return (
     <div className="flex gap-4">
-      <span aria-hidden className="w-[3px] shrink-0 rounded-full" style={{ background: episodeColor(id, 0.7) }} />
+      <span aria-hidden className="w-0.75 shrink-0 rounded-full bg-episode/70" />
       <div
-        className={`min-w-0 flex-1 space-y-3 text-subtle-foreground ${MANUSCRIPT_TEXT_CLS} ${compare ? COMPARE_GUTTER_CLS : ""}`}
-        style={manuscriptTextStyle(caret !== null)}
+        className={cn(
+          "min-w-0 flex-1 text-subtle-foreground",
+          MANUSCRIPT_TEXT_CLS,
+          compare && "pr-6",
+          manuscriptTextClass(caret !== null),
+        )}
       >
         <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
       </div>
@@ -548,33 +532,36 @@ function UnsplitBlock({
 }) {
   const { t } = useTranslation("dashboard");
   return (
-    <div className="mb-6 transition-opacity" style={{ opacity: dimmed ? 0.45 : 1 }}>
+    <div className={cn("mb-6 transition-opacity duration-fast", dimmed && "opacity-45")}>
       {segment.gap ? (
         <div
           data-no-caret
-          className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-3 py-2 text-[12px] text-muted-foreground"
-          style={{ border: "1px dashed color-mix(in oklab, var(--primary) 22%, transparent)" }}
+          className="mb-3 flex flex-col items-start gap-1.5 rounded-md border border-dashed border-primary/30 px-3 py-2 text-xs text-muted-foreground"
         >
-          <span className="font-medium text-subtle-foreground">{t("episodes_view_gap_title")}</span>
-          <span className="num text-[11px] text-muted-foreground">{formatVolume(t, segment.units, unit)}</span>
-          <span className="basis-full text-[11.5px] text-muted-foreground">{t("episodes_view_gap_hint")}</span>
-          <span className="mt-1 basis-full">
-            <PlanGapButton sourceFile={sourceFile} end={segment.end} blocked={planBlocked} />
+          <span className="flex items-baseline gap-2">
+            <span className="font-medium text-subtle-foreground">{t("episodes_view_gap_title")}</span>
+            <span className="num">{formatVolume(t, segment.units, unit)}</span>
           </span>
+          <span>{t("episodes_view_gap_hint")}</span>
+          <PlanGapButton sourceFile={sourceFile} end={segment.end} blocked={planBlocked} />
         </div>
       ) : divider ? (
-        <div role="separator" data-no-caret className="mb-4 mt-2 flex items-center gap-3 text-[12px] text-primary">
-          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(90deg, transparent, var(--primary))" }} />
+        <div role="separator" data-no-caret className="mt-2 mb-4 flex items-center gap-3 text-xs">
+          <span aria-hidden className="h-px flex-1 bg-linear-to-r from-transparent to-primary" />
           <span className="flex flex-col items-center gap-0.5 text-center">
-            <span>{t("episodes_view_unsplit_divider")}</span>
-            <span className="text-[11px] text-muted-foreground">{t("manual_split_divider_hint")}</span>
+            <span className="text-primary">{t("episodes_view_unsplit_divider")}</span>
+            <span className="text-muted-foreground">{t("manual_split_divider_hint")}</span>
           </span>
-          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(270deg, transparent, var(--primary))" }} />
+          <span aria-hidden className="h-px flex-1 bg-linear-to-l from-transparent to-primary" />
         </div>
       ) : null}
       <div
-        className={`space-y-3 pl-[19px] text-muted-foreground ${MANUSCRIPT_TEXT_CLS} ${compare ? COMPARE_GUTTER_CLS : ""}`}
-        style={manuscriptTextStyle(caret !== null)}
+        className={cn(
+          "pl-4.75 text-muted-foreground",
+          MANUSCRIPT_TEXT_CLS,
+          compare && "pr-6",
+          manuscriptTextClass(caret !== null),
+        )}
       >
         <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
       </div>

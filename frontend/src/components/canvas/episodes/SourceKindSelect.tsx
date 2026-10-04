@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { SourceKind } from "@/types/episodes-view";
 
 const SOURCE_KINDS: readonly SourceKind[] = ["novel", "screenplay"];
@@ -13,23 +13,37 @@ interface SourceKindSelectProps {
   disabled?: boolean;
 }
 
-/** 源文件类型下拉：小说 / 剧本。只在剧情演绎项目里出现。 */
+/** 源文件类型下拉：小说 / 剧本。只在剧情演绎项目里出现；选项下方说明两种类型的区别。 */
 export function SourceKindSelect({ value, onChange, label, disabled }: SourceKindSelectProps) {
   const { t } = useTranslation("dashboard");
+  const items = SOURCE_KINDS.map((kind) => ({
+    value: kind,
+    label: t(kind === "screenplay" ? "source_kind_screenplay" : "source_kind_novel"),
+  }));
   return (
-    <select
+    <Select
+      items={items}
       value={value}
-      onChange={(event) => onChange(event.target.value as SourceKind)}
-      aria-label={label}
-      title={t(value === "screenplay" ? "source_kind_screenplay_desc" : "source_kind_novel_desc")}
-      className={`${INPUT_CLS} !w-auto shrink-0 !py-1 !pl-2 !pr-6 !text-[11.5px]`}
+      onValueChange={(next) => {
+        if (next !== null) onChange(next);
+      }}
       disabled={disabled}
     >
-      {SOURCE_KINDS.map((kind) => (
-        <option key={kind} value={kind}>
-          {t(kind === "screenplay" ? "source_kind_screenplay" : "source_kind_novel")}
-        </option>
-      ))}
-    </select>
+      <SelectTrigger size="sm" aria-label={label} className="shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent alignItemWithTrigger={false} align="start" className="w-auto max-w-xs">
+        {items.map((item) => (
+          <SelectItem key={item.value} value={item.value}>
+            <span className="flex flex-col gap-0.5 whitespace-normal">
+              <span>{item.label}</span>
+              <span className="text-xs text-muted-foreground">
+                {t(item.value === "screenplay" ? "source_kind_screenplay_desc" : "source_kind_novel_desc")}
+              </span>
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

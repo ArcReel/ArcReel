@@ -132,6 +132,8 @@ const REWORKED_FILES = [
   // 工作区顶栏（项目切换器、通知、导出）、侧栏集列表与项目内未知路径的空状态
   "src/components/layout/{GlobalHeader,ProjectMenu,WorkspaceNotificationsDrawer,SidebarEpisodeList,EpisodeCard,useProjectExport}.tsx",
   "src/components/canvas/WorkspaceNotFound.tsx",
+  // 分集视图：集目录与原文、页头工具行、方案栏，以及上传原文、新建一集等对话框
+  "src/components/canvas/episodes/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
