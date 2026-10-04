@@ -2323,3 +2323,156 @@ class TestCostEstimationService:
         assert result["models"]["image"] == {"provider": "custom-abc", "model": "ghost"}
         seg = result["episodes"][0]["segments"][0]
         assert seg["estimate"]["image"] == {}
+
+
+class TestUnpricedCosts:
+    """预估与实际两侧标出没有价格的部分，让界面区分真实的 0 与未知。"""
+
+    async def test_custom_model_without_price_is_reported_on_both_sides(self, db_factory):
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {"model_id": "img", "display_name": "Img", "endpoint": "openai-images"},
+                    {
+                        "model_id": "vid",
+                        "display_name": "Vid",
+                        "endpoint": "openai-video",
+                        "supported_durations": "[6]",
+                        "price_unit": "second",
+                        "price_input": 0.0,
+                        "currency": "USD",
+                    },
+                ],
+            )
+            await session.commit()
+        await _seed_call(db_factory, "test-unpriced", "image", "img", provider="custom-1", segment_id="E1S001")
+        await _seed_call(db_factory, "test-unpriced", "video", "vid", provider="custom-1", segment_id="E1S001")
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "image_provider_t2i": "custom-1/img",
+            "video_provider_i2v": "custom-1/vid",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, ["E1S001", "E1S002"], [6, 6])}
+
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            project_data, scripts, project_name="test-unpriced"
+        )
+
+        unpriced_img = {"call_type": "image", "provider": "custom-1", "provider_name": "Relay", "model": "img"}
+        # 价格设为 0 的视频模型是真实的 0，不算未计价
+        assert result["unpriced"]["estimate"] == [{**unpriced_img, "count": 2}]
+        assert result["unpriced"]["actual"] == [{**unpriced_img, "count": 1}]
+        assert result["missing_local_calls"] is False
+
+    async def test_reference_unit_on_custom_model_without_price_is_reported(self, db_factory):
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "vid",
+                        "display_name": "Vid",
+                        "endpoint": "openai-video",
+                        "supported_durations": "[6]",
+                    }
+                ],
+            )
+            await session.commit()
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "video_provider_i2v": "custom-1/vid",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 6)])
+
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            project_data, {"ep1.json": script}, project_name="test-unpriced-reference"
+        )
+
+        assert result["unpriced"]["estimate"] == [
+            {"call_type": "video", "provider": "custom-1", "provider_name": "Relay", "model": "vid", "count": 2}
+        ]
+
+    async def test_zero_cost_call_is_priced_once_the_model_has_a_price(self, db_factory):
+        """调用时还没有价格、之后设了价格的模型不再算未计价：设置价格后提示随之消失。"""
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        await _seed_call(db_factory, "test-repriced", "image", "img", provider="custom-1", segment_id="E1S001")
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "img",
+                        "display_name": "Img",
+                        "endpoint": "openai-images",
+                        "price_unit": "image",
+                        "price_input": 0.05,
+                        "currency": "USD",
+                    }
+                ],
+            )
+            await session.commit()
+
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            {"title": "Test", "content_mode": "narration", "episodes": []}, {}, project_name="test-repriced"
+        )
+
+        assert result["unpriced"]["actual"] == []
+
+    @pytest.mark.parametrize(
+        ("generated", "has_call", "expected"),
+        [
+            ("asset", False, True),
+            ("storyboard", False, True),
+            ("asset", True, False),
+            (None, False, False),
+        ],
+    )
+    async def test_missing_local_calls_flags_generated_media_without_call_records(
+        self, db_factory, generated, has_call, expected
+    ):
+        """没有本机调用记录（如导入的项目）时实际费用无从统计；什么都还没生成的新项目则是真实的 0。"""
+        project_name = "test-imported"
+        if has_call:
+            async with db_factory() as session:
+                await UsageRepository(session).start_call(
+                    project_name=project_name, call_type="image", model="m", provider=PROVIDER_GEMINI
+                )
+        script = _make_script(
+            1,
+            ["E1S001"],
+            [6],
+            [{"storyboard_image": "storyboards/E1S001.png"}] if generated == "storyboard" else None,
+        )
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "characters": {"A": {"character_sheet": "characters/A.png" if generated == "asset" else ""}},
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            project_data, {"ep1.json": script}, project_name=project_name
+        )
+
+        assert result["missing_local_calls"] is expected

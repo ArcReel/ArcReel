@@ -86,6 +86,27 @@ const LONG_PROJECT: ApiOverrides = {
   },
 };
 
+// 压力变体：费用拿不到完整数字。导入的项目没有本机调用记录，六个自定义供应商模型（长名称）没有价格。
+const UNPRICED_MODELS = Array.from({ length: 6 }, (_, i) => ({
+  call_type: i % 2 === 0 ? "image" : "video",
+  provider: `custom-${i + 1}`,
+  provider_name: `海外中转网关第 ${i + 1} 号线路（按量计费、需要手动维护价格表）`,
+  model: `vendor-preview-${i % 2 === 0 ? "image" : "video"}-generation-model-2026-${String(i + 1).padStart(2, "0")}`,
+  count: 12 + i,
+}));
+const UNPRICED_PROJECT: ApiOverrides = {
+  ...LONG_PROJECT,
+  "GET /api/v1/projects/demo/cost-estimate": {
+    status: 200,
+    body: {
+      ...recordedCost,
+      project_totals: { estimate: { video: { USD: 120.5 } }, actual: {} },
+      unpriced: { estimate: UNPRICED_MODELS, actual: [] },
+      missing_local_calls: true,
+    },
+  },
+};
+
 const EMPTY_PROJECT: ApiOverrides = {
   ...EVENT_STREAM,
   ...withProject({ overview: null, episodes: [], whole_source_files: [] }),
@@ -168,6 +189,28 @@ defineRegionScenarios("项目概览", [
       await expect(popover.getByRole("link", { name: "查看使用记录" })).toBeInViewport();
     },
     screenshot: { name: "overview-cost-details", target: (page) => page.getByRole("dialog", { name: "费用明细" }) },
+  },
+  {
+    name: "费用拿不到完整数字：说明原因，列出没有价格的模型并链接到设置价格",
+    path: OVERVIEW_PATH,
+    api: UNPRICED_PROJECT,
+    ready: overviewReady,
+    act: async (page) => {
+      await collapseAgentPanel(page);
+      await expect(page.getByText("已花 —")).toBeVisible();
+      await expect(page.getByText(/本机没有这个项目的调用记录/)).toBeVisible();
+      const lastModel = page.getByRole("link", { name: new RegExp(UNPRICED_MODELS[5].model) });
+      await expect(lastModel).toHaveAttribute(
+        "href",
+        `/app/settings?section=providers&custom=6&model=${UNPRICED_MODELS[5].model}`,
+      );
+      await lastModel.scrollIntoViewIfNeeded();
+      await expect(lastModel).toBeInViewport();
+    },
+    screenshot: {
+      name: "overview-cost-unpriced",
+      target: (page) => page.getByText("设置价格：").locator("xpath=../../.."),
+    },
   },
   {
     name: "故事设定有修改时下方出现未保存提示条",

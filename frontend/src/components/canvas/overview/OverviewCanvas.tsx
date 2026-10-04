@@ -133,7 +133,7 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
             <OverviewHeader projectName={projectName} data={projectData} readOnly={readOnly} />
             <div className="flex flex-col gap-1.5">
               <AssetProgressLine data={projectData} />
-              <CostLine projectName={projectName} />
+              <CostLine projectName={projectName} readOnly={readOnly} />
             </div>
           </div>
           {showAdInit ? (

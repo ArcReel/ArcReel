@@ -92,6 +92,8 @@ describe("GridImageToVideoCanvas", () => {
       models: { image: { provider: "p", model: "m" }, video: { provider: "p", model: "m" } },
       episodes: [],
       project_totals: { estimate: {}, actual: {} },
+      unpriced: { estimate: [], actual: [] },
+      missing_local_calls: false,
     });
   });
 

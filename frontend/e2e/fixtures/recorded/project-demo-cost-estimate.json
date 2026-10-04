@@ -40,6 +40,11 @@
         "video": {},
         "audio": {}
       }
-    }
+    },
+    "unpriced": {
+      "estimate": [],
+      "actual": []
+    },
+    "missing_local_calls": false
   }
 }
