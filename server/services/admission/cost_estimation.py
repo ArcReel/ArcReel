@@ -20,7 +20,8 @@ from lib.config.resolver import (
     VideoGenerationType,
     video_bucket_for_generation_mode,
 )
-from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.custom_provider import is_custom_provider
+from lib.db.repositories.custom_provider_repo import CustomProviderPrice, CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
@@ -30,6 +31,7 @@ from lib.generation.video_request_facts import (
     evaluate_video_request_facts,
 )
 from lib.infra.schema_guards import is_int
+from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.script.grid.grid_resolution import resolve_image_resolution
 from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_grid_chunks
@@ -54,6 +56,8 @@ logger = logging.getLogger(__name__)
 
 CostBreakdown = dict[str, float]
 ActualBySegment = dict[str, dict[str, CostBreakdown]]
+#: 没有价格的预估项或调用，按 (call_type, provider, model) 计数。
+UnpricedCounts = Counter[tuple[str, str, str]]
 # 费用页展示的记账类型；text 类调用不写 segment_id，只会落在项目级汇总里。
 ACTUAL_COST_TYPES = ("image", "video", "audio")
 
@@ -68,6 +72,10 @@ _VIDEO_BUCKETS: tuple[VideoGenerationType, ...] = ("i2v", "r2v")
 #: 计价——宁可低估未配置供应商的项目，也不拿高档单价虚报。取值与分档策略自身的缺省档一致（见
 #: ``lib.billing.pricing.strategies``），显式写出是为了让估价侧的保底口径可读、不随策略层缺省漂移。
 _IMAGE_PRICING_FALLBACK_RESOLUTION = "1K"
+
+#: 剧本条目 ``generated_assets`` 里代表已生成媒体的字段，用于识别「有产物却没有本机调用记录」。
+_GENERATED_MEDIA_FIELDS = ("storyboard_image", "video_clip", "narration_audio")
+_SCRIPT_ITEM_KEYS = ("segments", "scenes", "shots", "video_units")
 
 
 @dataclass(frozen=True)
@@ -153,6 +161,48 @@ async def quote_video_request(
             exc_info=True,
         )
         return None
+
+
+def _price_missing(provider: str, price: CustomProviderPrice | None) -> bool:
+    """模型没有价格：自定义供应商的模型未设单价。内置供应商总能查到定价声明，不会缺价。
+
+    价格设为 0 是用户声明的真实 0，不算缺价。
+    """
+    return is_custom_provider(provider) and (price is None or price.price_input is None)
+
+
+def _has_generated_media(project: dict[str, Any], scripts: dict[str, dict[str, Any]]) -> bool:
+    """项目里是否已有生成出的资产图、分镜图、视频或旁白配音。"""
+    for spec in ASSET_SPECS.values():
+        bucket = project.get(spec.bucket_key)
+        if isinstance(bucket, dict) and any(
+            isinstance(asset, dict) and asset.get(spec.sheet_field) for asset in bucket.values()
+        ):
+            return True
+    for script in scripts.values():
+        for key in _SCRIPT_ITEM_KEYS:
+            items = script.get(key)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if isinstance(item, dict) and any(
+                    get_generated_assets(item).get(field) for field in _GENERATED_MEDIA_FIELDS
+                ):
+                    return True
+    return False
+
+
+def _unpriced_payload(counts: UnpricedCounts, provider_names: dict[str, str]) -> list[dict[str, Any]]:
+    return [
+        {
+            "call_type": call_type,
+            "provider": provider,
+            "provider_name": provider_names.get(provider, provider),
+            "model": model,
+            "count": count,
+        }
+        for (call_type, provider, model), count in sorted(counts.items())
+    ]
 
 
 def _add_cost(target: CostBreakdown, amount: float, currency: str) -> None:
@@ -411,6 +461,11 @@ class CostEstimationService:
 
         episodes_result = []
         proj_est: dict[str, CostBreakdown] = {}
+        # 应当有预估、却因模型没有价格而没算进去的项；与实际侧一起让前端区分「0」与「未知」
+        estimate_unpriced: UnpricedCounts = Counter()
+        image_unpriced = _price_missing(image_provider, image_price)
+        # 不用 TTS 时旁白不产生配音调用，audio 维度的估算本就为空，不算缺价
+        audio_unpriced = tts_settings is not None and _price_missing(audio_provider, audio_price)
         proj_act: dict[str, CostBreakdown] = {}
         claimed_actual: set[tuple[str, str]] = set()
 
@@ -458,6 +513,7 @@ class CostEstimationService:
                     video_prices=video_prices,
                     actual_by_segment=actual_by_segment,
                     claimed_actual=claimed_actual,
+                    unpriced=estimate_unpriced,
                 )
                 _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
                 continue
@@ -529,9 +585,13 @@ class CostEstimationService:
                     _add_cost(est_image, cost_amount, cost_currency)
                 elif image_unit_cost:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
+                if image_unpriced:
+                    estimate_unpriced["image", image_provider, image_model] += 1
 
                 # 剧本上的秒数可能被外部编辑成非整数：单条脏数据只让该分镜没有视频报价，不进计价。
                 if isinstance(storyboard_facts, VideoRequestFacts) and is_int(duration, minimum=1):
+                    if _price_missing(storyboard_facts.provider_id, episode_video.price):
+                        estimate_unpriced["video", storyboard_facts.provider_id, storyboard_facts.model_id] += 1
                     try:
                         video_quote = quote_video_request_from_price(
                             VideoRequestCostFacts(storyboard_facts, duration), episode_video.price
@@ -544,6 +604,8 @@ class CostEstimationService:
                 novel_text = seg.get("novel_text")
                 narration_chars = len(novel_text.strip()) if isinstance(novel_text, str) else 0
                 if narration_chars:
+                    if audio_unpriced:
+                        estimate_unpriced["audio", audio_provider, audio_model] += 1
                     try:
                         audio_amount, audio_currency = cost_calculator.calculate_cost(
                             audio_provider,
@@ -646,7 +708,22 @@ class CostEstimationService:
 
         # Project-level actual costs (characters/scenes/props/products 资产图—— segment_id is null)
         async with self._session_factory() as session:
-            project_image_by_type = await UsageRepository(session).get_project_image_costs_by_asset_type(project_name)
+            usage_repo = UsageRepository(session)
+            project_image_by_type = await usage_repo.get_project_image_costs_by_asset_type(project_name)
+            # 零费用的成功调用里，模型至今没有价格的算未计价；之后设了价格（含 0）的不再提示——
+            # 历史调用不会按新价格补记，提示的用途是引导设置价格。
+            actual_unpriced: UnpricedCounts = Counter()
+            price_repo = CustomProviderRepository(session)
+            for call_type, provider, model, calls in await usage_repo.get_zero_cost_calls_by_model(project_name):
+                if _price_missing(provider, await price_repo.resolve_price(provider, model)):
+                    actual_unpriced[call_type, provider, model] += calls
+            provider_names = await usage_repo.provider_display_names(
+                {provider for _, provider, _ in (*estimate_unpriced, *actual_unpriced)}
+            )
+            # 有产物却没有本机调用记录（如导入的项目、在别的机器上生成）：实际费用无从统计
+            missing_local_calls = not await usage_repo.has_calls(project_name) and _has_generated_media(
+                project_data, scripts
+            )
         for asset_type in ("characters", "scenes", "props", "products"):
             bucket = project_image_by_type.get(asset_type)
             if bucket:
@@ -672,6 +749,11 @@ class CostEstimationService:
             },
             "episodes": episodes_result,
             "project_totals": {"estimate": proj_est, "actual": proj_act},
+            "unpriced": {
+                "estimate": _unpriced_payload(estimate_unpriced, provider_names),
+                "actual": _unpriced_payload(actual_unpriced, provider_names),
+            },
+            "missing_local_calls": missing_local_calls,
         }
 
     async def _estimate_unit_reference_video_episode(
@@ -686,6 +768,7 @@ class CostEstimationService:
         video_prices: dict[tuple[str, str], Any],
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
+        unpriced: UnpricedCounts,
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
         """reference_video 集的估值：unit 本身就是展示与计费颗粒度。
 
@@ -779,6 +862,8 @@ class CostEstimationService:
                 if projection is not None and projection.cost is not None and not blockers:
                     cost = projection.cost
                     price = video_prices.get((cost.provider_id, cost.model_id))
+                    if _price_missing(cost.provider_id, price):
+                        unpriced["video", cost.provider_id, cost.model_id] += 1
                     if price is not None:
                         try:
                             priced_quote = quote_video_request_from_price(cost, price)

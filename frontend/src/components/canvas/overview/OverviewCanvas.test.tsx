@@ -11,7 +11,7 @@ import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { ProjectData } from "@/types";
+import type { CostEstimateResponse, ProjectData } from "@/types";
 
 import { OverviewCanvas } from "./OverviewCanvas";
 
@@ -60,13 +60,20 @@ function renderOverview(props: Partial<Parameters<typeof OverviewCanvas>[0]> = {
   return { ...view, location, rerender: (next: Partial<Parameters<typeof OverviewCanvas>[0]>) => view.rerender(element(next)) };
 }
 
-function setCost(projectName: string, actual: Record<string, Record<string, number>>) {
+function setCost(
+  projectName: string,
+  actual: Record<string, Record<string, number>>,
+  overrides: Partial<CostEstimateResponse> = {},
+) {
   useCostStore.setState({
     costData: {
       project_name: projectName,
       models: { image: { provider: "p", model: "m" }, video: { provider: "p", model: "m" } },
       episodes: [],
       project_totals: { estimate: { image: { USD: 2 }, video: { USD: 3 } }, actual },
+      unpriced: { estimate: [], actual: [] },
+      missing_local_calls: false,
+      ...overrides,
     },
   });
 }
@@ -139,6 +146,40 @@ describe("OverviewCanvas", () => {
     expect(screen.queryByRole("button", { name: "明细" })).not.toBeInTheDocument();
   });
 
+  it("shows a real zero spend as 0 but an unrecorded spend as a dash with the reason", () => {
+    setCost("demo", {});
+    const view = renderOverview();
+    expect(screen.getByText("已花 0")).toBeInTheDocument();
+
+    setCost("demo", {}, { missing_local_calls: true });
+    view.rerender({});
+    expect(screen.getByText("已花 —")).toBeInTheDocument();
+    expect(screen.getByText(/本机没有这个项目的调用记录/)).toBeInTheDocument();
+  });
+
+  it("explains unpriced estimates and calls and links each custom model to its price", () => {
+    const relayImage = { call_type: "image", provider: "custom-3", provider_name: "Relay", model: "img" } as const;
+    setCost(
+      "demo",
+      { video: { USD: 1 } },
+      {
+        project_totals: { estimate: {}, actual: { video: { USD: 1 } } },
+        unpriced: { estimate: [{ ...relayImage, count: 2 }], actual: [{ ...relayImage, count: 1 }] },
+      },
+    );
+    renderOverview();
+
+    // 全部预估都没有价格时写「—」；部分调用没有价格时仍显示已计价的金额
+    expect(screen.getByText("预估 —")).toBeInTheDocument();
+    expect(screen.getByText("已花 $1.00")).toBeInTheDocument();
+    expect(screen.getByText("有 2 项预估的模型没有价格，未计入预估。")).toBeInTheDocument();
+    expect(screen.getByText("有 1 次调用的模型没有价格，未计入已花。")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Relay / img" })).toHaveAttribute(
+      "href",
+      "/app/settings?section=providers&custom=3&model=img",
+    );
+  });
+
   it("does not fetch cost on a read-only project and cancels a real project's queued request", async () => {
     vi.useFakeTimers();
     const getCostEstimate = vi.spyOn(API, "getCostEstimate");
@@ -149,6 +190,7 @@ describe("OverviewCanvas", () => {
 
       expect(getCostEstimate).not.toHaveBeenCalled();
       expect(useCostStore.getState().costData).toBeNull();
+      expect(screen.getByText(/演示项目不在本机生成/)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
