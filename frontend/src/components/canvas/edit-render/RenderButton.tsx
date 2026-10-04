@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Clapperboard } from "lucide-react";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { AlertTriangle, Clapperboard } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { EditTimelineIssueRef } from "@/types";
 import { RenderDialog } from "./RenderDialog";
 import { useBlockedReason } from "./useBlockedReason";
@@ -41,15 +41,10 @@ export function RenderButton({
     <div className="flex items-center gap-2">
       {reason !== null && (
         <>
-          <button
-            type="button"
-            onClick={onShowIssues}
-            className="focus-ring rounded-sm text-[12px] underline decoration-dotted underline-offset-2"
-            style={{ color: "var(--destructive)" }}
-            title={reason}
-          >
+          <Button variant="link" size="sm" onClick={onShowIssues} title={reason}>
+            <AlertTriangle data-icon="inline-start" className="text-destructive" aria-hidden />
             {t("edit_render_blocked_view_issues", { count })}
-          </button>
+          </Button>
           <span id={reasonId} className="sr-only">
             {reason}
           </span>
@@ -57,16 +52,15 @@ export function RenderButton({
       )}
       {/* 禁用的 button 不触发悬停，原因挂在外层容器上。 */}
       <span title={reason ?? undefined}>
-        <PrimaryButton
-          tone="accent"
+        <Button
           size="sm"
           onClick={() => setOpen(true)}
           disabled={reason !== null}
           aria-describedby={reason !== null ? reasonId : undefined}
-          leadingIcon={<Clapperboard className="h-3.5 w-3.5" aria-hidden="true" />}
         >
+          <Clapperboard data-icon="inline-start" aria-hidden />
           {t("edit_render_button")}
-        </PrimaryButton>
+        </Button>
       </span>
       <RenderDialog
         open={open}

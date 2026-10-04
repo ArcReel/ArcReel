@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/edit-timelines?episode=1",
+  "status": 200,
+  "body": {
+    "timelines": []
+  }
+}

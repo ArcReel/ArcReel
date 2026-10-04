@@ -5,6 +5,13 @@
 @source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:where(.dark, .dark *));
+/* 剪辑视图矮于 36rem 时（如 1024×600、1280×600）压紧标签行与轨道，把高度留给播放器；
+   剪辑视图根节点用 @container-size/edit-view 声明尺寸容器。 */
+@custom-variant edit-short {
+    @container edit-view (height < 36rem) {
+        @slot;
+    }
+}
 
 /* 语义 token，命名沿用 shadcn：原始值写在 :root，由下方 @theme inline 映射成工具类。
    - 品牌紫只有 primary 一个基色；浅底、描边、选中态用透明度修饰（bg-primary/15）。
@@ -159,6 +166,11 @@
     --color-scrim: var(--scrim);
     /* 每集的身份色：明度与彩度固定，色相按集 ID 取，由调用处经 style 写入 --episode-hue（episodeHue）。 */
     --color-episode: oklch(0.72 0.1 var(--episode-hue, 0));
+    /* 剪辑视图轨道上视频单元的片段色与旁白色：色相按视频单元取，由调用处经 style 写入 --unit-hue（unitHue）。 */
+    --color-unit-clip: oklch(0.42 0.07 var(--unit-hue, 0));
+    --color-unit-narration: oklch(0.5 0.08 var(--unit-hue, 0) / 0.75);
+    /* 剪辑视图 BGM 轨的片段色 */
+    --color-bgm: oklch(0.45 0.09 300);
 
     --shadow-overlay: 0 16px 40px -12px oklch(0 0 0 / 0.6);
 
@@ -271,6 +283,30 @@ body {
 /* 统一焦点指示（a11y） */
 @utility focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+}
+
+/* 剪辑视图 BGM 片段：两端按实际淡入淡出画成渐变，--fade-in / --fade-out 是渐变平台的起止位置（百分比）。 */
+@utility bgm-fade {
+    background: linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--color-bgm) 25%, transparent),
+        color-mix(in oklab, var(--color-bgm) 85%, transparent) var(--fade-in, 0%),
+        color-mix(in oklab, var(--color-bgm) 85%, transparent) var(--fade-out, 100%),
+        color-mix(in oklab, var(--color-bgm) 25%, transparent)
+    );
+}
+
+/* 剪辑视图播放器上的字幕：近似成片字幕（思源黑体粗体、黑色描边与投影）。字号按画面短边，由调用处经 --subtitle-size 写入。 */
+@utility burned-subtitle {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    font-size: var(--subtitle-size);
+    font-weight: 700;
+    line-height: 1.25;
+    color: white;
+    -webkit-text-stroke: 0.12em black;
+    paint-order: stroke fill;
+    text-shadow: 0.04em 0.06em 0.2em rgb(0 0 0 / 0.7);
+    overflow-wrap: anywhere;
 }
 
 /* 长文本跳过屏幕外部分的渲染（「分集」视图的原文）；占位高度按 600px 估计，渲染过后记住真实高度 */

@@ -154,6 +154,9 @@ const REWORKED_FILES = [
   "src/components/canvas/grid/**",
   // 参考视频工作台：单元列表、文稿编辑器、成片预览与脚本规划预览
   "src/components/canvas/reference/**",
+  // 剪辑视图（播放器、详情栏与轨道）与出片对话框、空状态
+  "src/components/canvas/edit/**",
+  "src/components/canvas/edit-render/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

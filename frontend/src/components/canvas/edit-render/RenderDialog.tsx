@@ -1,11 +1,14 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import { Clapperboard, Download, Film, Loader2, RotateCw } from "lucide-react";
 import { API } from "@/api";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { errMsg } from "@/utils/async";
 import { formatRelativeTime, isJustNow } from "@/utils/date-format";
 import { triggerBrowserDownload } from "@/utils/download";
@@ -24,17 +27,11 @@ import { useRenderArtifact, type RenderArtifactView } from "./useRenderArtifact"
 const DRAFT_PATH_STORAGE_KEY = "arcreel_jianying_draft_path";
 const JIANYING_VERSION_STORAGE_KEY = "arcreel_jianying_version";
 
-const FIELD_STYLE = {
-  background: "oklch(0.16 0.010 265 / 0.6)",
-  border: "1px solid var(--border)",
-  color: "var(--foreground)",
-} as const;
-
-const STATUS_COLOR: Record<RenderArtifactStatus, string> = {
-  current: "var(--good)",
-  stale: "var(--warn)",
-  missing: "var(--muted-foreground)",
-  blocked: "var(--destructive)",
+const STATUS_DOT: Record<RenderArtifactStatus, string> = {
+  current: "bg-good",
+  stale: "bg-warn",
+  missing: "bg-muted-foreground",
+  blocked: "bg-destructive",
 };
 
 interface RenderDialogProps {
@@ -54,6 +51,7 @@ interface RenderDialogProps {
  * 选成片或剪映草稿及其版本，查看已有产物的时效，直接下载或重新渲染，提交后显示任务进度。
  *
  * 旁白版本默认带旁白（TTS 配音项目），成片默认烧入字幕；各版本是独立的产物。
+ * 提交请求或下载请求在途时忽略关闭请求；任务开始后可以关掉，再打开时接回同一产物的在途任务。
  */
 export function RenderDialog({
   open,
@@ -65,7 +63,6 @@ export function RenderDialog({
   narrationAvailable,
 }: RenderDialogProps) {
   const { t } = useTranslation("dashboard");
-  const titleId = useId();
   const [kind, setKind] = useState<RenderKind>("final_cut");
   // 草稿目录与剪映版本跨交付物切换保留；下载时才写回 localStorage。
   const [draftPath, setDraftPath] = useState(() => localStorage.getItem(DRAFT_PATH_STORAGE_KEY) ?? "");
@@ -74,25 +71,26 @@ export function RenderDialog({
   );
   const [chosenNarration, setNarration] = useState<TimelineNarration>("with_narration");
   const [burnSubtitles, setBurnSubtitles] = useState(true);
+  const [busy, setBusy] = useState(false);
   const narration: TimelineNarration = narrationAvailable ? chosenNarration : "without_narration";
   const subtitles: SubtitleMode = burnSubtitles ? "burned_subtitles" : "no_subtitles";
   const { reason: blockedReason } = useBlockedReason(issues, narration);
 
   return (
-    <GlassModal open={open} onClose={onClose} labelledBy={titleId} widthClassName="w-full max-w-lg">
-      <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
-        <h2
-          id={titleId}
-          className="display-serif min-w-0 truncate text-[15px] font-semibold tracking-tight"
-          style={{ color: "var(--foreground)" }}
-        >
-          {t("edit_render_dialog_title", { name: timelineName })}
-        </h2>
-        <ModalCloseButton onClick={onClose} />
-      </div>
-      {open && (
-        <div className="px-5 pb-5">
-          <RenderPanelBody
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !busy) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            <span className="block truncate">{t("edit_render_dialog_title", { name: timelineName })}</span>
+          </DialogTitle>
+        </DialogHeader>
+        {open && (
+          <RenderPanel
             key={`${projectName}::${timelineId}::${kind}::${narration}::${subtitles}`}
             projectName={projectName}
             timelineId={timelineId}
@@ -108,14 +106,16 @@ export function RenderDialog({
             jianyingVersion={jianyingVersion}
             onJianyingVersionChange={setJianyingVersion}
             blockedReason={blockedReason}
+            onBusyChange={setBusy}
           />
-        </div>
-      )}
-    </GlassModal>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function RenderPanelBody({
+/** 对话框的 Body 与 Footer：按交付物与版本重新挂载，产物现状与任务进度不跨版本残留。 */
+function RenderPanel({
   projectName,
   timelineId,
   timelineName,
@@ -130,6 +130,7 @@ function RenderPanelBody({
   jianyingVersion,
   onJianyingVersionChange,
   blockedReason,
+  onBusyChange,
 }: {
   projectName: string;
   timelineId: string;
@@ -146,8 +147,12 @@ function RenderPanelBody({
   jianyingVersion: JianyingVersion;
   onJianyingVersionChange: (version: JianyingVersion) => void;
   blockedReason: string | null;
+  /** 提交或下载请求在途与否，对话框据此忽略关闭请求。 */
+  onBusyChange: (busy: boolean) => void;
 }) {
   const { t, i18n } = useTranslation("dashboard");
+  const draftPathId = useId();
+  const draftHintId = useId();
   const state = useRenderArtifact(
     projectName,
     timelineId,
@@ -155,9 +160,16 @@ function RenderPanelBody({
     narration ?? "without_narration",
     burnSubtitles ? "burned_subtitles" : "no_subtitles",
   );
-  const { artifact, submitting } = state;
+  const { artifact, submitting, requesting } = state;
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const busy = requesting || downloading;
+  useEffect(() => {
+    onBusyChange(busy);
+  }, [busy, onBusyChange]);
+  // 换版本重新挂载或对话框关闭时，上一份面板的在途状态不再拦住关闭。
+  useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
   const isDraft = kind === "jianying_draft";
   const hasFile = artifact !== null && artifact.version !== null;
@@ -201,155 +213,144 @@ function RenderPanelBody({
   // 已是最新时下载是主动作；过时或没有产物时（重新）出片是主动作。
   const downloadIsPrimary = artifact?.status === "current";
 
-  const downloadButtonProps = {
-    size: "sm" as const,
-    onClick: () => void handleDownload(),
-    disabled: !canDownload || submitting,
-    title: isDraft && hasFile && !draftReady ? t("edit_render_draft_path_required") : undefined,
-    leadingIcon: downloading ? (
-      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-    ) : (
-      <Download className="h-3.5 w-3.5" aria-hidden="true" />
-    ),
-    children: t("edit_render_download"),
-  };
-  const renderButtonProps = {
-    size: "sm" as const,
-    onClick: () => void state.submit(),
-    disabled: submitting || state.loading || blockedReason !== null,
-    title: blockedReason ?? undefined,
-    leadingIcon: submitting ? (
-      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-    ) : (
-      <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
-    ),
-    children: renderLabel,
-  };
+  const downloadButton = (
+    <Button
+      variant={downloadIsPrimary ? "default" : "outline"}
+      onClick={() => void handleDownload()}
+      disabled={!canDownload || submitting}
+      title={isDraft && hasFile && !draftReady ? t("edit_render_draft_path_required") : undefined}
+    >
+      {downloading ? (
+        <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden />
+      ) : (
+        <Download data-icon="inline-start" aria-hidden />
+      )}
+      {t("edit_render_download")}
+    </Button>
+  );
+  const renderButton = (
+    <Button
+      variant={hasFile && downloadIsPrimary ? "outline" : "default"}
+      onClick={() => void state.submit()}
+      disabled={submitting || state.loading || blockedReason !== null}
+      title={blockedReason ?? undefined}
+    >
+      {submitting ? (
+        <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden />
+      ) : (
+        <RotateCw data-icon="inline-start" aria-hidden />
+      )}
+      {renderLabel}
+    </Button>
+  );
 
   return (
-    <div className="flex flex-col gap-3">
-      <div role="radiogroup" aria-label={t("edit_render_kind_label")} className="grid grid-cols-2 gap-2">
-        <KindOption
-          selected={kind === "final_cut"}
-          disabled={submitting}
-          onSelect={() => onKindChange("final_cut")}
-          icon={<Film className="h-4 w-4" aria-hidden="true" />}
-          title={t("edit_render_kind_final_cut")}
-          hint={t("edit_render_kind_final_cut_hint")}
-        />
-        <KindOption
-          selected={kind === "jianying_draft"}
-          disabled={submitting}
-          onSelect={() => onKindChange("jianying_draft")}
-          icon={<Clapperboard className="h-4 w-4" aria-hidden="true" />}
-          title={t("edit_render_kind_jianying_draft")}
-          hint={t("edit_render_kind_jianying_draft_hint")}
-        />
-      </div>
+    <>
+      <DialogBody>
+        <div className="flex flex-col gap-4">
+          <div role="radiogroup" aria-label={t("edit_render_kind_label")} className="grid grid-cols-2 gap-2">
+            <KindOption
+              value="final_cut"
+              selected={kind === "final_cut"}
+              disabled={submitting}
+              onSelect={onKindChange}
+              icon={<Film aria-hidden className="size-4" />}
+              title={t("edit_render_kind_final_cut")}
+              hint={t("edit_render_kind_final_cut_hint")}
+            />
+            <KindOption
+              value="jianying_draft"
+              selected={kind === "jianying_draft"}
+              disabled={submitting}
+              onSelect={onKindChange}
+              icon={<Clapperboard aria-hidden className="size-4" />}
+              title={t("edit_render_kind_jianying_draft")}
+              hint={t("edit_render_kind_jianying_draft_hint")}
+            />
+          </div>
 
-      {(narration !== null || !isDraft) && (
-        <div className="flex flex-col gap-3">
           {narration !== null && (
-            <Field htmlFor="edit-render-narration" label={t("edit_render_narration_label")}>
-              <select
-                id="edit-render-narration"
-                value={narration}
-                disabled={submitting}
-                onChange={(event) =>
-                  onNarrationChange(event.target.value === "with_narration" ? "with_narration" : "without_narration")
-                }
-                className="focus-ring w-full rounded-md px-2.5 py-1.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                style={FIELD_STYLE}
-              >
-                <option value="with_narration">{t("edit_render_narration_with")}</option>
-                <option value="without_narration">{t("edit_render_narration_without")}</option>
-              </select>
-            </Field>
+            <ChoiceRow
+              label={t("edit_render_narration_label")}
+              value={narration}
+              disabled={submitting}
+              onChange={(value) => onNarrationChange(value === "with_narration" ? "with_narration" : "without_narration")}
+              options={[
+                { value: "with_narration", label: t("edit_render_narration_with") },
+                { value: "without_narration", label: t("edit_render_narration_without") },
+              ]}
+            />
           )}
           {!isDraft && (
-            <label className="flex cursor-pointer items-start gap-2 text-[12.5px]" style={{ color: "var(--subtle-foreground)" }}>
-              <input
-                type="checkbox"
-                className="mt-0.5"
+            <Label className="items-start">
+              <Checkbox
                 checked={burnSubtitles}
                 disabled={submitting}
-                onChange={(event) => onBurnSubtitlesChange(event.target.checked)}
+                onCheckedChange={(checked) => onBurnSubtitlesChange(checked)}
               />
-              <span>
+              <span className="flex flex-col gap-0.5">
                 {t("edit_render_burn_subtitles")}
-                <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
-                  {t("edit_render_burn_subtitles_hint")}
-                </span>
+                <span className="text-xs text-muted-foreground">{t("edit_render_burn_subtitles_hint")}</span>
               </span>
-            </label>
+            </Label>
           )}
-        </div>
-      )}
 
-      <ArtifactStatusRow
-        artifact={artifact}
-        loading={state.loading}
-        loadError={state.loadError}
-        language={i18n.language}
-      />
+          <ArtifactStatusRow
+            artifact={artifact}
+            loading={state.loading}
+            loadError={state.loadError}
+            language={i18n.language}
+          />
 
-      {isDraft && (
-        <div className="flex flex-col gap-3">
-          <Field htmlFor="edit-render-draft-path" label={t("draft_path")} hint={t("edit_render_draft_fields_hint")}>
-            <input
-              id="edit-render-draft-path"
-              type="text"
-              value={draftPath}
-              onChange={(event) => onDraftPathChange(event.target.value)}
-              placeholder={
-                navigator.userAgent.includes("Windows")
-                  ? t("draft_path_default_windows")
-                  : t("draft_path_default_mac")
-              }
-              className="focus-ring w-full rounded-md px-2.5 py-1.5 text-[12.5px] outline-none"
-              style={{ ...FIELD_STYLE, fontFamily: "var(--font-mono)" }}
-            />
-          </Field>
-          <Field htmlFor="edit-render-jianying-version" label={t("jianying_version")}>
-            <select
-              id="edit-render-jianying-version"
-              value={jianyingVersion}
-              onChange={(event) => onJianyingVersionChange(event.target.value === "5" ? "5" : "6")}
-              className="focus-ring w-full rounded-md px-2.5 py-1.5 text-[13px] outline-none"
-              style={FIELD_STYLE}
-            >
-              <option value="6">{t("jianying_v6_plus")}</option>
-              <option value="5">{t("jianying_v5_x")}</option>
-            </select>
-          </Field>
-        </div>
-      )}
-
-      {blockedReason !== null && <ErrorLine text={blockedReason} />}
-      <TaskProgress kind={kind} submitting={submitting} task={state.task} />
-      {state.submitError !== null && <ErrorLine text={t("edit_render_submit_failed", { message: state.submitError })} />}
-      {downloadError !== null && <ErrorLine text={t("edit_render_download_failed", { message: downloadError })} />}
-
-      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-        {hasFile &&
-          (downloadIsPrimary ? (
+          {isDraft && (
             <>
-              <SecondaryButton {...renderButtonProps} />
-              <PrimaryButton tone="accent" {...downloadButtonProps} />
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={draftPathId}>{t("draft_path")}</Label>
+                <Input
+                  id={draftPathId}
+                  value={draftPath}
+                  aria-describedby={draftHintId}
+                  onChange={(event) => onDraftPathChange(event.target.value)}
+                  placeholder={
+                    navigator.userAgent.includes("Windows")
+                      ? t("draft_path_default_windows")
+                      : t("draft_path_default_mac")
+                  }
+                />
+                <p id={draftHintId} className="text-xs text-muted-foreground">
+                  {t("edit_render_draft_fields_hint")}
+                </p>
+              </div>
+              <ChoiceRow
+                label={t("jianying_version")}
+                value={jianyingVersion}
+                onChange={(value) => onJianyingVersionChange(value === "5" ? "5" : "6")}
+                options={[
+                  { value: "6", label: t("jianying_v6_plus") },
+                  { value: "5", label: t("jianying_v5_x") },
+                ]}
+              />
             </>
-          ) : (
-            <>
-              <SecondaryButton {...downloadButtonProps} />
-              <PrimaryButton tone="accent" {...renderButtonProps} />
-            </>
-          ))}
-        {!hasFile && <PrimaryButton tone="accent" {...renderButtonProps} />}
-      </div>
-    </div>
+          )}
+
+          {blockedReason !== null && <ErrorLine text={blockedReason} />}
+          <TaskProgress kind={kind} submitting={submitting} task={state.task} />
+          {state.submitError !== null && (
+            <ErrorLine text={t("edit_render_submit_failed", { message: state.submitError })} />
+          )}
+          {downloadError !== null && <ErrorLine text={t("edit_render_download_failed", { message: downloadError })} />}
+        </div>
+      </DialogBody>
+      <DialogFooter>
+        {hasFile && (downloadIsPrimary ? <>{renderButton}{downloadButton}</> : <>{downloadButton}{renderButton}</>)}
+        {!hasFile && renderButton}
+      </DialogFooter>
+    </>
   );
 }
 
 function KindOption({
+  value,
   selected,
   disabled,
   onSelect,
@@ -357,38 +358,76 @@ function KindOption({
   title,
   hint,
 }: {
+  value: RenderKind;
   selected: boolean;
   disabled: boolean;
-  onSelect: () => void;
+  onSelect: (kind: RenderKind) => void;
   icon: ReactNode;
   title: string;
   hint: string;
 }) {
+  const name = useId();
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      disabled={disabled && !selected}
-      onClick={onSelect}
-      className="focus-ring flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-      style={{
-        border: `1px solid ${selected ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "var(--border)"}`,
-        background: selected ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.20 0.011 265 / 0.4)",
-      }}
+    <label
+      className={cn(
+        "flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-colors has-disabled:cursor-not-allowed has-disabled:opacity-50 has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
+        selected ? "border-primary/60 bg-primary/10" : "border-border hover:bg-accent",
+      )}
     >
-      <span className="mt-0.5 shrink-0" style={{ color: selected ? "var(--primary)" : "var(--muted-foreground)" }}>
-        {icon}
+      <input
+        type="radio"
+        name={name}
+        value={value}
+        checked={selected}
+        disabled={disabled && !selected}
+        onChange={() => onSelect(value)}
+        className="sr-only"
+      />
+      <span className={cn("mt-0.5 shrink-0", selected ? "text-primary" : "text-muted-foreground")}>{icon}</span>
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="text-sm leading-tight font-medium text-foreground">{title}</span>
+        {/* 选中项浅底上用中间档文字，保证对比度 */}
+        <span className={cn("text-xs", selected ? "text-subtle-foreground" : "text-muted-foreground")}>{hint}</span>
       </span>
-      <span className="min-w-0">
-        <span className="block text-[13px] font-medium leading-tight" style={{ color: "var(--foreground)" }}>
-          {title}
-        </span>
-        <span className="mt-1 block text-[11.5px] leading-[1.5]" style={{ color: "var(--muted-foreground)" }}>
-          {hint}
-        </span>
+    </label>
+  );
+}
+
+/** 两三个互斥选项的一行单选：旁白版本、剪映版本。 */
+function ChoiceRow({
+  label,
+  value,
+  disabled = false,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  const labelId = useId();
+  return (
+    <div className="flex flex-col gap-2">
+      <span id={labelId} className="text-sm font-medium text-foreground">
+        {label}
       </span>
-    </button>
+      <RadioGroup
+        aria-labelledby={labelId}
+        value={value}
+        disabled={disabled}
+        onValueChange={(next: string) => onChange(next)}
+        className="grid-flow-col justify-start"
+      >
+        {options.map((option) => (
+          <Label key={option.value} className="mr-4">
+            <RadioGroupItem value={option.value} />
+            {option.label}
+          </Label>
+        ))}
+      </RadioGroup>
+    </div>
   );
 }
 
@@ -406,11 +445,7 @@ function ArtifactStatusRow({
   const { t } = useTranslation("dashboard");
   if (loadError !== null) return <ErrorLine text={t("edit_render_status_load_failed", { message: loadError })} />;
   if (artifact === null) {
-    return (
-      <p className="text-[12px]" style={{ color: "var(--muted-foreground)" }}>
-        {loading ? t("edit_render_status_loading") : null}
-      </p>
-    );
+    return loading ? <p className="text-xs text-muted-foreground">{t("edit_render_status_loading")}</p> : null;
   }
   const status = artifact.status;
   const when = formatRelativeTime(artifact.rendered_at, language);
@@ -419,27 +454,22 @@ function ArtifactStatusRow({
     <div
       data-testid="edit-render-artifact-status"
       data-status={status}
-      className="flex items-start gap-2.5 rounded-lg px-3 py-2.5"
-      style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)", background: "oklch(0.18 0.010 265 / 0.5)" }}
+      className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-muted/50 px-3 py-2.5"
     >
-      <span
-        aria-hidden="true"
-        className="mt-[5px] h-2 w-2 shrink-0 rounded-full"
-        style={{ background: STATUS_COLOR[status] }}
-      />
-      <div className="min-w-0 text-[12.5px] leading-[1.5]">
-        <div style={{ color: "var(--foreground)" }}>{t(`edit_render_status_${status}`)}</div>
+      <span aria-hidden className={cn("mt-1.5 size-2 shrink-0 rounded-full", STATUS_DOT[status])} />
+      <div className="flex min-w-0 flex-col text-sm">
+        <span className="text-foreground">{t(`edit_render_status_${status}`)}</span>
         {artifact.version !== null && (
-          <div style={{ color: "var(--muted-foreground)" }}>
+          <span className="text-xs text-subtle-foreground">
             {renderedJustNow
               ? t("edit_render_status_meta_just_now", { version: artifact.version })
               : when
                 ? t("edit_render_status_meta", { version: artifact.version, time: when })
                 : t("edit_render_status_version", { version: artifact.version })}
-          </div>
+          </span>
         )}
         {status === "stale" && artifact.version !== null && (
-          <div style={{ color: "var(--muted-foreground)" }}>{t("edit_render_status_stale_hint")}</div>
+          <span className="text-xs text-subtle-foreground">{t("edit_render_status_stale_hint")}</span>
         )}
       </div>
     </div>
@@ -464,8 +494,8 @@ function TaskProgress({ kind, submitting, task }: { kind: RenderKind; submitting
   else text = t("edit_render_task_cancelled");
   const active = submitting && task?.status !== "succeeded";
   return (
-    <div role="status" className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--muted-foreground)" }}>
-      {active && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+    <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+      {active && <Loader2 aria-hidden className="size-3.5 animate-spin" />}
       <span>{text}</span>
     </div>
   );
@@ -473,34 +503,8 @@ function TaskProgress({ kind, submitting, task }: { kind: RenderKind; submitting
 
 function ErrorLine({ text }: { text: string }) {
   return (
-    <p role="alert" className="text-[12px] leading-[1.5]" style={{ color: "var(--destructive)" }}>
+    <p role="alert" className="text-sm text-destructive">
       {text}
     </p>
-  );
-}
-
-function Field({
-  htmlFor,
-  label,
-  hint,
-  children,
-}: {
-  htmlFor: string;
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div>
-      <label htmlFor={htmlFor} className="mb-1 block text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
-        {label}
-      </label>
-      {children}
-      {hint && (
-        <p className="mt-1.5 text-[11px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
-          {hint}
-        </p>
-      )}
-    </div>
   );
 }

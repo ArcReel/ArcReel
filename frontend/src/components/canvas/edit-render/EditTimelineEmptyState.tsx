@@ -1,12 +1,11 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Bot, Loader2, Plus, Scissors } from "lucide-react";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import { Button } from "@/components/ui/button";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import { useWorkflowStore } from "@/stores/workflow-store";
+import { useWorkflowStore, workflowPlanKey } from "@/stores/workflow-store";
 import { refusalReason } from "@/components/workflow/step-list";
 import type { EditTimelineReadout } from "@/types/edit-timeline";
 import { errMsg } from "@/utils/async";
@@ -37,7 +36,7 @@ export function EditTimelineEmptyState({
   // 准入取集页制作状态里的同一操作（本集至少有一个可用视频），与服务端新建时的拒绝同源；
   // 制作状态尚未取回或属于别的集时不置灰，提交时由服务端复核。
   const operation = useWorkflowStore((s) =>
-    s.planKey === `${projectName}::${episode}` ? s.plan?.status.operations.create_edit_timeline : undefined,
+    s.planKey === workflowPlanKey(projectName, episode) ? s.plan?.status.operations.create_edit_timeline : undefined,
   );
   const blockedReason = refusalReason(t, operation) ?? undefined;
   const blocked = blockedReason !== undefined;
@@ -53,9 +52,8 @@ export function EditTimelineEmptyState({
     if (creating || blocked) return;
     setCreating(true);
     try {
-      const created = await createScriptEditTimeline(projectName, episode, t);
-      useAppStore.getState().pushToast(t("workflow:edit_timeline_created", { name: created.timeline.name }), "success");
-      onCreated(created);
+      // 新建的剪辑时间线随即成为选中的标签，不再另弹提示。
+      onCreated(await createScriptEditTimeline(projectName, episode, t));
     } catch (err) {
       useAppStore.getState().pushToast(t("edit_timeline_create_failed", { message: errMsg(err) }), "error");
     } finally {
@@ -64,58 +62,34 @@ export function EditTimelineEmptyState({
   };
 
   return (
-    <div className="flex h-full items-center justify-center p-8">
+    <div className="flex min-h-0 flex-1 items-center justify-center p-8">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
         <span
           aria-hidden="true"
-          className="grid h-11 w-11 place-items-center rounded-xl"
-          style={{
-            background: "color-mix(in oklab, var(--primary) 12%, transparent)",
-            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-            color: "var(--primary)",
-          }}
+          className="grid size-11 place-items-center rounded-xl border border-primary/25 bg-primary/10 text-primary"
         >
-          <Scissors className="h-5 w-5" />
+          <Scissors className="size-5" />
         </span>
-        <div>
-          <h2 className="display-serif text-[16px] font-semibold" style={{ color: "var(--foreground)" }}>
-            {t("edit_view_empty_title")}
-          </h2>
-          <p className="mt-1.5 text-[12.5px] leading-[1.6]" style={{ color: "var(--muted-foreground)" }}>
-            {t("edit_view_empty_description")}
-          </p>
+        <div className="flex flex-col gap-1.5">
+          <h2 className="text-base font-semibold text-foreground">{t("edit_view_empty_title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("edit_view_empty_description")}</p>
         </div>
         {/* 禁用的 button 不触发悬停，准入原因挂在外层容器上。 */}
         <div className="flex flex-wrap items-center justify-center gap-2" title={blockedReason}>
-          <PrimaryButton
-            tone="accent"
-            size="sm"
-            onClick={handleHandToAgent}
-            disabled={blocked}
-            leadingIcon={<Bot className="h-3.5 w-3.5" aria-hidden="true" />}
-          >
+          <Button size="sm" onClick={handleHandToAgent} disabled={blocked}>
+            <Bot data-icon="inline-start" aria-hidden />
             {t("workflow:act_agent_edit")}
-          </PrimaryButton>
-          <SecondaryButton
-            size="sm"
-            onClick={() => void handleCreate()}
-            disabled={blocked || creating}
-            leadingIcon={
-              creating ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              ) : (
-                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              )
-            }
-          >
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void handleCreate()} disabled={blocked || creating}>
+            {creating ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden />
+            ) : (
+              <Plus data-icon="inline-start" aria-hidden />
+            )}
             {t("workflow:act_create_edit_timeline")}
-          </SecondaryButton>
+          </Button>
         </div>
-        {blocked && (
-          <p className="text-[12px]" style={{ color: "var(--muted-foreground)" }}>
-            {blockedReason}
-          </p>
-        )}
+        {blocked && <p className="text-xs text-muted-foreground">{blockedReason}</p>}
       </div>
     </div>
   );

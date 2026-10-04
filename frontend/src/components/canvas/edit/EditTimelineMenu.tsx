@@ -1,19 +1,41 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { MoreHorizontal } from "lucide-react";
+import { Loader2, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
-import { GlassPopover } from "@/components/legacy/GlassPopover";
-import { useAppStore } from "@/stores/app-store";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { EditTimelineSummary } from "@/types/edit-timeline";
 import { errMsg } from "@/utils/async";
 
 /** 与服务端 `TIMELINE_NAME_MAX_LENGTH` 一致。 */
 const NAME_MAX_LENGTH = 40;
-
-const ITEM_CLS =
-  "focus-ring block w-full px-3 py-2 text-left text-[12.5px] transition-colors hover:bg-[oklch(1_0_0_/_0.06)]";
 
 interface EditTimelineMenuProps {
   projectName: string;
@@ -23,132 +45,91 @@ interface EditTimelineMenuProps {
   onDeleted: () => void;
 }
 
-type Dialog = "rename" | "delete" | null;
+type OpenDialog = "rename" | "delete" | null;
 
-/** 剪辑时间线标签旁的「更多操作」菜单：重命名、删除（二次确认）。复制与回滚只交给 Agent。 */
+/**
+ * 剪辑时间线标签旁的「更多操作」菜单：重命名、删除（二次确认）。复制与回滚只交给 Agent。
+ * 成功只以标签变化为反馈，不弹提示；失败原因留在对话框里。
+ */
 export function EditTimelineMenu({ projectName, timeline, onRenamed, onDeleted }: EditTimelineMenuProps) {
   const { t } = useTranslation("dashboard");
-  const menuId = useId();
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [dialog, setDialog] = useState<Dialog>(null);
-
-  useEffect(() => {
-    if (open) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-  }, [open]);
-
-  const close = () => {
-    setOpen(false);
-    triggerRef.current?.focus();
-  };
-  const choose = (next: Exclude<Dialog, null>) => {
-    setOpen(false);
-    setDialog(next);
-  };
-  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
-    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
-    const index = items.indexOf(document.activeElement as HTMLElement);
-    const step = event.key === "ArrowDown" ? 1 : -1;
-    items[(index + step + items.length) % items.length]?.focus();
-  };
+  const [dialog, setDialog] = useState<OpenDialog>(null);
+  const label = t("edit_view_menu_aria", { name: timeline.name });
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label={t("edit_view_menu_aria", { name: timeline.name })}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen((value) => !value)}
-        className="focus-ring ml-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[oklch(1_0_0_/_0.06)] hover:text-foreground"
-      >
-        <MoreHorizontal className="h-4 w-4" aria-hidden />
-      </button>
-      <GlassPopover
-        open={open}
-        onClose={() => setOpen(false)}
-        anchorRef={triggerRef}
-        sideOffset={4}
-        width="w-36"
-        showHairline={false}
-      >
-        <div
-          id={menuId}
-          ref={menuRef}
-          role="menu"
-          tabIndex={-1}
-          aria-label={t("edit_view_menu_aria", { name: timeline.name })}
-          className="py-1"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") close();
-            else onMenuKeyDown(event);
-          }}
-        >
-          <button type="button" role="menuitem" className={`${ITEM_CLS} text-subtle-foreground`} onClick={() => choose("rename")}>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={label} />}>
+          <MoreHorizontal aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-40">
+          <DropdownMenuItem onClick={() => setDialog("rename")}>
+            <Pencil aria-hidden />
             {t("edit_view_menu_rename")}
-          </button>
-          <button type="button" role="menuitem" className={`${ITEM_CLS} text-destructive`} onClick={() => choose("delete")}>
+          </DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onClick={() => setDialog("delete")}>
+            <Trash2 aria-hidden />
             {t("edit_view_menu_delete")}
-          </button>
-        </div>
-      </GlassPopover>
-      {dialog === "rename" && (
-        <RenameDialog
-          projectName={projectName}
-          timeline={timeline}
-          onClose={() => setDialog(null)}
-          onRenamed={onRenamed}
-        />
-      )}
-      {dialog === "delete" && (
-        <DeleteDialog
-          projectName={projectName}
-          timeline={timeline}
-          onClose={() => setDialog(null)}
-          onDeleted={onDeleted}
-        />
-      )}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {/* 换了剪辑时间线就重新挂载；同一条再次打开时由对话框自己清掉上一次的输入与错误。 */}
+      <RenameDialog
+        key={`rename-${timeline.id}`}
+        open={dialog === "rename"}
+        projectName={projectName}
+        timeline={timeline}
+        onClose={() => setDialog(null)}
+        onRenamed={onRenamed}
+      />
+      <DeleteDialog
+        key={`delete-${timeline.id}`}
+        open={dialog === "delete"}
+        projectName={projectName}
+        timeline={timeline}
+        onClose={() => setDialog(null)}
+        onDeleted={onDeleted}
+      />
     </>
   );
 }
 
 interface DialogProps {
+  open: boolean;
   projectName: string;
   timeline: EditTimelineSummary;
   onClose: () => void;
 }
 
-function RenameDialog({ projectName, timeline, onClose, onRenamed }: DialogProps & { onRenamed: () => void }) {
-  const { t } = useTranslation("dashboard");
+function RenameDialog({ open, projectName, timeline, onClose, onRenamed }: DialogProps & { onRenamed: () => void }) {
+  const { t } = useTranslation(["dashboard", "common"]);
+  const formId = useId();
   const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const hintId = useId();
   const [draft, setDraft] = useState(timeline.name);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setDraft(timeline.name);
+      setError(null);
+    }
+  }
   const name = draft.trim();
-  const unchanged = name === timeline.name;
 
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
-  const submit = async () => {
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
     if (!name || saving) return;
-    if (unchanged) {
+    if (name === timeline.name) {
       onClose();
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      const renamed = await API.renameEditTimeline(projectName, timeline.id, name);
-      useAppStore.getState().pushToast(t("edit_view_rename_success", { name: renamed.name }), "success");
+      await API.renameEditTimeline(projectName, timeline.id, name);
       onRenamed();
       onClose();
     } catch (cause) {
@@ -158,72 +139,106 @@ function RenameDialog({ projectName, timeline, onClose, onRenamed }: DialogProps
   };
 
   return (
-    <ConfirmDialog
-      open
-      title={t("edit_view_rename_title")}
-      description={
-        <div className="flex flex-col gap-2">
-          <label htmlFor={inputId} className="text-subtle-foreground">
-            {t("edit_view_rename_label")}
-          </label>
-          <input
-            id={inputId}
-            ref={inputRef}
-            value={draft}
-            maxLength={NAME_MAX_LENGTH}
-            disabled={saving}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void submit();
-            }}
-            className="focus-ring w-full rounded-md border border-border bg-card px-3 py-2 text-[13px] text-foreground"
-          />
-          <p>{t("edit_view_rename_hint")}</p>
-          {error && (
-            <p role="alert" className="text-destructive">
-              {error}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // 提交中不响应关闭，避免请求还在途时对话框先消失
+        if (!next && !saving) onClose();
+      }}
+    >
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>{t("edit_view_rename_title")}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <form id={formId} className="flex flex-col gap-2" onSubmit={(event) => void submit(event)}>
+            <Label htmlFor={inputId}>{t("edit_view_rename_label")}</Label>
+            <Input
+              id={inputId}
+              value={draft}
+              maxLength={NAME_MAX_LENGTH}
+              disabled={saving}
+              aria-describedby={hintId}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <p id={hintId} className="text-xs text-muted-foreground">
+              {t("edit_view_rename_hint")}
             </p>
-          )}
-        </div>
-      }
-      confirmLabel={t("edit_view_rename_confirm")}
-      loadingLabel={t("edit_view_rename_loading")}
-      loading={saving}
-      confirmDisabled={!name}
-      onConfirm={submit}
-      onCancel={onClose}
-    />
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+          </form>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" disabled={saving} onClick={onClose}>
+            {t("common:cancel")}
+          </Button>
+          <Button type="submit" form={formId} disabled={!name || saving}>
+            {saving && <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden />}
+            {t("edit_view_rename_confirm")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function DeleteDialog({ projectName, timeline, onClose, onDeleted }: DialogProps & { onDeleted: () => void }) {
-  const { t } = useTranslation("dashboard");
+function DeleteDialog({ open, projectName, timeline, onClose, onDeleted }: DialogProps & { onDeleted: () => void }) {
+  const { t } = useTranslation(["dashboard", "common"]);
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setError(null);
+  }
 
   const confirm = async () => {
     setDeleting(true);
+    setError(null);
     try {
       await API.deleteEditTimeline(projectName, timeline.id);
-      useAppStore.getState().pushToast(t("edit_view_delete_success", { name: timeline.name }), "success");
       onDeleted();
-    } catch (cause) {
-      useAppStore.getState().pushToast(t("edit_view_delete_failed", { message: errMsg(cause) }), "error");
-    } finally {
       onClose();
+    } catch (cause) {
+      setError(t("edit_view_delete_failed", { message: errMsg(cause) }));
+    } finally {
+      setDeleting(false);
     }
   };
 
   return (
-    <ConfirmDialog
-      open
-      tone="danger"
-      title={t("edit_view_delete_title", { name: timeline.name })}
-      description={t("edit_view_delete_description")}
-      confirmLabel={t("edit_view_delete_confirm")}
-      loadingLabel={t("edit_view_delete_loading")}
-      loading={deleting}
-      onConfirm={confirm}
-      onCancel={onClose}
-    />
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        // 提交中不响应 Esc，避免请求还在途时对话框先消失
+        if (!next && !deleting) onClose();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("edit_view_delete_title", { name: timeline.name })}</AlertDialogTitle>
+        </AlertDialogHeader>
+        <AlertDialogBody>
+          <div className="flex flex-col gap-3">
+            <AlertDialogDescription>{t("edit_view_delete_description")}</AlertDialogDescription>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+          </div>
+        </AlertDialogBody>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>{t("common:cancel")}</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" disabled={deleting} onClick={() => void confirm()}>
+            {deleting && <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden />}
+            {t("edit_view_delete_confirm")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

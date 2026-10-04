@@ -129,36 +129,38 @@ describe("EditTimelineView tab menu", () => {
     renderView();
     fireEvent.click(within(await openMenu("快节奏版")).getByRole("menuitem", { name: "删除" }));
 
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("删除剪辑时间线「快节奏版」？");
     expect(dialog).toHaveTextContent("删除后无法恢复");
     expect(remove).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(remove).not.toHaveBeenCalled();
 
     fireEvent.click(within(await openMenu("快节奏版")).getByRole("menuitem", { name: "删除" }));
     list.mockResolvedValue({ timelines: [FIRST] });
-    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "删除" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "删除" }));
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", "tl-00000002"));
     await waitFor(() => expect(screen.queryByRole("tab", { name: "快节奏版" })).not.toBeInTheDocument());
     expect(screen.getByRole("tab", { name: "完整版" })).toHaveAttribute("aria-selected", "true");
-    expect(useAppStore.getState().toast?.text).toBe("已删除剪辑时间线「快节奏版」");
+    // 删除成功只以标签消失为反馈，不弹提示
+    expect(useAppStore.getState().toast).toBeNull();
   });
 
-  it("reports why a delete was refused and keeps the timeline", async () => {
+  it("explains in the dialog why a delete was refused and keeps the timeline", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({ timelines: [FIRST, SECOND] });
     vi.spyOn(API, "deleteEditTimeline").mockRejectedValue(new Error("这条剪辑时间线有渲染任务在排队或执行"));
 
     renderView();
     fireEvent.click(within(await openMenu("快节奏版")).getByRole("menuitem", { name: "删除" }));
-    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "删除" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除" }));
 
-    await waitFor(() =>
-      expect(useAppStore.getState().toast?.text).toBe("删除失败：这条剪辑时间线有渲染任务在排队或执行"),
-    );
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("删除失败：这条剪辑时间线有渲染任务在排队或执行");
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(screen.getByRole("tab", { name: "快节奏版" })).toBeInTheDocument();
   });
 });
