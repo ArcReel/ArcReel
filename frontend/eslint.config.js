@@ -139,6 +139,8 @@ const REWORKED_FILES = [
   "src/components/copilot/StreamMarkdown.tsx",
   "src/components/shared/CopyButton.tsx",
   "src/onboarding/DemoAssistantPanel.tsx",
+  // Agent 面板顶栏与输入区：会话历史、提问、待办进度、输入框附件与斜杠命令菜单
+  "src/components/copilot/{AgentCopilot,AgentComposer,AgentQuestionnaire,SessionHistory,SlashCommandMenu,TodoProgress}.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
