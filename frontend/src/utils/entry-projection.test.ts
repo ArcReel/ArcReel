@@ -453,6 +453,47 @@ describe("projectEntriesToTurns", () => {
     expect(card.sub_turns?.[0].content[0].text).toBe("孤儿子时间线");
   });
 
+  it("gives a synthetic card the description and terminal state inferred from its sub-timeline", () => {
+    const orphan = (status: string, summary: string | null) =>
+      projectEntriesToTurns([
+        userEntry("主线消息"),
+        entry({ type: "assistant", content: [{ type: "text", text: "审完了" }], uuid: "a-1", parent_tool_use_id: "tu-ghost" }),
+        entry({
+          type: "system",
+          subtype: "subagent_outcome",
+          tool_use_id: "tu-ghost",
+          description: "审片：检查第 8 集",
+          task_status: status,
+          summary,
+          uuid: "subagent-outcome-tu-ghost",
+        }),
+      ]);
+
+    const completed = orphan("completed", "审完了");
+    expect(completed).toHaveLength(2);
+    const card = completed[1].content[0];
+    expect(card.task_info).toMatchObject({ task_status: "completed", description: "审片：检查第 8 集", summary: "审完了" });
+    expect(card.sub_turns?.[0].content[0].text).toBe("审完了");
+
+    expect(orphan("stopped", null)[1].content[0].task_info?.task_status).toBe("stopped");
+  });
+
+  it("projects a compaction summary as a compact_summary block in a system turn, not a user message", () => {
+    const turns = projectEntriesToTurns([
+      entry({
+        type: "user",
+        subtype: "compact_summary",
+        content: [{ type: "text", text: "This session is being continued..." }],
+        uuid: "c-1",
+      }),
+      userEntry("继续"),
+    ]);
+
+    expect(turns.map((turn) => turn.type)).toEqual(["system", "user"]);
+    expect(turns[0].content).toEqual([{ type: "compact_summary", text: "This session is being continued..." }]);
+    expect(turns[0].uuid).toBe("c-1");
+  });
+
   it("anchors a nested subagent (subagent launching its own subagent) inside the outer sub-timeline, not as a duplicate top-level card", () => {
     const turns = projectEntriesToTurns([
       entry({

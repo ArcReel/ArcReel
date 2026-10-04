@@ -328,6 +328,7 @@ class TestNewSessionEventLogFlow:
             assert failure["project_name"] == "demo"
             assert failure["session_id"] == SDK_ID
             assert failure["summary"] == {
+                "key": "invalid_request",
                 "source": "sdk_assistant",
                 "type": "invalid_request",
                 "status": 404,

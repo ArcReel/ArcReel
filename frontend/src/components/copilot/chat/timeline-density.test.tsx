@@ -160,7 +160,6 @@ describe("SubagentCard", () => {
 
     fireEvent.click(screen.getByRole("button"));
 
-    expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByText("subagent failed")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent 运行时出错");
   });
 });

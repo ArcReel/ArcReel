@@ -15,6 +15,7 @@ const turnFailure: FailureObservation = {
   project_name: "demo",
   session_id: "session-1",
   summary: {
+    key: "invalid_request",
     source: "sdk_assistant",
     type: "invalid_request",
     status: 403,
@@ -34,40 +35,61 @@ describe("AgentFailureCard", () => {
     vi.mocked(copyText).mockResolvedValue(undefined);
   });
 
-  it("shows observed facts, preserves raw details, and has no log download action", async () => {
-    render(<AgentFailureCard failure={turnFailure} />);
+  it("states a one-line conclusion and keeps the raw observation folded under Details", async () => {
+    render(<AgentFailureCard failure={turnFailure} onRetry={vi.fn()} />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Agent 本轮运行失败");
-    expect(screen.getByText("以下为系统实际观测信息，不等同于问题根因。")).toBeInTheDocument();
-    expect(screen.getByText("sdk_assistant")).toBeInTheDocument();
-    expect(screen.getByText("invalid_request")).toBeInTheDocument();
-    expect(screen.getByText("403")).toBeInTheDocument();
-    expect(screen.getByText(turnFailure.summary.message!)).toBeInTheDocument();
+    const card = screen.getByRole("alert");
+    expect(card).toHaveTextContent("这一轮没有完成");
+    expect(card).toHaveTextContent("模型服务拒绝了这次请求。");
+    // 原始错误码与消息不在默认层
+    expect(card).not.toHaveTextContent("sdk_assistant");
+    expect(card).not.toHaveTextContent("403");
+    expect(card).not.toHaveTextContent("gpt-5.6-sol");
+    // 轮次失败不重放
+    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
 
-    const details = screen.getByText("完整观测信息").closest("details");
-    expect(details).not.toHaveAttribute("open");
-    fireEvent.click(screen.getByText("完整观测信息"));
-    expect(details).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "详情" }));
+    expect(card).toHaveTextContent("sdk_assistant");
+    expect(card).toHaveTextContent("403");
+    expect(card).toHaveTextContent(turnFailure.summary.message!);
     expect(screen.getByTestId("failure-observation-json")).toHaveTextContent("vendor-17");
 
-    fireEvent.click(screen.getByRole("button", { name: "复制观测信息" }));
+    fireEvent.click(screen.getByRole("button", { name: "复制诊断信息" }));
     await waitFor(() => {
       expect(copyText).toHaveBeenCalledWith(JSON.stringify(turnFailure, null, 2));
     });
+    expect(await screen.findByRole("button", { name: "已复制诊断信息" })).toBeInTheDocument();
 
-    expect(screen.getByRole("link", { name: "打开 Agent 设置" }))
-      .toHaveAttribute("href", "/app/settings?section=arcreel-agent");
-    expect(screen.queryByText(/下载.*日志/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Agent 设置" })).toHaveAttribute(
+      "href",
+      "/app/settings?section=arcreel-agent",
+    );
   });
 
-  it("offers retry only when the caller supplies a startup retry", () => {
-    const onRetry = vi.fn();
-    render(<AgentFailureCard failure={{ ...turnFailure, phase: "startup" }} onRetry={onRetry} />);
+  it("falls back to the phase's generic conclusion for unrecognized keys and events recorded before keys existed", () => {
+    const { summary } = turnFailure;
+    const { key: _key, ...withoutKey } = summary;
+    const { unmount } = render(<AgentFailureCard failure={{ ...turnFailure, summary: withoutKey }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent 运行时出错，原始信息见「详情」。");
+    unmount();
 
-    fireEvent.click(screen.getByRole("button", { name: "重试启动" }));
+    render(<AgentFailureCard failure={{ ...turnFailure, phase: "startup", summary: { ...summary, key: "invalid_request" } }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("启动过程中出错，原始信息见「详情」。");
+  });
+
+  it("offers retry only for a startup failure whose caller supplies it", () => {
+    const onRetry = vi.fn();
+    render(
+      <AgentFailureCard
+        failure={{ ...turnFailure, phase: "startup", summary: { ...turnFailure.summary, key: "cli_not_found" } }}
+        onRetry={onRetry}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent 没能启动");
+    expect(screen.getByRole("alert")).toHaveTextContent("没有找到 Claude Code 命令行程序。");
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
 
     expect(onRetry).toHaveBeenCalledOnce();
-    expect(screen.getByRole("alert")).toHaveTextContent("Agent 启动失败");
   });
 });
