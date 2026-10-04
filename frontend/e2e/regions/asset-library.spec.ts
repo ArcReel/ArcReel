@@ -194,6 +194,8 @@ defineRegionScenarios("资产库", [
     api: { ...EVENT_STREAM, ...MANY_ASSETS },
     ready: galleryReady,
     act: async (page) => {
+      // 紧凑档的 Agent 面板默认展开并盖住画布右侧，先收起面板再点画布右上角的按钮
+      await page.getByRole("button", { name: "Agent", exact: true }).click();
       await page.getByRole("button", { name: "从资产库选择" }).click();
       const dialog = page.getByRole("dialog", { name: "从资产库选择角色" });
       await dialog.waitFor();

@@ -4,6 +4,7 @@ import { Bot, Send, Square, Plus, ChevronDown, Trash2, MessageSquare, PanelRight
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { ImageLightbox } from "@/components/shared/ImageLightbox";
+import { Textarea } from "@/components/ui/textarea";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
@@ -25,7 +26,6 @@ import { formatShortDateTime } from "@/utils/date-format";
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_TEXTAREA_HEIGHT_VH = 50;
 
 // ---------------------------------------------------------------------------
 // SessionSelector — 会话下拉选择器
@@ -253,10 +253,6 @@ export function AgentCopilot() {
           if (!accepted) return;
           setLocalInput("");
           resetImages();
-          // Reset textarea height
-          if (textareaRef.current) {
-            textareaRef.current.style.height = "auto";
-          }
         },
       ),
     );
@@ -323,13 +319,6 @@ export function AgentCopilot() {
       setShowSlashMenu(false);
       slashPosRef.current = -1;
     }
-
-    // Auto-resize: grow upward until 50vh, then scroll
-    const el = e.target;
-    el.style.height = "auto";
-    const maxH = window.innerHeight * (MAX_TEXTAREA_HEIGHT_VH / 100);
-    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
-    el.style.overflowY = el.scrollHeight > maxH ? "auto" : "hidden";
   }, []);
 
   // Derive slash filter from input (text after "/" up to cursor)
@@ -622,7 +611,9 @@ export function AgentCopilot() {
               onSelect={handleSlashSelect}
             />
           )}
-          <textarea
+          {/* 随内容撑高，上限是 Agent 面板高度的 40%（外壳把面板设为尺寸容器），超出后在框内滚动；
+              程序预填与面板调宽都会重新计算高度 */}
+          <Textarea
             ref={textareaRef}
             role="combobox"
             value={localInput}
@@ -644,11 +635,7 @@ export function AgentCopilot() {
               // eslint-disable-next-line react-hooks/refs -- aria-activedescendant 需实时读取 slashMenuRef 的派生值，改用回调 prop 需修改 SlashCommandMenu 接口，超出范围
               slashMenuRef.current?.activeDescendantId
             }
-            className="flex-1 resize-none overflow-hidden bg-transparent text-[13px] outline-none"
-            style={{
-              maxHeight: `${MAX_TEXTAREA_HEIGHT_VH}vh`,
-              color: "var(--foreground)",
-            }}
+            className="min-h-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[13px] text-foreground focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
             disabled={inputDisabled}
           />
 

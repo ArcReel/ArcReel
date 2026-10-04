@@ -1,15 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { GlobalHeader } from "./GlobalHeader";
-import { AssetSidebar } from "./AssetSidebar";
-import { AssistantResizeHandle } from "./AssistantResizeHandle";
+import { usePanelRef, type LayoutChangedMeta, type PanelSize } from "react-resizable-panels";
+import { cn } from "cn";
+import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
 import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
-import { TaskFailureListener } from "./TaskFailureListener";
-import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DemoAssistantPanel } from "@/onboarding/DemoAssistantPanel";
 import { DemoReadOnlyBanner } from "@/onboarding/DemoReadOnlyBanner";
@@ -17,50 +14,54 @@ import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
 import {
   ASSISTANT_PANEL_DEFAULT_WIDTH,
-  clampAssistantPanelWidth,
+  ASSISTANT_PANEL_MAX_WIDTH,
+  ASSISTANT_PANEL_MIN_WIDTH,
   useAppStore,
 } from "@/stores/app-store";
-import { UI_LAYERS } from "@/utils/ui-layers";
+import { GlobalHeader } from "./GlobalHeader";
+import { AssetSidebar } from "./AssetSidebar";
+import { TaskFailureListener } from "./TaskFailureListener";
+import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener";
+import { WorkspaceResizeHandle } from "./WorkspaceResizeHandle";
+import {
+  AGENT_PANEL_ID,
+  AGENT_PANEL_TOGGLE_ID,
+  CANVAS_MIN_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_RAIL_WIDTH,
+  persistSidebarCollapsed,
+  persistSidebarWidth,
+  readSidebarCollapsed,
+  readSidebarWidth,
+  sidebarAutoCollapseReason,
+  useCompactTier,
+} from "./workspace-layout";
+
+// 调宽手柄在文档流里占 1px（分隔线本身）。
+const HANDLE_WIDTH = 1;
 
 interface StudioLayoutProps {
   children: React.ReactNode;
 }
 
 /**
- * 工作台三栏布局壳：顶栏 + （侧栏 / 主区 / Agent 面板）。
+ * 项目工作区外壳：顶栏横跨全宽，下方是「侧栏 | 画布 | Agent 面板」三栏，三栏之间用调宽手柄分隔。
+ *
+ * - 外壳是唯一按视口切换档位的地方（1280）。标准档的 Agent 面板挤压画布，画布至少保留 480px；
+ *   紧凑档的 Agent 面板是覆盖在画布右侧的非模态层，焦点在面板内时 Esc 收起，侧栏收为图标栏。
+ * - 侧栏在单集页与分集视图自动收为图标栏，可临时展开，换页后恢复；离开这些页面后回到用户自己的选择。
+ * - Agent 面板的开合与宽度在 `app-store`；收起时内容保持挂载，输入中的文字与会话连接不受影响。
+ * - 尺寸容器：侧栏 `@container/sidebar`，画布 `@container/canvas`（宽度查询），Agent 面板
+ *   `@container-size/agent`（宽高都可查询，输入框的 `40cqh` 按面板高度计算）。
  */
 export function StudioLayout({ children }: StudioLayoutProps) {
   const { t } = useTranslation("dashboard");
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
   // 演示项目在后端不存在：任务 / 项目事件流和 Agent 都是真实写路径，演示态下整条都不接
   const demoMode = useDemoWorkbench();
-  const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
-  const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
-  const assistantPanelWidth = useAppStore((s) => s.assistantPanelWidth);
-  const setAssistantPanelWidth = useAppStore((s) => s.setAssistantPanelWidth);
-  const persistAssistantPanelWidth = useAppStore(
-    (s) => s.persistAssistantPanelWidth,
-  );
-
-  // 拖动期间的"草稿宽度"。非 null 表示正在拖动，UI 用 draftWidth 即时反馈；
-  // mouseup / blur 时才把 draftWidth 提交到 store + localStorage，避免每帧
-  // 触发 zustand 订阅链路。draftWidthRef 与 state 同步更新，让 finishResize
-  // 能在 setState updater 之外读取最终值（updater 必须保持纯净）。
-  const [draftWidth, setDraftWidth] = useState<number | null>(null);
-  const draftWidthRef = useRef<number | null>(null);
-  const isResizing = draftWidth !== null;
-  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(
-    null,
-  );
-  const restoreBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(
-    null,
-  );
-
-  const updateDraftWidth = useCallback((next: number | null) => {
-    draftWidthRef.current = next;
-    setDraftWidth(next);
-  }, []);
 
   // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
   // 兜住这一帧仍读到旧演示项目名的窗口，避免对不存在的演示项目建一次必然失败的 SSE 连接。
@@ -71,185 +72,248 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   useTaskRefresh(sseProjectName, !isEffectivelyDemo);
   useProjectEventsSSE(sseProjectName);
 
-  const restoreBodyStyle = useCallback(() => {
-    const saved = restoreBodyStyleRef.current;
-    if (saved) {
-      document.body.style.cursor = saved.cursor;
-      document.body.style.userSelect = saved.userSelect;
-      restoreBodyStyleRef.current = null;
-    }
-  }, []);
+  const compact = useCompactTier();
+  const storeOpen = useAppStore((s) => s.assistantPanelOpen);
+  const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
+  const agentWidth = useAppStore((s) => s.assistantPanelWidth);
+  // 演示面板不可收起，也不覆盖画布：引导后面几步要在画布上高亮
+  const agentOpen = demoMode || storeOpen;
+  const overlay = compact && !demoMode;
 
-  const handleResizeMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      // 仅响应主键，避免右键/中键意外进入拖拽态
-      if (e.button !== 0) return;
-      e.preventDefault();
-      const startWidth = useAppStore.getState().assistantPanelWidth;
-      dragStateRef.current = { startX: e.clientX, startWidth };
-      restoreBodyStyleRef.current = {
-        cursor: document.body.style.cursor,
-        userSelect: document.body.style.userSelect,
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      updateDraftWidth(startWidth);
-    },
-    [updateDraftWidth],
-  );
-
-  const handleResizeDoubleClick = useCallback(() => {
-    setAssistantPanelWidth(ASSISTANT_PANEL_DEFAULT_WIDTH);
-    persistAssistantPanelWidth();
-  }, [setAssistantPanelWidth, persistAssistantPanelWidth]);
-
-  useEffect(() => {
-    if (!isResizing) return;
-
-    const finishResize = () => {
-      dragStateRef.current = null;
-      restoreBodyStyle();
-      const final = draftWidthRef.current;
-      updateDraftWidth(null);
-      if (final != null) {
-        // 把 draft 提交到 store；setter 内部会再 clamp，persist 读 store 最新值
-        setAssistantPanelWidth(final);
-        persistAssistantPanelWidth();
-      }
-    };
-
-    const onMouseMove = (e: MouseEvent) => {
-      const drag = dragStateRef.current;
-      if (!drag) return;
-      // 主键已在中途松开（如焦点切走时）→ 主动收尾
-      if ((e.buttons & 1) === 0) {
-        finishResize();
+  // ---- 侧栏折叠：有自动折叠的原因时默认折叠、可临时展开，原因或页面变化后复位 ----
+  const collapseReason = sidebarAutoCollapseReason(location, compact);
+  const [userCollapsed, setUserCollapsed] = useState(readSidebarCollapsed);
+  const [tempExpanded, setTempExpanded] = useState(false);
+  const resetKey = `${collapseReason}|${location}`;
+  const [lastResetKey, setLastResetKey] = useState(resetKey);
+  if (resetKey !== lastResetKey) {
+    setLastResetKey(resetKey);
+    setTempExpanded(false);
+  }
+  const sidebarCollapsed = collapseReason ? !tempExpanded : userCollapsed;
+  const setSidebarCollapsed = useCallback(
+    (collapsed: boolean) => {
+      if (collapseReason) {
+        setTempExpanded(!collapsed);
         return;
       }
-      // 手柄在右侧栏左缘，鼠标向左 (clientX 减小) → 宽度增大
-      const next = clampAssistantPanelWidth(
-        drag.startWidth + (drag.startX - e.clientX),
-      );
-      updateDraftWidth(next);
-    };
+      setUserCollapsed(collapsed);
+      persistSidebarCollapsed(collapsed);
+    },
+    [collapseReason],
+  );
 
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", finishResize);
-    // 鼠标在窗外松开时 mouseup 可能不触发，blur 兜底防止卡死
-    window.addEventListener("blur", finishResize);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", finishResize);
-      window.removeEventListener("blur", finishResize);
-      // 组件意外卸载时兜底清理 body 样式
-      restoreBodyStyle();
-    };
-  }, [
-    isResizing,
-    setAssistantPanelWidth,
-    persistAssistantPanelWidth,
-    restoreBodyStyle,
-    updateDraftWidth,
-  ]);
+  // ---- 面板尺寸：开合与折叠由状态驱动面板库，拖动等用户操作的结果再写回状态 ----
+  const shellRef = useRef<HTMLDivElement>(null);
+  const agentFrameRef = useRef<HTMLElement>(null);
+  const sidebarPanelRef = usePanelRef();
+  const agentPanelRef = usePanelRef();
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const latest = useRef({ sidebarCollapsed, sidebarWidth, agentOpen, agentWidth });
+  useLayoutEffect(() => {
+    latest.current = { sidebarCollapsed, sidebarWidth, agentOpen, agentWidth };
+  });
 
-  const displayedPanelWidth = draftWidth ?? assistantPanelWidth;
+  // 面板的 defaultSize 是双击手柄复位到的默认宽度；挂载时与之后的开合、折叠都在这里按记住的宽度落到面板上。
+  useLayoutEffect(() => {
+    const panel = sidebarPanelRef.current;
+    if (!panel) return;
+    if (sidebarCollapsed) panel.collapse();
+    else panel.resize(latest.current.sidebarWidth);
+  }, [sidebarCollapsed, sidebarPanelRef]);
+
+  useLayoutEffect(() => {
+    const panel = agentPanelRef.current;
+    if (!panel) return;
+    // 开合时宽度瞬时切换，不做宽度动画：给宽度做动画会让画布逐帧重新排版
+    if (agentOpen) panel.resize(latest.current.agentWidth);
+    else panel.collapse();
+  }, [agentOpen, agentPanelRef]);
+
+  const rememberSidebarWidth = useCallback((width: number) => {
+    if (width < SIDEBAR_MIN_WIDTH) return;
+    setSidebarWidth(width);
+    persistSidebarWidth(width);
+  }, []);
+  const rememberAgentWidth = useCallback((width: number) => {
+    if (width < ASSISTANT_PANEL_MIN_WIDTH) return;
+    const store = useAppStore.getState();
+    store.setAssistantPanelWidth(width);
+    store.persistAssistantPanelWidth();
+  }, []);
+
+  // 键盘调宽与双击复位都经库的命令式接口完成，库同步通知布局变化，但不标记为用户操作；
+  // 调整期间记下「用户在调宽」，结果就和拖动一样被记住，不会被拉回原来的宽度。
+  const userResizingRef = useRef(false);
+  const resizeByKeyboard = (panelRef: typeof sidebarPanelRef, width: number) => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    userResizingRef.current = true;
+    try {
+      panel.resize(width);
+    } finally {
+      userResizingRef.current = false;
+    }
+  };
+  // 双击由库在 document 的捕获阶段处理，window 的捕获阶段先于它
+  useEffect(() => {
+    const handleDoubleClick = () => {
+      userResizingRef.current = true;
+      setTimeout(() => {
+        userResizingRef.current = false;
+      });
+    };
+    window.addEventListener("dblclick", handleDoubleClick, true);
+    return () => window.removeEventListener("dblclick", handleDoubleClick, true);
+  }, []);
+
+  const handleLayoutChanged = (_layout: unknown, meta: LayoutChangedMeta) => {
+    const sidebar = sidebarPanelRef.current;
+    const agent = agentPanelRef.current;
+    const current = latest.current;
+    if (meta.isUserInteraction || userResizingRef.current) {
+      // 拖动、键盘或双击让库折叠、展开了面板时，同步回开合状态，并记住调出来的宽度
+      if (sidebar) {
+        const collapsed = sidebar.isCollapsed();
+        if (collapsed !== current.sidebarCollapsed) setSidebarCollapsed(collapsed);
+        else if (!collapsed) rememberSidebarWidth(sidebar.getSize().inPixels);
+      }
+      if (agent && !demoMode) {
+        const closed = agent.isCollapsed();
+        if (closed === current.agentOpen) toggleAssistantPanel();
+        else if (!closed) rememberAgentWidth(agent.getSize().inPixels);
+      }
+      return;
+    }
+    // 其余变化来自视口与档位：库按变化前的百分比缩放面板，或为画布的最小宽度挤窄面板。展开着的面板回到记住的
+    // 像素宽度；放不下时库把结果夹在约束内，布局不变也就不会再次触发。
+    if (sidebar && !current.sidebarCollapsed && !sidebar.isCollapsed()) {
+      if (Math.abs(sidebar.getSize().inPixels - current.sidebarWidth) > 1) sidebar.resize(current.sidebarWidth);
+    }
+    if (agent && current.agentOpen && !agent.isCollapsed()) {
+      if (Math.abs(agent.getSize().inPixels - current.agentWidth) > 1) agent.resize(current.agentWidth);
+    }
+  };
+
+  // 覆盖模式下画布按「画布栏 + Agent 面板」的宽度排版，被面板盖住而不是被挤窄
+  const handleAgentResize = (size: PanelSize) => {
+    const covered = size.inPixels > 0 ? size.inPixels + HANDLE_WIDTH : 0;
+    shellRef.current?.style.setProperty("--workspace-agent-width", `${covered}px`);
+  };
+
+  // 焦点在面板内时收起面板，焦点回到顶栏的「Agent」开关，不落到页面开头
+  const restoreFocusRef = useRef(false);
+  useEffect(
+    () =>
+      useAppStore.subscribe((state, prev) => {
+        if (prev.assistantPanelOpen && !state.assistantPanelOpen) {
+          restoreFocusRef.current = agentFrameRef.current?.contains(document.activeElement) ?? false;
+        }
+      }),
+    [],
+  );
+  useLayoutEffect(() => {
+    if (agentOpen || !restoreFocusRef.current) return;
+    restoreFocusRef.current = false;
+    document.getElementById(AGENT_PANEL_TOGGLE_ID)?.focus();
+  }, [agentOpen]);
+
+  // 紧凑档的覆盖层是非模态的：焦点在面板内时 Esc 收起面板。监听挂在 document 的冒泡阶段，面板内的控件先处理自己的 Esc
+  useEffect(() => {
+    if (!overlay || !agentOpen) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // 只认 DOM 上在面板内的按键；从面板里打开的对话框经 Portal 渲染，按 Esc 关的是对话框
+      if (!(event.target instanceof Node) || !agentFrameRef.current?.contains(event.target)) return;
+      event.preventDefault();
+      useAppStore.getState().toggleAssistantPanel();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [overlay, agentOpen]);
 
   return (
-    <div
-      className="flex h-screen flex-col"
-      style={{ color: "var(--foreground)" }}
-    >
+    // 外壳根节点是定位元素，文档本身不滚动；滚动只发生在侧栏、画布与 Agent 面板各自的区域里。
+    <div ref={shellRef} className="relative flex h-dvh flex-col overflow-hidden text-foreground">
       <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
       <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
       {demoMode ? <DemoReadOnlyBanner /> : null}
-      <div className="flex flex-1 overflow-hidden">
-        <AssetSidebar />
-        <main className="flex-1 overflow-hidden">
-          {children}
-        </main>
-        {/* 真实 Agent 是写路径（建会话、跑工具），演示态下换成静态演示对话的面板：
-            不可收起、不可拖宽——演示里没有要腾的空间，少两个交互点。宽度封顶在默认宽度
-            但随视口收缩：真实面板窄屏下还能手动收起，演示面板收不起来，引导期间底层又是
-            inert 的，固定 505px 会把工作区挤没，后面几步就没东西可看了 */}
-        {demoMode ? (
-          <div
-            className="shrink-0 overflow-hidden"
-            style={{
-              width: `min(${ASSISTANT_PANEL_DEFAULT_WIDTH}px, 40vw)`,
-              minWidth: 0,
-              background: "oklch(0.19 0.011 250 / 0.5)",
-              borderLeft: "1px solid var(--border)",
-            }}
-          >
-            <DemoAssistantPanel />
-          </div>
-        ) : (
-        <div
-          className={`relative shrink-0 overflow-hidden ${
-            isResizing
-              ? "transition-[min-width,border-color]"
-              : "transition-[width,min-width,border-color] duration-300 ease-in-out"
-          }`}
-          style={{
-            width: assistantPanelOpen ? displayedPanelWidth : 0,
-            background: "oklch(0.19 0.011 250 / 0.5)",
-            borderLeft: assistantPanelOpen
-              ? "1px solid var(--border)"
-              : "1px solid transparent",
-          }}
+      <ResizablePanelGroup className="min-h-0 flex-1" onLayoutChanged={handleLayoutChanged}>
+        <ResizablePanel
+          id="workspace-sidebar"
+          panelRef={sidebarPanelRef}
+          collapsible
+          collapsedSize={SIDEBAR_RAIL_WIDTH}
+          minSize={SIDEBAR_MIN_WIDTH}
+          maxSize={SIDEBAR_MAX_WIDTH}
+          defaultSize={SIDEBAR_DEFAULT_WIDTH}
+          groupResizeBehavior="preserve-pixel-size"
         >
-          {assistantPanelOpen ? (
-            <AssistantResizeHandle
-              width={displayedPanelWidth}
-              isResizing={isResizing}
-              onMouseDown={handleResizeMouseDown}
-              onDoubleClick={handleResizeDoubleClick}
-            />
-          ) : null}
-          {/* 始终渲染但收起时透明 + 不可达，保持内部状态；invisible + aria-hidden 防止 Tab 仍可聚焦内部控件 */}
-          <div
-            aria-hidden={!assistantPanelOpen}
-            inert={!assistantPanelOpen}
-            className={`h-full transition-opacity duration-200 ${
-              assistantPanelOpen
-                ? "opacity-100"
-                : "pointer-events-none invisible opacity-0"
-            }`}
+          <AssetSidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+        </ResizablePanel>
+        <WorkspaceResizeHandle
+          panelRef={sidebarPanelRef}
+          panelSide="before"
+          onKeyboardResize={(width) => resizeByKeyboard(sidebarPanelRef, width)}
+          label={t("resize_sidebar")}
+          disabled={sidebarCollapsed}
+        />
+        <ResizablePanel
+          id="workspace-canvas"
+          minSize={overlay ? 0 : CANVAS_MIN_WIDTH}
+          // 库在面板内层写死 overflow: auto，只能经 style 覆盖：画布各视图自己滚动；
+          // 覆盖模式下画布要伸到 Agent 面板底下，不能被这一层裁掉。
+          // eslint-disable-next-line shadcn/no-inline-styles -- 覆盖库写在内层的内联 overflow
+          style={{ overflow: overlay ? "visible" : "hidden" }}
+        >
+          <main
+            className={cn(
+              "@container/canvas relative isolate flex h-full min-w-0 flex-col",
+              overlay && agentOpen && "w-[calc(100%+var(--workspace-agent-width))]",
+            )}
           >
-            <AgentCopilot />
-          </div>
-        </div>
-        )}
-      </div>
-
-      {/* 悬浮 Agent 球：收起时显示在右上角 */}
-      {demoMode ? null : (
-      <button
-        type="button"
-        onClick={toggleAssistantPanel}
-        disabled={assistantPanelOpen}
-        tabIndex={assistantPanelOpen ? -1 : 0}
-        aria-hidden={assistantPanelOpen}
-        className={`fixed right-4 top-14 grid h-10 w-10 place-items-center rounded-xl transition-all duration-300 ease-in-out ${UI_LAYERS.workspaceFloating} ${
-          assistantPanelOpen
-            ? "scale-0 pointer-events-none opacity-0"
-            : "scale-100 cursor-pointer opacity-100"
-        }`}
-        style={{
-          background:
-            "linear-gradient(135deg, var(--primary), oklch(0.60 0.10 280))",
-          color: "oklch(0.12 0 0)",
-          boxShadow:
-            "0 0 0 1px oklch(1 0 0 / 0.1), 0 6px 20px -6px color-mix(in oklab, var(--primary) 35%, transparent)",
-          transitionDelay: assistantPanelOpen ? "0ms" : "200ms",
-        }}
-        title={t("open_assistant_panel")}
-        aria-label={t("open_assistant_panel")}
-      >
-        <Bot className="h-5 w-5" />
-      </button>
-      )}
+            {children}
+          </main>
+        </ResizablePanel>
+        {/* 面板收起时手柄贴在分栏右缘，命中区会伸出外壳，因此隐藏；手柄仍留在 DOM 里并禁用，库就不在这条边界上生成拖动区域 */}
+        <WorkspaceResizeHandle
+          panelRef={agentPanelRef}
+          panelSide="after"
+          onKeyboardResize={(width) => resizeByKeyboard(agentPanelRef, width)}
+          label={t("resize_assistant_panel")}
+          disabled={!agentOpen || demoMode}
+          hidden={!agentOpen}
+        />
+        <ResizablePanel
+          id="workspace-agent"
+          panelRef={agentPanelRef}
+          collapsible
+          collapsedSize={0}
+          minSize={ASSISTANT_PANEL_MIN_WIDTH}
+          maxSize={ASSISTANT_PANEL_MAX_WIDTH}
+          defaultSize={ASSISTANT_PANEL_DEFAULT_WIDTH}
+          groupResizeBehavior="preserve-pixel-size"
+          onResize={handleAgentResize}
+          // 收起后宽度为 0，内容保持最小宽度挂载在原处、不可见，由这一层裁掉
+          // eslint-disable-next-line shadcn/no-inline-styles -- 覆盖库写在内层的内联 overflow
+          style={{ overflow: "hidden" }}
+        >
+          <aside
+            ref={agentFrameRef}
+            id={AGENT_PANEL_ID}
+            aria-label={t("agent_panel_label")}
+            inert={!agentOpen}
+            className={cn(
+              "@container-size/agent relative h-full w-full min-w-80 transition-opacity duration-fast",
+              overlay ? "bg-popover shadow-overlay" : "bg-card",
+              !agentOpen && "invisible opacity-0",
+            )}
+          >
+            {demoMode ? <DemoAssistantPanel /> : <AgentCopilot />}
+          </aside>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }

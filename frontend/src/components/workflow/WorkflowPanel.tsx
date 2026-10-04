@@ -212,8 +212,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
       : (next?.instruction?.initial ?? "");
 
   const pushToast = useAppStore((s) => s.pushToast);
-  // 助手面板收起时右上角浮着 Agent 球，收起行右端的入口要给它让出位置。
-  const assistantFloating = !useAppStore((s) => s.assistantPanelOpen);
 
   const withInstruction = useCallback(
     (text: string) => {
@@ -395,7 +393,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
       style={{ borderColor: "var(--border)" }}
       data-testid="workflow-panel"
     >
-      <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${assistantFloating ? "pr-12" : ""}`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <button
           type="button"
           aria-expanded={expanded}

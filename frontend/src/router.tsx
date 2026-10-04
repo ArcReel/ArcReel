@@ -64,12 +64,7 @@ function ConfigStatusLoader() {
     const tick = async () => {
       await useConfigStatusStore.getState().fetch();
       if (cancelled) return;
-      const configStatus = useConfigStatusStore.getState();
-      if (configStatus.initialized) {
-        useAppStore
-          .getState()
-          .initializeAssistantPanel(configStatus.isEmbeddedAgentConfigured);
-      } else if (attempts < 5) {
+      if (!useConfigStatusStore.getState().initialized && attempts < 5) {
         attempts += 1;
         timer = setTimeout(() => void tick(), 800 * attempts);
       }

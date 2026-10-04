@@ -185,6 +185,7 @@ updates:
           - "@tanstack/react-virtual"
           - "@dnd-kit/*"
           - "recharts"
+          - "react-resizable-panels"
           - "streamdown"
           - "driver.js"
           - "@fontsource/*"

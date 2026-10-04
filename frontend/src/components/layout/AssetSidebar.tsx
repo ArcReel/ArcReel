@@ -1,27 +1,38 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import {
-  ChevronLeft,
-  ChevronRight,
-  Clapperboard,
-  LayoutDashboard,
   BookOpen,
-  Users,
-  Landmark,
-  Package,
+  Clapperboard,
   FilePlus,
+  Landmark,
+  LayoutDashboard,
+  Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   ShoppingBag,
   Upload,
+  Users,
+  type LucideIcon,
 } from "lucide-react";
+import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { normalizeRoute } from "@/utils/generation-mode";
-import { ActionMenu } from "@/components/legacy/ActionMenu";
 import { CreateEpisodeDialog } from "@/components/canvas/episodes/CreateEpisodeDialog";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import { useDeleteEpisode } from "@/components/canvas/episodes/useDeleteEpisode";
@@ -30,43 +41,38 @@ import { EpisodeCard } from "./EpisodeCard";
 import { SidebarEpisodeList } from "./SidebarEpisodeList";
 
 interface AssetSidebarProps {
-  className?: string;
+  /** 收为 56px 图标栏：只显示导航图标与集序号，名称在悬停或聚焦时显示。 */
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
 }
 
 interface NavItem {
   key: string;
   path: string;
   label: string;
-  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-  meta?: number;
+  icon: LucideIcon;
+  count?: number;
 }
 
 /**
- * 工作台侧栏 v3：
- * - 工作区导航（胶囊按钮：项目概览 / 分集 / 角色集 / 场景库 / 道具库，广告/短片另有商品库、没有分集）
- * - 分集列表（搜索 + 卡片列表，每张卡片含缩略+状态+进度+费用）
- * - 折叠态（64px）：仅图标 + Ex 字符
+ * 工作区侧栏：上方是工作区导航（项目概览、分集、角色、场景、道具，广告项目另有商品、没有分集），
+ * 下方是分集列表（搜索、排序与每集的操作）。宽度由外壳的调宽手柄决定；折叠时收为图标栏。
  */
-export function AssetSidebar({ className }: AssetSidebarProps) {
+export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
   const { currentProjectName, currentProjectData } = useProjectsStore();
   const debouncedFetchCost = useCostStore((s) => s.debouncedFetch);
   const [location, setLocation] = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
   /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
   const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
 
-  const characterCount = Object.keys(currentProjectData?.characters ?? {}).length;
-  const sceneCount = Object.keys(currentProjectData?.scenes ?? {}).length;
-  const propCount = Object.keys(currentProjectData?.props ?? {}).length;
-  const productCount = Object.keys(currentProjectData?.products ?? {}).length;
   const episodes = currentProjectData?.episodes ?? [];
   // 广告/短片项目恒单集：隐藏「集」语义（标题/计数/搜索/添加），直达唯一视频
   const isAd = currentProjectData?.content_mode === "ad";
-
-  // 演示项目没有服务端侧数据，「分集」入口隐藏（导航其余项与分集列表照常渲染）
+  // 演示项目没有服务端侧数据，「分集」入口与添加菜单隐藏（导航其余项与分集列表照常渲染）
   const demoMode = useDemoWorkbench();
+  const route = normalizeRoute(currentProjectData?.generation_mode);
 
   useEffect(() => {
     if (currentProjectName) debouncedFetchCost(currentProjectName);
@@ -95,7 +101,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             path: `/${WORKSPACE_ROUTE_EPISODES}`,
             label: t("dashboard:workspace_nav_episodes"),
             icon: BookOpen,
-            meta: episodes.length,
+            count: episodes.length,
           },
         ]),
     {
@@ -103,21 +109,21 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
       path: "/characters",
       label: t("dashboard:workspace_nav_characters"),
       icon: Users,
-      meta: characterCount,
+      count: Object.keys(currentProjectData?.characters ?? {}).length,
     },
     {
       key: "scenes",
       path: "/scenes",
       label: t("dashboard:workspace_nav_scenes"),
       icon: Landmark,
-      meta: sceneCount,
+      count: Object.keys(currentProjectData?.scenes ?? {}).length,
     },
     {
       key: "props",
       path: "/props",
       label: t("dashboard:workspace_nav_props"),
       icon: Package,
-      meta: propCount,
+      count: Object.keys(currentProjectData?.props ?? {}).length,
     },
     // 商品资产仅广告/短片项目使用（v1 单商品设定），其余模式隐藏入口
     ...(isAd
@@ -127,7 +133,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             path: "/products",
             label: t("dashboard:workspace_nav_products"),
             icon: ShoppingBag,
-            meta: productCount,
+            count: Object.keys(currentProjectData?.products ?? {}).length,
           },
         ]
       : []),
@@ -148,168 +154,81 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         ({ ep, position }) => !search || ep.title.includes(search) || String(position).includes(search),
       );
 
-  return (
-    <aside
-      className={`flex flex-col overflow-hidden ${className ?? ""}`}
-      style={{
-        width: collapsed ? 64 : 256,
-        transition: "width .18s ease",
-        borderRight: "1px solid var(--border)",
-        background:
-          "linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5))",
-        boxShadow: "inset -1px 0 0 oklch(1 0 0 / 0.015)",
-      }}
-    >
-      {/* ---- Workspace nav ---- */}
-      <div className="px-2.5 pb-1.5 pt-2.5">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = isNavActive(item);
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setLocation(item.path)}
-              title={collapsed ? item.label : ""}
-              aria-label={collapsed ? item.label : undefined}
-              className="relative mb-px flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors focus-ring hover:bg-[oklch(0.26_0.012_265/0.5)]"
-              style={{
-                background: active
-                  ? "linear-gradient(90deg, color-mix(in oklab, var(--primary) 22%, transparent), color-mix(in oklab, var(--primary) 12%, transparent) 70%, transparent)"
-                  : "transparent",
-                color: active ? "var(--foreground)" : "var(--subtle-foreground)",
-              }}
-            >
-              {active && (
-                <span
-                  className="absolute -left-px top-[7px] bottom-[7px] w-0.5 rounded-sm"
-                  style={{
-                    background: "var(--primary)",
-                    boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
-                  }}
-                />
-              )}
-              <span
-                className="grid w-4 shrink-0 place-items-center"
-                style={{ color: active ? "var(--primary)" : "var(--muted-foreground)" }}
-              >
-                <Icon className="h-4 w-4" />
-              </span>
-              {!collapsed && (
-                <>
-                  <span
-                    className="flex-1 text-left text-[13px]"
-                    style={{
-                      fontWeight: active ? 600 : 500,
-                      letterSpacing: "-0.05px",
-                    }}
-                  >
-                    {item.label}
-                  </span>
-                  {item.meta != null && (
-                    <span
-                      className="num rounded-xs px-1.5 py-px text-[10.5px]"
-                      style={{
-                        color: "var(--muted-foreground)",
-                        background: active ? "oklch(0 0 0 / 0.2)" : "transparent",
-                      }}
-                    >
-                      {item.meta}
-                    </span>
-                  )}
-                </>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <div
-        className="mx-3.5 my-1 h-px"
-        style={{ background: "color-mix(in oklab, var(--border) 50%, transparent)" }}
+  const sectionTitle = isAd ? t("dashboard:ad_video_section_title") : t("dashboard:episodes_section_title");
+  const addEpisodeMenu =
+    isAd || demoMode ? null : (
+      <AddEpisodeMenu
+        onCreate={() => setCreateAfter(null)}
+        onUpload={() => setLocation(episodesViewPath({ upload: "episode" }))}
       />
+    );
 
-      {/* ---- Episodes ---- */}
-      {!collapsed ? (
-        <>
-          <div className="flex items-center gap-2 px-3.5 pb-1.5 pt-2.5">
-            <span
-              className="text-[10.5px] font-bold uppercase"
-              style={{ color: "var(--muted-foreground)", letterSpacing: "0.8px" }}
-            >
-              {isAd
-                ? t("dashboard:ad_video_section_title")
-                : t("dashboard:episodes_section_title")}
-            </span>
-            {!isAd && (
-              <>
-                <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-                  {episodes.length}
-                </span>
-                <span className="flex-1" />
-                {demoMode ? null : (
-                  <ActionMenu
-                    label={t("dashboard:add_episode")}
-                    triggerClassName="grid h-5 w-5 place-items-center rounded-sm focus-ring hover:text-foreground"
-                    triggerStyle={{ background: "oklch(0.28 0.012 250 / 0.6)", color: "var(--muted-foreground)" }}
-                    items={[
-                      {
-                        key: "create",
-                        label: t("dashboard:episode_create_title"),
-                        icon: FilePlus,
-                        onSelect: () => setCreateAfter(null),
-                      },
-                      {
-                        key: "upload",
-                        label: t("dashboard:episode_menu_upload_sources"),
-                        icon: Upload,
-                        onSelect: () => setLocation(episodesViewPath({ upload: "episode" })),
-                      },
-                    ]}
-                  >
-                    <Plus className="h-3 w-3" aria-hidden />
-                  </ActionMenu>
-                )}
-              </>
-            )}
+  return (
+    <div className="@container/sidebar relative flex h-full min-w-0 flex-col">
+      <nav aria-label={t("dashboard:workspace_nav_label")} className={cn("flex shrink-0 flex-col gap-0.5 p-2", collapsed && "items-center")}>
+        {navItems.map((item) =>
+          collapsed ? (
+            <RailLink key={item.key} href={item.path} label={item.label} icon={item.icon} active={isNavActive(item)} />
+          ) : (
+            <NavLink key={item.key} item={item} active={isNavActive(item)} />
+          ),
+        )}
+      </nav>
+
+      <Separator />
+
+      {collapsed ? (
+        <div className="relative flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
+          {addEpisodeMenu}
+          {filteredEps.map(({ ep, position }) => (
+            <RailLink
+              key={ep.episode}
+              href={`/episodes/${ep.episode}`}
+              active={ep.episode === activeEp}
+              label={
+                isAd
+                  ? sectionTitle
+                  : t("dashboard:episode_collapsed_button_label", {
+                      position,
+                      title: ep.title || t("common:episode_position_name", { position }),
+                    })
+              }
+              icon={isAd ? Clapperboard : undefined}
+              text={isAd ? undefined : String(position)}
+            />
+          ))}
+        </div>
+      ) : (
+        <section aria-label={sectionTitle} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
+            <h2 className="text-xs font-medium text-muted-foreground">{sectionTitle}</h2>
+            {!isAd && <span className="text-xs tabular-nums text-muted-foreground">{episodes.length}</span>}
+            <span className="flex-1" />
+            {addEpisodeMenu}
           </div>
 
           {!isAd && (
-            <div className="px-2.5 pb-2">
-              <div
-                className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
-                style={{
-                  background: "oklch(0.16 0.010 250 / 0.6)",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                <Search
-                  className="h-3 w-3 shrink-0"
-                  style={{ color: "var(--muted-foreground)" }}
-                />
-                <input
+            <div className="shrink-0 px-2 pb-2">
+              <InputGroup>
+                <InputGroupAddon>
+                  <Search aria-hidden />
+                </InputGroupAddon>
+                <InputGroupInput
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={t("dashboard:episode_search_placeholder")}
                   aria-label={t("dashboard:episode_search_placeholder")}
-                  className="min-w-0 flex-1 bg-transparent text-xs outline-none focus-ring"
-                  style={{ color: "var(--foreground)" }}
                 />
-              </div>
+              </InputGroup>
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto px-2 pb-2.5">
+          <div className="relative min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             {filteredEps.length === 0 ? (
-              <div
-                className="px-2 py-6 text-center text-[11px] italic"
-                style={{ color: "var(--muted-foreground)" }}
-              >
-                {episodes.length === 0
-                  ? t("dashboard:no_episodes_yet")
-                  : t("dashboard:no_episode_search_results")}
-              </div>
+              <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                {episodes.length === 0 ? t("dashboard:no_episodes_yet") : t("dashboard:no_episode_search_results")}
+              </p>
             ) : isAd || demoMode ? (
               filteredEps.map(({ ep, position }) => (
                 <EpisodeCard
@@ -320,7 +239,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   onClick={() => setLocation(`/episodes/${ep.episode}`)}
                   showEpisodeBadge={!isAd}
                   fallbackTitle={isAd ? currentProjectData?.title : undefined}
-                  route={normalizeRoute(currentProjectData?.generation_mode)}
+                  route={route}
                 />
               ))
             ) : (
@@ -329,7 +248,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                 shown={filteredEps}
                 wholeSourceFiles={currentProjectData?.whole_source_files ?? []}
                 activeEp={activeEp}
-                route={normalizeRoute(currentProjectData?.generation_mode)}
+                route={route}
                 reorderable={!search}
                 onOpen={(episode) => setLocation(`/episodes/${episode}`)}
                 onCreateAfter={setCreateAfter}
@@ -338,68 +257,21 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
               />
             )}
           </div>
-        </>
-      ) : (
-        <div className="flex-1 overflow-y-auto px-2.5 py-1.5">
-          {filteredEps.map(({ ep, position }) => {
-            const epLabel = isAd
-              ? t("dashboard:ad_video_section_title")
-              : t("dashboard:episode_collapsed_button_label", {
-                  position,
-                  title: ep.title || t("common:episode_position_name", { position }),
-                });
-            return (
-            <button
-              key={ep.episode}
-              type="button"
-              onClick={() => setLocation(`/episodes/${ep.episode}`)}
-              title={epLabel}
-              aria-label={epLabel}
-              className="num mb-[3px] flex h-9 w-full items-center justify-center rounded-md text-[11px] font-bold focus-ring"
-              style={{
-                background: ep.episode === activeEp ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
-                color:
-                  ep.episode === activeEp
-                    ? "var(--primary)"
-                    : "var(--muted-foreground)",
-              }}
-            >
-              {isAd ? <Clapperboard className="h-4 w-4" aria-hidden /> : position}
-            </button>
-            );
-          })}
-        </div>
+        </section>
       )}
 
-      {/* ---- Collapse footer ---- */}
-      <div
-        className="flex items-center gap-2 px-2.5 py-2"
-        style={{
-          borderTop: "1px solid var(--border)",
-          background: "oklch(0.17 0.010 250 / 0.6)",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setCollapsed((c) => !c)}
-          className="grid h-7 w-7 place-items-center rounded-md focus-ring"
+      <div className={cn("flex shrink-0 border-t border-border p-2", collapsed && "justify-center")}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
           aria-expanded={!collapsed}
-          style={{
-            background: "oklch(0.24 0.012 250 / 0.5)",
-            color: "var(--muted-foreground)",
-          }}
-          title={collapsed ? t("dashboard:sidebar_expand") : t("dashboard:sidebar_collapse")}
-          aria-label={
-            collapsed ? t("dashboard:sidebar_expand") : t("dashboard:sidebar_collapse")
-          }
+          aria-label={collapsed ? t("dashboard:sidebar_expand") : t("dashboard:sidebar_collapse")}
+          onClick={() => onCollapsedChange(!collapsed)}
         >
-          {collapsed ? (
-            <ChevronRight className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronLeft className="h-3.5 w-3.5" />
-          )}
-        </button>
+          {collapsed ? <PanelLeftOpen aria-hidden /> : <PanelLeftClose aria-hidden />}
+        </Button>
       </div>
+
       {createAfter !== undefined && currentProjectName ? (
         <CreateEpisodeDialog
           projectName={currentProjectName}
@@ -412,6 +284,81 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         />
       ) : null}
       {deletion.dialog}
-    </aside>
+    </div>
+  );
+}
+
+function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.path}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex min-h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+        active ? "bg-primary/15 text-foreground" : "text-subtle-foreground hover:bg-muted/50 hover:text-foreground",
+      )}
+    >
+      <Icon aria-hidden className={cn("size-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {item.count !== undefined && <span className="text-xs tabular-nums text-muted-foreground">{item.count}</span>}
+    </Link>
+  );
+}
+
+/** 图标栏里的一项：只显示图标或集序号，名称经悬停或聚焦的提示显示，读屏读完整名称。 */
+function RailLink({
+  href,
+  label,
+  icon: Icon,
+  text,
+  active,
+}: {
+  href: string;
+  label: string;
+  icon?: LucideIcon;
+  text?: string;
+  active: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link
+            href={href}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-md text-xs font-medium tabular-nums transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+              active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+            )}
+          />
+        }
+      >
+        {Icon ? <Icon aria-hidden className="size-4" /> : <span aria-hidden>{text}</span>}
+        <span className="sr-only">{label}</span>
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function AddEpisodeMenu({ onCreate, onUpload }: { onCreate: () => void; onUpload: () => void }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={t("add_episode")} />}>
+        <Plus aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent aria-label={t("add_episode")} className="w-52">
+        <DropdownMenuItem onClick={onCreate}>
+          <FilePlus aria-hidden />
+          {t("episode_create_title")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onUpload}>
+          <Upload aria-hidden />
+          {t("episode_menu_upload_sources")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

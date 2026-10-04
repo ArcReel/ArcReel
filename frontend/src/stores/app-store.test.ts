@@ -1,59 +1,46 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { useAppStore } from "./app-store";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const PANEL_OPEN_KEY = "arcreel_assistant_panel_open";
+/** 模拟刷新页面：重新加载模块，store 从 localStorage 重新读取开合记忆。 */
+async function reloadStore() {
+  vi.resetModules();
+  const { useAppStore } = await import("./app-store");
+  return useAppStore;
+}
 
 describe("assistant panel state", () => {
   beforeEach(() => {
     localStorage.clear();
-    useAppStore.setState({
-      assistantPanelOpen: false,
-      assistantPanelInitialized: false,
-    });
+  });
+
+  it("opens by default when no choice is remembered", async () => {
+    const store = await reloadStore();
+
+    expect(store.getState().assistantPanelOpen).toBe(true);
   });
 
   it.each([
-    [false, true],
     [true, false],
-  ])("keeps an explicit %s → %s choice across projects and page reloads", (initialOpen, expectedOpen) => {
-    useAppStore.setState({ assistantPanelOpen: initialOpen });
-    useAppStore.getState().toggleAssistantPanel();
+    [false, true],
+  ])("keeps a manual %s → %s choice across page reloads", async (initialOpen, expectedOpen) => {
+    const store = await reloadStore();
+    store.setState({ assistantPanelOpen: initialOpen });
+    store.getState().toggleAssistantPanel();
 
-    expect(localStorage.getItem(PANEL_OPEN_KEY)).toBe(String(expectedOpen));
+    const reloaded = await reloadStore();
 
-    useAppStore.setState({
-      assistantPanelOpen: !expectedOpen,
-      assistantPanelInitialized: false,
-    });
-    useAppStore.getState().initializeAssistantPanel(!expectedOpen);
-
-    expect(useAppStore.getState().assistantPanelOpen).toBe(expectedOpen);
+    expect(reloaded.getState().assistantPanelOpen).toBe(expectedOpen);
   });
 
-  it("defaults to the Agent credential availability when no choice is remembered", () => {
-    useAppStore.getState().initializeAssistantPanel(false);
-    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+  it("does not remember a programmatic expansion", async () => {
+    const store = await reloadStore();
+    store.getState().toggleAssistantPanel();
+    expect(store.getState().assistantPanelOpen).toBe(false);
 
-    useAppStore.setState({
-      assistantPanelOpen: false,
-      assistantPanelInitialized: false,
-    });
-    useAppStore.getState().initializeAssistantPanel(true);
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
-  });
+    store.getState().setAssistantPanelOpen(true);
+    expect(store.getState().assistantPanelOpen).toBe(true);
 
-  it("does not remember a programmatic expansion", () => {
-    useAppStore.getState().setAssistantPanelOpen(true);
+    const reloaded = await reloadStore();
 
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
-    expect(localStorage.getItem(PANEL_OPEN_KEY)).toBeNull();
-
-    useAppStore.setState({
-      assistantPanelOpen: true,
-      assistantPanelInitialized: false,
-    });
-    useAppStore.getState().initializeAssistantPanel(false);
-
-    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+    expect(reloaded.getState().assistantPanelOpen).toBe(false);
   });
 });
