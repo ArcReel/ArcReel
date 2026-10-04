@@ -49,7 +49,13 @@ function useFieldSizingFallback(
 
 // 相对生成代码的改动：默认上限为所在尺寸容器高度的 40%（没有尺寸容器时按视口），
 // 超出后在内部滚动；高度随内容变化，去掉手动拖拽；只支持桌面端，字号固定为 text-sm，去掉按视口切换的 md:text-sm。
-function Textarea({ className, ref, ...props }: React.ComponentProps<"textarea">) {
+// 另加 variant="plain"：正文样式的字段（如故事设定），静止时没有边框与底色、行高放宽，悬停或聚焦时显出边框。
+function Textarea({
+  className,
+  ref,
+  variant = "default",
+  ...props
+}: React.ComponentProps<"textarea"> & { variant?: "default" | "plain" }) {
   const innerRef = React.useRef<HTMLTextAreaElement | null>(null)
   useFieldSizingFallback(innerRef, props.value)
 
@@ -68,6 +74,7 @@ function Textarea({ className, ref, ...props }: React.ComponentProps<"textarea">
       data-slot="textarea"
       className={cn(
         "flex field-sizing-content min-h-16 max-h-[40cqh] w-full resize-none overflow-y-auto rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+        variant === "plain" && "border-transparent bg-transparent leading-relaxed hover:border-input dark:bg-transparent",
         className
       )}
       {...props}

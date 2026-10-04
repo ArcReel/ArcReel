@@ -15,7 +15,7 @@ export default {
   'lobby_demo_title': 'Dự án minh hoạ',
   'lobby_demo_body': 'Nhấp vào thẻ để mở bàn làm việc minh hoạ và xem giao diện sản xuất của dự án.',
   'workbench_overview_title': 'Tổng quan dự án',
-  'workbench_overview_body': 'Trang đầu của bàn làm việc là tổng quan dự án, gồm phần tổng quan do Agent tạo và danh sách các tập; trạng thái và tiến độ sản xuất của từng tập đều xem tại đây.',
+  'workbench_overview_body': 'Trang đầu của bàn làm việc là tổng quan dự án. AI đọc thiết lập câu chuyện (tóm tắt, thể loại, chủ đề, thế giới quan) từ nguyên văn và có thể sửa trực tiếp tại đây; các dòng phía trên cho biết tiến độ ảnh tài sản và chi phí.',
   'workbench_agent_title': 'Agent',
   'workbench_agent_body': 'Bên phải là Agent — nó thực hiện sản xuất và báo cáo tiến độ. Với dự án mới, vào bàn làm việc rồi nhập tiểu thuyết hoặc kịch bản trước; phân tích xong, gửi "Bắt đầu sản xuất" và nó sẽ lần lượt tạo tổng quan dự án, ảnh tạo hình nhân vật cùng phân cảnh và video cho từng tập.',
   'workbench_lorebook_title': 'Nhân vật, bối cảnh và đạo cụ',

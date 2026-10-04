@@ -75,6 +75,8 @@ Dependabot 只升级 npm 包，不会重新生成 `components/ui/*.tsx`。`@base
 
 `Textarea` 用 CSS `field-sizing: content` 随内容撑高；浏览器不支持时回退到 JS 测量，在值变化、输入和宽度变化时重算。默认高度上限是 `max-h-[40cqh]`，即最近的尺寸容器高度的 40%；没有尺寸容器时按视口高度计算。超出上限后在框内滚动。需要其他上限时，在调用处用 `max-h-*` 覆盖。不要在业务组件里读写 `scrollHeight` 或在 `onInput` 里设置高度。
 
+画布里直接编辑的正文字段（如故事设定）用 `Textarea` 与 `Input` 的 `variant="plain"`：静止时没有边框与底色，悬停或聚焦时显出边框。长页面里的正文字段写 `max-h-none`，随内容撑高，由页面滚动，不在框内再嵌套滚动。
+
 ### 带候选的文本输入：只能选候选项用 Combobox，允许填写候选之外的值用 Base UI Autocomplete
 
 Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；模型 ID 这类网关列表常常不全、必须允许自由填写的字段，用 `@base-ui/react/autocomplete`。shadcn 的 base-nova registry 没有 Autocomplete，参考 `components/agent/ModelIdField` 的写法：输入框用 `components/ui/input-group`，弹层表面沿用 `bg-popover`、`shadow-overlay` 与 `z-overlay`。

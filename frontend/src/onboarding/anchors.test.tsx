@@ -12,7 +12,7 @@ import { memoryLocation } from "wouter/memory-location";
 import i18n from "@/i18n";
 import { API } from "@/api";
 import { GlobalHeader } from "@/components/layout/GlobalHeader";
-import { OverviewCanvas } from "@/components/canvas/OverviewCanvas";
+import { OverviewCanvas } from "@/components/canvas/overview/OverviewCanvas";
 import { CharactersPage } from "@/components/canvas/lorebook/CharactersPage";
 import { TimelineCanvas } from "@/components/canvas/timeline/TimelineCanvas";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";

@@ -2259,12 +2259,14 @@ class API {
    * 使用 AI 生成项目概述
    */
   static async generateOverview(
-    projectName: string
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{ success: boolean; overview: ProjectOverview }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate-overview`,
       {
         method: "POST",
+        signal: options.signal,
       }
     );
   }
