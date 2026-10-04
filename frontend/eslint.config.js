@@ -150,6 +150,8 @@ const REWORKED_FILES = [
   "src/components/workflow/WorkflowPanel.tsx",
   "src/components/canvas/timeline/StoryboardBatchDialog.tsx",
   "src/components/canvas/shared/PromptAuthoringButton.tsx",
+  // 多宫格分镜图视图：分组卡片、联合图面板与页头「补齐联合图」
+  "src/components/canvas/grid/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

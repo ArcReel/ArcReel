@@ -3569,8 +3569,14 @@ class API {
    * @param projectName - 项目名称
    * @param gridId - Grid ID
    */
-  static async getGrid(projectName: string, gridId: string): Promise<GridGeneration> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/grids/${encodeURIComponent(gridId)}`);
+  static async getGrid(
+    projectName: string,
+    gridId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<GridGeneration> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/grids/${encodeURIComponent(gridId)}`, {
+      signal: options.signal,
+    });
   }
 
   /**

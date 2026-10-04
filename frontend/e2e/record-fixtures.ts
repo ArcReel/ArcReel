@@ -114,6 +114,9 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-agent-memory", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-memory` },
   // 项目「分集」视图：演示项目没有整本源文，只有一集无原文的集；整本源文、多集与未登记文件由场景替换。
   { file: "project-demo-episodes-view", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/episodes-view` },
+  // 集页「多宫格分镜图」：宫格档位上限与宫格记录（演示项目没有宫格，多组联合图由场景替换）。
+  { file: "project-demo-grid-capability", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grid-capability` },
+  { file: "project-demo-grids", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grids` },
 ];
 
 // 资产库里的演示资产：两个角色、一个场景、一个道具，都没有图片。

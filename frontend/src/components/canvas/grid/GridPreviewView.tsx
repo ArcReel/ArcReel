@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
+import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import { groupBySegmentBreak, computeGridSize, matchGridsForGroup } from "@/utils/grid-layout";
-import { GridPreviewPanel } from "@/components/canvas/timeline/GridPreviewPanel";
+import { GridPreviewPanel } from "./GridPreviewPanel";
 import type { GridGeneration } from "@/types/grid";
 import type { NarrationSegment, DramaScene } from "@/types";
 
 type Segment = NarrationSegment | DramaScene;
+
+type GenerateGrid = (episode: number, scriptFile: string, sceneIds?: string[]) => Promise<void> | void;
 
 interface GridPreviewViewProps {
   projectName: string;
@@ -16,11 +20,7 @@ interface GridPreviewViewProps {
   scriptFile?: string;
   segments: Segment[];
   contentMode: "narration" | "drama";
-  onGenerateGrid?: (
-    episode: number,
-    scriptFile: string,
-    sceneIds?: string[],
-  ) => Promise<void> | void;
+  onGenerateGrid?: GenerateGrid;
 }
 
 function getSegmentId(seg: Segment, mode: "narration" | "drama"): string {
@@ -29,6 +29,80 @@ function getSegmentId(seg: Segment, mode: "narration" | "drama"): string {
     : (seg as DramaScene).scene_id;
 }
 
+function GridGroupCard({
+  projectName,
+  index,
+  cellCount,
+  rows,
+  cols,
+  gridIds,
+  submitting,
+  canGenerate,
+  refreshKey,
+  onGenerate,
+  onRegenerated,
+}: {
+  projectName: string;
+  index: number;
+  cellCount: number;
+  rows: number;
+  cols: number;
+  gridIds: string[];
+  submitting: boolean;
+  canGenerate: boolean;
+  refreshKey: number;
+  onGenerate: () => void;
+  onRegenerated: () => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  const titleId = useId();
+  const activeGridIds = useActiveResourceIds("grid", projectName);
+  // 「生成这一组」与面板里的动作写同一组联合图：任一在途时互相禁用
+  const groupBusy = submitting || gridIds.some((id) => activeGridIds.has(id));
+
+  const handleGenerate = () => {
+    if (groupBusy) return;
+    if (gridIds.some((id) => isResourceBusy("grid", projectName, id))) {
+      useAppStore.getState().pushToast(t("grid_regenerate_busy"), "error");
+      return;
+    }
+    onGenerate();
+  };
+
+  return (
+    <section aria-labelledby={titleId} className="rounded-lg border border-border bg-card">
+      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
+        <h3 id={titleId} className="min-w-0 flex-1 text-sm font-medium">
+          {t("grid_preview_batch_card_title", { index, cellCount, rows, cols })}
+        </h3>
+        {canGenerate && (
+          <Button variant="outline" size="sm" disabled={groupBusy} onClick={handleGenerate}>
+            {submitting ? (
+              <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <Sparkles aria-hidden data-icon="inline-start" />
+            )}
+            {submitting
+              ? t("submitting")
+              : gridIds.length > 0
+                ? t("grid_group_regenerate")
+                : t("grid_preview_batch_generate")}
+          </Button>
+        )}
+      </div>
+      <GridPreviewPanel
+        projectName={projectName}
+        gridIds={gridIds}
+        busy={submitting}
+        canGenerate={canGenerate}
+        onRegenerated={onRegenerated}
+        refreshKey={refreshKey}
+      />
+    </section>
+  );
+}
+
+/** 多宫格分镜图视图：按章节切分点分组，每组一张卡片；视图自己滚动，联合图高度按视图高度封顶。 */
 export function GridPreviewView({
   projectName,
   episode,
@@ -39,6 +113,7 @@ export function GridPreviewView({
 }: GridPreviewViewProps) {
   const { t } = useTranslation("dashboard");
   const gridsRevision = useAppStore((s) => s.gridsRevision);
+  const invalidateGrids = useAppStore((s) => s.invalidateGrids);
   const [grids, setGrids] = useState<GridGeneration[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [generatingGroups, setGeneratingGroups] = useState<Set<string>>(new Set());
@@ -53,37 +128,25 @@ export function GridPreviewView({
     const controller = new AbortController();
     API.getGridCapability(projectName, { signal: controller.signal })
       .then((cap) => {
-        if (controller.signal.aborted) return;
-        setMaxCellCount(cap.max_cell_count);
+        if (!controller.signal.aborted) setMaxCellCount(cap.max_cell_count);
       })
       .catch(() => {});
     return () => controller.abort();
   }, [projectName]);
 
-  const refreshGrids = useCallback(() => {
+  // 宫格列表随全局失效信号重拉：生成、上传、还原之后都经 invalidateGrids 触发
+  useEffect(() => {
     if (!projectName) return;
-    API.listGrids(projectName)
+    const controller = new AbortController();
+    API.listGrids(projectName, { signal: controller.signal })
       .then((data) => {
+        if (controller.signal.aborted) return;
         setGrids(data);
         setRefreshKey((v) => v + 1);
       })
       .catch(() => {});
-  }, [projectName]);
-
-  useEffect(() => {
-    refreshGrids();
-  }, [refreshGrids, gridsRevision]);
-
-  const getGridIdsForGroup = useCallback(
-    (groupSegs: Segment[]): string[] =>
-      matchGridsForGroup(
-        grids,
-        groupSegs.map((s) => getSegmentId(s, contentMode)),
-        episode,
-        maxCellCount,
-      ).map((g) => g.id),
-    [grids, episode, contentMode, maxCellCount],
-  );
+    return () => controller.abort();
+  }, [projectName, gridsRevision]);
 
   const handleGenerateGroup = useCallback(
     // group key 用 sceneIds 排序后 join，分组重排时 spinner 不会挂错卡片
@@ -99,20 +162,19 @@ export function GridPreviewView({
           next.delete(groupKey);
           return next;
         });
-        refreshGrids();
+        invalidateGrids();
       }
     },
-    [onGenerateGrid, scriptFile, contentMode, episode, refreshGrids],
+    [onGenerateGrid, scriptFile, contentMode, episode, invalidateGrids],
   );
 
   const stats = useMemo(() => {
-    // 一个分组超过单张格数上限时后端会切成多张宫格,批次数按实际入队张数累计
+    // 一个分组超过单张格数上限时后端会切成多张宫格，张数按实际入队张数累计
     const batches = groups.reduce(
       (sum, group) => sum + computeGridSize(group.length, maxCellCount).batchCount,
       0,
     );
-    const cells = segments.length;
-    const readyBatches = groups.filter((group) => {
+    const readyGroups = groups.filter((group) => {
       const sceneIds = group.map((s) => getSegmentId(s, contentMode));
       // 一组切成多块时，每一块都有对上的宫格且全部完成才算就绪。
       const groupGrids = matchGridsForGroup(grids, sceneIds, episode, maxCellCount);
@@ -121,17 +183,12 @@ export function GridPreviewView({
         groupGrids.every((g) => g.status === "completed")
       );
     }).length;
-    // 就绪率按分组算(一组内多张宫格全部完成才算就绪),分母用分组数而非宫格张数
-    const percent = groups.length > 0 ? Math.round((readyBatches / groups.length) * 100) : 0;
-    return { batches, cells, percent };
+    return { batches, cells: segments.length, groups: groups.length, ready: readyGroups };
   }, [groups, segments, grids, episode, contentMode, maxCellCount]);
 
   if (segments.length === 0) {
     return (
-      <div
-        className="flex h-full items-center justify-center text-sm"
-        style={{ color: "var(--muted-foreground)" }}
-      >
+      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
         {t("grid_preview_empty_episode")}
       </div>
     );
@@ -140,90 +197,29 @@ export function GridPreviewView({
   const canGenerate = Boolean(onGenerateGrid && scriptFile);
 
   return (
-    <div className="h-full overflow-y-auto px-5 py-4">
-      <div
-        className="mb-4 flex flex-wrap items-center gap-2 rounded-md border px-3.5 py-2.5"
-        style={{
-          borderColor: "color-mix(in oklab, var(--border) 50%, transparent)",
-          background: "oklch(0.18 0.010 265 / 0.5)",
-        }}
-      >
-        <span
-          className="num text-[11.5px] tabular-nums"
-          style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-mono)" }}
-        >
-          {t("grid_preview_summary", stats)}
-        </span>
-      </div>
-
-      <div className="flex flex-col gap-3">
+    <div className="@container-size/grid relative h-full overflow-y-auto [scrollbar-gutter:stable]">
+      <div className="flex flex-col gap-4 px-6 py-5">
+        <p className="text-sm text-muted-foreground">{t("grid_preview_summary", stats)}</p>
         {groups.map((group, idx) => {
+          const sceneIds = group.map((s) => getSegmentId(s, contentMode));
           const layout = computeGridSize(group.length, maxCellCount);
-          const ids = getGridIdsForGroup(group);
-          const groupKey = group
-            .map((s) => getSegmentId(s, contentMode))
-            .sort()
-            .join(",");
-          const generating = generatingGroups.has(groupKey);
+          const gridIds = matchGridsForGroup(grids, sceneIds, episode, maxCellCount).map((g) => g.id);
+          const groupKey = [...sceneIds].sort().join(",");
           return (
-            <div
+            <GridGroupCard
               key={groupKey || idx}
-              className="overflow-hidden rounded-md border"
-              style={{
-                borderColor: "color-mix(in oklab, var(--border) 50%, transparent)",
-                background: "oklch(0.20 0.011 265 / 0.35)",
-              }}
-            >
-              <div
-                className="flex items-center gap-2 px-4 py-2"
-                style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-              >
-                <span
-                  className="num text-[11px] font-semibold uppercase tracking-wider"
-                  style={{
-                    color: "var(--muted-foreground)",
-                    fontFamily: "var(--font-mono)",
-                    letterSpacing: "0.6px",
-                  }}
-                >
-                  {t("grid_preview_batch_card_title", {
-                    index: idx + 1,
-                    cellCount: group.length,
-                    rows: layout.rows,
-                    cols: layout.cols,
-                  })}
-                </span>
-                <span className="flex-1" />
-                {canGenerate && (
-                  <button
-                    type="button"
-                    onClick={() => void handleGenerateGroup(groupKey, group)}
-                    disabled={generating}
-                    className="sv-navbtn inline-flex items-center gap-1.5"
-                  >
-                    {generating ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-3 w-3" />
-                    )}
-                    <span>
-                      {generating
-                        ? t("submitting")
-                        : ids.length > 0
-                          ? t("grid_regenerate_btn")
-                          : t("grid_preview_batch_generate")}
-                    </span>
-                  </button>
-                )}
-              </div>
-              <GridPreviewPanel
-                projectName={projectName}
-                gridIds={ids}
-                onRegenerated={refreshGrids}
-                refreshKey={refreshKey}
-                defaultExpanded
-              />
-            </div>
+              projectName={projectName}
+              index={idx + 1}
+              cellCount={group.length}
+              rows={layout.rows}
+              cols={layout.cols}
+              gridIds={gridIds}
+              submitting={generatingGroups.has(groupKey)}
+              canGenerate={canGenerate}
+              refreshKey={refreshKey}
+              onGenerate={() => void handleGenerateGroup(groupKey, group)}
+              onRegenerated={invalidateGrids}
+            />
           );
         })}
       </div>

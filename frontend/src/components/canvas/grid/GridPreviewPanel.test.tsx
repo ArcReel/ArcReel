@@ -82,7 +82,7 @@ describe("GridPreviewPanel regenerate", () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid());
     vi.spyOn(API, "regenerateGrid").mockResolvedValue({ success: true, task_id: "t-1", deduped: false });
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
     const regenBtn = await screen.findByText("重新生成");
     fireEvent.click(regenBtn);
@@ -101,7 +101,7 @@ describe("GridPreviewPanel regenerate", () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid());
     vi.spyOn(API, "regenerateGrid").mockRejectedValue(new Error("regen failed"));
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
     const regenBtn = await screen.findByText("重新生成");
     fireEvent.click(regenBtn);
@@ -117,24 +117,25 @@ describe("GridPreviewPanel regenerate", () => {
 });
 
 describe("GridPreviewPanel occupancy", () => {
-  it("记录停在 generating 但队列无活动任务时显示已中断，并允许重新生成", async () => {
+  it("记录停在 generating 但队列无活动任务时显示已中断，并允许重新生成或上传", async () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(
       makeGrid({ status: "generating", grid_image_path: null }),
     );
     useTasksStore.setState({ tasks: [], connected: true, optimisticActive: new Set() });
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
     expect(await screen.findByText("已中断")).toBeInTheDocument();
-    expect(screen.getByText("上次生成已中断，可重新生成")).toBeInTheDocument();
+    expect(screen.getByText("上次生成已中断，可以重新生成或上传联合图")).toBeInTheDocument();
     expect(screen.queryByText("生成中")).not.toBeInTheDocument();
-    expect(screen.getByText("重新生成").closest("button")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "重新生成" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "上传联合图" })).toBeEnabled();
   });
 
   it("live tasks store 中任务运行时即使 grid.status 仍为已完成也判定占用，重新生成按钮被禁用", async () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ status: "completed" }));
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
     await screen.findByText("重新生成");
 
@@ -150,7 +151,7 @@ describe("GridPreviewPanel occupancy", () => {
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
     vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
     const regenBtn = await screen.findByText("重新生成");
     expect(regenBtn).toBeEnabled();
@@ -180,7 +181,7 @@ describe("GridPreviewPanel split", () => {
       asset_fingerprints: { "storyboards/scene_SCN-1.png": 42 },
     });
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
     const splitBtn = await screen.findByText("切分落格");
     fireEvent.click(splitBtn);
@@ -205,7 +206,7 @@ describe("GridPreviewPanel split", () => {
       asset_fingerprints: {},
     });
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
     fireEvent.click(await screen.findByText("切分落格"));
 
     await waitFor(() => {
@@ -215,7 +216,7 @@ describe("GridPreviewPanel split", () => {
 
   it("联合图就绪但未落格时展示「未切分」提示", async () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
     expect(await screen.findByText("未切分")).toBeInTheDocument();
   });
 
@@ -223,7 +224,7 @@ describe("GridPreviewPanel split", () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
     useTasksStore.setState({ tasks: [makeTask()], optimisticActive: new Set() });
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
     const splitBtn = (await screen.findByText("切分落格")).closest("button");
     expect(splitBtn?.disabled).toBe(true);
@@ -243,7 +244,7 @@ describe("GridPreviewPanel upload", () => {
     const revisionBefore = useAppStore.getState().gridsRevision;
 
     const { container } = render(
-      <GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />,
+      <GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />,
     );
 
     await screen.findByText("上传联合图");
@@ -282,13 +283,13 @@ describe("GridPreviewPanel 版本时光机跨宫格切换", () => {
       return { resource_type: "grids", resource_id: resourceId, current_version: 3, versions: [version(3)] };
     });
 
-    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1", "grid-2"]} defaultExpanded />);
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1", "grid-2"]} />);
 
     // grid-1 的版本列表请求发出后不解析，切到 grid-2 并读到它自己的版本；
     // 保护来自切换时的 setGrid(null) 卸载，改成加载期间留旧数据渲染即回归
     fireEvent.click(await screen.findByLabelText("版本"));
     await waitFor(() => expect(API.getVersions).toHaveBeenCalledWith("demo", "grids", "grid-1"));
-    fireEvent.click(screen.getByText("2"));
+    fireEvent.click(screen.getByRole("button", { name: "第 2 张联合图" }));
     fireEvent.click(await screen.findByLabelText("版本"));
     await waitFor(() => expect(screen.getByText("v3")).toBeInTheDocument());
 
