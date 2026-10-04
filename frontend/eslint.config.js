@@ -145,6 +145,11 @@ const REWORKED_FILES = [
   "src/components/copilot/chat/{AgentFailureCard,CompactionMarker}.tsx",
   // Agent 工序行：工具调用、子智能体、Skill、后台任务，及显示名与摘要格式
   "src/components/copilot/chat/{WorkRow,ToolCallWithResult,SubagentCard,SkillChip,TaskProgressBlock,work-label,arcreel-tool-summaries}.{ts,tsx}",
+  // 剧集页头与视图路由：集头、视图 tab 与动作插槽、制作进度入口、批量补齐按钮与确认框、编写提示词入口
+  "src/components/canvas/episode-page/**",
+  "src/components/workflow/WorkflowPanel.tsx",
+  "src/components/canvas/timeline/StoryboardBatchDialog.tsx",
+  "src/components/canvas/shared/PromptAuthoringButton.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

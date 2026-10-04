@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route, Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -56,9 +57,9 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     onGenerateVideo,
     onGenerateNarration,
     onGenerateEpisodeNarration,
-    onSaveTitle,
-    canEditTitle,
+    view,
   }: {
+    view: string;
     episodeScript: unknown;
     scriptFile?: string;
     durationOptions?: number[];
@@ -70,12 +71,9 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     onGenerateVideo?: (segmentId: string) => void;
     onGenerateNarration?: (segmentId: string) => void;
     onGenerateEpisodeNarration?: (scriptFile?: string) => void;
-    onSaveTitle?: (title: string) => Promise<void>;
-    canEditTitle?: boolean;
   }) => (
-    <div data-testid="timeline-canvas">
+    <div data-testid="timeline-canvas" data-view={view}>
       <div data-testid="timeline-has-script">{episodeScript ? "yes" : "no"}</div>
-      <div data-testid="timeline-can-edit-title">{canEditTitle ? "yes" : "no"}</div>
       <div data-testid="timeline-duration-options">{(durationOptions ?? []).join(",")}</div>
       <button onClick={() => onUpdatePrompt?.("SEG-1", "image_prompt", "new prompt", scriptFile)}>
         update-prompt
@@ -125,7 +123,6 @@ vi.mock("./timeline/TimelineCanvas", () => ({
       {onGenerateEpisodeNarration && (
         <button onClick={() => onGenerateEpisodeNarration()}>generate-episode-narration</button>
       )}
-      <button onClick={() => void onSaveTitle?.("新标题")?.catch(() => {})}>save-title</button>
     </div>
   ),
 }));
@@ -141,28 +138,22 @@ vi.mock("./EpisodeSourceReview", () => ({
 vi.mock("./reference/ReferenceVideoCanvas", () => ({
   ReferenceVideoCanvas: ({
     hasScript,
-    canEditTitle,
-    onSaveTitle,
     showPreprocess,
     freeDuration,
+    view,
   }: {
     hasScript: boolean;
-    canEditTitle?: boolean;
-    onSaveTitle?: (title: string) => Promise<void>;
     showPreprocess?: boolean;
     freeDuration?: boolean;
+    view: string;
   }) => (
     <div
       data-testid="reference-video-canvas"
+      data-view={view}
       data-has-script={hasScript ? "yes" : "no"}
       data-preprocess={showPreprocess === false ? "no" : "yes"}
       data-free-duration={freeDuration ? "yes" : "no"}
-    >
-      <div data-testid="reference-can-edit-title">{canEditTitle ? "yes" : "no"}</div>
-      <button onClick={() => void onSaveTitle?.("新标题")?.catch(() => {})}>
-        reference-save-title
-      </button>
-    </div>
+    />
   ),
 }));
 
@@ -170,7 +161,9 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
   GridImageToVideoCanvas: ({
     onGenerateGrid,
     onGenerateVideo,
+    view,
   }: {
+    view: string;
     onGenerateGrid?: (
       episode: number,
       scriptFile: string,
@@ -178,7 +171,7 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
     ) => void | Promise<void>;
     onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
   }) => (
-    <div data-testid="grid-canvas">
+    <div data-testid="grid-canvas" data-view={view}>
       <button onClick={() => void onGenerateGrid?.(1, "episode_1.json")}>generate-grid</button>
       <button
         onClick={(event) => {
@@ -403,6 +396,14 @@ function makeDramaScript(): EpisodeScript {
       },
     ],
   };
+}
+
+/** 在集页页头改集标题：点铅笔、输入、回车保存。 */
+async function renameEpisode(title: string) {
+  fireEvent.click(await screen.findByRole("button", { name: "编辑分集标题" }));
+  const input = screen.getByRole("textbox", { name: "编辑分集标题" });
+  fireEvent.change(input, { target: { value: title } });
+  fireEvent.keyDown(input, { key: "Enter" });
 }
 
 function renderAt(path: string) {
@@ -661,7 +662,7 @@ describe("StudioCanvasRouter", () => {
     expect(screen.queryByTestId("episode-source-review")).not.toBeInTheDocument();
   });
 
-  it("switches an episode with a script between the storyboard and edit views", () => {
+  it("switches an episode with a script between the storyboard and edit views", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
@@ -684,20 +685,131 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByTestId("edit-timeline-view")).toHaveTextContent("episode 1");
     expect(screen.queryByTestId("timeline-canvas")).not.toBeInTheDocument();
     expect(screen.getByTestId("workflow-panel")).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "剪辑" })).toContainElement(screen.getByTestId("edit-timeline-view"));
 
     fireEvent.click(screen.getByRole("tab", { name: "分镜" }));
-    expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
+    expect(screen.getByTestId("timeline-canvas")).toHaveAttribute("data-view", "board");
     expect(screen.getByRole("tabpanel", { name: "分镜" })).toContainElement(screen.getByTestId("timeline-canvas"));
 
-    // 方向键在两个视图间切换，焦点跟着走，Tab 只停在选中的那个
+    // 方向键只移动焦点，切换视图要按下：剪辑视图会卸载画布，不随焦点经过就切走；Tab 只停在选中的那个
     const storyboard = screen.getByRole("tab", { name: "分镜" });
     expect(storyboard).toHaveAttribute("tabindex", "0");
     expect(screen.getByRole("tab", { name: "剪辑" })).toHaveAttribute("tabindex", "-1");
-    fireEvent.keyDown(storyboard, { key: "ArrowRight" });
+    const user = userEvent.setup();
+    act(() => storyboard.focus());
+    await user.keyboard("{ArrowRight}");
     const edit = screen.getByRole("tab", { name: "剪辑" });
-    expect(edit).toHaveAttribute("aria-selected", "true");
     expect(edit).toHaveFocus();
+    expect(storyboard).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Enter}");
     expect(screen.getByRole("tabpanel", { name: "剪辑" })).toContainElement(screen.getByTestId("edit-timeline-view"));
+  });
+
+  it("deep-links each canvas view through ?view= and writes no view for the default one", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        grid_storyboard: true,
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        ],
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    const { hook, searchHook, history } = memoryLocation({ path: "/episodes/1?view=plan", record: true });
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <StudioCanvasRouter />
+      </Router>,
+    );
+
+    expect(screen.getByRole("tab", { name: "脚本规划" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("grid-canvas")).toHaveAttribute("data-view", "plan");
+    expect(screen.getByRole("tabpanel", { name: "脚本规划" })).toContainElement(screen.getByTestId("grid-canvas"));
+
+    fireEvent.click(screen.getByRole("tab", { name: "多宫格分镜图" }));
+    expect(screen.getByTestId("grid-canvas")).toHaveAttribute("data-view", "grid");
+    expect(history.at(-1)).toBe("/episodes/1?view=grid");
+
+    // 分镜是有剧本时的缺省视图：地址不带 view，剧本生成后停在缺省视图的页面才会自动落到分镜
+    fireEvent.click(screen.getByRole("tab", { name: "分镜" }));
+    expect(screen.getByTestId("grid-canvas")).toHaveAttribute("data-view", "board");
+    expect(history.at(-1)).toBe("/episodes/1");
+  });
+
+  it("falls back to the default view when the linked one is unknown or not available yet", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "segmented" },
+        ],
+      }),
+      currentScripts: {},
+    });
+
+    renderAt("/episodes/1?view=board");
+    // 只有脚本规划中间稿时分镜还不可选，停在脚本规划
+    expect(screen.getByRole("tab", { name: "分镜" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("tab", { name: "脚本规划" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("timeline-canvas")).toHaveAttribute("data-view", "plan");
+    cleanup();
+
+    renderAt("/episodes/1?view=nonsense");
+    expect(screen.getByTestId("timeline-canvas")).toHaveAttribute("data-view", "plan");
+  });
+
+  it("names the board view after video units on the reference route and opens its plan view from the link", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        generation_mode: "reference_video",
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        ],
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAt("/episodes/1?view=plan");
+
+    expect(screen.getByRole("tab", { name: "视频单元" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.queryByRole("tab", { name: "分镜" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("reference-video-canvas")).toHaveAttribute("data-view", "plan");
+  });
+
+  it("deletes the episode from the page header menu", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        ],
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    const impact = { episode: 1, recoverable: true, revision: "rev-1", text: "删除「EP1」后可以从集原文重新生成。" };
+    const remove = vi
+      .spyOn(API, "deleteEpisode")
+      .mockResolvedValueOnce({ status: "confirmation_required", impact } as never)
+      .mockResolvedValueOnce({ status: "deleted", impact } as never);
+    useProjectsStore.setState({ refreshProject: vi.fn().mockResolvedValue("success") });
+    const user = userEvent.setup();
+    const { hook, searchHook, history } = memoryLocation({ path: "/episodes/1", record: true });
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <StudioCanvasRouter />
+      </Router>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "这一集的更多操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "删除「EP1」" });
+    await user.click(within(dialog).getByRole("button", { name: "删除" }));
+
+    // 删掉的是正在看的这一集，回到分集列表
+    await waitFor(() => expect(history.at(-1)).toBe("/episodes"));
+    expect(remove).toHaveBeenLastCalledWith("demo", 1, "rev-1");
   });
 
   it("opens the edit view directly from its link", () => {
@@ -1324,10 +1436,12 @@ describe("StudioCanvasRouter", () => {
     expect(canvas).toHaveAttribute("data-free-duration", "yes");
     // 分镜编辑画布在该路径下不再渲染
     expect(screen.queryByTestId("timeline-canvas")).not.toBeInTheDocument();
-    // script_file 存在 → 标题可编辑入口透传为 true
-    expect(screen.getByTestId("reference-can-edit-title")).toHaveTextContent("yes");
+    // 广告/短片没有脚本规划，「分镜」称作「视频单元」；恒单集，不给删除
+    expect(screen.queryByRole("tab", { name: "脚本规划" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "视频单元" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("button", { name: "这一集的更多操作" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("reference-save-title"));
+    await renameEpisode("新标题");
     await waitFor(() => {
       expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
     });
@@ -1508,7 +1622,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("saves the episode title and shows a success toast", async () => {
+  it("saves the episode title from the page header without a success toast", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData(),
@@ -1523,16 +1637,40 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/episodes/1");
 
-    // script_file 存在 → 标题可编辑入口透传为 true
-    expect(screen.getByTestId("timeline-can-edit-title")).toHaveTextContent("yes");
-
-    fireEvent.click(screen.getByText("save-title"));
+    await renameEpisode("新标题");
     await waitFor(() => {
       expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
       expect(API.getProject).toHaveBeenCalled();
-      expect(useAppStore.getState().toast?.text).toContain("分集标题已更新");
-      expect(useAppStore.getState().toast?.tone).toBe("success");
     });
+    // 即时生效的修改成功不提示，标题回到展示态
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "编辑分集标题" })).not.toBeInTheDocument());
+    expect(useAppStore.getState().toast).toBeNull();
+  });
+
+  it("drops an unsaved title draft when switching to another episode", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        episodes: [
+          { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+          { episode: 2, title: "EP2", script_file: "scripts/episode_2.json", script_status: "generated" },
+        ],
+      }),
+      currentScripts: { "episode_1.json": makeScript(), "episode_2.json": makeScript() },
+    });
+    const { hook, searchHook, navigate } = memoryLocation({ path: "/episodes/1" });
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <StudioCanvasRouter />
+      </Router>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑分集标题" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "编辑分集标题" }), { target: { value: "写给第一集的标题" } });
+    act(() => navigate("/episodes/2"));
+
+    expect(screen.queryByRole("textbox", { name: "编辑分集标题" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "EP2" })).toBeInTheDocument();
   });
 
   it("reports episode title update failure with an error toast", async () => {
@@ -1550,12 +1688,14 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/episodes/1");
 
-    fireEvent.click(screen.getByText("save-title"));
+    await renameEpisode("新标题");
     await waitFor(() => {
       expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
       expect(useAppStore.getState().toast?.text).toContain("更新分集标题失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });
+    // 失败时保持编辑态，输入不丢
+    expect(screen.getByRole("textbox", { name: "编辑分集标题" })).toHaveValue("新标题");
   });
 
   it("hides narration generation entries for post-production projects", () => {

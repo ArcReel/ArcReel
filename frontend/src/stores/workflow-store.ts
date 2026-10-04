@@ -8,8 +8,8 @@ import type { WorkflowPlan } from "@/types/workflow";
  */
 export type RefreshPlanResult = "success" | "failed" | "cancelled";
 
-/** 计划的作用目标。同一目标的请求合并，目标易主则作废在途请求。 */
-function planKey(projectName: string, episode: number | null): string {
+/** 计划的作用目标。同一目标的请求合并，目标易主则作废在途请求；读计划的界面拿它核对 `planKey`。 */
+export function workflowPlanKey(projectName: string, episode: number | null): string {
   return `${projectName}::${episode ?? ""}`;
 }
 
@@ -76,7 +76,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
       ownScope = scope;
       let result: RefreshPlanResult;
       const signal = ownScope.signal;
-      const key = planKey(curProject, curEpisode);
+      const key = workflowPlanKey(curProject, curEpisode);
       try {
         const plan = await API.getWorkflowPlan(
           curProject,

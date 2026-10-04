@@ -83,7 +83,7 @@ export function NoScriptBlankState({ projectName, episode, className = "" }: { p
           projectName={projectName}
           episode={episode}
           regenerate={false}
-          className="arc-btn-primary focus-ring rounded-lg px-4 py-2 text-[12.5px] font-semibold"
+          prominent
         />
         <StartBlankScriptButton
           projectName={projectName}

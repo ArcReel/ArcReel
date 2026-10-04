@@ -1031,7 +1031,6 @@ export function ShotDetail({
             episode={episode}
             scope="current"
             currentEntryId={segmentId}
-            className="sv-navbtn"
           />
         )}
       </div>
