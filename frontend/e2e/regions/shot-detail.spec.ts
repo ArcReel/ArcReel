@@ -1,16 +1,12 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import type { Locator, Page } from "@playwright/test";
+import { box, viewport, waitForEntrance, clearAgentOverlay } from "../support/region-helpers.ts";
+import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 集页「分镜」视图：左侧分镜列表，右侧分镜详情（中栏引用、提示词、台词、对应原文，媒体栏分镜图与视频）。
 const BOARD_PATH = "/app/projects/demo/episodes/1";
 
-function recorded<T>(file: string): T {
-  return (JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse).body as T;
-}
 
 interface RecordedProject {
   project: Record<string, unknown>;
@@ -158,36 +154,15 @@ const API_WITH_DURATIONS: ApiOverrides = {
   },
 };
 
-const COMPACT_TIER_MAX_WIDTH = 1279;
 
 const shotList = (page: Page) => page.getByRole("navigation", { name: "分镜列表" });
 const detail = (page: Page) => page.getByRole("tabpanel");
 const agentToggle = (page: Page) => page.getByRole("button", { name: "Agent", exact: true });
 const storyboard = (page: Page) => page.getByRole("img", { name: "S01 分镜图" });
 
-async function box(locator: Locator) {
-  const rect = await locator.boundingBox();
-  if (!rect) throw new Error("元素不可见");
-  return rect;
-}
 
-function viewport(page: Page) {
-  const size = page.viewportSize();
-  if (!size) throw new Error("没有视口尺寸");
-  return size;
-}
 
 /** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
-async function waitForEntrance(target: Locator) {
-  await target.evaluate((el) =>
-    Promise.allSettled(
-      el
-        .getAnimations({ subtree: true })
-        .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
-        .map((animation) => animation.finished),
-    ),
-  );
-}
 
 async function boardReady(page: Page) {
   await shotList(page).waitFor();
@@ -195,11 +170,6 @@ async function boardReady(page: Page) {
 }
 
 /** 紧凑档 Agent 面板盖在画布右侧：先收起再点详情右侧的控件。 */
-async function clearAgentOverlay(page: Page) {
-  if (viewport(page).width > COMPACT_TIER_MAX_WIDTH) return;
-  await agentToggle(page).click();
-  await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "false");
-}
 
 defineRegionScenarios("分镜详情", [
   {
@@ -383,14 +353,62 @@ defineRegionScenarios("分镜详情", [
       await shotList(page).getByRole("button", { name: "调整 S02 的顺序" }).focus();
       await page.keyboard.press("Space");
       await expect(page.getByText(/已拿起「S02」/)).toBeAttached();
-      // dnd-kit 拿起后要等测量完成才响应方向键，之前的按键会被丢掉；按到播报移动为止。
-      // 目标是第 1 项，已在最前时再按上移不会继续移动，重按是安全的。
-      await expect(async () => {
-        await page.keyboard.press("ArrowUp");
-        await expect(page.getByText(/「S02」移到第 1 项/)).toBeAttached({ timeout: 200 });
-      }).toPass();
+      await page.keyboard.press("ArrowUp");
+      await expect(page.getByText(/「S02」移到第 1 项/)).toBeAttached();
       await page.keyboard.press("Space");
       expect((await move).postDataJSON()).toEqual({ script_file: "episode_1.json", after_id: null });
     },
   },
+  {
+    name: "500 镜仍可流畅滚动并用单次方向键排序",
+    path: BOARD_PATH,
+    api: {
+      ...API,
+      "GET /api/v1/projects/demo": {
+        status: 200,
+        body: {
+          ...project,
+          project: { ...project.project, content_mode: "drama" },
+          scripts: { "episode_1.json": { ...recordedScript, content_mode: "drama", segments: undefined,
+            scenes: Array.from({ length: 500 }, (_, i) => ({ ...scenes[1], scene_id: shotId(i + 1) })),
+          } },
+        },
+      },
+      "POST /api/v1/projects/demo/script-items/E1S500/move": { status: 200, body: { success: true } },
+    },
+    ready: boardReady,
+    act: async (page) => {
+      const list = shotList(page);
+      await expect(list.getByRole("button", { name: /^调整 S/ })).toHaveCount(500);
+      const scroll = list.locator("div.overflow-y-auto");
+      const frames = await scroll.evaluate(async (el) => {
+        const intervals: number[] = [];
+        let previous = performance.now();
+        for (let i = 1; i <= 30; i++) {
+          el.scrollTop = (el.scrollHeight - el.clientHeight) * i / 30;
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          const now = performance.now();
+          intervals.push(now - previous);
+          previous = now;
+        }
+        return intervals;
+      });
+      // 单 worker 官方容器：30 帧滚动不应出现半秒主线程停顿或累计超过 2 秒。
+      expect(Math.max(...frames), `500 镜滚动帧间隔：${JSON.stringify(frames)}`).toBeLessThan(500);
+      expect(frames.reduce((sum, value) => sum + value, 0)).toBeLessThan(2000);
+      const handle = list.getByRole("button", { name: "调整 S500 的顺序" });
+      await handle.scrollIntoViewIfNeeded();
+      await handle.focus();
+      const move = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/script-items/E1S500/move"));
+      // 拿起后立即方向键：同一事件循环内不等测量或播报。
+      await handle.evaluate((el) => {
+        for (const [key, code] of [[" ", "Space"], ["ArrowUp", "ArrowUp"]]) {
+          el.dispatchEvent(new KeyboardEvent("keydown", { key, code, bubbles: true, cancelable: true }));
+        }
+      });
+      await expect(page.getByText(/「S500」移到第 499 项/)).toBeAttached();
+      await page.keyboard.press("Space");
+      expect((await move).postDataJSON()).toEqual({ script_file: "episode_1.json", after_id: "E1S498" });
+    },
+  }
 ]);

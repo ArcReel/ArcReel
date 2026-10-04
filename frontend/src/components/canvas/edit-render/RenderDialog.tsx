@@ -153,6 +153,8 @@ function RenderPanel({
   const { t, i18n } = useTranslation("dashboard");
   const draftPathId = useId();
   const draftHintId = useId();
+  // 两张交付物卡片共用一个 name 才是同一组原生单选：方向键在组内切换，Tab 只停一次
+  const kindGroupName = useId();
   const state = useRenderArtifact(
     projectName,
     timelineId,
@@ -250,6 +252,7 @@ function RenderPanel({
         <div className="flex flex-col gap-4">
           <div role="radiogroup" aria-label={t("edit_render_kind_label")} className="grid grid-cols-2 gap-2">
             <KindOption
+              name={kindGroupName}
               value="final_cut"
               selected={kind === "final_cut"}
               disabled={submitting}
@@ -259,6 +262,7 @@ function RenderPanel({
               hint={t("edit_render_kind_final_cut_hint")}
             />
             <KindOption
+              name={kindGroupName}
               value="jianying_draft"
               selected={kind === "jianying_draft"}
               disabled={submitting}
@@ -350,6 +354,7 @@ function RenderPanel({
 }
 
 function KindOption({
+  name,
   value,
   selected,
   disabled,
@@ -358,6 +363,7 @@ function KindOption({
   title,
   hint,
 }: {
+  name: string;
   value: RenderKind;
   selected: boolean;
   disabled: boolean;
@@ -366,7 +372,6 @@ function KindOption({
   title: string;
   hint: string;
 }) {
-  const name = useId();
   return (
     <label
       className={cn(

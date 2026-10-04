@@ -1,17 +1,13 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import type { Locator, Page } from "@playwright/test";
+import { box, clearAgentOverlay } from "../support/region-helpers.ts";
+import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 参考生视频项目的「视频单元」视图：单元列表（窄画布下是图标栏）、文稿编辑器与成片预览三栏。
 const UNITS_PATH = "/app/projects/demo/episodes/1?view=board";
 const UNITS_API = "/api/v1/projects/demo/reference-videos/episodes/1/units";
 
-function recorded<T>(file: string): T {
-  return (JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse).body as T;
-}
 
 interface RecordedProject {
   project: Record<string, unknown>;
@@ -97,20 +93,13 @@ const API: ApiOverrides = {
   [`POST ${UNITS_API}/E1U2/move`]: { status: 200, body: { units: movedUnits("E1U2", null) } },
 };
 
-const COMPACT_TIER_MAX_WIDTH = 1279;
 // 文稿编辑器的高度下限（12rem）。
 const EDITOR_MIN_HEIGHT = 192;
 
 const workbench = (page: Page) => page.getByRole("tabpanel", { name: "视频单元" });
 const editor = (page: Page) => page.getByRole("combobox", { name: "视频单元提示词" });
 const previewFrame = (page: Page) => page.getByTestId("reference-preview-frame");
-const agentToggle = (page: Page) => page.getByRole("button", { name: "Agent", exact: true });
 
-async function box(locator: Locator) {
-  const rect = await locator.boundingBox();
-  if (!rect) throw new Error("元素不可见");
-  return rect;
-}
 
 async function workbenchReady(page: Page) {
   await page.getByRole("tab", { name: "视频单元" }).waitFor();
@@ -118,12 +107,6 @@ async function workbenchReady(page: Page) {
 }
 
 /** 紧凑档 Agent 面板盖在画布右侧：先收起再点画布右侧的控件。 */
-async function clearAgentOverlay(page: Page) {
-  const size = page.viewportSize();
-  if (!size || size.width > COMPACT_TIER_MAX_WIDTH) return;
-  await agentToggle(page).click();
-  await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "false");
-}
 
 /** 窄画布下只有图标栏；单元的预览叠在编辑器同一格，经「视频」子页签切换。 */
 async function showPreview(page: Page) {
@@ -209,12 +192,8 @@ defineRegionScenarios("参考视频工作台", [
       await handle.focus();
       await page.keyboard.press("Space");
       await expect(page.getByText("已拿起「U2」，位于第 2 项，共 14 项。")).toBeAttached();
-      // dnd-kit 拿起后要等测量完成才响应方向键，之前的按键会被丢掉；按到播报移动为止。
-      // 目标是第 1 项，已在最前时再按上移不会继续移动，重按是安全的。
-      await expect(async () => {
-        await page.keyboard.press("ArrowUp");
-        await expect(page.getByText("「U2」移到第 1 项，共 14 项。")).toBeAttached({ timeout: 200 });
-      }).toPass();
+      await page.keyboard.press("ArrowUp");
+      await expect(page.getByText("「U2」移到第 1 项，共 14 项。")).toBeAttached();
       await page.keyboard.press("Space");
       expect((await moved).postDataJSON()).toEqual({ after_unit_id: null });
       await expect(page.getByRole("button", { name: /^调整「.+」的顺序$/ }).first()).toHaveAccessibleName(

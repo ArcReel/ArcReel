@@ -273,8 +273,9 @@ export function UnitPreviewPanel({
           novelText={narrationText ?? ""}
           assetPath={narrationAudio}
           generating={narrationGenerating}
-          generateDisabled={!hasNarrationText}
+          generateDisabled={!hasNarrationText || saving}
           generateDisabledHint={!hasNarrationText ? t("no_original_text") : undefined}
+          generateLabel={saveFirst ? t("common:save_and_generate") : undefined}
           estimatedCost={narrationEstimatedCost}
           onGenerate={onGenerateNarration ? () => onGenerateNarration(unit.unit_id) : undefined}
         />

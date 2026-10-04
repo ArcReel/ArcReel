@@ -340,7 +340,7 @@ describe("ReferenceVideoCard combobox ARIA", () => {
 });
 
 describe("ReferenceVideoCard final prompt preview", () => {
-  it("renders the unsaved body with the numbered request images, notice and warnings", async () => {
+  it("renders the requested body with numbered request images and warnings", async () => {
     const user = userEvent.setup();
     const preview = vi.spyOn(API, "previewReferenceUnitPrompt").mockResolvedValue({
       text: "<酒馆>@图片1。\n草稿正文\n电影质感",
@@ -354,7 +354,6 @@ describe("ReferenceVideoCard final prompt preview", () => {
     expect(preview).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "查看提示词" }));
     const dialog = await screen.findByRole("dialog", { name: "参考生视频提示词" });
-    expect(within(dialog).getByText("按当前模型能力计算，执行时以实际为准")).toBeInTheDocument();
     expect(await within(dialog).findByText(/草稿正文/)).toBeInTheDocument();
     expect(within(dialog).getByRole("img", { name: "酒馆" })).toHaveAttribute("src", API.getFileUrl("proj", "scenes/酒馆.png"));
     expect(within(dialog).getByText("图片1 · 酒馆")).toBeInTheDocument();

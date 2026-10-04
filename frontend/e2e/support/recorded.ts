@@ -36,3 +36,8 @@ export function loadRecordedResponses(): Map<string, RecordedResponse> {
   }
   return responses;
 }
+
+/** 录制响应的正文，供区域压力变体在真实接口形状上改写。 */
+export function recorded<T>(file: string): T {
+  return (JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse).body as T;
+}

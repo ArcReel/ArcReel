@@ -96,6 +96,47 @@ describe("GridPreviewPanel regenerate", () => {
     });
   });
 
+  /** 对第 1 张联合图发起重新生成，请求在途时切到第 2 张（已完成），返回结算请求的句柄。 */
+  async function regenerateThenSwitch() {
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+    vi.spyOn(API, "getGrid").mockImplementation((_project, id) =>
+      Promise.resolve(makeGrid({ id, grid_image_path: `grids/${id}.png` })),
+    );
+    const settle: { accept?: () => void; reject?: (err: Error) => void } = {};
+    vi.spyOn(API, "regenerateGrid").mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          settle.accept = () => resolve({ success: true, task_id: "t-1", deduped: false });
+          settle.reject = reject;
+        }),
+    );
+
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1", "grid-2"]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "重新生成" }));
+    fireEvent.click(screen.getByRole("button", { name: "第 2 张联合图" }));
+    await waitFor(() => expect(API.getGrid).toHaveBeenLastCalledWith("demo", "grid-2", expect.anything()));
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
+    return settle;
+  }
+
+  it("切到另一张联合图后，前一张提交成功不把当前这张标为待处理", async () => {
+    const settle = await regenerateThenSwitch();
+
+    settle.accept?.();
+    expect(await screen.findByRole("button", { name: "重新生成" })).toBeEnabled();
+    expect(screen.getByText("已完成")).toBeInTheDocument();
+  });
+
+  it("切到另一张联合图后，前一张提交失败只提示，不替换当前这张的面板", async () => {
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    const settle = await regenerateThenSwitch();
+
+    settle.reject?.(new Error("regen failed"));
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith("regen failed", "error"));
+    expect(screen.getByText("已完成")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新生成" })).toBeInTheDocument();
+  });
+
   it("does not mark occupancy when the regenerate request fails", async () => {
     useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid());
@@ -288,7 +329,7 @@ describe("GridPreviewPanel 版本时光机跨宫格切换", () => {
     // grid-1 的版本列表请求发出后不解析，切到 grid-2 并读到它自己的版本；
     // 保护来自切换时的 setGrid(null) 卸载，改成加载期间留旧数据渲染即回归
     fireEvent.click(await screen.findByLabelText("版本"));
-    await waitFor(() => expect(API.getVersions).toHaveBeenCalledWith("demo", "grids", "grid-1"));
+    await waitFor(() => expect(API.getVersions).toHaveBeenCalledWith("demo", "grids", "grid-1", { signal: expect.any(AbortSignal) }));
     fireEvent.click(screen.getByRole("button", { name: "第 2 张联合图" }));
     fireEvent.click(await screen.findByLabelText("版本"));
     await waitFor(() => expect(screen.getByText("v3")).toBeInTheDocument());

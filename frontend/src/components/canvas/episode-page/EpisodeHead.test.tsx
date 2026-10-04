@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { API } from "@/api";
+import { LeaveGuardProvider, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeCost, EpisodeMeta } from "@/types";
@@ -95,5 +97,42 @@ describe("EpisodeHead", () => {
     expect(screen.queryByRole("button", { name: "这一集的更多操作" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑分集标题" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "第一章" })).toBeInTheDocument();
+  });
+
+  it("asks about unsaved edits only once the deletion is confirmed, so cancelling the deletion keeps them", async () => {
+    const remove = vi.spyOn(API, "deleteEpisode").mockImplementation(async (_project, episode, revision) =>
+      revision
+        ? { status: "deleted", impact: { episode, recoverable: true, revision } }
+        : { status: "confirmation_required", impact: { episode, recoverable: true, revision: "r1", text: "将删除本集剧本" } },
+    );
+    const discard = vi.fn();
+    function DirtyUnit() {
+      useLeaveGuard({ dirty: true, save: async () => true, discard });
+      return null;
+    }
+    const openDeletion = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "这一集的更多操作" }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
+      const dialog = await screen.findByRole("alertdialog");
+      expect(dialog).toHaveTextContent("将删除本集剧本");
+      return dialog;
+    };
+    render(
+      <LeaveGuardProvider>
+        <DirtyUnit />
+        <EpisodeHead projectName="demo" episode={1} meta={FIRST} route="storyboard" canEditTitle={false}
+          onSaveTitle={vi.fn()} canDelete />
+      </LeaveGuardProvider>,
+    );
+
+    fireEvent.click(within(await openDeletion()).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(discard).not.toHaveBeenCalled();
+
+    fireEvent.click(within(await openDeletion()).getByRole("button", { name: "删除" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).getByRole("button", { name: "放弃修改" }));
+
+    await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", 1, "r1"));
+    expect(discard).toHaveBeenCalledTimes(1);
   });
 });

@@ -43,6 +43,32 @@ describe("ScriptPlanStart", () => {
     expect(useAssistantStore.getState().input).not.toContain("会丢失");
   });
 
+  it("switching to another episode shows and submits that episode's saved instructions", async () => {
+    const plan = vi
+      .spyOn(API, "planScript")
+      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.planScript>>);
+    const { rerender } = render(<ScriptPlanStart projectName="p" episode={1} savedInstructions="第一集的指令" />);
+    fireEvent.change(screen.getByRole("textbox", { name: "附加指令（可选）" }), { target: { value: "第一集改到一半" } });
+
+    rerender(<ScriptPlanStart projectName="p" episode={2} savedInstructions="第二集的指令" />);
+    expect(screen.getByRole("textbox", { name: "附加指令（可选）" })).toHaveValue("第二集的指令");
+    fireEvent.click(screen.getByRole("button", { name: "AI 规划" }));
+
+    await waitFor(() => expect(plan).toHaveBeenCalledWith("p", 2, { instructions: "第二集的指令" }));
+  });
+
+  it("follows instructions saved elsewhere until the field is edited, then keeps the edit", () => {
+    const { rerender } = render(<ScriptPlanStart projectName="p" episode={1} savedInstructions="旧指令" />);
+    const field = screen.getByRole("textbox", { name: "附加指令（可选）" });
+
+    rerender(<ScriptPlanStart projectName="p" episode={1} savedInstructions="别处保存的指令" />);
+    expect(field).toHaveValue("别处保存的指令");
+
+    fireEvent.change(field, { target: { value: "自己改的指令" } });
+    rerender(<ScriptPlanStart projectName="p" episode={1} savedInstructions="又一次保存的指令" />);
+    expect(field).toHaveValue("自己改的指令");
+  });
+
   it("replaces the form with a status line while this episode is being planned", () => {
     useTasksStore
       .getState()

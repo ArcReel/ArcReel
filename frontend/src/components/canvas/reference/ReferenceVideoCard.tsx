@@ -101,6 +101,9 @@ export interface ReferenceVideoCardProps {
   value: string;
   /** Fires on every edit; parent decides whether to debounce, persist, or queue. */
   onChange: (next: string) => void;
+  beforePreview?: () => Promise<boolean>;
+  dirty?: boolean;
+  saving?: boolean;
 }
 
 export function ReferenceVideoCard({
@@ -109,6 +112,9 @@ export function ReferenceVideoCard({
   episode,
   value,
   onChange,
+  beforePreview,
+  dirty,
+  saving,
 }: ReferenceVideoCardProps) {
   const { t } = useTranslation("dashboard");
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -300,7 +306,9 @@ export function ReferenceVideoCard({
         <div className="flex items-center gap-2">
           <PromptPreviewButton
             title={t("reference_prompt_preview_title")}
-            notice={t("reference_prompt_preview_notice")}
+            beforeOpen={beforePreview}
+            saveFirst={dirty}
+            disabled={saving}
             load={(signal) => API.previewReferenceUnitPrompt(projectName, episode, unit.unit_id, currentText, { signal })}
             renderExtra={(result) => result.text ? (
               <section aria-label={t("reference_prompt_preview_images")} className="mt-2">

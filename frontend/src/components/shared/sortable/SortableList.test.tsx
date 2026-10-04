@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
@@ -84,6 +84,20 @@ describe("SortableList", () => {
 
     await waitFor(() => expect(onMove).toHaveBeenCalledWith({ id: "甲", from: 0, to: 1, ids: ["乙", "甲", "丙"] }));
     expect(order()).toEqual(["乙", "甲", "丙"]);
+  });
+
+  it("keeps immediate direction and drop keys until pickup measurement is ready", async () => {
+    const onMove = vi.fn();
+    render(<Harness onMove={onMove} />);
+    const handle = screen.getByRole("button", { name: "调整「甲」的顺序" });
+    handle.focus();
+    // 同一轮事件循环，不留时间给传感器的 timer 与测量完成。
+    fireEvent.keyDown(handle, { code: "Space", key: " " });
+    fireEvent.keyDown(handle, { code: "ArrowDown", key: "ArrowDown" });
+    fireEvent.keyDown(handle, { code: "ArrowDown", key: "ArrowDown" });
+    fireEvent.keyDown(handle, { code: "Space", key: " " });
+    await waitFor(() => expect(order()).toEqual(["乙", "丙", "甲"]));
+    expect(onMove).toHaveBeenCalledWith({ id: "甲", from: 0, to: 2, ids: ["乙", "丙", "甲"] });
   });
 
   it("puts the item back when the keyboard drag is cancelled", async () => {

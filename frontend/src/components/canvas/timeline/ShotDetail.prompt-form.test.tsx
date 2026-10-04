@@ -121,7 +121,7 @@ describe("ShotDetail 最终提示词预览", () => {
     expect(spy).not.toHaveBeenCalled();
     fireEvent.click(videoButton);
 
-    const dialog = screen.getByRole("dialog", { name: "视频最终提示词" });
+    const dialog = await screen.findByRole("dialog", { name: "视频最终提示词" });
     expect(await within(dialog).findByText("最终视频提示词")).toBeInTheDocument();
     expect(within(dialog).queryByText(/Scene: 雨夜街道/)).not.toBeInTheDocument();
     expect(spy).toHaveBeenCalledWith("demo", "E1S01", "episode_1.json", {
@@ -129,16 +129,26 @@ describe("ShotDetail 最终提示词预览", () => {
     });
   });
 
-  it("草稿脏时弹窗提示预览仍按已保存内容渲染", async () => {
-    vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue(preview());
-    renderDetail(makeSegment());
+  it("有修改时先保存再预览，预览请求排在保存成功之后", async () => {
+    const save = vi.fn().mockResolvedValue(true);
+    const request = vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue(preview());
+    renderDetail(makeSegment(), { onUpdatePrompt: save });
     fireEvent.change(screen.getByDisplayValue("雨夜街道"), { target: { value: "改过的画面" } });
-
-    const [imageButton] = screen.getAllByRole("button", { name: "查看提示词" });
-    fireEvent.click(imageButton);
-
-    const dialog = screen.getByRole("dialog", { name: "分镜图最终提示词" });
+    fireEvent.click(screen.getAllByRole("button", { name: "保存并预览" })[0]);
+    const dialog = await screen.findByRole("dialog", { name: "分镜图最终提示词" });
     expect(await within(dialog).findByText(/Scene: 雨夜街道/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/有未保存的修改/)).toBeInTheDocument();
+    expect(save.mock.invocationCallOrder[0]).toBeLessThan(request.mock.invocationCallOrder[0]);
+    expect(save).toHaveBeenCalledWith("E1S01", expect.objectContaining({ image_prompt: expect.objectContaining({ scene: "改过的画面" }) }));
+  });
+
+  it.each([false, new Error("写入失败")])("保存或刷新失败时不打开预览（%s）", async (result) => {
+    const save = result instanceof Error ? vi.fn().mockRejectedValue(result) : vi.fn().mockResolvedValue(result);
+    const request = vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue(preview());
+    renderDetail(makeSegment(), { onUpdatePrompt: save });
+    fireEvent.change(screen.getByDisplayValue("雨夜街道"), { target: { value: "改过的画面" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "保存并预览" })[0]);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(request).not.toHaveBeenCalled();
   });
 });

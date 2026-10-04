@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 
 /** 焦点在可输入的控件里：J / K 是要输入的字符，不当作快捷键。 */
 function isTypingTarget(target: Element): boolean {
@@ -18,6 +18,7 @@ export function isApplePlatform(): boolean {
 interface ShotShortcutsOptions {
   /** 快捷键只在焦点位于这个容器内（或页面没有焦点元素）时生效，不抢 Agent 面板、页头与弹层的按键。 */
   rootRef: RefObject<HTMLElement | null>;
+  /** 回调需传稳定引用（useCallback）。 */
   onPrev: () => void;
   onNext: () => void;
   /** ⌘S / Ctrl+S；不传时不拦截浏览器的保存快捷键。 */
@@ -31,11 +32,6 @@ interface ShotShortcutsOptions {
  * 在输入框里也可用。弹层渲染在容器之外，打开时不响应；输入法组合输入中的按键与带其他修饰键的组合都放行。
  */
 export function useShotShortcuts({ rootRef, onPrev, onNext, onSave, navDisabled }: ShotShortcutsOptions): void {
-  const latest = useRef({ onPrev, onNext, onSave, navDisabled });
-  useEffect(() => {
-    latest.current = { onPrev, onNext, onSave, navDisabled };
-  });
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.key === "Process") return;
@@ -44,22 +40,21 @@ export function useShotShortcuts({ rootRef, onPrev, onNext, onSave, navDisabled 
       const inScope = target === document.body || Boolean(rootRef.current?.contains(target));
       if (!inScope) return;
       const key = event.key.toLowerCase();
-      const current = latest.current;
 
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && key === "s") {
-        if (!current.onSave) return;
+        if (!onSave) return;
         event.preventDefault();
-        current.onSave();
+        onSave();
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (key !== "j" && key !== "k") return;
-      if (isTypingTarget(target) || current.navDisabled) return;
+      if (isTypingTarget(target) || navDisabled) return;
       event.preventDefault();
-      if (key === "j") current.onNext();
-      else current.onPrev();
+      if (key === "j") onNext();
+      else onPrev();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [rootRef]);
+  }, [rootRef, onSave, onNext, onPrev, navDisabled]);
 }

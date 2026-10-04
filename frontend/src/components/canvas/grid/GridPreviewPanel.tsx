@@ -245,14 +245,17 @@ export function GridPreviewPanel({
 
   const handleRegenerate = () => {
     if (!selectedGridId || actionBusy || rejectBusy()) return;
+    const targetId = selectedGridId;
     setRegenerating(true);
-    enqueueGridRegenerate(projectName, selectedGridId, grid?.script_file ?? null)
+    enqueueGridRegenerate(projectName, targetId, grid?.script_file ?? null)
       .then(() => {
-        setGrid((prev) => (prev ? { ...prev, status: "pending" } : prev));
+        // 与切分同理：请求在途时可能已切到别的联合图，只回写发起请求的那张
+        setGrid((prev) => (prev && prev.id === targetId ? { ...prev, status: "pending" } : prev));
         onRegenerated?.();
       })
       .catch((err: unknown) => {
-        setError(errMsg(err, t("grid_regenerate_failed")));
+        // 瞬态失败走 toast：切走后再用 setError 会把另一张联合图的面板整个替换掉
+        useAppStore.getState().pushToast(errMsg(err, t("grid_regenerate_failed")), "error");
       })
       .finally(() => setRegenerating(false));
   };

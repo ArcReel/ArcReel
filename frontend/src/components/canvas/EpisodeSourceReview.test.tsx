@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
@@ -50,6 +51,7 @@ describe("EpisodeSourceReview", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useEpisodeSurfaceStore.setState({ request: null });
+    useAssistantStore.getState().setInput("");
     vi.restoreAllMocks();
   });
 
@@ -126,6 +128,61 @@ describe("EpisodeSourceReview", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("saves the edited source before AI planning, so the plan reads what is on screen", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("自带的原文");
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    const order: string[] = [];
+    const save = vi.spyOn(API, "updateEpisodeSource").mockImplementation(async () => {
+      order.push("save");
+      return written({ episode: 6 });
+    });
+    const plan = vi.spyOn(API, "planScript").mockImplementation(async () => {
+      order.push("plan");
+      return { batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.planScript>>;
+    });
+
+    render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[OWN]} />);
+    fireEvent.change(await sourceBox(), { target: { value: "改过的本集原文" } });
+    fireEvent.click(screen.getByRole("button", { name: "AI 规划" }));
+
+    await waitFor(() => expect(plan).toHaveBeenCalledWith("demo", 6, { instructions: null }));
+    expect(save).toHaveBeenCalledWith("demo", 6, "改过的本集原文", undefined, false);
+    expect(order).toEqual(["save", "plan"]);
+  });
+
+  it("holds the source still while it saves for planning, so the plan reads what is on screen", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("自带的原文");
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    let finishSave: (result: EpisodeSourceWriteResult) => void = () => {};
+    vi.spyOn(API, "updateEpisodeSource").mockImplementation(() => new Promise((resolve) => { finishSave = resolve; }));
+    const plan = vi
+      .spyOn(API, "planScript")
+      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.planScript>>);
+
+    render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[OWN]} />);
+    const box = await sourceBox();
+    fireEvent.change(box, { target: { value: "改过的本集原文" } });
+    fireEvent.click(screen.getByRole("button", { name: "AI 规划" }));
+    await userEvent.type(box, "，又补一句");
+    expect(box).toHaveValue("改过的本集原文");
+
+    await act(async () => finishSave(written({ episode: 6 })));
+    await waitFor(() => expect(plan).toHaveBeenCalledTimes(1));
+  });
+
+  it("hands nothing to the Agent when the edited source fails to save", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("自带的原文");
+    const saveInstructions = vi.spyOn(API, "saveScriptPlanInstructions").mockResolvedValue({ success: true });
+
+    render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[OWN]} />);
+    fireEvent.change(await sourceBox(), { target: { value: "  " } });
+    fireEvent.click(screen.getByRole("button", { name: "交给 Agent" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("集原文不能为空");
+    expect(saveInstructions).not.toHaveBeenCalled();
+    expect(useAssistantStore.getState().input).toBe("");
+  });
+
   it("records the chosen source kind when a drama episode saves its source", async () => {
     useDramaProject();
     const save = vi.spyOn(API, "updateEpisodeSource").mockResolvedValue(written());
@@ -189,6 +246,17 @@ describe("EpisodeSourceReview", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("没有确认修改源文件类型");
     expect(save).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("combobox", { name: "源文件类型" })).toHaveTextContent("剧本");
+  });
+
+  it("集事件到达后重读原文，保留正在编辑的内容，放弃时采用 Agent 的新内容", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValueOnce("原文").mockResolvedValueOnce("Agent 改写的原文");
+    render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[OWN]} />);
+    fireEvent.change(await sourceBox(), { target: { value: "我的未保存修改" } });
+    act(() => useAppStore.getState().invalidateEntities(["episode:6"]));
+    expect(await screen.findByText("此内容已被 Agent 更新")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "本集原文" })).toHaveValue("我的未保存修改");
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
+    expect(screen.getByRole("textbox", { name: "本集原文" })).toHaveValue("Agent 改写的原文");
   });
 
   it("focuses the source when the progress panel asks for the episode source", async () => {

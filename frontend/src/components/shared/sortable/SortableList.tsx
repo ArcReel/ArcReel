@@ -1,7 +1,6 @@
 import { createContext, useContext, useMemo, useRef, type ComponentProps, type ReactNode } from "react";
 import {
   DndContext,
-  KeyboardSensor,
   PointerSensor,
   closestCenter,
   useSensor,
@@ -24,6 +23,7 @@ import { useRender } from "@base-ui/react/use-render";
 import { GripVertical } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { BufferedKeyboardSensor } from "./BufferedKeyboardSensor";
 
 /** 一次移动：把 `id` 从第 `from` 项移到第 `to` 项（从 0 计），`ids` 是移动后的完整顺序。 */
 export interface SortableMove<Id extends UniqueIdentifier> {
@@ -92,7 +92,7 @@ export function SortableList<Id extends UniqueIdentifier>({
   const { t } = useTranslation("common");
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(BufferedKeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   const context = useMemo<SortableListContextValue>(() => {
@@ -218,6 +218,7 @@ export function SortableHandle({ label }: { label: string }) {
       data-dragging={isDragging ? "" : undefined}
       {...attributes}
       {...listeners}
+
     >
       <GripVertical aria-hidden />
     </Button>

@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEditUnit, type EditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { UnsavedChangesBar } from "@/components/shared/edit-unit/UnsavedChangesBar";
 import {
@@ -157,7 +158,7 @@ function unitNarrationText(unit: ReferenceVideoUnit | null): string {
 
 /**
  * 选中单元的正文编辑单元。按 unit_id 作 key 挂载：切换单元前由离开拦截询问，
- * 单元被移除时未保存的正文随之作废。
+ * 外部移除时由 RetainedEditUnit 保留可见编辑器，放弃或保存后才跟随真实列表。
  */
 function UnitPromptEdit({
   unit,
@@ -200,6 +201,8 @@ function FreeDurationInput({
 }) {
   const { t } = useTranslation("dashboard");
   const [draft, setDraft] = useState<string | null>(null);
+  // 失焦触发的提交在途：离开拦截据此等它落定再判断，避免「放弃修改」放走已发出的提交或「保存」重复提交
+  const [committing, setCommitting] = useState(false);
   const seconds = Number(draft);
   const valid = Number.isInteger(seconds) && seconds >= 1 && seconds <= FREE_DURATION_MAX;
   // 与已保存值相同的显式提交也有意义：它确认了只差时长的重新规划标记
@@ -213,13 +216,18 @@ function FreeDurationInput({
       setDraft(null);
       return true;
     }
-    const saved = await onCommit(seconds);
-    // 提交期间又改过的值留着，等下一次提交
-    if (saved) setDraft((current) => (current === draft ? null : current));
-    return saved;
+    setCommitting(true);
+    try {
+      const saved = await onCommit(seconds);
+      // 提交期间又改过的值留着，等下一次提交
+      if (saved) setDraft((current) => (current === draft ? null : current));
+      return saved;
+    } finally {
+      setCommitting(false);
+    }
   }, [draft, dirty, valid, seconds, onCommit]);
 
-  useLeaveGuard({ dirty, save: commit, discard });
+  useLeaveGuard({ dirty, saving: committing, save: commit, discard });
 
   return (
     <Input
@@ -425,10 +433,9 @@ export function ReferenceVideoCanvas({
   const confirmLeave = useConfirmLeave();
   const selectUnit = useCallback(
     (unitId: string) => {
-      if (unitId === selectedUnitId) return;
       confirmLeave(() => select(unitId), { saveLabel: t("common:save_and_switch") });
     },
-    [confirmLeave, select, selectedUnitId, t],
+    [confirmLeave, select, t],
   );
 
   // afterUnitId 缺省时追加到末尾；新单元不继承同号旧单元的产物与版本历史。
@@ -484,7 +491,6 @@ export function ReferenceVideoCanvas({
     if (!removeUnitId || removingUnit || isUnitRemovalBlocked(removeUnitId)) return;
     setRemovingUnit(true);
     try {
-      // 已移除单元的编辑单元随之卸载，未保存的正文与时长一并作废
       await deleteUnit(projectName, episode, removeUnitId);
       setRemoveUnitId(null);
     } catch (e) {
@@ -819,14 +825,15 @@ export function ReferenceVideoCanvas({
       // 应用内链接要求打开该单元的预览时，窄屏下把预览子页签切到前台。
       const start = useAppStore.getState().playbackStart;
       const openPreview = start?.resource_type === "reference_videos" && start.resource_id === unitId;
-      onViewChange("board", { replace: true });
-      confirmLeave(
-        () => {
-          select(unitId);
-          if (openPreview) setStackTab("preview");
-        },
-        { saveLabel: t("common:save_and_switch") },
-      );
+      // 切视图与选中合成一次离开拦截：分两次请求时，拦截只保留后一次，放行后会停在原视图
+      const focusUnit = () => {
+        onViewChange("board", { replace: true });
+        select(unitId);
+        if (openPreview) setStackTab("preview");
+      };
+      // 已在视频单元视图且就是当前单元：不卸载任何编辑单元，不必询问
+      if (view === "board" && unitId === selectedUnitId) focusUnit();
+      else confirmLeave(focusUnit, { saveLabel: t("common:save_and_switch") });
       clearScrollTarget(requestId);
       return;
     }
@@ -843,7 +850,7 @@ export function ReferenceVideoCanvas({
     }
     const timer = setTimeout(() => clearScrollTarget(requestId), remaining);
     return () => clearTimeout(timer);
-  }, [scrollTarget, units, loading, select, clearScrollTarget, onViewChange, confirmLeave, t]);
+  }, [scrollTarget, units, loading, view, selectedUnitId, select, clearScrollTarget, onViewChange, confirmLeave, t]);
 
   const [listSheetOpen, setListSheetOpen] = useState(false);
 
@@ -942,7 +949,7 @@ export function ReferenceVideoCanvas({
       narrationText={selectedNarrationText}
       narrationGenerating={selected ? ttsBusyUnitIds.has(selected.unit_id) : false}
       narrationEstimatedCost={narrationEstimatedCost}
-      onGenerateNarration={onGenerateNarration}
+      onGenerateNarration={onGenerateNarration && edit ? (id) => void edit.saveAndGenerate(() => onGenerateNarration(id)) : onGenerateNarration}
       // 正文有未保存修改时先保存再生成，生成用的是服务端上的正文
       onGenerate={edit ? (id) => void edit.saveAndGenerate(() => handleGenerate(id)) : onGenerateVoid}
       saveFirst={edit?.dirty}
@@ -1087,6 +1094,9 @@ export function ReferenceVideoCanvas({
                 episode={episode}
                 value={edit.value}
                 onChange={edit.setValue}
+                beforePreview={edit.save}
+                dirty={edit.dirty}
+                saving={edit.status === "saving"}
               />
             </TabsContent>
             <TabsContent value="parse">
@@ -1179,7 +1189,7 @@ export function ReferenceVideoCanvas({
         </section>
       )}
 
-      {view === "plan" ? (
+      <RetainedEditUnit identity={promptDraft?.editable_by === "user" ? "draft" : "workbench"} message={t("reference_prompt_draft_replaced")} value={view === "plan" ? (
         <div className="relative min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl px-6 py-5">
             <ReferenceScriptPlanPreviewPanel
@@ -1232,7 +1242,7 @@ export function ReferenceVideoCanvas({
             />
           </div>
 
-          {selected ? (
+          <RetainedEditUnit identity={selected?.unit_id ?? "missing"} value={selected ? (
             <UnitPromptEdit
               key={selected.unit_id}
               unit={selected}
@@ -1265,9 +1275,13 @@ export function ReferenceVideoCanvas({
                 {renderPreview(null)}
               </div>
             </>
-          )}
+          )} message={t("reference_unit_externally_removed")}>
+            {(detail) => detail}
+          </RetainedEditUnit>
         </div>
-      )}
+      )}>
+        {(content) => content}
+      </RetainedEditUnit>
 
       {/* 图标栏展开的完整列表：搜索、新增与排序 */}
       <Sheet open={listSheetOpen} onOpenChange={setListSheetOpen}>
@@ -1275,12 +1289,6 @@ export function ReferenceVideoCanvas({
           side="left"
           showCloseButton={false}
           className="data-[side=left]:w-80"
-          onKeyDown={(event) => {
-            // 弹层会拦下方向键的冒泡，而键盘排序的传感器监听在 document 上：焦点在排序把手上时放行
-            if (event.target instanceof Element && event.target.closest("[aria-roledescription]")) {
-              event.preventBaseUIHandler();
-            }
-          }}
         >
           <SheetTitle className="sr-only">{t("reference_unit_list_title")}</SheetTitle>
           <UnitList
@@ -1320,7 +1328,8 @@ export function ReferenceVideoCanvas({
             <AlertDialogAction
               variant="destructive"
               disabled={removingUnit || (removeUnitId !== null && isUnitRemovalBlocked(removeUnitId))}
-              onClick={() => void handleRemoveUnit()}
+              // 离开拦截放在确认移除这一步：先问未保存修改再确认移除，放弃后取消移除就白丢了修改
+              onClick={() => confirmLeave(() => void handleRemoveUnit())}
             >
               {removingUnit ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
               {t("reference_unit_remove_confirm")}

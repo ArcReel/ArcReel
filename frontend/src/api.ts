@@ -2712,14 +2712,15 @@ class API {
   static async getVersions(
     projectName: string,
     resourceType: string,
-    resourceId: string
+    resourceId: string,
+    options?: { signal?: AbortSignal },
   ): Promise<{
     resource_type: string;
     resource_id: string;
     current_version: number;
     versions: VersionInfo[];
   }> {
-    return this.request(versionsResourcePath(projectName, resourceType, resourceId));
+    return this.request(versionsResourcePath(projectName, resourceType, resourceId), { signal: options?.signal });
   }
 
   /**

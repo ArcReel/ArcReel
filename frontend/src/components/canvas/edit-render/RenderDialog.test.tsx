@@ -248,6 +248,19 @@ describe("RenderDialog", () => {
     expect(localStorage.getItem("arcreel_jianying_draft_path")).toBe("/Users/me/Drafts");
   });
 
+  it("交付物是同一组单选，方向键在成片与剪映草稿之间切换", async () => {
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
+    vi.spyOn(API, "getJianyingDraftStatus").mockResolvedValue(draft());
+
+    renderDialog();
+    const finalCutOption = screen.getByRole("radio", { name: /成片/ });
+    finalCutOption.focus();
+    await userEvent.keyboard("{ArrowRight}");
+
+    expect(screen.getByRole("radio", { name: /剪映草稿/ })).toBeChecked();
+    expect(finalCutOption).not.toBeChecked();
+  });
+
   it("切换交付物时保留已填写的草稿目录与剪映版本", async () => {
     vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(finalCut());
     vi.spyOn(API, "getJianyingDraftStatus").mockResolvedValue(draft());

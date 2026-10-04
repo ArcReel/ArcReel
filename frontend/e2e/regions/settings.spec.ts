@@ -270,6 +270,8 @@ defineRegionScenarios("全局设置", [
     act: async (page) => {
       await page.getByRole("button", { name: /发布说明/ }).click();
       const release = page.getByRole("link", { name: "打开 GitHub Release" });
+      // 等懒加载 Markdown 完成排版，再滚到位于正文之后的 Release 链接。
+      await expect(page.locator(".markdown-body")).toBeVisible();
       await release.scrollIntoViewIfNeeded();
       await expect(release).toBeInViewport();
     },

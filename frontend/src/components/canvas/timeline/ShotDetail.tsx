@@ -507,6 +507,10 @@ export function ShotDetail({
   });
   const { value: fields, setValue, dirty } = unit;
   const saving = unit.status === "saving";
+  // PATCH 已落盘但刷新失败时 savedValue 领先于剧本；直到新 source 到达才允许再生成或预览。
+  const refreshPending = !shotFieldsEqual(source, unit.savedValue);
+  const saveForPreview = unit.save;
+  const preparePreview = useCallback(async () => !refreshPending && await saveForPreview(), [refreshPending, saveForPreview]);
 
   const saveUnit = unit.save;
   useEffect(() => {
@@ -528,11 +532,12 @@ export function ShotDetail({
   const narrationText = narrationTextOf(fields, contentMode);
   const hasNarrationText = narrationText.trim().length > 0;
 
+  const [restoringMedia, setRestoringMedia] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
   const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
   const handleUpload = async (kind: "storyboard" | "video", file: File) => {
     // 单个分镜同时只允许一个上传：两张卡写同一后端资源族，避免并发覆写
-    if (!scriptFile || uploadingKind) return;
+    if (!scriptFile || uploadingKind || restoringMedia || isResourceBusy(kind, projectName, segmentId) || isScriptFileBusy("grid", scriptFile, projectName)) return;
     setUploadingKind(kind);
     try {
       const result = await API.uploadShotMedia(projectName, scriptFile, segmentId, kind, file);
@@ -655,7 +660,7 @@ export function ShotDetail({
     );
   };
 
-  // 预览读已保存的剧本：与执行期同一渲染出口，有未保存修改时由口径说明提示差异。
+  // 预览与生成共用已保存剧本；未保存修改必须先保存并刷新成功。
   const renderPromptPreview = (side: PromptSide) => {
     if (!scriptFile) return null;
     const previewSide = side === "image" ? "storyboard_image" : "video";
@@ -665,7 +670,9 @@ export function ShotDetail({
         load={async (signal) =>
           (await API.previewScriptItemPrompts(projectName, segmentId, scriptFile, { signal }))[previewSide]
         }
-        notice={dirty ? t("prompt_preview_saved_only_dirty") : t("prompt_preview_saved_only")}
+        beforeOpen={preparePreview}
+        saveFirst={dirty}
+        disabled={saving || refreshPending}
       />
     );
   };
@@ -917,12 +924,15 @@ export function ShotDetail({
         onGenerateStoryboard ? () => void unit.saveAndGenerate(() => onGenerateStoryboard(segmentId)) : undefined
       }
       generateLabel={generateLabel}
+      restoring={restoringMedia}
+      onRestoringChange={setRestoringMedia}
+      checkBusy={() => uploadingKind !== null || saving || isScriptFileBusy("grid", scriptFile, projectName)}
       onRestore={onRestoreStoryboard}
       onUpload={scriptFile && !readOnly ? (file) => handleUpload("storyboard", file) : undefined}
       uploading={uploadingKind === "storyboard"}
       uploadDisabled={uploadingKind !== null}
       editScriptFile={readOnly ? undefined : scriptFile}
-      generateDisabled={saving}
+      generateDisabled={saving || refreshPending}
       generateDisabledHint={savingHint}
     />
   );
@@ -942,6 +952,7 @@ export function ShotDetail({
           readOnly={readOnly}
           onSubmittingChange={setEndFrameSubmitting}
           videoUploadBusy={uploadingKind === "video"}
+          shotSaving={saving}
         />
       )}
       <MediaCard
@@ -952,11 +963,14 @@ export function ShotDetail({
         posterPath={assets?.video_thumbnail ?? null}
         aspectRatio={aspectRatio}
         generating={generatingVideo}
-        generateDisabled={!hasStoryboard || saving}
+        generateDisabled={!hasStoryboard || saving || refreshPending}
         generateDisabledHint={hasStoryboard ? savingHint : undefined}
         estimatedCost={vidEstimate ?? undefined}
         onGenerate={onGenerateVideo ? () => void unit.saveAndGenerate(() => onGenerateVideo(segmentId)) : undefined}
         generateLabel={generateLabel}
+        restoring={restoringMedia}
+        onRestoringChange={setRestoringMedia}
+        checkBusy={() => uploadingKind !== null || saving || endFrameSubmitting || isScriptFileBusy("grid", scriptFile, projectName)}
         onRestore={onRestoreVideo}
         onUpload={scriptFile && !readOnly ? (file) => handleUpload("video", file) : undefined}
         uploading={uploadingKind === "video"}
@@ -968,12 +982,13 @@ export function ShotDetail({
   const audioMedia =
     isNarration || hasNarrationText || Boolean(assets?.narration_audio) ? (
       <NarrationAudioCard
+        readOnly={readOnly}
         projectName={projectName}
         segmentId={segmentId}
         novelText={narrationText}
         assetPath={assets?.narration_audio ?? null}
         generating={generatingNarration}
-        generateDisabled={!hasNarrationText || saving}
+        generateDisabled={!hasNarrationText || saving || refreshPending}
         generateDisabledHint={!hasNarrationText ? t("no_original_text") : savingHint}
         generateLabel={generateLabel}
         estimatedCost={narrationEstimate ?? undefined}

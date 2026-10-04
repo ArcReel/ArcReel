@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { box, viewport, waitForEntrance, clearAgentOverlay } from "../support/region-helpers.ts";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { FIXED_NOW, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 集页剪辑视图：播放器在左、详情栏在右，轨道横跨底部；整个视图不滚动，只有详情栏滚动。以及出片对话框。
@@ -12,9 +11,6 @@ const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-function recorded<T>(file: string): T {
-  return (JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse).body as T;
-}
 
 interface RecordedProject {
   project: Record<string, unknown>;
@@ -202,7 +198,6 @@ const TTS_TIMELINE: ApiOverrides = {
   },
 };
 
-const COMPACT_TIER_MAX_WIDTH = 1279;
 
 const editView = (page: Page) => page.getByRole("tabpanel", { name: "剪辑", exact: true });
 const timelineTabs = (page: Page) => page.getByRole("tablist", { name: "剪辑时间线" });
@@ -210,38 +205,12 @@ const tracks = (page: Page) => page.getByRole("group", { name: "时间线轨道�
 const details = (page: Page) => page.getByRole("region", { name: "片段详情与问题" });
 const player = (page: Page) => page.getByRole("region", { name: "剪辑预览" });
 const renderDialog = (page: Page) => page.getByRole("dialog", { name: /^出片 · / });
-const agentToggle = (page: Page) => page.getByRole("button", { name: "Agent", exact: true });
 
-async function box(locator: Locator) {
-  const rect = await locator.boundingBox();
-  if (!rect) throw new Error("元素不可见");
-  return rect;
-}
 
-function viewport(page: Page) {
-  const size = page.viewportSize();
-  if (!size) throw new Error("没有视口尺寸");
-  return size;
-}
 
 /** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
-async function waitForEntrance(target: Locator) {
-  await target.evaluate((el) =>
-    Promise.allSettled(
-      el
-        .getAnimations({ subtree: true })
-        .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
-        .map((animation) => animation.finished),
-    ),
-  );
-}
 
 /** 紧凑档 Agent 面板盖在画布右侧，详情栏与页头行尾的出片按钮在它底下：先收起再操作。 */
-async function clearAgentOverlay(page: Page) {
-  if (viewport(page).width > COMPACT_TIER_MAX_WIDTH) return;
-  await agentToggle(page).click();
-  await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "false");
-}
 
 async function timelineReady(page: Page) {
   await editView(page).waitFor();

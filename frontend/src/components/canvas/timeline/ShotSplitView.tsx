@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -10,6 +10,7 @@ import type {
 import { useAppStore } from "@/stores/app-store";
 import { getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
 import { stepAnchor } from "@/utils/move-anchor";
+import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
 import { ShotList } from "./ShotList";
 import { ShotDetail, type ShotEditHandle } from "./ShotDetail";
@@ -111,17 +112,18 @@ export function ShotSplitView({
   }
 
   /** 切到第 index 个分镜；当前分镜有未保存修改时先由离开拦截询问。 */
-  const select = (index: number) => {
+  const select = useCallback((index: number) => {
     const id = ids[index];
     if (id === undefined) return;
-    if (id === segmentId) {
+    if (id === selection.id) {
       setSelection({ id, index });
       return;
     }
     confirmLeave(() => setSelection({ id, index }), { saveLabel: t("save_and_switch") });
-  };
-  const selectPrev = () => select(Math.max(0, safeIndex - 1));
-  const selectNext = () => select(Math.min(ids.length - 1, safeIndex + 1));
+  }, [ids, selection.id, confirmLeave, t]);
+  const selectPrev = useCallback(() => select(Math.max(0, safeIndex - 1)), [select, safeIndex]);
+  const selectNext = useCallback(() => select(Math.min(ids.length - 1, safeIndex + 1)), [select, ids.length, safeIndex]);
+  const saveSelected = useCallback(() => editRef.current?.save(), []);
 
   // 分镜改序：请求在途时丢弃后续操作（快速连点会基于过期顺序计算锚点）。选中态按 ID 跟随原来的分镜。
   const handleMoveShot = onMoveShot
@@ -180,31 +182,28 @@ export function ShotSplitView({
     rootRef,
     onPrev: selectPrev,
     onNext: selectNext,
-    onSave: onUpdatePrompt ? () => editRef.current?.save() : undefined,
+    onSave: onUpdatePrompt ? saveSelected : undefined,
     navDisabled: movePending || structurePending,
   });
 
-  // SSE 自动定位：分屏布局只需切换选中分镜，不做 DOM 滚动。
-  // 当前分镜有未保存修改时不跳走，免得 Agent 的改动打断编辑。
+  // 定位到分镜（通知、制作进度、应用内链接、Agent 改动）：分屏布局只需切换选中分镜，不做 DOM 滚动。
+  // 切走前同样经离开拦截；Agent 改动带来的自动定位在有未保存修改时已由事件流自己略过，不会打断编辑。
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   useEffect(() => {
     if (scrollTarget?.type !== "segment") return;
     const idx = ids.indexOf(scrollTarget.id);
     if (idx !== -1) {
-      if (!editRef.current?.dirty) {
-        setSelection({ id: scrollTarget.id, index: idx });
-      }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 响应外部 store 的一次性定位请求切换选中分镜：没有修改时当场切换，有修改时等离开拦截放行后再切
+      select(idx);
       clearScrollTarget(scrollTarget.request_id);
     } else if (Date.now() >= scrollTarget.expires_at) {
       // 当前 segments 不含该分镜（如事件指向其他剧集），过期后清理避免下次 segments 变更误触发
       clearScrollTarget(scrollTarget.request_id);
     }
-  }, [scrollTarget, ids, clearScrollTarget]);
+  }, [scrollTarget, ids, select, clearScrollTarget]);
 
-  if (segments.length === 0 || segmentId === undefined) {
-    return null;
-  }
+
 
   const segment = segments[safeIndex];
 
@@ -231,7 +230,8 @@ export function ShotSplitView({
         moveDisabled={structurePending || movePending}
         footer={<ShotShortcutHint canSave={Boolean(onUpdatePrompt)} />}
       />
-      <ShotDetail
+      <RetainedEditUnit identity={segmentId ?? "missing"} value={
+      segmentId !== undefined && segment ? <ShotDetail
         key={segmentId}
         segment={segment}
         segmentId={segmentId}
@@ -264,7 +264,10 @@ export function ShotSplitView({
         capabilitiesLoading={capabilitiesLoading}
         durationWarningReason={durationWarningReason}
         editRef={editRef}
-      />
+      /> : null
+      } message={t("dashboard:shot_externally_removed")}>
+        {(detail) => detail}
+      </RetainedEditUnit>
     </div>
   );
 }
