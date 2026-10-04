@@ -173,10 +173,10 @@ export function MemoryDetail({ workspace, layout }: { workspace: MemoryWorkspace
         // 限宽页的分页页头已有说明，全出血分区没有页头
         intro={layout === "pane" ? t("agent_memory_user_desc") : undefined}
         heading={heading}
-        onCreated={async (name) => {
+        onCreated={async (name, signal) => {
           // 列表先包含新文件再选中它，否则地址会先落到第一项
           await reload();
-          navigate(hrefFor(name), { replace: true });
+          if (!signal.aborted) navigate(hrefFor(name), { replace: true });
         }}
       />
     );

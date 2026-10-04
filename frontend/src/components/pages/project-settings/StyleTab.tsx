@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ImageOff } from "lucide-react";
@@ -75,7 +76,7 @@ function CurrentStyle({ value: style }: { value: ProjectStyle }) {
         )}
       </div>
       <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="truncate text-sm font-medium text-foreground">{name}</p>
+        <TruncatedText text={name} className="text-sm font-medium text-foreground" />
         {summary && <p className="line-clamp-2 max-w-[40em] text-sm text-muted-foreground">{summary}</p>}
       </div>
     </div>

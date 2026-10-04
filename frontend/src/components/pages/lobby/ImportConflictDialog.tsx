@@ -48,7 +48,7 @@ export function ImportConflictDialog({ projectName, importing, onResolve, onCanc
         <AlertDialogHeader>
           <AlertDialogTitle>{t("dashboard:duplicate_project_id")}</AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={t("dashboard:duplicate_project_id")}>
           <div className="flex flex-col gap-3">
             <AlertDialogDescription>
               {t("dashboard:lobby_import_conflict_desc", { name: shown ?? "" })}

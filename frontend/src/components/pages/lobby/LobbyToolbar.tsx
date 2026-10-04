@@ -15,7 +15,7 @@ interface LobbyToolbarProps {
 export function LobbyToolbar({ filter, onFilterChange, counts }: LobbyToolbarProps) {
   const { t } = useTranslation("dashboard");
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-background py-2">
+    <div className="sticky top-0 z-sticky flex items-center gap-3 border-b border-border bg-background py-2">
       <ToggleGroup
         aria-label={t("lobby_filter_label")}
         size="sm"

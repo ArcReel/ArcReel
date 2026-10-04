@@ -244,6 +244,30 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     expect(within(sidebar()).getByRole("link", { name: /^风格.*有未保存的修改/ })).toBeInTheDocument();
   });
 
+  it("参考图上传失败后放弃修改，回到 PATCH 已写入的内容，而不是保存前的旧值", async () => {
+    const updateSpy = mockProject({ style_template_id: "live_premium_drama", aspect_ratio: "9:16" });
+    vi.spyOn(API, "uploadStyleImage").mockRejectedValue(new Error("视觉模型不可用"));
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=basics");
+
+    await user.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
+    await user.click(within(sidebar()).getByRole("link", { name: /^风格/ }));
+    await user.click(screen.getByRole("button", { name: "更换" }));
+    const dialog = await screen.findByRole("dialog", { name: "更换风格" });
+    await user.click(within(dialog).getByRole("tab", { name: /自定义/ }));
+    await user.upload(dialog.querySelector<HTMLInputElement>('input[type="file"]')!, new File(["png"], "ref.png", { type: "image/png" }));
+    await user.click(within(dialog).getByRole("button", { name: "使用此风格" }));
+    await user.click(await screen.findByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/其他修改已保存/);
+    expect(within(sidebar()).queryByRole("link", { name: /^基础.*有未保存的修改/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "放弃修改" }));
+    expect(screen.getByText("精品短剧")).toBeInTheDocument();
+    await user.click(within(sidebar()).getByRole("link", { name: /^基础/ }));
+    expect(screen.getByRole("radio", { name: /横屏 16:9/ })).toBeChecked();
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("字段校验未通过时保存与「保存并离开」都不提交，指出所在分页并留在原处", async () => {
     const updateSpy = mockProject({ content_mode: "ad", generation_mode: "storyboard", target_duration: 30 });
     const { location } = renderAt("/app/projects/demo/settings");

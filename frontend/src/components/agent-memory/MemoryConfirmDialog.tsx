@@ -67,7 +67,7 @@ export function MemoryConfirmDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{shown?.title}</AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={shown?.title}>
           <div className="flex flex-col gap-3">
             {/* 说明有两段，描述元素渲染为 div，段落才不会嵌套在 p 里 */}
             <AlertDialogDescription render={<div />}>

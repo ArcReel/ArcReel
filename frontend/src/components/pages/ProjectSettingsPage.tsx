@@ -14,7 +14,7 @@ import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ProjectMemoryFiles } from "@/components/agent-memory/ProjectMemoryFiles";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
-import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { isValidEpisodeTargetDuration } from "@/components/shared/EpisodeTargetDurationField";
 import { executingVideoModel } from "@/components/shared/LayeredModelFields";
 import { countModelOverrides } from "@/components/shared/model-overrides";
@@ -95,8 +95,8 @@ async function loadSettings(projectName: string, signal: AbortSignal): Promise<L
   const [configRes, projectRes, providers, customProviders, narrationDefaults] = await Promise.all([
     API.getSystemConfig({ signal }),
     API.getProject(projectName, { signal }),
-    getProviderModels().catch(() => [] as ProviderInfo[]),
-    getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
+    getProviderModels({ signal }).catch(() => [] as ProviderInfo[]),
+    getCustomProviderModels({ signal }).catch(() => [] as CustomProviderInfo[]),
     API.getNarrationDefaults({ signal }).catch(() => null),
   ]);
   const settings = configRes.settings;
@@ -299,8 +299,8 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
     candidates,
   );
 
-  // 一次保存依次提交项目 PATCH 与新参考图上传。上传失败时 PATCH 已经落盘，如实说明，
-  // 未保存修改保留，再次保存会重新提交两步。
+  // 一次保存依次提交项目 PATCH 与新参考图上传。上传失败时 PATCH 已经落盘：如实说明，
+  // 已保存内容推进到 PATCH 的结果，只有新参考图仍是未保存修改，再次保存会重新上传。
   const save = useCallback(
     async (value: ProjectSettingsForm, saved: ProjectSettingsForm): Promise<ProjectSettingsForm> => {
       if (basicsInvalid(value, facts)) {
@@ -320,7 +320,11 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
       try {
         uploaded = await API.uploadStyleImage(projectName, file);
       } catch (error) {
-        throw new Error(t("project_settings_style_upload_failed", { message: errMsg(error) }), { cause: error });
+        throw new PartialSaveError(t("project_settings_style_upload_failed", { message: errMsg(error) }), {
+          saved: next,
+          value: { ...next, style: value.style },
+          cause: error,
+        });
       }
       // 参考图文件名固定，地址加版本参数，避免浏览器沿用旧图的缓存
       const preview = `${styleImageUrl(projectName, uploaded.style_image)}?v=${Date.now()}`;

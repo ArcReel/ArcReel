@@ -62,9 +62,11 @@ export function resolveSelection(param: string | null, entries: MemoryEntry[]): 
 
 export type NewNameProblem = "invalid" | "duplicate";
 
+/** 重名不区分大小写：默认不区分大小写的文件系统上，只差大小写的新建会覆盖已有文件。 */
 export function checkNewName(name: string, entries: MemoryEntry[]): NewNameProblem | null {
   if (name.length > FILENAME_MAX_LENGTH || !FILENAME_PATTERN.test(name)) return "invalid";
-  if (entries.some((entry) => entry.name === name)) return "duplicate";
+  const folded = name.toLowerCase();
+  if (entries.some((entry) => entry.name.toLowerCase() === folded)) return "duplicate";
   return null;
 }
 

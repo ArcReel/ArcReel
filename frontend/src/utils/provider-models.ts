@@ -19,14 +19,14 @@ const CUSTOM_PREFIX = "custom-";
 // ---------------------------------------------------------------------------
 
 /** Fetch the built-in provider list (including models) fresh on every call. */
-export async function getProviderModels(): Promise<ProviderInfo[]> {
-  const res = await API.getProviders();
+export async function getProviderModels(options: { signal?: AbortSignal } = {}): Promise<ProviderInfo[]> {
+  const res = await API.getProviders(options);
   return res.providers;
 }
 
 /** Fetch the custom provider list fresh on every call. */
-export async function getCustomProviderModels(): Promise<CustomProviderInfo[]> {
-  const res = await API.listCustomProviders();
+export async function getCustomProviderModels(options: { signal?: AbortSignal } = {}): Promise<CustomProviderInfo[]> {
+  const res = await API.listCustomProviders(options);
   return res.providers;
 }
 

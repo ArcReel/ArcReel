@@ -4,7 +4,7 @@ import { ChevronLeft, FolderInput, ImagePlus, Loader2, Pencil, Trash2 } from "lu
 import { API } from "@/api";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { TruncatedText } from "@/components/shared/TruncatedText";
-import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
+import { useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,7 +122,7 @@ function AssetDetails({
         <SheetDescription>{t(`type.${asset.type}`)}</SheetDescription>
       </SheetHeader>
       {/* 只读详情里可能没有可聚焦的元素，正文自身可聚焦，键盘用户才能滚动它 */}
-      <SheetBody tabIndex={0} aria-label={t("details_label", { name: asset.name })}>
+      <SheetBody tabIndex={0} role="region" aria-label={t("details_label", { name: asset.name })}>
         <div className="flex flex-col gap-5">
           <AssetThumb
             imageUrl={API.getGlobalAssetUrl(asset.image_path, asset.updated_at)}
@@ -165,7 +165,7 @@ function AssetDetails({
                       fallback={<span className="px-2 text-center text-xs">{t("derivative_no_sheet")}</span>}
                       className="rounded-md border border-border"
                     />
-                    <span className="truncate text-sm font-medium">{derivative.name}</span>
+                    <TruncatedText text={derivative.name} className="text-sm font-medium" />
                     {derivative.description && (
                       <span className="line-clamp-3 text-xs text-muted-foreground">{derivative.description}</span>
                     )}
@@ -234,7 +234,10 @@ function AssetEditForm({
   );
   const unit = useEditUnit({ source, save, leaveTitle: t("edit_leave_title", { name: asset.name }) });
 
+  useLeaveGuard({ dirty: false, saving: uploading, save: unit.save });
+
   const replaceImage = async (file: File) => {
+    if (uploading || unit.status === "saving") return;
     setUploading(true);
     try {
       const { asset: updated } = await API.replaceAssetImage(asset.id, file);
@@ -268,7 +271,12 @@ function AssetEditForm({
               className="rounded-lg border border-border"
             />
             <div>
-              <Button variant="outline" size="sm" disabled={uploading} onClick={() => fileRef.current?.click()}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={uploading || unit.status === "saving"}
+                onClick={() => fileRef.current?.click()}
+              >
                 {uploading ? (
                   <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
                 ) : (
@@ -282,6 +290,7 @@ function AssetEditForm({
               type="file"
               accept={IMAGE_ACCEPT}
               hidden
+              disabled={uploading || unit.status === "saving"}
               aria-label={t("upload_image_action")}
               onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -333,7 +342,9 @@ function AssetEditForm({
         </div>
       </SheetBody>
       <SheetFooter>
-        <SaveBar unit={unit} className="flex-1" />
+        <fieldset disabled={uploading} className="min-w-0 flex-1">
+          <SaveBar unit={unit} />
+        </fieldset>
       </SheetFooter>
     </>
   );

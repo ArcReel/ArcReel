@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Upload, X } from "lucide-react";
@@ -63,8 +64,8 @@ function TemplateCard({ thumbnail, label, tagline, isSelected, isDefault, defaul
         />
       )}
       <div className="absolute inset-x-0 bottom-0 bg-linear-to-b from-transparent to-background/90 px-2 pt-6 pb-1.5 text-left">
-        <p className="truncate text-xs font-medium text-foreground">{label}</p>
-        {tagline && <p className="truncate text-xs text-subtle-foreground">{tagline}</p>}
+        <TruncatedText text={label} focusable={false} className="text-xs font-medium text-foreground" />
+        {tagline && <TruncatedText text={tagline} focusable={false} className="text-xs text-subtle-foreground" />}
       </div>
       {isSelected && (
         <span className="absolute top-1.5 right-1.5 grid size-5 place-items-center rounded-full bg-primary text-primary-foreground">

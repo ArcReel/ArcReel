@@ -71,7 +71,7 @@ async function manyReady(page: Page) {
 
 async function waitForAnimations(page: Page) {
   // 弹层淡入时的半透明文字会被 axe 判为对比度不足，等动画结束再探测。
-  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
+  await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
 }
 
 defineRegionScenarios("项目大厅", [
@@ -194,6 +194,27 @@ defineRegionScenarios("项目大厅", [
       await page.getByRole("menuitem", { name: "导出" }).click();
       const dialog = page.getByRole("dialog", { name: "选择导出范围" });
       await expect(dialog.getByRole("button", { name: "导出" })).toBeInViewport({ ratio: 1 });
+      await waitForAnimations(page);
+    },
+  },
+  {
+    name: "删除失败原因很长：正文可聚焦并用键盘滚动，取消仍可达",
+    path: LOBBY_PATH,
+    api: { ...MANY, "DELETE /api/v1/projects/project-0": {
+      status: 500, body: { detail: "无法删除项目，存储系统返回诊断：".repeat(120) },
+    } },
+    ready: manyReady,
+    act: async (page) => {
+      await firstCardActions(page).click();
+      await page.getByRole("menuitem", { name: "删除" }).click();
+      const dialog = page.getByRole("alertdialog");
+      await dialog.getByRole("button", { name: "删除项目" }).click();
+      await expect(dialog.getByRole("alert")).toContainText("无法删除项目");
+      const body = dialog.getByRole("region");
+      await body.focus();
+      await body.press("End");
+      await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
       await waitForAnimations(page);
     },
   },

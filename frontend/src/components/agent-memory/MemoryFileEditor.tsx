@@ -109,7 +109,18 @@ export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete,
       </p>
     );
   } else {
-    body = <EditorBody scope={scope} filename={filename} content={content} layout={layout} onSaved={onSaved} />;
+    return (
+      <LoadedMemoryEditor
+        scope={scope}
+        entry={entry}
+        dir={dir}
+        content={content}
+        layout={layout}
+        onSaved={onSaved}
+        onDelete={onDelete}
+        onClear={onClear}
+      />
+    );
   }
 
   if (layout === "pane") return <DetailPane header={header}>{body}</DetailPane>;
@@ -125,12 +136,14 @@ function EditorHeader({
   entry,
   path,
   heading: Heading,
+  saving = false,
   onDelete,
   onClear,
 }: {
   entry: MemoryEntry;
   path: string;
   heading: "h2" | "h3";
+  saving?: boolean;
   onDelete: () => void;
   onClear: () => void;
 }) {
@@ -163,18 +176,19 @@ function EditorHeader({
         <TruncatedText text={path} className="font-mono text-xs text-muted-foreground" />
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <Button variant="outline" size="sm" onClick={onDelete}>
+        <Button variant="outline" size="sm" disabled={saving} onClick={onDelete}>
           <Trash2 aria-hidden data-icon="inline-start" />
           {t("common:delete")}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger
+            disabled={saving}
             render={<Button variant="ghost" size="icon-sm" aria-label={t("agent_memory_more_actions")} />}
           >
             <MoreHorizontal aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem variant="destructive" onClick={onClear}>
+            <DropdownMenuItem variant="destructive" disabled={saving} onClick={onClear}>
               <Eraser aria-hidden />
               {t("agent_memory_clear_all")}
             </DropdownMenuItem>
@@ -185,19 +199,19 @@ function EditorHeader({
   );
 }
 
-function EditorBody({
+function LoadedMemoryEditor({
   scope,
-  filename,
+  entry,
+  dir,
   content,
   layout,
   onSaved,
-}: {
-  scope: AgentMemoryScope;
-  filename: string;
+  onDelete,
+  onClear,
+}: MemoryFileEditorProps & {
   content: string;
-  layout: MemoryEditorLayout;
-  onSaved: () => void;
 }) {
+  const filename = entry.name;
   const { t } = useTranslation("dashboard");
   const save = useCallback(
     async (value: string) => {
@@ -222,12 +236,29 @@ function EditorBody({
     />
   );
 
-  return (
+  const body = (
     // 宽窗口下编辑框限宽，Markdown 原文的行不会横跨整栏
     <div className={cn("flex flex-col gap-3", layout === "pane" && "h-full min-h-72 max-w-252 px-6 py-4")}>
       {/* 记忆是 Markdown 原文，等宽显示；Textarea 继承外层字体 */}
       <div className="flex min-h-0 flex-1 flex-col font-mono">{editor}</div>
       <UnsavedChangesBar unit={unit} className="shrink-0" />
     </div>
+  );
+  const header = (
+    <EditorHeader
+      entry={entry}
+      path={memoryFilePath(dir, filename)}
+      heading={layout === "pane" ? "h2" : "h3"}
+      saving={unit.status === "saving"}
+      onDelete={onDelete}
+      onClear={onClear}
+    />
+  );
+  if (layout === "pane") return <DetailPane header={header}>{body}</DetailPane>;
+  return (
+    <section className="flex min-w-0 flex-col gap-4">
+      {header}
+      {body}
+    </section>
   );
 }

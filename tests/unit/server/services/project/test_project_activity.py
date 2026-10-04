@@ -58,3 +58,12 @@ def test_naive_ledger_timestamps_are_local_time(tmp_path):
 
 def test_no_time_available(tmp_path):
     assert project_last_activity_at(tmp_path, {"metadata": {"updated_at": "not-a-time"}}, [{}]) is None
+
+
+def test_project_memory_counts_but_internal_state_does_not(tmp_path):
+    _write(tmp_path / ".arcreel" / "memory" / "MEMORY.md", NEW)
+    _write(tmp_path / ".arcreel" / "memory" / ".temporary.md", NEW)
+    _write(tmp_path / ".arcreel" / "session.log", NEW)
+    assert project_last_activity_at(tmp_path, _ledger(OLD), []) == NEW
+    (tmp_path / ".arcreel" / "memory" / "MEMORY.md").unlink()
+    assert project_last_activity_at(tmp_path, _ledger(OLD), []) == OLD

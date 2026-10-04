@@ -362,7 +362,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 单 worker 跑完整套截图场景已接近 15 分钟
+    timeout-minutes: 25
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --user 1001 --ipc=host
