@@ -147,7 +147,6 @@ const REWORKED_FILES = [
   "src/components/copilot/chat/{WorkRow,ToolCallWithResult,SubagentCard,SkillChip,TaskProgressBlock,work-label,arcreel-tool-summaries}.{ts,tsx}",
   // 剧集页头与视图路由：集头、视图 tab 与动作插槽、制作进度入口、批量补齐按钮与确认框、编写提示词入口
   "src/components/canvas/episode-page/**",
-  "src/components/workflow/WorkflowPanel.tsx",
   "src/components/canvas/timeline/StoryboardBatchDialog.tsx",
   "src/components/canvas/shared/PromptAuthoringButton.tsx",
   // 多宫格分镜图视图：分组卡片、联合图面板与页头「补齐联合图」
@@ -159,6 +158,8 @@ const REWORKED_FILES = [
   "src/components/canvas/edit-render/**",
   // 分镜视图：画布主体、分镜列表、分镜详情的栏位与页头、媒体栏卡片、引用摘要、备注与版本历史
   "src/components/canvas/timeline/{TimelineCanvas,ShotSplitView,ShotList,ShotDetailLayout,ShotDetailHeader,TooltipIconButton,ShotStructureActions,EmptyScriptState,StatusBadge,SegmentBreakToggle,NotesDrawer,MediaCard,EndFrameRow,NarrationAudioCard,ReferencesSection,AvatarStack,ClueStack,RefThumbnail,VersionTimeMachine}.tsx",
+  // 制作进度弹层内容：步骤行、提示、整批准入结论、进行中的任务与过期产物
+  "src/components/workflow/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

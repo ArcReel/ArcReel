@@ -2,9 +2,9 @@ import type { TFunction } from "i18next";
 import type {
   AdmissionProblem,
   BatchAdmissionUnit,
-  GenerationProblem,
   WorkflowActionType,
   WorkflowBlocker,
+  WorkflowProblem,
 } from "@/types/workflow";
 
 /**
@@ -26,16 +26,25 @@ export interface ProblemView {
   meta?: string | null;
   /** 已本地化的下一步动作陈述；没有对应文案时为空，不编造。 */
   nextStep?: string | null;
-  /** 服务端原文，折叠展示，不进摘要。 */
+  /** 服务端原文，折叠展示，不进摘要；计划里的提示没有原文。 */
   detail?: string | null;
 }
 
 type Translate = TFunction<"workflow">;
 
-/** 服务端原文只作为兜底：有对应译文时优先用译文，界面不混入未翻译的技术串。 */
-function localizedSummary(t: Translate, code: string, fallback: string): string {
-  const translated = t(`problem_${code}`, { defaultValue: "" });
-  return translated || fallback || code;
+/**
+ * 按问题码本地化的一句话原因，参数取自 `params`。不认识的问题码按它交回的动作给通用原因，
+ * 动作也不认识时给最泛的一句——界面不出现服务端原文、问题码或理由码。
+ */
+function localizedSummary(
+  t: Translate,
+  code: string,
+  action: string | null | undefined,
+  params: Record<string, unknown> | undefined,
+): string {
+  const translated = t(`problem_${code}`, { ...params, defaultValue: "" });
+  if (translated) return translated;
+  return t(`problem_fallback_${action ?? "none"}`, { defaultValue: t("problem_fallback_unknown") });
 }
 
 /**
@@ -62,19 +71,7 @@ function stringParam(params: Record<string, unknown> | undefined, key: string): 
   return typeof value === "string" && value ? value : null;
 }
 
-/** 结构化问题里的定位信息藏在 params 里，按已知键提取，取不到就留空而不是瞎猜。 */
-function problemUnitId(problem: GenerationProblem | AdmissionProblem): string | null {
-  const direct = stringParam(problem.params, "unit_id");
-  if (direct) return direct;
-  const admission = problem.params?.["speech_admission"];
-  if (admission && typeof admission === "object") {
-    const nested = (admission as Record<string, unknown>)["unit_id"];
-    if (typeof nested === "string" && nested) return nested;
-  }
-  return null;
-}
-
-function problemField(problem: GenerationProblem | AdmissionProblem): string | null {
+function problemField(problem: AdmissionProblem): string | null {
   const field = stringParam(problem.params, "field") ?? stringParam(problem.params, "path");
   if (field) return field;
   const path = problem.params?.["path"];
@@ -85,18 +82,13 @@ function problemField(problem: GenerationProblem | AdmissionProblem): string | n
   return null;
 }
 
-export function problemViews(
-  t: Translate,
-  problems: GenerationProblem[],
-  keyPrefix = "problem",
-): ProblemView[] {
+/** 计划里的提示：单元来自 `unit_id`，原因按问题码本地化，没有服务端原文。 */
+export function problemViews(t: Translate, problems: WorkflowProblem[], keyPrefix = "problem"): ProblemView[] {
   return problems.map((problem, index) => ({
     key: `${keyPrefix}-${problem.code}-${index}`,
-    unitId: problemUnitId(problem),
-    field: problemField(problem),
-    summary: localizedSummary(t, problem.code, problem.detail),
+    unitId: problem.unit_id ?? null,
+    summary: localizedSummary(t, problem.code, problem.action, problem.params),
     nextStep: nextStepFor(t, problem.action),
-    detail: problem.detail,
   }));
 }
 
@@ -108,7 +100,7 @@ export function blockerViews(t: Translate, blockers: WorkflowBlocker[]): Problem
   return blockers.map((blocker, index) => ({
     key: `blocker-${blocker.code}-${index}`,
     field: blocker.path,
-    summary: localizedSummary(t, blocker.code, t("blocker_generic")),
+    summary: t(`problem_${blocker.code}`, { defaultValue: t("blocker_generic") }),
     nextStep: nextStepFor(t, "repair_project_data"),
     detail: blocker.reason,
   }));
@@ -141,11 +133,12 @@ export function admissionUnitViews(
         key: `${unit.unit_id}-${problem.code}-${index}`,
         unitId: unit.unit_id,
         field: problemField(problem),
-        // 批量端点已经把文案本地化进 message；计划端点没有，回退到按 code 查译文表。
-        summary: problem.message ?? localizedSummary(t, problem.code, problem.detail ?? ""),
+        // 批量端点已经把文案本地化进 message，原文留作折叠的技术细节；计划端点没有 message，
+        // 按问题码查译文表，也不展示原文。
+        summary: problem.message ?? localizedSummary(t, problem.code, problem.action, problem.params),
         meta: index === 0 ? meta : null,
         nextStep: nextStepFor(t, problem.action),
-        detail: problem.detail ?? null,
+        detail: problem.message ? (problem.detail ?? null) : null,
       });
     });
   }
@@ -170,7 +163,7 @@ export function enqueueFailureViews(
     field: problemField(failure.problem),
     summary:
       failure.problem.message ??
-      localizedSummary(t, failure.problem.code, failure.problem.detail ?? ""),
+      localizedSummary(t, failure.problem.code, failure.problem.action, failure.problem.params),
     nextStep: nextStepFor(t, failure.problem.action),
     detail: failure.problem.detail ?? null,
   }));

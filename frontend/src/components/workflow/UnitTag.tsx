@@ -6,11 +6,7 @@ import { itemIdWithinEpisode } from "@/utils/episode-display";
  */
 export function UnitTag({ unitId }: { unitId: string }) {
   return (
-    <span
-      translate="no"
-      className="rounded-md px-1.5 py-0.5 font-mono text-[11.5px]"
-      style={{ background: "var(--muted)", color: "var(--subtle-foreground)" }}
-    >
+    <span translate="no" className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-subtle-foreground">
       {itemIdWithinEpisode(unitId)}
     </span>
   );

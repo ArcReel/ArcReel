@@ -320,7 +320,6 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
     assert video.tasks[0].status == "running"
     assert video.tasks[0].provider_checkpoint is not None
     assert video.tasks[0].provider_checkpoint.submitted is True
-    assert video.tasks[0].provider_checkpoint.provider_job_id == "job-1"
     assert plan.next_action.type == "wait_for_task"
     assert plan.next_action.args == {
         "task_ids": ["task-1"],
@@ -536,8 +535,6 @@ async def test_recovery_checkpoint_without_provider_job_remains_visible(
     checkpoint = next(step for step in plan.steps if step.id == "video").tasks[0].provider_checkpoint
     assert checkpoint is not None
     assert checkpoint.submitted is False
-    assert checkpoint.provider_id == "provider-a"
-    assert checkpoint.provider_job_id is None
 
 
 async def test_mixed_speech_blocks_before_storyboard_and_uses_atomic_script_edit_contract(
@@ -701,3 +698,64 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     assert video.admission is not None
     codes = {problem["code"] for ticket in video.admission["units"] for problem in ticket["problems"]}
     assert "video_audio_switch_not_supported" in codes
+
+
+async def test_running_task_is_progress_not_a_problem_and_exposes_no_provider_handles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """正在生成的单元只陈述为进行中的任务：不进整批准入、不成为问题，计划里也不露供应商 ID 与作业号。"""
+
+    script = _script()
+    script["segments"].append({**script["segments"][0], "segment_id": "E1S02"})
+    pm = _ProjectManager(_project_dir(tmp_path), script)
+    status = _status()
+    status.artifacts["videos"]["missing_ids"] = ["E1S01", "E1S02"]
+    status.next_action = status.next_action.model_copy(update={"requested_ids": ["E1S01", "E1S02"]})
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: status)
+
+    async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
+        if kwargs["task_type"] != "video":
+            return []
+        return [
+            {
+                "task_id": "task-1",
+                "resource_id": "E1S01",
+                "task_type": "video",
+                "status": "running",
+                "provider_id": "provider-a",
+                "provider_job_id": "job-1234567890abcdef",
+                "execution_checkpoint_json": "{}",
+            }
+        ]
+
+    admitted_items: list[list[str]] = []
+
+    async def _admit(**kwargs: Any) -> BatchAdmission:
+        admitted_items.append([item["segment_id"] for item in kwargs["items"]])
+        return BatchAdmission(
+            operation=kwargs["operation"],
+            selection=kwargs["selection"],
+            tickets=tuple(UnitAdmissionTicket(item["segment_id"]) for item in kwargs["items"]),
+        )
+
+    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
+    monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
+
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
+
+    video = next(step for step in plan.steps if step.id == "video")
+    assert admitted_items == [["E1S02"]]
+    assert video.admission is not None
+    assert video.admission["decision"] == "admitted"
+    assert [p for step in plan.steps for p in step.problems] == plan.problems == []
+    assert video.tasks[0].model_dump(mode="json") == {
+        "unit_id": "E1S01",
+        "task_id": "task-1",
+        "batch_id": None,
+        "task_type": "video",
+        "status": "running",
+        "provider_checkpoint": {"submitted": True},
+    }
+    dumped = plan.model_dump_json()
+    assert "provider-a" not in dumped
+    assert "job-1234567890abcdef" not in dumped

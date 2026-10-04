@@ -135,7 +135,8 @@ async def test_workflow_plan_reports_exactly_one_problem_pointing_at_the_retry(t
     assert len(plan.problems) == 1
     problem = plan.problems[0]
     assert problem.code == GenerationProblemCode.PROJECT_MIGRATION_FAILED
-    assert problem.detail == failure.reason
+    assert plan.status.blockers[0].reason == failure.reason
+    assert [p for step in plan.steps for p in step.problems] == []
     assert problem.action == GenerationAction.RETRY_PROJECT_MIGRATION
     assert problem.params["details"][0]["episode"] == 1
     assert plan.next_action.type == RETRY_MIGRATION_ACTION

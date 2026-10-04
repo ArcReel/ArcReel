@@ -45,9 +45,10 @@ mcp__arcreel__get_workflow_plan({
 | `steps[]` | 有序步骤。`id` 是稳定步骤名，`state` ∈ `completed` / `ready` / `active` / `blocked` / `pending` / `skipped`，`required=false` 表示该步骤在本项目模式组合下不适用 |
 | `steps[].action` | 该步骤自己的受控动作（可能为 null） |
 | `steps[].artifacts` | 该步骤的产物时效快照：`current_ids` / `stale_ids` / `missing_ids` 三个 ID 桶，外加集合级 `state`（`current` / `stale` / `partial` / `missing` / `blocked` / `not_applicable`）。`blocked` 是集合级状态，**没有**逐 ID 的 blocked 桶 |
-| `steps[].tasks[]` | 该步骤的活动任务观察，每条含 `task_id`、`status`、`provider_checkpoint`、`problem` |
+| `steps[].tasks[]` | 该步骤排队中与运行中的任务，每条含 `unit_id`、`task_id`、`status` 与 `provider_checkpoint`（只有 `submitted`）。进行中的任务是进度，不是问题 |
 | `steps[].admission` | 视频步骤的整批准入判定（见下） |
-| `steps[].problems[]` | 逐条问题，带 `code` 与闭集 `action` |
+| `steps[].problems[]` | 该步骤的逐条问题，带稳定问题码 `code`、闭集 `action`、所属单元 `unit_id` 与文案参数 `params`；每条只在所属步骤出现一次。视频整批准入的逐单元问题只在 `steps[].admission.units[]` 里 |
+| `problems[]` | 不属于任何步骤的项目级问题（目前只有数据升级失败），不重复步骤里的问题 |
 | `blockers[]` | 项目整体不可用（数据升级失败、project.json 或产物清单读不出、创作类型或生成模式非法），含 `code` / `path` / `reason` |
 | `status.issues[]` | 内容本身的数据问题（剧本读不出、字段非法、资产定义损坏等），同样含 `code` / `path` / `reason`；只阻止依赖该内容的操作 |
 | `status.content` | 内容现状：集数、整本源文与集原文在不在、目标集的草稿、正式脚本（`present` / `absent` / `invalid`）与条目数、待编写条目、需重新规划的视频单元、被引用却没有资产图的资产；`episode_plan_stale` 为真表示该集集规划 stale、脚本规划待重建 |
@@ -136,7 +137,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 | `next_action.type` | 执行入口 |
 |---|---|
-| `fix_input` | 剧本/声明本身不合法：按 `problems[].detail` 定位，经 `mcp__arcreel__patch_episode_script` 改对再重查 |
+| `fix_input` | 剧本/声明本身不合法：按 `admission.units[].problems[].detail` 定位，经 `mcp__arcreel__patch_episode_script` 改对再重查 |
 | `replan_unit` | 视频单元需要重新规划：走 `repair_video_units` 那一行的改法 |
 | `generate_dependency` | 缺上游产物（资产图等参考图）：先补齐依赖再重查 |
 | `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |

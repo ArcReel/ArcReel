@@ -51,7 +51,7 @@ import {
 } from "@/app-routes";
 import { ProblemList } from "./ProblemList";
 import { StepListRow } from "./StepListRow";
-import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
+import { blockerViews, nextStepForAction } from "./problem-views";
 import { buildStepList, type StepAct } from "./step-list";
 
 /**
@@ -224,7 +224,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
 
   const blockers = useMemo(() => (shown ? blockerViews(t, shown.blockers) : []), [shown, t]);
   const issues = useMemo(() => (shown ? blockerViews(t, shown.status.issues) : []), [shown, t]);
-  const planProblems = useMemo(() => (shown ? problemViews(t, shown.problems, "plan") : []), [shown, t]);
 
   const next = view?.next ?? null;
   const instructionKey = next?.instruction ? `${currentKey}::${next.actionType}` : null;
@@ -443,7 +442,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         <PopoverContent
           align="end"
           collisionAvoidance={{ side: "none" }}
-          className="w-140 max-h-[min(70dvh,640px,var(--available-height))]"
+          className="relative w-140 max-h-[min(70dvh,640px,var(--available-height))]"
         >
           <PopoverHeader>
             <PopoverTitle>{t("panel_title")}</PopoverTitle>
@@ -468,21 +467,21 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             </p>
           )}
 
+          {/* 顶部只陈述项目整体的阻断与内容的数据问题。项目级的计划提示（数据升级失败）与阻断是同一件事，
+              不再列一遍；各步骤的提示与下一步只在所属行展开。 */}
           {blockers.length > 0 && (
             <Alert variant="destructive">
               <AlertTitle id={alertId}>{t("blockers_title", { count: blockers.length })}</AlertTitle>
               <AlertDescription>
-                <ProblemList problems={blockers} labelledBy={alertId} className="mt-1 space-y-1.5 text-xs" />
+                <ProblemList problems={blockers} labelledBy={alertId} className="mt-1" />
               </AlertDescription>
             </Alert>
           )}
 
-          {issues.length > 0 && <ProblemList problems={issues} className="space-y-1.5 text-xs" />}
-
-          {planProblems.length > 0 && <ProblemList problems={planProblems} className="space-y-1.5 text-xs" />}
+          {issues.length > 0 && <ProblemList problems={issues} />}
 
           {view ? (
-            <ol className="m-0 list-none p-0">
+            <ol className="flex flex-col">
               {view.rows.map((row) => (
                 <StepListRow
                   key={row.key}

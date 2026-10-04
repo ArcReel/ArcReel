@@ -34,6 +34,7 @@ from lib.workflow.workflow_plan import (
     TEXT_DRAFT_REPAIR_TASK_TYPE,
     WorkflowPlan,
     WorkflowPlanRequest,
+    WorkflowProviderCheckpoint,
     WorkflowTaskObservation,
     build_workflow_plan,
     draft_repair_resource_id,
@@ -41,7 +42,6 @@ from lib.workflow.workflow_plan import (
 from lib.workflow.workflow_state import WorkflowBlocker, WorkflowStateService, WorkflowStatus
 from server.draft_workflow import DraftDocType
 from server.services.admission.video_batch_admission import (
-    active_task_problem,
     admit_reference_video_batch,
     admit_storyboard_video_request,
     artifact_state_tickets,
@@ -93,7 +93,7 @@ class WorkflowPlanner:
             # planned off inputs the migration itself refused.
             return build_workflow_plan(
                 status,
-                structure_problems=[await self._migration_problem(project_name, blocked)],
+                project_problems=[await self._migration_problem(project_name, blocked)],
                 script_revision=None,
                 task_observations=[],
                 admission=None,
@@ -108,6 +108,7 @@ class WorkflowPlanner:
                 status,
                 facts,
                 request,
+                in_flight=_in_flight_video_units(tasks),
                 user_id=user_id,
                 queue=queue,
                 config_resolver=config_resolver,
@@ -281,6 +282,7 @@ class WorkflowPlanner:
             if not task_id or task_id in seen:
                 continue
             seen.add(task_id)
+            checkpoint = provider_checkpoint_from_task(task)
             observations.append(
                 WorkflowTaskObservation(
                     unit_id=str(task.get("resource_id") or ""),
@@ -288,8 +290,9 @@ class WorkflowPlanner:
                     batch_id=str(task["batch_id"]) if task.get("batch_id") is not None else None,
                     task_type=str(task.get("task_type") or ""),
                     status=str(task.get("status") or ""),
-                    provider_checkpoint=provider_checkpoint_from_task(task),
-                    problem=active_task_problem(task),
+                    provider_checkpoint=(
+                        WorkflowProviderCheckpoint(submitted=checkpoint.submitted) if checkpoint is not None else None
+                    ),
                 )
             )
         return observations
@@ -301,12 +304,18 @@ class WorkflowPlanner:
         facts: _ScriptFacts,
         request: WorkflowPlanRequest,
         *,
+        in_flight: frozenset[str],
         user_id: str,
         queue: GenerationQueue,
         config_resolver: ConfigResolver | None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
+        """预告这一批真提交时的准入结论；正在生成的单元与 Web 批量入口一样不算目标，不作为在途冲突报出。"""
+
         if status.project.generation_mode == "reference_video":
-            screened, malformed = screen_script_entries(facts.script.get("video_units"), requested_ids=None)
+            units = facts.script.get("video_units")
+            if isinstance(units, list):
+                units = [unit for unit in units if not (isinstance(unit, dict) and unit.get("unit_id") in in_flight)]
+            screened, malformed = screen_script_entries(units, requested_ids=None)
             targets, selection, _states = resolve_reference_batch_targets(
                 units=screened,
                 requested_ids=None,
@@ -339,7 +348,9 @@ class WorkflowPlanner:
         # 与逐 ID 拒绝票都在其中），准入由 admit_storyboard_video_request 给出（音频闸门
         # 与投影缺口折在同一批票里）。自行挑目标并把视觉提示词留空，会让计划按另一套
         # 视觉基准判断已付费产物能否复用，与真正提交时的结论分叉。
-        requested = set(status.next_action.requested_ids)
+        requested = set(status.next_action.requested_ids) - in_flight
+        if not requested:
+            return None
         id_field = facts.id_field
         items = [
             item for item in facts.items if isinstance(item.get(id_field), str) and str(item[id_field]) in requested
@@ -373,6 +384,14 @@ class WorkflowPlanner:
             config_resolver=config_resolver,
         )
         return admission.to_payload()
+
+
+def _in_flight_video_units(tasks: list[WorkflowTaskObservation]) -> frozenset[str]:
+    return frozenset(
+        task.unit_id
+        for task in tasks
+        if task.task_type in {"video", "reference_video"} and task.status in {"queued", "running"}
+    )
 
 
 def get_workflow_planner(project_manager: ProjectManager | None = None) -> WorkflowPlanner:

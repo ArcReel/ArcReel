@@ -5,7 +5,7 @@
  * 三条轴在类型层就分开，界面不得把它们折成一个状态：
  * - 步骤进度 `WorkflowStepState` —— 编排走到哪一步
  * - 产物时效 `ArtifactStatus` —— 磁盘上那份东西还能不能代表当前内容
- * - 任务与 provider checkpoint —— 这一次尝试的下场，以及供应商侧是否已经收单
+ * - 任务与供应商收单 —— 这一次尝试跑到哪了，以及供应商侧是否已经收单
  */
 
 /** 编排步骤自身的进度，与产物、任务两轴无关。 */
@@ -82,29 +82,31 @@ export interface WorkflowBlocker {
   reason: string;
 }
 
-/** 一条结构化问题：原因（code/detail）与下一步动作（action）分开表达。 */
-export interface GenerationProblem {
+/**
+ * 计划里的一条提示。`code` 是稳定的机器 key，界面按它本地化，`params` 是文案参数；
+ * 原始理由文本不下发。每条提示只出现在所属步骤（项目级的在顶层），不在两处重复。
+ */
+export interface WorkflowProblem {
   code: string;
-  detail: string;
   action: string;
+  /** 出问题的单元；项目级提示为空。 */
+  unit_id?: string | null;
   params: Record<string, unknown>;
 }
 
 /** 供应商侧是否已经收单。已收单意味着重试可能重复计费，必须与任务状态分开陈述。 */
-export interface ProviderCheckpoint {
+export interface WorkflowProviderCheckpoint {
   submitted: boolean;
-  provider_id?: string | null;
-  provider_job_id?: string | null;
 }
 
-/** 一次进行中的任务观察。恢复中的任务停在这条轴上，绝不计入 current 产物。 */
+/** 一次排队中或运行中的任务。它是进度而不是问题；恢复中的任务停在这条轴上，绝不计入 current 产物。 */
 export interface WorkflowTaskObservation {
   unit_id: string;
   task_id: string;
+  batch_id?: string | null;
   task_type: string;
   status: string;
-  provider_checkpoint?: ProviderCheckpoint | null;
-  problem?: GenerationProblem | null;
+  provider_checkpoint?: WorkflowProviderCheckpoint | null;
 }
 
 /**
@@ -140,7 +142,7 @@ export interface WorkflowPlanStep {
   action?: WorkflowNextAction | null;
   requested_ids: string[];
   artifacts: WorkflowArtifactCollection;
-  problems: GenerationProblem[];
+  problems: WorkflowProblem[];
   tasks: WorkflowTaskObservation[];
   admission?: WorkflowAdmission | null;
   contracts: WorkflowStepContracts;
@@ -153,7 +155,7 @@ export interface WorkflowPlanStep {
 export type BatchAdmissionDecision = "admitted" | "confirmation_required" | "blocked";
 
 /**
- * 准入结论里的单条缺口。与 {@link GenerationProblem} 同源，差别只在于
+ * 准入结论里的单条缺口。与生成契约的问题同源，差别只在于
  * 批量端点会把文案按用户语言渲染进 `message`——计划端点不渲染，界面据此回退到译文表。
  */
 export interface AdmissionProblem {
@@ -311,7 +313,8 @@ export interface WorkflowPlan {
   status: WorkflowStatus;
   steps: WorkflowPlanStep[];
   blockers: WorkflowBlocker[];
-  problems: GenerationProblem[];
+  /** 不属于任何步骤的项目级提示（如数据升级失败）。 */
+  problems: WorkflowProblem[];
   next_action: WorkflowNextAction;
   next_alternatives: WorkflowNextAction[];
 }

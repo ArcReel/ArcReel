@@ -21,6 +21,7 @@ interface RecordedProject {
 }
 interface RecordedPlan {
   status: { artifacts: Record<string, Record<string, unknown>> } & Record<string, unknown>;
+  steps: ({ id: string } & Record<string, unknown>)[];
 }
 interface RecordedCost {
   episodes: Record<string, unknown>[];
@@ -113,6 +114,77 @@ const STRESS: ApiOverrides = {
   "GET /api/v1/tasks?page_size=200&project_name=demo": {
     status: 200,
     body: { items: RUNNING_STORYBOARDS.map(runningTask), total: RUNNING_STORYBOARDS.length, page: 1, page_size: 200 },
+  },
+};
+
+const LONG_MESSAGE =
+  "这个单元的参考图里有两位角色共用同一个名字，模型无法区分说话的人；请在分镜详情里给其中一位改名，或者删掉多余的参考图后再生成";
+const BLOCKED_VIDEOS = ids(40).slice(4);
+
+// 制作进度的内容压力：结构问题、正在生成的分镜图与大量过期产物、整批被拒的四十个视频单元。
+const PROGRESS_STRESS: ApiOverrides = {
+  ...STRESS,
+  "POST /api/v1/projects/demo/workflow-plan": {
+    status: 200,
+    body: {
+      ...plan,
+      status: {
+        ...plan.status,
+        artifacts: {
+          ...plan.status.artifacts,
+          storyboards: { current_ids: ids(36).slice(12), missing_ids: [], stale_ids: ids(12) },
+        },
+      },
+      steps: plan.steps.map((step) => {
+        switch (step.id) {
+          case "script_structure":
+            return {
+              ...step,
+              state: "blocked",
+              problems: [
+                { code: "mixed_speech", action: "replan_unit", unit_id: "E1S02", params: {} },
+                { code: "empty_speaker", action: "fix_input", unit_id: "E1S07", params: {} },
+                { code: "speech_admission_unrecognized", action: "fix_input", unit_id: "E1S11", params: {} },
+              ],
+            };
+          case "storyboard":
+            return {
+              ...step,
+              state: "active",
+              artifacts: { current_ids: ids(36).slice(12), missing_ids: [], stale_ids: ids(12) },
+              tasks: ["E1S13", "E1S14"].map((unitId) => ({
+                unit_id: unitId,
+                task_id: `task-${unitId}-0f3c9a7e5b2d4c18a6e0`,
+                batch_id: null,
+                task_type: "storyboard",
+                status: "running",
+                provider_checkpoint: { submitted: true },
+              })),
+            };
+          case "video":
+            return {
+              ...step,
+              state: "blocked",
+              admission: {
+                decision: "blocked",
+                operation: "generate_videos",
+                selection: "missing_only",
+                units: BLOCKED_VIDEOS.map((unitId, index) => ({
+                  unit_id: unitId,
+                  admitted: index % 3 !== 0,
+                  withheld: index % 3 !== 0,
+                  problems:
+                    index % 3 === 0
+                      ? [{ code: "video_capability_missing_i2v", action: "configure_provider", params: {}, message: index === 0 ? LONG_MESSAGE : null }]
+                      : [{ code: "generation_batch_admission_withheld", action: "none", params: {} }],
+                })),
+              },
+            };
+          default:
+            return step;
+        }
+      }),
+    },
   },
 };
 
@@ -235,6 +307,30 @@ defineRegionScenarios("集页页头", [
       expect(popover.x + popover.width).toBeLessThanOrEqual(width);
     },
     screenshot: { name: "episode-page-progress", target: progressPopover },
+  },
+  {
+    name: "制作进度的提示各出现一次并标出单元，长原因与大量单元只在弹层内滚动",
+    path: EPISODE_PATH,
+    api: PROGRESS_STRESS,
+    ready: pageReady,
+    act: async (page) => {
+      await clearAgentOverlay(page);
+      await progress(page).click();
+      const popover = progressPopover(page);
+      await waitForEntrance(popover);
+      const script = popover.getByTestId("workflow-row-script");
+      await expect(popover.getByText("这个单元同时有角色台词和旁白，需要拆开。")).toHaveCount(1);
+      await expect(script.getByText("S02", { exact: true })).toBeVisible();
+      // 正在生成的分镜图是进度，不是问题；不露出任务号与供应商
+      const boards = popover.getByTestId("workflow-row-boards");
+      await expect(boards.getByText("已提交给供应商，重试可能再次计费。")).toBeVisible();
+      await expect(popover.getByText(/0f3c9a7e/)).toHaveCount(0);
+      await expect(popover.getByText(LONG_MESSAGE)).toHaveCount(1);
+      // 弹层不超出视口
+      const rect = await box(popover);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(viewport(page).height);
+    },
+    screenshot: { name: "episode-page-progress-content", target: progressPopover },
   },
   {
     name: "集头「⋯」菜单展开删除入口",
