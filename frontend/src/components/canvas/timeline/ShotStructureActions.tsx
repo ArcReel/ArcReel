@@ -1,8 +1,30 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { TooltipIconButton } from "./TooltipIconButton";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 type StructureContentMode = "narration" | "drama" | "ad";
@@ -33,7 +55,7 @@ export function InsertShotButton({
   disabledHint,
   variant,
 }: InsertShotButtonProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "common"]);
   const textareaId = useId();
   const [narrationOpen, setNarrationOpen] = useState(false);
   const [novelText, setNovelText] = useState("");
@@ -58,45 +80,64 @@ export function InsertShotButton({
     void run(undefined, () => {});
   };
 
-  const className =
-    variant === "icon"
-      ? "sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
-      : variant === "compact"
-        ? "sv-navbtn inline-flex items-center gap-1 px-2 disabled:cursor-not-allowed disabled:opacity-50"
-        : "arc-btn-primary focus-ring inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-50";
+  const busy = disabled || submitting;
+  const trigger =
+    variant === "icon" ? (
+      <TooltipIconButton label={label} hint={disabledHint} disabled={busy} onClick={handleClick}>
+        <Plus aria-hidden />
+      </TooltipIconButton>
+    ) : (
+      <Button
+        variant={variant === "primary" ? "default" : "ghost"}
+        size={variant === "primary" ? "default" : "xs"}
+        disabled={busy}
+        onClick={handleClick}
+      >
+        <Plus aria-hidden data-icon="inline-start" />
+        {label}
+      </Button>
+    );
 
   return (
     <>
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={disabled || submitting}
-        title={disabledHint ?? label}
-        aria-label={label}
-        className={className}
-      >
-        <Plus className={variant === "icon" ? "h-3.5 w-3.5" : "h-3 w-3"} aria-hidden />
-        {variant !== "icon" && <span>{label}</span>}
-      </button>
+      {trigger}
       {contentMode === "narration" && (
-        <ConfirmDialog
+        <Dialog
           open={narrationOpen}
-          title={t("shot_insert_narration_title")}
-          description={
-            <div className="flex flex-col gap-2">
-              <p className="m-0">{t("shot_insert_narration_desc")}</p>
-              <label htmlFor={textareaId} className="text-[11px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
-                {t("shot_insert_narration_label")}
-              </label>
-              <Textarea id={textareaId} value={novelText} onChange={(e) => setNovelText(e.target.value)} disabled={submitting} />
-            </div>
-          }
-          confirmLabel={t("shot_insert_narration_confirm")}
-          loading={submitting}
-          confirmDisabled={!novelText.trim()}
-          onConfirm={() => run(novelText, () => setNarrationOpen(false))}
-          onCancel={() => setNarrationOpen(false)}
-        />
+          onOpenChange={(next) => {
+            // 提交中不关闭，结果出来前对话框保持原样
+            if (!next && submitting) return;
+            setNarrationOpen(next);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("shot_insert_narration_title")}</DialogTitle>
+              <DialogDescription>{t("shot_insert_narration_desc")}</DialogDescription>
+            </DialogHeader>
+            <DialogBody>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={textareaId}>{t("shot_insert_narration_label")}</Label>
+                <Textarea
+                  id={textareaId}
+                  value={novelText}
+                  onChange={(e) => setNovelText(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+            </DialogBody>
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" disabled={submitting} />}>{t("common:cancel")}</DialogClose>
+              <Button
+                disabled={submitting || !novelText.trim()}
+                onClick={() => void run(novelText, () => setNarrationOpen(false))}
+              >
+                {submitting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+                {t("shot_insert_narration_confirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </>
   );
@@ -105,7 +146,7 @@ export function InsertShotButton({
 interface ShotStructureActionsProps {
   segmentId: string;
   contentMode: StructureContentMode;
-  /** 切镜同源的禁用条件（未保存草稿、保存中、重排或增删在途）。 */
+  /** 切镜同源的禁用条件（未保存修改、保存中、重排或增删在途）。 */
   disabled: boolean;
   disabledHint?: string;
   /** 禁止移除的原因（生成任务在跑等），给出即禁用移除并以其作提示。 */
@@ -116,7 +157,7 @@ interface ShotStructureActionsProps {
 }
 
 /**
- * 分镜详情头部的「在此后插入」「移除分镜」动作。移除前弹 danger 确认框说明产物去向。
+ * 分镜详情头部的「在此后插入」「移除分镜」动作。移除不可撤销，先确认并说明产物去向。
  */
 export function ShotStructureActions({
   segmentId,
@@ -127,14 +168,15 @@ export function ShotStructureActions({
   onInsert,
   onRemove,
 }: ShotStructureActionsProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "common"]);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
 
   if (!onInsert && !onRemove) return null;
 
   const handleRemove = async () => {
-    if (!onRemove || removing) return;
+    // 确认框打开后才出现的阻塞（如别处开始生成）同样拦下，不以打开时的状态为准。
+    if (!onRemove || removing || removeBlockedHint !== undefined) return;
     setRemoving(true);
     try {
       if (await onRemove(segmentId)) setRemoveOpen(false);
@@ -157,33 +199,41 @@ export function ShotStructureActions({
         />
       )}
       {onRemove && (
-        <button
-          type="button"
-          onClick={() => setRemoveOpen(true)}
-          disabled={disabled || removing || removeBlockedHint !== undefined}
-          title={disabledHint ?? removeBlockedHint ?? t("shot_remove")}
-          className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label={t("shot_remove")}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      )}
-      {onRemove && (
-        <ConfirmDialog
-          open={removeOpen}
-          title={t("shot_remove_title", { id: itemIdWithinEpisode(segmentId) })}
-          description={t("shot_remove_desc")}
-          confirmLabel={t("shot_remove_confirm")}
-          tone="danger"
-          loading={removing}
-          confirmDisabled={removeBlockedHint !== undefined}
-          onConfirm={() => {
-            // 确认框打开后才出现的阻塞（如别处开始生成）同样拦下，不以打开时的状态为准。
-            if (removeBlockedHint !== undefined) return;
-            void handleRemove();
-          }}
-          onCancel={() => setRemoveOpen(false)}
-        />
+        <>
+          <TooltipIconButton
+            label={t("shot_remove")}
+            hint={disabledHint ?? removeBlockedHint}
+            disabled={disabled || removing || removeBlockedHint !== undefined}
+            onClick={() => setRemoveOpen(true)}
+          >
+            <Trash2 aria-hidden />
+          </TooltipIconButton>
+          <AlertDialog
+            open={removeOpen}
+            onOpenChange={(next) => {
+              if (!next && removing) return;
+              setRemoveOpen(next);
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t("shot_remove_title", { id: itemIdWithinEpisode(segmentId) })}</AlertDialogTitle>
+                <AlertDialogDescription>{t("shot_remove_desc")}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={removing}>{t("common:cancel")}</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={removing || removeBlockedHint !== undefined}
+                  onClick={() => void handleRemove()}
+                >
+                  {removing ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+                  {t("shot_remove_confirm")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
       )}
     </>
   );

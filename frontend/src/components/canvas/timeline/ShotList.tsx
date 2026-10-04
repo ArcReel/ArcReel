@@ -1,9 +1,14 @@
-import { useMemo, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, SearchIcon } from "lucide-react";
+import { cn } from "cn";
 import type { NarrationSegment, AdShot } from "@/types";
 import { API } from "@/api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SortableHandle, SortableItem, SortableList, type SortableMove } from "@/components/shared/sortable/SortableList";
 import { useProjectsStore } from "@/stores/projects-store";
 import { StatusBadge, statusFromAssets } from "@/components/canvas/timeline/StatusBadge";
 import {
@@ -12,7 +17,6 @@ import {
   type ScriptItem,
 } from "@/utils/script-shape";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
-import { dropAnchor } from "@/utils/move-anchor";
 import { InsertShotButton, type InsertShotHandler } from "./ShotStructureActions";
 
 type Segment = ScriptItem;
@@ -24,17 +28,17 @@ interface ShotListProps {
   onSelect: (index: number) => void;
   contentMode: ListContentMode;
   projectName: string;
+  /** 竖屏分镜图的缩略图是竖条，横屏是横条。 */
+  aspectRatio?: "9:16" | "16:9";
   collapsed: boolean;
   onToggleCollapse: () => void;
-  /** 接收滚动容器 ref，外部可挂载 useScrollTarget */
-  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   /** 追加一条分镜到末尾；缺省时列表头部不显示新增按钮。 */
   onAppend?: InsertShotHandler;
   /** 增删或保存在途时禁用新增。 */
   appendDisabled?: boolean;
-  /** 拖拽改序：把分镜移到 afterId 之后，null 移到最前；缺省时列表不可拖拽。 */
+  /** 改序：把分镜移到 afterId 之后，null 移到最前；缺省时列表不可排序。 */
   onMove?: (itemId: string, afterId: string | null) => void | Promise<void>;
-  /** 改序或增删在途时禁用拖拽。 */
+  /** 改序或增删在途时禁用排序。 */
   moveDisabled?: boolean;
 }
 
@@ -62,14 +66,9 @@ function getSegmentText(seg: Segment, mode: ListContentMode): string {
   return getImagePromptScene(seg);
 }
 
-function getStoryboardVersionCount(seg: Segment): number {
-  // 暂用 storyboard_image 是否存在作为粗略 V1 指示。真实版本数走 GET /versions API（异步），
-  // 此处只显示 V1 标记或空。后续可扩展。
-  return seg.generated_assets?.storyboard_image ? 1 : 0;
-}
-
 /**
- * 分镜列表（左侧 260px / 折叠态 44px）。虚拟化滚动以支持长剧集。
+ * 分镜列表：展开 220px，收起为 44px 的分镜号栏。展开时可搜索，并用把手拖动或键盘排序；
+ * 按搜索词筛选时排序没有明确含义，把手禁用。
  */
 export function ShotList({
   segments,
@@ -77,9 +76,9 @@ export function ShotList({
   onSelect,
   contentMode,
   projectName,
+  aspectRatio = "9:16",
   collapsed,
   onToggleCollapse,
-  scrollContainerRef,
   onAppend,
   appendDisabled = false,
   onMove,
@@ -87,141 +86,95 @@ export function ShotList({
 }: ShotListProps) {
   const { t } = useTranslation("dashboard");
   const [search, setSearch] = useState("");
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
-  const draggable = Boolean(onMove) && !moveDisabled;
-
-  const endDrag = () => {
-    setDragIndex(null);
-    setDropIndex(null);
-  };
-  const commitDrop = (target: number) => {
-    const source = dragIndex;
-    endDrag();
-    if (!onMove || source === null) return;
-    const ids = segments.map((seg) => getScriptItemId(seg, contentMode));
-    const afterId = dropAnchor(ids, source, target);
-    if (afterId !== undefined) void onMove(ids[source], afterId);
-  };
-  const internalScrollRef = useRef<HTMLDivElement>(null);
-  const scrollRef = scrollContainerRef ?? internalScrollRef;
-
+  // 改序请求在途时先按新顺序显示，落定后回到 segments（成功时它已是新顺序，失败时回到原序）。
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const fingerprints = useProjectsStore((s) => s.assetFingerprints);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const filtered = useMemo(() => {
-    if (!search) return segments.map((seg, i) => ({ seg, originalIndex: i }));
-    const s = search.toLowerCase();
-    return segments
-      .map((seg, i) => ({ seg, originalIndex: i }))
-      .filter(({ seg }) => {
-        const id = getScriptItemId(seg, contentMode);
-        const text = getSegmentText(seg, contentMode);
-        return id.toLowerCase().includes(s) || text.toLowerCase().includes(s);
-      });
-  }, [segments, search, contentMode]);
+  const indexById = useMemo(
+    () => new Map(segments.map((seg, index) => [getScriptItemId(seg, contentMode), index])),
+    [segments, contentMode],
+  );
+  const orderedIds = useMemo(() => {
+    const ids = [...indexById.keys()];
+    if (!pendingOrder || pendingOrder.length !== ids.length || !pendingOrder.every((id) => indexById.has(id))) {
+      return ids;
+    }
+    return pendingOrder;
+  }, [indexById, pendingOrder]);
 
-  // eslint-disable-next-line react-hooks/incompatible-library -- useVirtualizer 与 React Compiler 不兼容（已知第三方库限制）
-  const virtualizer = useVirtualizer({
-    count: filtered.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 96,
-    overscan: 6,
-  });
+  const visibleIds = useMemo(() => {
+    if (!search) return orderedIds;
+    const query = search.toLowerCase();
+    return orderedIds.filter((id) => {
+      const seg = segments[indexById.get(id)!];
+      return id.toLowerCase().includes(query) || getSegmentText(seg, contentMode).toLowerCase().includes(query);
+    });
+  }, [orderedIds, search, segments, indexById, contentMode]);
+
+  const selectedId = segments[selectedIndex] ? getScriptItemId(segments[selectedIndex], contentMode) : null;
+
+  // 选中项被键盘或详情里的翻页切走时，列表跟着滚到它；已在可见范围内时不动。
+  useEffect(() => {
+    if (!selectedId) return;
+    const node = scrollRef.current?.querySelector<HTMLElement>(`[data-shot-id="${CSS.escape(selectedId)}"]`);
+    node?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedId, collapsed]);
+
+  const sortable = Boolean(onMove);
+  const handleSortMove = ({ id, to, ids }: SortableMove<string>) => {
+    if (!onMove) return;
+    setPendingOrder(ids);
+    void Promise.resolve(onMove(id, to === 0 ? null : ids[to - 1])).finally(() => setPendingOrder(null));
+  };
 
   if (collapsed) {
     return (
-      <div
-        className="flex flex-col items-center gap-1.5 overflow-y-auto py-2.5"
-        style={{
-          width: 44,
-          borderRight: "1px solid var(--border)",
-          background: "oklch(0.19 0.011 265 / 0.5)",
-        }}
+      <nav
+        aria-label={t("shot_list_label")}
+        className="flex min-h-0 flex-col items-center gap-2 border-r border-border/50 bg-sidebar/40 py-2"
       >
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          title={t("shot_list_expand")}
-          aria-label={t("shot_list_expand")}
-          className="grid h-7 w-7 place-items-center rounded-md focus-ring"
-          style={{
-            background: "oklch(0.24 0.012 265 / 0.5)",
-            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-            color: "var(--muted-foreground)",
-          }}
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-        <div
-          className="mt-1.5 text-[9.5px] font-bold uppercase"
-          style={{
-            color: "var(--muted-foreground)",
-            letterSpacing: "1.2px",
-            writingMode: "vertical-rl",
-            transform: "rotate(180deg)",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {t("shots_collapsed_label", { count: segments.length })}
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="ghost" size="icon-sm" aria-label={t("shot_list_expand")} onClick={onToggleCollapse} />}
+          >
+            <ChevronRight aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent side="right">{t("shot_list_expand")}</TooltipContent>
+        </Tooltip>
+        <div ref={scrollRef} className="relative min-h-0 w-full flex-1 overflow-y-auto">
+          <ul className="flex flex-col items-center gap-1 pb-1">
+            {orderedIds.map((id) => {
+              const index = indexById.get(id)!;
+              const active = index === selectedIndex;
+              return (
+                <li key={id} data-shot-id={id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(index)}
+                    aria-current={active || undefined}
+                    className={cn(
+                      "num focus-ring grid size-7 place-items-center rounded-md text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                      active && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
+                    )}
+                  >
+                    {itemIdWithinEpisode(id)}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
-        <div className="mt-1 flex flex-1 flex-col items-center gap-1">
-          {segments.map((s, i) => {
-            const id = getScriptItemId(s, contentMode);
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => onSelect(i)}
-                title={itemIdWithinEpisode(id)}
-                className="num grid h-7 w-7 place-items-center rounded-sm text-[9.5px] font-bold focus-ring"
-                style={{
-                  color: i === selectedIndex ? "oklch(0.14 0 0)" : "var(--muted-foreground)",
-                  background:
-                    i === selectedIndex
-                      ? "var(--primary)"
-                      : "oklch(0.22 0.011 265 / 0.5)",
-                  border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-                }}
-              >
-                {itemIdWithinEpisode(id)}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      </nav>
     );
   }
 
   return (
-    <div
-      style={{
-        borderRight: "1px solid var(--border)",
-        background:
-          "linear-gradient(180deg, oklch(0.19 0.011 265 / 0.5), oklch(0.17 0.010 265 / 0.35))",
-      }}
-      className="flex h-full min-w-0 flex-col"
-    >
-      <div className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-3">
-        <span
-          className="text-[10.5px] font-bold uppercase"
-          style={{ color: "var(--muted-foreground)", letterSpacing: "0.8px" }}
-        >
-          {t("shots_section_title")}
-        </span>
-        <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-          {filtered.length}
-        </span>
+    <nav aria-label={t("shot_list_label")} className="flex min-h-0 min-w-0 flex-col border-r border-border/50 bg-sidebar/40">
+      <div className="flex shrink-0 items-center gap-1 px-3 pt-3 pb-2">
+        <h2 className="text-xs font-medium text-muted-foreground">{t("shots_section_title")}</h2>
+        <span className="num text-xs text-muted-foreground">{visibleIds.length}</span>
         <span className="flex-1" />
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          title={t("shot_list_collapse")}
-          aria-label={t("shot_list_collapse")}
-          className="grid h-6 w-6 place-items-center rounded-sm text-[11px] focus-ring"
-          style={{ color: "var(--muted-foreground)" }}
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </button>
         {onAppend && (
           <InsertShotButton
             afterId={null}
@@ -232,214 +185,107 @@ export function ShotList({
             variant="compact"
           />
         )}
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="ghost" size="icon-sm" aria-label={t("shot_list_collapse")} onClick={onToggleCollapse} />}
+          >
+            <ChevronLeft aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent>{t("shot_list_collapse")}</TooltipContent>
+        </Tooltip>
       </div>
 
-      <div className="shrink-0 px-3 pb-2.5">
-        <div
-          className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
-          style={{
-            background: "oklch(0.20 0.011 265 / 0.55)",
-            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-          }}
-        >
-          <Search
-            className="h-3 w-3 shrink-0"
-            style={{ color: "var(--muted-foreground)" }}
-          />
-          <input
+      <div className="shrink-0 px-3 pb-2">
+        <InputGroup>
+          <InputGroupInput
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("shot_search_placeholder")}
             aria-label={t("shot_search_placeholder")}
-            className="min-w-0 flex-1 bg-transparent text-[11.5px] outline-none focus-ring"
-            style={{ color: "var(--subtle-foreground)" }}
           />
-        </div>
+          <InputGroupAddon>
+            <SearchIcon aria-hidden />
+          </InputGroupAddon>
+        </InputGroup>
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2.5">
-        <div
-          className="relative"
-          style={{ height: `${virtualizer.getTotalSize()}px` }}
+      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <SortableList
+          ids={visibleIds}
+          onMove={handleSortMove}
+          getName={(id) => itemIdWithinEpisode(id)}
+          disabled={!sortable || moveDisabled || search !== ""}
         >
-          {virtualizer.getVirtualItems().map((virt) => {
-            const { seg, originalIndex } = filtered[virt.index];
-            const id = getScriptItemId(seg, contentMode);
-            const text = getSegmentText(seg, contentMode);
-            const status = statusFromAssets(seg.generated_assets?.status);
-            const versions = getStoryboardVersionCount(seg);
-            const pendingAuthoring = seg.pending_authoring === true;
-            const active = originalIndex === selectedIndex;
-            const sbPath = seg.generated_assets?.storyboard_image;
-            const sbFp = sbPath ? (fingerprints[sbPath] ?? null) : null;
-            const sbUrl = sbPath ? API.getFileUrl(projectName, sbPath, sbFp) : null;
-
-            const dropEdge =
-              dropIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
-                ? dragIndex < originalIndex
-                  ? "bottom"
-                  : "top"
-                : null;
-
-            return (
-              <div
-                key={id}
-                ref={virtualizer.measureElement}
-                data-index={virt.index}
-                draggable={draggable}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  setDragIndex(originalIndex);
-                }}
-                onDragOver={(event) => {
-                  if (dragIndex === null) return;
-                  event.preventDefault();
-                  setDropIndex(originalIndex);
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  commitDrop(originalIndex);
-                }}
-                onDragEnd={endDrag}
-                className={`absolute left-0 right-0 ${dragIndex === originalIndex ? "opacity-40" : ""} ${
-                  draggable ? "cursor-grab" : ""
-                }`}
-                style={{ transform: `translateY(${virt.start}px)` }}
-              >
-                {dropEdge && (
-                  <span
-                    aria-hidden="true"
-                    className={`pointer-events-none absolute left-1 right-1 z-10 h-0.5 rounded-sm ${
-                      dropEdge === "top" ? "-top-px" : "-bottom-px"
-                    }`}
-                    style={{ background: "var(--primary)" }}
-                  />
-                )}
-                <button
-                  id={`segment-${id}`}
-                  type="button"
-                  onClick={() => onSelect(originalIndex)}
-                  title={draggable ? t("shot_drag_hint") : undefined}
-                  className={`relative grid w-full items-center gap-2.5 rounded-lg p-2 text-left transition-colors focus-ring ${
-                    active ? "" : "hover:bg-[oklch(0.24_0.012_265_/_0.4)]"
-                  }`}
-                  style={{
-                    gridTemplateColumns: "auto 1fr",
-                    background: active
-                      ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))"
-                      : undefined,
-                    border: active
-                      ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)"
-                      : "1px solid transparent",
-                    boxShadow: active
-                      ? "0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent), 0 4px 12px -6px oklch(0 0 0 / 0.4)"
-                      : "none",
-                  }}
-                >
-                  {active && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute -left-px top-2 bottom-2 w-0.5 rounded-sm"
-                      style={{
-                        background: "var(--primary)",
-                        boxShadow: "0 0 8px color-mix(in oklab, var(--primary) 35%, transparent)",
-                      }}
-                    />
+          <ul className="flex flex-col gap-0.5">
+            {visibleIds.map((id) => {
+              const index = indexById.get(id)!;
+              const seg = segments[index];
+              const text = getSegmentText(seg, contentMode);
+              const active = index === selectedIndex;
+              const sbPath = seg.generated_assets?.storyboard_image;
+              const sbUrl = sbPath ? API.getFileUrl(projectName, sbPath, fingerprints[sbPath] ?? null) : null;
+              const section = contentMode === "ad" ? (seg as AdShot).section : undefined;
+              return (
+                <SortableItem
+                  key={id}
+                  id={id}
+                  data-shot-id={id}
+                  className={cn(
+                    "group/shot flex items-center gap-0.5 rounded-lg pr-0.5 transition-colors hover:bg-muted/60 data-dragging:bg-popover data-dragging:shadow-overlay",
+                    active && "bg-primary/12 hover:bg-primary/12",
                   )}
-                  <div
-                    className="relative shrink-0 overflow-hidden rounded-sm"
-                    style={{ width: 48, height: 64 }}
+                >
+                  <button
+                    id={`segment-${id}`}
+                    type="button"
+                    onClick={() => onSelect(index)}
+                    aria-current={active || undefined}
+                    className="focus-ring flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-1.5 text-left"
                   >
-                    {sbUrl ? (
-                      <img
-                        src={sbUrl}
-                        alt={itemIdWithinEpisode(id)}
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div
-                        className="flex h-full w-full items-center justify-center"
-                        style={{
-                          background:
-                            "linear-gradient(135deg, oklch(0.30 0.05 280), oklch(0.18 0.02 260))",
-                        }}
-                      />
-                    )}
                     <span
-                      className="num absolute bottom-0.5 left-1 text-[9px] font-bold"
-                      style={{
-                        color: "oklch(0.98 0 0)",
-                        textShadow: "0 1px 2px oklch(0 0 0 / 0.8)",
-                      }}
+                      className={cn(
+                        "relative shrink-0 overflow-hidden rounded-sm bg-muted",
+                        aspectRatio === "9:16" ? "h-14 w-10" : "h-9 w-16",
+                      )}
                     >
-                      {itemIdWithinEpisode(id)}
+                      {sbUrl ? (
+                        <img src={sbUrl} alt="" className="size-full object-cover" loading="lazy" />
+                      ) : null}
                     </span>
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <div className="flex">
-                      <StatusBadge status={status} />
-                    </div>
-                    <div
-                      className="text-[12px]"
-                      style={{
-                        color: active ? "var(--foreground)" : "var(--subtle-foreground)",
-                        fontWeight: active ? 600 : 500,
-                        lineHeight: 1.4,
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                      }}
-                    >
-                      {text || itemIdWithinEpisode(id)}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-                        {t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className={cn("num text-xs font-medium", active ? "text-primary" : "text-subtle-foreground")}>
+                          {itemIdWithinEpisode(id)}
+                        </span>
+                        <StatusBadge status={statusFromAssets(seg.generated_assets?.status)} />
                       </span>
-                      {contentMode === "ad" && (seg as AdShot).section && (
+                      {text ? (
                         <span
-                          className="rounded-sm px-1 py-px text-[9px] font-semibold uppercase"
-                          style={{
-                            color: "var(--primary)",
-                            background: "oklch(0.26 0.018 290 / 0.45)",
-                            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-                            letterSpacing: "0.4px",
-                          }}
+                          className={cn(
+                            "line-clamp-2 text-xs leading-snug",
+                            active ? "text-foreground" : "text-subtle-foreground",
+                          )}
                         >
-                          {(seg as AdShot).section}
+                          {text}
                         </span>
-                      )}
-                      {versions > 0 && (
-                        <span
-                          className="num text-[10px]"
-                          style={{ color: "var(--muted-foreground)" }}
-                        >
-                          · V{versions}
-                        </span>
-                      )}
-                      {pendingAuthoring && (
-                        <span
-                          className="rounded-sm px-1 py-px text-[9px] font-semibold"
-                          style={{
-                            color: "var(--warn)",
-                            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-                            letterSpacing: "0.4px",
-                          }}
-                        >
-                          {t("shot_pending_authoring")}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                      ) : null}
+                      <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="num">{t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}</span>
+                        {section ? <Badge variant="outline">{section}</Badge> : null}
+                        {seg.pending_authoring === true ? (
+                          <span className="text-warn">{t("shot_pending_authoring")}</span>
+                        ) : null}
+                      </span>
+                    </span>
+                  </button>
+                  {sortable ? <SortableHandle label={t("shot_reorder", { id: itemIdWithinEpisode(id) })} /> : null}
+                </SortableItem>
+              );
+            })}
+          </ul>
+        </SortableList>
       </div>
-    </div>
+    </nav>
   );
 }

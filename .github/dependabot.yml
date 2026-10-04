@@ -182,7 +182,6 @@ updates:
           - "lucide-react"
           - "@floating-ui/*"
           - "@lobehub/*"
-          - "@tanstack/react-virtual"
           - "@dnd-kit/*"
           - "cmdk"
           - "recharts"

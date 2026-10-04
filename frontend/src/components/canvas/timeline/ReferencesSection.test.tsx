@@ -51,12 +51,12 @@ describe("ReferencesSection", () => {
   it("does not count a registered derivative as an unregistered reference", () => {
     renderSection(["阿岚/战斗装"]);
 
-    expect(screen.queryByText("⚠")).not.toBeInTheDocument();
+    expect(screen.queryByText(/项失效/)).not.toBeInTheDocument();
   });
 
   it("still counts a derivative the character does not have", () => {
     renderSection(["阿岚/夜行衣"]);
 
-    expect(screen.getByText("⚠")).toBeInTheDocument();
+    expect(screen.getByText("1 项失效")).toBeInTheDocument();
   });
 });

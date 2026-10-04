@@ -168,6 +168,7 @@ describe("ShotDetail 剧情演绎", () => {
   it("对应原文只读展示：可编辑模式下也没有编辑控件", () => {
     render(detailElement(makeScene({ source_text: "三年后，阿离推门而入。" }), { onUpdatePrompt: vi.fn() }));
 
+    fireEvent.click(screen.getByRole("button", { name: "对应原文与参考" }));
     const region = screen.getByRole("region", { name: "对应原文" });
     expect(within(region).getByText("三年后，阿离推门而入。")).toBeInTheDocument();
     expect(within(region).queryByRole("textbox")).not.toBeInTheDocument();
@@ -176,6 +177,7 @@ describe("ShotDetail 剧情演绎", () => {
   it("对应原文按逐字原样展示，不裁掉首尾空白", () => {
     render(detailElement(makeScene({ source_text: "  阿离推门而入。\n" })));
 
+    fireEvent.click(screen.getByRole("button", { name: "对应原文与参考" }));
     const region = screen.getByRole("region", { name: "对应原文" });
     expect(within(region).getByText("阿离推门而入。")).toHaveTextContent("  阿离推门而入。\n", {
       normalizeWhitespace: false,
@@ -185,6 +187,7 @@ describe("ShotDetail 剧情演绎", () => {
   it.each([undefined, "  \n"])("没有对应原文时显示空态（%j）", (sourceText) => {
     render(detailElement(makeScene({ source_text: sourceText })));
 
+    fireEvent.click(screen.getByRole("button", { name: "对应原文与参考" }));
     const region = screen.getByRole("region", { name: "对应原文" });
     expect(within(region).getByText("（无对应原文）")).toBeInTheDocument();
   });
@@ -204,7 +207,7 @@ describe("ShotDetail 剧情演绎", () => {
       renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot: vi.fn(), onRemoveShot });
 
       fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
-      const dialog = screen.getByRole("dialog");
+      const dialog = await screen.findByRole("alertdialog");
       expect(within(dialog).getByText("移除分镜 S01？")).toBeInTheDocument();
       expect(within(dialog).getByText(/产物随分镜一并移除/)).toBeInTheDocument();
       expect(onRemoveShot).not.toHaveBeenCalled();
@@ -212,7 +215,7 @@ describe("ShotDetail 剧情演绎", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "移除分镜" }));
 
       await waitFor(() => expect(onRemoveShot).toHaveBeenCalledWith("E1S01"));
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     });
 
     it("有未保存草稿时增删入口禁用；未传回调时不渲染入口", () => {

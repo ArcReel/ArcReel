@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PillSwitch } from "@/components/legacy/PillSwitch";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface SegmentBreakToggleProps {
   checked: boolean;
@@ -9,38 +10,46 @@ interface SegmentBreakToggleProps {
   disabled?: boolean;
 }
 
-/** 章节切分点开关：切换即保存，不弹确认。悬停说明它对分镜图参考链和宫格分组的影响。 */
+/** 章节切分点开关：切换即保存，不弹确认。悬停或聚焦时说明它对分镜图参考链和宫格分组的影响。 */
 export function SegmentBreakToggle({ checked, onChange, disabled = false }: SegmentBreakToggleProps) {
   const { t } = useTranslation("dashboard");
   const labelId = useId();
   const hintId = useId();
   const [saving, setSaving] = useState(false);
 
-  const toggle = async () => {
+  const toggle = async (next: boolean) => {
     if (saving) return;
     setSaving(true);
     try {
-      await onChange(!checked);
+      await onChange(next);
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <span className="inline-flex items-center gap-1.5" title={t("segment_break_hint")}>
-      <span id={labelId} className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
+    <span className="inline-flex items-center gap-1.5">
+      <span id={labelId} className="text-xs text-muted-foreground">
         {t("segment_break_toggle")}
       </span>
       <span id={hintId} hidden>
         {t("segment_break_hint")}
       </span>
-      <PillSwitch
-        checked={checked}
-        onToggle={() => void toggle()}
-        labelledBy={labelId}
-        describedBy={hintId}
-        disabled={disabled || saving}
-      />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Switch
+              size="sm"
+              checked={checked}
+              onCheckedChange={(next) => void toggle(next)}
+              aria-labelledby={labelId}
+              aria-describedby={hintId}
+              disabled={disabled || saving}
+            />
+          }
+        />
+        <TooltipContent>{t("segment_break_hint")}</TooltipContent>
+      </Tooltip>
     </span>
   );
 }

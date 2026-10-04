@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { cn } from "cn";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   NarrationSegment,
@@ -53,7 +54,7 @@ interface ShotSplitViewProps {
 
 
 /**
- * 分镜分屏：左 ShotList + 右 ShotDetail。窄屏时左列折叠到 44px。
+ * 分镜分屏：左侧分镜列表（220px，可收为 44px）+ 右侧分镜详情。
  */
 export function ShotSplitView({
   segments,
@@ -81,12 +82,9 @@ export function ShotSplitView({
   durationWarningReason,
 }: ShotSplitViewProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [collapsed, setCollapsed] = useState(
-    () => typeof window !== "undefined" && window.innerWidth < 1100,
-  );
+  const [collapsed, setCollapsed] = useState(false);
   const [movePending, setMovePending] = useState(false);
   const [structurePending, setStructurePending] = useState(false);
-  const listScrollRef = useRef<HTMLDivElement>(null);
 
   // 分镜改序：请求在途时丢弃后续操作（快速连点会基于过期顺序计算锚点）。
   // 选中按索引存储，移动成功后按新顺序把选中态跟随到原来选中的分镜。
@@ -176,11 +174,10 @@ export function ShotSplitView({
 
   return (
     <div
-      className="grid h-full min-w-0 overflow-hidden"
-      style={{
-        gridTemplateColumns: collapsed ? "44px minmax(0, 1fr)" : "220px minmax(0, 1fr)",
-        gridTemplateRows: "minmax(0, 1fr)",
-      }}
+      className={cn(
+        "grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)]",
+        collapsed ? "grid-cols-[44px_minmax(0,1fr)]" : "grid-cols-[220px_minmax(0,1fr)]",
+      )}
     >
       <ShotList
         segments={segments}
@@ -188,9 +185,9 @@ export function ShotSplitView({
         onSelect={setSelectedIndex}
         contentMode={contentMode}
         projectName={projectName}
+        aspectRatio={aspectRatio}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((c) => !c)}
-        scrollContainerRef={listScrollRef}
         onAppend={handleInsertShot}
         appendDisabled={structurePending || movePending}
         onMove={handleMoveShot}

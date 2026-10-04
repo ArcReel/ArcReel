@@ -1,24 +1,13 @@
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import type { AssetStatus } from "@/types";
 
 export type ShotStatus = "ready" | "storyboard" | "pending";
 
-const CONFIG: Record<ShotStatus, { color: string; bg: string; labelKey: string }> = {
-  ready: {
-    color: "var(--good)",
-    bg: "oklch(0.74 0.08 155 / 0.12)",
-    labelKey: "shot_status_ready",
-  },
-  storyboard: {
-    color: "var(--primary)",
-    bg: "color-mix(in oklab, var(--primary) 12%, transparent)",
-    labelKey: "shot_status_storyboard",
-  },
-  pending: {
-    color: "var(--muted-foreground)",
-    bg: "oklch(0.30 0.01 250 / 0.4)",
-    labelKey: "shot_status_pending",
-  },
+const CONFIG: Record<ShotStatus, { className: string; labelKey: string }> = {
+  ready: { className: "bg-good/12 text-good", labelKey: "shot_status_ready" },
+  storyboard: { className: "bg-primary/12 text-primary", labelKey: "shot_status_storyboard" },
+  pending: { className: "bg-muted text-muted-foreground", labelKey: "shot_status_pending" },
 };
 
 export function statusFromAssets(assetStatus: AssetStatus | undefined | null): ShotStatus {
@@ -32,18 +21,12 @@ export function StatusBadge({ status }: { status: ShotStatus }) {
   const cfg = CONFIG[status];
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-[10.5px] font-medium"
-      style={{
-        color: cfg.color,
-        background: cfg.bg,
-        border: "1px solid transparent",
-      }}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-xs font-medium whitespace-nowrap",
+        cfg.className,
+      )}
     >
-      <span
-        aria-hidden="true"
-        className="h-[5px] w-[5px] rounded-full"
-        style={{ background: cfg.color }}
-      />
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
       {t(cfg.labelKey)}
     </span>
   );

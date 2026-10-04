@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, Download, History } from "lucide-react";
+import { ChevronDown, Download, History } from "lucide-react";
+import { cn } from "cn";
 import { API, type VersionInfo } from "@/api";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
@@ -45,18 +50,10 @@ function getImagePreviewHeightClass(
   return "h-64";
 }
 
-/** Find all scrollable ancestor elements. */
-function getScrollParents(el: HTMLElement): HTMLElement[] {
-  const parents: HTMLElement[] = [];
-  let node: HTMLElement | null = el.parentElement;
-  while (node) {
-    const s = getComputedStyle(node);
-    if (/(auto|scroll)/.test(s.overflow + s.overflowY)) parents.push(node);
-    node = node.parentElement;
-  }
-  return parents;
-}
-
+/**
+ * 资源的历史版本：触发按钮打开弹层，列出版本号，选中一个即预览媒体与生成说明，
+ * 非当前版本可切换为当前。弹层随触发按钮定位，滚动时跟随，不再自行关闭。
+ */
 export function VersionTimeMachine({
   projectName,
   resourceType,
@@ -68,7 +65,9 @@ export function VersionTimeMachine({
   onRestoringChange,
   checkBusy,
 }: VersionTimeMachineProps) {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "common"]);
+  const titleId = useId();
+  const busyHintId = useId();
   const resourcePath =
     resourceType === "storyboards" ? `storyboards/scene_${resourceId}.png` :
     resourceType === "videos" ? `videos/scene_${resourceId}.mp4` :
@@ -81,11 +80,10 @@ export function VersionTimeMachine({
     resourceType === "grids" ? `grids/${resourceId}.png` :
     `props/${resourceId}.png`;
   const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  // 每次底层资源切换递增；在途的版本列表请求返回时若已不是同一资源，结果丢弃。
+  const resourceEpochRef = useRef(0);
 
   const [open, setOpen] = useState(false);
-  const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [currentVersion, setCurrentVersion] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -97,6 +95,7 @@ export function VersionTimeMachine({
   // on next open. Do NOT close the panel — if it's open and a new generation
   // completes, the user should stay in context and see the refreshed list.
   useEffect(() => {
+    resourceEpochRef.current += 1;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 底层资源切换时重置版本列表与加载状态，等下次打开面板时重新拉取
     setVersions([]);
     setCurrentVersion(0);
@@ -114,16 +113,18 @@ export function VersionTimeMachine({
   }, [open, loadedOnce, resourceId]);
 
   async function loadVersions() {
+    const epoch = resourceEpochRef.current;
     setLoading(true);
     try {
       const data = await API.getVersions(projectName, resourceType, resourceId);
+      if (epoch !== resourceEpochRef.current) return;
       setVersions(data.versions);
       setCurrentVersion(data.current_version);
       setLoadedOnce(true);
     } catch {
-      setVersions([]);
+      if (epoch === resourceEpochRef.current) setVersions([]);
     } finally {
-      setLoading(false);
+      if (epoch === resourceEpochRef.current) setLoading(false);
     }
   }
 
@@ -145,8 +146,8 @@ export function VersionTimeMachine({
       }
       await onRestore?.(version);
       await loadVersions();
+      // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示
       setSelectedVersion(version);
-      useAppStore.getState().pushToast(t("switched_to_version", { version }), "success");
     } catch (err) {
       useAppStore
         .getState()
@@ -157,68 +158,6 @@ export function VersionTimeMachine({
     }
   }
 
-  // Close the panel
-  const close = useCallback(() => setOpen(false), []);
-
-  // Compute ideal top position given the trigger rect and panel height
-  const computeTop = useCallback(
-    (triggerRect: DOMRect, panelHeight: number) => {
-      const GAP = 8;
-      return triggerRect.bottom + GAP + panelHeight > window.innerHeight
-        ? Math.max(GAP, triggerRect.top - GAP - panelHeight)
-        : triggerRect.bottom + GAP;
-    },
-    [],
-  );
-
-  // Re-position panel after it mounts or resizes
-  const panelCallbackRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      panelRef.current = node;
-      if (!node || !triggerRef.current) return;
-      const rect = triggerRef.current.getBoundingClientRect();
-      const top = computeTop(rect, node.offsetHeight);
-      setPanelPos((prev) =>
-        prev && Math.abs(prev.top - top) > 1 ? { ...prev, top } : prev,
-      );
-    },
-    [computeTop],
-  );
-
-  // Position panel & register dismiss listeners
-  useEffect(() => {
-    if (!open || !triggerRef.current) {
-      setPanelPos(null);
-      return;
-    }
-    const rect = triggerRef.current.getBoundingClientRect();
-    // Use estimated height for initial placement; panelCallbackRef corrects after mount
-    const top = computeTop(rect, 320);
-    setPanelPos({ top, left: rect.right });
-
-    // Close on scroll (any scrollable ancestor)
-    const scrollParents = getScrollParents(triggerRef.current);
-    for (const sp of scrollParents) {
-      sp.addEventListener("scroll", close, { passive: true, once: true });
-    }
-
-    // Close on click outside
-    function onMouseDown(e: MouseEvent) {
-      if (
-        panelRef.current?.contains(e.target as Node) ||
-        triggerRef.current?.contains(e.target as Node)
-      )
-        return;
-      close();
-    }
-    document.addEventListener("mousedown", onMouseDown);
-
-    return () => {
-      for (const sp of scrollParents) sp.removeEventListener("scroll", close);
-      document.removeEventListener("mousedown", onMouseDown);
-    };
-  }, [open, close, computeTop]);
-
   if (!resourceId) return null;
 
   // Derive the selected version's full info from the latest `versions` array
@@ -226,214 +165,167 @@ export function VersionTimeMachine({
     selectedVersion != null
       ? versions.find((v) => v.version === selectedVersion) ?? null
       : null;
+  const label = t("version_mgmt");
+
+  const trigger = iconOnly ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={<PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label={label} />} />}
+      >
+        <History aria-hidden />
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  ) : (
+    <PopoverTrigger render={<Button variant="ghost" size="xs" className="group/version" />}>
+      <History aria-hidden data-icon="inline-start" />
+      {label}
+      <ChevronDown
+        aria-hidden
+        data-icon="inline-end"
+        className="transition-transform duration-150 group-aria-expanded/version:rotate-180"
+      />
+    </PopoverTrigger>
+  );
 
   return (
-    <div>
-      {iconOnly ? (
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={() => setOpen((prev) => !prev)}
-          title={t("version_mgmt")}
-          aria-label={t("version_mgmt")}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-          style={{ color: "var(--muted-foreground)" }}
-        >
-          <History className="h-3.5 w-3.5" />
-        </button>
-      ) : (
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={() => setOpen((prev) => !prev)}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
-        >
-          <History className="h-3 w-3" />
-          <span>{t("version_mgmt")}</span>
-          {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        </button>
-      )}
+    <Popover open={open} onOpenChange={setOpen}>
+      {trigger}
+      <PopoverContent align="end">
+        <div className="flex items-center justify-between gap-2">
+          <PopoverTitle id={titleId}>{t("history_versions")}</PopoverTitle>
+          {currentVersion > 0 && (
+            <Badge variant="secondary">
+              <span className="num">{t("current_version", { version: currentVersion })}</span>
+            </Badge>
+          )}
+        </div>
 
-      {open &&
-        panelPos &&
-        createPortal(
-          <div
-            ref={panelCallbackRef}
-            style={{
-              position: "fixed",
-              top: panelPos.top,
-              left: panelPos.left,
-              transform: "translateX(-100%)",
-            }}
-            className="z-[9999] w-64 rounded-xl border border-gray-700 bg-gray-900/95 p-3 shadow-2xl shadow-black/40 backdrop-blur"
-          >
-            {loading ? (
-              <span className="text-xs text-gray-500">{t("common:loading")}</span>
-            ) : versions.length === 0 ? (
-              <div className="space-y-1">
-                <p className="text-[11px] font-medium text-gray-300">{t("no_history")}</p>
-                <p className="text-[11px] leading-5 text-gray-500">
-                  {t("history_hint")}
+        {loading ? (
+          <p className="text-xs text-subtle-foreground">{t("common:loading")}</p>
+        ) : versions.length === 0 ? (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm">{t("no_history")}</p>
+            <p className="text-xs text-subtle-foreground">{t("history_hint")}</p>
+          </div>
+        ) : (
+          <>
+            <ToggleGroup
+              aria-labelledby={titleId}
+              variant="outline"
+              size="sm"
+              className="flex-wrap"
+              value={selectedVersion != null ? [String(selectedVersion)] : []}
+              onValueChange={(next: string[]) => setSelectedVersion(next[0] ? Number(next[0]) : null)}
+            >
+              {versions.map((v) => (
+                <ToggleGroupItem key={v.version} value={String(v.version)}>
+                  <span className="num">v{v.version}</span>
+                  {v.is_current ? <span aria-hidden className="size-1.5 rounded-full bg-primary" /> : null}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+
+            {selectedInfo ? (
+              <div className="flex flex-col gap-2 rounded-md bg-muted/50 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="num text-sm font-medium">v{selectedInfo.version}</span>
+                    {selectedInfo.source === "image_edit" && (
+                      <Badge variant="outline">{t("version_image_edit_badge")}</Badge>
+                    )}
+                    <span className="num text-xs text-subtle-foreground">{selectedInfo.created_at}</span>
+                  </span>
+                  {selectedInfo.is_current ? (
+                    <Badge variant="secondary">{t("current_version_badge")}</Badge>
+                  ) : !readOnly && selectedInfo.restorable !== false ? (
+                    <Button
+                      size="xs"
+                      disabled={restoringVersion !== null || busy}
+                      aria-describedby={busy ? busyHintId : undefined}
+                      onClick={() => void handleRestore(selectedInfo.version)}
+                    >
+                      {restoringVersion === selectedInfo.version ? t("switching_version") : t("switch_to_version")}
+                    </Button>
+                  ) : null}
+                </div>
+                {busy && !selectedInfo.is_current && !readOnly && selectedInfo.restorable !== false ? (
+                  <p id={busyHintId} className="text-xs text-subtle-foreground">
+                    {t("version_restore_busy_hint")}
+                  </p>
+                ) : null}
+
+                {selectedInfo.file_url &&
+                  (resourceType === "videos" || resourceType === "reference_videos" ? (
+                    <div className="aspect-video w-full overflow-hidden rounded-md bg-background">
+                      {selectedInfo.presentation_available !== true ? (
+                        // eslint-disable-next-line jsx-a11y/media-has-caption -- 无法进入共享成片读取器的历史视频仅展示原始媒体
+                        <video
+                          src={selectedInfo.file_url}
+                          aria-label={t("version_preview_alt", { version: selectedInfo.version })}
+                          className="size-full object-contain"
+                          controls
+                          playsInline
+                          preload="none"
+                        />
+                      ) : (
+                        <PresentationPlayer
+                          key={`${resourceType}:${resourceId}:${selectedInfo.version}`}
+                          projectName={projectName}
+                          resourceType={resourceType}
+                          resourceId={resourceId}
+                          videoVersion={selectedInfo.version}
+                        />
+                      )}
+                    </div>
+                  ) : resourceType === "audio" ? (
+                    // eslint-disable-next-line jsx-a11y/media-has-caption -- 历史旁白的文字记录显示在同一预览卡片
+                    <audio
+                      src={selectedInfo.file_url}
+                      aria-label={t("version_audio_preview_label", { version: selectedInfo.version })}
+                      className="h-9 w-full"
+                      controls
+                      preload="metadata"
+                    />
+                  ) : (
+                    <div
+                      className={cn(
+                        "flex w-full items-center justify-center rounded-md bg-background p-2",
+                        getImagePreviewHeightClass(resourceType),
+                      )}
+                    >
+                      <img
+                        src={selectedInfo.file_url}
+                        alt={t("version_preview_alt", { version: selectedInfo.version })}
+                        className="max-h-full w-full object-contain"
+                      />
+                    </div>
+                  ))}
+
+                {resourceType === "audio" && selectedInfo.file_url && (
+                  <a
+                    href={selectedInfo.file_url}
+                    download
+                    className={cn(buttonVariants({ variant: "outline", size: "xs" }), "self-start")}
+                  >
+                    <Download aria-hidden data-icon="inline-start" />
+                    {t("version_download_audio")}
+                  </a>
+                )}
+
+                <p className="line-clamp-4 text-xs text-subtle-foreground">
+                  {selectedInfo.prompt ||
+                    (selectedInfo.source === "manual_upload"
+                      ? t("version_manual_upload")
+                      : t("version_no_notes"))}
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                    {t("history_versions")}
-                  </span>
-                  {currentVersion > 0 && (
-                    <span className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-200">
-                      {t("current_version", { version: currentVersion })}
-                    </span>
-                  )}
-                </div>
-
-                {/* Version pills */}
-                <div className="flex flex-wrap gap-1.5">
-                  {versions.map((v) => {
-                    const isCurrent = v.is_current;
-                    const isSelected = selectedVersion === v.version;
-                    return (
-                      <button
-                        key={v.version}
-                        type="button"
-                        onClick={() =>
-                          setSelectedVersion((prev) =>
-                            prev === v.version ? null : v.version,
-                          )
-                        }
-                        className={
-                          "rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors " +
-                          (isSelected
-                            ? "bg-indigo-600 text-white ring-1 ring-indigo-400"
-                            : isCurrent
-                              ? "bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/30"
-                              : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white")
-                        }
-                      >
-                        v{v.version}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {!selectedInfo && (
-                  <p className="text-[10px] leading-4 text-gray-400">
-                    {t("version_click_hint")}
-                  </p>
-                )}
-
-                {/* Preview area */}
-                {selectedInfo && (
-                  <div className="rounded-xl border border-gray-700 bg-gray-950/80 p-2.5">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1.5 text-[11px] font-medium text-gray-200">
-                        v{selectedInfo.version}
-                        {selectedInfo.source === "image_edit" && (
-                          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-200">
-                            {t("version_image_edit_badge")}
-                          </span>
-                        )}
-                        <span className="text-[10px] font-normal text-gray-500">
-                          {selectedInfo.created_at}
-                        </span>
-                      </span>
-                      {selectedInfo.is_current ? (
-                        <span className="shrink-0 rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-300">
-                          {t("current_version_badge")}
-                        </span>
-                      ) : !readOnly && selectedInfo.restorable !== false ? (
-                        <button
-                          type="button"
-                          disabled={restoringVersion !== null || busy}
-                          onClick={() => void handleRestore(selectedInfo.version)}
-                          title={busy ? t("version_restore_busy_hint") : undefined}
-                          className="shrink-0 rounded-full bg-indigo-600 px-2.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
-                        >
-                          {restoringVersion === selectedInfo.version ? t("switching_version") : t("switch_to_version")}
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {/* Media preview */}
-                    {selectedInfo.file_url &&
-                      (resourceType === "videos" || resourceType === "reference_videos" ? (
-                        <div className="mb-2 aspect-video w-full overflow-hidden rounded-lg border border-gray-800 bg-black">
-                          {selectedInfo.presentation_available !== true ? (
-                            // eslint-disable-next-line jsx-a11y/media-has-caption -- 无法进入共享成片读取器的历史视频仅展示原始媒体
-                            <video
-                              src={selectedInfo.file_url}
-                              aria-label={t("version_preview_alt", { version: selectedInfo.version })}
-                              className="h-full w-full object-contain"
-                              controls
-                              playsInline
-                              preload="none"
-                            />
-                          ) : (
-                            <PresentationPlayer
-                              key={`${resourceType}:${resourceId}:${selectedInfo.version}`}
-                              projectName={projectName}
-                              resourceType={resourceType}
-                              resourceId={resourceId}
-                              videoVersion={selectedInfo.version}
-                            />
-                          )}
-                        </div>
-                      ) : resourceType === "audio" ? (
-                        // eslint-disable-next-line jsx-a11y/media-has-caption -- 历史旁白的文字记录显示在同一预览卡片
-                        <audio
-                          src={selectedInfo.file_url}
-                          aria-label={t("version_audio_preview_label", { version: selectedInfo.version })}
-                          className="mb-2 h-9 w-full"
-                          controls
-                          preload="metadata"
-                        />
-                      ) : (
-                        <div
-                          className={`mb-2 flex w-full items-center justify-center rounded-lg border border-gray-800 bg-gray-900/70 p-2 ${getImagePreviewHeightClass(resourceType)}`}
-                        >
-                          <img
-                            src={selectedInfo.file_url}
-                            alt={t("version_preview_alt", { version: selectedInfo.version })}
-                            className="max-h-full w-full object-contain"
-                          />
-                        </div>
-                      ))}
-
-                    {resourceType === "audio" && selectedInfo.file_url && (
-                      <a
-                        href={selectedInfo.file_url}
-                        download
-                        className="mb-2 inline-flex items-center gap-1 rounded-md border border-gray-700 px-2 py-1 text-[10px] font-medium text-gray-300 hover:bg-gray-800 hover:text-white"
-                      >
-                        <Download className="h-3 w-3" aria-hidden />
-                        {t("version_download_audio")}
-                      </a>
-                    )}
-
-                    {/* Prompt text */}
-                    <p className="line-clamp-4 text-[11px] leading-5 text-gray-400">
-                      {selectedInfo.prompt ||
-                        (selectedInfo.source === "manual_upload"
-                          ? t("version_manual_upload")
-                          : t("version_no_notes"))}
-                    </p>
-
-
-                  </div>
-                )}
-
-              </div>
+              <p className="text-xs text-subtle-foreground">{t("version_click_hint")}</p>
             )}
-          </div>,
-          document.body,
+          </>
         )}
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }

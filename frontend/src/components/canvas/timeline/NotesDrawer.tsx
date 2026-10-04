@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { StickyNote, X } from "lucide-react";
+import { useId, useRef, useState } from "react";
+import { StickyNote } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 interface NotesDrawerProps {
@@ -8,143 +11,54 @@ interface NotesDrawerProps {
   shotId: string;
   /** 持久化值 */
   value: string;
-  /** 失焦或显式提交时调用，参数即 textarea 当前值 */
+  /** 收起弹层时调用，参数即输入框当前值 */
   onCommit: (value: string) => void;
 }
 
 /**
- * Shot 备注抽屉。触发按钮 + 弹层 textarea，blur 时持久化。
+ * 分镜备注：页头行尾的图标按钮打开弹层，收起弹层时把改动落库。已有备注时按钮带一个小圆点。
  */
 export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
   const { t } = useTranslation("dashboard");
+  const titleId = useId();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
-  const committedRef = useRef(value);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (committedRef.current !== value) {
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
       setDraft(value);
-      committedRef.current = value;
-    }
-  }, [value]);
-
-  const handleClose = () => {
-    if (draft !== committedRef.current) {
-      committedRef.current = draft;
+    } else if (draft !== value) {
       onCommit(draft);
     }
-    setOpen(false);
+    setOpen(next);
   };
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        title={t("shot_notes_button")}
-        className="sv-navbtn relative inline-flex items-center gap-1.5 px-2"
-        style={{
-          color: open
-            ? "var(--primary)"
-            : value
-              ? "var(--subtle-foreground)"
-              : "var(--muted-foreground)",
-          background: open
-            ? "color-mix(in oklab, var(--primary) 12%, transparent)"
-            : value
-              ? "oklch(0.24 0.012 265 / 0.7)"
-              : "oklch(0.22 0.011 265 / 0.5)",
-          borderColor: open ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "var(--border)",
-        }}
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger
+        render={<Button variant="ghost" size="icon-sm" className="relative" aria-label={t("shot_notes_button")} />}
       >
-        <StickyNote className="h-3.5 w-3.5" />
-        {value && !open && (
-          <span
-            aria-hidden="true"
-            className="absolute right-0.5 top-0.5 h-[5px] w-[5px] rounded-full"
-            style={{
-              background: "var(--primary)",
-              boxShadow: "0 0 4px color-mix(in oklab, var(--primary) 35%, transparent)",
-            }}
-          />
-        )}
-      </button>
-
-      {open && (
-        <>
-          <div
-            onClick={handleClose}
-            className="fixed inset-0 z-30"
-            aria-hidden="true"
-          />
-          <div
-            className="absolute z-40 max-w-[calc(100vw-32px)] rounded-lg p-3"
-            style={{
-              top: "calc(100% + 6px)",
-              right: 14,
-              width: 340,
-              background:
-                "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.98), oklch(0.18 0.010 265 / 0.98))",
-              border: "1px solid var(--border)",
-              boxShadow:
-                "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px color-mix(in oklab, var(--border) 50%, transparent)",
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
-            }}
-          >
-            <div className="mb-2 flex items-center gap-1.5">
-              <StickyNote
-                className="h-3.5 w-3.5"
-                style={{ color: "var(--muted-foreground)" }}
-              />
-              <span
-                className="text-[11px] font-bold uppercase"
-                style={{
-                  color: "var(--muted-foreground)",
-                  letterSpacing: "0.8px",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {t("shot_notes_title")}
-              </span>
-              <span className="flex-1" />
-              <span
-                className="num text-[10px]"
-                style={{ color: "var(--muted-foreground)" }}
-              >
-                {draft.length}
-              </span>
-              <button
-                type="button"
-                onClick={handleClose}
-                aria-label={t("shot_notes_close")}
-                className="grid h-5 w-5 place-items-center rounded-sm text-sm leading-none focus-ring"
-                style={{ color: "var(--muted-foreground)" }}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              ref={(el) => {
-                // 抽屉打开时聚焦，避免使用 autoFocus prop 触发 a11y lint
-                if (el) requestAnimationFrame(() => el.focus());
-              }}
-              placeholder={t("shot_notes_placeholder", { id: itemIdWithinEpisode(shotId) })}
-              className="w-full resize-y rounded-md p-2.5 text-[12.5px] outline-none focus-ring"
-              style={{
-                minHeight: 140,
-                lineHeight: 1.55,
-                color: "var(--subtle-foreground)",
-                background: "oklch(0.16 0.010 265 / 0.6)",
-                border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-                fontFamily: "var(--font-sans)",
-              }}
-            />
-          </div>
-        </>
-      )}
-    </>
+        <StickyNote aria-hidden />
+        {value ? <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" /> : null}
+      </PopoverTrigger>
+      {/* 弹层落在媒体栏上方，常盖住半个按钮；fixed 定位与对话框同属浮层，axe 的 target-size 不再把被盖住的半个按钮算作过小的目标 */}
+      <PopoverContent align="end" positionMethod="fixed" className="w-85" initialFocus={textareaRef}>
+        <div className="flex items-baseline gap-2 px-0.5">
+          <PopoverTitle id={titleId} className="min-w-0 flex-1">
+            {t("shot_notes_title")}
+          </PopoverTitle>
+          <span className="num text-xs text-muted-foreground">{draft.length}</span>
+        </div>
+        <Textarea
+          ref={textareaRef}
+          aria-labelledby={titleId}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={t("shot_notes_placeholder", { id: itemIdWithinEpisode(shotId) })}
+          className="min-h-36"
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

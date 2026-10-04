@@ -3,15 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { ShotList } from "./ShotList";
 import type { AdShot } from "@/types";
 
-// jsdom 中滚动容器无高度，真实 virtualizer 渲染 0 行；mock 成全量渲染以断言行内容
-vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
-    getTotalSize: () => count * 96,
-    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 96 })),
-    measureElement: () => {},
-  }),
-}));
-
 function makeShot(overrides: Partial<AdShot> = {}): AdShot {
   return {
     shot_id: "E1S01",
