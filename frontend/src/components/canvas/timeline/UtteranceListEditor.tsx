@@ -238,17 +238,18 @@ export function UtteranceListEditor({
       ) : (
         <div role="list">
           {utterances.map((u, i) => (
-            <UtteranceRow
-              key={renderKeys[i]}
-              value={u}
-              index={i}
-              total={utterances.length}
-              disabled={disabled}
-              speakerListId={speakerListId}
-              onUpdate={(next) => updateAt(i, next)}
-              onMove={(delta) => moveAt(i, delta)}
-              onRemove={() => removeAt(i)}
-            />
+            <div key={renderKeys[i]} role="listitem">
+              <UtteranceRow
+                value={u}
+                index={i}
+                total={utterances.length}
+                disabled={disabled}
+                speakerListId={speakerListId}
+                onUpdate={(next) => updateAt(i, next)}
+                onMove={(delta) => moveAt(i, delta)}
+                onRemove={() => removeAt(i)}
+              />
+            </div>
           ))}
         </div>
       )}

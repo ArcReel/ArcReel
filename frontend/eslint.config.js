@@ -157,6 +157,8 @@ const REWORKED_FILES = [
   // 剪辑视图（播放器、详情栏与轨道）与出片对话框、空状态
   "src/components/canvas/edit/**",
   "src/components/canvas/edit-render/**",
+  // 分镜视图：画布主体、分镜列表、分镜详情的栏位与页头、媒体栏卡片、引用摘要、备注与版本历史
+  "src/components/canvas/timeline/{TimelineCanvas,ShotSplitView,ShotList,ShotDetailLayout,ShotDetailHeader,TooltipIconButton,ShotStructureActions,EmptyScriptState,StatusBadge,SegmentBreakToggle,NotesDrawer,MediaCard,EndFrameRow,NarrationAudioCard,ReferencesSection,AvatarStack,ClueStack,RefThumbnail,VersionTimeMachine}.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

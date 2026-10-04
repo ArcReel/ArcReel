@@ -1,4 +1,5 @@
 import { AudioLines, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -52,15 +53,9 @@ export function NarrationAudioCard({
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-2 flex items-center gap-1.5">
-        <AudioLines className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
-        <span
-          className="text-[12px] font-semibold"
-          style={{ color: "var(--subtle-foreground)" }}
-        >
-          {t("media_narration_title")}
-        </span>
+      <div className="mb-2 flex min-h-7 items-center gap-1.5">
+        <AudioLines aria-hidden className="size-3.5 text-muted-foreground" />
+        <h3 className="text-xs font-medium text-subtle-foreground">{t("media_narration_title")}</h3>
         <div className="ml-auto">
           <VersionTimeMachine
             projectName={projectName}
@@ -72,20 +67,9 @@ export function NarrationAudioCard({
         </div>
       </div>
 
-      {/* 只读原文 + 播放器并排 */}
-      <div
-        className="rounded-lg px-3 py-2.5"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35))",
-          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-          borderLeft: "3px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-        }}
-      >
-        <p
-          className="display-serif m-0 text-[12.5px]"
-          style={{ lineHeight: 1.65, color: "var(--foreground)" }}
-        >
+      {/* 只读原文 + 播放器 */}
+      <div className="rounded-lg border border-border/50 border-l-2 border-l-primary/25 bg-muted/30 px-3 py-2.5">
+        <p className="display-serif max-w-[40em] text-sm leading-relaxed whitespace-pre-wrap text-foreground">
           {hasNovelText ? novelText : t("no_original_text")}
         </p>
 
@@ -99,43 +83,27 @@ export function NarrationAudioCard({
             className="mt-2.5 h-9 w-full"
           />
         ) : (
-          <div
-            className="mt-2.5 flex items-center justify-center gap-2 rounded-md py-2.5 text-[11.5px]"
-            style={{
-              border: "1px dashed var(--border)",
-              background: "oklch(0.18 0.010 265 / 0.4)",
-              color: "var(--muted-foreground)",
-            }}
-          >
-            <AudioLines className="h-4 w-4" aria-hidden />
+          <div className="mt-2.5 flex items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 py-2.5 text-xs text-muted-foreground">
+            <AudioLines className="size-4" aria-hidden />
             <span>{t("media_not_generated")}</span>
           </div>
         )}
       </div>
 
-      {/* Generate CTA */}
       {onGenerate && (
-        <button
-          type="button"
+        <Button
+          className="mt-2.5 w-full"
+          size="lg"
           onClick={onGenerate}
           disabled={generateDisabled || generating}
           title={generateDisabled ? generateDisabledHint : undefined}
-          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-          style={{
-            color: "oklch(0.14 0 0)",
-            background: "var(--primary)",
-            boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px color-mix(in oklab, var(--primary) 35%, transparent)",
-          }}
         >
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>{generateLabel}</span>
+          <Sparkles aria-hidden data-icon="inline-start" />
+          {generateLabel}
           {estimatedCost && Object.values(estimatedCost).some((v) => v > 0) && (
-            <span className="num ml-1 text-[11px] opacity-70">
-              ~{formatCost(estimatedCost)}
-            </span>
+            <span className="num text-xs font-normal">~{formatCost(estimatedCost)}</span>
           )}
-        </button>
+        </Button>
       )}
     </div>
   );

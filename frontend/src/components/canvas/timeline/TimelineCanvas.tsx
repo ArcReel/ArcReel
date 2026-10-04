@@ -172,15 +172,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
   // 广告/短片没有脚本规划：没有正式脚本时直接从空白开始。
   if (projectData && !episodeScript && !hasDraft && editorContentMode === "ad" && !demoReadOnly) {
-    return <NoScriptBlankState projectName={projectName} episode={episode} className="h-full text-[13px]" />;
+    return <NoScriptBlankState projectName={projectName} episode={episode} className="h-full text-sm" />;
   }
 
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
-      <div
-        className="flex h-full items-center justify-center"
-        style={{ color: "var(--muted-foreground)" }}
-      >
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         {t("select_episode_hint")}
       </div>
     );
@@ -212,7 +209,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     : undefined;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col">
       {view === "board" && hasScript && (
         <EpisodeHeaderActions>
           {editorContentMode === "ad" && !demoReadOnly && (
@@ -256,12 +253,9 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
       )}
 
       {/* 主体 */}
-      <div
-        className="min-h-0 flex-1 overflow-hidden"
-        data-onboarding={ONBOARDING_ANCHORS.workbenchTimeline}
-      >
+      <div className="flex min-h-0 flex-1 flex-col" data-onboarding={ONBOARDING_ANCHORS.workbenchTimeline}>
         {view === "plan" && hasDraft && editorContentMode !== "ad" ? (
-          <div className="h-full overflow-y-auto p-4">
+          <div className="relative h-full overflow-y-auto p-4">
             <ScriptReviewGate
               key={`${projectName}:${episode}`}
               projectName={projectName}
@@ -275,44 +269,37 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             />
           </div>
         ) : episodeScript && segments.length > 0 ? (
-          <div className="flex h-full flex-col">
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ShotSplitView
-                segments={segments}
-                contentMode={editorContentMode}
-                aspectRatio={aspectRatio}
-                projectName={projectName}
-                episode={episode}
-                scriptFile={scriptFile}
-                onUpdatePrompt={handleUpdatePrompt}
-                onMoveShot={handleMoveShot}
-                onInsertShot={handleInsertShot}
-                onRemoveShot={handleRemoveShot}
-                onGenerateStoryboard={handleGenSb}
-                onGenerateVideo={handleGenVid}
-                onGenerateNarration={handleGenNarration}
-                onRestoreStoryboard={onRestoreStoryboard}
-                onRestoreVideo={onRestoreVideo}
-                generatingStoryboard={generatingStoryboard}
-                generatingVideo={generatingVideo}
-                generatingNarration={generatingNarration}
-                durationOptions={durationOptions}
-                durationEndpointFixed={durationEndpointFixed}
-                lastFrame={lastFrame}
-                capabilitiesLoading={capabilitiesLoading}
-                durationWarningReason={durationWarningReason}
-              />
-            </div>
-          </div>
+          <ShotSplitView
+            segments={segments}
+            contentMode={editorContentMode}
+            aspectRatio={aspectRatio}
+            projectName={projectName}
+            episode={episode}
+            scriptFile={scriptFile}
+            onUpdatePrompt={handleUpdatePrompt}
+            onMoveShot={handleMoveShot}
+            onInsertShot={handleInsertShot}
+            onRemoveShot={handleRemoveShot}
+            onGenerateStoryboard={handleGenSb}
+            onGenerateVideo={handleGenVid}
+            onGenerateNarration={handleGenNarration}
+            onRestoreStoryboard={onRestoreStoryboard}
+            onRestoreVideo={onRestoreVideo}
+            generatingStoryboard={generatingStoryboard}
+            generatingVideo={generatingVideo}
+            generatingNarration={generatingNarration}
+            durationOptions={durationOptions}
+            durationEndpointFixed={durationEndpointFixed}
+            lastFrame={lastFrame}
+            capabilitiesLoading={capabilitiesLoading}
+            durationWarningReason={durationWarningReason}
+          />
         ) : episodeScript && contentMode === editorContentMode ? (
           <EmptyScriptState contentMode={editorContentMode} onInsert={handleInsertShot} />
         ) : (
           // 兜底：分镜视图下无可编辑分镜（未知 content_mode），
           // 或剧本回退后仍停留在分镜视图——给出指引而非空白
-          <div
-            className="flex h-full items-center justify-center text-[13px]"
-            style={{ color: "var(--muted-foreground)" }}
-          >
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             {hasScript ? t("timeline_no_editable_segments") : t("timeline_script_not_ready")}
           </div>
         )}

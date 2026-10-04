@@ -1,12 +1,13 @@
-import { useRef, useState, type ComponentType, type RefObject } from "react";
+import { useState, type ComponentType } from "react";
 import { MapPin, Puzzle, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { Popover } from "@/components/legacy/FloatingPopover";
+import { cn } from "cn";
+import { Badge } from "@/components/ui/badge";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { Character, CharacterDerivative, Prop, Scene } from "@/types";
 import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";
-import { colorForName } from "@/utils/color";
 import { formatReferenceName, referenceInitial, splitDerivativeReference } from "@/utils/reference-mentions";
 
 type ThumbnailAssetKind = Exclude<AssetKind, "product">;
@@ -15,7 +16,6 @@ type Asset = Character | CharacterDerivative | Scene | Prop;
 interface KindMeta {
   shape: string;
   Icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
-  badgeClass: string;
   badgeKey:
     | "segment_refs_badge_character"
     | "segment_refs_badge_scene"
@@ -23,24 +23,9 @@ interface KindMeta {
 }
 
 const KIND_META: Record<ThumbnailAssetKind, KindMeta> = {
-  character: {
-    shape: "rounded-full",
-    Icon: User,
-    badgeClass: "bg-indigo-800/60 text-indigo-300",
-    badgeKey: "segment_refs_badge_character",
-  },
-  scene: {
-    shape: "rounded-sm",
-    Icon: MapPin,
-    badgeClass: "bg-amber-800/60 text-amber-300",
-    badgeKey: "segment_refs_badge_scene",
-  },
-  prop: {
-    shape: "rounded-sm",
-    Icon: Puzzle,
-    badgeClass: "bg-emerald-800/60 text-emerald-300",
-    badgeKey: "segment_refs_badge_prop",
-  },
+  character: { shape: "rounded-full", Icon: User, badgeKey: "segment_refs_badge_character" },
+  scene: { shape: "rounded-sm", Icon: MapPin, badgeKey: "segment_refs_badge_scene" },
+  prop: { shape: "rounded-sm", Icon: Puzzle, badgeKey: "segment_refs_badge_prop" },
 };
 
 type BadgeKey = KindMeta["badgeKey"] | "segment_refs_badge_character_derivative";
@@ -62,70 +47,56 @@ export function getSheetPath(
   return typeof value === "string" ? value : undefined;
 }
 
-function RefPopover({
+/** 悬停时的资产预览：资产图、名称、类型与描述首行。 */
+function RefPreview({
   kind,
   name,
   asset,
   projectName,
-  anchorRef,
   sheetFp,
 }: {
   kind: ThumbnailAssetKind;
   name: string;
   asset: Asset;
   projectName: string;
-  anchorRef: RefObject<HTMLElement | null>;
   sheetFp: number | null;
 }) {
   const { t } = useTranslation("dashboard");
-  const meta = KIND_META[kind];
+  const { Icon } = KIND_META[kind];
   const sheetPath = getSheetPath(kind, asset);
   const firstLine = asset.description?.split("\n")[0] ?? "";
-  const { Icon } = meta;
   const displayName = formatReferenceName(name);
 
   return (
-    <Popover
-      open
-      anchorRef={anchorRef}
-      align="center"
-      sideOffset={6}
-      width="w-[26rem]"
-      layer="modal"
-      className="pointer-events-none max-w-[calc(100vw-1.5rem)] rounded-lg border border-gray-700 p-2 shadow-xl"
-    >
-      <div className="flex items-start gap-2.5">
-        {sheetPath ? (
-          <img
-            src={API.getFileUrl(projectName, sheetPath, sheetFp)}
-            alt={displayName}
-            className="h-[120px] w-[90px] shrink-0 rounded-sm object-cover"
-          />
-        ) : (
-          <div className="flex h-[120px] w-[90px] shrink-0 items-center justify-center rounded-sm bg-gray-800">
-            <Icon className="h-8 w-8 text-gray-600" aria-hidden />
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-medium text-white">{displayName}</p>
-            <span
-              className={`shrink-0 rounded-sm px-1 py-0.5 text-[10px] font-semibold ${meta.badgeClass}`}
-            >
-              {t(badgeKeyFor(kind, name))}
-            </span>
-          </div>
-          {firstLine && (
-            <p className="mt-0.5 line-clamp-4 whitespace-normal break-words text-xs leading-relaxed text-gray-400">
-              {firstLine}
-            </p>
-          )}
+    <div className="flex items-start gap-2.5">
+      {sheetPath ? (
+        <img
+          src={API.getFileUrl(projectName, sheetPath, sheetFp)}
+          alt={displayName}
+          className="h-30 w-22 shrink-0 rounded-sm object-cover"
+        />
+      ) : (
+        <div className="flex h-30 w-22 shrink-0 items-center justify-center rounded-sm bg-muted">
+          <Icon className="size-8 text-muted-foreground" aria-hidden />
         </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-sm font-medium">{displayName}</p>
+          <Badge variant="secondary">{t(badgeKeyFor(kind, name))}</Badge>
+        </div>
+        {firstLine && (
+          <p className="mt-0.5 line-clamp-4 text-xs leading-relaxed break-words text-muted-foreground">{firstLine}</p>
+        )}
       </div>
-    </Popover>
+    </div>
   );
 }
 
+/**
+ * 引用的缩略头像：有资产图时显示资产图，否则显示名称首字；悬停显示资产预览。
+ * 常放在可点击的引用摘要里，自身不进入 Tab 顺序，名称由图片的替代文本或外层按钮提供。
+ */
 export function RefThumbnail({
   kind,
   name,
@@ -142,45 +113,38 @@ export function RefThumbnail({
     sheetPath ? s.getAssetFingerprint(sheetPath) : null,
   );
   const [errorKey, setErrorKey] = useState<string | null>(null);
-  const [hovered, setHovered] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
   const meta = KIND_META[kind];
   const currentKey = sheetPath ? `${sheetPath}#${sheetFp ?? ""}` : null;
   const showImage = !!sheetPath && errorKey !== currentKey;
 
-  return (
-    <>
-      <span
-        ref={ref}
-        className="relative inline-block"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-      >
-        {showImage ? (
-          <img
-            src={API.getFileUrl(projectName, sheetPath, sheetFp)}
-            alt={formatReferenceName(name)}
-            className={`h-7 w-7 border-2 border-gray-900 object-cover ${meta.shape}`}
-            onError={() => setErrorKey(currentKey)}
-          />
-        ) : (
-          <span
-            className={`flex h-7 w-7 items-center justify-center border-2 border-gray-900 text-[10px] font-semibold text-white ${meta.shape} ${colorForName(name)}`}
-          >
-            {referenceInitial(name)}
-          </span>
-        )}
-      </span>
-      {hovered && asset && (
-        <RefPopover
-          kind={kind}
-          name={name}
-          asset={asset}
-          projectName={projectName}
-          anchorRef={ref}
-          sheetFp={sheetFp}
-        />
+  const thumb = showImage ? (
+    <img
+      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
+      alt={formatReferenceName(name)}
+      className={cn("size-7 border-2 border-background object-cover", meta.shape)}
+      onError={() => setErrorKey(currentKey)}
+    />
+  ) : (
+    <span
+      className={cn(
+        "flex size-7 items-center justify-center border-2 border-background bg-secondary text-xs font-medium text-subtle-foreground",
+        meta.shape,
       )}
-    </>
+    >
+      {referenceInitial(name)}
+    </span>
+  );
+
+  if (!asset) return <span className="relative inline-block">{thumb}</span>;
+
+  return (
+    <HoverCard>
+      <HoverCardTrigger render={<span className="relative inline-block" />} delay={300}>
+        {thumb}
+      </HoverCardTrigger>
+      <HoverCardContent className="w-104 max-w-[calc(100dvw-1.5rem)]">
+        <RefPreview kind={kind} name={name} asset={asset} projectName={projectName} sheetFp={sheetFp} />
+      </HoverCardContent>
+    </HoverCard>
   );
 }

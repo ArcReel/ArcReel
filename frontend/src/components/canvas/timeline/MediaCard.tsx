@@ -1,10 +1,10 @@
 import { Sparkles, ImageIcon, Film } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { usePlaybackStart } from "@/hooks/usePlaybackStart";
 import { useProjectsStore } from "@/stores/projects-store";
 import { AspectFrame } from "@/components/canvas/shared/AspectFrame";
-import { ImageFlipReveal } from "@/components/canvas/shared/ImageFlipReveal";
 import { PreviewableImageFrame } from "@/components/canvas/shared/PreviewableImageFrame";
 import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 import {
@@ -106,15 +106,9 @@ export function MediaCard({
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-2 flex items-center gap-1.5">
-        <Icon className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
-        <span
-          className="text-[12px] font-semibold"
-          style={{ color: "var(--subtle-foreground)" }}
-        >
-          {title}
-        </span>
+      <div className="mb-2 flex min-h-7 items-center gap-1.5">
+        <Icon aria-hidden className="size-3.5 text-muted-foreground" />
+        <h3 className="text-xs font-medium text-subtle-foreground">{title}</h3>
         <span className="flex-1" />
         {onUpload && !demoReadOnly && (
           <UploadIconButton
@@ -150,28 +144,20 @@ export function MediaCard({
         )}
       </div>
 
-      {/* Media */}
       {assetUrl ? (
         kind === "storyboard" ? (
           <PreviewableImageFrame src={assetUrl} alt={`${itemIdWithinEpisode(segmentId)} ${title}`}>
             <AspectFrame ratio={aspectRatio}>
-              <ImageFlipReveal
+              <img
                 src={assetUrl}
                 alt={`${itemIdWithinEpisode(segmentId)} ${title}`}
                 loading="lazy"
-                className="h-full w-full object-cover"
-                fallback={null}
+                className="size-full object-cover"
               />
             </AspectFrame>
           </PreviewableImageFrame>
         ) : (
-          <div
-            className="overflow-hidden rounded-lg"
-            style={{
-              boxShadow:
-                "0 16px 40px -16px oklch(0 0 0 / 0.7), 0 0 0 1px var(--border)",
-            }}
-          >
+          <div className="overflow-hidden rounded-lg ring-1 ring-border">
             <AspectFrame ratio={aspectRatio}>
               <PresentationPlayer
                 key={`${segmentId}:${assetFp ?? "current"}`}
@@ -186,24 +172,17 @@ export function MediaCard({
         )
       ) : (
         <AspectFrame ratio={aspectRatio}>
-          <div
-            className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-lg"
-            style={{
-              border: "1px dashed var(--border)",
-              background: "oklch(0.18 0.010 265 / 0.4)",
-              color: "var(--muted-foreground)",
-            }}
-          >
-            <Icon className="h-5 w-5" />
-            <span className="text-[11.5px]">{t("media_not_generated")}</span>
+          <div className="flex size-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 text-muted-foreground">
+            <Icon aria-hidden className="size-5" />
+            <span className="text-xs">{t("media_not_generated")}</span>
           </div>
         </AspectFrame>
       )}
 
-      {/* Generate CTA */}
       {onGenerate && !demoReadOnly && (
-        <button
-          type="button"
+        <Button
+          className="mt-2.5 w-full"
+          size="lg"
           onClick={onGenerate}
           disabled={generateDisabled || resourceBusy}
           title={
@@ -211,22 +190,13 @@ export function MediaCard({
               ? (generateDisabledHint ?? t("media_generate_video_disabled_hint"))
               : undefined
           }
-          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-          style={{
-            color: "oklch(0.14 0 0)",
-            background: "var(--primary)",
-            boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px color-mix(in oklab, var(--primary) 35%, transparent)",
-          }}
         >
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>{generateLabel}</span>
+          <Sparkles aria-hidden data-icon="inline-start" />
+          {generateLabel}
           {estimatedCost && Object.values(estimatedCost).some((v) => v > 0) && (
-            <span className="num ml-1 text-[11px] opacity-70">
-              ~{formatCost(estimatedCost)}
-            </span>
+            <span className="num text-xs font-normal">~{formatCost(estimatedCost)}</span>
           )}
-        </button>
+        </Button>
       )}
     </div>
   );

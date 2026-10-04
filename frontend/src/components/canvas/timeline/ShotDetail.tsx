@@ -3,10 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   ImageIcon,
   Film,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  ChevronDown,
   Check,
   Loader2,
   Undo2,
@@ -27,7 +23,9 @@ import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
-import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
+import { ShotDetailLayout, ShotGroup, ShotMediaGrid, ShotSection, ShotSourceCollapsible } from "./ShotDetailLayout";
+import { ShotDetailHeader } from "./ShotDetailHeader";
+import { Badge } from "@/components/ui/badge";
 import { MediaCard } from "./MediaCard";
 import { EndFrameRow } from "./EndFrameRow";
 import { NarrationAudioCard } from "./NarrationAudioCard";
@@ -55,7 +53,6 @@ import {
 } from "@/utils/prompt-shape";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
@@ -480,12 +477,6 @@ export function ShotDetail({
   const narrationText = getNarrationText(segment, contentMode);
   const hasNarrationText = narrationText.trim().length > 0;
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
-  // 应用内链接要求打开本分镜的视频预览时，窄屏下把视频所在的右栏切到前台。
-  const videoStartRequestId = useAppStore((s) =>
-    s.playbackStart?.resource_type === "videos" && s.playbackStart.resource_id === segmentId
-      ? s.playbackStart.request_id
-      : null,
-  );
   const ip = segment.image_prompt;
   const vp = segment.video_prompt;
   const note = segment.note ?? "";
@@ -801,24 +792,12 @@ export function ShotDetail({
     await onUpdatePrompt(segmentId, patch);
   };
 
-  const sectionHeaderStyle: React.CSSProperties = {
-    color: "var(--muted-foreground)",
-    letterSpacing: "1px",
-    fontFamily: "var(--font-mono)",
-  };
-
-  const leftColumn = (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-3.5 pb-5 pt-3.5">
+  // 广告/短片的段落标签、口播与商品与引用同属中栏顶部的「引用」组。
+  const refsGroup = (
+    <ShotGroup>
       {isAd && (
         <>
-          <div>
-            <label
-              htmlFor={`shot-section-${segmentId}`}
-              className="mb-2 block text-[10.5px] font-bold uppercase"
-              style={sectionHeaderStyle}
-            >
-              {t("detail_section_shot_section")}
-            </label>
+          <ShotSection title={t("detail_section_shot_section")} htmlFor={`shot-section-${segmentId}`}>
             <input
               id={`shot-section-${segmentId}`}
               type="text"
@@ -835,22 +814,16 @@ export function ShotDetail({
                 <option key={v} value={v} />
               ))}
             </datalist>
-          </div>
-
-          <div>
-            <div className="mb-2 flex items-center gap-1.5">
-              <label
-                htmlFor={`shot-voiceover-${segmentId}`}
-                className="text-[10.5px] font-bold uppercase"
-                style={sectionHeaderStyle}
-              >
-                {t("detail_section_voiceover")}
-              </label>
-              <span className="flex-1" />
-              <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
+          </ShotSection>
+          <ShotSection
+            title={t("detail_section_voiceover")}
+            htmlFor={`shot-voiceover-${segmentId}`}
+            actions={
+              <span className="num text-xs text-muted-foreground">
                 {t("detail_field_chars_count", { count: (draft.voiceover_text ?? "").length })}
               </span>
-            </div>
+            }
+          >
             <textarea
               id={`shot-voiceover-${segmentId}`}
               className="prompt-ta"
@@ -860,29 +833,17 @@ export function ShotDetail({
               placeholder={t("detail_voiceover_placeholder")}
               style={{ minHeight: 96 }}
             />
-          </div>
-
+          </ShotSection>
           {productNames.length > 0 && (
-            <div>
-              <div className="mb-2 text-[10.5px] font-bold uppercase" style={sectionHeaderStyle}>
-                {t("detail_section_products")}
-              </div>
+            <ShotSection title={t("detail_section_products")}>
               <div className="flex flex-wrap gap-1.5">
                 {productNames.map((name) => (
-                  <span
-                    key={name}
-                    className="rounded-md px-2 py-1 text-[11.5px]"
-                    style={{
-                      background: "oklch(0.22 0.011 265 / 0.6)",
-                      border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-                      color: "var(--subtle-foreground)",
-                    }}
-                  >
+                  <Badge key={name} variant="outline">
                     {name}
-                  </span>
+                  </Badge>
                 ))}
               </div>
-            </div>
+            </ShotSection>
           )}
         </>
       )}
@@ -896,134 +857,13 @@ export function ShotDetail({
         disabled={dirty || saving || refsReadOnly}
         disabledHint={dirty ? dirtyHint : undefined}
       />
-      {/* 对白编辑：narration / ad 编辑扁平 video_prompt.dialogue；drama 使用分镜级
-          utterances（判别式台词 + 画外音），此处直接编辑 scene.utterances 并双向保存同步。 */}
-      {isDrama ? (
-        <div>
-          <div
-            className="mb-2 text-[10.5px] font-bold uppercase"
-            style={{
-              color: "var(--muted-foreground)",
-              letterSpacing: "1px",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {t("detail_section_utterances")}
-          </div>
-          <UtteranceListEditor
-            utterances={draft.utterances ?? EMPTY_UTTERANCES}
-            onChange={handleUtterancesChange}
-            disabled={saving || refsReadOnly}
-            speakerCandidates={speakerNames}
-          />
-        </div>
-      ) : (
-        <div>
-          <div
-            className="mb-2 text-[10.5px] font-bold uppercase"
-            style={{
-              color: "var(--muted-foreground)",
-              letterSpacing: "1px",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {t("detail_section_dialogue")}
-          </div>
-          {vidDraft ? (
-            <DialogueListEditor
-              dialogue={vidDraft.dialogue ?? []}
-              onChange={handleDialogueChange}
-              readOnly={refsReadOnly}
-            />
-          ) : (
-            <div
-              className="rounded-md py-3 text-center text-[11.5px] italic"
-              style={{
-                border: "1px dashed var(--border)",
-                color: "var(--muted-foreground)",
-              }}
-            >
-              {t("detail_dialogue_empty")}
-            </div>
-          )}
-        </div>
-      )}
-
-      {isNarration && (
-        <div>
-          <div className="mb-2 flex items-center gap-1.5">
-            <label
-              htmlFor={`shot-narration-text-${segmentId}`}
-              className="text-[10.5px] font-bold uppercase"
-              style={sectionHeaderStyle}
-            >
-              {t("detail_section_narration_text")}
-            </label>
-            <span className="flex-1" />
-            <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-              {t("detail_field_chars_count", { count: (draft.novel_text ?? "").length })}
-            </span>
-          </div>
-          <textarea
-            id={`shot-narration-text-${segmentId}`}
-            className="prompt-ta display-serif"
-            value={draft.novel_text ?? ""}
-            onChange={(e) => setDraft((d) => ({ ...d, novel_text: e.target.value }))}
-            readOnly={refsReadOnly}
-            placeholder={t("detail_narration_text_placeholder")}
-            style={{ minHeight: 120, lineHeight: 1.65 }}
-          />
-        </div>
-      )}
-
-      {isDrama && <SourceTextReadonly text={dramaScene?.source_text} />}
-
-      {isAd && hasNarrationText && (
-        <div>
-          <div
-            className="mb-2 text-[10.5px] font-bold uppercase"
-            style={{
-              color: "var(--muted-foreground)",
-              letterSpacing: "1px",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {t("detail_section_novel")}
-          </div>
-          <div
-            className="rounded-md px-3 py-2.5"
-            style={{
-              background:
-                "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35))",
-              border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-              borderLeft: "3px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-            }}
-          >
-            <p
-              className="display-serif m-0 text-[13px]"
-              style={{ lineHeight: 1.65, color: "var(--foreground)" }}
-            >
-              {narrationText.trim()}
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
+    </ShotGroup>
   );
 
-  const midColumn = (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
+  const promptsGroup = (
+    <ShotGroup>
       <div className="flex items-center gap-2">
-        <div
-          className="text-[10.5px] font-bold uppercase"
-          style={{
-            color: "var(--muted-foreground)",
-            letterSpacing: "1px",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {t("detail_section_prompts")}
-        </div>
+        <h3 className="text-sm font-medium text-subtle-foreground">{t("detail_section_prompts")}</h3>
         <span className="flex-1" />
         {episode !== undefined && (
           <PromptAuthoringButton
@@ -1036,51 +876,33 @@ export function ShotDetail({
       </div>
 
       {segment.pending_authoring === true && (
-        <div
-          role="status"
-          className="rounded-lg px-3 py-2 text-[11.5px]"
-          style={{
-            color: "var(--subtle-foreground)",
-            background: "color-mix(in oklab, var(--warn) 5%, transparent)",
-            border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-          }}
-        >
+        <div role="status" className="rounded-lg border border-border/50 bg-warn/5 px-3 py-2 text-xs text-subtle-foreground">
           {t("detail_pending_authoring_hint")}
         </div>
       )}
 
-      <section>
-        <div className="mb-2 flex items-center gap-1.5">
-          <ImageIcon
-            className="h-3.5 w-3.5"
-            style={{ color: "var(--muted-foreground)" }}
-          />
-          <span
-            className="text-[12.5px] font-semibold"
-            style={{ color: "var(--subtle-foreground)" }}
-          >
-            {t("detail_image_prompt_title")}
-          </span>
-          <span className="flex-1" />
-          {imgDraft && (
-            <span
-              className="num text-[10px]"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              {t("detail_field_chars_count", { count: imgDraft.scene.length })}
-            </span>
-          )}
-          {renderPromptPreview("image")}
-          {renderFormToggle("image", isStructIp)}
-        </div>
+      <ShotSection
+        title={t("detail_image_prompt_title")}
+        icon={<ImageIcon aria-hidden className="size-3.5" />}
+        actions={
+          <>
+            {imgDraft && (
+              <span className="num text-xs text-muted-foreground">
+                {t("detail_field_chars_count", { count: imgDraft.scene.length })}
+              </span>
+            )}
+            {renderPromptPreview("image")}
+            {renderFormToggle("image", isStructIp)}
+          </>
+        }
+      >
         {imgDraft ? (
           <ImagePromptEditor prompt={imgDraft} onUpdate={handleImgUpdate} readOnly={refsReadOnly} />
         ) : (
           <textarea
             className="prompt-ta"
-            value={
-              typeof draft.image_prompt === "string" ? draft.image_prompt : ""
-            }
+            aria-label={t("detail_image_prompt_title")}
+            value={typeof draft.image_prompt === "string" ? draft.image_prompt : ""}
             onChange={(e) => handleImgStringChange(e.target.value)}
             readOnly={refsReadOnly}
             placeholder={t("detail_image_prompt_placeholder")}
@@ -1088,40 +910,30 @@ export function ShotDetail({
           />
         )}
         {renderFormSwitchError("image")}
-      </section>
+      </ShotSection>
 
-      <section>
-        <div className="mb-2 flex items-center gap-1.5">
-          <Film
-            className="h-3.5 w-3.5"
-            style={{ color: "var(--muted-foreground)" }}
-          />
-          <span
-            className="text-[12.5px] font-semibold"
-            style={{ color: "var(--subtle-foreground)" }}
-          >
-            {t("detail_video_prompt_title")}
-          </span>
-          <span className="flex-1" />
-          {vidDraft && (
-            <span
-              className="num text-[10px]"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              {t("detail_field_chars_count", { count: vidDraft.action.length })}
-            </span>
-          )}
-          {renderPromptPreview("video")}
-          {renderFormToggle("video", isStructVp)}
-        </div>
+      <ShotSection
+        title={t("detail_video_prompt_title")}
+        icon={<Film aria-hidden className="size-3.5" />}
+        actions={
+          <>
+            {vidDraft && (
+              <span className="num text-xs text-muted-foreground">
+                {t("detail_field_chars_count", { count: vidDraft.action.length })}
+              </span>
+            )}
+            {renderPromptPreview("video")}
+            {renderFormToggle("video", isStructVp)}
+          </>
+        }
+      >
         {vidDraft ? (
           <VideoPromptEditor prompt={vidDraft} onUpdate={handleVidUpdate} readOnly={refsReadOnly} />
         ) : (
           <textarea
             className="prompt-ta"
-            value={
-              typeof draft.video_prompt === "string" ? draft.video_prompt : ""
-            }
+            aria-label={t("detail_video_prompt_title")}
+            value={typeof draft.video_prompt === "string" ? draft.video_prompt : ""}
             onChange={(e) => handleVidStringChange(e.target.value)}
             readOnly={refsReadOnly}
             placeholder={t("detail_video_prompt_placeholder")}
@@ -1129,91 +941,148 @@ export function ShotDetail({
           />
         )}
         {renderFormSwitchError("video")}
-      </section>
-    </div>
+      </ShotSection>
+    </ShotGroup>
   );
 
-  const rightColumn = (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-[18px] pb-7 pt-3.5">
-      <MediaCard
-        kind="storyboard"
-        projectName={projectName}
-        segmentId={segmentId}
-        assetPath={assets?.storyboard_image ?? null}
-        aspectRatio={aspectRatio}
-        generating={generatingStoryboard}
-        estimatedCost={sbEstimate ?? undefined}
-        onGenerate={onGenerateStoryboard ? () => onGenerateStoryboard(segmentId) : undefined}
-        onRestore={onRestoreStoryboard}
-        onUpload={
-          scriptFile && !refsReadOnly ? (file) => handleUpload("storyboard", file) : undefined
-        }
-        uploading={uploadingKind === "storyboard"}
-        uploadDisabled={uploadingKind !== null}
-        editScriptFile={refsReadOnly ? undefined : scriptFile}
-        generateDisabled={dirty || saving}
-        generateDisabledHint={dirty ? dirtyHint : undefined}
-      />
-      <div className="flex flex-col">
-        {scriptFile && onGenerateVideo && (
-          <EndFrameRow
-            projectName={projectName}
-            lastFrame={lastFrame}
-            capabilitiesLoading={capabilitiesLoading}
-            segmentId={segmentId}
-            scriptFile={scriptFile}
-            contentMode={contentMode}
-            aspectRatio={aspectRatio}
-            endFramePath={segment.end_frame_image ?? null}
-            readOnly={refsReadOnly}
-            onSubmittingChange={setEndFrameSubmitting}
-            videoUploadBusy={uploadingKind === "video"}
+  // 台词：narration / ad 编辑扁平 video_prompt.dialogue；drama 编辑分镜级 utterances（台词 + 画外音）。
+  const speechGroup = (
+    <ShotGroup>
+      {isDrama ? (
+        <ShotSection title={t("detail_section_utterances")}>
+          <UtteranceListEditor
+            utterances={draft.utterances ?? EMPTY_UTTERANCES}
+            onChange={handleUtterancesChange}
+            disabled={saving || refsReadOnly}
+            speakerCandidates={speakerNames}
           />
-        )}
-        <MediaCard
-          kind="video"
-          projectName={projectName}
-          segmentId={segmentId}
-          assetPath={assets?.video_clip ?? null}
-          posterPath={assets?.video_thumbnail ?? null}
-          aspectRatio={aspectRatio}
-          generating={generatingVideo}
-          generateDisabled={!hasStoryboard || dirty || saving}
-          generateDisabledHint={dirty ? dirtyHint : undefined}
-          estimatedCost={vidEstimate ?? undefined}
-          onGenerate={onGenerateVideo ? () => void onGenerateVideo(segmentId) : undefined}
-          onRestore={onRestoreVideo}
-          onUpload={
-            scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined
+        </ShotSection>
+      ) : (
+        <ShotSection title={t("detail_section_dialogue")}>
+          {vidDraft ? (
+            <DialogueListEditor
+              dialogue={vidDraft.dialogue ?? []}
+              onChange={handleDialogueChange}
+              readOnly={refsReadOnly}
+            />
+          ) : (
+            <p className="rounded-lg border border-dashed border-border py-3 text-center text-xs text-muted-foreground">
+              {t("detail_dialogue_empty")}
+            </p>
+          )}
+        </ShotSection>
+      )}
+      {isNarration && (
+        <ShotSection
+          title={t("detail_section_narration_text")}
+          htmlFor={`shot-narration-text-${segmentId}`}
+          actions={
+            <span className="num text-xs text-muted-foreground">
+              {t("detail_field_chars_count", { count: (draft.novel_text ?? "").length })}
+            </span>
           }
-          uploading={uploadingKind === "video"}
-          uploadDisabled={uploadingKind !== null || endFrameSubmitting}
-        />
-      </div>
-      {(contentMode === "narration" || hasNarrationText || Boolean(assets?.narration_audio)) && (
-        <NarrationAudioCard
+        >
+          <textarea
+            id={`shot-narration-text-${segmentId}`}
+            className="prompt-ta display-serif"
+            value={draft.novel_text ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, novel_text: e.target.value }))}
+            readOnly={refsReadOnly}
+            placeholder={t("detail_narration_text_placeholder")}
+            style={{ minHeight: 120, lineHeight: 1.65 }}
+          />
+        </ShotSection>
+      )}
+    </ShotGroup>
+  );
+
+  const hasSource = isDrama || (isAd && hasNarrationText);
+  const sourceGroup = hasSource ? (
+    <ShotGroup>
+      <ShotSourceCollapsible>
+        {isDrama && <SourceTextReadonly text={dramaScene?.source_text} />}
+        {isAd && hasNarrationText && (
+          <ShotSection title={t("detail_section_novel")}>
+            <p className="display-serif max-w-[40em] border-l-2 border-primary/25 pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-foreground">
+              {narrationText.trim()}
+            </p>
+          </ShotSection>
+        )}
+      </ShotSourceCollapsible>
+    </ShotGroup>
+  ) : null;
+
+  const storyboardMedia = (
+    <MediaCard
+      kind="storyboard"
+      projectName={projectName}
+      segmentId={segmentId}
+      assetPath={assets?.storyboard_image ?? null}
+      aspectRatio={aspectRatio}
+      generating={generatingStoryboard}
+      estimatedCost={sbEstimate ?? undefined}
+      onGenerate={onGenerateStoryboard ? () => onGenerateStoryboard(segmentId) : undefined}
+      onRestore={onRestoreStoryboard}
+      onUpload={scriptFile && !refsReadOnly ? (file) => handleUpload("storyboard", file) : undefined}
+      uploading={uploadingKind === "storyboard"}
+      uploadDisabled={uploadingKind !== null}
+      editScriptFile={refsReadOnly ? undefined : scriptFile}
+      generateDisabled={dirty || saving}
+      generateDisabledHint={dirty ? dirtyHint : undefined}
+    />
+  );
+
+  const videoMedia = (
+    <>
+      {scriptFile && onGenerateVideo && (
+        <EndFrameRow
           projectName={projectName}
+          lastFrame={lastFrame}
+          capabilitiesLoading={capabilitiesLoading}
           segmentId={segmentId}
-          novelText={narrationText}
-          assetPath={assets?.narration_audio ?? null}
-          generating={generatingNarration}
-          generateDisabled={!hasNarrationText || dirty || saving}
-          generateDisabledHint={!hasNarrationText ? t("no_original_text") : dirty ? dirtyHint : undefined}
-          estimatedCost={narrationEstimate ?? undefined}
-          onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
+          scriptFile={scriptFile}
+          contentMode={contentMode}
+          aspectRatio={aspectRatio}
+          endFramePath={segment.end_frame_image ?? null}
+          readOnly={refsReadOnly}
+          onSubmittingChange={setEndFrameSubmitting}
+          videoUploadBusy={uploadingKind === "video"}
         />
       )}
-      <ConfirmDialog
-        open={pendingStructSwitch !== null}
-        title={t("prompt_form_to_structured_title")}
-        description={t("prompt_form_to_structured_desc")}
-        confirmLabel={t("prompt_form_to_structured_confirm")}
-        tone="danger"
-        onConfirm={confirmStructuredForm}
-        onCancel={() => setPendingStructSwitch(null)}
+      <MediaCard
+        kind="video"
+        projectName={projectName}
+        segmentId={segmentId}
+        assetPath={assets?.video_clip ?? null}
+        posterPath={assets?.video_thumbnail ?? null}
+        aspectRatio={aspectRatio}
+        generating={generatingVideo}
+        generateDisabled={!hasStoryboard || dirty || saving}
+        generateDisabledHint={dirty ? dirtyHint : undefined}
+        estimatedCost={vidEstimate ?? undefined}
+        onGenerate={onGenerateVideo ? () => void onGenerateVideo(segmentId) : undefined}
+        onRestore={onRestoreVideo}
+        onUpload={scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined}
+        uploading={uploadingKind === "video"}
+        uploadDisabled={uploadingKind !== null || endFrameSubmitting}
       />
-    </div>
+    </>
   );
+
+  const audioMedia =
+    contentMode === "narration" || hasNarrationText || Boolean(assets?.narration_audio) ? (
+      <NarrationAudioCard
+        projectName={projectName}
+        segmentId={segmentId}
+        novelText={narrationText}
+        assetPath={assets?.narration_audio ?? null}
+        generating={generatingNarration}
+        generateDisabled={!hasNarrationText || dirty || saving}
+        generateDisabledHint={!hasNarrationText ? t("no_original_text") : dirty ? dirtyHint : undefined}
+        estimatedCost={narrationEstimate ?? undefined}
+        onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
+      />
+    ) : null;
 
   // 重排在途也要锁定切镜：ShotSplitView 在移动完成回调里按当前 selectedIndex 偏移，
   // 在途切换分镜会让偏移作用到新选中项，选中态跳到错误分镜。
@@ -1227,205 +1096,157 @@ export function ShotDetail({
         ? dirtyHint
         : undefined;
 
-  return (
-    <div
-      className="flex min-h-0 min-w-0 flex-col overflow-hidden"
-      style={{
-        background:
-          "radial-gradient(ellipse at top, oklch(0.20 0.012 270 / 0.35), oklch(0.17 0.010 265 / 0.2))",
-      }}
-    >
-      <div
-        className="relative flex items-center gap-2.5 px-5 py-3"
-        style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-      >
-        <span
-          className="num rounded-md px-2.5 py-1 text-[12px] font-bold"
-          style={{
-            background:
-              "var(--primary)",
-            color: "oklch(0.14 0 0)",
-            letterSpacing: "0.3px",
-            boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 2px 6px -2px color-mix(in oklab, var(--primary) 35%, transparent)",
-          }}
-        >
-          {itemIdWithinEpisode(segmentId)}
-        </span>
-        <DurationPill
-          seconds={segment.duration_seconds ?? 0}
-          segmentId={segmentId}
-          projectName={projectName}
-          scriptFile={scriptFile}
-          durationOptions={durationOptions}
-          durationEndpointFixed={durationEndpointFixed}
-          durationWarningReason={durationWarningReason}
-          onUpdatePrompt={onUpdatePrompt}
-          busy={!!generatingStoryboard || !!generatingVideo}
-        />
-        <StatusBadge status={status} />
-        {(isNarration || isDrama) && onUpdatePrompt && (
-          <SegmentBreakToggle
-            checked={(segment as NarrationSegment | DramaScene).segment_break === true}
-            onChange={(next) => onUpdatePrompt(segmentId, "segment_break", next)}
-            disabled={!!generatingStoryboard || !!generatingVideo}
-          />
-        )}
-        <span className="flex-1" />
-
-        <div className="flex items-center gap-1.5">
-          <span
-            className="num text-[10.5px]"
-            style={{ color: "var(--muted-foreground)" }}
-          >
-            {t("shot_detail_count", {
-              current: selectedIndex + 1,
-              total: totalCount,
-            })}
-          </span>
-          {onMoveShot && (
-            <>
-              <button
-                type="button"
-                onClick={() => void onMoveShot(segmentId, "earlier")}
-                disabled={navDisabled || selectedIndex === 0}
-                title={navDisabledHint ?? t("shot_move_earlier")}
-                className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t("shot_move_earlier")}
-              >
-                <ChevronUp className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void onMoveShot(segmentId, "later")}
-                disabled={navDisabled || selectedIndex === totalCount - 1}
-                title={navDisabledHint ?? t("shot_move_later")}
-                className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t("shot_move_later")}
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-            </>
-          )}
-          <ShotStructureActions
+  const header = (
+    <ShotDetailHeader
+      segmentId={segmentId}
+      index={selectedIndex}
+      total={totalCount}
+      meta={
+        <>
+          <DurationPill
+            seconds={segment.duration_seconds ?? 0}
             segmentId={segmentId}
-            contentMode={contentMode}
-            disabled={navDisabled}
-            disabledHint={navDisabledHint}
-            removeBlockedHint={
-              generatingStoryboard || generatingVideo || generatingNarration
-                ? t("shot_remove_blocked_generating")
-                : totalCount <= 1
-                  ? t("shot_remove_blocked_last")
-                  : undefined
-            }
-            onInsert={onInsertShot}
-            onRemove={onRemoveShot}
+            projectName={projectName}
+            scriptFile={scriptFile}
+            durationOptions={durationOptions}
+            durationEndpointFixed={durationEndpointFixed}
+            durationWarningReason={durationWarningReason}
+            onUpdatePrompt={onUpdatePrompt}
+            busy={!!generatingStoryboard || !!generatingVideo}
           />
-          <button
-            type="button"
-            onClick={onPrev}
-            disabled={navDisabled}
-            title={navDisabledHint ?? t("shot_detail_prev")}
-            className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={t("shot_detail_prev")}
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={navDisabled}
-            title={navDisabledHint ?? t("shot_detail_next")}
-            className="sv-navbtn disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={t("shot_detail_next")}
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-          {/* 备注抽屉只有落库才有意义：只读展示下不给入口，免得输入的备注静默丢弃 */}
-          {refsReadOnly ? null : (
-            <NotesDrawer
-              shotId={segmentId}
-              value={note}
-              onCommit={handleNotesCommit}
+          <StatusBadge status={status} />
+          {(isNarration || isDrama) && onUpdatePrompt && (
+            <SegmentBreakToggle
+              checked={(segment as NarrationSegment | DramaScene).segment_break === true}
+              onChange={(next) => onUpdatePrompt(segmentId, "segment_break", next)}
+              disabled={!!generatingStoryboard || !!generatingVideo}
             />
           )}
-        </div>
-      </div>
+        </>
+      }
+      onMoveEarlier={onMoveShot ? () => void onMoveShot(segmentId, "earlier") : undefined}
+      onMoveLater={onMoveShot ? () => void onMoveShot(segmentId, "later") : undefined}
+      structureActions={
+        <ShotStructureActions
+          segmentId={segmentId}
+          contentMode={contentMode}
+          disabled={navDisabled}
+          disabledHint={navDisabledHint}
+          removeBlockedHint={
+            generatingStoryboard || generatingVideo || generatingNarration
+              ? t("shot_remove_blocked_generating")
+              : totalCount <= 1
+                ? t("shot_remove_blocked_last")
+                : undefined
+          }
+          onInsert={onInsertShot}
+          onRemove={onRemoveShot}
+        />
+      }
+      onPrev={onPrev}
+      onNext={onNext}
+      navDisabled={navDisabled}
+      navDisabledHint={navDisabledHint}
+      notes={
+        // 备注只有落库才有意义：只读展示下不给入口，免得输入的备注静默丢弃
+        refsReadOnly ? null : <NotesDrawer shotId={segmentId} value={note} onCommit={handleNotesCommit} />
+      }
+    />
+  );
 
-      {dirty && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-2 px-5 py-2"
-          style={{
-            background:
-              "linear-gradient(180deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.20 0.012 270 / 0.35))",
-            borderBottom: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-          }}
-        >
-          <span
-            aria-hidden="true"
-            className="h-1.5 w-1.5 rounded-full"
-            style={{
-              background: "var(--primary)",
-              boxShadow: "0 0 6px color-mix(in oklab, var(--primary) 35%, transparent)",
-            }}
-          />
-          <span
-            className="num text-[10.5px] uppercase"
-            style={{
-              letterSpacing: "1.0px",
-              color: "var(--primary)",
-            }}
-          >
-            {t("shot_detail_unsaved")}
-          </span>
-          <span className="flex-1" />
-          <button
-            type="button"
-            onClick={handleCancel}
-            disabled={saving}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] text-muted-foreground transition-colors [&:not(:disabled)]:hover:bg-[oklch(0.26_0.013_265_/_0.7)] [&:not(:disabled)]:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              border: "1px solid var(--border)",
-              background: "oklch(0.22 0.011 265 / 0.5)",
-            }}
-          >
-            <Undo2 className="h-3.5 w-3.5" />
-            <span>{t("shot_detail_cancel")}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform [&:not(:disabled)]:hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-            style={{
-              color: "oklch(0.14 0 0)",
-              background:
-                "var(--primary)",
-              boxShadow:
-                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
-            }}
-          >
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Check className="h-3.5 w-3.5" />
-            )}
-            <span>
-              {saving ? t("shot_detail_saving") : t("shot_detail_save")}
-            </span>
-          </button>
-        </div>
-      )}
-
-      <ResponsiveDetailGrid
-        left={leftColumn}
-        mid={midColumn}
-        right={rightColumn}
-        revealRightKey={videoStartRequestId}
+  const unsavedBanner = dirty ? (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex items-center gap-2 px-5 py-2"
+      style={{
+        background:
+          "linear-gradient(180deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.20 0.012 270 / 0.35))",
+        borderBottom: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-1.5 rounded-full"
+        style={{
+          background: "var(--primary)",
+          boxShadow: "0 0 6px color-mix(in oklab, var(--primary) 35%, transparent)",
+        }}
       />
+      <span
+        className="num text-[10.5px] uppercase"
+        style={{
+          letterSpacing: "1.0px",
+          color: "var(--primary)",
+        }}
+      >
+        {t("shot_detail_unsaved")}
+      </span>
+      <span className="flex-1" />
+      <button
+        type="button"
+        onClick={handleCancel}
+        disabled={saving}
+        className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] text-muted-foreground transition-colors [&:not(:disabled)]:hover:bg-[oklch(0.26_0.013_265_/_0.7)] [&:not(:disabled)]:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        style={{
+          border: "1px solid var(--border)",
+          background: "oklch(0.22 0.011 265 / 0.5)",
+        }}
+      >
+        <Undo2 className="h-3.5 w-3.5" />
+        <span>{t("shot_detail_cancel")}</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => void handleSave()}
+        disabled={saving}
+        className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform [&:not(:disabled)]:hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+        style={{
+          color: "oklch(0.14 0 0)",
+          background:
+            "var(--primary)",
+          boxShadow:
+            "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
+        }}
+      >
+        {saving ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Check className="h-3.5 w-3.5" />
+        )}
+        <span>
+          {saving ? t("shot_detail_saving") : t("shot_detail_save")}
+        </span>
+      </button>
     </div>
+  ) : null;
+
+  return (
+    <>
+      <ShotDetailLayout
+        header={header}
+        banner={unsavedBanner}
+        main={
+          <>
+            {refsGroup}
+            {promptsGroup}
+            {speechGroup}
+            {sourceGroup}
+          </>
+        }
+        media={
+          <ShotMediaGrid aspectRatio={aspectRatio} storyboard={storyboardMedia} video={videoMedia} audio={audioMedia} />
+        }
+      />
+      <ConfirmDialog
+        open={pendingStructSwitch !== null}
+        title={t("prompt_form_to_structured_title")}
+        description={t("prompt_form_to_structured_desc")}
+        confirmLabel={t("prompt_form_to_structured_confirm")}
+        tone="danger"
+        onConfirm={confirmStructuredForm}
+        onCancel={() => setPendingStructSwitch(null)}
+      />
+    </>
   );
 }

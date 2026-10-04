@@ -18,11 +18,12 @@ function PopoverContent({
   sideOffset = 4,
   collisionAvoidance,
   anchor,
+  positionMethod,
   ...props
 }: PopoverPrimitive.Popup.Props &
   Pick<
     PopoverPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset" | "collisionAvoidance" | "anchor"
+    "align" | "alignOffset" | "side" | "sideOffset" | "collisionAvoidance" | "anchor" | "positionMethod"
   >) {
   return (
     <PopoverPrimitive.Portal>
@@ -34,6 +35,8 @@ function PopoverContent({
         collisionAvoidance={collisionAvoidance}
         // 透传 anchor：没有 Trigger 的弹层（如输入框上方的斜杠命令菜单）按指定元素定位
         anchor={anchor}
+        // 透传 positionMethod：盖在页面控件上的编辑弹层用 fixed，与对话框同属固定定位的浮层
+        positionMethod={positionMethod}
         className="isolate z-overlay"
       >
         {/* 高度夹到触发点与视口边缘之间的可用空间，超出时弹层内部滚动，不越出视口 */}

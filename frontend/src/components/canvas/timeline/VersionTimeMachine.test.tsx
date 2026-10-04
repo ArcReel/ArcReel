@@ -95,8 +95,11 @@ describe("VersionTimeMachine", () => {
       );
       expect(onRestore).toHaveBeenCalledWith(1);
       expect(API.getVersions).toHaveBeenCalledTimes(2);
-      expect(useAppStore.getState().toast?.text).toBe("已切换到 v1");
     });
+    // 切换结果体现在「当前」标记上，成功不弹提示
+    expect(await screen.findByText("当前 v1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
+    expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("shows character preview with contain layout so tall images are not cropped", async () => {
@@ -398,7 +401,7 @@ describe("VersionTimeMachine", () => {
 
     const restoreButton = await screen.findByRole("button", { name: /切换到此版本/ });
     expect(restoreButton).toBeDisabled();
-    expect(restoreButton).toHaveAttribute("title", "生成或编辑进行中，暂无法切换版本");
+    expect(restoreButton).toHaveAccessibleDescription("生成或编辑进行中，暂无法切换版本");
 
     fireEvent.click(restoreButton);
     expect(restoreSpy).not.toHaveBeenCalled();

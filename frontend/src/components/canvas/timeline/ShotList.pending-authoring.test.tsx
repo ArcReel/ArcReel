@@ -4,15 +4,6 @@ import { ShotList } from "./ShotList";
 import type { NarrationSegment } from "@/types";
 import { makeNarrationSegment } from "@/test/factories";
 
-// jsdom 中滚动容器无高度，真实 virtualizer 渲染 0 行；mock 成全量渲染以断言行内容
-vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
-    getTotalSize: () => count * 96,
-    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 96 })),
-    measureElement: () => {},
-  }),
-}));
-
 function renderList(segments: NarrationSegment[]) {
   return render(
     <ShotList
