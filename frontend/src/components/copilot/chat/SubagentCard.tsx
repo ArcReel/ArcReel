@@ -23,6 +23,8 @@ function deriveStatus(block: ContentBlock, sessionDone: boolean): CardStatus {
   const task = block.task_info;
   if (task?.task_status === "failed" || block.is_error) return "failed";
   if (task?.task_status === "completed" || block.result !== undefined) return "completed";
+  // 缺锚点子智能体的推断终态：子时间线停在工具调用中途
+  if (task?.task_status === "stopped") return "stopped";
   // 会话终结且子智能体无终态时，卡片显示已停止，避免运行状态悬挂。
   return sessionDone ? "stopped" : "running";
 }

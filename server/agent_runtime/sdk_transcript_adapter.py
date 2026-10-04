@@ -301,6 +301,10 @@ class SdkTranscriptAdapter:
         if isinstance(tool_use_result, dict):
             result["tool_use_result"] = tool_use_result
 
+        # 压缩续接摘要的结构化标记只在原始载荷上，写入点据此给条目打标记。
+        if payload is not None and payload.get("isCompactSummary") is True:
+            result["is_compact_summary"] = True
+
         parent_tool_use_id = getattr(msg, "parent_tool_use_id", None)
         if parent_tool_use_id:
             result["parent_tool_use_id"] = parent_tool_use_id

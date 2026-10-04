@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { base64OfSize } from "@/test/image-data";
 import { stubImageCanvas } from "@/test/imageCanvas";
@@ -360,6 +360,19 @@ describe("MessageRow", () => {
     render(<MessageRow turn={{ type: "system", uuid: "s-1", content: [{ type: "interrupt_notice" }] }} />);
 
     expect(screen.getByText("已停止，这一轮的回复没有完成")).toBeInTheDocument();
+  });
+
+  it("shows a compaction summary as a context-compacted separator with the summary folded", async () => {
+    render(
+      <MessageRow
+        turn={{ type: "system", uuid: "c-1", content: [{ type: "compact_summary", text: "第 8 集已审完三个镜头" }] }}
+      />,
+    );
+
+    expect(screen.queryByText("第 8 集已审完三个镜头")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "上下文已压缩" }));
+    // 摘要按 Markdown 渲染，渲染器加载完会替换先显示的纯文本，所以每次重新查询
+    await waitFor(() => expect(screen.getByText("第 8 集已审完三个镜头")).toBeInTheDocument());
   });
 
   it("gives a streaming draft no action row", () => {

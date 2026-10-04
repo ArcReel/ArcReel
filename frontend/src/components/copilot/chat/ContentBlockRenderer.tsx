@@ -9,6 +9,7 @@ import { SkillChip } from "./SkillChip";
 import { SubagentCard } from "./SubagentCard";
 import { TaskProgressBlock } from "./TaskProgressBlock";
 import { AgentFailureCard } from "./AgentFailureCard";
+import { CompactionMarker } from "./CompactionMarker";
 
 // ---------------------------------------------------------------------------
 // ContentBlockRenderer – dispatches a single ContentBlock to the appropriate
@@ -24,6 +25,8 @@ import { AgentFailureCard } from "./AgentFailureCard";
 //   task_progress    -> TaskProgressBlock (in-place updated task state)
 //   interrupt_notice -> 分隔线「已停止，这一轮的回复没有完成」
 //   question_answer  -> QuestionAnswerBlock (AskUserQuestion answer)
+//   agent_failure    -> AgentFailureCard（一句话结论，原始信息折叠在「详情」里）
+//   compact_summary  -> CompactionMarker（「上下文已压缩」分隔线，点开看摘要）
 //   image            -> ChatImage（点开看原图）
 // ---------------------------------------------------------------------------
 
@@ -108,6 +111,9 @@ export function ContentBlockRenderer({ block, index, streaming }: ContentBlockRe
 
     case "agent_failure":
       return block.failure ? <AgentFailureCard failure={block.failure} /> : null;
+
+    case "compact_summary":
+      return <CompactionMarker key={block.id ?? `block-${index}`} summary={block.text} />;
 
     case "image":
       if (block.source?.data && block.source?.media_type) {

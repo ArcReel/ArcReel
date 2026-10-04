@@ -251,6 +251,31 @@ class TestSdkTranscriptAdapterStorePath:
         assert result[0]["tool_use_result"] == {"questions": [], "answers": {"继续吗?": "继续"}, "annotations": {}}
 
     @pytest.mark.asyncio
+    async def test_read_via_store_carries_compact_summary_flag_from_store_payload(self):
+        """压缩续接摘要的 isCompactSummary 只在 store payload 上，回填后写入点据此打标记。"""
+        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+        mock_msg.type = "user"
+        mock_msg.message = {"content": "This session is being continued from a previous conversation..."}
+        mock_msg.uuid = "uuid-compact"
+        mock_msg.parent_tool_use_id = None
+
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(
+            return_value=[
+                {"type": "user", "uuid": "uuid-compact", "isCompactSummary": True, "message": {"content": "..."}},
+            ]
+        )
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
+            new=AsyncMock(return_value=[mock_msg]),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
+
+        assert result[0]["is_compact_summary"] is True
+
+    @pytest.mark.asyncio
     async def test_read_via_store_omits_tool_use_result_when_absent(self):
         mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
         mock_msg.type = "user"

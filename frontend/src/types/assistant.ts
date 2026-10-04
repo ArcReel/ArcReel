@@ -36,6 +36,7 @@ export interface ContentBlock {
     | "interrupt_notice"
     | "question_answer"
     | "agent_failure"
+    | "compact_summary"
     | "image";
   text?: string;
   thinking?: string;
@@ -75,6 +76,11 @@ export interface FailureObservation {
   project_name: string | null;
   session_id: string | null;
   summary: {
+    /**
+     * 一句话结论的稳定机器 key，只从结构化证据派生（见 server/agent_runtime/failure_observation.py）。
+     * 早于该字段物化的历史事件没有 key，按阶段的通用 key 显示。
+     */
+    key?: string;
     source: string;
     /** SDK / 上游可新增任意 JSON 形态；前端只呈现，不做枚举推断。 */
     type: unknown;
@@ -116,8 +122,8 @@ export interface TimelineEntry {
   // tool_result / question_answer 条目字段
   tool_use_id?: string | null;
   is_error?: boolean;
-  // 写入点定型的子类型：system 条目为 task_* / interrupt / skill_invocation；
-  // user 条目为 question_answer
+  // 写入点定型的子类型：system 条目为 task_* / interrupt / skill_invocation /
+  // agent_turn_failure / subagent_outcome；user 条目为 question_answer / compact_summary
   subtype?: string;
   task_id?: string | null;
   description?: string;

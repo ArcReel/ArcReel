@@ -94,6 +94,17 @@ describe("buildDisplayItems", () => {
     expect(new Set(items.map((item) => item.key)).size).toBe(items.length);
   });
 
+  it("keeps a compaction marker as its own item, separating the replies before and after it", () => {
+    const compaction: Turn = { type: "system", uuid: "c-1", content: [{ type: "compact_summary", text: "摘要" }] };
+    const items = buildDisplayItems(
+      [user("u-1", "你好"), assistant("a-1", [text("压缩前")]), compaction, assistant("a-2", [text("压缩后")])],
+      null,
+    );
+
+    expect(items.map((item) => item.key)).toEqual(["u-1", "u-1:reply", "c-1", "c-1:reply"]);
+    expect(items[2].turn.content).toEqual(compaction.content);
+  });
+
   it("places an interrupted draft before the interrupt marker, in the same round as its committed part", () => {
     const items = buildDisplayItems(
       [user("u-1", "你好"), assistant("a-1", [text("已写")]), interrupt],

@@ -4,7 +4,8 @@
  * 日志条目已在服务端写入点定型（tool_result 独立条目、interrupt / task 通知 /
  * AskUserQuestion 答复为 typed 条目、子智能体条目带 parent_tool_use_id、
  * stream_event 不入日志），本模块只做渲染归组：连续 assistant 条目合并、
- * tool_result 按 tool_use_id 回填、task 按 task_id 就地更新。
+ * tool_result 按 tool_use_id 回填、task 按 task_id 就地更新；压缩续接摘要
+ * 投影为 compact_summary 块，缺锚点子智能体的推断终态挂到合成卡片上。
  * 不做内容嗅探、不做内容比对去重、不合成消息。
  *
  * 投影分两层：
@@ -125,6 +126,8 @@ export function createTimelineProjector(): TimelineProjector {
   // 里已锚定完成的子智能体组随会话增长把每条新消息的合成卡片扫描拖成
   // O(历史子智能体总数)。
   let pendingGroups = new Set<SubagentGroup>();
+  // 缺锚点子智能体的推断描述与终态（写入点按子时间线推断），合成卡片据此显示。
+  let subagentOutcomes = new Map<string, ContentBlock>();
   let toolUseSites = new Map<string, ToolUseSite>();
   let turnViewCache = new WeakMap<InternalTurn, { version: number; turn: Turn }>();
   let composed: Turn[] = [];
@@ -139,6 +142,7 @@ export function createTimelineProjector(): TimelineProjector {
     main = newFold();
     groups = new Map();
     pendingGroups = new Set();
+    subagentOutcomes = new Map();
     toolUseSites = new Map();
     turnViewCache = new WeakMap();
     composed = [];
@@ -359,6 +363,20 @@ export function createTimelineProjector(): TimelineProjector {
         startTurn(fold, "system", [{ type: "interrupt_notice" }], entry);
         return;
       }
+      if (entry.subtype === "subagent_outcome") {
+        if (entry.tool_use_id) {
+          subagentOutcomes.set(entry.tool_use_id, {
+            type: "task_progress",
+            status: "task_notification",
+            description: entry.description ?? "",
+            summary: entry.summary ?? undefined,
+            task_status: entry.task_status ?? undefined,
+            tool_use_id: entry.tool_use_id,
+          });
+          composedDirty = true;
+        }
+        return;
+      }
       if (entry.subtype !== "task_started" && entry.subtype !== "task_progress" && entry.subtype !== "task_notification") {
         return;
       }
@@ -381,6 +399,10 @@ export function createTimelineProjector(): TimelineProjector {
     }
 
     // entry.type === "user"
+    if (entry.subtype === "compact_summary") {
+      startTurn(fold, "system", [{ type: "compact_summary", text: blocksText(entryBlocks(entry)) }], entry);
+      return;
+    }
     if (entry.subtype === "question_answer") {
       const resultText = typeof entry.content === "string" ? entry.content : blocksText(entryBlocks(entry));
       const answers = entry.answers ?? undefined;
@@ -500,11 +522,10 @@ export function createTimelineProjector(): TimelineProjector {
     // 不丢子时间线。只扫 pendingGroups（当前仍未锚定的组），不扫全部历史
     // groups——已锚定的组不会再变回待锚定，扫描量不随会话内子智能体总数增长。
     for (const group of pendingGroups) {
-      out.push({
-        type: "system",
-        content: [{ type: "tool_use", id: group.id, name: "Agent", input: {}, sub_turns: foldDisplay(group.fold) }],
-        uuid: `subagent-${group.id}`,
-      });
+      const card: ContentBlock = { type: "tool_use", id: group.id, name: "Agent", input: {}, sub_turns: foldDisplay(group.fold) };
+      const outcome = subagentOutcomes.get(group.id);
+      if (outcome) card.task_info = { ...outcome };
+      out.push({ type: "system", content: [card], uuid: `subagent-${group.id}` });
     }
     composed = out;
     composedDirty = false;

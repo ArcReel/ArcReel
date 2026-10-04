@@ -244,6 +244,7 @@ class TestAssistantRoutes:
         assert failure["project_name"] == PROJECT
         assert failure["session_id"] is None
         assert failure["summary"] == {
+            "key": "startup_failed",
             "source": "sdk_stderr",
             "type": "NotImplementedError",
             "message": stderr_text,

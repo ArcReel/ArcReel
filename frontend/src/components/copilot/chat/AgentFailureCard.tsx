@@ -1,12 +1,47 @@
-import { useId, useState } from "react";
-import { Check, ChevronRight, Copy, RotateCcw, Settings, TriangleAlert } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { Check, ChevronRight, Copy, RotateCcw, Settings, TriangleAlert, Unplug } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
 
 import { settingsSectionPath } from "@/app-routes";
-import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { FailureObservation } from "@/types";
 import { copyText } from "@/utils/clipboard";
+
+// ---------------------------------------------------------------------------
+// AgentFailureCard — Agent 失败：标题、一句话结论与操作，原始信息折叠在「详情」里。
+//
+// 结论由后端下发的稳定 key 本地化（key 只取自结构化证据，见
+// server/agent_runtime/failure_observation.py），只描述观测、不推断根因；不认识的
+// key 和早于该字段的历史事件按阶段的通用 key 显示。操作只给与根因无关的三项：
+// Agent 设置、复制诊断信息、启动失败的重试。轮次失败不提供重试，避免重放已执行的工具操作。
+// ---------------------------------------------------------------------------
+
+const CONCLUSION_KEYS: Record<FailureObservation["phase"], ReadonlySet<string>> = {
+  turn: new Set([
+    "authentication_failed",
+    "billing_error",
+    "rate_limit",
+    "invalid_request",
+    "server_error",
+    "error_max_turns",
+    "error_max_budget_usd",
+  ]),
+  startup: new Set(["cli_not_found", "cli_connection_failed", "process_failed", "startup_timeout"]),
+};
+const GENERIC_KEY: Record<FailureObservation["phase"], string> = {
+  turn: "turn_failed",
+  startup: "startup_failed",
+};
+
+/** 一句话结论用的 key：认识的原样使用，其余回落到该阶段的通用 key。 */
+export function failureConclusionKey(failure: FailureObservation): string {
+  const key = failure.summary.key;
+  return key && CONCLUSION_KEYS[failure.phase].has(key) ? key : GENERIC_KEY[failure.phase];
+}
+
+const COPIED_RESET_MS = 2000;
 
 interface AgentFailureCardProps {
   failure: FailureObservation;
@@ -25,9 +60,9 @@ export function AgentFailureCard({ failure, onRetry }: Readonly<AgentFailureCard
   const { t } = useTranslation("dashboard");
   const [copied, setCopied] = useState(false);
   const titleId = useId();
+  const startup = failure.phase === "startup";
   const raw = JSON.stringify(failure, null, 2);
   const unavailable = t("agent_failure_not_provided");
-  const startup = failure.phase === "startup";
   const facts: Array<[string, unknown]> = [
     [t("agent_failure_source_label"), failure.summary.source],
     [t("agent_failure_type_label"), failure.summary.type],
@@ -36,72 +71,91 @@ export function AgentFailureCard({ failure, onRetry }: Readonly<AgentFailureCard
     facts.push([t("agent_failure_status_label"), failure.summary.status]);
   }
 
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), COPIED_RESET_MS);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
   const copy = () => {
     void copyText(raw).then(() => setCopied(true), () => setCopied(false));
   };
+
+  const Icon = startup ? Unplug : TriangleAlert;
 
   return (
     <section
       role="alert"
       aria-labelledby={titleId}
-      className="min-w-0 overflow-hidden rounded-xl border border-warn/30 bg-warn/4"
+      className="flex max-w-[40em] min-w-0 flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5"
     >
-      <div className="space-y-3 p-3.5">
-        <header className="flex items-start gap-2.5">
-          <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
-          <div className="min-w-0">
-            <h3 id={titleId} className="text-[13px] font-semibold text-foreground">
-              {t(startup ? "agent_failure_startup_title" : "agent_failure_turn_title")}
-            </h3>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {t("agent_failure_observation_note")}
-            </p>
-          </div>
-        </header>
-
-        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[11px]">
-          {facts.map(([label, value]) => (
-            <div key={label} className="contents">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="min-w-0 break-all font-mono text-subtle-foreground">{display(value, unavailable)}</dd>
-            </div>
-          ))}
-        </dl>
-
-        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-card/60 p-2.5 font-mono text-[11px] leading-relaxed text-subtle-foreground">
-          {display(failure.summary.message, unavailable)}
-        </pre>
+      <div className="flex items-start gap-2">
+        <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-destructive" />
+        <div className="min-w-0 flex-1">
+          <h3 id={titleId} className="text-sm font-medium text-foreground">
+            {t(startup ? "agent_failure_startup_title" : "agent_failure_turn_title")}
+          </h3>
+          <p className="mt-0.5 text-sm text-subtle-foreground">
+            {t(`agent_failure_conclusion_${failureConclusionKey(failure)}`)}
+          </p>
+        </div>
       </div>
 
-      <details className="group border-t border-border/50 px-3.5 py-2 text-[11px] text-muted-foreground">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <ChevronRight aria-hidden className="h-3 w-3 transition-transform group-open:rotate-90" />
-          {t("agent_failure_details_label")}
-        </summary>
-        <pre
-          data-testid="failure-observation-json"
-          className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-card/60 p-2.5 font-mono text-[10.5px] leading-relaxed"
-        >
-          {raw}
-        </pre>
-      </details>
-
-      <footer className="flex flex-wrap gap-2 border-t border-border/50 px-3.5 py-2.5">
-        <button type="button" onClick={copy} className={GHOST_BTN_CLS}>
-          {copied ? <Check aria-hidden className="h-3.5 w-3.5" /> : <Copy aria-hidden className="h-3.5 w-3.5" />}
-          {t(copied ? "agent_failure_copied" : "agent_failure_copy")}
-        </button>
-        <Link href={`~${settingsSectionPath("arcreel-agent")}`} className={GHOST_BTN_CLS}>
-          <Settings aria-hidden className="h-3.5 w-3.5" />
-          {t("agent_failure_open_settings")}
-        </Link>
-        {startup && onRetry && (
-          <button type="button" onClick={onRetry} className={GHOST_BTN_CLS}>
-            <RotateCcw aria-hidden className="h-3.5 w-3.5" />
-            {t("agent_failure_retry_startup")}
-          </button>
-        )}
-      </footer>
+      <Collapsible render={<div className="flex min-w-0 flex-col gap-2" />}>
+        <div className="flex flex-wrap items-center gap-1">
+          {startup && onRetry && (
+            <Button variant="outline" size="xs" onClick={onRetry}>
+              <RotateCcw data-icon="inline-start" aria-hidden />
+              {t("agent_failure_retry_startup")}
+            </Button>
+          )}
+          <Link
+            href={`~${settingsSectionPath("arcreel-agent")}`}
+            className={buttonVariants({ variant: "ghost", size: "xs" })}
+          >
+            <Settings data-icon="inline-start" aria-hidden />
+            {t("agent_failure_open_settings")}
+          </Link>
+          <Button variant="ghost" size="xs" onClick={copy}>
+            {copied ? <Check data-icon="inline-start" aria-hidden /> : <Copy data-icon="inline-start" aria-hidden />}
+            {t(copied ? "agent_failure_copied" : "agent_failure_copy")}
+          </Button>
+          <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="ml-auto" />}>
+            {t("agent_failure_details_label")}
+            <ChevronRight
+              data-icon="inline-end"
+              aria-hidden
+              className="transition-transform group-aria-expanded/button:rotate-90"
+            />
+          </CollapsibleTrigger>
+        </div>
+        <CollapsibleContent>
+          <div className="flex flex-col gap-2 border-t border-destructive/20 pt-2 text-xs text-subtle-foreground">
+            <p className="text-muted-foreground">{t("agent_failure_observation_note")}</p>
+            <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
+              {facts.map(([label, value]) => (
+                <div key={label} className="contents">
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="min-w-0 font-mono break-all">{display(value, unavailable)}</dd>
+                </div>
+              ))}
+              <div className="contents">
+                <dt className="text-muted-foreground">{t("agent_failure_message_label")}</dt>
+                <dd className="min-w-0 font-mono break-all whitespace-pre-wrap">
+                  {display(failure.summary.message, unavailable)}
+                </dd>
+              </div>
+            </dl>
+            <p className="text-muted-foreground">{t("agent_failure_payload_label")}</p>
+            <pre
+              data-testid="failure-observation-json"
+              className="rounded-md bg-background/60 p-2 font-mono break-all whitespace-pre-wrap"
+            >
+              {raw}
+            </pre>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }

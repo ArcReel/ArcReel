@@ -194,11 +194,12 @@ Agent 面板是名为 `agent` 的尺寸容器，面板内 `Textarea` 的默认�
 
 ### Agent 面板的消息区由 `MessageFlow` 管理滚动跟随，消息按 turn 类型分发渲染
 
-消息区是 `components/copilot/chat/MessageFlow`，滚动交给 `components/ui/message-scroller`：贴底时随新内容跟随到底，用户上翻即停止跟随，底部出现圆形的「跳到最新」按钮。不手写 `scrollTop` 赋值或「内容变化就滚到底」的 effect。新增或改动消息区时遵守三条：
+消息区是 `components/copilot/chat/MessageFlow`，滚动交给 `components/ui/message-scroller`：贴底时随新内容跟随到底，用户上翻即停止跟随，底部出现圆形的「跳到最新」按钮。不手写 `scrollTop` 赋值或「内容变化就滚到底」的 effect。新增或改动消息区时遵守四条：
 
 - **用户动作后显式回到底部。** 发送消息、提交回答这类「接下来要看回复」的动作，先调用 `MessageFlowHandle.scrollToEnd()`，它同时恢复跟随。切换会话以会话 id 作 `key` 重新挂载，新会话从底部开始。
 - **显示层整理在纯函数里。** 两条用户消息之间连续的 assistant turn 合成一轮、跳过没有可见内容的 turn，都在 `display-items.ts` 的 `buildDisplayItems` 中完成并有单元测试；渲染组件不再自行合并或过滤。
 - **按类型分发。** `MessageRow` 按 turn 类型分发：用户消息是靠右的 `Bubble`（`tinted`，宽度上限 85%），Agent 正文不加气泡、限宽 40em，系统事件逐块渲染；不显示「你」「Agent」角色眉题。块级渲染统一经 `ContentBlockRenderer`。操作行占住固定行高，悬停或焦点进入所在消息时才显示。
+- **按写入点的标记显示，不嗅探文本。** 压缩续接摘要（`compact_summary`）显示为「上下文已压缩」分隔线，缺锚点子代理的推断终态（`subagent_outcome`）挂到合成卡片上，都在 `utils/entry-projection` 里由条目子类型投影，渲染组件不按英文前缀识别。Agent 失败卡片的结论由故障观测的 `summary.key` 本地化（`agent_failure_conclusion_<key>`），不认识的 key 回落到按阶段的通用结论；原始类型、状态、消息与载荷只放在「详情」里。
 
 Markdown 正文（`StreamMarkdown`）里的代码块与表格放不下时横向滚动，由它的 rehype 插件统一标成可用键盘聚焦的区域，调用处不需要另外处理。
 
