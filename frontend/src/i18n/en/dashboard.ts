@@ -436,10 +436,7 @@ export default {
   'mode_badge_drama': 'Drama 16:9',
   'mode_badge_narration': 'Narration/Commentary 9:16',
   'project_zip_download_started_with_diagnostics': 'Project ZIP download started, export contains {{count}} diagnostics',
-  'project_zip_download_started': 'Project ZIP download started',
   'export_failed': 'Export failed: {{message}}',
-  'open_notification_center': 'Open notification center',
-  'notification_tooltip': 'Session notifications: {{count}} items',
   'toggle_options': 'Toggle options',
   'export_project_zip': 'Export project archive',
   'exporting_zip': 'Exporting...',
@@ -757,6 +754,7 @@ export default {
 
   // WorkspaceNotificationsDrawer title
   'workspace_notifications_title': 'Workspace Notifications',
+  'notifications_trigger_unread': 'Workspace notifications, {{count}} unread',
 
   // MediaModelSection
   'save_failed': 'Failed to save: {{message}}',
@@ -1390,17 +1388,10 @@ export default {
 
   // WorkspaceNotificationsDrawer
   'notifications_count': '{{count}} notifications',
-  'unread_count': 'Unread {{count}}',
-  'close_notification_panel': 'Close notification panel',
   'no_notifications': 'No notifications',
   'notifications_hint': 'Project refreshes, generation completions, and navigable changes will appear here',
-  'read_status': 'Read',
   'new_notification': 'New',
-  'view_location': 'View & Locate',
-  'notification_only': 'Notification only',
-  'remove_label': 'Remove',
-  'auto_mark_read_hint': 'Opening the panel automatically marks notifications as read',
-  'session_records': 'Session records',
+  'view_location': 'View',
   'just_now': 'Just now',
   'minutes_ago': '{{count}} min ago',
 
@@ -1762,9 +1753,20 @@ export default {
 
   // ---- Workbench v3 ----
   'project_switcher_current': 'Current project',
-  'project_switcher_active_tag': 'ACTIVE',
   'project_switcher_new': 'New project…',
-  'project_switcher_settings': 'Project settings…',
+  'project_switcher_label': 'Switch project (current: {{name}})',
+  'project_switcher_search': 'Search projects',
+  'project_switcher_projects': 'Projects',
+  'project_switcher_no_match': 'No matching projects',
+  'project_switcher_load_failed': 'Couldn\'t load projects: {{message}}',
+  'project_switcher_all': 'All projects',
+  'global_settings': 'Global settings',
+  'notifications_session_hint': 'Notifications are kept for this session only',
+  'remove_notification': 'Remove notification',
+  'workspace_not_found_title': 'This page doesn\'t exist',
+  'workspace_not_found_back': 'Back to overview',
+  'episode_reorder': 'Reorder “{{name}}”',
+  'project_switcher_settings': 'Project settings',
   'episodes_section_title': 'Episodes',
   'episode_search_placeholder': 'Search episode by name or number…',
   'add_episode': 'Add an episode',
@@ -3162,7 +3164,6 @@ export default {
   'episode_menu_move_later': 'Move down',
   'episode_menu_delete': 'Delete this episode',
   'episode_menu_upload_sources': 'Upload episode source text',
-  'episode_drag_hint': 'Drag to change the airing order',
   'episode_plan_gap': 'Plan this unsplit source text',
   'episode_view_aria': 'Episode view',
   'episode_view_storyboard': 'Storyboard',

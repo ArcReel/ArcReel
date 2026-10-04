@@ -252,7 +252,7 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
                 reorderable={!search}
                 onOpen={(episode) => setLocation(`/episodes/${episode}`)}
                 onCreateAfter={setCreateAfter}
-                onMove={(episode, after) => void moveEpisode(episode, after)}
+                onMove={moveEpisode}
                 onDelete={(episode) => void deletion.requestDelete(episode)}
               />
             )}

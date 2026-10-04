@@ -129,6 +129,9 @@ const REWORKED_FILES = [
   "src/components/layout/{StudioLayout,AssetSidebar,AgentPanelToggle,WorkspaceResizeHandle,workspace-layout}.{ts,tsx}",
   // 项目概览与空项目欢迎页：页头、资产完成度与费用、故事设定
   "src/components/canvas/overview/**",
+  // 工作区顶栏（项目切换器、通知、导出）、侧栏集列表与项目内未知路径的空状态
+  "src/components/layout/{GlobalHeader,ProjectMenu,WorkspaceNotificationsDrawer,SidebarEpisodeList,EpisodeCard,useProjectExport}.tsx",
+  "src/components/canvas/WorkspaceNotFound.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

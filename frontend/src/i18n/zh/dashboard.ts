@@ -436,13 +436,10 @@ export default {
   'mode_badge_drama': '剧情演绎 16:9',
   'mode_badge_narration': '旁白/解说 9:16',
   'project_zip_download_started_with_diagnostics': '项目 ZIP 已开始下载，导出包包含 {{count}} 条诊断',
-  'project_zip_download_started': '项目 ZIP 已开始下载',
   'export_failed': '导出失败: {{message}}',
-  'open_notification_center': '打开通知中心',
-  'notification_tooltip': '会话通知: {{count}} 条',
   'toggle_options': '切换选项',
   'export_project_zip': '导出项目归档',
-  'exporting_zip': '导出中...',
+  'exporting_zip': '导出中…',
   'export_zip': '导出项目',
   'export_renders_moved_hint': '成片与剪映草稿在各集的剪辑视图中导出。',
   'export_open_edit_view': '打开「{{name}}」的剪辑视图',
@@ -756,6 +753,7 @@ export default {
 
   // WorkspaceNotificationsDrawer 标题
   'workspace_notifications_title': '工作区通知',
+  'notifications_trigger_unread': '工作区通知，未读 {{count}} 条',
 
   // MediaModelSection
   'save_failed': '保存失败: {{message}}',
@@ -1389,17 +1387,10 @@ export default {
 
   // WorkspaceNotificationsDrawer
   'notifications_count': '{{count}} 条通知',
-  'unread_count': '未读 {{count}}',
-  'close_notification_panel': '关闭通知面板',
   'no_notifications': '当前没有通知',
   'notifications_hint': '项目刷新、生成完成和可定位变更会出现在这里',
-  'read_status': '已读',
   'new_notification': '新通知',
-  'view_location': '查看定位',
-  'notification_only': '仅通知',
-  'remove_label': '移除',
-  'auto_mark_read_hint': '打开面板会自动标记为已读',
-  'session_records': '临时会话记录',
+  'view_location': '查看',
   'just_now': '刚刚',
   'minutes_ago': '{{count}} 分钟前',
 
@@ -1761,9 +1752,20 @@ export default {
 
   // ---- Workbench v3 ----
   'project_switcher_current': '当前项目',
-  'project_switcher_active_tag': '当前',
   'project_switcher_new': '新建项目…',
-  'project_switcher_settings': '项目设置…',
+  'project_switcher_label': '切换项目（当前：{{name}}）',
+  'project_switcher_search': '搜索项目',
+  'project_switcher_projects': '项目',
+  'project_switcher_no_match': '没有匹配的项目',
+  'project_switcher_load_failed': '项目列表加载失败：{{message}}',
+  'project_switcher_all': '全部项目',
+  'global_settings': '全局设置',
+  'notifications_session_hint': '通知只在当前会话中保留',
+  'remove_notification': '移除这条通知',
+  'workspace_not_found_title': '这个页面不存在',
+  'workspace_not_found_back': '回到概览',
+  'episode_reorder': '调整「{{name}}」的顺序',
+  'project_switcher_settings': '项目设置',
   'episodes_section_title': '分集',
   'episode_search_placeholder': '搜索集名或编号…',
   'add_episode': '添加一集',
@@ -3161,7 +3163,6 @@ export default {
   'episode_menu_move_later': '后移',
   'episode_menu_delete': '删除这一集',
   'episode_menu_upload_sources': '上传集原文',
-  'episode_drag_hint': '拖拽可调整播出顺序',
   'episode_plan_gap': '规划这段未切分的原文',
   'episode_view_aria': '集视图',
   'episode_view_storyboard': '分镜',

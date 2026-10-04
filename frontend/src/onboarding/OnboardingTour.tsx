@@ -39,8 +39,8 @@ export function OnboardingTour() {
   // 只在已知应用路由内生效——未匹配路由（404）与 /login 一样不掺和，否则引导会
   // 在错链接 / 旧书签落地的 404 页自动弹出，且关闭时把全局 seen 标记写成已看过。
   // /app/settings、/app/assets 是无子路由的单页，前缀匹配会把 /app/settings/unknown
-  // 这类 404 误判为主界面；/app/projects/:projectName 下 StudioCanvasRouter 的内层
-  // <Switch> 同样没有兜底路由，未注册的子路径按 APP_PROJECT_WORKSPACE_PATTERN 精确匹配。
+  // 这类 404 误判为主界面；/app/projects/:projectName 下未注册的子路径在画布内显示空状态，
+  // 同样不算主界面，按 APP_PROJECT_WORKSPACE_PATTERN 精确匹配。
   // wouter 底层 regexparam 大小写不敏感、且非 loose 模式下末尾斜杠可选（pattern 以
   // `\/?$` 收尾），这里统一转小写、去掉末尾斜杠后再比对，避免大小写变体或带尾斜杠的
   // 合法路径（wouter 能正常渲染）被本判断误判为不在主界面内。

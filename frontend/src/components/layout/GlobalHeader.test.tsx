@@ -16,11 +16,6 @@ vi.mock("@/components/usage/UsageHeaderEntry", () => ({
   ),
 }));
 
-vi.mock("./WorkspaceNotificationsDrawer", () => ({
-  WorkspaceNotificationsDrawer: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="notifications-drawer" /> : null,
-}));
-
 /** 打开「导出项目」弹窗并选择归档范围。 */
 async function openExportScope(option: "current" | "full") {
   screen.getByRole("button", { name: "导出项目归档" }).click();
@@ -83,23 +78,6 @@ describe("GlobalHeader", () => {
     expect(screen.queryByText("halou-92d19a04")).not.toBeInTheDocument();
   });
 
-  it("shows unread notification count and opens the drawer", async () => {
-    useAppStore.getState().pushWorkspaceNotification({
-      text: "AI 刚更新了道具「玉佩」，点击查看",
-      target: {
-        type: "prop",
-        id: "玉佩",
-        route: "/props",
-      },
-    });
-
-    renderHeader();
-
-    expect(screen.getByTitle("会话通知: 1 条")).toBeInTheDocument();
-    screen.getByRole("button", { name: "打开通知中心" }).click();
-    expect(await screen.findByTestId("notifications-drawer")).toBeInTheDocument();
-  });
-
   it("exports the current project zip via browser-native download", async () => {
     vi.spyOn(API, "requestExportToken").mockResolvedValue({
       download_token: "test-download-token",
@@ -133,6 +111,7 @@ describe("GlobalHeader", () => {
     });
     expect(anchorClick).toHaveBeenCalled();
     expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
+    expect(await screen.findByRole("dialog", { name: "导出诊断" })).toBeInTheDocument();
   });
 
   it("「导出项目」只剩项目归档，并提示成片与剪映草稿在剪辑视图导出", async () => {
@@ -216,10 +195,14 @@ describe("GlobalHeader", () => {
     expect(useAppStore.getState().usagePanelOpen).toBe(false);
   });
 
-  it("renders asset library button", async () => {
+  // 项目设置在项目切换器里；齿轮在项目内也只通往全局设置
+  it("links the gear to global settings and the back link to the lobby", () => {
+    useProjectsStore.setState({ currentProjectName: "real-project" });
+
     renderHeader();
 
-    expect(screen.getByRole("button", { name: "资产库" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "全局设置" })).toHaveAttribute("href", "/app/settings");
+    expect(screen.getByRole("link", { name: "项目" })).toHaveAttribute("href", "/app/projects");
   });
 
   it("shows an error toast when exporting fails", async () => {
@@ -245,5 +228,7 @@ describe("GlobalHeader", () => {
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("导出失败");
     });
+    // 导出失败记入工作区通知，事后可在通知中心回看
+    expect(useAppStore.getState().workspaceNotifications[0]?.text).toContain("导出失败");
   });
 });

@@ -20,6 +20,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./overview/OverviewCanvas";
+import { WorkspaceNotFound } from "./WorkspaceNotFound";
 import { EpisodesView } from "./episodes/EpisodesView";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
@@ -908,6 +909,11 @@ export function StudioCanvasRouter() {
             </div>
           );
         }}
+      </Route>
+
+      {/* 没有路由承接的子路径（含已移除的 lorebook、clues）：画布内显示空状态，外壳保留 */}
+      <Route>
+        <WorkspaceNotFound />
       </Route>
     </Switch>
   );

@@ -58,7 +58,7 @@ interface StudioLayoutProps {
  */
 export function StudioLayout({ children }: StudioLayoutProps) {
   const { t } = useTranslation("dashboard");
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
   // 演示项目在后端不存在：任务 / 项目事件流和 Agent 都是真实写路径，演示态下整条都不接
   const demoMode = useDemoWorkbench();
@@ -237,7 +237,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     <div ref={shellRef} className="relative flex h-dvh flex-col overflow-hidden text-foreground">
       <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
-      <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
+      <GlobalHeader />
       {demoMode ? <DemoReadOnlyBanner /> : null}
       <ResizablePanelGroup className="min-h-0 flex-1" onLayoutChanged={handleLayoutChanged}>
         <ResizablePanel

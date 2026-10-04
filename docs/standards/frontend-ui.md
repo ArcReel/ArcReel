@@ -128,6 +128,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 - **Sheet**：左右两侧默认宽度为 `w-md`。调整右侧宽度时写 `data-[side=right]:w-*`，直接写 `w-*` 会被原语里带 `data-[side=right]:` 前缀的默认宽度盖住。Sheet 同样按 Header、Body、Footer 组合。
 - **Popover**：高度不超过触发点到视口边缘的可用空间（`max-h-(--available-height)`），内容超出时在 Popup 内滚动。
 - **DropdownMenu**：分组标题传给 `DropdownMenuGroup` 的 `label`；删除等不可逆的菜单项用 `variant="destructive"`。
+- **Command**（cmdk，常放在 Popover 里做可搜索的选择列表）：`CommandList` 是 listbox，只放 `CommandEmpty`、`CommandGroup` 与 `CommandItem`。分隔线、加载中与加载失败的提示放在 `CommandList` 之外，否则 axe 报 `aria-required-children`；不随搜索词过滤的固定入口（如「全部项目」）写成 Command 之外的 `Button` 或 `Link`，用 Tab 到达。Popover 打开时用 `initialFocus` 把焦点交给 `CommandInput`。
 
 ### 层级只用 z-index token，调用处不写 `z-*`
 

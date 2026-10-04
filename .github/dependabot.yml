@@ -184,6 +184,7 @@ updates:
           - "@lobehub/*"
           - "@tanstack/react-virtual"
           - "@dnd-kit/*"
+          - "cmdk"
           - "recharts"
           - "react-resizable-panels"
           - "streamdown"

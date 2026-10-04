@@ -1,6 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { Clapperboard } from "lucide-react";
+import { cn } from "cn";
 import type { EpisodeMeta } from "@/types";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Progress } from "@/components/ui/progress";
 import { itemCountKey, type GenerationRoute } from "@/utils/generation-mode";
 import { useCostStore } from "@/stores/cost-store";
 import { totalBreakdown } from "@/utils/cost-format";
@@ -19,12 +22,12 @@ interface EpisodeCardProps {
   route: GenerationRoute;
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  completed: "oklch(0.74 0.08 155)",
-  in_production: "var(--primary)",
-  scripted: "oklch(0.60 0.02 250)",
-  draft: "oklch(0.46 0.01 250)",
-  missing: "oklch(0.46 0.01 250)",
+const STATUS_DOT: Record<string, string> = {
+  completed: "bg-good",
+  in_production: "animate-breath bg-primary",
+  scripted: "bg-subtle-foreground",
+  draft: "bg-muted-foreground",
+  missing: "bg-muted-foreground",
 };
 
 const STATUS_LABEL_KEY: Record<string, string> = {
@@ -36,8 +39,7 @@ const STATUS_LABEL_KEY: Record<string, string> = {
 };
 
 /**
- * 侧栏分集卡片：左缩略 (E1 字符) + 中标题/状态/进度 + 右费用。
- * Active 态有 accent 紫边框 + 玻璃面板背景。
+ * 侧栏的集卡片：左边是播出位置，中间是集名、状态与进度，右边是实际费用。当前打开的集带底色。
  */
 export function EpisodeCard({
   ep,
@@ -50,158 +52,89 @@ export function EpisodeCard({
 }: EpisodeCardProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const status = ep.status ?? "draft";
-  const statusColor = STATUS_COLOR[status] ?? STATUS_COLOR.draft;
   const statusLabel = t(STATUS_LABEL_KEY[status] ?? STATUS_LABEL_KEY.draft);
-  const isActive = status === "in_production";
 
   // 进度按视频产物的可用数算——可用 = current ∪ stale，与工作台同一份计数。
   // 视频总数为 0（尚未成脚本）时退回剧本条目数，只用于显示"这集有几件内容"。
   const videoTotal = ep.videos?.total ?? 0;
   const itemCount = ep.item_count ?? 0;
   const totalShots = videoTotal || itemCount;
-  const itemCountLabel = t(itemCountKey(route), { count: itemCount });
   const availableVideos = ep.videos?.available ?? 0;
-  const progress =
-    videoTotal > 0 ? Math.round((availableVideos / videoTotal) * 100) : 0;
+  const progress = videoTotal > 0 ? Math.round((availableVideos / videoTotal) * 100) : 0;
   const showProgress = videoTotal > 0 && (active || progress > 0);
 
   // stale 是可用产物，不进缺口计数：单独报一个数说明有几件可以考虑重生。
   // 汇总该集全部产物类型，与大厅卡片上那一行同口径。
   const staleCount = (ep.storyboards?.stale ?? 0) + (ep.videos?.stale ?? 0);
 
-  // 实际费用
   const episodeCost = useCostStore((s) => s.getEpisodeCost(ep.episode));
   const spentBreakdown = episodeCost ? totalBreakdown(episodeCost.totals.actual) : null;
-  // spentBreakdown 是 Record<currency, number>，取主要币种
   const spentEntries = spentBreakdown ? Object.entries(spentBreakdown).filter(([, v]) => v > 0) : [];
   const primaryCost = spentEntries.find(([c]) => c === "USD") ?? spentEntries[0];
-  const costText = primaryCost
-    ? `${primaryCost[0] === "CNY" ? "¥" : "$"}${primaryCost[1].toFixed(2)}`
-    : null;
+  const costText = primaryCost ? `${primaryCost[0] === "CNY" ? "¥" : "$"}${primaryCost[1].toFixed(2)}` : null;
 
-  // 时长格式化
   const dur = ep.duration_seconds ?? 0;
   const durLabel = dur > 0 ? `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, "0")}` : null;
+  const title = ep.title || fallbackTitle || t("common:episode_position_name", { position });
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className="relative grid w-full items-center gap-2.5 rounded-lg p-2 text-left transition-colors focus-ring"
-      style={{
-        gridTemplateColumns: "auto 1fr auto",
-        marginBottom: 3,
-        background: active
-          ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.55), oklch(0.22 0.015 280 / 0.4))"
-          : "transparent",
-        border: active ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)" : "1px solid transparent",
-        boxShadow: active
-          ? "0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent), 0 4px 12px -6px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.04)"
-          : "none",
-      }}
-      onMouseEnter={(e) => {
-        if (!active) e.currentTarget.style.background = "oklch(0.24 0.012 265 / 0.4)";
-      }}
-      onMouseLeave={(e) => {
-        if (!active) e.currentTarget.style.background = "transparent";
-      }}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md p-2 text-left transition-colors focus-ring",
+        active ? "bg-primary/10" : "hover:bg-muted",
+      )}
     >
-      <div
-        className="num grid h-[34px] w-[34px] shrink-0 place-items-center rounded-md text-[11px] font-bold leading-none"
-        style={{
-          background: active
-            ? "linear-gradient(135deg, var(--primary) 0%, oklch(0.45 0.12 285) 100%)"
-            : "linear-gradient(180deg, oklch(0.28 0.013 265), oklch(0.24 0.012 265))",
-          color: active ? "oklch(0.14 0 0)" : "var(--muted-foreground)",
-          boxShadow: active
-            ? "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 2px 6px -2px color-mix(in oklab, var(--primary) 35%, transparent)"
-            : "inset 0 1px 0 oklch(1 0 0 / 0.04), inset 0 0 0 1px color-mix(in oklab, var(--border) 50%, transparent)",
-        }}
+      <span
+        className={cn(
+          "num grid size-8 shrink-0 place-items-center rounded-md text-xs font-medium",
+          active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+        )}
       >
-        {showEpisodeBadge ? position : <Clapperboard className="h-4 w-4" aria-hidden />}
-      </div>
+        {showEpisodeBadge ? position : <Clapperboard aria-hidden className="size-4" />}
+      </span>
 
-      <div className="min-w-0">
-        <div
-          className="truncate text-[13px]"
-          style={{
-            color: active ? "var(--foreground)" : "var(--subtle-foreground)",
-            fontWeight: active ? 600 : 500,
-          }}
-        >
-          {ep.title || fallbackTitle || t("common:episode_position_name", { position })}
-        </div>
-        <div className="mt-[3px] flex items-center gap-1.5">
-          <span
-            className="inline-flex items-center gap-1 text-[10.5px]"
-            style={{ color: "var(--muted-foreground)" }}
-          >
-            <span
-              className={`h-[5px] w-[5px] rounded-full ${
-                isActive ? "animate-shot-pulse" : ""
-              }`}
-              style={{ background: statusColor }}
-            />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <TruncatedText
+          text={title}
+          focusable={false}
+          className={cn("text-sm", active ? "font-medium text-foreground" : "text-subtle-foreground")}
+        />
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <span aria-hidden className={cn("size-1.5 rounded-full", STATUS_DOT[status] ?? STATUS_DOT.draft)} />
             {statusLabel}
           </span>
           {totalShots > 0 && (
-            <>
-              <span
-                aria-hidden="true"
-                className="h-px w-px rounded-sm"
-                style={{ background: "var(--border)", width: 2, height: 2 }}
-              />
-              <span
-                className="num text-[10.5px]"
-                style={{ color: "var(--muted-foreground)" }}
-                title={
-                  videoTotal > 0
-                    ? t("episode_available_videos_hint", { count: availableVideos, total: videoTotal })
-                    : undefined
-                }
-              >
-                {videoTotal > 0 ? `${availableVideos}/${videoTotal}` : itemCountLabel}
-                {durLabel ? ` · ${durLabel}` : ""}
-              </span>
-            </>
+            <span className="num">
+              {videoTotal > 0 ? (
+                <>
+                  <span aria-hidden>{`${availableVideos}/${videoTotal}`}</span>
+                  <span className="sr-only">
+                    {t("episode_available_videos_hint", { count: availableVideos, total: videoTotal })}
+                  </span>
+                </>
+              ) : (
+                t(itemCountKey(route), { count: itemCount })
+              )}
+              {durLabel ? ` · ${durLabel}` : ""}
+            </span>
           )}
           {staleCount > 0 && (
-            <span
-              className="num inline-flex items-center gap-1 text-[10.5px] text-warn"
-              title={t("episode_stale_artifacts", { count: staleCount })}
-            >
-              <span
-                aria-hidden
-                className="h-[5px] w-[5px] rounded-full"
-                style={{ background: "var(--warn)" }}
-              />
+            <span className="num inline-flex items-center gap-1 text-warn">
+              <span aria-hidden className="size-1.5 rounded-full bg-warn" />
               <span aria-hidden>{staleCount}</span>
               <span className="sr-only">{t("episode_stale_artifacts", { count: staleCount })}</span>
             </span>
           )}
-        </div>
-        {showProgress && (
-          <div
-            className="mt-[5px] h-[2px] overflow-hidden rounded-xs"
-            style={{ background: "oklch(0.22 0.010 265)" }}
-          >
-            <div
-              className="h-full"
-              style={{
-                width: `${progress}%`,
-                background: "var(--primary)",
-                boxShadow: "0 0 6px color-mix(in oklab, var(--primary) 35%, transparent)",
-              }}
-            />
-          </div>
-        )}
-      </div>
+        </span>
+        {showProgress && <Progress value={progress} aria-hidden className="mt-1" />}
+      </span>
 
       {costText && (
-        <span
-          className="num self-start pt-0.5 text-[10.5px]"
-          style={{ color: active ? "var(--primary)" : "var(--muted-foreground)" }}
-        >
+        <span className={cn("num self-start text-xs", active ? "text-primary" : "text-muted-foreground")}>
           {costText}
         </span>
       )}

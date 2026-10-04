@@ -20,6 +20,11 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   };
 }
 
+// jsdom 不实现 scrollIntoView；cmdk（Command）在选中项变化时调用它把选中项滚进视野。
+if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 if (
   typeof window !== "undefined"
   && (
