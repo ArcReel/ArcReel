@@ -17,8 +17,8 @@ const CARD_BG =
 const FIELD_STYLE: React.CSSProperties = {
   background:
     "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--color-hairline)",
-  color: "var(--color-text)",
+  border: "1px solid var(--border)",
+  color: "var(--foreground)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
 };
 
@@ -101,7 +101,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
     <section
       className="relative overflow-hidden rounded-2xl p-6"
       style={{
-        border: "1px solid var(--color-hairline-soft)",
+        border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         background: CARD_BG,
         boxShadow:
           "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 8px 24px -10px oklch(0 0 0 / 0.5)",
@@ -112,21 +112,21 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         className="pointer-events-none absolute inset-x-0 top-0 h-px"
         style={{
           background:
-            "linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)",
+            "linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent)",
         }}
       />
 
       <header className="mb-5">
         <div className="flex items-center gap-2.5">
-          <Sparkles className="h-4 w-4" style={{ color: "var(--color-accent-2)" }} />
+          <Sparkles className="h-4 w-4" style={{ color: "var(--primary)" }} />
           <h2
             className="display-serif text-[18px] font-semibold tracking-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{ color: "var(--foreground)" }}
           >
             {t("dashboard:ad_init_title")}
           </h2>
         </div>
-        <p className="mt-1 text-[12.5px]" style={{ color: "var(--color-text-3)" }}>
+        <p className="mt-1 text-[12.5px]" style={{ color: "var(--muted-foreground)" }}>
           {t("dashboard:ad_init_subtitle")}
         </p>
       </header>
@@ -134,11 +134,11 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
       {/* ---- 商品信息 ---- */}
       <fieldset
         className="mb-5 rounded-xl p-4"
-        style={{ border: "1px solid var(--color-hairline-soft)" }}
+        style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
       >
         <legend
           className="flex items-center gap-1.5 px-1 text-[10.5px] font-bold uppercase"
-          style={{ color: "var(--color-text-4)", letterSpacing: "1.0px" }}
+          style={{ color: "var(--muted-foreground)", letterSpacing: "1.0px" }}
         >
           <ShoppingBag className="h-3 w-3" />
           {t("dashboard:ad_init_product_section")}
@@ -173,15 +173,15 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={submitting}
-              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-2 text-[12.5px] transition-colors hover:border-[var(--color-accent-soft)]"
-              style={{ color: "var(--color-text-3)" }}
+              className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-[12.5px] transition-colors hover:border-primary/22"
+              style={{ color: "var(--muted-foreground)" }}
             >
               <ImagePlus className="h-3.5 w-3.5" />
               {files.length > 0
                 ? t("dashboard:ad_init_images_selected", { count: files.length })
                 : t("dashboard:product_upload_refs")}
             </button>
-            <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-text-4)" }}>
+            <p className="mt-1 text-[10.5px]" style={{ color: "var(--muted-foreground)" }}>
               {t("dashboard:ad_init_product_images_hint")}
             </p>
             {files.length > 0 && (
@@ -191,8 +191,8 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
                     key={`${file.name}-${idx}`}
                     className="flex items-center gap-2 rounded-md px-2 py-1 text-[11.5px]"
                     style={{
-                      border: "1px solid var(--color-hairline-soft)",
-                      color: "var(--color-text-2)",
+                      border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+                      color: "var(--subtle-foreground)",
                     }}
                   >
                     <span className="min-w-0 flex-1 truncate">{file.name}</span>
@@ -201,8 +201,8 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
                       onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
                       disabled={submitting}
                       aria-label={`${t("common:delete")} ${file.name}`}
-                      className="focus-ring inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-[oklch(1_0_0_/_0.06)]"
-                      style={{ color: "var(--color-text-4)" }}
+                      className="focus-ring inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-[oklch(1_0_0_/_0.06)]"
+                      style={{ color: "var(--muted-foreground)" }}
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -231,7 +231,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
           <p
             role="alert"
             className="mt-2 text-[11.5px]"
-            style={{ color: "var(--color-danger-2)" }}
+            style={{ color: "var(--destructive)" }}
           >
             {t(
               productNameMissing
@@ -250,17 +250,17 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
             checked={generateSheet}
             onChange={(e) => setGenerateSheet(e.target.checked)}
             disabled={submitting}
-            className="focus-ring mt-0.5 h-3.5 w-3.5 accent-[var(--color-accent)]"
+            className="focus-ring mt-0.5 h-3.5 w-3.5 accent-primary"
           />
           <div>
             <label
               htmlFor={sheetId}
               className="block cursor-pointer select-none text-[12.5px]"
-              style={{ color: "var(--color-text-2)" }}
+              style={{ color: "var(--subtle-foreground)" }}
             >
               {t("dashboard:ad_init_generate_sheet_label")}
             </label>
-            <p className="text-[10.5px]" style={{ color: "var(--color-text-4)" }}>
+            <p className="text-[10.5px]" style={{ color: "var(--muted-foreground)" }}>
               {t("dashboard:ad_init_generate_sheet_hint")}
             </p>
           </div>
@@ -290,9 +290,9 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         style={{
           color: "oklch(0.14 0 0)",
           background:
-            "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+            "var(--primary)",
           boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+            "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
         }}
       >
         {submitting ? t("dashboard:ad_init_submitting") : t("dashboard:ad_init_submit")}
@@ -312,7 +312,7 @@ function FieldLabel({
     <label
       htmlFor={htmlFor}
       className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-      style={{ color: "var(--color-text-4)" }}
+      style={{ color: "var(--muted-foreground)" }}
     >
       {children}
     </label>

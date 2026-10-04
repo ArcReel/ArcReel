@@ -52,7 +52,8 @@ describe("PublishToSocialDialog", () => {
 
     const tiktok = await screen.findByRole("checkbox", { name: /tiktok/ });
     expect(tiktok).toBeEnabled();
-    expect(screen.getByRole("checkbox", { name: /youtube/ })).toBeDisabled();
+    // Base UI 的 Checkbox 是带角色的 span，禁用态体现为 aria-disabled。
+    expect(screen.getByRole("checkbox", { name: /youtube/ })).toHaveAttribute("aria-disabled", "true");
     expect(screen.queryByRole("checkbox", { name: /reddit/ })).not.toBeInTheDocument();
   });
 
@@ -220,8 +221,8 @@ describe("PublishToSocialDialog", () => {
     await user.click(await screen.findByRole("checkbox", { name: /tiktok/ }));
     await user.click(screen.getByRole("button", { name: "发布" }));
 
-    // cerrar aquí perdería el request_id: el upstream puede haberla aceptado ya
-    await user.click(screen.getByTestId("modal-backdrop"));
+    // 此时关闭会丢掉 request_id：上游可能已经受理了这次投递。
+    await user.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
 

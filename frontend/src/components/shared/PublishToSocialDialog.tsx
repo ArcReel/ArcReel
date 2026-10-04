@@ -7,18 +7,28 @@
  * 投递后按 request_id 轮询到终态。终态之前不关窗，也不把「已受理」当成「已发布」——两者
  * 之间隔着各平台的转码与审核，混为一谈会让失败无人知晓。
  *
- * 由调用方按需挂载（关闭即卸载），本组件不负责自清：``ModalShell`` 在 ``open=false`` 时只
- * 返回 null 而不卸载，常驻渲染会让下次打开直接看到上一次的结果面板、且轮询定时器还在跑。
+ * 由调用方按需挂载（关闭即卸载），本组件不负责自清：常驻渲染会让下次打开直接看到上一次的
+ * 结果面板，且轮询定时器还在跑。
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CheckCircle2, ExternalLink, Loader2, MinusCircle, XCircle } from "lucide-react";
 import { API } from "@/api";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
-import { InlineWarning } from "@/components/ui/InlineWarning";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE } from "@/components/ui/darkroom-tokens";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { InlineWarning } from "@/components/shared/InlineWarning";
 import type { PresentationResourceType, PresentationVariant } from "@/types/presentation";
 import type {
   ConnectedSocialAccount,
@@ -28,11 +38,6 @@ import type {
 import { errMsg } from "@/utils/async";
 
 const POLL_INTERVAL_MS = 5000;
-
-const INPUT_CLS =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-const LABEL_CLS =
-  "mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
 
 /** 投递标识，同时是上游幂等键；形状要与服务端的校验一致。 */
 function newRequestId(): string {
@@ -175,191 +180,125 @@ export function PublishToSocialDialog({
   // （关闭即卸载）。这时关掉再重开会现生成新的 id，重试就成了第二次投递。受理之后再关是
   // 安全的——那时 id 已经用掉了，重开是一次全新的投递，不是重试。
   const canClose = !submitting;
-  const handleClose = () => {
-    if (canClose) onClose();
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && canClose) onClose();
   };
 
   return (
-    <GlassModal
-      open={open}
-      onClose={handleClose}
-      closeOnBackdrop={canClose}
-      closeOnEscape={canClose}
-      labelledBy="publish-to-social-title"
-      widthClassName="w-full max-w-lg"
-      panelClassName="max-h-[85vh] overflow-y-auto"
-    >
-      <div className="p-5">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
-              Distribution
-            </div>
-            <h3 id="publish-to-social-title" className="mt-1 text-[15px] font-medium text-text">
-              {t("dashboard:social_publish_dialog_title", { unit: resourceId })}
-            </h3>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("dashboard:social_publish_dialog_title", { unit: resourceId })}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-4">
+            {loadError && <InlineWarning message={loadError} />}
+
+            {progress === null ? (
+              <>
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm font-medium">{t("dashboard:social_publish_platforms_label")}</span>
+                  {accounts === null ? (
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
+                  ) : accounts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t("dashboard:social_publish_no_connected_accounts")}</p>
+                  ) : (
+                    <ul className="flex flex-wrap gap-x-4 gap-y-2">
+                      {accounts.map((account) => (
+                        <li key={account.platform}>
+                          <Label>
+                            <Checkbox
+                              checked={selected.includes(account.platform)}
+                              disabled={account.reauth_required}
+                              onCheckedChange={() => togglePlatform(account.platform)}
+                            />
+                            {account.platform}
+                            {account.reauth_required && (
+                              <span className="text-xs text-warn">{t("dashboard:social_publish_reauth_required")}</span>
+                            )}
+                          </Label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="publish-title">{t("dashboard:social_publish_title_label")}</Label>
+                  <Input id="publish-title" type="text" value={title} onChange={(event) => setTitle(event.target.value)} />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="publish-description">{t("dashboard:social_publish_description_label")}</Label>
+                  <Textarea
+                    id="publish-description"
+                    aria-describedby="publish-description-hint"
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                  />
+                  <p id="publish-description-hint" className="text-xs text-muted-foreground">
+                    {t("dashboard:social_publish_description_hint")}
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="publish-scheduled-at">{t("dashboard:social_publish_schedule_label")}</Label>
+                  <Input
+                    id="publish-scheduled-at"
+                    type="datetime-local"
+                    aria-describedby="publish-scheduled-at-hint"
+                    value={scheduledAt}
+                    onChange={(event) => setScheduledAt(event.target.value)}
+                  />
+                  <p id="publish-scheduled-at-hint" className="text-xs text-muted-foreground">
+                    {t("dashboard:social_publish_schedule_hint")}
+                  </p>
+                </div>
+
+                {submitError && <InlineWarning message={submitError} />}
+              </>
+            ) : (
+              <PublishProgressPanel progress={progress} />
+            )}
           </div>
-          <ModalCloseButton onClick={handleClose} disabled={!canClose} />
-        </div>
-
-        {loadError && <InlineWarning message={loadError} className="mb-3" />}
-
-        {progress === null ? (
-          <div className="space-y-4">
-            <div>
-              <span className={LABEL_CLS}>{t("dashboard:social_publish_platforms_label")}</span>
-              {accounts === null ? (
-                <Loader2 className="h-4 w-4 motion-safe:animate-spin text-text-4" aria-hidden />
-              ) : accounts.length === 0 ? (
-                <p className="text-[12px] text-text-3">
-                  {t("dashboard:social_publish_no_connected_accounts")}
-                </p>
-              ) : (
-                <ul className="flex flex-wrap gap-1.5">
-                  {accounts.map((account) => (
-                    <li key={account.platform}>
-                      <label
-                        className={`flex cursor-pointer items-center gap-1.5 rounded-[6px] border px-2 py-1 text-[12px] ${
-                          selected.includes(account.platform)
-                            ? "border-accent text-text"
-                            : "border-hairline text-text-2"
-                        } ${account.reauth_required ? "cursor-not-allowed opacity-50" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="accent-accent"
-                          checked={selected.includes(account.platform)}
-                          disabled={account.reauth_required}
-                          onChange={() => togglePlatform(account.platform)}
-                        />
-                        {account.platform}
-                        {account.reauth_required && (
-                          <span className="text-warm">
-                            {t("dashboard:social_publish_reauth_required")}
-                          </span>
-                        )}
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div>
-              <label htmlFor="publish-title" className={LABEL_CLS}>
-                {t("dashboard:social_publish_title_label")}
-              </label>
-              <input
-                id="publish-title"
-                type="text"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                className={INPUT_CLS}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="publish-description" className={LABEL_CLS}>
-                {t("dashboard:social_publish_description_label")}
-              </label>
-              <textarea
-                id="publish-description"
-                rows={3}
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                className={INPUT_CLS}
-              />
-              <p className="mt-1 text-[11px] text-text-4">
-                {t("dashboard:social_publish_description_hint")}
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="publish-scheduled-at" className={LABEL_CLS}>
-                {t("dashboard:social_publish_schedule_label")}
-              </label>
-              <input
-                id="publish-scheduled-at"
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(event) => setScheduledAt(event.target.value)}
-                className={INPUT_CLS}
-              />
-              <p className="mt-1 text-[11px] text-text-4">
-                {t("dashboard:social_publish_schedule_hint")}
-              </p>
-            </div>
-
-            {submitError && <InlineWarning message={submitError} />}
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleClose}
-                disabled={!canClose}
-                className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:text-text disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
+        </DialogBody>
+        <DialogFooter>
+          {progress === null ? (
+            <>
+              <Button variant="outline" onClick={onClose} disabled={!canClose}>
                 {t("common:cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handlePublish()}
-                disabled={!canPublish}
-                className={ACCENT_BTN_CLS}
-                style={ACCENT_BUTTON_STYLE}
-              >
-                {submitting ? (
-                  <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
-                ) : null}
+              </Button>
+              <Button onClick={() => void handlePublish()} disabled={!canPublish}>
+                {submitting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
                 {t("dashboard:social_publish_submit")}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <PublishProgressPanel progress={progress} onClose={handleClose} />
-        )}
-      </div>
-    </GlassModal>
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={onClose}>
+              {t("common:close")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function PublishProgressPanel({
-  progress,
-  onClose,
-}: {
-  progress: SocialPublishProgress;
-  onClose: () => void;
-}) {
-  const { t } = useTranslation(["dashboard", "common"]);
+function PublishProgressPanel({ progress }: { progress: SocialPublishProgress }) {
+  const { t } = useTranslation("dashboard");
   return (
-    <div className="space-y-3">
-      <p className="text-[12.5px] text-text-2">
+    <div className="flex flex-col gap-3">
+      <p className="text-sm">
         {progress.terminal
-          ? t("dashboard:social_publish_finished", {
-              completed: progress.completed,
-              total: progress.total,
-            })
-          : t("dashboard:social_publish_in_flight", {
-              completed: progress.completed,
-              total: progress.total,
-            })}
+          ? t("social_publish_finished", { completed: progress.completed, total: progress.total })
+          : t("social_publish_in_flight", { completed: progress.completed, total: progress.total })}
       </p>
 
-      <ul className="space-y-1.5">
+      <ul className="flex flex-col gap-1.5">
         {progress.outcomes.map((outcome) => (
           <PublishOutcomeRow key={outcome.platform} outcome={outcome} />
         ))}
       </ul>
-
-      <div className="flex justify-end pt-1">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          {t("common:close")}
-        </button>
-      </div>
     </div>
   );
 }
@@ -367,32 +306,32 @@ function PublishProgressPanel({
 function PublishOutcomeRow({ outcome }: { outcome: SocialPlatformOutcome }) {
   const { t } = useTranslation("dashboard");
   return (
-    <li className="flex items-center gap-2 rounded-[6px] border border-hairline px-2.5 py-1.5 text-[12px]">
+    <li className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm">
       {outcome.status === "completed" ? (
-        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" aria-hidden />
+        <CheckCircle2 className="size-3.5 shrink-0 text-good" aria-hidden />
       ) : outcome.status === "failed" ? (
-        <XCircle className="h-3.5 w-3.5 shrink-0 text-warm" aria-hidden />
+        <XCircle className="size-3.5 shrink-0 text-destructive" aria-hidden />
       ) : outcome.status === "skipped" ? (
         // 也是终态：档案没连这个平台。画成转圈会让它在轮询停止后永远转下去。
-        <MinusCircle className="h-3.5 w-3.5 shrink-0 text-text-4" aria-hidden />
+        <MinusCircle className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       ) : (
-        <Loader2 className="h-3.5 w-3.5 shrink-0 motion-safe:animate-spin text-text-4" aria-hidden />
+        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" aria-hidden />
       )}
-      <span className="text-text">{outcome.platform}</span>
-      <span className="text-text-4">{t(`social_publish_status_${outcome.status}`)}</span>
+      <span>{outcome.platform}</span>
+      <span className="text-muted-foreground">{t(`social_publish_status_${outcome.status}`)}</span>
       <span className="flex-1" />
       {outcome.url && (
         <a
           href={outcome.url}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 text-accent-2 hover:underline"
+          className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
         >
           {t("social_publish_open_post")}
-          <ExternalLink className="h-3 w-3" aria-hidden />
+          <ExternalLink className="size-3" aria-hidden />
         </a>
       )}
-      {outcome.error && <span className="text-warm">{outcome.error}</span>}
+      {outcome.error && <span className="text-destructive">{outcome.error}</span>}
     </li>
   );
 }

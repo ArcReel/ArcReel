@@ -21,7 +21,7 @@ What gets published is always the exact rendition the player has selected — th
 
 ## Configure the credentials {#configure-credentials}
 
-Open **System Settings → Distribution** and fill in two fields:
+Open **Settings → Distribution** and fill in two fields:
 
 - **API key**: the key generated in the Upload-Post dashboard. It is stored only in the local database, and reading the configuration returns nothing but whether a key is set — not even a mask, since a few leading and trailing characters are enough to identify which key it is.
 - **Profile name**: the Upload-Post profile name (not a social handle). It selects which group of connected accounts receives the post.

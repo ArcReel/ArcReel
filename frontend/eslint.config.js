@@ -9,6 +9,7 @@ import vitest from "@vitest/eslint-plugin";
 import testingLibrary from "eslint-plugin-testing-library";
 import jestDom from "eslint-plugin-jest-dom";
 import globals from "globals";
+import { plugin as shadcn } from "@shadcn/lint";
 
 const TEST_FILES = ["src/**/*.test.{ts,tsx}"];
 
@@ -64,11 +65,186 @@ const RESTRICT_MODULE_MOCK = {
     "禁止整模块 mock：API 打桩用 vi.spyOn(API, method)；i18n 用全局 setup 已加载的真实中文资源（整体 mock 后翻译缺失无法被发现）。",
 };
 
+// ---------------------------------------------------------------------------
+// 已重做区域：@shadcn/lint 与滚动、响应式守卫只对这里列出的 glob 生效。
+// 每个区域重做的 ticket 把自己的目录加进来；交付结束时整体替换为 "src/**"。
+const REWORKED_FILES = [
+  // 自动撑高输入框
+  "src/components/ui/textarea.tsx",
+  // 弹层、反馈与动效原语，及首批迁移的共享弹层与全局提示
+  "src/components/ui/**",
+  "src/components/shared/ArchiveDiagnosticsDialog.tsx",
+  "src/components/shared/PromptPreviewButton.tsx",
+  "src/components/shared/ScriptOverwriteConfirmDialog.tsx",
+  "src/components/shared/TruncatedText.tsx",
+  "src/components/layout/ToastOverlay.tsx",
+  // 编辑单元、保存栏、内联未保存提示条与离开拦截
+  "src/components/shared/edit-unit/**",
+  // 页面外壳与全局设置导航
+  "src/components/shared/page-shell/**",
+  "src/components/pages/SystemConfigPage.tsx",
+  "src/components/pages/settings/GeneralSection.tsx",
+  // 外部 Agent 接入与访问令牌
+  "src/components/pages/settings/agent-access/**",
+  // 全局设置「ArcReel Agent」：Agent 供应商列表、添加与编辑对话框、运行参数
+  "src/components/pages/AgentConfigTab.tsx",
+  "src/components/agent/{AddCredentialModal,CredentialList,CredentialsSection,ModelIdField,TestResultPanel}.tsx",
+  // 供应商分区：二级栏与详情栏（主从布局共用件）、预置供应商详情与密钥
+  "src/components/shared/master-detail/**",
+  "src/components/pages/ProviderSection.tsx",
+  "src/components/pages/ProviderDetail.tsx",
+  "src/components/pages/CredentialList.tsx",
+  // 使用记录（设置页分区与顶栏弹层）
+  "src/components/usage/**",
+  // 默认模型与模型选择字段族、提示词模版、关于与配置问题就地提示
+  "src/components/shared/{ProviderModelSelect,LayeredModelFields,ModelConfigSection,TextTierFields,NarrationDeliveryFields,ResolutionPicker,VideoModelSpecBar,InlineWarning}.tsx",
+  "src/components/pages/settings/{MediaModelSection,AboutSection,ConfigIssueNotice}.tsx",
+  // 社交分发：设置分区与成片投递对话框
+  "src/components/pages/settings/SocialPublishSection.tsx",
+  "src/components/shared/PublishToSocialDialog.tsx",
+  "src/components/pages/settings/{Prompt*,promptTemplate*}.tsx",
+  // 调用端点分区：端点列表、详情、定义表单、端点测试与导入、分享对话框
+  "src/components/pages/settings/endpoints/**",
+  // 自定义供应商详情：表单、模型表格、调用端点选择与尾帧能力覆盖
+  "src/components/pages/settings/{CustomProviderDetail,CustomProviderForm,CustomProviderFieldRow,CustomProviderModelTable,EndpointSelect,CapabilityOverrideRow}.tsx",
+  // 市场分区（浏览、我的分享、设置）与全仓共用的可排序列表
+  "src/components/pages/settings/market/**",
+  "src/components/shared/sortable/**",
+  // 登录页、404 页与导出范围对话框
+  "src/components/pages/{LoginPage,NotFoundPage}.tsx",
+  "src/components/layout/ExportScopeDialog.tsx",
+  // 新建项目向导、共用的时长档位选择器、风格选择器与生成方式等字段
+  "src/components/pages/CreateProjectModal.tsx",
+  "src/components/pages/create-project/**",
+  "src/components/shared/{DurationTierPicker,StylePicker,GenerationRouteCards,GridStoryboardBar,OptionalNumberField,EpisodeTargetDurationField,SpeechRateField}.tsx",
+  // 项目大厅：顶栏、问候区、筛选工具栏、海报卡与项目对话框
+  "src/components/pages/ProjectsPage.tsx",
+  "src/components/pages/lobby/**",
+  // 资产库：页面、卡片与详情 Sheet、应用到项目，以及画廊里的入库预览与「从资产库导入」
+  "src/components/pages/AssetLibraryPage.tsx",
+  "src/components/assets/{AddToLibraryButton,ApplyToProjectDialog,AssetCard,AssetCreateDialog,AssetDetailSheet,AssetPickerModal,AssetThumb,DeleteAssetDialog,LoadMoreSentinel,asset-type-icons,useAssetPages}.{ts,tsx}",
+  // 项目设置：侧栏分页、风格对话框与 Agent 配置
+  "src/components/pages/ProjectSettingsPage.tsx",
+  "src/components/pages/project-settings/**",
+  // 记忆编辑器：Agent 记忆分区与项目记忆分页共用的文件列表、编辑器与确认
+  "src/components/agent-memory/**",
+];
+// 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
+const VIEWPORT_BREAKPOINT_ALLOWLIST = [
+  // 外壳按 xl 切换标准档与紧凑档：侧栏宽度、内容内边距与顶栏右侧留白
+  "src/components/shared/page-shell/PageShell.tsx",
+  "src/components/shared/page-shell/PageHeader.tsx",
+  "src/components/shared/page-shell/PageSidebar.tsx",
+];
+const UI_PRIMITIVES = "src/components/ui/**";
+
+// 字符串字面量与模板片段里的 class 守卫；先匹配含该 token 的字符串，再由 message 说明替代写法。
+const classGuards = (pattern, message) => [
+  { selector: `Literal[value=${pattern}]`, message },
+  { selector: `TemplateElement[value.raw=${pattern}]`, message },
+];
+
+const RESTRICT_VIEWPORT_HEIGHT = classGuards(
+  String.raw`/(^|[\s:])(min-|max-)?h-screen(?![\w-])|100vh/`,
+  "禁止视口高度（h-screen、min-h-screen、max-h-screen、100vh）：高度由外壳的滚动契约分配，组件用 flex / grid 与 min-h-0 取得剩余空间。",
+);
+
+const RESTRICT_FIXED_OVERLAY = [
+  {
+    selector: String.raw`Literal[value=/(^|\s)fixed(\s|$)/][value=/(^|\s)inset-0(\s|$)/]`,
+    message: "禁止手写 fixed inset-0 浮层：改用 components/ui 的 Dialog、Sheet 等原语。",
+  },
+  {
+    selector: String.raw`TemplateElement[value.raw=/(^|\s)fixed(\s|$)/][value.raw=/(^|\s)inset-0(\s|$)/]`,
+    message: "禁止手写 fixed inset-0 浮层：改用 components/ui 的 Dialog、Sheet 等原语。",
+  },
+];
+
+const RESTRICT_SCROLL_HEIGHT = {
+  selector: "MemberExpression[property.name='scrollHeight']",
+  message: "禁止读写 scrollHeight 手动测高：自动撑高用统一的输入框原语，滚动区高度交给布局分配。",
+};
+
+// 容器查询变体以 @ 开头（@md:），不在此列。
+const RESTRICT_VIEWPORT_BREAKPOINT = classGuards(
+  String.raw`/(^|[\s:])(max-|min-)?(sm|md|lg|xl|2xl|\[[^\]]+\]):/`,
+  "业务组件禁用视口断点前缀（sm: / md: / lg: / xl: / 2xl:）：外壳内一律用容器查询（@container 与 @md: 等），确需按视口切换的文件登记进 VIEWPORT_BREAKPOINT_ALLOWLIST。",
+);
+
+// @shadcn/lint 规则：components/ui 内的原语自身负责样式，关闭 restyle、任意值与静态 class 三条。
+const SHADCN_RULES = {
+  "shadcn/no-restyle": ["error", { allow: ["layout"] }],
+  "shadcn/no-raw-colors": "error",
+  "shadcn/no-arbitrary-values": ["error", { allow: ["layout"] }],
+  "shadcn/no-inline-styles": "error",
+  "shadcn/require-static-classes": "error",
+  "shadcn/no-unknown-classes": "error",
+};
+
+// 已重做区域的配置块。no-restricted-syntax 按替换语义逐块列全（见下方 API 直调约束的说明）：
+// 原语放过 fixed inset-0、scrollHeight 与视口断点，白名单文件放过视口断点。
+// 入队动作层与 useModelCapabilities 各有专属豁免块，不纳入区域守卫，避免互相覆盖。
+// flat config 的 files 不接受空数组，列表为空时不生成任何配置块。
+const reworkedAreaConfigs = () => {
+  if (REWORKED_FILES.length === 0) return [];
+  const apiRules = [RESTRICT_ENQUEUE, RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK];
+  const ignores = [...TEST_FILES, "src/actions/**", "src/hooks/useModelCapabilities.ts"];
+  // files 中的嵌套数组表示「同时匹配」：取已重做区域与给定范围的交集。
+  const intersect = (scopes) => REWORKED_FILES.flatMap((glob) => scopes.map((scope) => [glob, scope]));
+  const configs = [
+    {
+      files: REWORKED_FILES,
+      ignores,
+      plugins: { shadcn },
+      rules: {
+        ...SHADCN_RULES,
+        "no-restricted-syntax": [
+          "error",
+          ...apiRules,
+          ...RESTRICT_VIEWPORT_HEIGHT,
+          ...RESTRICT_FIXED_OVERLAY,
+          RESTRICT_SCROLL_HEIGHT,
+          ...RESTRICT_VIEWPORT_BREAKPOINT,
+        ],
+      },
+    },
+    {
+      files: intersect([UI_PRIMITIVES]),
+      ignores,
+      rules: {
+        "shadcn/no-restyle": "off",
+        "shadcn/no-arbitrary-values": "off",
+        "shadcn/require-static-classes": "off",
+        "no-restricted-syntax": ["error", ...apiRules, ...RESTRICT_VIEWPORT_HEIGHT],
+      },
+    },
+  ];
+  if (VIEWPORT_BREAKPOINT_ALLOWLIST.length > 0) {
+    configs.push({
+      files: intersect(VIEWPORT_BREAKPOINT_ALLOWLIST),
+      ignores: [...ignores, UI_PRIMITIVES],
+      rules: {
+        "no-restricted-syntax": [
+          "error",
+          ...apiRules,
+          ...RESTRICT_VIEWPORT_HEIGHT,
+          ...RESTRICT_FIXED_OVERLAY,
+          RESTRICT_SCROLL_HEIGHT,
+        ],
+      },
+    });
+  }
+  return configs;
+};
+
 export default tseslint.config(
   // 全局 ignores —— 覆盖 *.config.js 和 *.config.ts（vite.config.ts、vitest.config.ts）
   {
     ignores: [
       "dist/**",
+      // Playwright 输出的报告与失败产物不属于项目源码。
+      "playwright-report/**",
+      "test-results/**",
       "coverage/**",
       "node_modules/**",
       "**/*.config.*",
@@ -102,6 +278,18 @@ export default tseslint.config(
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       globals: { ...globals.browser },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+
+  // 页面级套件与录制脚本：类型信息取自 e2e/tsconfig.json；scripts/ 同理取自 scripts/tsconfig.json
+  {
+    files: ["e2e/**/*.ts", "scripts/**/*.ts"],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
@@ -189,6 +377,9 @@ export default tseslint.config(
       "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_MODULE_MOCK],
     },
   },
+
+  // 已重做区域：@shadcn/lint 与滚动、响应式守卫（列表与规则定义见文件上方）。
+  ...reworkedAreaConfigs(),
 
   // 测试三件套：vitest（`expect-expect` 管零断言）、testing-library、jest-dom。
   {

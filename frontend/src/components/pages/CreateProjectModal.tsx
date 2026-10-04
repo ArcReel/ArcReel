@@ -1,177 +1,108 @@
-
-import { useState, useEffect, useRef, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
-import { errMsg, voidCall, voidPromise } from "@/utils/async";
+import { useEffect, useId, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { DEFAULT_TEMPLATE_ID } from "@/data/style-templates";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
-import { useEscapeClose } from "@/hooks/useEscapeClose";
-import { WizardStep1Basics, type WizardStep1Value } from "./create-project/WizardStep1Basics";
-import { WizardStep2Models, type WizardStep2Data } from "./create-project/WizardStep2Models";
-import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
-import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
-import type { NarrationDeliveryValue } from "@/components/shared/NarrationDeliveryFields";
+import { errMsg, voidCall, voidPromise } from "@/utils/async";
+import { formatNameList } from "@/utils/list-format";
 import { catalogDisplayNames, catalogDurations } from "@/utils/provider-models";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { isValidEpisodeTargetDuration } from "@/components/shared/EpisodeTargetDurationField";
+import { isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
+import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
+import { narrationDeliveryProblem, type NarrationDeliveryValue } from "@/components/shared/NarrationDeliveryFields";
+import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
+import { WizardStepBasics, type WizardBasicsValue } from "./create-project/WizardStepBasics";
+import {
+  WizardStepGeneration,
+  type WizardDurationValue,
+  type WizardGenerationData,
+} from "./create-project/WizardStepGeneration";
+import { WizardStepper, type WizardStep } from "./create-project/WizardStepper";
 
-// 新建项目对话框 · "Open Reel"
-// 仪式感来自项目大厅的 Darkroom 美学：editorial 衬线 + mono 标尺线 + sprocket 胶片孔。
-// 三步走作为录制流程的开机预备：身份 → 器材 → 镜头美学。
-
-const SPROCKET_STYLE: CSSProperties = {
-  background: "repeating-linear-gradient(90deg, oklch(0 0 0 / 0.55) 0 6px, transparent 6px 12px)",
+const EMPTY_MODELS: ModelConfigValue = {
+  videoBackend: "",
+  videoProviderI2V: "",
+  videoProviderR2V: "",
+  imageBackendDefault: "",
+  imageBackendT2I: "",
+  imageBackendI2I: "",
+  textBackendDefault: "",
+  textBackendSimple: "",
+  textBackendComplex: "",
+  defaultDuration: null,
+  videoResolution: null,
+  imageResolution: null,
 };
 
-// ─── Step indicator ───────────────────────────────────────────────────────────
-
-const STEPS = [
-  { num: 1, key: "wizard_step_basics" },
-  { num: 2, key: "wizard_step_models" },
-  { num: 3, key: "wizard_step_style" },
-] as const;
-
-const STEP_BADGE_GRADIENT =
-  "linear-gradient(180deg, oklch(0.30 0.05 295 / 0.65), oklch(0.20 0.02 280 / 0.65))";
-
-const STEP_BADGE_ACTIVE_STYLE: CSSProperties = {
-  background: STEP_BADGE_GRADIENT,
-  boxShadow:
-    "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 18px -6px var(--color-accent-glow)",
-};
-
-const STEP_BADGE_DONE_STYLE: CSSProperties = {
-  background: STEP_BADGE_GRADIENT,
-  boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.05)",
-};
-
-const STEP_BADGE_INACTIVE_STYLE: CSSProperties = {
-  background: "oklch(0.16 0.010 265 / 0.55)",
-};
-
-const STEP_CONNECTOR_DONE_STYLE: CSSProperties = {
-  height: 1,
-  background:
-    "linear-gradient(90deg, var(--color-accent), oklch(0.55 0.06 295 / 0.4))",
-};
-
-const STEP_CONNECTOR_INACTIVE_STYLE: CSSProperties = {
-  height: 1,
-  background: "var(--color-hairline-soft)",
-};
-
-function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
-  const { t } = useTranslation("templates");
-  return (
-    <div className="relative">
-      {/* sprocket 上下边 — 暗示一段胶片正在过卷头 */}
-      <div aria-hidden className="absolute inset-x-6 top-0 h-[3px] opacity-40" style={SPROCKET_STYLE} />
-      <div aria-hidden className="absolute inset-x-6 bottom-0 h-[3px] opacity-40" style={SPROCKET_STYLE} />
-
-      <ol className="relative flex items-stretch py-5">
-        {STEPS.map((s, i) => {
-          const done = current > s.num;
-          const active = current === s.num;
-          const last = i === STEPS.length - 1;
-          return (
-            <li
-              key={s.num}
-              className={"relative flex flex-1 items-center" + (last ? "" : " pr-3")}
-              aria-current={active ? "step" : undefined}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span
-                  className={
-                    "grid h-7 w-7 shrink-0 place-items-center rounded-[8px] font-mono text-[11px] font-bold tabular-nums transition-colors " +
-                    (done
-                      ? "border border-accent/45 text-text"
-                      : active
-                        ? "border border-accent/55 text-text"
-                        : "border border-hairline-soft text-text-4")
-                  }
-                  style={
-                    active
-                      ? STEP_BADGE_ACTIVE_STYLE
-                      : done
-                        ? STEP_BADGE_DONE_STYLE
-                        : STEP_BADGE_INACTIVE_STYLE
-                  }
-                >
-                  {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : s.num.toString().padStart(2, "0")}
-                </span>
-                <div className="min-w-0">
-                  <div
-                    className={
-                      "font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] " +
-                      (active ? "text-accent-2" : done ? "text-text-3" : "text-text-4")
-                    }
-                  >
-                    Step {s.num.toString().padStart(2, "0")}
-                  </div>
-                  <div
-                    className={
-                      "text-[12.5px] tracking-tight truncate " +
-                      (active ? "text-text font-semibold" : done ? "text-text-2" : "text-text-3")
-                    }
-                  >
-                    {t(s.key)}
-                  </div>
-                </div>
-              </div>
-              {!last && (
-                <div
-                  aria-hidden
-                  className="ml-3 flex-1"
-                  style={done ? STEP_CONNECTOR_DONE_STYLE : STEP_CONNECTOR_INACTIVE_STYLE}
-                />
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
+/** 读取第二步的可选模型与全局默认；供应商与模型名由后端按界面语言成文。 */
+async function loadGenerationData(signal: AbortSignal) {
+  const [sysConfig, providersRes, customRes, narrationDefaults] = await Promise.all([
+    API.getSystemConfig({ signal }),
+    API.getProviders({ signal }),
+    API.listCustomProviders({ signal }),
+    // 预填只是便利：读不到全局默认时 TTS 字段留空，由用户自选
+    API.getNarrationDefaults({ signal }).catch(() => null),
+  ]);
+  const catalogNames = catalogDisplayNames(providersRes.providers, customRes.providers);
+  const data: WizardGenerationData = {
+    options: {
+      video: sysConfig.options.video_backends,
+      image: sysConfig.options.image_backends,
+      text: sysConfig.options.text_backends,
+      audio: sysConfig.options.audio_backends ?? [],
+      // 目录兜底层在下：候选只列 ready 供应商，而已配置的生效值可能指向失去凭证的那个。
+      providerNames: { ...catalogNames.providerNames, ...(sysConfig.options.provider_names ?? {}) },
+      modelNames: { ...catalogNames.modelNames, ...(sysConfig.options.model_names ?? {}) },
+    },
+    providers: providersRes.providers,
+    customProviders: customRes.providers,
+    globalDefaults: {
+      video: sysConfig.settings.default_video_backend ?? "",
+      videoI2V: sysConfig.settings.default_video_backend_i2v ?? "",
+      videoR2V: sysConfig.settings.default_video_backend_r2v ?? "",
+      image: sysConfig.settings.default_image_backend ?? "",
+      imageT2I: sysConfig.settings.default_image_backend_t2i ?? "",
+      imageI2I: sysConfig.settings.default_image_backend_i2i ?? "",
+      textDefault: sysConfig.settings.default_text_backend ?? "",
+      textSimple: sysConfig.settings.text_backend_simple ?? "",
+      textComplex: sysConfig.settings.text_backend_complex ?? "",
+    },
+  };
+  return { data, narrationDefaults };
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
+/**
+ * 新建项目向导：基础信息、生成设置、风格三步，走完三步才能创建。
+ * 由项目大厅在 `useProjectsStore().showCreateModal` 为 true 时挂载，关闭时把它置回 false。
+ */
 export function CreateProjectModal() {
-  const { t, i18n } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common", "templates"]);
   const [, navigate] = useLocation();
-  const { setShowCreateModal } = useProjectsStore();
+  const setShowCreateModal = useProjectsStore((s) => s.setShowCreateModal);
+  const hintId = useId();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-
-  const [basics, setBasics] = useState<WizardStep1Value>({
+  const [step, setStep] = useState<WizardStep>(1);
+  const [basics, setBasics] = useState<WizardBasicsValue>({
     title: "",
-    contentMode: "narration",
+    contentMode: null,
     aspectRatio: "9:16",
     generationRoute: null,
     gridStoryboard: false,
+  });
+  const [duration, setDuration] = useState<WizardDurationValue>({
     targetDuration: 60,
-    speechRate: null,
     episodeTargetDuration: null,
+    speechRate: null,
   });
-
-  const [models, setModels] = useState<ModelConfigValue>({
-    videoBackend: "",
-    videoProviderI2V: "",
-    videoProviderR2V: "",
-    imageBackendDefault: "",
-    imageBackendT2I: "",
-    imageBackendI2I: "",
-    textBackendDefault: "",
-    textBackendSimple: "",
-    textBackendComplex: "",
-    defaultDuration: null,
-    videoResolution: null,
-    imageResolution: null,
-  });
-
+  const [models, setModels] = useState<ModelConfigValue>(EMPTY_MODELS);
   // 旁白交付缺省后期配音；TTS 字段在全局默认取回后预填，用户切到 TTS 时看到的即全局默认
   const [narration, setNarration] = useState<NarrationDeliveryValue>({
     delivery: "post_production",
@@ -180,35 +111,26 @@ export function CreateProjectModal() {
     narrationSpeed: null,
   });
   const narrationPrefilled = useRef(false);
-
-  const [style, setStyle] = useState<WizardStep3Value>({
+  const [style, setStyle] = useState<StylePickerValue>({
     mode: "template",
     templateId: DEFAULT_TEMPLATE_ID,
     activeCategory: "live",
     uploadedFile: null,
     uploadedPreview: null,
   });
-
   const [creating, setCreating] = useState(false);
 
-  // Step2 的远端数据 hoist 到此处：前进/后退切 step 时 Step2 unmount/mount 不再触发 HTTP，
-  // 只在 modal 挂载与界面语言变化时 fetch。供应商与模型名由后端按 Accept-Language 成文，
-  // 语言切换后须重取，否则目录停留在切换前的语言。
-  const [step2Data, setStep2Data] = useState<WizardStep2Data | null>(null);
-  const [step2Error, setStep2Error] = useState<string | null>(null);
+  // 第二步的远端数据在向导挂载时读取，切换步骤不重复请求；界面语言变化后重取，
+  // 否则目录停留在切换前的语言。
+  const [generationData, setGenerationData] = useState<WizardGenerationData | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     voidCall((async () => {
       try {
-        const [sysConfig, providersRes, customRes, narrationDefaults] = await Promise.all([
-          API.getSystemConfig(),
-          API.getProviders(),
-          API.listCustomProviders(),
-          // 预填只是便利：读不到全局默认时 TTS 字段留空，由用户自选
-          API.getNarrationDefaults().catch(() => null),
-        ]);
-        if (cancelled) return;
+        const { data, narrationDefaults } = await loadGenerationData(controller.signal);
+        if (controller.signal.aborted) return;
         if (!narrationPrefilled.current && narrationDefaults) {
           narrationPrefilled.current = true;
           setNarration((prev) => ({
@@ -218,103 +140,105 @@ export function CreateProjectModal() {
             narrationSpeed: narrationDefaults.narration_speed,
           }));
         }
-        const catalogNames = catalogDisplayNames(providersRes.providers, customRes.providers);
-        setStep2Data({
-          options: {
-            video: sysConfig.options.video_backends,
-            image: sysConfig.options.image_backends,
-            text: sysConfig.options.text_backends,
-            audio: sysConfig.options.audio_backends ?? [],
-            // 目录兜底层在下：候选只列 ready 供应商，而已配置的生效值可能指向失去凭证的那个。
-            providerNames: { ...catalogNames.providerNames, ...(sysConfig.options.provider_names ?? {}) },
-            modelNames: { ...catalogNames.modelNames, ...(sysConfig.options.model_names ?? {}) },
-          },
-          providers: providersRes.providers,
-          customProviders: customRes.providers,
-          globalDefaults: {
-            video: sysConfig.settings.default_video_backend ?? "",
-            videoI2V: sysConfig.settings.default_video_backend_i2v ?? "",
-            videoR2V: sysConfig.settings.default_video_backend_r2v ?? "",
-            image: sysConfig.settings.default_image_backend ?? "",
-            imageT2I: sysConfig.settings.default_image_backend_t2i ?? "",
-            imageI2I: sysConfig.settings.default_image_backend_i2i ?? "",
-            textDefault: sysConfig.settings.default_text_backend ?? "",
-            textSimple: sysConfig.settings.text_backend_simple ?? "",
-            textComplex: sysConfig.settings.text_backend_complex ?? "",
-          },
-        });
-        // 重取成功即清掉上一轮的错误，否则错误面板会一直遮住新数据。
-        setStep2Error(null);
+        setGenerationData(data);
+        // 重取成功即清掉上一轮的错误，否则错误会一直遮住新数据。
+        setGenerationError(null);
       } catch (err) {
-        if (!cancelled) setStep2Error(errMsg(err));
+        if (!controller.signal.aborted) setGenerationError(errMsg(err));
       }
     })());
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [i18n.language]);
 
-  // blob: URL 所有权集中在此：StylePicker 只通过 onChange 更换引用，
-  // revoke 统一由本 effect 在 URL 变更或 unmount 时触发。非 blob: 跳过。
+  // 页面持有独立的预览地址，选择器切换步骤卸载时只收回自己的地址。
+  const changeStyle = (next: StylePickerValue) => {
+    const uploadedPreview = next.uploadedFile
+      ? next.uploadedFile === style.uploadedFile
+        ? style.uploadedPreview
+        : URL.createObjectURL(next.uploadedFile)
+      : next.uploadedPreview;
+    setStyle({ ...next, uploadedPreview });
+  };
+  // 页面地址在变更或卸载时收回；已保存的服务端地址无需收回。
   useEffect(() => {
     const url = style.uploadedPreview;
     if (!url?.startsWith("blob:")) return;
     return () => URL.revokeObjectURL(url);
   }, [style.uploadedPreview]);
 
-  const handleClose = () => {
-    setShowCreateModal(false);
-  };
-
-  useEscapeClose(() => setShowCreateModal(false));
-
-  // 背景 inert：打开期间屏蔽 #root 内容（modal 通过 portal 挂到 body，
-  // 不在 #root 子树内，因此不会被 inert 传染）。
-  useEffect(() => {
-    const root = document.getElementById("root");
-    if (!root) return;
-    root.setAttribute("aria-hidden", "true");
-    root.setAttribute("inert", "");
-    return () => {
-      root.removeAttribute("aria-hidden");
-      root.removeAttribute("inert");
-    };
-  }, []);
-
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(dialogRef, true);
+  const close = () => setShowCreateModal(false);
 
   // 第二步选好时长与分辨率后还能退回第一步改生成模式。分辨率只由执行模型决定，模型没换就不动；
   // 时长按新执行模型的声明全集校验，落在全集外的退回自动。参考图路径把该值收窄掉的情形由
   // 第二步按服务端成因的提示引导重选——收窄结果只有服务端能给，这里是同步事件处理器。
-  const handleBasicsChange = (next: WizardStep1Value) => {
+  const handleBasicsChange = (next: WizardBasicsValue) => {
     setBasics(next);
     if (next.generationRoute === basics.generationRoute) return;
-    const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "" };
-    const usesReferenceImages = next.generationRoute === "reference_video";
+    const globals = generationData?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "" };
     const before = executingVideoModel(models, globals, basics.generationRoute === "reference_video");
-    const after = executingVideoModel(models, globals, usesReferenceImages);
-    const modelChanged = before !== after;
-    const nextDurations = catalogDurations(step2Data?.providers ?? [], step2Data?.customProviders ?? [], after);
+    const after = executingVideoModel(models, globals, next.generationRoute === "reference_video");
+    const nextDurations = catalogDurations(
+      generationData?.providers ?? [],
+      generationData?.customProviders ?? [],
+      after,
+    );
     setModels((prev) => ({
       ...prev,
-      videoResolution: modelChanged ? null : prev.videoResolution,
+      videoResolution: before !== after ? null : prev.videoResolution,
       defaultDuration:
-        prev.defaultDuration !== null && nextDurations?.includes(prev.defaultDuration)
-          ? prev.defaultDuration
-          : null,
+        prev.defaultDuration !== null && nextDurations?.includes(prev.defaultDuration) ? prev.defaultDuration : null,
     }));
   };
 
+  const isAd = basics.contentMode === "ad";
+
+  // 当前步骤还缺的必填项与需要修正的字段，按界面上的顺序列出
+  const missing: string[] = [];
+  const invalid: string[] = [];
+  if (step === 1) {
+    if (!basics.title.trim()) missing.push(t("project_title"));
+    if (!basics.contentMode) missing.push(t("content_mode"));
+    if (!basics.generationRoute) missing.push(t("generation_route"));
+  } else if (step === 2) {
+    if (isAd && duration.targetDuration === null) invalid.push(t("target_duration_label"));
+    if (!isAd && !isValidEpisodeTargetDuration(duration.episodeTargetDuration)) {
+      invalid.push(t("wizard_item_episode_target_duration"));
+    }
+    if (!isValidSpeechRate(duration.speechRate)) invalid.push(t("wizard_item_speech_rate"));
+    const narrationProblem = narrationDeliveryProblem(narration);
+    if (narrationProblem === "model") missing.push(t("project_tts_model_label"));
+    if (narrationProblem === "voice") missing.push(t("narration_voice_label"));
+  }
+  const generationLoading = step === 2 && !generationData && !generationError;
+  const blocked = missing.length > 0 || invalid.length > 0 || generationLoading;
+  const hint =
+    missing.length > 0
+      ? t("wizard_missing", { items: formatNameList(missing, i18n.language) })
+      : invalid.length > 0
+        ? t("wizard_invalid", { items: formatNameList(invalid, i18n.language) })
+        : null;
+
+  const goTo = (next: WizardStep) => {
+    setStep(next);
+    // 三步共用一个滚动区，进入新步骤时从顶部开始
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  };
+
   const handleCreate = async () => {
-    // 生成模式必选（Step1 已拦一道）：缺失时后端返回 422，此处不构造缺少生成模式的创建请求
-    if (!basics.generationRoute) return;
+    const { contentMode, generationRoute } = basics;
+    if (!contentMode || !generationRoute) return;
     setCreating(true);
     try {
       // resolution 的 model_settings key 用执行模型：后端按执行模型查这张表，向导只暴露默认层，
       // 但全局细分层若指向别的模型，执行的就不是默认层那个——键位对不上分辨率会被静默忽略。
-      const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "", image: "", imageT2I: "" };
-      const executingVideo = executingVideoModel(models, globals, basics.generationRoute === "reference_video");
+      const globals = generationData?.globalDefaults ?? {
+        video: "",
+        videoI2V: "",
+        videoR2V: "",
+        image: "",
+        imageT2I: "",
+      };
+      const executingVideo = executingVideoModel(models, globals, generationRoute === "reference_video");
       const executingImage = executingImageModel(models, globals);
       const modelSettings: Record<string, { resolution: string }> = {};
       if (executingVideo && models.videoResolution) {
@@ -324,23 +248,22 @@ export function CreateProjectModal() {
         modelSettings[executingImage] = { resolution: models.imageResolution };
       }
 
-      const isAd = basics.contentMode === "ad";
       const resp = await API.createProject({
         title: basics.title.trim(),
-        content_mode: basics.contentMode,
+        content_mode: contentMode,
         aspect_ratio: basics.aspectRatio,
-        generation_mode: basics.generationRoute,
+        generation_mode: generationRoute,
         grid_storyboard: basics.gridStoryboard,
         // 口播语速估算未填即不传（服务端不落盘，回退语言默认）
-        ...(basics.speechRate !== null ? { speech_rate_units_per_second: basics.speechRate } : {}),
-        // ad 不暴露 default_duration（按目标总时长逐个分镜规划），改传 target_duration
-        ...(isAd
-          ? { target_duration: basics.targetDuration }
+        ...(duration.speechRate !== null ? { speech_rate_units_per_second: duration.speechRate } : {}),
+        // 广告项目不暴露 default_duration（按目标总时长逐个分镜规划），改传 target_duration
+        ...(contentMode === "ad"
+          ? { target_duration: duration.targetDuration ?? undefined }
           : {
               default_duration: models.defaultDuration,
               // 未设目标即不传（服务端不落盘，脚本规划不注入该软约束）
-              ...(basics.episodeTargetDuration !== null
-                ? { episode_target_duration: basics.episodeTargetDuration }
+              ...(duration.episodeTargetDuration !== null
+                ? { episode_target_duration: duration.episodeTargetDuration }
                 : {}),
             }),
         style_template_id: style.mode === "template" ? style.templateId : null,
@@ -361,151 +284,84 @@ export function CreateProjectModal() {
           : {}),
       });
 
-      // Upload style image if in custom mode
       if (style.mode === "custom" && style.uploadedFile) {
         try {
           await API.uploadStyleImage(resp.name, style.uploadedFile);
         } catch {
-          useAppStore.getState().pushToast(
-            t("dashboard:style_upload_failed_hint"),
-            "warning"
-          );
+          useAppStore.getState().pushToast(t("style_upload_failed_hint"), "warning");
         }
       }
 
       setShowCreateModal(false);
       navigate(`/app/projects/${resp.name}`);
     } catch (err) {
-      useAppStore.getState().pushToast(
-        `${t("dashboard:create_project_failed")}${errMsg(err)}`,
-        "error"
-      );
-    } finally {
+      useAppStore.getState().pushToast(t("create_project_failed", { message: errMsg(err) }), "error");
       setCreating(false);
     }
   };
 
-  const stepKicker = `Reel ${step.toString().padStart(2, "0")} / 03`;
+  const handleNext = () => {
+    if (blocked) return;
+    if (step === 3) {
+      voidPromise(handleCreate)();
+      return;
+    }
+    goTo((step + 1) as WizardStep);
+  };
 
-  const modal = (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      style={{
-        background:
-          "radial-gradient(900px 480px at 12% -10%, oklch(0.32 0.05 295 / 0.30), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.28), transparent 55%), oklch(0 0 0 / 0.62)",
-        backdropFilter: "blur(12px) saturate(1.1)",
-        WebkitBackdropFilter: "blur(12px) saturate(1.1)",
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        // 创建请求在途时忽略关闭请求（Esc、关闭按钮、点击遮罩）
+        if (!open && !creating) close();
       }}
     >
-      {/* 遮罩层：点击关闭。键盘路径走 Esc。 */}
-      <button
-        type="button"
-        aria-label={t("common:close")}
-        tabIndex={-1}
-        onClick={handleClose}
-        className="absolute inset-0 cursor-default bg-transparent"
-      />
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="create-project-title"
-        className="relative w-full max-w-3xl overflow-hidden rounded-[14px] border border-hairline bg-bg-grad-a/95 shadow-[0_40px_100px_-30px_oklch(0_0_0_/_0.85)] backdrop-blur-md max-h-[92vh] flex flex-col"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.20 0.012 270 / 0.95), oklch(0.16 0.010 265 / 0.95))",
-        }}
-      >
-        {/* Hero header */}
-        <div className="relative shrink-0 px-7 pt-6 pb-5">
-          {/* 角落装饰 — 取景框的轮廓 */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute left-3 top-3 h-3 w-3 border-l border-t border-accent/40"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute right-3 top-3 h-3 w-3 border-r border-t border-accent/40"
-          />
-
-          <button
-            type="button"
-            onClick={handleClose}
-            aria-label={t("common:close")}
-            className="absolute right-5 top-5 grid h-8 w-8 place-items-center rounded-md border border-hairline-soft bg-bg/55 text-text-3 transition-colors hover:border-hairline hover:bg-bg hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <X className="h-4 w-4" />
-          </button>
-
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
-            {stepKicker}
+      <DialogContent size="wizard" initialFocus={titleRef}>
+        <DialogHeader>
+          <DialogTitle>{t("new_project")}</DialogTitle>
+          <div className="mt-1.5">
+            <WizardStepper current={step} />
           </div>
-          <h2
-            id="create-project-title"
-            className="font-editorial mt-1.5"
-            style={{
-              fontWeight: 400,
-              fontSize: 36,
-              lineHeight: 1.05,
-              letterSpacing: "-0.012em",
-              color: "var(--color-text)",
-            }}
-          >
-            {t("dashboard:new_project")}
-          </h2>
-          <p className="mt-1.5 text-[12.5px] leading-[1.55] text-text-3">
-            {t("templates:wizard_step_basics")}
-            <span aria-hidden className="mx-1.5 text-text-4">/</span>
-            {t("templates:wizard_step_models")}
-            <span aria-hidden className="mx-1.5 text-text-4">/</span>
-            {t("templates:wizard_step_style")}
-          </p>
-        </div>
+        </DialogHeader>
 
-        {/* Step indicator strip */}
-        <div className="shrink-0 border-y border-hairline-soft bg-[oklch(0.16_0.010_265_/_0.55)] px-6">
-          <StepIndicator current={step} />
-        </div>
-
-        {/* Current step body */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-7 pt-6 pb-7">
-          {step === 1 && (
-            <WizardStep1Basics
-              value={basics}
-              onChange={handleBasicsChange}
-              onNext={() => setStep(2)}
-              onCancel={handleClose}
-            />
-          )}
+        <DialogBody ref={bodyRef}>
+          {step === 1 && <WizardStepBasics value={basics} onChange={handleBasicsChange} titleRef={titleRef} />}
           {step === 2 && (
-            <WizardStep2Models
-              value={models}
-              onChange={setModels}
+            <WizardStepGeneration
+              isAd={isAd}
+              usesReferenceImages={basics.generationRoute === "reference_video"}
+              duration={duration}
+              onDurationChange={setDuration}
+              models={models}
+              onModelsChange={setModels}
               narration={narration}
               onNarrationChange={setNarration}
-              onBack={() => setStep(1)}
-              onNext={() => setStep(3)}
-              onCancel={handleClose}
-              data={step2Data}
-              error={step2Error}
-              hideDuration={basics.contentMode === "ad"}
-              usesReferenceImages={basics.generationRoute === "reference_video"}
+              data={generationData}
+              error={generationError}
             />
           )}
-          {step === 3 && (
-            <WizardStep3Style
-              value={style}
-              onChange={setStyle}
-              onBack={() => setStep(2)}
-              onCreate={voidPromise(handleCreate)}
-              onCancel={handleClose}
-              creating={creating}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
+          {step === 3 && <StylePicker value={style} onChange={changeStyle} />}
+        </DialogBody>
 
-  return createPortal(modal, document.body);
+        <DialogFooter>
+          <Button variant="ghost" onClick={close} disabled={creating}>
+            {t("common:cancel")}
+          </Button>
+          <p id={hintId} className="min-w-0 flex-1 text-right text-xs text-muted-foreground">
+            {hint}
+          </p>
+          {step > 1 && (
+            <Button variant="outline" onClick={() => goTo((step - 1) as WizardStep)} disabled={creating}>
+              {t("templates:prev_step")}
+            </Button>
+          )}
+          <Button onClick={handleNext} disabled={blocked || creating} aria-describedby={hint ? hintId : undefined}>
+            {creating && <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden />}
+            {step === 3 ? t("create_project") : t("templates:next_step")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

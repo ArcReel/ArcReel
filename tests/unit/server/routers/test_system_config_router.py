@@ -99,8 +99,7 @@ def _make_mock_svc(
                     media_types=list(meta.media_types),
                     capabilities=list(meta.capabilities),
                     required_keys=list(meta.required_keys),
-                    configured_keys=list(meta.required_keys) if name in ready else [],
-                    missing_keys=[] if name in ready else list(meta.required_keys),
+                    credential_count=1 if name in ready else 0,
                 )
             )
         return statuses
@@ -128,6 +127,17 @@ class TestGetSystemConfig:
         body = res.json()
         assert "settings" in body
         assert "options" in body
+
+    def test_agnes_text_options_exclude_legacy_model(self):
+        mock_svc = _make_mock_svc(ready_providers=["agnes"])
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+
+        text_backends = res.json()["options"]["text_backends"]
+        assert "agnes/agnes-3.0-flash" in text_backends
+        assert "agnes/agnes-2.5-flash" in text_backends
+        assert "agnes/agnes-2.5-pro" in text_backends
+        assert "agnes/agnes-2.0-flash" not in text_backends
 
     def test_settings_keys(self):
         mock_svc = _make_mock_svc()

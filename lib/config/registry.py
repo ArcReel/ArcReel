@@ -229,6 +229,18 @@ def _grok_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
 
 
+# Grok 视频费率（美元/秒），按分辨率分档、不随音轨变化。未指定分辨率时 xAI 按 480p 出片
+# （https://docs.x.ai/developers/model-capabilities/video/generation 的 Resolution 表），结算跟随同一默认档。
+def _grok_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {(res, None): rate for res, rate in rates.items()}},
+        default_model=model_id,
+        dimensions="resolution_only",
+        currency="USD",
+        default_resolution="480p",
+    )
+
+
 # OpenAI 文本费率（美元/百万 token）。
 def _openai_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
     return PerToken(
@@ -353,14 +365,23 @@ def _kling_image_by_resolution_pricing(model_id: str, rates: dict[str, float]) -
 
 
 # Agnes 图片费率（美元/张）按官方标准价建模，不纳入促销价。
-def _agnes_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
-    return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
+def _agnes_image_pricing(model_id: str, rates: dict[str, float]) -> PerImageByResolution:
+    return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="USD")
 
 
 # Agnes 文本费率（美元/百万 token），官方原价。
-def _agnes_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
+def _agnes_text_pricing(
+    model_id: str,
+    input_rate: float,
+    output_rate: float,
+    *,
+    cached_input_rate: float | None = None,
+) -> PerToken:
+    rates = {"input": input_rate, "output": output_rate}
+    if cached_input_rate is not None:
+        rates["cached_input"] = cached_input_rate
     return PerToken(
-        rates={model_id: {"input": input_rate, "output": output_rate}},
+        rates={model_id: rates},
         default_model=model_id,
         currency="USD",
     )
@@ -372,6 +393,15 @@ def _agnes_video_pricing(model_id: str, per_second: float) -> PerSecondMatrix:
         rates={model_id: {("", None): per_second}},
         default_model=model_id,
         dimensions="flat",
+        currency="USD",
+    )
+
+
+def _agnes_video_pricing_by_resolution(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
+    return PerSecondMatrix(
+        rates={model_id: {(resolution, None): rate for resolution, rate in rates.items()}},
+        default_model=model_id,
+        dimensions="resolution_only",
         currency="USD",
     )
 
@@ -400,11 +430,11 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_gemini_text_pricing("gemini-3-flash-preview", 0.50, 3.00),
                 max_output_tokens=65536,
             ),
-            "gemini-3.1-flash-lite-preview": ModelInfo(
+            "gemini-3.1-flash-lite": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
-                pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
+                pricing=_gemini_text_pricing("gemini-3.1-flash-lite", 0.25, 1.50),
                 max_output_tokens=65536,
             ),
             # --- image ---
@@ -487,11 +517,11 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_gemini_text_pricing("gemini-3-flash-preview", 0.50, 3.00),
                 max_output_tokens=65536,
             ),
-            "gemini-3.1-flash-lite-preview": ModelInfo(
+            "gemini-3.1-flash-lite": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
-                pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
+                pricing=_gemini_text_pricing("gemini-3.1-flash-lite", 0.25, 1.50),
                 max_output_tokens=65536,
             ),
             # --- image ---
@@ -833,19 +863,44 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_grok_image_pricing("grok-imagine-image", 0.02),
             ),
             # --- video ---
+            # 时长 1–15 秒对全系成立（视频生成页 Duration 段）。参考图生视频以
+            # https://docs.x.ai/developers/model-capabilities/video/reference-to-video.md 为准：reference_images
+            # 全系可用，last_frame 仅 1.5；输入模式、尾帧与参考图上限的真相源在
+            # GrokVideoBackend.video_capabilities_for_model。
             "grok-imagine-video": ModelInfo(
                 display_name="Grok Imagine Video",
                 media_type="video",
                 capabilities=[],
                 default=True,
                 supported_durations=list(range(1, 16)),
+                # 1080p 官方仅对 grok-imagine-video-1.5 系列开放，本模型只有 480p/720p 两档。
                 resolutions=["480p", "720p"],
-                # 不区分分辨率/音频的单一秒费率。
-                pricing=PerSecondMatrix(
-                    rates={"grok-imagine-video": {("", None): 0.050}},
-                    default_model="grok-imagine-video",
-                    dimensions="flat",
-                    currency="USD",
+                # https://docs.x.ai/developers/models/grok-imagine-video
+                pricing=_grok_video_pricing("grok-imagine-video", {"480p": 0.050, "720p": 0.070}),
+            ),
+            "grok-imagine-video-1.5": ModelInfo(
+                display_name="Grok Imagine Video 1.5",
+                media_type="video",
+                capabilities=[],
+                supported_durations=list(range(1, 16)),
+                # 视频生成页：「1080p is supported on grok-imagine-video-1.5 for text-to-video and
+                # image-to-video. Reference-to-video is capped at 720p.」参考生视频的 720p 上限在
+                # GrokVideoBackend 请求期校验。
+                resolutions=["480p", "720p", "1080p"],
+                # https://docs.x.ai/developers/models/grok-imagine-video-1.5
+                pricing=_grok_video_pricing("grok-imagine-video-1.5", {"480p": 0.080, "720p": 0.140, "1080p": 0.250}),
+            ),
+            "grok-imagine-video-1.5-lite": ModelInfo(
+                display_name="Grok Imagine Video 1.5 Lite",
+                media_type="video",
+                capabilities=[],
+                supported_durations=list(range(1, 16)),
+                # 两处官方来源有分歧：视频生成页只写 1.5 支持 1080p、未提及 lite；lite 模型页
+                # （https://docs.x.ai/developers/models/grok-imagine-video-1.5-lite）列出 480p/720p/1080p
+                # 三档价格。以模型专属页为准开放 1080p。
+                resolutions=["480p", "720p", "1080p"],
+                pricing=_grok_video_pricing(
+                    "grok-imagine-video-1.5-lite", {"480p": 0.020, "720p": 0.030, "1080p": 0.140}
                 ),
             ),
         },
@@ -1056,7 +1111,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "qwen-long": ModelInfo(
                 display_name="Qwen Long",
                 media_type="text",
-                capabilities=["text_generation", "structured_output"],
+                capabilities=["text_generation"],
                 pricing=_dashscope_text_pricing("qwen-long", 0.5, 2.0),
                 max_output_tokens=8192,
             ),
@@ -1393,36 +1448,89 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             # --- text ---
-            # agnes-2.0-flash：OpenAI 兼容 /v1/chat/completions，原生 response_format json_schema
-            # 结构化输出，失败再降级 Instructor（见 AgnesTextBackend）。
+            # OpenAI 兼容 /v1/chat/completions，原生 response_format json_schema 结构化输出，
+            # 失败再降级 Instructor（见 AgnesTextBackend）。
+            "agnes-3.0-flash": ModelInfo(
+                display_name="Agnes 3.0 Flash",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                default=True,
+                pricing=_agnes_text_pricing("agnes-3.0-flash", 0.05, 0.15, cached_input_rate=0.005),
+                max_output_tokens=65536,
+            ),
+            "agnes-2.5-flash": ModelInfo(
+                display_name="Agnes 2.5 Flash",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_agnes_text_pricing("agnes-2.5-flash", 0.05, 0.15, cached_input_rate=0.005),
+                max_output_tokens=65536,
+            ),
+            "agnes-2.5-pro": ModelInfo(
+                display_name="Agnes 2.5 Pro",
+                media_type="text",
+                capabilities=["text_generation", "structured_output"],
+                pricing=_agnes_text_pricing("agnes-2.5-pro", 0.45, 0.90, cached_input_rate=0.045),
+                max_output_tokens=65536,
+            ),
             "agnes-2.0-flash": ModelInfo(
                 display_name="Agnes 2.0 Flash",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
-                default=True,
+                hidden=True,
                 pricing=_agnes_text_pricing("agnes-2.0-flash", 0.03, 0.15),
                 max_output_tokens=65536,
             ),
             # --- image ---
-            # agnes-image-2.1-flash：OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
-            # 仅注册 2.1；2.0 与 2.1 共用相同的价格和字段契约，model 目录收敛到 2.1。
-            # resolutions 是保守的 UI 档位；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            # OpenAI 兼容 /images/generations 单步同步，T2I + I2I。
+            "agnes-image-2.5-flash": ModelInfo(
+                display_name="Agnes Image 2.5 Flash",
+                media_type="image",
+                capabilities=["text_to_image", "image_to_image"],
+                default=True,
+                resolutions=["1K", "2K", "3K", "4K"],
+                pricing=_agnes_image_pricing(
+                    "agnes-image-2.5-flash",
+                    {"1K": 0.010, "2K": 0.018, "3K": 0.021, "4K": 0.024},
+                ),
+            ),
             "agnes-image-2.1-flash": ModelInfo(
                 display_name="Agnes Image 2.1 Flash",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
-                default=True,
+                hidden=True,
                 resolutions=["1K", "2K"],
-                pricing=_agnes_image_pricing("agnes-image-2.1-flash", 0.003),
+                pricing=_agnes_image_pricing(
+                    "agnes-image-2.1-flash",
+                    {"1K": 0.010, "2K": 0.018, "3K": 0.021, "4K": 0.024},
+                ),
             ),
             # --- video ---
-            # agnes-video-v2.0：apihub 异步 /v1/videos，图生 / 首尾帧 / 多图主体参考；fps 固定 24、
-            # 时长 1–18s。resolutions 为保守 UI 档位；实际尺寸由 backend aspect_size 计算、与此无耦合。
+            # 2.5：apihub 异步 /v1/videos，文生 / 首尾关键帧 / 多图主体参考；按分辨率与秒数计费。
+            "agnes-video-2.5-flash": ModelInfo(
+                display_name="Agnes Video 2.5 Flash",
+                media_type="video",
+                capabilities=[],
+                default=True,
+                supported_durations=list(range(4, 13)),
+                resolutions=["720p"],
+                pricing=_agnes_video_pricing_by_resolution("agnes-video-2.5-flash", {"720p": 0.025}),
+            ),
+            "agnes-video-2.5": ModelInfo(
+                display_name="Agnes Video 2.5",
+                media_type="video",
+                capabilities=[],
+                supported_durations=list(range(4, 13)),
+                resolutions=["720p", "1080p", "2K"],
+                pricing=_agnes_video_pricing_by_resolution(
+                    "agnes-video-2.5", {"720p": 0.025, "1080p": 0.040, "2k": 0.055}
+                ),
+            ),
+            # 旧 v2.0 契约保留，仅从 UI 下拉隐藏。
             "agnes-video-v2.0": ModelInfo(
                 display_name="Agnes Video 2.0",
                 media_type="video",
                 capabilities=[],
-                default=True,
+                hidden=True,
                 supported_durations=list(range(1, 19)),
                 resolutions=["480p", "720p", "1080p"],
                 pricing=_agnes_video_pricing("agnes-video-v2.0", 0.005),

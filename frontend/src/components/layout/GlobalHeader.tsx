@@ -18,7 +18,6 @@ import { ProjectStatusBar } from "./ProjectStatusBar";
 
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
-import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { ROUTE_APP_PROJECTS, episodeEditViewPath } from "@/app-routes";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
@@ -44,7 +43,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportDiagnostics, setExportDiagnostics] = useState<ExportDiagnostics | null>(null);
   const notificationAnchorRef = useRef<HTMLDivElement>(null);
-  const exportAnchorRef = useRef<HTMLDivElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
@@ -148,7 +146,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             "linear-gradient(180deg, oklch(0.21 0.011 265 / 0.85), oklch(0.19 0.010 265 / 0.75))",
           backdropFilter: "blur(16px) saturate(1.1)",
           WebkitBackdropFilter: "blur(16px) saturate(1.1)",
-          borderBottom: "1px solid var(--color-hairline)",
+          borderBottom: "1px solid var(--border)",
           boxShadow: "0 1px 0 0 oklch(1 0 0 / 0.02) inset",
           position: "relative",
           zIndex: 20,
@@ -160,9 +158,9 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             type="button"
             onClick={onNavigateBack}
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors focus-ring"
-            style={{ color: "var(--color-text-3)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-text)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--color-text-3)")}
+            style={{ color: "var(--muted-foreground)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--foreground)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted-foreground)")}
             aria-label={t("dashboard:projects")}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -171,7 +169,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           <div
             aria-hidden="true"
             className="h-4 w-px"
-            style={{ background: "var(--color-hairline)" }}
+            style={{ background: "var(--border)" }}
           />
           <ProjectMenu />
         </div>
@@ -190,10 +188,10 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               className="relative grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
               style={{
                 color: notificationDrawerOpen
-                  ? "var(--color-accent-2)"
-                  : "var(--color-text-3)",
+                  ? "var(--primary)"
+                  : "var(--muted-foreground)",
                 background: notificationDrawerOpen
-                  ? "var(--color-accent-dim)"
+                  ? "color-mix(in oklab, var(--primary) 12%, transparent)"
                   : "transparent",
               }}
               onMouseEnter={(e) => {
@@ -211,7 +209,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 <span
                   className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
                   style={{
-                    background: "var(--color-warn)",
+                    background: "var(--warn)",
                     color: "oklch(0.14 0 0)",
                   }}
                 >
@@ -233,32 +231,28 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           <div
             aria-hidden="true"
             className="mx-1 h-[18px] w-px"
-            style={{ background: "var(--color-hairline)" }}
+            style={{ background: "var(--border)" }}
           />
 
           {/* Export project archive */}
-          <div
-            className="relative"
-            ref={exportAnchorRef}
-            data-onboarding={ONBOARDING_ANCHORS.workbenchExport}
-          >
+          <div className="relative" data-onboarding={ONBOARDING_ANCHORS.workbenchExport}>
             <button
               type="button"
               onClick={() => setExportDialogOpen(!exportDialogOpen)}
               disabled={!currentProjectName || exportingProject || demoMode}
               className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{
-                color: exportDialogOpen ? "var(--color-text)" : "var(--color-text-3)",
+                color: exportDialogOpen ? "var(--foreground)" : "var(--muted-foreground)",
                 background: exportDialogOpen ? "oklch(0.28 0.012 265 / 0.6)" : "transparent",
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-                e.currentTarget.style.color = "var(--color-text)";
+                e.currentTarget.style.color = "var(--foreground)";
               }}
               onMouseLeave={(e) => {
                 if (exportDialogOpen) return;
                 e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "var(--color-text-3)";
+                e.currentTarget.style.color = "var(--muted-foreground)";
               }}
               title={
                 demoMode
@@ -280,7 +274,6 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               open={exportDialogOpen}
               onClose={() => setExportDialogOpen(false)}
               onSelect={(scope) => void handleExportProject(scope)}
-              anchorRef={exportAnchorRef}
               editViewEpisode={editViewEpisode}
               onOpenEditView={(episode) => {
                 setExportDialogOpen(false);
@@ -295,19 +288,16 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           {/* Asset library */}
           <button
             type="button"
-            onClick={() => {
-              rememberAssetLibraryReturnTo(window.location.pathname);
-              setLocation("~/app/assets");
-            }}
+            onClick={() => setLocation("~/app/assets")}
             className="grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.color = "var(--foreground)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.color = "var(--muted-foreground)";
             }}
             title={t("assets:library_title")}
             aria-label={t("assets:library_title")}
@@ -327,14 +317,14 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
               )
             }
             className="relative grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
-            style={{ color: "var(--color-text-3)" }}
+            style={{ color: "var(--muted-foreground)" }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-              e.currentTarget.style.color = "var(--color-text)";
+              e.currentTarget.style.color = "var(--foreground)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--color-text-3)";
+              e.currentTarget.style.color = "var(--muted-foreground)";
             }}
             title={t("settings")}
             aria-label={t("settings")}
@@ -343,7 +333,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             {!isConfigComplete && !currentProjectName && (
               <span
                 className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full"
-                style={{ background: "var(--color-danger)" }}
+                style={{ background: "var(--destructive)" }}
                 aria-label={t("dashboard:config_incomplete")}
               />
             )}

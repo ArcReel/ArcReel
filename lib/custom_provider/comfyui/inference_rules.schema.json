@@ -81,7 +81,7 @@
     "optional_inputs": {
       "description": "可选入口：上游的读图节点删掉后，把这个键从 inputs 里摘掉即可，节点本身照跑。",
       "type": "array",
-      "items": { "$ref": "#/$defs/nodeInput" }
+      "items": { "$ref": "#/$defs/optionalInput" }
     },
     "merge_nodes": {
       "description": "两两合并节点：少一路时对该级做 bypass，把它的消费者重接到剩下那一路。只收固定两个输入的类型——带 inputcount 的动态多路节点少一路仍剩若干路，按两两合并摘掉会把其余几路一并丢掉。",
@@ -154,12 +154,29 @@
         "input": { "type": "string", "minLength": 1 }
       }
     },
+    "optionalInput": {
+      "type": "object",
+      "required": ["class_type"],
+      "oneOf": [{ "required": ["input"] }, { "required": ["input_prefix"] }],
+      "additionalProperties": false,
+      "properties": {
+        "class_type": { "type": "string", "minLength": 1 },
+        "input": { "type": "string", "minLength": 1 },
+        "input_prefix": { "$ref": "#/$defs/inputPrefix" }
+      }
+    },
+    "inputPrefix": {
+      "description": "按前缀认一族入口名，供 ComfyUI autogrow 口（如 ref_images.ref_image_0 … ref_image_N）一条登记全部槽位。与 input 恰好写一个；推断结果里记下的仍是 workflow 里的具体入口名。",
+      "type": "string",
+      "minLength": 1
+    },
     "consumerPort": {
       "type": "object",
-      "required": ["input"],
+      "oneOf": [{ "required": ["input"] }, { "required": ["input_prefix"] }],
       "additionalProperties": false,
       "properties": {
         "input": { "type": "string", "minLength": 1 },
+        "input_prefix": { "$ref": "#/$defs/inputPrefix" },
         "class_types": {
           "description": "限定这个入口名只在这些节点上算数；缺省即不限定。",
           "type": "array",

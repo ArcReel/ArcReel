@@ -115,7 +115,8 @@ describe("ComfyuiEndpointTestSection", () => {
     renderSection();
 
     await userEvent.type(screen.getByLabelText("提示词"), "一只猫");
-    await userEvent.selectOptions(screen.getByLabelText("分辨率"), "720p");
+    await userEvent.click(screen.getByRole("combobox", { name: "分辨率" }));
+    await userEvent.click(await screen.findByRole("option", { name: "720p" }));
     await userEvent.click(screen.getByRole("button", { name: "渲染 /prompt 请求体" }));
 
     await waitFor(() =>
@@ -283,14 +284,15 @@ describe("ComfyuiEndpointTestSection", () => {
     expect(within(failure).queryByText(/配置供应商/)).not.toBeInTheDocument();
   });
 
-  it("offers an image endpoint both cards, without the video-only parameters", () => {
+  it("offers an image endpoint both cards, without the video-only parameters", async () => {
     renderSection({ definition: definition({ media_type: "image" }) });
 
     expect(screen.getByRole("button", { name: "渲染 /prompt 请求体" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "真实提交一次" })).toBeInTheDocument();
     // 时长对图像端点无意义，分辨率档也换成图像那一组。
     expect(screen.queryByLabelText("时长（秒）")).not.toBeInTheDocument();
-    expect(within(screen.getByLabelText("分辨率")).getByRole("option", { name: "1K" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("combobox", { name: "分辨率" }));
+    expect(await screen.findByRole("option", { name: "1K" })).toBeInTheDocument();
   });
 
   it("shows an image endpoint's artifact as a still, not a player", async () => {

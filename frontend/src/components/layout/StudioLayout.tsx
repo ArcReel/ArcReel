@@ -157,7 +157,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   return (
     <div
       className="flex h-screen flex-col"
-      style={{ color: "var(--color-text)" }}
+      style={{ color: "var(--foreground)" }}
     >
       <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
@@ -179,7 +179,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
               width: `min(${ASSISTANT_PANEL_DEFAULT_WIDTH}px, 40vw)`,
               minWidth: 0,
               background: "oklch(0.19 0.011 250 / 0.5)",
-              borderLeft: "1px solid var(--color-hairline)",
+              borderLeft: "1px solid var(--border)",
             }}
           >
             <DemoAssistantPanel />
@@ -195,7 +195,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
             width: assistantPanelOpen ? displayedPanelWidth : 0,
             background: "oklch(0.19 0.011 250 / 0.5)",
             borderLeft: assistantPanelOpen
-              ? "1px solid var(--color-hairline)"
+              ? "1px solid var(--border)"
               : "1px solid transparent",
           }}
         >
@@ -238,10 +238,10 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         }`}
         style={{
           background:
-            "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
+            "linear-gradient(135deg, var(--primary), oklch(0.60 0.10 280))",
           color: "oklch(0.12 0 0)",
           boxShadow:
-            "0 0 0 1px oklch(1 0 0 / 0.1), 0 6px 20px -6px var(--color-accent-glow)",
+            "0 0 0 1px oklch(1 0 0 / 0.1), 0 6px 20px -6px color-mix(in oklab, var(--primary) 35%, transparent)",
           transitionDelay: assistantPanelOpen ? "0ms" : "200ms",
         }}
         title={t("open_assistant_panel")}

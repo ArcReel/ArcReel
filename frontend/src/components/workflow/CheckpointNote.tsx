@@ -20,7 +20,7 @@ export function CheckpointNote({ checkpoint, showJobId = false }: Props) {
   return (
     <span
       className="flex flex-wrap items-baseline gap-x-1 text-[11px]"
-      style={{ color: "var(--color-text-3)" }}
+      style={{ color: "var(--muted-foreground)" }}
     >
       <span>
         {t("checkpoint_submitted", {

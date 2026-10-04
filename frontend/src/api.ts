@@ -124,7 +124,7 @@ import type {
   SocialPublishRequest,
   SocialPublishSubmission,
 } from "@/types/social-publish";
-import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
+import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
 import type {
@@ -368,8 +368,8 @@ class API {
 
   // ==================== 系统配置 ====================
 
-  static async getSystemConfig(): Promise<GetSystemConfigResponse> {
-    return this.request("/system/config");
+  static async getSystemConfig(options: { signal?: AbortSignal } = {}): Promise<GetSystemConfigResponse> {
+    return this.request("/system/config", { signal: options.signal });
   }
 
   /**
@@ -383,8 +383,10 @@ class API {
   }
 
   /** 新建 TTS 项目的预填值（全局默认的 TTS 模型、音色与语速）。 */
-  static async getNarrationDefaults(): Promise<NarrationDefaultsResponse> {
-    return this.request("/system/narration-defaults");
+  static async getNarrationDefaults(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<NarrationDefaultsResponse> {
+    return this.request("/system/narration-defaults", { signal: options.signal });
   }
 
   /** 所选 TTS 模型（provider/model）的能力，目前只回答是否支持配音语速。 */
@@ -463,8 +465,8 @@ class API {
 
   // ==================== 项目管理 ====================
 
-  static async listProjects(): Promise<{ projects: ProjectSummary[] }> {
-    return this.request("/projects");
+  static async listProjects(options: { signal?: AbortSignal } = {}): Promise<{ projects: ProjectSummary[] }> {
+    return this.request("/projects", { signal: options.signal });
   }
 
   static async createProject(
@@ -500,8 +502,11 @@ class API {
     });
   }
 
-  static async getAgentProfileStatus(name: string): Promise<AgentProfileStatus> {
-    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile`);
+  static async getAgentProfileStatus(
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<AgentProfileStatus> {
+    return this.request(`/projects/${encodeURIComponent(name)}/agent-profile`, { signal: options.signal });
   }
 
   static async resetAgentProfile(name: string): Promise<AgentProfileStatus> {
@@ -3029,8 +3034,8 @@ class API {
   // ==================== API Key 管理 API ====================
 
   /** 列出所有 API Key（不含完整 key）。 */
-  static async listApiKeys(): Promise<ApiKeyInfo[]> {
-    return this.request("/api-keys");
+  static async listApiKeys(options: { signal?: AbortSignal } = {}): Promise<ApiKeyInfo[]> {
+    return this.request("/api-keys", { signal: options.signal });
   }
 
   /** 创建新 API Key，返回含完整 key 的响应（仅此一次）。 */
@@ -3084,8 +3089,8 @@ class API {
 
   // ==================== Provider 凭证管理 API ====================
 
-  static async listCredentials(providerId: string): Promise<{ credentials: ProviderCredential[] }> {
-    return this.request(`/providers/${encodeURIComponent(providerId)}/credentials`);
+  static async listCredentials(providerId: string, options: { signal?: AbortSignal } = {}): Promise<{ credentials: ProviderCredential[] }> {
+    return this.request(`/providers/${encodeURIComponent(providerId)}/credentials`, { signal: options.signal });
   }
 
   static async createCredential(
@@ -3137,12 +3142,12 @@ class API {
 
   // ==================== Agent 配置 / 凭证 API ====================
 
-  static async listAgentPresetProviders(): Promise<PresetProvidersResponse> {
-    return this.request("/agent/preset-providers");
+  static async listAgentPresetProviders(options: { signal?: AbortSignal } = {}): Promise<PresetProvidersResponse> {
+    return this.request("/agent/preset-providers", { signal: options.signal });
   }
 
-  static async listAgentCredentials(): Promise<{ credentials: AgentCredential[] }> {
-    return this.request("/agent/credentials");
+  static async listAgentCredentials(options: { signal?: AbortSignal } = {}): Promise<{ credentials: AgentCredential[] }> {
+    return this.request("/agent/credentials", { signal: options.signal });
   }
 
   static async createAgentCredential(
@@ -3201,8 +3206,8 @@ class API {
     return this.request("/custom-providers", { method: "POST", body: JSON.stringify(data) });
   }
 
-  static async getCustomProvider(id: number): Promise<CustomProviderInfo> {
-    return this.request(`/custom-providers/${id}`);
+  static async getCustomProvider(id: number, options: { signal?: AbortSignal } = {}): Promise<CustomProviderInfo> {
+    return this.request(`/custom-providers/${id}`, { signal: options.signal });
   }
 
   static async updateCustomProvider(id: number, data: Partial<Omit<CustomProviderCreateRequest, "discovery_format" | "models" | "image_max_workers" | "video_max_workers" | "audio_max_workers">>): Promise<void> {
@@ -3452,8 +3457,8 @@ class API {
   }
 
   /** 内置声明式端点的定义原样 JSON，供「复制为我的」；Python 实现的内置端点 404。 */
-  static async getBuiltinEndpointDefinition(key: string): Promise<EndpointDefinition> {
-    return this.request(`/custom-providers/endpoints/${encodeURIComponent(key)}/definition`);
+  static async getBuiltinEndpointDefinition(key: string, options: { signal?: AbortSignal } = {}): Promise<EndpointDefinition> {
+    return this.request(`/custom-providers/endpoints/${encodeURIComponent(key)}/definition`, { signal: options.signal });
   }
 
   static async previewEndpointRequest(
@@ -3662,7 +3667,7 @@ class API {
     if (params.q) usp.set("q", params.q);
     if (params.limit) usp.set("limit", String(params.limit));
     if (params.offset) usp.set("offset", String(params.offset));
-    return this.request<{ items: Asset[] }>(`/assets?${usp.toString()}`, options);
+    return this.request<AssetListPage>(`/assets?${usp.toString()}`, options);
   }
 
   static async getAsset(id: string) {

@@ -1,10 +1,14 @@
 import { RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CallType, EpisodeItemRef, UsageSummary } from "@/types";
 import type { UsageRecordsFilters, UsageTimeRange } from "@/stores/usage-records-store";
 import { episodeItemRefLabel } from "@/utils/episode-display";
-import { MEDIA_META, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
+import { MEDIA_META, projectTitleResolver, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 
 interface UsageFilterBarProps {
   filters: UsageRecordsFilters;
@@ -25,12 +29,45 @@ const RANGES: { value: UsageTimeRange; labelKey: string }[] = [
 
 const MEDIA_TYPES: CallType[] = ["image", "video", "text", "audio"];
 
-// 端点试跑记录的项目名是空串，「全部项目」不能用空串表示，另取一个哨兵值。同名项目
-// 只会失去在这个下拉里被单独选中的能力，不影响其记录的展示。
-const ALL_PROJECTS = "__all__";
+interface FilterOption {
+  value: string;
+  label: string;
+}
 
-const SELECT_CLS =
-  "focus-ring h-[30px] rounded-[7px] border border-hairline-soft bg-bg-grad-a/45 px-2 text-[11.5px] text-text-2 transition-colors hover:border-hairline";
+function FilterSelect({
+  label,
+  value,
+  allLabel,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  allLabel: string;
+  options: FilterOption[];
+  onChange: (value: string | null) => void;
+}) {
+  // 「全部」用 null 表示：项目名可以是空串（端点试跑记录），自定义模型 ID 不受限制，任何字符串哨兵都可能与真实取值相撞。
+  const items: { value: string | null; label: string }[] = [{ value: null, label: allLabel }, ...options];
+  return (
+    <Select items={items} value={value} onValueChange={onChange}>
+      <SelectTrigger size="sm" aria-label={label} className="w-40">
+        <SelectValue />
+      </SelectTrigger>
+      {/* 项目标题、供应商名可能很长：下拉可比触发器宽，超过上限的选项截断，悬停看全文 */}
+      <SelectContent alignItemWithTrigger={false} align="start" className="w-auto max-w-md min-w-(--anchor-width)">
+        <SelectItem value={null}>
+          <TruncatedText text={allLabel} focusable={false} />
+        </SelectItem>
+        {options.map((item) => (
+          <SelectItem key={item.value} value={item.value}>
+            <TruncatedText text={item.label} focusable={false} />
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 export function UsageFilterBar({
   filters,
@@ -42,38 +79,27 @@ export function UsageFilterBar({
 }: UsageFilterBarProps) {
   const { t, i18n } = useTranslation("dashboard");
   const providerLabel = providerLabelResolver(summary);
+  const titleOf = projectTitleResolver(summary);
   const options = summary?.filter_options;
   // 选定供应商后只列它的模型：跨供应商的同名模型混在一起既选不准也读不懂。
   const models = (options?.models ?? []).filter(
     (option) => !filters.provider || option.provider === filters.provider,
   );
 
-  const projectLabel = (name: string) => usageProjectLabel(name, t, i18n.language);
+  const projectLabel = (name: string) => usageProjectLabel(name, t, i18n.language, titleOf(name));
 
   const chips: { key: string; label: string; clear: Partial<UsageRecordsFilters> }[] = [];
   if (filters.project !== null) {
-    chips.push({
-      key: "project",
-      label: projectLabel(filters.project),
-      clear: { project: null },
-    });
+    chips.push({ key: "project", label: projectLabel(filters.project), clear: { project: null } });
   }
   if (filters.provider) {
-    chips.push({
-      key: "provider",
-      label: providerLabel(filters.provider),
-      clear: { provider: null, model: null },
-    });
+    chips.push({ key: "provider", label: providerLabel(filters.provider), clear: { provider: null, model: null } });
   }
   if (filters.model) {
     chips.push({ key: "model", label: filters.model, clear: { model: null } });
   }
   if (filters.mediaType) {
-    chips.push({
-      key: "media",
-      label: t(MEDIA_META[filters.mediaType].labelKey),
-      clear: { mediaType: null },
-    });
+    chips.push({ key: "media", label: t(MEDIA_META[filters.mediaType].labelKey), clear: { mediaType: null } });
   }
   // 分镜没有下拉可选，只由「需要关注」的连续失败条目写入；chip 是它唯一的出口。
   if (filters.segment) {
@@ -85,126 +111,80 @@ export function UsageFilterBar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div
-        role="group"
-        aria-label={t("usage_range_label")}
-        className="flex items-center gap-1"
-      >
-        {RANGES.map((range) => {
-          const active = filters.range === range.value;
-          return (
-            <button
-              key={range.value}
-              type="button"
-              aria-pressed={active}
-              onClick={() => onChange({ range: range.value })}
-              className={
-                "focus-ring rounded-[7px] border px-2.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors " +
-                (active
-                  ? "border-accent/45 bg-accent-dim text-accent-2"
-                  : "border-hairline-soft bg-bg-grad-a/45 text-text-3 hover:border-hairline hover:text-text")
-              }
-            >
-              {t(range.labelKey)}
-            </button>
-          );
-        })}
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label={t("usage_range_label")} className="flex items-center gap-0.5">
+          {RANGES.map((range) => {
+            const active = filters.range === range.value;
+            return (
+              <Button
+                key={range.value}
+                size="sm"
+                variant={active ? "secondary" : "ghost"}
+                aria-pressed={active}
+                onClick={() => onChange({ range: range.value })}
+              >
+                {t(range.labelKey)}
+              </Button>
+            );
+          })}
+        </div>
+
+        <FilterSelect
+          label={t("usage_filter_project")}
+          value={filters.project}
+          allLabel={t("usage_filter_all_projects")}
+          options={(options?.projects ?? []).map((name) => ({ value: name, label: projectLabel(name) }))}
+          onChange={(project) => onChange({ project })}
+        />
+        <FilterSelect
+          label={t("usage_filter_provider")}
+          value={filters.provider}
+          allLabel={t("usage_filter_all_providers")}
+          options={(options?.providers ?? []).map((option) => ({ value: option.provider, label: option.label }))}
+          onChange={(provider) => onChange({ provider, model: null })}
+        />
+        <FilterSelect
+          label={t("usage_filter_model")}
+          value={filters.model}
+          allLabel={t("usage_filter_all_models")}
+          // 同名模型在不同供应商下各出现一次；下拉只按模型名筛选，去重后列出。
+          options={[...new Set(models.map((option) => option.model))].map((model) => ({ value: model, label: model }))}
+          onChange={(model) => onChange({ model })}
+        />
+        <FilterSelect
+          label={t("usage_filter_media_type")}
+          value={filters.mediaType}
+          allLabel={t("usage_filter_all_media_types")}
+          options={MEDIA_TYPES.map((type) => ({ value: type, label: t(MEDIA_META[type].labelKey) }))}
+          onChange={(value) => onChange({ mediaType: value as CallType | null })}
+        />
+
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onRefresh}>
+          <RefreshCw aria-hidden="true" data-icon="inline-start" className={cn(refreshing && "animate-spin")} />
+          {t("usage_refresh")}
+        </Button>
       </div>
 
-      <select
-        aria-label={t("usage_filter_project")}
-        className={SELECT_CLS}
-        value={filters.project ?? ALL_PROJECTS}
-        onChange={(e) =>
-          onChange({ project: e.target.value === ALL_PROJECTS ? null : e.target.value })
-        }
-      >
-        <option value={ALL_PROJECTS}>{t("usage_filter_all_projects")}</option>
-        {(options?.projects ?? []).map((name) => (
-          <option key={name} value={name}>
-            {projectLabel(name)}
-          </option>
-        ))}
-      </select>
-
-      <select
-        aria-label={t("usage_filter_provider")}
-        className={SELECT_CLS}
-        value={filters.provider ?? ""}
-        onChange={(e) =>
-          onChange({ provider: e.target.value || null, model: null })
-        }
-      >
-        <option value="">{t("usage_filter_all_providers")}</option>
-        {(options?.providers ?? []).map((option) => (
-          <option key={option.provider} value={option.provider}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-
-      <select
-        aria-label={t("usage_filter_model")}
-        className={SELECT_CLS}
-        value={filters.model ?? ""}
-        onChange={(e) => onChange({ model: e.target.value || null })}
-      >
-        <option value="">{t("usage_filter_all_models")}</option>
-        {models.map((option) => (
-          <option key={`${option.provider}/${option.model}`} value={option.model}>
-            {option.model}
-          </option>
-        ))}
-      </select>
-
-      <select
-        aria-label={t("usage_filter_media_type")}
-        className={SELECT_CLS}
-        value={filters.mediaType ?? ""}
-        onChange={(e) =>
-          onChange({ mediaType: (e.target.value || null) as CallType | null })
-        }
-      >
-        <option value="">{t("usage_filter_all_media_types")}</option>
-        {MEDIA_TYPES.map((type) => (
-          <option key={type} value={type}>
-            {t(MEDIA_META[type].labelKey)}
-          </option>
-        ))}
-      </select>
-
-      <button
-        type="button"
-        onClick={onRefresh}
-        className="focus-ring ml-auto inline-flex items-center gap-1.5 rounded-[7px] px-2 py-1.5 text-[11.5px] text-text-3 transition-colors hover:text-text"
-      >
-        <RefreshCw
-          aria-hidden="true"
-          className={"h-3.5 w-3.5" + (refreshing ? " animate-spin" : "")}
-        />
-        {t("usage_refresh")}
-      </button>
-
       {chips.length > 0 && (
-        <div className="flex w-full flex-wrap items-center gap-1.5">
+        <ul aria-label={t("usage_filter_active")} className="flex flex-wrap items-center gap-1.5">
           {chips.map((chip) => (
-            <span
+            <li
               key={chip.key}
-              className="inline-flex items-center gap-1 rounded-full border border-hairline-soft px-2 py-0.5 text-[11px] text-text-2"
+              className="inline-flex max-w-64 items-center gap-0.5 rounded-full border border-border py-0.5 pr-0.5 pl-2.5 text-xs text-subtle-foreground"
             >
-              {chip.label}
-              <button
-                type="button"
+              <TruncatedText text={chip.label} />
+              <Button
+                size="icon-xs"
+                variant="ghost"
                 aria-label={t("usage_filter_chip_clear", { label: chip.label })}
                 onClick={() => onChange(chip.clear)}
-                className="focus-ring rounded-full text-text-4 transition-colors hover:text-text"
               >
-                <X aria-hidden="true" className="h-3 w-3" />
-              </button>
-            </span>
+                <X aria-hidden="true" />
+              </Button>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );

@@ -33,7 +33,7 @@ export function EpisodeDurationSummary({
     <p
       className={
         "flex items-center gap-1.5 text-[11.5px] " +
-        (exceeded ? "text-amber-200" : "text-text-4") +
+        (exceeded ? "text-amber-200" : "text-muted-foreground") +
         (className ? ` ${className}` : "")
       }
     >

@@ -21,7 +21,7 @@ interface EpisodeCardProps {
 
 const STATUS_COLOR: Record<string, string> = {
   completed: "oklch(0.74 0.08 155)",
-  in_production: "var(--color-accent)",
+  in_production: "var(--primary)",
   scripted: "oklch(0.60 0.02 250)",
   draft: "oklch(0.46 0.01 250)",
   missing: "oklch(0.46 0.01 250)",
@@ -94,9 +94,9 @@ export function EpisodeCard({
         background: active
           ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.55), oklch(0.22 0.015 280 / 0.4))"
           : "transparent",
-        border: active ? "1px solid var(--color-accent-soft)" : "1px solid transparent",
+        border: active ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)" : "1px solid transparent",
         boxShadow: active
-          ? "0 0 0 1px var(--color-accent-soft), 0 4px 12px -6px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.04)"
+          ? "0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent), 0 4px 12px -6px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.04)"
           : "none",
       }}
       onMouseEnter={(e) => {
@@ -110,12 +110,12 @@ export function EpisodeCard({
         className="num grid h-[34px] w-[34px] shrink-0 place-items-center rounded-md text-[11px] font-bold leading-none"
         style={{
           background: active
-            ? "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.45 0.12 285) 100%)"
+            ? "linear-gradient(135deg, var(--primary) 0%, oklch(0.45 0.12 285) 100%)"
             : "linear-gradient(180deg, oklch(0.28 0.013 265), oklch(0.24 0.012 265))",
-          color: active ? "oklch(0.14 0 0)" : "var(--color-text-3)",
+          color: active ? "oklch(0.14 0 0)" : "var(--muted-foreground)",
           boxShadow: active
-            ? "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 2px 6px -2px var(--color-accent-glow)"
-            : "inset 0 1px 0 oklch(1 0 0 / 0.04), inset 0 0 0 1px var(--color-hairline-soft)",
+            ? "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 2px 6px -2px color-mix(in oklab, var(--primary) 35%, transparent)"
+            : "inset 0 1px 0 oklch(1 0 0 / 0.04), inset 0 0 0 1px color-mix(in oklab, var(--border) 50%, transparent)",
         }}
       >
         {showEpisodeBadge ? position : <Clapperboard className="h-4 w-4" aria-hidden />}
@@ -125,7 +125,7 @@ export function EpisodeCard({
         <div
           className="truncate text-[13px]"
           style={{
-            color: active ? "var(--color-text)" : "var(--color-text-2)",
+            color: active ? "var(--foreground)" : "var(--subtle-foreground)",
             fontWeight: active ? 600 : 500,
           }}
         >
@@ -134,7 +134,7 @@ export function EpisodeCard({
         <div className="mt-[3px] flex items-center gap-1.5">
           <span
             className="inline-flex items-center gap-1 text-[10.5px]"
-            style={{ color: "var(--color-text-4)" }}
+            style={{ color: "var(--muted-foreground)" }}
           >
             <span
               className={`h-[5px] w-[5px] rounded-full ${
@@ -148,12 +148,12 @@ export function EpisodeCard({
             <>
               <span
                 aria-hidden="true"
-                className="h-px w-px rounded"
-                style={{ background: "var(--color-hairline)", width: 2, height: 2 }}
+                className="h-px w-px rounded-sm"
+                style={{ background: "var(--border)", width: 2, height: 2 }}
               />
               <span
                 className="num text-[10.5px]"
-                style={{ color: "var(--color-text-4)" }}
+                style={{ color: "var(--muted-foreground)" }}
                 title={
                   videoTotal > 0
                     ? t("episode_available_videos_hint", { count: availableVideos, total: videoTotal })
@@ -167,13 +167,13 @@ export function EpisodeCard({
           )}
           {staleCount > 0 && (
             <span
-              className="num inline-flex items-center gap-1 text-[10.5px] text-warm-bright"
+              className="num inline-flex items-center gap-1 text-[10.5px] text-warn"
               title={t("episode_stale_artifacts", { count: staleCount })}
             >
               <span
                 aria-hidden
                 className="h-[5px] w-[5px] rounded-full"
-                style={{ background: "var(--color-warm-bright)" }}
+                style={{ background: "var(--warn)" }}
               />
               <span aria-hidden>{staleCount}</span>
               <span className="sr-only">{t("episode_stale_artifacts", { count: staleCount })}</span>
@@ -182,15 +182,15 @@ export function EpisodeCard({
         </div>
         {showProgress && (
           <div
-            className="mt-[5px] h-[2px] overflow-hidden rounded-[1px]"
+            className="mt-[5px] h-[2px] overflow-hidden rounded-xs"
             style={{ background: "oklch(0.22 0.010 265)" }}
           >
             <div
               className="h-full"
               style={{
                 width: `${progress}%`,
-                background: "linear-gradient(90deg, var(--color-accent), var(--color-accent-2))",
-                boxShadow: "0 0 6px var(--color-accent-glow)",
+                background: "var(--primary)",
+                boxShadow: "0 0 6px color-mix(in oklab, var(--primary) 35%, transparent)",
               }}
             />
           </div>
@@ -200,7 +200,7 @@ export function EpisodeCard({
       {costText && (
         <span
           className="num self-start pt-0.5 text-[10.5px]"
-          style={{ color: active ? "var(--color-accent-2)" : "var(--color-text-4)" }}
+          style={{ color: active ? "var(--primary)" : "var(--muted-foreground)" }}
         >
           {costText}
         </span>

@@ -4,7 +4,7 @@ from typing import ClassVar
 
 import pytest
 
-from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
+from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta, default_model_for_provider
 
 
 class TestModelInfo:
@@ -135,14 +135,20 @@ class TestProviderRegistry:
     @pytest.mark.parametrize(
         ("provider_id", "model_id"),
         [
-            ("gemini-aistudio", "gemini-3.1-flash-lite-preview"),
-            ("gemini-vertex", "gemini-3.1-flash-lite-preview"),
+            ("gemini-aistudio", "gemini-3.1-flash-lite"),
+            ("gemini-vertex", "gemini-3.1-flash-lite"),
             ("dashscope", "qwen3.6-plus"),
             ("dashscope", "qwen3.6-flash"),
         ],
     )
     def test_multimodal_text_models_declare_vision(self, provider_id, model_id):
         assert "vision" in PROVIDER_REGISTRY[provider_id].models[model_id].capabilities
+
+    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+    def test_retired_flash_lite_preview_is_absent(self, provider_id):
+        models = PROVIDER_REGISTRY[provider_id].models
+        assert "gemini-3.1-flash-lite" in models
+        assert "gemini-3.1-flash-lite-preview" not in models
 
     def test_text_generation_models_register_max_output_tokens(self):
         unregistered = [
@@ -152,6 +158,15 @@ class TestProviderRegistry:
             if "text_generation" in info.capabilities and not (info.max_output_tokens and info.max_output_tokens > 0)
         ]
         assert unregistered == [], f"带 text_generation 能力的内置模型须登记最大输出长度：{unregistered}"
+
+    def test_dashscope_qwen_long_does_not_declare_structured_output(self):
+        capabilities = PROVIDER_REGISTRY["dashscope"].models["qwen-long"].capabilities
+        assert "structured_output" not in capabilities
+
+    @pytest.mark.parametrize("model_id", ["qwen-plus", "qwen3.6-plus", "qwen3-max", "qwen3.7-max", "qwen3.6-flash"])
+    def test_dashscope_native_structured_models_still_declare_structured_output(self, model_id):
+        capabilities = PROVIDER_REGISTRY["dashscope"].models[model_id].capabilities
+        assert "structured_output" in capabilities
 
     def test_each_media_type_has_default(self):
         for provider_id, meta in PROVIDER_REGISTRY.items():
@@ -166,6 +181,42 @@ class TestProviderRegistry:
         for provider_id in self._TEXT_PROVIDERS:
             meta = PROVIDER_REGISTRY[provider_id]
             assert "text" in meta.media_types, f"{provider_id} missing 'text'"
+
+    def test_agnes_25_models_are_registered_and_legacy_models_are_hidden(self):
+        meta = PROVIDER_REGISTRY["agnes"]
+
+        for model_id in (
+            "agnes-3.0-flash",
+            "agnes-2.5-flash",
+            "agnes-2.5-pro",
+            "agnes-image-2.5-flash",
+            "agnes-video-2.5",
+            "agnes-video-2.5-flash",
+        ):
+            assert model_id in meta.models
+
+        assert meta.models["agnes-3.0-flash"].default is True
+        assert meta.models["agnes-2.5-flash"].default is False
+        assert meta.models["agnes-2.5-pro"].default is False
+        assert meta.models["agnes-image-2.5-flash"].default is True
+        assert meta.models["agnes-video-2.5-flash"].default is True
+        assert meta.models["agnes-video-2.5"].default is False
+
+        assert meta.models["agnes-2.0-flash"].hidden is True
+        assert meta.models["agnes-image-2.1-flash"].hidden is True
+        assert meta.models["agnes-video-v2.0"].hidden is True
+
+        assert meta.models["agnes-image-2.5-flash"].resolutions == ["1K", "2K", "3K", "4K"]
+        assert meta.models["agnes-image-2.1-flash"].resolutions == ["1K", "2K"]
+        assert meta.models["agnes-video-2.5-flash"].supported_durations == list(range(4, 13))
+        assert meta.models["agnes-video-2.5-flash"].resolutions == ["720p"]
+        assert meta.models["agnes-video-2.5"].supported_durations == list(range(4, 13))
+        assert meta.models["agnes-video-2.5"].resolutions == ["720p", "1080p", "2K"]
+        assert "agnes-image-2.0-flash" not in meta.models
+
+        assert default_model_for_provider("agnes", "text") == "agnes-3.0-flash"
+        assert default_model_for_provider("agnes", "image") == "agnes-image-2.5-flash"
+        assert default_model_for_provider("agnes", "video") == "agnes-video-2.5-flash"
 
     def test_dashscope_video_models_include_happyhorse_11(self):
         meta = PROVIDER_REGISTRY["dashscope"]

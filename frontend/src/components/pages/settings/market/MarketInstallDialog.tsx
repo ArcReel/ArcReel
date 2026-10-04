@@ -1,8 +1,9 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Check, Download, ExternalLink, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Download, ExternalLink, Loader2 } from "lucide-react";
 import { API } from "@/api";
+import { endpointSettingsPath, providerSettingsPath } from "@/app-routes";
 import type {
   CustomEndpointInfo,
   EndpointDefinition,
@@ -13,9 +14,20 @@ import type {
   MarketEntryDetail,
   MarketEntryInstallation,
 } from "@/types";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
-import { ACCENT_BTN_SM_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { errMsg } from "@/utils/async";
 import { isDeclarativeDefinition, isRenderableDefinition } from "../endpoints/endpoint-definition-draft";
@@ -26,7 +38,6 @@ import { MarketInstallBadges } from "./MarketInstallBadges";
 import { EntryIcon, SourceChip } from "./MarketEntryCard";
 import { MarketEntryRating } from "./MarketEntryRating";
 import { MarketEntryStats } from "./MarketEntryStats";
-import { KICKER_ACCENT_CLS, KICKER_CLS } from "./market-source-status";
 
 interface Preview {
   detail: MarketEntryDetail;
@@ -42,9 +53,19 @@ function displayValue(value: unknown): string {
   return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
+function InfoBlock({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex min-w-0 flex-col gap-1.5 rounded-md border border-border p-3 text-sm text-subtle-foreground">
+      <h3 className="font-medium text-foreground">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 /**
  * 安装与更新共用的确认弹窗：先完整展示来源、校验和凭证去向，安装、更新与卸载由服务端原子执行。
  * 可更新时进入更新态，确认后经同一安装接口原地覆盖持有记录的端点；本地改过的定义先提示会被覆盖并可先导出。
+ * 卸载会删除端点，先用 AlertDialog 确认。
  * 传入 `official` 时（官方服务开启且条目来自官方市场源）头部显示安装量与评分，并提供评分控件。
  */
 export function MarketInstallDialog({
@@ -63,8 +84,7 @@ export function MarketInstallDialog({
   onInstallationChange: (installation: MarketEntryInstallation | null) => void;
 }) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
-  const [location, navigate] = useLocation();
-  const titleId = useId();
+  const [, navigate] = useLocation();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,23 +93,18 @@ export function MarketInstallDialog({
   const [success, setSuccess] = useState<CustomEndpointInfo | null>(null);
   const [updatedTo, setUpdatedTo] = useState<string | null>(null);
   const [references, setReferences] = useState<EndpointReference[] | null>(null);
+  const [confirmingUninstall, setConfirmingUninstall] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
       try {
         const [detail, payload, endpoints] = await Promise.all([
-          API.getMarketEntry(entry.source_id, entry.slug, {
-            signal: controller.signal,
-          }),
-          API.getMarketEntryDefinition(entry.source_id, entry.slug, {
-            signal: controller.signal,
-          }),
+          API.getMarketEntry(entry.source_id, entry.slug, { signal: controller.signal }),
+          API.getMarketEntryDefinition(entry.source_id, entry.slug, { signal: controller.signal }),
           API.listCustomEndpoints({ signal: controller.signal }),
         ]);
-        const validation = await API.validateCustomEndpoint(payload.definition, {
-          signal: controller.signal,
-        });
+        const validation = await API.validateCustomEndpoint(payload.definition, { signal: controller.signal });
         if (controller.signal.aborted) return;
         setError(null);
         setPreview({
@@ -146,13 +161,11 @@ export function MarketInstallDialog({
   };
   // 从调用端点小节打开时导航不会卸载弹窗，需主动关闭。
   const openEndpoint = (key: string) => {
-    navigate(`${location}?${new URLSearchParams({ section: "endpoints", endpoint: key })}`);
+    navigate(endpointSettingsPath(key));
     onClose();
   };
   const goToModel = (reference: EndpointReference) =>
-    navigate(
-      `${location}?${new URLSearchParams({ section: "providers", custom: String(reference.provider_id), model: reference.model_id })}`,
-    );
+    navigate(providerSettingsPath({ custom: reference.provider_id, model: reference.model_id }));
   const install = async () => {
     if (!preview?.digest || busy) return;
     setBusy(true);
@@ -185,6 +198,7 @@ export function MarketInstallDialog({
       onInstallationChange(null);
       onClose();
     } catch (e) {
+      setConfirmingUninstall(false);
       const refs = endpointReferences(e);
       if (refs) setReferences(refs);
       else setError(errMsg(e));
@@ -194,252 +208,240 @@ export function MarketInstallDialog({
   };
 
   return (
-    <GlassModal
+    <Dialog
       open
-      onClose={close}
-      labelledBy={titleId}
-      widthClassName="w-full max-w-2xl"
-      closeOnBackdrop={!busy}
-      closeOnEscape={!busy}
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
     >
-      <div className="flex max-h-[86vh] flex-col">
-        <div className="flex items-center justify-between px-6 pt-5">
-          <span className={KICKER_ACCENT_CLS}>{updating ? "Update endpoint" : "Install endpoint"}</span>
-          <ModalCloseButton onClick={close} disabled={busy} />
-        </div>
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
-          <header className="flex items-start gap-3">
+      <DialogContent size="lg">
+        <DialogHeader>
+          <div className="flex min-w-0 items-start gap-3">
             <EntryIcon entry={shown} />
-            <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 id={titleId} className="font-editorial text-[24px] leading-tight text-text">
-                  {header.name}
-                </h2>
+                <DialogTitle>{header.name}</DialogTitle>
                 {installed && <MarketInstallBadges state={installed.state} modified={installed.modified} />}
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-text-3">
-                <span>{header.author}</span>
-                <span aria-hidden>·</span>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                 <span>
                   {updating
                     ? t("market_update_versions", { installed: installed.installed_version, version: marketVersion })
-                    : `v${marketVersion}`}
+                    : t("market_entry_byline", { author: header.author, version: marketVersion })}
                 </span>
-                <span aria-hidden>·</span>
-                <SourceChip
-                  name={source?.display_name ?? entry.source_display_name}
-                  kind={source?.kind ?? null}
-                />
+                <SourceChip name={source?.display_name ?? entry.source_display_name} kind={source?.kind ?? null} />
                 {header.homepage && (
                   <a
                     href={header.homepage}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-accent-2 hover:underline"
+                    className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
                   >
                     {t("market_homepage")}
-                    <ExternalLink className="h-3 w-3" aria-hidden />
+                    <ExternalLink className="size-3.5" aria-hidden />
                   </a>
                 )}
               </div>
-              {header.description && <p className="mt-2 text-[12.5px] text-text-2">{header.description}</p>}
-              {official && (
-                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {official.aggregate && <MarketEntryStats aggregate={official.aggregate} />}
-                  <MarketEntryRating
-                    sourceId={entry.source_id}
-                    slug={entry.slug}
-                    installed={installed !== null}
-                    busy={busy}
-                    onBusyChange={setBusy}
-                    onRated={official.onRated}
-                  />
-                </div>
-              )}
-              {source?.kind === "custom" && (
-                <p className="mt-3 rounded-[8px] border border-warn/30 bg-warn/8 p-3 text-[12px] text-text-2">
-                  {t("market_unreviewed")}
-                </p>
-              )}
             </div>
-          </header>
-          {!preview && !error && (
-            <p role="status" className="flex items-center gap-2 text-text-3">
-              <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
-              {t("common:loading")}
-            </p>
-          )}
-          {preview && (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <section className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-3 text-[12px] text-text-2">
-                  <h3 className={`${KICKER_CLS} mb-2`}>Validation</h3>
-                  {!preview.matches && <p className="text-warn">{t("market_definition_mismatch")}</p>}
-                  {validation?.errors.map((issue) => (
-                    <p key={`${issue.path}-${issue.code}`} className="text-warn">
-                      {issue.message}
-                    </p>
-                  ))}
-                  {validation?.warnings.map((issue) => (
-                    <p key={`${issue.path}-${issue.code}`}>{issue.message}</p>
-                  ))}
-                  {preview.matches && validation?.errors.length === 0 && validation.warnings.length === 0 && (
-                    <p>{t("ce_diagnostics_clean")}</p>
-                  )}
-                  {appVersionUnmet && (
-                    <p className="text-warn">
-                      {t("market_requires_app", {
-                        version: validation?.min_app_version?.required ?? shown.min_app_version,
-                      })}
-                    </p>
-                  )}
-                </section>
-                <section className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-3 text-[12px] text-text-2">
-                  <h3 className={`${KICKER_CLS} mb-2`}>Hints</h3>
-                  {validation?.hints?.base_url && (
-                    <p className="break-all">
-                      {t("ce_import_hint_base_url", { url: validation.hints.base_url })}
-                    </p>
-                  )}
-                  {Array.isArray(validation?.hints?.suggested_models) &&
-                    validation.hints.suggested_models
-                      .filter((model) => model !== null && typeof model === "object")
-                      .map((model, index) => <p key={index}>{displayValue(model.label ?? model.id)}</p>)}
-                  {!validation?.hints && <p>{t("market_no_hints")}</p>}
-                </section>
-              </div>
-              {definition && (
-                <section className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 p-3 text-[12px] text-text-2">
-                  <h3 className={`${KICKER_CLS} mb-2`}>Trust</h3>
-                  <dl className="space-y-2 [&>div]:sm:grid [&>div]:sm:grid-cols-[auto_1fr] [&>div]:sm:gap-3">
-                    <div>
-                      <dt>{t("market_submit_url")}</dt>
-                      <dd className="break-all font-mono text-text">{displayValue(definition.submit.url)}</dd>
-                    </div>
-                    <div>
-                      <dt>{t("market_poll_url")}</dt>
-                      <dd className="break-all font-mono text-text">{displayValue(definition.poll.url)}</dd>
-                    </div>
-                  </dl>
-                  <details open className="mt-3">
-                    <summary className="cursor-pointer">{t("market_auth")}</summary>
-                    <pre className="mt-2 overflow-x-auto rounded-[6px] bg-bg-grad-a p-3 text-[11px]">
-                      {JSON.stringify(definition.auth, null, 2)}
-                    </pre>
-                  </details>
-                </section>
-              )}
-              {!installed && validation && (
-                <EndpointDuplicateChoices
-                  duplicates={validation.duplicates}
-                  disabled={busy || blocked}
-                  selection={{ value: overwriteId, onChange: setOverwriteId }}
-                  blockedSources={blockedSources}
+          </div>
+        </DialogHeader>
+        <DialogBody>
+          <div className="@container flex flex-col gap-4">
+            {header.description && <p className="text-sm text-subtle-foreground">{header.description}</p>}
+            {official && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                {official.aggregate && <MarketEntryStats aggregate={official.aggregate} />}
+                <MarketEntryRating
+                  sourceId={entry.source_id}
+                  slug={entry.slug}
+                  installed={installed !== null}
+                  busy={busy}
+                  onBusyChange={setBusy}
+                  onRated={official.onRated}
                 />
-              )}
-            </>
-          )}
-          {updating && (installed.modified || hasUnsavedEndpointChanges) && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-warn/35 bg-warn/8 px-3 py-2">
-              <p className="flex items-center gap-1.5 text-[12px] text-text-2">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
-                {t("market_modified_overwrite_warning")}
-              </p>
-              <button
-                type="button"
-                disabled={!installedDefinition}
-                className={GHOST_BTN_CLS}
-                onClick={() => installedDefinition && exportEndpointDefinition(installedDefinition, entry.slug)}
-              >
-                <Download className="h-3.5 w-3.5" aria-hidden />
-                {t("market_export_current_definition")}
-              </button>
-            </div>
-          )}
-          {success && (
-            <div
-              role="status"
-              className="rounded-[8px] border border-good/30 bg-good/8 p-3 text-[12.5px] text-text-2"
-            >
-              <p className="flex items-center gap-1.5 text-text">
-                <Check className="h-3.5 w-3.5 text-good" aria-hidden />
-                {updatedTo === null ? t("market_install_success") : t("market_update_success", { version: updatedTo })}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className={GHOST_BTN_CLS}
-                  onClick={() => {
-                    const params = new URLSearchParams({
-                      section: "providers",
-                      custom: "new",
-                      endpoint: success.key,
-                    });
-                    if (success.definition.meta.hints?.base_url)
-                      params.set("base_url", success.definition.meta.hints.base_url);
-                    navigate(`${location}?${params}`);
-                  }}
-                >
-                  {t("market_create_provider")}
-                </button>
-                <button type="button" className={GHOST_BTN_CLS} onClick={() => openEndpoint(success.key)}>
-                  {t("market_open_endpoint")}
-                </button>
               </div>
-            </div>
-          )}
-          {references && (
-            <div role="alert" className="text-[12px] text-text-2">
-              <EndpointReferenceList references={references} onNavigateToModel={goToModel} />
-            </div>
-          )}
-          {error && (
-            <p role="alert" className="text-[12px] text-warn">
-              {error}
-            </p>
-          )}
-        </div>
-        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-hairline-soft px-6 py-3">
-          {installed ? (
-            <button
-              type="button"
-              disabled={busy}
-              className={`${GHOST_BTN_CLS} text-danger`}
-              onClick={() => void uninstall()}
-            >
-              <Trash2 className="h-3.5 w-3.5" aria-hidden />
-              {t("market_uninstall")}
-            </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <button type="button" disabled={busy} className={GHOST_BTN_CLS} onClick={close}>
-              {t("common:cancel")}
-            </button>
-            {installed && !updating ? (
-              <button
-                type="button"
-                disabled={busy}
-                className={GHOST_BTN_CLS}
-                onClick={() => openEndpoint(installed.endpoint_key)}
-              >
-                {t("market_open_endpoint")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={busy || blocked}
-                className={ACCENT_BTN_SM_CLS}
-                style={ACCENT_BUTTON_STYLE}
-                onClick={() => void install()}
-              >
-                {updating ? t("market_update_to", { version: marketVersion }) : t("market_confirm_install")}
-              </button>
+            )}
+            {source?.kind === "custom" && (
+              <p className="flex items-start gap-2 rounded-md bg-warn/10 px-3 py-2 text-sm text-warn">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                {t("market_unreviewed")}
+              </p>
+            )}
+            {!preview && !error && (
+              <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                {t("common:loading")}
+              </p>
+            )}
+            {preview && (
+              <>
+                <div className="grid gap-3 @md:grid-cols-2">
+                  <InfoBlock title={t("market_section_validation")}>
+                    {!preview.matches && <p className="text-warn">{t("market_definition_mismatch")}</p>}
+                    {validation?.errors.map((issue) => (
+                      <p key={`${issue.path}-${issue.code}`} className="text-warn">
+                        {issue.message}
+                      </p>
+                    ))}
+                    {validation?.warnings.map((issue) => (
+                      <p key={`${issue.path}-${issue.code}`}>{issue.message}</p>
+                    ))}
+                    {preview.matches && validation?.errors.length === 0 && validation.warnings.length === 0 && (
+                      <p>{t("ce_diagnostics_clean")}</p>
+                    )}
+                    {appVersionUnmet && (
+                      <p className="text-warn">
+                        {t("market_requires_app", {
+                          version: validation?.min_app_version?.required ?? shown.min_app_version,
+                        })}
+                      </p>
+                    )}
+                  </InfoBlock>
+                  <InfoBlock title={t("market_section_hints")}>
+                    {validation?.hints?.base_url && (
+                      <p className="break-all">{t("ce_import_hint_base_url", { url: validation.hints.base_url })}</p>
+                    )}
+                    {Array.isArray(validation?.hints?.suggested_models) &&
+                      validation.hints.suggested_models
+                        .filter((model) => model !== null && typeof model === "object")
+                        .map((model, index) => <p key={index}>{displayValue(model.label ?? model.id)}</p>)}
+                    {!validation?.hints && <p>{t("market_no_hints")}</p>}
+                  </InfoBlock>
+                </div>
+                {definition && (
+                  <InfoBlock title={t("market_section_trust")}>
+                    <dl className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <dt>{t("market_submit_url")}</dt>
+                        <dd className="font-mono break-all text-foreground">{displayValue(definition.submit.url)}</dd>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <dt>{t("market_poll_url")}</dt>
+                        <dd className="font-mono break-all text-foreground">{displayValue(definition.poll.url)}</dd>
+                      </div>
+                    </dl>
+                    <Collapsible defaultOpen>
+                      <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="-ml-2.5" />}>
+                        <ChevronRight aria-hidden className="transition-transform group-aria-expanded/button:rotate-90" />
+                        {t("market_auth")}
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        {/* 自动换行而不是横向滚动：横向滚动区拿不到键盘焦点。 */}
+                        <pre className="mt-1 rounded-md bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
+                          {JSON.stringify(definition.auth, null, 2)}
+                        </pre>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </InfoBlock>
+                )}
+                {!installed && validation && (
+                  <EndpointDuplicateChoices
+                    duplicates={validation.duplicates}
+                    disabled={busy || blocked}
+                    selection={{ value: overwriteId, onChange: setOverwriteId }}
+                    blockedSources={blockedSources}
+                  />
+                )}
+              </>
+            )}
+            {updating && (installed.modified || hasUnsavedEndpointChanges) && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-warn/10 px-3 py-2">
+                <p className="flex items-center gap-2 text-sm text-warn">
+                  <AlertTriangle className="size-4 shrink-0" aria-hidden />
+                  {t("market_modified_overwrite_warning")}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!installedDefinition}
+                  onClick={() => installedDefinition && exportEndpointDefinition(installedDefinition, entry.slug)}
+                >
+                  <Download data-icon="inline-start" aria-hidden />
+                  {t("market_export_current_definition")}
+                </Button>
+              </div>
+            )}
+            {success && (
+              <div role="status" className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm">
+                <p className="flex items-center gap-2 text-foreground">
+                  <Check className="size-4 text-good" aria-hidden />
+                  {updatedTo === null ? t("market_install_success") : t("market_update_success", { version: updatedTo })}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      navigate(
+                        providerSettingsPath({
+                          newCustom: { endpoint: success.key, baseUrl: success.definition.meta.hints?.base_url },
+                        }),
+                      )
+                    }
+                  >
+                    {t("market_create_provider")}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => openEndpoint(success.key)}>
+                    {t("market_open_endpoint")}
+                  </Button>
+                </div>
+              </div>
+            )}
+            {references && (
+              <div role="alert" className="text-sm text-subtle-foreground">
+                <EndpointReferenceList references={references} onNavigateToModel={goToModel} />
+              </div>
+            )}
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
             )}
           </div>
-        </footer>
-      </div>
-    </GlassModal>
+        </DialogBody>
+        <DialogFooter>
+          {installed && (
+            <Button variant="destructive" disabled={busy} className="mr-auto" onClick={() => setConfirmingUninstall(true)}>
+              {t("market_uninstall")}
+            </Button>
+          )}
+          <Button variant="outline" disabled={busy} onClick={close}>
+            {t("common:cancel")}
+          </Button>
+          {installed && !updating ? (
+            <Button disabled={busy} onClick={() => openEndpoint(installed.endpoint_key)}>
+              {t("market_open_endpoint")}
+            </Button>
+          ) : (
+            <Button disabled={busy || blocked} onClick={() => void install()}>
+              {busy && <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden />}
+              {updating ? t("market_update_to", { version: marketVersion }) : t("market_confirm_install")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+      <AlertDialog
+        open={confirmingUninstall}
+        onOpenChange={(next) => {
+          if (!next && !busy) setConfirmingUninstall(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("market_uninstall_title", { name: header.name })}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogBody>
+            <AlertDialogDescription>{t("market_uninstall_desc")}</AlertDialogDescription>
+          </AlertDialogBody>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t("common:cancel")}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" disabled={busy} onClick={() => void uninstall()}>
+              {busy && <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden />}
+              {t("market_uninstall")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
   );
 }

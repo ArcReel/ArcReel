@@ -65,9 +65,9 @@ describe("MediaModelSection", () => {
       expect(await screen.findByRole("combobox", { name })).toBeInTheDocument();
     }
     // video / image / text 三处折叠区，初始收起
-    const sections = Array.from(container.querySelectorAll("details"));
+    const sections = screen.getAllByRole("button", { name: /按用途指定模型/ });
     expect(sections).toHaveLength(3);
-    expect(sections.every((d) => !d.open)).toBe(true);
+    expect(sections.every((d) => d.getAttribute("aria-expanded") === "false")).toBe(true);
     // 界面文案不出现内部术语
     expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
   });
@@ -83,24 +83,6 @@ describe("MediaModelSection", () => {
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 7200 }));
-  });
-
-  it("reads and saves the GitHub raw proxy prefix with the other system settings", async () => {
-    const user = userEvent.setup();
-    mockConfig({ market_github_proxy_prefix: "https://old.example.com/" });
-    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
-    render(<MediaModelSection />);
-
-    const input = await screen.findByRole("textbox", { name: "GitHub raw 代理前缀" });
-    expect(input).toHaveValue("https://old.example.com/");
-    await user.clear(input);
-    await user.type(input, "https://proxy.example.com/");
-    await user.click(screen.getByRole("button", { name: "保存" }));
-
-    await waitFor(() =>
-      expect(patch).toHaveBeenCalledWith({ market_github_proxy_prefix: "https://proxy.example.com/" }),
-    );
-    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("代理前缀已保存"));
   });
 
   it("rounds a fractional polling timeout to an integer on blur before saving", async () => {
@@ -125,16 +107,16 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
 
     const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
-    // 先键入有效值（键入过程会把中间值写进草稿），再清空离开
+    // 先键入有效值（键入过程会把中间值写进未保存修改），再清空离开
     await user.clear(timeout);
     await user.type(timeout, "7200");
     await user.clear(timeout);
     expect(timeout).toHaveValue("");
     await user.tab();
 
-    // 空输入撤销该字段的未保存编辑：回显已保存值，键入过的 7200 不残留在草稿里
+    // 空输入撤销该字段的未保存编辑：回显已保存值，键入过的 7200 不残留在未保存修改里
     expect(timeout).toHaveValue("3600");
-    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("keeps configured global sub-fields visible when the candidate fetch fails", async () => {
@@ -176,7 +158,7 @@ describe("MediaModelSection", () => {
     await waitFor(() => expect(screen.queryAllByRole("alert")).toHaveLength(0));
     // 失败态强制展开过折叠区，重试成功后仍展开，无需再次点开
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
-    expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
   });
 
   it("filters sub-field candidates by purpose while the default dropdown stays unfiltered", async () => {
@@ -185,13 +167,13 @@ describe("MediaModelSection", () => {
     const videoDefault = await screen.findByRole("combobox", { name: "默认视频模型" });
 
     await user.click(videoDefault);
-    expect(screen.getByRole("option", { name: /veo-3/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /veo-3/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
     await user.click(screen.getAllByText("按用途指定模型")[0]);
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
-    expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /veo-3/ })).not.toBeInTheDocument();
   });
 
@@ -215,7 +197,7 @@ describe("MediaModelSection", () => {
 
     await user.click(screen.getAllByText("按用途指定模型")[0]);
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
-    await user.click(screen.getByRole("option", { name: /seedance/ }));
+    await user.click(await screen.findByRole("option", { name: /seedance/ }));
     await user.click(screen.getByRole("button", { name: /保存|Save/ }));
 
     await waitFor(() =>
@@ -235,17 +217,15 @@ describe("MediaModelSection", () => {
 
     await screen.findByRole("combobox", { name: "默认视频模型" });
     await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
-    await user.click(screen.getByRole("option", { name: /seedance/ }));
+    await user.click(await screen.findByRole("option", { name: /seedance/ }));
     await user.click(screen.getByRole("button", { name: /保存|Save/ }));
 
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith({ default_video_backend: "ark/seedance" }),
     );
-    // 保存结束的可观测证据：成功 toast 已推出——PATCH 已返回但流程仍卡在候选请求上时，
-    // finally 里的 setSaving(false) 与这条 toast 都不会发生。
-    await waitFor(() =>
-      expect(useAppStore.getState().toast?.text).toBe("媒体模型配置已保存"),
-    );
+    // 保存结束的可观测证据：保存栏显示「已保存」——PATCH 已返回但流程仍卡在候选请求上时，
+    // 保存栏会一直停在「正在保存」。
+    expect(await screen.findByText("已保存")).toBeInTheDocument();
   });
 
   describe("音频勾选框的模型可控性", () => {
@@ -261,8 +241,7 @@ describe("MediaModelSection", () => {
         status: "ready",
         media_types: ["video"],
         capabilities: [],
-        configured_keys: [],
-        missing_keys: [],
+        credential_count: 0,
         models: {
           [modelId]: {
             display_name: modelId,
@@ -297,7 +276,7 @@ describe("MediaModelSection", () => {
       mockProviders("always_on");
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
-      expect(box).toBeDisabled();
+      expect(box).toHaveAttribute("aria-disabled", "true");
       expect(box).toBeChecked();
       expect(screen.getByText(/始终带声音/)).toBeInTheDocument();
 
@@ -354,7 +333,7 @@ describe("MediaModelSection", () => {
       mockProviders("always_off");
       render(<MediaModelSection />);
       const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
-      expect(box).toBeDisabled();
+      expect(box).toHaveAttribute("aria-disabled", "true");
       expect(box).not.toBeChecked();
       expect(screen.getByText(/没有声音/)).toBeInTheDocument();
     });
@@ -385,7 +364,7 @@ describe("MediaModelSection", () => {
       /** 打开指定下拉，读出 v3-omni 那一行的能力线，再关掉——同时只开一个下拉。 */
       async function omniRowIn(user: ReturnType<typeof userEvent.setup>, comboboxName: string) {
         await user.click(screen.getByRole("combobox", { name: comboboxName }));
-        const text = screen.getByRole("option", { name: /v3-omni/ }).textContent ?? "";
+        const text = (await screen.findByRole("option", { name: /v3-omni/ })).textContent ?? "";
         await user.keyboard("{Escape}");
         return text;
       }
@@ -407,10 +386,10 @@ describe("MediaModelSection", () => {
 
   it("auto-expands a channel whose sub-field is already configured", async () => {
     mockConfig({ default_image_backend_i2i: "openai/gpt-image-edit" });
-    const { container } = render(<MediaModelSection />);
+    render(<MediaModelSection />);
     await screen.findByRole("combobox", { name: "默认图片模型" });
-    const imageSection = container.querySelectorAll("details")[1];
-    expect(imageSection.open).toBe(true);
+    const imageSection = screen.getAllByRole("button", { name: /按用途指定模型/ })[1];
+    expect(imageSection).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
   });
 });
@@ -461,6 +440,6 @@ describe("MediaModelSection – 语言切换", () => {
 
     await user.click(trigger);
     // 选项行主行为译名，model id 仍在行内可辨识
-    expect(screen.getByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
+    expect(await screen.findByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
   });
 });

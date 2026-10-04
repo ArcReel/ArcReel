@@ -68,15 +68,35 @@ class NodeInput:
 
 
 @dataclass(frozen=True)
+class InputName:
+    """规则条目里的入口名：精确名，或 ComfyUI autogrow 口那样按前缀认的一族槽位。"""
+
+    text: str
+    #: ``True`` 时 ``text`` 是前缀，``ref_images.ref_image_`` 认得出 ``ref_images.ref_image_0`` 起的每一格。
+    prefix: bool = False
+
+    def matches(self, input_name: str) -> bool:
+        return input_name.startswith(self.text) if self.prefix else input_name == self.text
+
+
+@dataclass(frozen=True)
+class OptionalInput:
+    """一个节点上的可选入口：上游的读图节点删掉后摘键即可，节点本身照跑。"""
+
+    class_type: str
+    input: InputName
+
+
+@dataclass(frozen=True)
 class ConsumerPort:
     """读图节点的输出接到这个入口时，它承载的就是对应的语义键。"""
 
-    input: str
+    input: InputName
     #: 限定这个入口名只在这些节点上算数；空集即不限定。
     class_types: frozenset[str]
 
     def matches(self, input_name: str, class_type: str) -> bool:
-        if input_name != self.input:
+        if not self.input.matches(input_name):
             return False
         return not self.class_types or class_type in self.class_types
 
@@ -176,7 +196,7 @@ class InferenceRules:
     class_type_tiers: Mapping[str, tuple[frozenset[str], ...]]
     steps: Mapping[str, StepRules]
     constant_nodes: Mapping[str, str]
-    optional_inputs: tuple[NodeInput, ...]
+    optional_inputs: tuple[OptionalInput, ...]
     merge_nodes: tuple[MergeNode, ...]
     external_families: tuple[ExternalFamily, ...]
     audio_track_sources: tuple[AudioTrackSource, ...]
@@ -217,7 +237,7 @@ class InferenceRules:
         return None
 
     def is_optional_input(self, class_type: str, input_name: str) -> bool:
-        return any(item.class_type == class_type and item.input == input_name for item in self.optional_inputs)
+        return any(item.class_type == class_type and item.input.matches(input_name) for item in self.optional_inputs)
 
     def merge_node(self, class_type: str) -> MergeNode | None:
         for node in self.merge_nodes:
@@ -326,7 +346,7 @@ def _rules_from(document: Mapping[str, Any]) -> InferenceRules:
         },
         image_loaders=_node_inputs(document.get("image_loaders")),
         consumer_ports={
-            key: tuple(ConsumerPort(str(port["input"]), frozenset(_strings(port.get("class_types")))) for port in ports)
+            key: tuple(ConsumerPort(_input_name(port), frozenset(_strings(port.get("class_types")))) for port in ports)
             for key, ports in _mapping(document.get("consumer_ports")).items()
         },
         sampler_ports={str(port): str(key) for port, key in _mapping(document.get("sampler_ports")).items()},
@@ -349,7 +369,10 @@ def _rules_from(document: Mapping[str, Any]) -> InferenceRules:
             for key, rules in _mapping(document.get("steps")).items()
         },
         constant_nodes={str(name): str(field) for name, field in _mapping(document.get("constant_nodes")).items()},
-        optional_inputs=_node_inputs(document.get("optional_inputs")),
+        optional_inputs=tuple(
+            OptionalInput(str(item["class_type"]), _input_name(item))
+            for item in _items(document.get("optional_inputs"))
+        ),
         merge_nodes=tuple(
             MergeNode(str(item["class_type"]), _strings(item.get("inputs")))
             for item in _items(document.get("merge_nodes"))
@@ -395,6 +418,13 @@ def _audio_from(item: Mapping[str, Any]) -> AudioTrackSource:
 
 def _node_inputs(raw: object) -> tuple[NodeInput, ...]:
     return tuple(NodeInput(str(item["class_type"]), str(item["input"])) for item in _items(raw))
+
+
+def _input_name(item: Mapping[str, Any]) -> InputName:
+    """``input`` 与 ``input_prefix`` 恰好写一个，由 schema 在读入时保证。"""
+    if "input_prefix" in item:
+        return InputName(str(item["input_prefix"]), prefix=True)
+    return InputName(str(item["input"]))
 
 
 def _items(raw: object) -> Iterable[Any]:

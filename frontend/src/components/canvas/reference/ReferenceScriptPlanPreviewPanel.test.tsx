@@ -373,11 +373,10 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
-    expect(button).toHaveAttribute("data-tone", "danger");
     expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
 
     fireEvent.click(button);
-    expect(await screen.findByRole("dialog")).toHaveTextContent(itemIdsInEpisodeText(overwrite.text));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(itemIdsInEpisodeText(overwrite.text));
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, { overwriteRevision: "sha256-v1:listed" }));
@@ -409,8 +408,8 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
-    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("U05"));
-    expect(screen.getByRole("dialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
+    await waitFor(() => expect(screen.getByRole("alertdialog")).toHaveTextContent("U05"));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
@@ -425,7 +424,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
     const notice = await screen.findByRole("alert");
     expect(notice).toHaveTextContent("尚未配置可用的视频模型");
-    expect(screen.getByRole("link", { name: "前往项目设置" })).toHaveAttribute("href", "/app/projects/p/settings");
+    expect(screen.getByRole("link", { name: "前往项目设置" })).toHaveAttribute("href", "/app/projects/p/settings?tab=models");
     const button = screen.getByRole("button", { name: /确认拆分，继续生成/ });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("title", expect.stringContaining("尚未配置可用的视频模型"));
@@ -460,7 +459,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       rejectCapabilities(new ApiRequestError("无法解析", undefined, 422));
     });
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "覆盖并确认" })).toBeDisabled();
   });
 
@@ -945,7 +944,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     // 两个按钮之间的可见文本要有分隔符，不能粘连成 "U01 · 1U02 · 1"——按钮各自的可访问名
     // 本身不受这个 bug 影响（那是每个元素独立算的），只有渲染出的原始文本会粘连，所以这里
     // 直接断言状态条的 textContent。
-    const statusBar = container.querySelector("span.text-\\[11px\\].text-text-4");
+    const statusBar = container.querySelector("span.text-\\[11px\\].text-muted-foreground");
     expect(statusBar?.textContent).toMatch(/U01 · 1.+U02 · 1/);
     expect(statusBar?.textContent).not.toContain("1U02");
   });

@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v1/system/narration-defaults",
+  "status": 200,
+  "body": {
+    "audio_backend": null,
+    "narration_voice": "Cherry",
+    "narration_speed": null
+  }
+}

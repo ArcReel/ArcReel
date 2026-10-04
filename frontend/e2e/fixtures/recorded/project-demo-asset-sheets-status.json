@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/asset-sheets/status",
+  "status": 200,
+  "body": {
+    "assets": []
+  }
+}

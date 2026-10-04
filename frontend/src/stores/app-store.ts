@@ -8,10 +8,17 @@ import type {
   WorkspaceNotificationTarget,
 } from "@/types";
 
+/** 提示上的操作按钮，用于可逆操作的「撤销」；点击后执行回调并关闭这条提示。 */
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface Toast {
   id: string;
   text: string;
   tone: "info" | "success" | "error" | "warning";
+  action?: ToastAction;
 }
 
 interface FocusedContext {
@@ -85,15 +92,14 @@ interface AppState {
   assistantToolActivitySuppressed: boolean;
   setAssistantToolActivitySuppressed: (suppressed: boolean) => void;
 
-  // Toast
+  // Toast：最近一次发出的提示，由 ToastOverlay 转交提示队列显示
   toast: Toast | null;
-  pushToast: (text: string, tone?: Toast["tone"]) => void;
+  pushToast: (text: string, tone?: Toast["tone"], options?: { action?: ToastAction }) => void;
   pushNotification: (
     text: string,
     tone?: Toast["tone"],
     options?: { target?: WorkspaceNotificationTarget | null },
   ) => void;
-  clearToast: () => void;
   workspaceNotifications: WorkspaceNotification[];
   pushWorkspaceNotification: (input: WorkspaceNotificationInput) => void;
   markWorkspaceNotificationRead: (id: string) => void;
@@ -133,8 +139,8 @@ interface AppState {
 /**
  * 通知系统分工规则：
  *
- * - pushToast(text, tone)
- *     用于：用户主动操作的即时反馈。
+ * - pushToast(text, tone, { action? })
+ *     用于：用户主动操作的即时反馈。可逆操作附「撤销」action；不可逆操作先用 AlertDialog 确认。
  *     典型：表单保存/校验、导入/删除/切换/上传成功、scroll target 未找到、
  *          后台任务提交成功回执（task_submitted）、入队请求同步失败
  *          （用户在场可立即重试，不进 drawer）、轻量错误提示。
@@ -215,9 +221,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ assistantToolActivitySuppressed: suppressed }),
 
   toast: null,
-  pushToast: (text, tone = "info") =>
+  pushToast: (text, tone = "info", options) =>
     set({
-      toast: { id: `${Date.now()}-${Math.random()}`, text, tone },
+      toast: { id: `${Date.now()}-${Math.random()}`, text, tone, action: options?.action },
     }),
   pushNotification: (text, tone = "info", options) =>
     set((s) => ({
@@ -227,7 +233,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...s.workspaceNotifications,
       ].slice(0, MAX_WORKSPACE_NOTIFICATIONS),
     })),
-  clearToast: () => set({ toast: null }),
   workspaceNotifications: [],
   pushWorkspaceNotification: (input) =>
     set((s) => ({

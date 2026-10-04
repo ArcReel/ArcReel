@@ -49,7 +49,7 @@ export function EpisodeHeader({
     <div
       className="flex flex-wrap items-end justify-between gap-5 px-6 pb-4 pt-[18px]"
       style={{
-        borderBottom: "1px solid var(--color-hairline)",
+        borderBottom: "1px solid var(--border)",
         background:
           "linear-gradient(180deg, oklch(0.22 0.014 290 / 0.4), oklch(0.20 0.012 250 / 0.15))",
       }}
@@ -57,10 +57,10 @@ export function EpisodeHeader({
       <div className="min-w-0 flex-1" style={{ flexBasis: "240px" }}>
         <div className="mb-2 flex flex-wrap items-center gap-2.5">
           <span
-            className="num rounded px-2 py-0.5 text-[10.5px] font-semibold uppercase"
+            className="num rounded-sm px-2 py-0.5 text-[10.5px] font-semibold uppercase"
             style={{
-              color: "var(--color-accent-2)",
-              background: "var(--color-accent-dim)",
+              color: "var(--primary)",
+              background: "color-mix(in oklab, var(--primary) 12%, transparent)",
               letterSpacing: "0.8px",
               fontFamily: "var(--font-mono)",
             }}
@@ -69,7 +69,7 @@ export function EpisodeHeader({
               number: position === null ? "—" : String(position).padStart(2, "0"),
             })}
           </span>
-          <span className="num text-[11px]" style={{ color: "var(--color-text-4)" }}>
+          <span className="num text-[11px]" style={{ color: "var(--muted-foreground)" }}>
             {t("episode_header_segment_count", {
               count: segmentCount,
               duration: totalDuration,
@@ -79,16 +79,16 @@ export function EpisodeHeader({
             <>
               <span
                 aria-hidden="true"
-                className="h-[3px] w-[3px] rounded"
-                style={{ background: "var(--color-hairline)" }}
+                className="h-[3px] w-[3px] rounded-sm"
+                style={{ background: "var(--border)" }}
               />
               <span
                 className="inline-flex items-center gap-1.5 text-[11px]"
-                style={{ color: "var(--color-text-3)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 <span
                   className="h-[5px] w-[5px] animate-shot-pulse rounded-full"
-                  style={{ background: "var(--color-accent)" }}
+                  style={{ background: "var(--primary)" }}
                 />
                 {t("episode_header_progress_inline", { percent: progress })}
               </span>
@@ -145,18 +145,18 @@ function CostStat({
       className="px-3.5 py-1.5"
       style={{
         minWidth: 88,
-        borderLeft: withBorder ? "1px solid var(--color-hairline-soft)" : "none",
+        borderLeft: withBorder ? "1px solid color-mix(in oklab, var(--border) 50%, transparent)" : "none",
       }}
     >
       <div
         className="text-[10px] font-semibold uppercase"
-        style={{ color: "var(--color-text-4)", letterSpacing: "0.8px" }}
+        style={{ color: "var(--muted-foreground)", letterSpacing: "0.8px" }}
       >
         {label}
       </div>
       <div
         className="num mt-0.5 text-[14px] font-semibold"
-        style={{ color: accent ? "var(--color-accent-2)" : "var(--color-text)" }}
+        style={{ color: accent ? "var(--primary)" : "var(--foreground)" }}
       >
         {value}
       </div>

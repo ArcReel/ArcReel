@@ -11,18 +11,18 @@ import { problemViews } from "./problem-views";
 import type { NextStepView, StepAct, StepNote, StepRowTone, StepRowView } from "./step-list";
 
 const TONE_COLOR: Record<StepRowTone, string> = {
-  done: "var(--color-accent-2)",
-  todo: "var(--color-text-4)",
-  partial: "var(--color-text-2)",
-  running: "var(--color-accent-2)",
-  warn: "var(--color-warm)",
-  danger: "var(--color-danger-2)",
+  done: "var(--primary)",
+  todo: "var(--muted-foreground)",
+  partial: "var(--subtle-foreground)",
+  running: "var(--primary)",
+  warn: "var(--warn)",
+  danger: "var(--destructive)",
 };
 
 const NOTE_COLOR: Record<StepNote["tone"], string> = {
-  warn: "var(--color-warm)",
-  danger: "var(--color-danger-2)",
-  info: "var(--color-text-3)",
+  warn: "var(--warn)",
+  danger: "var(--destructive)",
+  info: "var(--muted-foreground)",
 };
 
 /** 行首圆点：已齐实心、还没有虚线空心、部分半填、进行中脉动。形状先于颜色，灰度下仍可区分。 */
@@ -67,10 +67,10 @@ function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: 
   return (
     <div className="space-y-1.5 pt-1" data-testid="workflow-next-step">
       <p className="text-[12px] leading-relaxed">
-        <span className="font-medium" style={{ color: "var(--color-accent-2)" }}>
+        <span className="font-medium" style={{ color: "var(--primary)" }}>
           {t("next_step", { step: next.title })}
         </span>
-        {next.detail && <span style={{ color: "var(--color-text-3)" }}> {next.detail}</span>}
+        {next.detail && <span style={{ color: "var(--muted-foreground)" }}> {next.detail}</span>}
       </p>
       {next.hint && <NoteLine note={next.hint} onRun={onRun} />}
       {next.instruction && (
@@ -85,9 +85,9 @@ function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: 
             placeholder={t(next.instruction.persist ? "instruction_placeholder_saved" : "instruction_placeholder")}
             className="focus-ring w-full rounded-md px-2 py-1 text-[12px]"
             style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-hairline)",
-              color: "var(--color-text)",
+              background: "var(--muted)",
+              border: "1px solid var(--border)",
+              color: "var(--foreground)",
             }}
           />
         </div>
@@ -99,7 +99,7 @@ function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: 
           ))}
           {next.alternatives.length > 0 && (
             <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="text-[11.5px]" style={{ color: "var(--color-text-4)" }}>
+              <span className="text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
                 {t("alternatives_lead")}
               </span>
               {next.alternatives.map((act) => (
@@ -170,7 +170,7 @@ function StepDetails({ step, onViewUnit, onRegenerate, onConfirmDurations, busy 
               disabled={busy}
               onClick={confirm}
               className={INLINE_ACTION_CLS}
-              style={{ color: "var(--color-accent-2)" }}
+              style={{ color: "var(--primary)" }}
             >
               {t("admission_confirm_cta")}
             </button>
@@ -189,19 +189,19 @@ export function StepListRow({ row, next, instruction, onInstructionChange, onRun
       className="flex gap-2.5 rounded-md py-1 pl-1.5 pr-2"
       data-testid={`workflow-row-${row.key}`}
       aria-current={owns ? "step" : undefined}
-      style={owns ? { background: "var(--color-accent-dim)", boxShadow: "inset 2px 0 0 var(--color-accent-2)" } : undefined}
+      style={owns ? { background: "color-mix(in oklab, var(--primary) 12%, transparent)", boxShadow: "inset 2px 0 0 var(--primary)" } : undefined}
     >
       <span className="mt-[6px] flex">
         <ToneDot tone={row.tone} />
       </span>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <h3 className="w-24 shrink-0 text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
+          <h3 className="w-24 shrink-0 text-[12.5px] font-medium" style={{ color: "var(--foreground)" }}>
             {row.title}
           </h3>
           <span
             className="text-[12px]"
-            style={{ color: row.tone === "warn" || row.tone === "danger" ? TONE_COLOR[row.tone] : "var(--color-text-2)" }}
+            style={{ color: row.tone === "warn" || row.tone === "danger" ? TONE_COLOR[row.tone] : "var(--subtle-foreground)" }}
           >
             {row.status}
           </span>

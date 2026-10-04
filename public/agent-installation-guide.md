@@ -14,7 +14,7 @@ npx skills add ArcReel/skills
 
 ## 2. 获取接入信息
 
-让用户打开 [ArcReel 设置页]({{BASE_URL}}/app/settings?section=api-keys)，创建一个 `arc-` 前缀的 API Key。完整密钥只显示一次；用户可以把它提供给其明确选择的当前 Agent。`setup-arcreel-skills` 会按宿主与工作区的本地配置惯例持久化同一连接，供后续会话与 ArcReel skills 复用。
+让用户打开 [ArcReel 设置页的「访问令牌」]({{BASE_URL}}/app/settings?section=access-tokens)，创建一个 `arc-` 前缀的访问令牌（即 API Key）。完整令牌只显示一次；用户可以把它提供给其明确选择的当前 Agent。`setup-arcreel-skills` 会按宿主与工作区的本地配置惯例持久化同一连接，供后续会话与 ArcReel skills 复用。
 
 MCP 端点：
 
@@ -24,7 +24,7 @@ MCP 端点：
 
 ## 3. 执行接线
 
-安装完成后立即使用 `setup-arcreel-skills` skill，按其指引配置 MCP 端点、Bearer API Key 并验证连通；`video-workflow` 会在后续创作请求中按需触发。
+安装完成后立即使用 `setup-arcreel-skills` skill，按其指引配置 MCP 端点、Bearer 访问令牌并验证连通；`video-workflow` 会在后续创作请求中按需触发。
 
 ## 4. 完成判据
 

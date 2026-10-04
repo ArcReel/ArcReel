@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { errMsg } from "@/utils/async";
 import type { AssetRegenerationImpact, AssetSheetStatusRow, AssetSheetType } from "@/types";
 

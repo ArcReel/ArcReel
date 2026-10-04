@@ -34,6 +34,7 @@ from urllib.parse import urlsplit
 from arcreel_market_core.endpoint_definition import definition_media_type
 from arcreel_market_core.video_backend_contract import (
     ProviderResponseStage,
+    VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -45,7 +46,7 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
-from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
+from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
 from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.comfyui.failures import ComfyuiError
@@ -433,15 +434,22 @@ class TrialRunManager:
             # backend 先装配再开账：装配失败（模型行不存在、供应商配错）时一个字节都没发出去，
             # 记一笔 pending 再翻成 failed 会让账本上多一条根本没打过的调用。
             backend = await target.build_backend()
+            is_video = target.media_type == "video"
+            # 能力闸与比例覆盖共用一份按本次请求档位解析的能力，与生产同源：声明了
+            # ``video_capabilities_for_tier`` 的端点按分辨率收窄，读未收窄的属性会比生产放得更宽。
+            # 测试请求不带 ``service_tier``，下发的就是请求缺省档，解析也取缺省档。
+            video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
             # 生产路径在记账括号前跑同一道能力闸（声明的违约在付费前拒绝，不发给供应商）；
             # 测试连接跑的是生产那条路，闸也一致。免闸的目标见 ``TrialRunTarget.gate_capabilities``。
             if target.gate_capabilities:
-                await _gate_trial_request(backend, target, parameters, assets)
-            is_video = target.media_type == "video"
+                if video_caps is None:
+                    _gate_trial_image_request(backend, target, assets)
+                else:
+                    await _gate_trial_video_request(video_caps, target, parameters, assets)
             # 声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上只接受 adaptive；
             # 下发值与记账值分离，账本记的仍是用户填的比例意图（与生产同一分工）。
             request_aspect_ratio = resolve_first_frame_aspect_ratio(
-                caps=getattr(backend, "video_capabilities", None),
+                caps=video_caps,
                 aspect_ratio=parameters.aspect_ratio,
                 has_first_frame=_single(assets.get("start_image")) is not None,
             )
@@ -631,25 +639,26 @@ class TrialRunManager:
         return self.root / run_id / _ARTIFACT_FILE_BY_MEDIA_TYPE[media_type]
 
 
-async def _gate_trial_request(
-    backend: Any,
+async def _gate_trial_video_request(
+    caps: VideoCapabilities,
     target: TrialRunTarget,
     parameters: EndpointTestParameters,
     assets: Mapping[str, Path | list[Path] | None],
 ) -> None:
-    """提交前跑生产那道能力闸。两个通道各有自己的一道，按 ``media_type`` 分派。"""
-    if target.media_type != "video":
-        _gate_trial_image_request(backend, target, assets)
-        return
-
+    """提交前跑生产那道视频能力闸，``caps`` 是按本次请求档位解析好的能力。"""
     from lib.backends.video_frame_slots import gate_video_request, plan_frame_slots
     from lib.speech.audio_utils import probe_reference_audio_total_seconds
 
     reference_images = assets.get("reference_images")
     reference_audio = assets.get("reference_audio_files")
     audio_files = list(reference_audio) if isinstance(reference_audio, list) else None
-    # 与生产路径同一探测：总时长探不出（随包 ffmpeg 不可用）传 None，闸按未知跳过该项而非拒绝。
-    total_seconds = await probe_reference_audio_total_seconds(audio_files) if audio_files else None
+    # 与生产路径同一探测：只在能力声明了总时长约束时探；探不出（随包 ffmpeg 不可用）传 None，
+    # 闸按未知跳过该项而非拒绝。
+    total_seconds = (
+        await probe_reference_audio_total_seconds(audio_files)
+        if audio_files and caps.max_reference_audio_total_seconds is not None
+        else None
+    )
     images = list(reference_images) if isinstance(reference_images, list) else None
     end_image = _single(assets.get("end_image"))
     # has_image 取整份槽位计划，与生产同源：参考图驱动的端点（如 S2V）没有首帧但带参考图，
@@ -660,7 +669,7 @@ async def _gate_trial_request(
         reference_images=images,
     )
     gate_video_request(
-        caps=getattr(backend, "video_capabilities", None),
+        caps=caps,
         provider=target.provider,
         model=target.model,
         prompt=parameters.prompt,

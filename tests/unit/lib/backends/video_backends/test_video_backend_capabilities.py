@@ -195,6 +195,8 @@ class TestVideoCapabilitiesForModel:
 #: ``VideoCapabilities`` 的默认值（controllable）落到这张表上，与作者的登记意图对不上而在 CI 暴露。
 #: 表放在本文件而非注册表测试里：音轨形态的真相源是 backend 的 VideoCapabilities，守卫应贴着真相源。
 _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
+    ("agnes", "agnes-video-2.5"): ("always_on", "always_on"),
+    ("agnes", "agnes-video-2.5-flash"): ("always_on", "always_on"),
     ("agnes", "agnes-video-v2.0"): ("always_off", "always_off"),
     ("ark", "doubao-seedance-1-5-pro-251215"): ("controllable", "controllable"),
     ("ark", "doubao-seedance-2-0-260128"): ("controllable", "controllable"),
@@ -220,7 +222,9 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("gemini-aistudio", "veo-3.1-lite-generate-preview"): ("always_on", "always_on"),
     ("gemini-vertex", "veo-3.1-fast-generate-001"): ("controllable", "controllable"),
     ("gemini-vertex", "veo-3.1-generate-001"): ("controllable", "controllable"),
-    ("grok", "grok-imagine-video"): ("always_on", "always_on"),
+    ("grok", "grok-imagine-video"): ("controllable", "controllable"),
+    ("grok", "grok-imagine-video-1.5"): ("controllable", "controllable"),
+    ("grok", "grok-imagine-video-1.5-lite"): ("controllable", "controllable"),
     ("kling", "kling-v2-5-turbo"): ("always_off", "always_off"),
     # 可灵有音频能力的三档：图生/文生子路径带 sound 开关，多图主体（R2V）子路径的原生 schema
     # 不含该字段，成片必然无声。

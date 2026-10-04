@@ -19,12 +19,6 @@ const VERSION_RESPONSE: GetSystemVersionResponse = {
 describe("AboutSection diagnostics download", () => {
   beforeEach(() => {
     vi.spyOn(API, "getSystemVersion").mockResolvedValue(VERSION_RESPONSE);
-    vi.spyOn(API, "getOfficialService").mockResolvedValue({
-      available: true,
-      enabled: true,
-      notice_seen: true,
-      instance_id: null,
-    });
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-diagnostics");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   });
@@ -89,5 +83,36 @@ describe("AboutSection diagnostics download", () => {
       const target = createdAnchors.find((a) => a.download === "custom-diagnostics.zip");
       expect(target).toBeDefined();
     });
+  });
+});
+
+describe("AboutSection release notes", () => {
+  it("收起最新一条发布说明，展开后显示正文与 Release 链接", async () => {
+    vi.spyOn(API, "getSystemVersion").mockResolvedValue({
+      ...VERSION_RESPONSE,
+      latest: {
+        version: "1.1.0",
+        tag_name: "v1.1.0",
+        name: "1.1.0",
+        body: "## What's Changed\n- faster exports",
+        html_url: "https://github.com/example/ArcReel/releases/tag/v1.1.0",
+        published_at: "2026-07-12T08:00:00Z",
+      },
+      has_update: true,
+    });
+    const user = userEvent.setup();
+    render(<AboutSection />);
+
+    const toggle = await screen.findByRole("button", { name: /发布说明/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/faster exports/)).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(await screen.findByText(/faster exports/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /打开 GitHub Release/ })).toHaveAttribute(
+      "href",
+      "https://github.com/example/ArcReel/releases/tag/v1.1.0",
+    );
   });
 });

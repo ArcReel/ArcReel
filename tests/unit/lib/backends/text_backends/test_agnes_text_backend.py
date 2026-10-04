@@ -49,14 +49,21 @@ class TestConstruction:
 
             backend = AgnesTextBackend(api_key="sk")
             assert backend.name == PROVIDER_AGNES
-            assert backend.model == "agnes-2.0-flash"
+            assert backend.model == "agnes-3.0-flash"
 
     def test_custom_model(self):
         with captured_openai_clients():
             from lib.backends.text_backends.agnes import AgnesTextBackend
 
-            backend = AgnesTextBackend(api_key="sk", model="agnes-2.0-pro")
-            assert backend.model == "agnes-2.0-pro"
+            backend = AgnesTextBackend(api_key="sk", model="agnes-2.5-pro")
+            assert backend.model == "agnes-2.5-pro"
+
+    def test_legacy_model_still_uses_agnes_backend(self):
+        with captured_openai_clients():
+            from lib.backends.text_backends.agnes import AgnesTextBackend
+
+            backend = AgnesTextBackend(api_key="sk", model="agnes-2.0-flash")
+            assert backend.model == "agnes-2.0-flash"
 
     def test_capabilities_text_and_structured_no_vision(self):
         with captured_openai_clients():
@@ -104,7 +111,7 @@ class TestGenerate:
 
         assert result.text == "Test output"
         assert result.provider == PROVIDER_AGNES
-        assert result.model == "agnes-2.0-flash"
+        assert result.model == "agnes-3.0-flash"
         assert result.input_tokens == 15
         assert result.output_tokens == 8
 
@@ -141,6 +148,24 @@ class TestGenerate:
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["response_format"]["type"] == "json_schema"
         # 原生成功，不触发降级（instructor 客户端未构造）
+        from_openai.assert_not_called()
+
+    async def test_fenced_json_native_structured_output_is_unwrapped_without_fallback(self):
+        fenced = '```json\n{"name": "Alice", "age": 30}\n```'
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(fenced))
+
+        with (
+            captured_openai_clients(mock_client),
+            patched_instructor_from_openai() as from_openai,
+        ):
+            from lib.backends.text_backends.agnes import AgnesTextBackend
+
+            backend = AgnesTextBackend(api_key="sk", model="agnes-2.5-flash")
+            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
+
+        assert result.text == '{"name": "Alice", "age": 30}'
+        assert _PersonSchema.model_validate_json(result.text) == _PersonSchema(name="Alice", age=30)
         from_openai.assert_not_called()
 
     async def test_non_json_response_triggers_instructor_fallback(self):

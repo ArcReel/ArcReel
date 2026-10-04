@@ -1,20 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { AlertTriangle, BadgeCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import {
-  ACCENT_BTN_SM_CLS,
-  ACCENT_BUTTON_STYLE,
-  CARD_STYLE,
-  GHOST_BTN_CLS,
-  posterGridStyle,
-} from "@/components/ui/darkroom-tokens";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { MarketEntry, MarketEntryAggregate, MarketSourceKind } from "@/types";
 import { MarketEntryStats } from "./MarketEntryStats";
 import { MarketInstallBadges } from "./MarketInstallBadges";
 
-const ICON_SIZE = 48;
+const ICON_SIZE = 40;
 
-/** 经后端代理取 icon 转成 object URL；取不到时返回 null，由调用方显示首字母占位。 */
+/** 经后端代理取 icon 转成 object URL；取不到时返回 null，由调用方显示首字占位。 */
 function useEntryIconUrl(entry: MarketEntry): string | null {
   const [url, setUrl] = useState<string | null>(null);
   const { source_id: sourceId, slug, version, icon } = entry;
@@ -30,7 +27,7 @@ function useEntryIconUrl(entry: MarketEntry): string | null {
         setUrl(objectUrl);
       })
       .catch(() => {
-        // icon 不可用不影响浏览：保持首字母占位。
+        // icon 不可用不影响浏览：保持首字占位。
       });
     return () => {
       controller.abort();
@@ -45,54 +42,41 @@ function useEntryIconUrl(entry: MarketEntry): string | null {
 export function EntryIcon({ entry }: { entry: MarketEntry }) {
   const url = useEntryIconUrl(entry);
   if (url !== null) {
-    return (
-      <img
-        src={url}
-        alt=""
-        width={ICON_SIZE}
-        height={ICON_SIZE}
-        className="shrink-0 rounded-[9px] object-contain"
-      />
-    );
+    return <img src={url} alt="" width={ICON_SIZE} height={ICON_SIZE} className="size-10 shrink-0 rounded-md object-contain" />;
   }
   return (
     <div
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-[9px] border border-hairline-soft font-editorial text-text-4"
-      style={{
-        width: ICON_SIZE,
-        height: ICON_SIZE,
-        fontSize: ICON_SIZE * 0.48,
-        background:
-          "linear-gradient(180deg, oklch(0.22 0.011 265 / 0.7), oklch(0.17 0.010 265 / 0.7))",
-      }}
+      className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-lg font-medium text-muted-foreground"
     >
       {entry.name.trim().charAt(0).toUpperCase()}
     </div>
   );
 }
 
-/** 标识条目来源的源片；官方源带强调色圆点。 */
+/** 条目来自哪个市场源；官方源前带标记，读屏读出「官方」。 */
 export function SourceChip({ name, kind }: { name: string; kind: MarketSourceKind | null }) {
+  const { t } = useTranslation("dashboard");
   return (
-    <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full border border-hairline-soft bg-bg-grad-a/50 px-2 py-[1px] font-mono text-[10px] text-text-3">
-      {kind === "official" && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-2" aria-hidden />}
-      <span className="truncate">{name}</span>
+    <span className="relative inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+      {kind === "official" && (
+        <BadgeCheck className="size-3.5 shrink-0 text-primary" role="img" aria-label={t("market_source_official")} />
+      )}
+      <TruncatedText text={name} />
     </span>
   );
 }
 
 /**
- * 市场条目卡片：2:1 图区（icon 或首字母占位 + 两轴徽标 + 媒体类型标签）、名称、作者与版本、两行描述、源片（及官方服务的
- * 安装量与评分）与主按钮。
- * 主按钮：未安装「安装」、可更新「更新」均打开确认弹窗；已是最新「已安装」直接打开端点。
- * 当前应用版本不满足 `min_app_version` 时整卡降透明并标出版本要求。
+ * 市场条目卡片：名称（点开安装弹窗，点击区域覆盖整张卡片）、作者与版本、两行说明、媒体类型与安装状态、
+ * 来源（及官方服务的安装量与评分）和主按钮。
+ * 主按钮：未安装「安装」、可更新「更新」打开安装弹窗；已是最新时「打开端点」直接跳到调用端点。
+ * 当前应用版本不满足 `min_app_version` 时主按钮禁用并标出版本要求，详情仍可打开。
  */
 export function MarketEntryCard({
   entry,
   sourceName,
   sourceKind,
-  appVersion,
   aggregate = null,
   onOpen,
   onInstalledOpen,
@@ -101,82 +85,70 @@ export function MarketEntryCard({
   /** 源的当前显示名；源列表里找不到时退回条目自带的显示名。 */
   sourceName: string;
   sourceKind: MarketSourceKind | null;
-  appVersion: string | null;
   /** 官方服务开启且取到聚合时才有；缺失即不显示数字。 */
   aggregate?: MarketEntryAggregate | null;
-  onOpen?: () => void;
-  onInstalledOpen?: () => void;
+  onOpen: () => void;
+  onInstalledOpen: () => void;
 }) {
   const { t } = useTranslation("dashboard");
+  const titleId = useId();
   const unmet = !entry.min_app_version_satisfied && entry.min_app_version !== null;
   const { installation } = entry;
   const current = installation?.state === "current";
+  const media = entry.media_type === "image" || entry.media_type === "video" ? entry.media_type : null;
 
   return (
     <article
-      aria-label={entry.name}
-      className={`relative flex flex-col overflow-hidden rounded-[12px] border border-hairline text-left transition-[transform,border-color] hover:border-hairline-strong motion-safe:hover:-translate-y-0.5 ${
-        unmet ? "opacity-60" : ""
-      }`}
-      style={CARD_STYLE}
+      aria-labelledby={titleId}
+      className="relative flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:border-input"
     >
-      {/* 版本不满足时不铺覆盖层，禁用的覆盖按钮仍会拦下版本徽标的悬停提示。 */}
-      {!unmet && (
-        <button
-          type="button"
-          aria-label={entry.name}
-          onClick={onOpen}
-          className="absolute inset-0 z-10 rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        />
-      )}
-      <div
-        className="relative flex aspect-[2/1] items-center justify-center border-b border-hairline-soft"
-        style={{ background: "oklch(0.14 0.010 265 / 0.6)" }}
-      >
-        <div aria-hidden className="absolute inset-0 opacity-[0.06]" style={posterGridStyle({ size: 20 })} />
+      <div className="flex min-w-0 items-start gap-3">
         <EntryIcon entry={entry} />
-        {installation && (
-          <div className="absolute left-2 top-2">
-            <MarketInstallBadges state={installation.state} modified={installation.modified} />
-          </div>
-        )}
-        {(entry.media_type === "image" || entry.media_type === "video") && (
-          <span className="absolute right-2 top-2 rounded-[4px] border border-hairline-soft bg-bg-grad-a/55 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-text-4">
-            {t(entry.media_type === "image" ? "media_type_image" : "media_type_video")}
-          </span>
-        )}
-      </div>
-      <div className="flex flex-1 flex-col p-3">
-        <h3 className="truncate text-[13.5px] font-medium text-text">{entry.name}</h3>
-        <div className="mt-0.5 truncate text-[11.5px] text-text-4">
-          {entry.author} · v{entry.version}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h3 id={titleId} className="text-sm font-medium">
+            {/* 名称按钮的伪元素铺满整张卡片，点卡片任意空白处都打开详情；主按钮在 DOM 中靠后、自身定位，盖在它上面。 */}
+            <button
+              type="button"
+              onClick={onOpen}
+              className="line-clamp-2 text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-3 focus-visible:after:ring-ring/50"
+            >
+              {entry.name}
+            </button>
+          </h3>
+          <TruncatedText
+            text={t("market_entry_byline", { author: entry.author, version: entry.version })}
+            className="text-xs text-muted-foreground"
+            focusable={false}
+          />
         </div>
-        <p className="mt-1.5 line-clamp-2 flex-1 text-[11.5px] leading-[1.5] text-text-3">
-          {entry.description}
-        </p>
-        <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
+      </div>
+      {entry.description && <p className="line-clamp-2 text-sm text-subtle-foreground">{entry.description}</p>}
+      {(media || installation || unmet) && (
+        <div className="flex flex-wrap items-center gap-1">
+          {media && <Badge variant="secondary">{t(media === "image" ? "media_type_image" : "media_type_video")}</Badge>}
+          {installation && <MarketInstallBadges state={installation.state} modified={installation.modified} />}
+          {unmet && (
+            <Badge variant="outline">
+              <AlertTriangle data-icon="inline-start" className="text-warn" aria-hidden />
+              {t("market_requires_app", { version: entry.min_app_version })}
+            </Badge>
+          )}
+        </div>
+      )}
+      <div className="mt-auto flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <SourceChip name={sourceName} kind={sourceKind} />
           {aggregate && <MarketEntryStats aggregate={aggregate} />}
         </div>
-        <button
-          type="button"
-          disabled={unmet}
+        <Button
+          variant={current ? "ghost" : "outline"}
+          size="sm"
+          disabled={unmet && !current}
           onClick={current ? onInstalledOpen : onOpen}
-          className={`relative z-20 mt-3 self-end ${current ? GHOST_BTN_CLS : ACCENT_BTN_SM_CLS}`}
-          style={current ? undefined : ACCENT_BUTTON_STYLE}
+          className="relative shrink-0"
         >
-          {t(current ? "market_installed" : installation ? "market_update" : "market_install")}
-        </button>
-        {unmet && (
-          <div className="mt-3 flex items-center">
-            <span
-              title={appVersion === null ? undefined : t("market_current_app_version", { version: appVersion })}
-              className="inline-flex shrink-0 items-center whitespace-nowrap rounded-[5px] border border-hairline-soft bg-bg-grad-a/55 px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.1em] text-text-3"
-            >
-              {t("market_requires_app", { version: entry.min_app_version })}
-            </span>
-          </div>
-        )}
+          {t(current ? "market_open_endpoint" : installation ? "market_update" : "market_install")}
+        </Button>
       </div>
     </article>
   );

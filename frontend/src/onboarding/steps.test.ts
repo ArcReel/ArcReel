@@ -9,7 +9,6 @@
 
 import { describe, expect, it } from "vitest";
 import type { TFunction } from "i18next";
-import i18n from "@/i18n";
 import { ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS } from "@/app-routes";
 import { ONBOARDING_ANCHORS } from "./anchors";
 import { DEMO_PROJECT_NAME, DEMO_SCRIPTED_EPISODE } from "./demo-project";
@@ -42,15 +41,7 @@ describe("buildTourSteps", () => {
   it("declares the settings section for both settings steps so the content pane follows the tour", () => {
     const settingsSteps = buildTourSteps(t).filter((s) => s.route === ROUTE_APP_SETTINGS);
 
-    expect(settingsSteps.map((s) => s.query)).toEqual([{ section: "providers" }, { section: "agent" }]);
-  });
-
-  it("mentions external agent access in step 5 without changing the tour shape", () => {
-    const steps = buildTourSteps(i18n.getFixedT("zh", "onboarding"));
-
-    expect(steps).toHaveLength(12);
-    expect(steps[4].anchor).toBe(ONBOARDING_ANCHORS.settingsAgent);
-    expect(steps[4].body).toContain("外部 agent 接入");
+    expect(settingsSteps.map((s) => s.query)).toEqual([{ section: "providers" }, { section: "arcreel-agent" }]);
   });
 
   it("declares the demo card's landing route so the guard can tell 'followed the tour' from 'wandered off'", () => {

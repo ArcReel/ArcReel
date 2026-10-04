@@ -11,7 +11,6 @@ import pytest
 from lib.billing.pricing.lookup import lookup_pricing
 from lib.billing.pricing.types import (
     PerImageByResolution,
-    PerImageFlat,
     PerImageOpenAIToken,
     PerSecondMatrix,
     PerToken,
@@ -31,6 +30,12 @@ class TestRegistryHit:
         pricing = lookup_pricing("gemini-vertex", "veo-3.1-fast-generate-001", "video")
         assert isinstance(pricing, PerSecondMatrix)
         assert pricing.dimensions == "resolution_audio"
+
+    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+    def test_gemini_31_flash_lite_official_text_pricing(self, provider_id: str):
+        pricing = lookup_pricing(provider_id, "gemini-3.1-flash-lite", "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.rates["gemini-3.1-flash-lite"] == {"input": 0.25, "output": 1.50}
 
     def test_openai_image_token(self):
         pricing = lookup_pricing("openai", "gpt-image-2", "image")
@@ -53,6 +58,57 @@ class TestRegistryHit:
         # 输入 $0.03 / 输出 $0.15 每 1M tokens
         assert pricing.rates["agnes-2.0-flash"] == {"input": 0.03, "output": 0.15}
 
+    @pytest.mark.parametrize("model", ["agnes-3.0-flash", "agnes-2.5-flash"])
+    def test_agnes_25_flash_text_per_token(self, model: str):
+        pricing = lookup_pricing("agnes", model, "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.currency == "USD"
+        assert pricing.rates[model] == {"input": 0.05, "output": 0.15, "cached_input": 0.005}
+
+    def test_agnes_25_pro_text_per_token(self):
+        pricing = lookup_pricing("agnes", "agnes-2.5-pro", "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.currency == "USD"
+        assert pricing.rates["agnes-2.5-pro"] == {
+            "input": 0.45,
+            "output": 0.90,
+            "cached_input": 0.045,
+        }
+
+    def test_agnes_image_per_resolution(self):
+        from lib.billing.pricing.strategies import PricingParams, calculate_pricing
+
+        pricing = lookup_pricing("agnes", "agnes-image-2.5-flash", "image")
+        assert isinstance(pricing, PerImageByResolution)
+        assert pricing.currency == "USD"
+        assert pricing.rates["agnes-image-2.5-flash"] == {
+            "1K": 0.010,
+            "2K": 0.018,
+            "3K": 0.021,
+            "4K": 0.024,
+        }
+        for resolution, expected in (("1K", 0.010), ("2K", 0.018), ("3K", 0.021), ("4K", 0.024)):
+            amount, currency = calculate_pricing(
+                pricing,
+                PricingParams(
+                    call_type="image",
+                    model="agnes-image-2.5-flash",
+                    resolution=resolution,
+                ),
+            )
+            assert amount == pytest.approx(expected)
+            assert currency == "USD"
+
+    def test_agnes_legacy_image_uses_same_resolution_prices(self):
+        pricing = lookup_pricing("agnes", "agnes-image-2.1-flash", "image")
+        assert isinstance(pricing, PerImageByResolution)
+        assert pricing.rates["agnes-image-2.1-flash"] == {
+            "1K": 0.010,
+            "2K": 0.018,
+            "3K": 0.021,
+            "4K": 0.024,
+        }
+
     def test_agnes_video_flat_per_second(self):
         from lib.billing.pricing.strategies import PricingParams, calculate_pricing
 
@@ -65,6 +121,35 @@ class TestRegistryHit:
             pricing, PricingParams(call_type="video", model="agnes-video-v2.0", duration_seconds=10)
         )
         assert amount == pytest.approx(0.05)
+        assert currency == "USD"
+
+    @pytest.mark.parametrize(
+        ("model", "resolution", "expected"),
+        [
+            ("agnes-video-2.5-flash", "720p", 0.100),
+            ("agnes-video-2.5", "720p", 0.100),
+            ("agnes-video-2.5", "1080p", 0.160),
+            ("agnes-video-2.5", "2K", 0.220),
+        ],
+    )
+    def test_agnes_25_video_per_resolution(self, model: str, resolution: str, expected: float):
+        from lib.billing.pricing.strategies import PricingParams, calculate_pricing
+
+        pricing = lookup_pricing("agnes", model, "video")
+        assert isinstance(pricing, PerSecondMatrix)
+        assert pricing.dimensions == "resolution_only"
+        assert pricing.currency == "USD"
+        amount, currency = calculate_pricing(
+            pricing,
+            PricingParams(
+                call_type="video",
+                model=model,
+                resolution=resolution,
+                duration_seconds=4,
+                generate_audio=False,
+            ),
+        )
+        assert amount == pytest.approx(expected)
         assert currency == "USD"
 
 
@@ -117,12 +202,12 @@ class TestUnknownModelFallback:
         assert any("no-such-model" in r.getMessage() for r in caplog.records)
 
     def test_agnes_unknown_image_model_falls_back_to_own_default(self, caplog):
-        # agnes 有专属 PerImageFlat 表，未知 model 应回落 agnes 自有默认（$0.003 USD），
+        # agnes 有专属按分辨率图片费率表，未知 model 应回落 agnes 自有默认，
         # 而非 Gemini 通用图像费率——故 agnes 须在 _OWN_TABLE_PROVIDERS 内。
         with caplog.at_level(logging.WARNING, logger="lib.billing.pricing.lookup"):
             pricing = lookup_pricing("agnes", "agnes-image-2.0-unregistered", "image")
-        assert isinstance(pricing, PerImageFlat)
-        assert pricing.rates["agnes-image-2.1-flash"] == 0.003
+        assert isinstance(pricing, PerImageByResolution)
+        assert pricing.rates["agnes-image-2.5-flash"]["1K"] == 0.010
         assert pricing.currency == "USD"
         assert any("agnes-image-2.0-unregistered" in r.getMessage() for r in caplog.records)
 
@@ -132,7 +217,11 @@ class TestUnknownModelFallback:
         with caplog.at_level(logging.WARNING, logger="lib.billing.pricing.lookup"):
             pricing = lookup_pricing("agnes", "agnes-2.0-unregistered", "text")
         assert isinstance(pricing, PerToken)
-        assert pricing.rates["agnes-2.0-flash"] == {"input": 0.03, "output": 0.15}
+        assert pricing.rates["agnes-3.0-flash"] == {
+            "input": 0.05,
+            "output": 0.15,
+            "cached_input": 0.005,
+        }
         assert pricing.currency == "USD"
         assert any("agnes-2.0-unregistered" in r.getMessage() for r in caplog.records)
 

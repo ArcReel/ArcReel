@@ -1,0 +1,80 @@
+{
+  "method": "GET",
+  "path": "/api/v1/providers/gemini-aistudio/config",
+  "status": 200,
+  "body": {
+    "id": "gemini-aistudio",
+    "display_name": "AI Studio",
+    "description": "Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
+    "status": "unconfigured",
+    "media_types": [
+      "image",
+      "text",
+      "video"
+    ],
+    "fields": [
+      {
+        "key": "image_rpm",
+        "label": "Image RPM",
+        "type": "number",
+        "required": false,
+        "is_set": false,
+        "value": "",
+        "value_masked": null,
+        "placeholder": null
+      },
+      {
+        "key": "video_rpm",
+        "label": "Video RPM",
+        "type": "number",
+        "required": false,
+        "is_set": false,
+        "value": "",
+        "value_masked": null,
+        "placeholder": null
+      },
+      {
+        "key": "request_gap",
+        "label": "Request Gap (sec)",
+        "type": "number",
+        "required": false,
+        "is_set": false,
+        "value": "",
+        "value_masked": null,
+        "placeholder": null
+      },
+      {
+        "key": "image_max_workers",
+        "label": "Image Max Workers",
+        "type": "number",
+        "required": false,
+        "is_set": false,
+        "value": "",
+        "value_masked": null,
+        "placeholder": null
+      },
+      {
+        "key": "video_max_workers",
+        "label": "Video Max Workers",
+        "type": "number",
+        "required": false,
+        "is_set": false,
+        "value": "",
+        "value_masked": null,
+        "placeholder": null
+      }
+    ],
+    "supports_base_url": true,
+    "secret_fields": [
+      {
+        "key": "api_key",
+        "label": "API Key"
+      }
+    ],
+    "secret_field_groups": [
+      [
+        "api_key"
+      ]
+    ]
+  }
+}

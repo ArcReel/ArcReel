@@ -1,13 +1,20 @@
-import { useId } from "react";
-import { AlertTriangle, ShieldAlert, Sparkles, Info } from "lucide-react";
+import { AlertTriangle, ShieldAlert, Sparkles, type LucideIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import type { ArchiveDiagnostic } from "@/types";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
+import type { DiagnosticSeverity } from "@/utils/severity-tone";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button } from "@/components/ui/button";
 import {
-  SEVERITY_TONES,
-  WARM_TONE,
-  type DiagnosticSeverity,
-} from "@/utils/severity-tone";
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface DiagnosticsSection {
   key: string;
@@ -23,135 +30,71 @@ interface ArchiveDiagnosticsDialogProps {
   onClose: () => void;
 }
 
-const SEVERITY_ICONS: Record<DiagnosticSeverity, typeof Info> = {
-  blocking: ShieldAlert,
-  auto_fixed: Sparkles,
-  warnings: AlertTriangle,
+const SEVERITY_STYLE: Record<DiagnosticSeverity, { icon: LucideIcon; tone: string }> = {
+  blocking: { icon: ShieldAlert, tone: "text-destructive" },
+  auto_fixed: { icon: Sparkles, tone: "text-primary" },
+  warnings: { icon: AlertTriangle, tone: "text-warn" },
 };
 
+/** 项目导入、导出的诊断清单：按严重程度分组列出问题与出处，没有任何条目时不显示。 */
 export function ArchiveDiagnosticsDialog({
   title,
   description,
   sections,
   onClose,
 }: ArchiveDiagnosticsDialogProps) {
+  const { t } = useTranslation("common");
   const visibleSections = sections.filter((s) => s.items.length > 0);
-  const hasContent = visibleSections.length > 0;
-  const titleId = useId();
 
-  if (!hasContent) return null;
+  if (visibleSections.length === 0) return null;
 
   return (
-    <GlassModal
+    <Dialog
       open
-      onClose={onClose}
-      labelledBy={titleId}
-      widthClassName="w-full max-w-2xl"
-      hairlineTone="warm"
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
     >
-      <div
-        className="flex items-start justify-between gap-4 px-6 py-5"
-        style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
-      >
-        <div className="flex items-start gap-3">
-          <span
-            aria-hidden
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
-            style={{
-              background:
-                "linear-gradient(135deg, var(--color-warm-tint), var(--color-warm-tint-faint))",
-              border: `1px solid ${WARM_TONE.ring}`,
-              color: WARM_TONE.color,
-              boxShadow: `0 8px 18px -8px ${WARM_TONE.glow}`,
-            }}
-          >
-            <AlertTriangle className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <h2
-              id={titleId}
-              className="display-serif text-[17px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
-            >
-              {title}
-            </h2>
-            <p
-              className="mt-1 text-[12.5px] leading-[1.55]"
-              style={{ color: "var(--color-text-3)" }}
-            >
-              {description}
-            </p>
-          </div>
-        </div>
-        <ModalCloseButton onClick={onClose} />
-      </div>
-
-      <div className="max-h-[60vh] space-y-3 overflow-y-auto px-6 py-5">
-        {visibleSections.map((section) => {
-          const tone = SEVERITY_TONES[section.severity];
-          const ToneIcon = SEVERITY_ICONS[section.severity];
-          return (
-            <section
-              key={section.key}
-              className="rounded-xl px-4 py-3"
-              style={{
-                background: tone.soft,
-                border: `1px solid ${tone.ring}`,
-                boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
-              }}
-            >
-              <div className="mb-2.5 flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className="grid h-6 w-6 place-items-center rounded-md"
-                  style={{
-                    background: "oklch(0.16 0.010 265 / 0.6)",
-                    border: `1px solid ${tone.ring}`,
-                    color: tone.color,
-                  }}
-                >
-                  <ToneIcon className="h-3 w-3" />
-                </span>
-                <h3
-                  className="text-[12.5px] font-semibold tracking-tight"
-                  style={{ color: tone.color }}
-                >
-                  {section.title}
-                </h3>
-                <span
-                  className="num text-[10px]"
-                  style={{ color: "var(--color-text-4)" }}
-                >
-                  {section.items.length}
-                </span>
-              </div>
-              <ul className="space-y-1.5 text-[12.5px] leading-[1.55]">
-                {section.items.map((item, index) => (
-                  <li
-                    key={`${section.key}-${item.code}-${item.location ?? index}`}
-                    className="rounded-lg px-3 py-2"
-                    style={{
-                      background: "oklch(0.16 0.010 265 / 0.5)",
-                      border: "1px solid var(--color-hairline-soft)",
-                      color: "var(--color-text-2)",
-                    }}
-                  >
-                    <p>{item.message}</p>
-                    {item.location && (
-                      <p
-                        className="num mt-1 text-[11px]"
-                        style={{ color: "var(--color-text-4)" }}
+      <DialogContent size="lg" showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-5">
+            {visibleSections.map((section) => {
+              const { icon: Icon, tone } = SEVERITY_STYLE[section.severity];
+              return (
+                <section key={section.key} className="flex flex-col gap-2">
+                  <h3 className={cn("flex items-center gap-2 text-sm font-medium", tone)}>
+                    <Icon aria-hidden className="size-4" />
+                    {section.title}
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                      {section.items.length}
+                    </span>
+                  </h3>
+                  <ul className="flex flex-col gap-1.5">
+                    {section.items.map((item, index) => (
+                      <li
+                        key={`${section.key}-${item.code}-${item.location ?? index}`}
+                        className="flex min-w-0 flex-col gap-1 rounded-md border bg-card px-3 py-2 text-sm text-subtle-foreground"
                       >
-                        {item.location}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          );
-        })}
-      </div>
-    </GlassModal>
+                        <p className="wrap-break-word">{item.message}</p>
+                        {item.location && (
+                          <TruncatedText text={item.location} className="font-mono text-xs text-muted-foreground" />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button />}>{t("close")}</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

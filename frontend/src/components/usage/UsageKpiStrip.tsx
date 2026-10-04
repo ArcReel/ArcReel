@@ -1,18 +1,9 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { UsageSummary } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatCalendarDay, formatCount, formatRatio } from "./usage-record-format";
-
-const KPI_VALUE_STYLE: CSSProperties = {
-  fontSize: 22,
-  fontWeight: 400,
-  letterSpacing: "-0.01em",
-  lineHeight: 1.1,
-  color: "var(--color-text)",
-};
 
 const DASH = "—";
 
@@ -23,26 +14,12 @@ const RANGE_DAY_OPTIONS: Intl.DateTimeFormatOptions = {
   day: "numeric",
 };
 
-function Cell({
-  label,
-  value,
-  sub,
-  first,
-}: {
-  label: string;
-  value: string;
-  sub: ReactNode;
-  first: boolean;
-}) {
+function Cell({ label, value, sub }: { label: string; value: string; sub: ReactNode }) {
   return (
-    <div className={"px-5 py-4" + (first ? "" : " border-l border-hairline-soft")}>
-      <div className="font-mono text-[9.5px] font-bold uppercase tracking-[0.18em] text-text-4">
-        {label}
-      </div>
-      <div className="font-editorial mt-1" style={KPI_VALUE_STYLE}>
-        {value}
-      </div>
-      <div className="mt-1 text-[10.5px] text-text-4">{sub}</div>
+    <div className="flex min-w-0 flex-col gap-1 px-4 py-3">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="num text-2xl leading-tight text-foreground">{value}</dd>
+      <dd className="truncate text-xs text-muted-foreground">{sub}</dd>
     </div>
   );
 }
@@ -59,12 +36,8 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
   const others = costEntries.filter(([currency]) => currency !== primary);
 
   return (
-    <div
-      className="grid grid-cols-2 overflow-hidden rounded-[10px] border border-hairline sm:grid-cols-4"
-      style={CARD_STYLE}
-    >
+    <dl className="grid grid-cols-2 divide-border rounded-xl border border-border bg-card @2xl/page:grid-cols-4 @2xl/page:divide-x">
       <Cell
-        first
         label={t("usage_kpi_calls")}
         value={kpi ? formatCount(kpi.calls, language) : DASH}
         sub={
@@ -74,34 +47,25 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
         }
       />
       <Cell
-        first={false}
         label={t("usage_kpi_success_rate")}
         value={kpi ? formatRatio(kpi.success_rate, language) : DASH}
         sub={kpi ? t("usage_kpi_success_count", { count: kpi.success }) : DASH}
       />
       <Cell
-        first={false}
         label={t("usage_kpi_failed")}
         value={kpi ? formatCount(kpi.failed, language) : DASH}
-        sub={
-          kpi && kpi.cancelled > 0
-            ? t("usage_kpi_cancelled_count", { count: kpi.cancelled })
-            : DASH
-        }
+        sub={kpi && kpi.cancelled > 0 ? t("usage_kpi_cancelled_count", { count: kpi.cancelled }) : DASH}
       />
       <Cell
-        first={false}
         // 多币种不折算：主币种进大字，其余在副行原样列出。
         label={primary ? `${t("usage_kpi_cost")} · ${primary}` : t("usage_kpi_cost")}
         value={primary ? formatCurrencyAmount(primary, primaryAmount) : DASH}
         sub={
           others.length > 0
-            ? others
-                .map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`)
-                .join("  ")
+            ? others.map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`).join("  ")
             : DASH
         }
       />
-    </div>
+    </dl>
   );
 }

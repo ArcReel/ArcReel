@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ExternalLink, Info, Loader2, Play, RefreshCcw } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { AlertTriangle, ChevronRight, ExternalLink, Loader2, RefreshCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
-import { CARD_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
-import { useOnboardingStore } from "@/stores/onboarding-store";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatDate } from "@/utils/date-format";
 import { downloadBlob } from "@/utils/download";
 import type { GetSystemVersionResponse } from "@/types";
-import { OfficialServiceCard } from "./OfficialServiceCard";
 
 const ABOUT_DATE_OPTS: Intl.DateTimeFormatOptions = {
   year: "numeric",
@@ -20,8 +20,6 @@ const ABOUT_DATE_OPTS: Intl.DateTimeFormatOptions = {
 
 export function AboutSection() {
   const { t, i18n } = useTranslation("dashboard");
-  const { t: tOnboarding } = useTranslation("onboarding");
-  const startTour = useOnboardingStore((s) => s.start);
   const [data, setData] = useState<GetSystemVersionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,6 +27,7 @@ export function AboutSection() {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const versionLabelId = useId();
 
   useEffect(
     () => () => {
@@ -79,86 +78,40 @@ export function AboutSection() {
 
   if (loading) {
     return (
-      <div
-        className="rounded-[10px] border border-hairline px-5 py-6 text-[12.5px] text-text-3"
-        style={CARD_STYLE}
-      >
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
-          <span className="font-mono text-[10.5px] uppercase tracking-[0.14em]">
-            {t("about_loading")}
-          </span>
-        </div>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 text-primary animate-spin" aria-hidden />
+        {t("about_loading")}
       </div>
     );
   }
 
-  return (
-    <section className="space-y-6">
-      {/* Hero version card */}
-      <div
-        className="relative overflow-hidden rounded-[12px] border border-hairline p-6"
-        style={CARD_STYLE}
-      >
-        {/* Decorative sprocket-style dots, top-right */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute right-5 top-5 hidden gap-[4px] sm:flex"
-          style={{ opacity: 0.4 }}
-        >
-          {Array.from({ length: 5 }).map((_, i) => (
-            <span
-              key={i}
-              className="block h-[5px] w-[5px] rounded-full"
-              style={{ background: "var(--color-hairline-strong)" }}
-            />
-          ))}
-        </div>
+  const latest = data?.latest ?? null;
+  const checkError = error ?? data?.update_check_error;
 
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-3">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+  return (
+    <div className="flex flex-col gap-6">
+      <h2 className="text-lg font-medium">{t("about")}</h2>
+
+      <section aria-labelledby={versionLabelId} className="flex flex-col rounded-lg border border-border bg-card">
+        <div className="flex flex-wrap items-start justify-between gap-4 p-4">
+          <div className="flex min-w-0 flex-col gap-2">
+            <p id={versionLabelId} className="text-xs font-medium text-muted-foreground">
               {t("about_current_version")}
-            </div>
-            <div className="flex items-end gap-3">
-              <span
-                className="font-editorial"
-                style={{
-                  fontSize: 44,
-                  fontWeight: 400,
-                  letterSpacing: "-0.02em",
-                  lineHeight: 1,
-                  color: "var(--color-text)",
-                }}
-              >
-                {data?.current.version ?? "-"}
-              </span>
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-2xl font-medium tabular-nums">{data?.current.version ?? "-"}</span>
               {data?.has_update ? (
-                <span
-                  className="rounded-full px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em]"
-                  style={{
-                    background: "var(--color-accent-dim)",
-                    color: "var(--color-accent-2)",
-                    border: "1px solid var(--color-accent-soft)",
-                    boxShadow: "0 0 14px -6px var(--color-accent-glow)",
-                  }}
-                >
-                  {t("about_update_available")}
-                </span>
+                <Badge>{t("about_update_available")}</Badge>
               ) : (
-                <span className="rounded-full border border-hairline-soft bg-bg-grad-a/55 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
-                  {t("about_up_to_date")}
-                </span>
+                <Badge variant="secondary">{t("about_up_to_date")}</Badge>
               )}
             </div>
-            <div className="space-y-0.5 text-[12.5px] text-text-3">
-              {data?.latest && (
-                <p>{t("about_latest_version", { version: data.latest.version })}</p>
-              )}
-              {data?.latest?.published_at && (
+            <div className="flex flex-col gap-0.5 text-sm text-muted-foreground">
+              {latest && <p>{t("about_latest_version", { version: latest.version })}</p>}
+              {latest?.published_at && (
                 <p>
                   {t("about_published_at", {
-                    date: formatDate(data.latest.published_at, i18n.language, ABOUT_DATE_OPTS, "-"),
+                    date: formatDate(latest.published_at, i18n.language, ABOUT_DATE_OPTS, "-"),
                   })}
                 </p>
               )}
@@ -169,122 +122,72 @@ export function AboutSection() {
               </p>
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={() => void fetchVersion()}
-            className={`${GHOST_BTN_LG_CLS} justify-center`}
-          >
-            <RefreshCcw
-              className={`h-3.5 w-3.5 ${refreshing ? "motion-safe:animate-spin" : ""}`}
-              aria-hidden
-            />
+          <Button variant="outline" onClick={() => void fetchVersion()} disabled={refreshing}>
+            <RefreshCcw className={refreshing ? "animate-spin" : undefined} aria-hidden />
             {refreshing ? t("about_checking_update") : t("about_check_update")}
-          </button>
+          </Button>
         </div>
 
-        {(error || data?.update_check_error) && (
-          <div
-            role="alert"
-            className="mt-5 flex items-start gap-1.5 rounded-[8px] border px-4 py-3 text-[12px]"
-            style={{
-              borderColor: "var(--color-warm-ring)",
-              background: "var(--color-warm-tint)",
-              color: "var(--color-warm-bright)",
-            }}
-          >
-            <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>{error ?? data?.update_check_error}</span>
-          </div>
+        {checkError && (
+          <p role="alert" className="mx-4 mb-4 flex items-start gap-2 rounded-md bg-warn/10 px-3 py-2 text-sm text-warn">
+            <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+            <span className="min-w-0 break-words">{checkError}</span>
+          </p>
         )}
 
-        {data?.latest?.html_url && (
-          <a
-            href={data.latest.html_url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent"
-          >
-            {t("about_open_release")}
-            <ExternalLink className="h-3 w-3" aria-hidden />
-          </a>
-        )}
-      </div>
-
-      {/* Release notes */}
-      <div
-        className="rounded-[12px] border border-hairline p-6"
-        style={CARD_STYLE}
-      >
-        <div className="mb-3 flex items-center gap-2">
-          <Info className="h-3.5 w-3.5 text-accent-2" aria-hidden />
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-            {t("about_release_notes")}
-          </span>
+        {/* 发布说明默认收起，只展示最新一条；版本卡本身保持一屏内能看完。 */}
+        <div className="border-t border-border px-4 py-3">
+          <Collapsible>
+            <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="-ml-2.5" />}>
+              <ChevronRight aria-hidden className="transition-transform group-aria-expanded/button:rotate-90" />
+              {t("about_release_notes")}
+              {latest && <span className="font-normal text-muted-foreground tabular-nums">{latest.version}</span>}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2">
+              <div className="flex flex-col gap-3 pl-6">
+                {latest?.body ? (
+                  <div className="max-w-prose min-w-0 text-subtle-foreground">
+                    <StreamMarkdown content={latest.body} />
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("about_release_notes_empty")}</p>
+                )}
+                {latest?.html_url && (
+                  <a
+                    href={latest.html_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex w-fit items-center gap-1.5 text-sm text-primary underline-offset-4 hover:underline"
+                  >
+                    {t("about_open_release")}
+                    <ExternalLink className="size-3.5" aria-hidden />
+                  </a>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
-        {data?.latest?.body ? (
-          <div className="markdown-body text-[13px] leading-[1.65] text-text-2">
-            <StreamMarkdown content={data.latest.body} />
-          </div>
-        ) : (
-          <p className="text-[12.5px] text-text-3">{t("about_release_notes_empty")}</p>
-        )}
-      </div>
+      </section>
 
-      {/* 重看引导 —— 与首次自动弹出共用同一组件，重看不重置「已看过」标记 */}
-      <div
-        className="rounded-[12px] border border-hairline p-6"
-        style={CARD_STYLE}
-      >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-          {tOnboarding("replay_title")}
+      <section className="flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-medium">{t("diagnostics_section_title")}</h3>
+          <p className="text-sm text-muted-foreground">{t("diagnostics_section_desc")}</p>
         </div>
-        <p className="text-[12.5px] text-text-3">{tOnboarding("replay_desc")}</p>
-        <button
-          type="button"
-          onClick={startTour}
-          className={`${GHOST_BTN_LG_CLS} mt-3`}
-        >
-          <Play className="h-3.5 w-3.5" aria-hidden />
-          {tOnboarding("replay_action")}
-        </button>
-      </div>
-
-      <OfficialServiceCard />
-
-      {/* Diagnostic logs */}
-      <div
-        className="rounded-[12px] border border-hairline p-6"
-        style={CARD_STYLE}
-      >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-          {t("diagnostics_section_title")}
-        </div>
-        <p className="text-[12.5px] text-text-3">{t("diagnostics_section_desc")}</p>
-        <button
-          type="button"
-          onClick={() => void handleDownloadDiagnostics()}
-          disabled={downloading}
-          className={`${GHOST_BTN_LG_CLS} mt-3`}
-        >
+        <Button variant="outline" onClick={() => void handleDownloadDiagnostics()} disabled={downloading}>
           {downloading ? t("diagnostics_downloading") : t("diagnostics_download")}
-        </button>
+        </Button>
         {downloadError && (
-          <p className="text-sm text-red-400 mt-2">
+          <p role="alert" className="text-sm text-destructive">
             {t("diagnostics_download_failed", { error: downloadError })}
           </p>
         )}
-      </div>
+      </section>
 
       {/* Copyright & attribution — NOTICE §7(b) 要求的署名句与仓库链接，逐字保留，不走品牌占位 */}
-      <div
-        className="rounded-[12px] border border-hairline p-6"
-        style={CARD_STYLE}
-      >
-        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-          {t("about_legal_title")}
-        </div>
-        <div className="space-y-1 text-[12.5px] text-text-3">
+      <section className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
+        <h3 className="text-sm font-medium">{t("about_legal_title")}</h3>
+        <div className="flex flex-col gap-1 text-sm text-muted-foreground">
           <p>Copyright © 2026 Pollo3470 and ArcReel contributors</p>
           <p>
             Powered by ArcReel —{" "}
@@ -292,13 +195,13 @@ export function AboutSection() {
               href="https://github.com/ArcReel/ArcReel"
               target="_blank"
               rel="noreferrer"
-              className="break-all text-accent-2 transition-colors hover:text-accent"
+              className="break-all text-primary underline-offset-4 hover:underline"
             >
               https://github.com/ArcReel/ArcReel
             </a>
           </p>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

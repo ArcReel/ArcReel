@@ -16,32 +16,32 @@ export function ContextBanner() {
     <div
       className="flex items-center gap-2 px-3 py-1.5 text-[11.5px]"
       style={{
-        borderBottom: "1px solid var(--color-hairline-soft)",
-        background: "var(--color-accent-dim)",
+        borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
+        background: "color-mix(in oklab, var(--primary) 12%, transparent)",
       }}
     >
       <Icon
         className="h-3.5 w-3.5"
-        style={{ color: "var(--color-accent)" }}
+        style={{ color: "var(--primary)" }}
       />
-      <span style={{ color: "var(--color-text-3)" }}>{t(labelKey)}:</span>
+      <span style={{ color: "var(--muted-foreground)" }}>{t(labelKey)}:</span>
       <span
         className="font-medium"
-        style={{ color: "var(--color-accent-2)" }}
+        style={{ color: "var(--primary)" }}
       >
         {focusedContext.id}
       </span>
       <button
         onClick={() => setFocusedContext(null)}
-        className="ml-auto rounded p-0.5 transition-colors focus-ring"
-        style={{ color: "var(--color-text-4)" }}
+        className="ml-auto rounded-sm p-0.5 transition-colors focus-ring"
+        style={{ color: "var(--muted-foreground)" }}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.5)";
-          e.currentTarget.style.color = "var(--color-text)";
+          e.currentTarget.style.color = "var(--foreground)";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.color = "var(--color-text-4)";
+          e.currentTarget.style.color = "var(--muted-foreground)";
         }}
         aria-label={t("context_clear")}
       >

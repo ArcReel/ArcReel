@@ -377,8 +377,8 @@ describe("OnboardingTour", () => {
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
     for (let i = 0; i < 4; i++) click(".driver-popover-next-btn"); // → 配置 Agent
-    await waitFor(() => expect(popoverTitle()).toBe("配置 Agent"));
-    expect(history.at(-1)).toBe("/app/settings?section=agent");
+    await waitFor(() => expect(popoverTitle()).toBe("配置 ArcReel Agent"));
+    expect(history.at(-1)).toBe("/app/settings?section=arcreel-agent");
 
     // 两步同在 /app/settings，退回时 pathname 不变——内容区必须靠 section 参数切回
     // 供应商，否则讲供应商时右边还摆着 Agent（正向同理）。
@@ -483,7 +483,7 @@ describe("OnboardingTour", () => {
       ["新建项目", "/app/projects"],
       ["设置", "/app/projects"],
       ["配置供应商", "/app/settings?section=providers"],
-      ["配置 Agent", "/app/settings?section=agent"],
+      ["配置 ArcReel Agent", "/app/settings?section=arcreel-agent"],
       ["演示项目", "/app/projects"],
       ["项目概览", DEMO_WORKBENCH],
       ["Agent", DEMO_WORKBENCH],

@@ -224,7 +224,7 @@ function CaretMarker({ color, children }: { color: string; children: ReactNode }
     <span data-no-caret className="relative inline-block h-[1.35em] w-0 align-text-bottom">
       <span
         aria-hidden
-        className="absolute -left-px top-0 h-full w-[2px] rounded motion-safe:animate-pulse"
+        className="absolute -left-px top-0 h-full w-[2px] rounded-sm motion-safe:animate-pulse"
         style={{ background: color, boxShadow: `0 0 8px ${color}` }}
       />
       {children}
@@ -313,7 +313,7 @@ function BoundaryButton({
   activeLabel: string;
   onClick: () => void;
 }) {
-  const line = active ? "var(--color-accent)" : "var(--color-hairline-strong)";
+  const line = active ? "var(--primary)" : "var(--input)";
   return (
     <div data-no-caret className="-mt-3 mb-3 flex items-center gap-2">
       <span aria-hidden className="h-px flex-1" style={{ background: line }} />
@@ -321,11 +321,11 @@ function BoundaryButton({
         type="button"
         onClick={onClick}
         aria-pressed={active}
-        className="focus-ring inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] transition-colors hover:border-accent hover:text-text"
+        className="focus-ring inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] transition-colors hover:border-primary hover:text-foreground"
         style={{
           borderColor: line,
-          color: active ? "var(--color-accent-2)" : "var(--color-text-3)",
-          background: active ? "var(--color-accent-dim)" : "oklch(0.2 0.01 265)",
+          color: active ? "var(--primary)" : "var(--muted-foreground)",
+          background: active ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.2 0.01 265)",
         }}
       >
         <MoveHorizontal className="h-3 w-3" aria-hidden />
@@ -358,30 +358,30 @@ function FileBar({
     <div
       ref={(el) => register(file.source_file, el)}
       data-no-caret
-      className="mb-4 mt-10 flex scroll-mt-4 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-hairline-strong px-3 py-2 first:mt-2"
+      className="mb-4 mt-10 flex scroll-mt-4 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-input px-3 py-2 first:mt-2"
       style={{ background: "oklch(0.225 0.012 265 / 0.9)" }}
       title={t("episodes_view_file_original", { name: file.original_filename ?? file.name })}
     >
-      <FileText className="h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden />
-      <span className="num text-[11px] text-text-4">
+      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="num text-[11px] text-muted-foreground">
         {index + 1} / {total}
       </span>
-      <span className="min-w-0 truncate text-[12.5px] font-medium text-text">{file.name}</span>
+      <span className="min-w-0 truncate text-[12.5px] font-medium text-foreground">{file.name}</span>
       <span className="flex-1" />
       <SourceFileKindControl projectName={projectName} file={file} episodes={episodes} />
       {file.changed_outside ? (
-        <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--color-warm)]">
+        <span className="inline-flex items-center gap-1 text-[11.5px] text-warn">
           <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
           {t("episodes_view_file_changed_outside")}
         </span>
       ) : null}
       {file.missing ? (
-        <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--color-warm)]">
+        <span className="inline-flex items-center gap-1 text-[11.5px] text-warn">
           <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
           {t("episodes_view_file_missing")}
         </span>
       ) : (
-        <span className="num text-[11px] text-text-3">
+        <span className="num text-[11px] text-muted-foreground">
           {t("episodes_view_file_coverage", {
             cut: file.cut_units.toLocaleString(),
             total: formatVolume(t, file.units, unit),
@@ -440,14 +440,14 @@ const EpisodeBlock = memo(function EpisodeBlock({
           data-no-caret
           onClick={() => onSelect(id)}
           aria-pressed={selected}
-          className="focus-ring mb-2 block w-full rounded-md px-3 py-1 text-left text-[12px] text-text-3 transition-colors"
+          className="focus-ring mb-2 block w-full rounded-md px-3 py-1 text-left text-[12px] text-muted-foreground transition-colors"
           style={{
             borderLeft: `3px solid ${color}`,
-            background: selected ? "var(--color-accent-dim)" : "oklch(0.21 0.01 265 / 0.4)",
+            background: selected ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.21 0.01 265 / 0.4)",
           }}
         >
           <span style={{ color }}>{t("dashboard:episodes_view_episode_continued", { name })}</span>
-          <span className="num ml-2.5 text-[11px] text-text-4">{formatVolume(t, segment.units, unit)}</span>
+          <span className="num ml-2.5 text-[11px] text-muted-foreground">{formatVolume(t, segment.units, unit)}</span>
         </button>
         <EpisodeBody id={id} fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
       </article>
@@ -468,15 +468,15 @@ const EpisodeBlock = memo(function EpisodeBlock({
         className="focus-ring mb-2 block w-full scroll-mt-4 rounded-md px-3 py-2 text-left transition-colors"
         style={{
           borderLeft: `3px solid ${color}`,
-          background: selected ? "var(--color-accent-dim)" : "oklch(0.21 0.01 265 / 0.6)",
+          background: selected ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "oklch(0.21 0.01 265 / 0.6)",
         }}
       >
         <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
           <span id={`episode-${id}-title`} className="text-[13px] font-semibold" style={{ color }}>
             {name}
           </span>
-          <span className="min-w-0 text-[13px] text-text">{title || t("dashboard:episodes_view_untitled")}</span>
-          <span className="num text-[11px] text-text-4">
+          <span className="min-w-0 text-[13px] text-foreground">{title || t("dashboard:episodes_view_untitled")}</span>
+          <span className="num text-[11px] text-muted-foreground">
             {formatVolume(t, segment.units, unit)}
             {info?.spoken_seconds != null ? ` · ${formatSpoken(t, info.spoken_seconds)}` : ""}
           </span>
@@ -484,7 +484,7 @@ const EpisodeBlock = memo(function EpisodeBlock({
           {waiting ? <WaitingBadge /> : null}
         </span>
         {episode?.hook?.trim() ? (
-          <span className="mt-1 block text-[12px] leading-[1.6] text-text-3">
+          <span className="mt-1 block text-[12px] leading-[1.6] text-muted-foreground">
             {t("dashboard:episodes_view_hook", { hook: episode.hook.trim() })}
           </span>
         ) : null}
@@ -513,7 +513,7 @@ function EpisodeBody({
     <div className="flex gap-4">
       <span aria-hidden className="w-[3px] shrink-0 rounded-full" style={{ background: episodeColor(id, 0.7) }} />
       <div
-        className={`min-w-0 flex-1 space-y-3 text-text-2 ${MANUSCRIPT_TEXT_CLS} ${compare ? COMPARE_GUTTER_CLS : ""}`}
+        className={`min-w-0 flex-1 space-y-3 text-subtle-foreground ${MANUSCRIPT_TEXT_CLS} ${compare ? COMPARE_GUTTER_CLS : ""}`}
         style={manuscriptTextStyle(caret !== null)}
       >
         <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />
@@ -552,28 +552,28 @@ function UnsplitBlock({
       {segment.gap ? (
         <div
           data-no-caret
-          className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-3 py-2 text-[12px] text-text-3"
-          style={{ border: "1px dashed var(--color-accent-soft)" }}
+          className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-3 py-2 text-[12px] text-muted-foreground"
+          style={{ border: "1px dashed color-mix(in oklab, var(--primary) 22%, transparent)" }}
         >
-          <span className="font-medium text-text-2">{t("episodes_view_gap_title")}</span>
-          <span className="num text-[11px] text-text-4">{formatVolume(t, segment.units, unit)}</span>
-          <span className="basis-full text-[11.5px] text-text-4">{t("episodes_view_gap_hint")}</span>
+          <span className="font-medium text-subtle-foreground">{t("episodes_view_gap_title")}</span>
+          <span className="num text-[11px] text-muted-foreground">{formatVolume(t, segment.units, unit)}</span>
+          <span className="basis-full text-[11.5px] text-muted-foreground">{t("episodes_view_gap_hint")}</span>
           <span className="mt-1 basis-full">
             <PlanGapButton sourceFile={sourceFile} end={segment.end} blocked={planBlocked} />
           </span>
         </div>
       ) : divider ? (
-        <div role="separator" data-no-caret className="mb-4 mt-2 flex items-center gap-3 text-[12px] text-accent-2">
-          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(90deg, transparent, var(--color-accent))" }} />
+        <div role="separator" data-no-caret className="mb-4 mt-2 flex items-center gap-3 text-[12px] text-primary">
+          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(90deg, transparent, var(--primary))" }} />
           <span className="flex flex-col items-center gap-0.5 text-center">
             <span>{t("episodes_view_unsplit_divider")}</span>
-            <span className="text-[11px] text-text-4">{t("manual_split_divider_hint")}</span>
+            <span className="text-[11px] text-muted-foreground">{t("manual_split_divider_hint")}</span>
           </span>
-          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(270deg, transparent, var(--color-accent))" }} />
+          <span aria-hidden className="h-px flex-1" style={{ background: "linear-gradient(270deg, transparent, var(--primary))" }} />
         </div>
       ) : null}
       <div
-        className={`space-y-3 pl-[19px] text-text-4 ${MANUSCRIPT_TEXT_CLS} ${compare ? COMPARE_GUTTER_CLS : ""}`}
+        className={`space-y-3 pl-[19px] text-muted-foreground ${MANUSCRIPT_TEXT_CLS} ${compare ? COMPARE_GUTTER_CLS : ""}`}
         style={manuscriptTextStyle(caret !== null)}
       >
         <SegmentText fileIndex={fileIndex} segment={segment} caret={caret} hostRun={hostRun} compare={compare} />

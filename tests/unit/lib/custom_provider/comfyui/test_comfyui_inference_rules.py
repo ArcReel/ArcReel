@@ -10,6 +10,8 @@ from lib.custom_provider.comfyui import inference_rules as rules_module
 from lib.custom_provider.comfyui.inference import SIGNAL_WEIGHTS, WEAKEST_GRADED_WEIGHT, BindingSignal
 from lib.custom_provider.comfyui.inference_rules import (
     RULES_PATHS,
+    ConsumerPort,
+    InputName,
     load_inference_rules,
     load_rules_schema,
     semantic_key_names,
@@ -59,12 +61,11 @@ def test_every_adjustable_input_comes_from_one_of_the_two_tables(media_type):
 
 
 @pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
-def test_minimax_h3_slots_are_adjustable_up_to_the_models_own_ceiling(media_type):
-    """海螺 H3 的首尾帧与参考图槽位登记齐全，且不多登记一个。
+def test_minimax_h3_slots_are_adjustable(media_type):
+    """海螺 H3 的首尾帧与参考图槽位都是节点上的可选口。
 
-    这些入口都是节点上的可选口，没登记就会被构造层当成必需输入——首尾帧少带时删读图节点会一路
-    级联到产物节点，参考图少带时则退回重复填最后一张。参考图九格是该节点自带的活数上限（``ref_images``
-    最多 9 路），第 10 格不存在，登记了就是替一份读不懂的图打包票。
+    没登记就会被构造层当成必需输入——首尾帧少带时删读图节点会一路级联到产物节点，参考图少带时
+    则退回重复填最后一张。参考图是 autogrow 口，按 ``ref_images.ref_image_`` 前缀一条登记全部槽位。
     """
     rules = load_inference_rules(media_type)
 
@@ -72,7 +73,94 @@ def test_minimax_h3_slots_are_adjustable_up_to_the_models_own_ceiling(media_type
     assert rules.adjustable_input("MiniMaxH3ImageToVideo", "last_frame")
     for slot in range(9):
         assert rules.adjustable_input("MiniMaxH3ReferenceToVideo", f"ref_images.ref_image_{slot}")
-    assert not rules.adjustable_input("MiniMaxH3ReferenceToVideo", "ref_images.ref_image_9")
+
+
+@pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
+def test_a_prefixed_optional_input_only_matches_its_own_node_and_prefix(media_type):
+    rules = load_inference_rules(media_type)
+
+    assert rules.is_optional_input("MiniMaxH3ReferenceToVideo", "ref_images.ref_image_3")
+    assert not rules.is_optional_input("MiniMaxH3ImageToVideo", "ref_images.ref_image_3")
+    assert not rules.is_optional_input("MiniMaxH3ReferenceToVideo", "ref_images.mask_0")
+    assert not rules.is_optional_input("MiniMaxH3ReferenceToVideo", "ref_image_0")
+
+
+def test_minimax_h3_reference_slots_are_one_prefixed_entry_per_section():
+    """autogrow 口逐槽登记会随节点的槽数上限漂移，收敛成一条前缀条目。"""
+    video = read("video")
+
+    assert [item for item in video["optional_inputs"] if item["class_type"] == "MiniMaxH3ReferenceToVideo"] == [
+        {"class_type": "MiniMaxH3ReferenceToVideo", "input_prefix": "ref_images.ref_image_"}
+    ]
+    assert [
+        port
+        for port in video["consumer_ports"]["reference_images"]
+        if "MiniMaxH3ReferenceToVideo" in port.get("class_types", [])
+    ] == [{"input_prefix": "ref_images.ref_image_", "class_types": ["MiniMaxH3ReferenceToVideo"]}]
+
+
+def test_a_prefixed_consumer_port_matches_by_prefix_within_its_class_types():
+    port = ConsumerPort(InputName("ref_images.ref_image_", prefix=True), frozenset({"MiniMaxH3ReferenceToVideo"}))
+
+    assert port.matches("ref_images.ref_image_0", "MiniMaxH3ReferenceToVideo")
+    assert port.matches("ref_images.ref_image_8", "MiniMaxH3ReferenceToVideo")
+    assert not port.matches("ref_images.ref_image_0", "MiniMaxH3ImageToVideo")
+    assert not port.matches("ref_images.mask_0", "MiniMaxH3ReferenceToVideo")
+
+
+def test_an_unrestricted_prefixed_consumer_port_matches_on_any_node():
+    port = ConsumerPort(InputName("images.image_", prefix=True), frozenset())
+
+    assert port.matches("images.image_2", "AnyNode")
+    assert not port.matches("image", "AnyNode")
+
+
+def test_an_exact_consumer_port_does_not_match_a_longer_name():
+    port = ConsumerPort(InputName("reference_image"), frozenset())
+
+    assert port.matches("reference_image", "WanVaceToVideo")
+    assert not port.matches("reference_image_2", "WanVaceToVideo")
+
+
+@pytest.mark.parametrize(
+    ("section", "entry"),
+    [
+        ("optional_inputs", {"class_type": "X", "input_prefix": "ref_images.ref_image_"}),
+        ("consumer_ports", {"input_prefix": "ref_images.ref_image_"}),
+        ("consumer_ports", {"input_prefix": "ref_images.ref_image_", "class_types": ["X"]}),
+    ],
+)
+def test_the_schema_accepts_a_prefixed_entry(section, entry):
+    assert list(Draft202012Validator(load_rules_schema()).iter_errors(_with_entry(section, entry))) == []
+
+
+@pytest.mark.parametrize(
+    ("section", "entry"),
+    [
+        ("optional_inputs", {"class_type": "X", "input": "a", "input_prefix": "a_"}),
+        ("optional_inputs", {"class_type": "X"}),
+        ("consumer_ports", {"input": "a", "input_prefix": "a_"}),
+        ("consumer_ports", {"class_types": ["X"]}),
+    ],
+)
+def test_the_schema_wants_exactly_one_of_input_and_input_prefix(section, entry):
+    assert list(Draft202012Validator(load_rules_schema()).iter_errors(_with_entry(section, entry)))
+
+
+def test_prefix_forms_stay_out_of_the_other_node_input_sections():
+    """只有可选入口与消费口两节认前缀：读图节点等节点按精确入口名取值，前缀在那里没有意义。"""
+    entry = {"class_type": "X", "input_prefix": "a_"}
+
+    for section in ("image_loaders", "batch_size_inputs"):
+        document = read("video") | {section: [entry]}
+        assert list(Draft202012Validator(load_rules_schema()).iter_errors(document))
+
+
+def _with_entry(section: str, entry: dict) -> dict:
+    document = read("video")
+    if section == "consumer_ports":
+        return document | {"consumer_ports": {**document["consumer_ports"], "reference_images": [entry]}}
+    return document | {section: [entry]}
 
 
 @pytest.mark.parametrize("media_type", sorted(RULES_PATHS))

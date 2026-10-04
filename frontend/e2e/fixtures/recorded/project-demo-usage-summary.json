@@ -1,0 +1,39 @@
+{
+  "method": "GET",
+  "path": "/api/v1/usage/summary?project_name=demo",
+  "status": 200,
+  "body": {
+    "range": null,
+    "primary_currency": null,
+    "kpi": {
+      "calls": 0,
+      "success": 0,
+      "failed": 0,
+      "cancelled": 0,
+      "success_rate": null,
+      "cost": {}
+    },
+    "daily": [],
+    "breakdown": {
+      "project": {
+        "rows": [],
+        "other": null
+      },
+      "provider": {
+        "rows": [],
+        "other": null
+      },
+      "model": {
+        "rows": [],
+        "other": null
+      }
+    },
+    "attention": [],
+    "filter_options": {
+      "projects": [],
+      "project_titles": {},
+      "providers": [],
+      "models": []
+    }
+  }
+}

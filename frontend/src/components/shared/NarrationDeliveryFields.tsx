@@ -1,8 +1,10 @@
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-import { radioCardClass } from "@/components/ui/darkroom-tokens";
+import { cn } from "cn";
+
+import { Input } from "@/components/ui/input";
+import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import type { NarrationDelivery } from "@/types";
 import { voidCall } from "@/utils/async";
 
@@ -46,9 +48,15 @@ function useTtsSpeedSupport(backend: string): boolean | null {
   return answer?.backend === backend ? answer.supportsSpeed : null;
 }
 
-const FIELD_LABEL_CLS = "mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
-const INPUT_CLS =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50";
+const FIELD_LABEL_CLS = "text-xs font-medium text-muted-foreground";
+
+/** 交付方式的单选卡片：整块可点，选中项用品牌色描边与浅底。 */
+function deliveryCardClass(selected: boolean): string {
+  return cn(
+    "flex flex-1 cursor-pointer items-center justify-center rounded-lg border px-3 py-2.5 text-sm transition-colors has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
+    selected ? "border-primary/50 bg-primary/10 text-foreground" : "border-border text-subtle-foreground hover:text-foreground",
+  );
+}
 
 interface Props {
   value: NarrationDeliveryValue;
@@ -68,12 +76,12 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
   const problem = narrationDeliveryProblem(value);
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <fieldset>
         <legend className="sr-only">{t("project_narration_delivery_title")}</legend>
         <div className="flex gap-2.5">
           {(["use_tts", "post_production"] as const).map((delivery) => (
-            <label key={delivery} className={radioCardClass(value.delivery === delivery)}>
+            <label key={delivery} className={deliveryCardClass(value.delivery === delivery)}>
               <input
                 type="radio"
                 name={`${idBase}-delivery`}
@@ -90,7 +98,7 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
             </label>
           ))}
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-text-4">
+        <p className="mt-2 text-xs text-muted-foreground">
           {value.delivery === "use_tts"
             ? t("project_narration_delivery_use_tts_desc")
             : t("project_narration_delivery_post_production_desc")}{" "}
@@ -100,7 +108,7 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
 
       {value.delivery === "use_tts" && (
         <>
-          <div>
+          <div className="flex flex-col gap-1.5">
             <div className={FIELD_LABEL_CLS}>{t("project_tts_model_label")}</div>
             <ProviderModelSelect
               value={value.audioBackend}
@@ -111,32 +119,31 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
               aria-label={t("project_tts_model_label")}
             />
             {audioBackends.length === 0 ? (
-              <p className="mt-1 text-[11px] text-warm">{t("project_tts_no_models")}</p>
+              <p className="text-xs text-warn">{t("project_tts_no_models")}</p>
             ) : problem === "model" ? (
-              <p className="mt-1 text-[11px] text-warm">{t("project_tts_model_required")}</p>
+              <p className="text-xs text-warn">{t("project_tts_model_required")}</p>
             ) : null}
           </div>
-          <div>
+          <div className="flex flex-col gap-1.5">
             <label htmlFor={voiceId} className={FIELD_LABEL_CLS}>
               {t("narration_voice_label")}
             </label>
-            <input
+            <Input
               id={voiceId}
               type="text"
               value={value.narrationVoice}
               onChange={(e) => onChange({ ...value, narrationVoice: e.target.value })}
               aria-invalid={problem === "voice"}
-              className={INPUT_CLS}
             />
-            <p className={`mt-1 text-[11px] ${problem === "voice" ? "text-warm" : "text-text-4"}`}>
+            <p className={cn("text-xs", problem === "voice" ? "text-warn" : "text-muted-foreground")}>
               {problem === "voice" ? t("project_narration_voice_required") : t("project_narration_voice_hint")}
             </p>
           </div>
-          <div>
+          <div className="flex flex-col gap-1.5">
             <label htmlFor={speedId} className={FIELD_LABEL_CLS}>
               {t("narration_speed_label")}
             </label>
-            <input
+            <Input
               id={speedId}
               type="number"
               min={0.1}
@@ -154,9 +161,8 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
                 // 仅过滤非有限数：NaN/Infinity 会被序列化为 null 误触「清除」语义；正数约束交由后端校验
                 if (Number.isFinite(next)) onChange({ ...value, narrationSpeed: next });
               }}
-              className={INPUT_CLS}
             />
-            <p id={`${speedId}-hint`} className="mt-1 text-[11px] text-text-4">
+            <p id={`${speedId}-hint`} className="text-xs text-muted-foreground">
               {speedDisabled ? t("project_narration_speed_unsupported") : t("narration_speed_hint")}
             </p>
           </div>

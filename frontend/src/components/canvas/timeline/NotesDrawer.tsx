@@ -45,16 +45,16 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
         className="sv-navbtn relative inline-flex items-center gap-1.5 px-2"
         style={{
           color: open
-            ? "var(--color-accent-2)"
+            ? "var(--primary)"
             : value
-              ? "var(--color-text-2)"
-              : "var(--color-text-3)",
+              ? "var(--subtle-foreground)"
+              : "var(--muted-foreground)",
           background: open
-            ? "var(--color-accent-dim)"
+            ? "color-mix(in oklab, var(--primary) 12%, transparent)"
             : value
               ? "oklch(0.24 0.012 265 / 0.7)"
               : "oklch(0.22 0.011 265 / 0.5)",
-          borderColor: open ? "var(--color-accent-soft)" : "var(--color-hairline)",
+          borderColor: open ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "var(--border)",
         }}
       >
         <StickyNote className="h-3.5 w-3.5" />
@@ -63,8 +63,8 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
             aria-hidden="true"
             className="absolute right-0.5 top-0.5 h-[5px] w-[5px] rounded-full"
             style={{
-              background: "var(--color-accent)",
-              boxShadow: "0 0 4px var(--color-accent-glow)",
+              background: "var(--primary)",
+              boxShadow: "0 0 4px color-mix(in oklab, var(--primary) 35%, transparent)",
             }}
           />
         )}
@@ -78,16 +78,16 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
             aria-hidden="true"
           />
           <div
-            className="absolute z-40 max-w-[calc(100vw-32px)] rounded-[10px] p-3"
+            className="absolute z-40 max-w-[calc(100vw-32px)] rounded-lg p-3"
             style={{
               top: "calc(100% + 6px)",
               right: 14,
               width: 340,
               background:
                 "linear-gradient(180deg, oklch(0.21 0.012 265 / 0.98), oklch(0.18 0.010 265 / 0.98))",
-              border: "1px solid var(--color-hairline)",
+              border: "1px solid var(--border)",
               boxShadow:
-                "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px var(--color-hairline-soft)",
+                "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px color-mix(in oklab, var(--border) 50%, transparent)",
               backdropFilter: "blur(12px)",
               WebkitBackdropFilter: "blur(12px)",
             }}
@@ -95,12 +95,12 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
             <div className="mb-2 flex items-center gap-1.5">
               <StickyNote
                 className="h-3.5 w-3.5"
-                style={{ color: "var(--color-text-3)" }}
+                style={{ color: "var(--muted-foreground)" }}
               />
               <span
                 className="text-[11px] font-bold uppercase"
                 style={{
-                  color: "var(--color-text-3)",
+                  color: "var(--muted-foreground)",
                   letterSpacing: "0.8px",
                   fontFamily: "var(--font-mono)",
                 }}
@@ -110,7 +110,7 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
               <span className="flex-1" />
               <span
                 className="num text-[10px]"
-                style={{ color: "var(--color-text-4)" }}
+                style={{ color: "var(--muted-foreground)" }}
               >
                 {draft.length}
               </span>
@@ -118,8 +118,8 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
                 type="button"
                 onClick={handleClose}
                 aria-label={t("shot_notes_close")}
-                className="grid h-5 w-5 place-items-center rounded text-sm leading-none focus-ring"
-                style={{ color: "var(--color-text-4)" }}
+                className="grid h-5 w-5 place-items-center rounded-sm text-sm leading-none focus-ring"
+                style={{ color: "var(--muted-foreground)" }}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -136,9 +136,9 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
               style={{
                 minHeight: 140,
                 lineHeight: 1.55,
-                color: "var(--color-text-2)",
+                color: "var(--subtle-foreground)",
                 background: "oklch(0.16 0.010 265 / 0.6)",
-                border: "1px solid var(--color-hairline-soft)",
+                border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
                 fontFamily: "var(--font-sans)",
               }}
             />

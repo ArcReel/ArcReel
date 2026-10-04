@@ -54,8 +54,7 @@ function makeKlingProviders(model: ModelInfoResponse): ProviderInfo[] {
       status: "ready",
       media_types: ["video"],
       capabilities: ["video"],
-      configured_keys: [],
-      missing_keys: [],
+      credential_count: 0,
       models: { "v3-omni": model },
     },
   ];

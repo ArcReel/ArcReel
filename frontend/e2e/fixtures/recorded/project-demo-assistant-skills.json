@@ -1,0 +1,64 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/assistant/skills",
+  "status": 200,
+  "body": {
+    "skills": [
+      {
+        "name": "adapt-custom-endpoint",
+        "description": "当用户要求把采用 JSON 提交后轮询协议的视频或图片供应商接入 ArcReel，或要求编写、验证、测试、保存自定义调用端点定义时使用。",
+        "scope": "agent",
+        "path": "<repo-root>/agent_runtime_profile/.claude/skills/adapt-custom-endpoint/SKILL.md"
+      },
+      {
+        "name": "edit-video",
+        "description": "在剪辑时间线上剪辑一集，并按要求出成片或导出剪映草稿。本集视频已齐、要剪一版时使用；用户按片段编号提出修改（如「c3 太拖」），或要求配 BGM、出成片、导出剪映草稿、复制或重命名剪辑时间线、回到旧修订时，也使用本 skill。",
+        "scope": "agent",
+        "path": "<repo-root>/agent_runtime_profile/.claude/skills/edit-video/SKILL.md",
+        "icon": "scissors"
+      },
+      {
+        "name": "generate-assets",
+        "description": "统一资产生成 skill：接受 `--type=character|scene|prop|product`，或不传自动扫所有 pending（缺 sheet）资源并按类型分发。当用户说“生成角色图”/“生成场景图”/“生成道具图”/“生成商品图”、想为新资产创建参考图、或有资产缺少 *_sheet 时使用。",
+        "scope": "agent",
+        "path": "<repo-root>/agent_runtime_profile/.claude/skills/generate-assets/SKILL.md",
+        "icon": "users"
+      },
+      {
+        "name": "generate-grid",
+        "description": "生成宫格分镜图。当用户说\"生成宫格\"、\"宫格生图\"、\"用宫格装配生成分镜\"时使用。自动按 segment_break 分组，选择最优宫格大小，生成链式过渡帧宫格联合图；用户审阅联合图并同意后，再切分落格为各分镜的起始分镜图。",
+        "scope": "agent",
+        "path": "<repo-root>/agent_runtime_profile/.claude/skills/generate-grid/SKILL.md",
+        "icon": "grid-2x2"
+      },
+      {
+        "name": "generate-narration-audio",
+        "description": "为旁白/解说剧本逐分镜生成旁白配音（TTS）。当 TTS 项目首轮自动剪辑需要补齐缺失配音、用户要求生成或重新生成某个分镜或某集旁白配音，或批量配音中断需要补齐时使用。",
+        "scope": "agent",
+        "path": "<repo-root>/agent_runtime_profile/.claude/skills/generate-narration-audio/SKILL.md",
+        "icon": "audio-lines"
+      },
+      {
+        "name": "generate-storyboard",
+        "description": "为分镜生成分镜图。当用户说\"生成分镜\"、\"预览分镜画面\"、想重新生成某些分镜图、或剧本中有分镜缺少分镜图时使用。自动保持角色和画面连续性。",
+        "scope": "agent",
+        "path": "<repo-root>/agent_runtime_profile/.claude/skills/generate-storyboard/SKILL.md",
+        "icon": "images"
+      },
+      {
+        "name": "generate-video",
+        "description": "为分镜或自包含视频单元生成视频。当用户要求生成或重做视频时使用；支持整集、单项与批量自选。",
+        "scope": "agent",
+        "path": "<repo-root>/agent_runtime_profile/.claude/skills/generate-video/SKILL.md",
+        "icon": "film"
+      },
+      {
+        "name": "video-workflow",
+        "description": "广告/短片项目的工作流入口。当用户提到做视频、继续项目、查看进度时必须使用此 skill。触发场景包括但不限于：\"帮我做一条带货视频\"、\"继续\"、\"下一步\"、\"看看项目进度\"等。即使用户只说了简短的\"继续\"或\"下一步\"，只要当前上下文涉及视频项目，就应该触发。不要用于单个资产生成（如只重画某张分镜图或只重新生成某个角色资产图——那些有专门的 skill）。",
+        "scope": "agent",
+        "path": "<repo-root>/agent_runtime_profile/.claude/skills/video-workflow/SKILL.ad.md",
+        "icon": "clapperboard"
+      }
+    ]
+  }
+}

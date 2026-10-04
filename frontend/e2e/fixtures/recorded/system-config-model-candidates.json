@@ -1,0 +1,23 @@
+{
+  "method": "GET",
+  "path": "/api/v1/system/config/model-candidates",
+  "status": 200,
+  "body": {
+    "image": {
+      "default": [],
+      "buckets": {
+        "t2i": [],
+        "i2i": []
+      }
+    },
+    "video": {
+      "default": [],
+      "buckets": {
+        "i2v": [],
+        "r2v": []
+      }
+    },
+    "provider_names": {},
+    "model_names": {}
+  }
+}

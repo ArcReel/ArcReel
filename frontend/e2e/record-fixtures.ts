@@ -1,0 +1,286 @@
+// 对真实后端录制页面级套件的接口数据替身：`pnpm e2e:record`。
+// 在临时数据目录里启动后端、创建演示项目，按 RECORDINGS 逐个请求并写入 e2e/fixtures/recorded/。
+// 时间戳、临时数据目录、仓库检出路径、令牌与项目修订号改写成固定值，重录后只有接口形状的变化会出现在 diff 里。
+// 后端改动接口形状的 PR 同时重录。
+import { spawn } from "node:child_process";
+import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import {
+  FIXED_NOW,
+  RECORDED_ACCESS_TOKEN,
+  RECORDED_DIR,
+  type RecordedResponse,
+} from "./support/recorded.ts";
+
+const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
+const USERNAME = "e2e";
+const PASSWORD = "e2e-password";
+const DEMO_PROJECT = "demo";
+
+interface Recording {
+  /** 替身文件名（不含扩展名）。 */
+  file: string;
+  method: "GET" | "POST";
+  /** 页面实际请求的路径；带查询串时写全，参数顺序不限。查询串不同的请求分别录制。 */
+  path: string;
+  /** 不带令牌请求。 */
+  anonymous?: boolean;
+  form?: Record<string, string>;
+  json?: unknown;
+  /** 按录制环境（没有配置供应商）应当返回的非 2xx 状态，照实录下。 */
+  status?: number;
+}
+
+const LOGIN: Recording = {
+  file: "auth-token",
+  method: "POST",
+  path: "/api/v1/auth/token",
+  anonymous: true,
+  form: { username: USERNAME, password: PASSWORD, grant_type: "password" },
+};
+
+const RECORDINGS: Recording[] = [
+  { file: "auth-status", method: "GET", path: "/api/v1/auth/status", anonymous: true },
+  LOGIN,
+  { file: "system-config", method: "GET", path: "/api/v1/system/config" },
+  { file: "providers", method: "GET", path: "/api/v1/providers" },
+  { file: "custom-providers", method: "GET", path: "/api/v1/custom-providers" },
+  { file: "custom-providers-endpoints", method: "GET", path: "/api/v1/custom-providers/endpoints" },
+  { file: "onboarding-status", method: "GET", path: "/api/v1/onboarding/status" },
+  { file: "projects", method: "GET", path: "/api/v1/projects" },
+  { file: "project-demo", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}` },
+  // 工作区与集页的启动请求（项目事件流是 SSE，不录制，场景里按需替换）。
+  { file: "tasks", method: "GET", path: "/api/v1/tasks?page_size=200" },
+  { file: "project-demo-tasks", method: "GET", path: `/api/v1/tasks?page_size=200&project_name=${DEMO_PROJECT}` },
+  { file: "tasks-stats", method: "GET", path: "/api/v1/tasks/stats" },
+  { file: "project-demo-tasks-stats", method: "GET", path: `/api/v1/tasks/stats?project_name=${DEMO_PROJECT}` },
+  { file: "project-demo-usage-summary", method: "GET", path: `/api/v1/usage/summary?project_name=${DEMO_PROJECT}` },
+  {
+    file: "project-demo-usage-records-recent",
+    method: "GET",
+    path: `/api/v1/usage/records?limit=10&project_name=${DEMO_PROJECT}&status=success,failed,cancelled`,
+  },
+  { file: "project-demo-usage-records-pending", method: "GET", path: `/api/v1/usage/records?project_name=${DEMO_PROJECT}&status=pending` },
+  { file: "project-demo-video-capabilities", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/video-capabilities`, status: 422 },
+  { file: "project-demo-assistant-skills", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/assistant/skills` },
+  { file: "project-demo-assistant-sessions", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/assistant/sessions` },
+  { file: "project-demo-workflow-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workflow-status` },
+  { file: "project-demo-workflow-plan", method: "POST", path: `/api/v1/projects/${DEMO_PROJECT}/workflow-plan`, json: { episode_id: 1 } },
+  { file: "project-demo-cost-estimate", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/cost-estimate` },
+  // 全局设置：默认落地的供应商详情（列表第一项）与默认模型的候选。
+  { file: "provider-gemini-aistudio-config", method: "GET", path: "/api/v1/providers/gemini-aistudio/config" },
+  { file: "provider-gemini-aistudio-credentials", method: "GET", path: "/api/v1/providers/gemini-aistudio/credentials" },
+  { file: "system-config-model-candidates", method: "GET", path: "/api/v1/system/config/model-candidates" },
+  // 全局设置：访问令牌列表（录制环境没有令牌，多条目由场景替换）。
+  { file: "api-keys", method: "GET", path: "/api/v1/api-keys" },
+  // 全局设置「ArcReel Agent」：Agent 供应商列表（录制环境为空）与添加对话框的预设供应商目录。
+  { file: "agent-credentials", method: "GET", path: "/api/v1/agent/credentials" },
+  { file: "agent-preset-providers", method: "GET", path: "/api/v1/agent/preset-providers" },
+  // 全局设置「Agent 记忆」：用户记忆目录（录制环境没有记忆文件，多条目与正文由场景替换）。
+  { file: "agent-memory", method: "GET", path: "/api/v1/agent/memory" },
+  // 全局设置「使用记录」：默认最近 30 天（起点由固定时间与 Asia/Shanghai 推出）与进行中的调用。
+  { file: "usage-summary-30d", method: "GET", path: "/api/v1/usage/summary?since=2025-12-02T16:00:00.000Z&tz=Asia/Shanghai" },
+  {
+    file: "usage-records-30d",
+    method: "GET",
+    path: "/api/v1/usage/records?limit=20&since=2025-12-02T16:00:00.000Z&status=success,failed,cancelled",
+  },
+  { file: "usage-records-pending", method: "GET", path: "/api/v1/usage/records?limit=20&status=pending" },
+  // 全局设置：关于（版本信息访问外网，由场景替换）、提示词模版列表与详情。
+  { file: "official-service", method: "GET", path: "/api/v1/official-service" },
+  { file: "prompt-templates", method: "GET", path: "/api/v1/prompt-templates" },
+  { file: "prompt-template-episode-plan", method: "GET", path: "/api/v1/prompt-templates/text/episode_plan" },
+  {
+    file: "prompt-partial-additional-instructions",
+    method: "GET",
+    path: "/api/v1/prompt-templates/partials/shared/additional_instructions",
+  },
+  // 全局设置「调用端点」：自定义端点列表（录制环境为空，多条目由场景替换）与各端点的分享提交（决定是否提供分享入口）；官方服务开关见上。
+  { file: "custom-endpoints", method: "GET", path: "/api/v1/custom-endpoints" },
+  { file: "market-submissions", method: "GET", path: "/api/v1/market/submissions" },
+  // 全局设置「市场」：市场源（录制环境只有内置的官方源，从未刷新）与条目快照（为空）；刷新、聚合与条目详情访问外网，由场景替换。
+  { file: "market-sources", method: "GET", path: "/api/v1/market/sources" },
+  { file: "market-entries", method: "GET", path: "/api/v1/market/entries?type=endpoint" },
+  // 新建项目向导：TTS 配音的预填值（全局默认）。
+  { file: "narration-defaults", method: "GET", path: "/api/v1/system/narration-defaults" },
+  // 资产库：默认的「角色」标签首页（项目画廊「从资产库导入」同一请求）、画廊的资产图状态，以及入库预览按名称查重。
+  { file: "assets-character", method: "GET", path: "/api/v1/assets?limit=60&type=character" },
+  { file: "project-demo-asset-sheets-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status` },
+  { file: "assets-character-search-lin-xi", method: "GET", path: `/api/v1/assets?q=${encodeURIComponent("林夕")}&type=character` },
+  // 项目设置：Agent 配置状态与项目记忆（演示项目没有定制配置与记忆文件，多条目由场景替换）。
+  { file: "project-demo-agent-profile", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-profile` },
+  { file: "project-demo-agent-memory", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-memory` },
+];
+
+// 资产库里的演示资产：两个角色、一个场景、一个道具，都没有图片。
+const LIBRARY_ASSETS: Record<string, string>[] = [
+  { type: "character", name: "林夕", description: "二十出头的旧城茶馆老板娘，短发，常穿靛蓝布衫。", voice_style: "温和、语速偏慢" },
+  { type: "character", name: "陈默", description: "沉默寡言的修表匠，左手腕上有一道旧疤。", voice_style: "" },
+  { type: "scene", name: "旧城茶馆", description: "临街的两层木楼，一楼摆着八张方桌。", voice_style: "" },
+  { type: "prop", name: "青铜罗盘", description: "巴掌大的罗盘，指针总是指向茶馆。", voice_style: "" },
+];
+
+// 每次录制都会变的不透明值：令牌按签发时刻生成，项目修订号是含创建时间的 project.json 摘要。
+const FIXED_VALUES = new Map<string, string>([
+  ["access_token", RECORDED_ACCESS_TOKEN],
+  ["project_revision", "sha256-v1:<project-revision>"],
+]);
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// 同一次录制里相同的 uuid 映射到同一个固定值，按首次出现的顺序编号。
+const uuidAliases = new Map<string, string>();
+
+function fixedUuid(value: string): string {
+  let alias = uuidAliases.get(value);
+  if (!alias) {
+    alias = `00000000-0000-4000-8000-${String(uuidAliases.size + 1).padStart(12, "0")}`;
+    uuidAliases.set(value, alias);
+  }
+  return alias;
+}
+
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+
+function normalize(value: unknown, dataDir: string): unknown {
+  if (typeof value === "string") {
+    if (ISO_TIMESTAMP.test(value)) return FIXED_NOW;
+    if (UUID.test(value)) return fixedUuid(value);
+    return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>");
+  }
+  if (Array.isArray(value)) return value.map((item) => normalize(item, dataDir));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, FIXED_VALUES.get(key) ?? normalize(item, dataDir)]),
+    );
+  }
+  return value;
+}
+
+function freePort(): Promise<number> {
+  return new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => {
+        if (address && typeof address === "object") resolvePort(address.port);
+        else reject(new Error("无法分配端口"));
+      });
+    });
+  });
+}
+
+async function waitForHealth(baseUrl: string, backendExited: () => boolean) {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    if (backendExited()) throw new Error("后端进程提前退出，见上方输出");
+    try {
+      const resp = await fetch(`${baseUrl}/health`);
+      if (resp.ok) return;
+    } catch {
+      // 后端尚未开始监听。
+    }
+    await new Promise((done) => setTimeout(done, 500));
+  }
+  throw new Error("等待后端 /health 超时");
+}
+
+async function request(baseUrl: string, token: string | null, recording: Omit<Recording, "file">) {
+  const headers: Record<string, string> = { "Accept-Language": "zh" };
+  if (token && !recording.anonymous) headers.Authorization = `Bearer ${token}`;
+  let payload: BodyInit | undefined;
+  if (recording.form) payload = new URLSearchParams(recording.form);
+  else if (recording.json !== undefined) {
+    headers["Content-Type"] = "application/json";
+    payload = JSON.stringify(recording.json);
+  }
+  const resp = await fetch(`${baseUrl}${recording.path}`, { method: recording.method, headers, body: payload });
+  const body: unknown = await resp.json();
+  if (!resp.ok && resp.status !== recording.status) {
+    throw new Error(`${recording.method} ${recording.path} 返回 ${resp.status}：${JSON.stringify(body)}`);
+  }
+  return { status: resp.status, body };
+}
+
+async function postJson(baseUrl: string, token: string, path: string, payload: unknown) {
+  const resp = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error(`POST ${path} 返回 ${resp.status}：${await resp.text()}`);
+}
+
+async function postForm(baseUrl: string, token: string, path: string, fields: Record<string, string>) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  const resp = await fetch(`${baseUrl}${path}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+  if (!resp.ok) throw new Error(`POST ${path} 返回 ${resp.status}：${await resp.text()}`);
+}
+
+async function main() {
+  // 取真实路径：macOS 的临时目录经 /var → /private/var 符号链接，后端返回的是解析后的路径
+  const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "arcreel-e2e-")));
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ARCREEL_DATA_DIR: dataDir,
+    AUTH_ENABLED: "true",
+    AUTH_USERNAME: USERNAME,
+    AUTH_PASSWORD: PASSWORD,
+    AUTH_TOKEN_SECRET: "e2e-token-secret-for-recording-only",
+  };
+  // 数据库落在临时数据目录里，不碰开发者自己的库。
+  delete env.DATABASE_URL;
+  delete env.AI_ANIME_PROJECTS;
+
+  const backend = spawn(
+    "uv",
+    ["run", "--frozen", "uvicorn", "server.app:app", "--host", "127.0.0.1", "--port", String(port)],
+    { cwd: REPO_ROOT, env, stdio: ["ignore", "inherit", "inherit"] },
+  );
+  let exited = false;
+  const backendExit = new Promise<void>((done) => {
+    backend.once("exit", () => {
+      exited = true;
+      done();
+    });
+  });
+
+  try {
+    await waitForHealth(baseUrl, () => exited);
+    const login = await request(baseUrl, null, LOGIN);
+    const token = (login.body as { access_token: string }).access_token;
+
+    await postJson(baseUrl, token, "/api/v1/onboarding/seen", {});
+    await postJson(baseUrl, token, "/api/v1/projects", { name: DEMO_PROJECT, title: "演示项目", generation_mode: "storyboard" });
+    // 一集还没有分镜的空正式脚本，集页显示「新增第一个分镜」。
+    await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes`, { title: "第一集" });
+    await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes/1/blank-script`, {});
+    // 资产库按更新时间倒序列出，逐个创建使顺序与 LIBRARY_ASSETS 相反、且每次录制一致。
+    for (const asset of LIBRARY_ASSETS) await postForm(baseUrl, token, "/api/v1/assets", asset);
+
+    rmSync(RECORDED_DIR, { recursive: true, force: true });
+    mkdirSync(RECORDED_DIR, { recursive: true });
+    for (const recording of RECORDINGS) {
+      const { status, body } = await request(baseUrl, token, recording);
+      const recorded: RecordedResponse = {
+        method: recording.method,
+        path: recording.path,
+        status,
+        body: normalize(body, dataDir),
+      };
+      writeFileSync(join(RECORDED_DIR, `${recording.file}.json`), `${JSON.stringify(recorded, null, 2)}\n`);
+    }
+    console.log(`已录制 ${readdirSync(RECORDED_DIR).length} 个接口到 ${RECORDED_DIR}`);
+  } finally {
+    if (!exited) backend.kill("SIGTERM");
+    await backendExit;
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+await main();

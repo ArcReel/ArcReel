@@ -19,7 +19,7 @@ _Avoid_: client、adapter、后端——「后端」在中文里已被 frontend/
 _Avoid_: 把供应商与模型当作同一层概念。
 
 **凭证（credential）**：
-ArcReel 访问某个供应商所需的认证信息。
+ArcReel 访问某个供应商所需的认证信息。媒体供应商的设置界面称「密钥」（英文界面为 Key），如「已配置 2 个密钥」「添加密钥」。
 _Avoid_: 模型、供应商、连接。
 
 **内置供应商（built-in provider）**：
@@ -104,7 +104,7 @@ _Avoid_: api_format、把它当模型调用协议开关。
 _Avoid_: default credential、已启用凭证——该词暗示可同时启用多条、把切换理解为自动轮换或负载均衡。
 
 **Agent 凭证（agent_credential）**：
-供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的 Agent 凭证表，与自定义供应商凭证互不相通（见 `docs/adr/0017`）。
+供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的 Agent 凭证表，与自定义供应商凭证互不相通（见 `docs/adr/0017`）。界面上称「Agent 供应商」（「添加供应商」「删除供应商」），每条对应一个网关。
 _Avoid_: 把它当成一个自定义供应商。
 
 ### 市场
@@ -804,8 +804,8 @@ _Avoid_: SandboxPolicy。
 _Avoid_: 把所有 bearer token 都叫 API Key。
 
 **API Key**：
-面向自动化访问的广泛权限凭证，可访问绝大多数业务与配置能力，但无权管理 API Key；泄漏仍属于高影响安全事件。
-_Avoid_: 与会话 JWT 完全等同、scoped token。
+面向自动化访问的广泛权限凭证，可访问绝大多数业务与配置能力，但无权管理 API Key；泄漏仍属于高影响安全事件。界面称「访问令牌」（英文 Access tokens），与媒体供应商下的「密钥」区分签发方向。
+_Avoid_: 与会话 JWT 完全等同、scoped token；界面上称「API 令牌」「API 密钥」。
 
 **下载 token（download token）**：
 为项目导出签发的短时效凭证，只对导出端点有效，是自带认证端点目前唯一的凭证形态（见 `docs/adr/0071`）。
@@ -818,3 +818,17 @@ _Avoid_: 浏览器直发请求；把 SSE 归入此类——事件流是普通的
 **自带认证端点（self-authenticated endpoint）**：
 不依赖登录会话、在端点内部自行校验专用凭证的端点，成因一律是浏览器原生请求；它与公开端点同样不要求登录，但拦得住匿名请求。
 _Avoid_: 与公开端点混为一谈。
+
+### 界面编辑与布局
+
+**编辑单元（edit unit）**：
+一次显式保存所提交的界面范围，如一个设置视图、一张资产、一个分镜详情、一个记忆文件。单元内的字段先进入未保存修改，由单元统一保存或放弃；离开或切换前有未保存修改时，先询问继续编辑、放弃修改还是保存。上传、生成、改名、删除这类动作不进入编辑单元，立即执行。
+_Avoid_: 编辑模式、按字段即时保存。
+
+**未保存修改（unsaved changes）**：
+编辑单元里尚未提交的本地编辑。期间已保存内容被 Agent 改写或推送更新时，未保存修改保留，由创作者选择采用新内容或坚持保存（后写者生效）。
+_Avoid_: 单称「草稿」（已指待修复草稿与可编辑草稿）、本地草稿。
+
+**宽窗口（wide window）**：
+CSS 视口宽度大（如 1920、2560 逻辑宽度）引起的布局问题，与像素密度无关。
+_Avoid_: 大屏、高分屏、高 DPI。

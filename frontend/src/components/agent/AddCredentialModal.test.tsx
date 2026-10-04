@@ -109,7 +109,7 @@ describe("AddCredentialModal", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
-    fireEvent.change(screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i), {
+    fireEvent.change(screen.getByLabelText("密钥"), {
       target: { value: "sk-test" },
     });
     fireEvent.click(screen.getByRole("button", { name: /add|添加|confirm/i }));
@@ -134,7 +134,7 @@ describe("AddCredentialModal", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
-    fireEvent.change(screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i), {
+    fireEvent.change(screen.getByLabelText("密钥"), {
       target: { value: "sk-test" },
     });
     fireEvent.click(screen.getByRole("button", { name: /获取模型列表|discover/i }));
@@ -155,7 +155,7 @@ describe("AddCredentialModal", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
-    fireEvent.change(screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i), {
+    fireEvent.change(screen.getByLabelText("密钥"), {
       target: { value: "sk-test" },
     });
     fireEvent.change(screen.getByLabelText(/base[_ ]url|代理地址/i), {
@@ -179,7 +179,7 @@ describe("AddCredentialModal", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
-    fireEvent.change(screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i), {
+    fireEvent.change(screen.getByLabelText("密钥"), {
       target: { value: "sk-test" },
     });
     fireEvent.change(screen.getByLabelText(/base[_ ]url|代理地址/i), {
@@ -225,21 +225,6 @@ describe("AddCredentialModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("calls onClose when overlay clicked", () => {
-    const onClose = vi.fn();
-    render(
-      <AddCredentialModal
-        open
-        presets={presets}
-        customSentinelId="__custom__"
-        onSubmit={vi.fn()}
-        onClose={onClose}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("modal-overlay"));
-    expect(onClose).toHaveBeenCalled();
-  });
-
   it("shows submit error when onSubmit rejects", async () => {
     const onSubmit = vi.fn().mockRejectedValue(new Error("boom"));
     render(
@@ -253,7 +238,7 @@ describe("AddCredentialModal", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
     fireEvent.change(
-      screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i),
+      screen.getByLabelText("密钥"),
       { target: { value: "sk-test" } },
     );
     fireEvent.click(screen.getByRole("button", { name: /add|添加|confirm/i }));
@@ -303,7 +288,7 @@ describe("AddCredentialModal", () => {
       />,
     );
     expect(
-      screen.getByRole("heading", { name: /edit[_ ]credential|编辑凭证|Chỉnh sửa xác thực/i }),
+      screen.getByRole("heading", { name: "编辑 Agent 供应商" }),
     ).toBeInTheDocument();
   });
 
@@ -438,7 +423,7 @@ describe("AddCredentialModal", () => {
     };
 
     const apiKeyInput = () =>
-      screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i) as HTMLInputElement;
+      screen.getByLabelText("密钥") as HTMLInputElement;
 
     it("prefills base_url and leaves the key to the server", async () => {
       await renderAndImport();
@@ -571,7 +556,7 @@ describe("AddCredentialModal", () => {
       );
       fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
       fireEvent.change(
-        screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i),
+        screen.getByLabelText("密钥"),
         { target: { value: "sk-test" } },
       );
       fireEvent.click(screen.getByTestId("test-connection"));
@@ -633,7 +618,7 @@ describe("AddCredentialModal", () => {
       );
       fillBaseUrl("https://relay.example.com/anthropic?api_key=sk-x");
       fireEvent.change(
-        screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i),
+        screen.getByLabelText("密钥"),
         { target: { value: "sk-test" } },
       );
 
@@ -696,7 +681,7 @@ describe("AddCredentialModal 模型下拉回退", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /Volcengine Ark Agent Plan/i }));
     fireEvent.click(
-      screen.getAllByRole("button", { name: /toggle options|切换选项|Bật\/tắt tùy chọn/i })[0],
+      screen.getAllByRole("button", { name: "显示候选模型" })[0],
     );
 
     await waitFor(() => {

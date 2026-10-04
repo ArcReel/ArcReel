@@ -10,7 +10,7 @@ dependencies = [
     "fastapi>=0.138.2",
     # fastapi 未 re-export 的 ASGI 类型与 MutableHeaders / FormData / UploadFile 直接取自 starlette。
     "starlette>=1.6.0",
-    "google-genai>=1.65.0",
+    "google-genai>=2.21.0",
     "Pillow>=12.1.1",
     "pydantic>=2.12.5",
     # pydantic 未 re-export 的 ErrorDetails / PydanticCustomError 直接取自 pydantic-core。
@@ -27,7 +27,7 @@ dependencies = [
     "pwdlib[argon2]>=0.3.0",
     "volcengine-python-sdk[ark]>=5.0.17",
     "openai>=2.30.0",
-    "xai-sdk>=1.8.2",
+    "xai-sdk>=1.20.0",
     "pyjianyingdraft>=0.3.0",
     "instructor>=1.16.0",
     "charset-normalizer>=3.4.6",

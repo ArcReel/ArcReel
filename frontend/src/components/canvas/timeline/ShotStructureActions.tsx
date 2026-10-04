@@ -1,8 +1,8 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash2 } from "lucide-react";
-import { AutoTextarea } from "@/components/ui/AutoTextarea";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 type StructureContentMode = "narration" | "drama" | "ad";
@@ -85,10 +85,10 @@ export function InsertShotButton({
           description={
             <div className="flex flex-col gap-2">
               <p className="m-0">{t("shot_insert_narration_desc")}</p>
-              <label htmlFor={textareaId} className="text-[11px] font-medium" style={{ color: "var(--color-text-2)" }}>
+              <label htmlFor={textareaId} className="text-[11px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
                 {t("shot_insert_narration_label")}
               </label>
-              <AutoTextarea id={textareaId} value={novelText} onChange={setNovelText} disabled={submitting} />
+              <Textarea id={textareaId} value={novelText} onChange={(e) => setNovelText(e.target.value)} disabled={submitting} />
             </div>
           }
           confirmLabel={t("shot_insert_narration_confirm")}

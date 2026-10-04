@@ -1,0 +1,26 @@
+{
+  "method": "GET",
+  "path": "/api/v1/market/sources",
+  "status": 200,
+  "body": {
+    "sources": [
+      {
+        "id": 1,
+        "kind": "official",
+        "display_name": "ArcReel Market",
+        "address": "ArcReel/arcreel-market",
+        "index_url": "https://raw.githubusercontent.com/ArcReel/arcreel-market/HEAD/arcreel-market.json",
+        "canonical_key": "github:ArcReel/arcreel-market@HEAD",
+        "is_enabled": true,
+        "position": 0,
+        "status": "never_fetched",
+        "last_error": null,
+        "fetched_at": null,
+        "created_at": "2026-01-01T08:00:00.000Z",
+        "updated_at": "2026-01-01T08:00:00.000Z",
+        "entry_count": 0,
+        "index": null
+      }
+    ]
+  }
+}

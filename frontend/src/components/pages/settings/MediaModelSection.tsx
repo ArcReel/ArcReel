@@ -1,16 +1,20 @@
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "wouter";
 import { Loader2 } from "lucide-react";
-import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
+import { settingsSectionPath } from "@/app-routes";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type {
   SystemConfigSettings,
   SystemConfigOptions,
   SystemConfigPatch,
 } from "@/types/system";
 import type { CustomProviderInfo } from "@/types/custom-provider";
-import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
+import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import {
   LayeredModelFields,
   degradeSubFieldsToSaved,
@@ -19,14 +23,15 @@ import {
 } from "@/components/shared/LayeredModelFields";
 import { TextTierFields } from "@/components/shared/TextTierFields";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
-import { InlineWarning } from "@/components/ui/InlineWarning";
-import { useAppStore } from "@/stores/app-store";
+import { InlineWarning } from "@/components/shared/InlineWarning";
+import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
+import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
+import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
-import { errMsg } from "@/utils/async";
 import {
   catalogDurations,
   getCustomProviderModels,
@@ -35,35 +40,81 @@ import {
   lookupResolutions,
   lookupVideoAudioControl,
 } from "@/utils/provider-models";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo, VideoRoute } from "@/types/provider";
 
-interface CardProps {
-  kicker: string;
-  title?: string;
-  description?: string;
-  children: React.ReactNode;
+/** 本页编辑单元包含的系统设置字段；保存时只提交改过的字段。 */
+const MEDIA_MODEL_KEYS = [
+  "default_video_backend",
+  "default_video_backend_i2v",
+  "default_video_backend_r2v",
+  "default_image_backend",
+  "default_image_backend_t2i",
+  "default_image_backend_i2i",
+  "default_text_backend",
+  "text_backend_simple",
+  "text_backend_complex",
+  "default_audio_backend",
+  "narration_voice",
+  "narration_speed",
+  "video_generate_audio",
+  "video_poll_timeout_seconds",
+] as const satisfies readonly (keyof SystemConfigPatch & keyof SystemConfigSettings)[];
+
+type MediaModelFields = Pick<SystemConfigPatch, (typeof MEDIA_MODEL_KEYS)[number]>;
+
+function fieldsFrom(settings: SystemConfigSettings | null): MediaModelFields {
+  const fields: Record<string, unknown> = {};
+  if (settings) for (const key of MEDIA_MODEL_KEYS) fields[key] = settings[key];
+  return fields;
 }
 
-function SectionCard({ kicker, title, description, children }: CardProps) {
+function changedFields(fields: MediaModelFields, saved: MediaModelFields): SystemConfigPatch {
+  const patch: Record<string, unknown> = {};
+  for (const key of MEDIA_MODEL_KEYS) {
+    if (JSON.stringify(fields[key]) !== JSON.stringify(saved[key])) patch[key] = fields[key];
+  }
+  return patch;
+}
+
+/** 一个通道一张卡片：标题、可选说明，然后是字段。 */
+function ChannelCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div
-      className="rounded-[10px] border border-hairline p-5"
-      style={CARD_STYLE}
-    >
-      <div className="mb-4">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
-          {kicker}
-        </div>
-        {title && (
-          <h4 className="mt-1.5 text-[14px] font-medium text-text">{title}</h4>
-        )}
-        {description && (
-          <p className="mt-1 text-[12px] leading-[1.55] text-text-3">{description}</p>
-        )}
+    <section className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
       {children}
-    </div>
+    </section>
+  );
+}
+
+/** 通道没有可选模型时的空状态，链接到「供应商」去配置。 */
+function NoProviders({ message }: { message: string }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">
+      {message}{" "}
+      <Link href={settingsSectionPath("providers")} className="text-primary underline underline-offset-4">
+        {t("default_models_configure_providers")}
+      </Link>
+    </p>
+  );
+}
+
+function FieldHint({ id, children }: { id?: string; children: React.ReactNode }) {
+  return (
+    <p id={id} className="text-xs text-muted-foreground">
+      {children}
+    </p>
   );
 }
 
@@ -80,14 +131,9 @@ export function MediaModelSection() {
   } = useModelCandidates();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
-  const [draft, setDraft] = useState<SystemConfigPatch>({});
   // 轮询超时编辑期的原始字符串（null = 未在编辑）：受控 value 若直接取数字，
-  // 「60.」等中间态与清空会被数字化吞掉；失焦时统一解析写回草稿。
+  // 「60.」等中间态与清空会被数字化吞掉；失焦时统一解析写回未保存修改。
   const [pollTimeoutInput, setPollTimeoutInput] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const isDirty = Object.keys(draft).length > 0;
-  useWarnUnsaved(isDirty);
 
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
@@ -104,7 +150,7 @@ export function MediaModelSection() {
   const bucketLabels = useGenerationTypeBucketLabels();
 
   // 候选与其余配置分开拉：它自带失败态，失败时只影响细分区、不牵动已加载的表单状态，
-  // 也让重试不必重取整页配置（会连带清空未保存的 draft）。启动后不等它落地——候选接口
+  // 也让重试不必重取整页配置。启动后不等它落地——候选接口
   // 慢或悬挂时，整页 spinner 和保存流程都会跟着卡住，而细分区本就有自己的加载叙事。
   const fetchConfig = useCallback(async () => {
     const [res, catalog, custom] = await Promise.all([
@@ -116,7 +162,6 @@ export function MediaModelSection() {
     setOptions(res.options);
     setProviders(catalog);
     setCustomProviders(custom);
-    setDraft({});
   }, []);
 
   useEffect(() => {
@@ -125,41 +170,35 @@ export function MediaModelSection() {
   }, [fetchConfig]);
 
   // 候选独立于配置本体重取：reload 的标识随语言变化，故语言切换时只刷新候选与译名，
-  // 不走 fetchConfig（它会 setDraft({}) 丢掉未保存的编辑）。
+  // 不走 fetchConfig（重取整页配置没有必要）。
   useEffect(() => {
     void reloadCandidates();
   }, [reloadCandidates]);
 
-  const handleSave = useCallback(async () => {
-    if (Object.keys(draft).length === 0) return;
-    const savedOnlyMarketProxy =
-      Object.keys(draft).length === 1 && "market_github_proxy_prefix" in draft;
-    setSaving(true);
-    try {
-      await API.updateSystemConfig(draft);
+  const source = useMemo(() => fieldsFrom(settings), [settings]);
+  const saveFields = useCallback(
+    async (fields: MediaModelFields, saved: MediaModelFields) => {
+      const res = await API.updateSystemConfig(changedFields(fields, saved));
       // 全局默认视频后端参与项目能力的三级解析（项目 > 系统设置 > 系统默认）。项目未指定
       // 后端时改这里会换掉生效模型，而项目字段一个都没变、在用的能力查询不会因 props 重取。
       useCapabilitiesStore.getState().invalidate();
       await fetchConfig();
       void reloadCandidates();
       void useConfigStatusStore.getState().refresh();
-      useAppStore
-        .getState()
-        .pushToast(t(savedOnlyMarketProxy ? "market_proxy_saved" : "media_config_saved"), "success");
-    } catch (err) {
-      useAppStore.getState().pushToast(t("save_failed", { message: errMsg(err) }), "error");
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, fetchConfig, reloadCandidates, t]);
+      // 以服务端规范化后的值（如去掉首尾空白的旁白音色）作为已保存内容，不依赖重取配置的渲染时机
+      return fieldsFrom(res.settings);
+    },
+    [fetchConfig, reloadCandidates],
+  );
+  const unit = useEditUnit({ source, save: saveFields });
+  const fields = unit.value;
+  const setFields = unit.setValue;
 
   if (!settings || !options) {
     return (
-      <div className="flex items-center gap-2 px-1 py-12 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
-        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
-          {t("common:loading")}
-        </span>
+      <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+        {t("common:loading")}
       </div>
     );
   }
@@ -169,17 +208,15 @@ export function MediaModelSection() {
   const textBackends: string[] = options.text_backends ?? [];
   const audioBackends: string[] = options.audio_backends ?? [];
 
-  const currentVideo = draft.default_video_backend ?? settings.default_video_backend ?? "";
-  const currentVideoI2V = draft.default_video_backend_i2v ?? settings.default_video_backend_i2v ?? "";
-  const currentVideoR2V = draft.default_video_backend_r2v ?? settings.default_video_backend_r2v ?? "";
-  const currentImage = draft.default_image_backend ?? settings.default_image_backend ?? "";
-  const currentImageT2I = draft.default_image_backend_t2i ?? settings.default_image_backend_t2i ?? "";
-  const currentImageI2I = draft.default_image_backend_i2i ?? settings.default_image_backend_i2i ?? "";
-  const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
+  const currentVideo = fields.default_video_backend ?? "";
+  const currentVideoI2V = fields.default_video_backend_i2v ?? "";
+  const currentVideoR2V = fields.default_video_backend_r2v ?? "";
+  const currentImage = fields.default_image_backend ?? "";
+  const currentImageT2I = fields.default_image_backend_t2i ?? "";
+  const currentImageI2I = fields.default_image_backend_i2i ?? "";
+  const currentAudio = fields.video_generate_audio ?? false;
   const currentPollTimeout =
-    draft.video_poll_timeout_seconds ?? settings.video_poll_timeout_seconds;
-  const currentMarketProxyPrefix =
-    draft.market_github_proxy_prefix ?? settings.market_github_proxy_prefix ?? "";
+    fields.video_poll_timeout_seconds;
 
   // 全局层是解析链的基准，细分项留空即回退全局默认模型；默认模型也留空时是自动推断，
   // 前端算不出具体模型，故不显示生效值（下拉里显示「自动选择」）。
@@ -191,7 +228,7 @@ export function MediaModelSection() {
           value: currentVideoI2V,
           options: candidates?.video.buckets.i2v ?? [],
           effective: currentVideo || undefined,
-          onChange: (v) => setDraft((prev) => ({ ...prev, default_video_backend_i2v: v })),
+          onChange: (v) => setFields((prev) => ({ ...prev, default_video_backend_i2v: v })),
         },
         {
           key: "r2v",
@@ -199,7 +236,7 @@ export function MediaModelSection() {
           value: currentVideoR2V,
           options: candidates?.video.buckets.r2v ?? [],
           effective: currentVideo || undefined,
-          onChange: (v) => setDraft((prev) => ({ ...prev, default_video_backend_r2v: v })),
+          onChange: (v) => setFields((prev) => ({ ...prev, default_video_backend_r2v: v })),
         },
     ],
     !!candidates,
@@ -213,7 +250,7 @@ export function MediaModelSection() {
           value: currentImageT2I,
           options: candidates?.image.buckets.t2i ?? [],
           effective: currentImage || undefined,
-          onChange: (v) => setDraft((prev) => ({ ...prev, default_image_backend_t2i: v })),
+          onChange: (v) => setFields((prev) => ({ ...prev, default_image_backend_t2i: v })),
         },
         {
           key: "i2i",
@@ -221,7 +258,7 @@ export function MediaModelSection() {
           value: currentImageI2I,
           options: candidates?.image.buckets.i2i ?? [],
           effective: currentImage || undefined,
-          onChange: (v) => setDraft((prev) => ({ ...prev, default_image_backend_i2i: v })),
+          onChange: (v) => setFields((prev) => ({ ...prev, default_image_backend_i2i: v })),
         },
     ],
     !!candidates,
@@ -260,61 +297,37 @@ export function MediaModelSection() {
   // 时按目录 i2v 位展示。两个细分项下拉各按自己的桶取值，与上方 i2vAudioControl / r2vAudioControl
   // 同口径。
   const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
-  const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
-  const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";
+  const currentAudioBackend = fields.default_audio_backend ?? "";
+  const currentNarrationVoice = fields.narration_voice ?? "";
   const currentNarrationSpeed =
-    "narration_speed" in draft ? draft.narration_speed : settings.narration_speed;
+    fields.narration_speed;
 
   // 全局文本档位（docs/adr/0051）：全局是解析链基准，默认模型也留空即自动推断（无继承来源）。
-  const currentTextDefault = draft.default_text_backend ?? settings.default_text_backend ?? "";
+  const currentTextDefault = fields.default_text_backend ?? "";
   const textTierValue = {
     default: currentTextDefault,
-    simple: draft.text_backend_simple ?? settings.text_backend_simple ?? "",
-    complex: draft.text_backend_complex ?? settings.text_backend_complex ?? "",
+    simple: fields.text_backend_simple ?? "",
+    complex: fields.text_backend_complex ?? "",
   };
 
   const candidatesSubFieldsError = candidatesError
     ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying }
     : undefined;
 
-  const emptyHint = (msg: string) => (
-    <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2.5 text-[12px] text-text-3">
-      {msg}
-    </div>
-  );
-
   return (
-    <div className="space-y-7">
-      {/* Heading */}
-      <div>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-          Default Routing
-        </div>
-        <h3
-          className="font-editorial mt-1"
-          style={{
-            fontWeight: 400,
-            fontSize: 22,
-            lineHeight: 1.1,
-            letterSpacing: "-0.012em",
-            color: "var(--color-text)",
-          }}
-        >
-          {t("model_selection")}
-        </h3>
-        <p className="mt-1.5 text-[12.5px] leading-[1.6] text-text-3">
-          {t("model_selection_desc")}
-        </p>
-      </div>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-1">
+        <h2 className="text-lg font-medium">{t("settings_default_models")}</h2>
+        <p className="text-sm text-muted-foreground">{t("model_selection_desc")}</p>
+      </header>
 
-      {/* Video */}
-      <SectionCard kicker="Video Channel" title={t("default_video_model")}>
+      <ChannelCard title={t("default_models_channel_video")}>
         {videoBackends.length > 0 ? (
           <LayeredModelFields
             defaultLabel={t("default_video_model")}
             defaultValue={currentVideo}
             defaultOptions={videoBackends}
-            onDefaultChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
+            onDefaultChange={(v) => setFields((prev) => ({ ...prev, default_video_backend: v }))}
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
             providerNames={allProviderNames}
@@ -332,102 +345,83 @@ export function MediaModelSection() {
             )}
           </LayeredModelFields>
         ) : (
-          emptyHint(t("no_video_providers_hint"))
+          <NoProviders message={t("no_video_providers_hint")} />
         )}
 
-        <div
-          className={`mt-4 flex items-start gap-2.5 text-[12.5px] ${
-            audioLocked ? "text-text-4" : "text-text-2"
-          }`}
-        >
-          <input
-            id="media-generate-audio"
-            type="checkbox"
-            checked={audioLocked ? audioLockedControl === "always_on" : currentAudio}
-            disabled={audioLocked}
-            onChange={(e) =>
-              setDraft((prev) => ({ ...prev, video_generate_audio: e.target.checked }))
-            }
-            className="mt-0.5 h-3.5 w-3.5 rounded border-hairline bg-bg-grad-a accent-[var(--color-accent)] disabled:cursor-not-allowed enabled:cursor-pointer"
-          />
-          <label
-            htmlFor="media-generate-audio"
-            className={`flex flex-col ${audioLocked ? "cursor-not-allowed" : "cursor-pointer"}`}
-          >
-            <span>{t("generate_audio")}</span>
-            <span className="text-[11px] text-text-4">
-              {audioLocked
-                ? t(
-                    audioLockedControl === "always_on"
-                      ? "audio_switch_locked_always_on"
-                      : "audio_switch_locked_always_off",
-                  )
-                : t("audio_support_hint")}
+        <div className="flex flex-col gap-2">
+          <Label className="items-start">
+            <Checkbox
+              checked={audioLocked ? audioLockedControl === "always_on" : currentAudio}
+              disabled={audioLocked}
+              onCheckedChange={(checked) => setFields((prev) => ({ ...prev, video_generate_audio: checked }))}
+            />
+            <span className="flex flex-col gap-1">
+              {t("generate_audio")}
+              <span className="text-xs text-muted-foreground">
+                {audioLocked
+                  ? t(
+                      audioLockedControl === "always_on"
+                        ? "audio_switch_locked_always_on"
+                        : "audio_switch_locked_always_off",
+                    )
+                  : t("audio_support_hint")}
+              </span>
             </span>
-          </label>
+          </Label>
+          {audioConflict && (
+            <InlineWarning
+              message={t("audio_switch_conflict_notice")}
+              action={{
+                label: t("audio_switch_conflict_action"),
+                onClick: () => setFields((prev) => ({ ...prev, video_generate_audio: true })),
+              }}
+            />
+          )}
         </div>
-        {audioConflict && (
-          <InlineWarning
-            className="mt-2"
-            message={t("audio_switch_conflict_notice")}
-            action={{
-              label: t("audio_switch_conflict_action"),
-              onClick: () => setDraft((prev) => ({ ...prev, video_generate_audio: true })),
-            }}
-          />
-        )}
-        <div className="mt-4">
-          <label
-            htmlFor="video-poll-timeout-input"
-            className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
-          >
-            {t("video_poll_timeout_label")}
-          </label>
-          <input
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="video-poll-timeout-input">{t("video_poll_timeout_label")}</Label>
+          <Input
             id="video-poll-timeout-input"
             type="text"
             inputMode="decimal"
+            aria-describedby="video-poll-timeout-hint"
             value={pollTimeoutInput ?? String(currentPollTimeout)}
             onChange={(e) => {
               const raw = e.target.value;
               setPollTimeoutInput(raw);
               const next = Number(raw);
-              // 显示以原始字符串为准（「60.」等中间态与清空保真）；有效数值同步进草稿，
+              // 显示以原始字符串为准（「60.」等中间态与清空保真）；有效数值同步进未保存修改，
               // 空串或非数值不写入——清空不会产生 0 这类假值。
               if (raw.trim() !== "" && Number.isFinite(next)) {
-                setDraft((prev) => ({ ...prev, video_poll_timeout_seconds: next }));
+                setFields((prev) => ({ ...prev, video_poll_timeout_seconds: next }));
               }
             }}
             onBlur={() => {
               if (pollTimeoutInput === null) return;
               const next = Number(pollTimeoutInput);
-              // 失焦归一：有效数值取整写入草稿；空串或非数值撤销该字段的未保存编辑
+              // 失焦归一：有效数值取整写入未保存修改；空串或非数值撤销该字段的未保存编辑
               // （连同键入过程写入的中间值），回显已保存值。下限由保存时后端校验兜底。
-              if (pollTimeoutInput.trim() !== "" && Number.isFinite(next)) {
-                setDraft((prev) => ({ ...prev, video_poll_timeout_seconds: Math.round(next) }));
-              } else {
-                setDraft((prev) => {
-                  if (!("video_poll_timeout_seconds" in prev)) return prev;
-                  const { video_poll_timeout_seconds: _dropped, ...rest } = prev;
-                  return rest;
-                });
-              }
+              const restored =
+                pollTimeoutInput.trim() !== "" && Number.isFinite(next)
+                  ? Math.round(next)
+                  : unit.savedValue.video_poll_timeout_seconds;
+              setFields((prev) => ({ ...prev, video_poll_timeout_seconds: restored }));
               setPollTimeoutInput(null);
             }}
-            className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-40"
           />
-          <p className="mt-1 text-[11px] text-text-4">{t("video_poll_timeout_hint")}</p>
+          <FieldHint id="video-poll-timeout-hint">{t("video_poll_timeout_hint")}</FieldHint>
         </div>
-      </SectionCard>
+      </ChannelCard>
 
-      {/* Image */}
-      <SectionCard kicker="Image Channel" title={t("default_image_model")}>
+      <ChannelCard title={t("default_models_channel_image")}>
         {imageBackends.length > 0 ? (
           <LayeredModelFields
             defaultLabel={t("default_image_model")}
             defaultValue={currentImage}
             defaultOptions={imageBackends}
-            onDefaultChange={(v) => setDraft((prev) => ({ ...prev, default_image_backend: v }))}
+            onDefaultChange={(v) => setFields((prev) => ({ ...prev, default_image_backend: v }))}
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
             providerNames={allProviderNames}
@@ -436,17 +430,16 @@ export function MediaModelSection() {
             subFieldsError={candidatesSubFieldsError}
           />
         ) : (
-          emptyHint(t("no_image_providers_hint"))
+          <NoProviders message={t("no_image_providers_hint")} />
         )}
-      </SectionCard>
+      </ChannelCard>
 
-      {/* Text */}
-      <SectionCard kicker="Text Channel" title={t("text_models")} description={t("text_models_desc")}>
+      <ChannelCard title={t("default_models_channel_text")} description={t("text_models_desc")}>
         {textBackends.length > 0 ? (
           <TextTierFields
             value={textTierValue}
             onChange={(next) =>
-              setDraft((prev) => ({
+              setFields((prev) => ({
                 ...prev,
                 default_text_backend: next.default,
                 text_backend_simple: next.simple,
@@ -465,121 +458,68 @@ export function MediaModelSection() {
             }}
           />
         ) : (
-          emptyHint(t("no_text_providers_hint"))
+          <NoProviders message={t("no_text_providers_hint")} />
         )}
-      </SectionCard>
+      </ChannelCard>
 
-      {/* Audio (narration TTS) */}
-      <SectionCard kicker="Audio Channel" title={t("default_audio_model")}>
+      {/* 旁白配音：模型、音色与语速只是新建 TTS 配音项目的预填值，说明放在通道开头。 */}
+      <ChannelCard title={t("default_models_channel_audio")} description={t("global_tts_defaults_prefill_hint")}>
         {audioBackends.length > 0 ? (
           <ProviderModelSelect
             value={currentAudioBackend}
             options={audioBackends}
             providerNames={allProviderNames}
             modelNames={allModelNames}
-            onChange={(v) => setDraft((prev) => ({ ...prev, default_audio_backend: v }))}
+            onChange={(v) => setFields((prev) => ({ ...prev, default_audio_backend: v }))}
             allowDefault
             defaultLabel={t("auto_select")}
             defaultHint={t("auto")}
             aria-label={t("default_audio_model")}
           />
         ) : (
-          emptyHint(t("no_audio_providers_hint"))
+          <NoProviders message={t("no_audio_providers_hint")} />
         )}
-        <p className="mt-2 text-[11px] leading-relaxed text-text-4">{t("global_tts_defaults_prefill_hint")}</p>
 
-        <div className="mt-4 space-y-3.5">
-          <div>
-            <label
-              htmlFor="narration-voice-input"
-              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
-            >
-              {t("narration_voice_label")}
-            </label>
-            <input
-              id="narration-voice-input"
-              type="text"
-              value={currentNarrationVoice}
-              onChange={(e) => setDraft((prev) => ({ ...prev, narration_voice: e.target.value }))}
-              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            />
-            <p className="mt-1 text-[11px] text-text-4">{t("narration_voice_hint")}</p>
-          </div>
-          <div>
-            <label
-              htmlFor="narration-speed-input"
-              className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
-            >
-              {t("narration_speed_label")}
-            </label>
-            <input
-              id="narration-speed-input"
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={currentNarrationSpeed ?? ""}
-              onChange={(e) => {
-                const raw = e.target.value;
-                setDraft((prev) => {
-                  if (raw === "") return { ...prev, narration_speed: null };
-                  const next = Number(raw);
-                  // 仅过滤非有限数：NaN/Infinity 会被 JSON 序列化为 null 误触"清除"语义。
-                  // 0/负数允许临时存在（键入 0.5 会先经过 0），正数约束由保存时后端校验兜底。
-                  if (!Number.isFinite(next)) return prev;
-                  return { ...prev, narration_speed: next };
-                });
-              }}
-              className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            />
-            <p className="mt-1 text-[11px] text-text-4">{t("narration_speed_hint")}</p>
-          </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="narration-voice-input">{t("narration_voice_label")}</Label>
+          <Input
+            id="narration-voice-input"
+            type="text"
+            aria-describedby="narration-voice-hint"
+            value={currentNarrationVoice}
+            onChange={(e) => setFields((prev) => ({ ...prev, narration_voice: e.target.value }))}
+          />
+          <FieldHint id="narration-voice-hint">{t("narration_voice_hint")}</FieldHint>
         </div>
-      </SectionCard>
-
-      <SectionCard
-        kicker="Market Network"
-        title={t("market_proxy_label")}
-        description={t("market_proxy_hint")}
-      >
-        <label htmlFor="market-github-proxy-prefix" className="sr-only">
-          {t("market_proxy_label")}
-        </label>
-        <input
-          id="market-github-proxy-prefix"
-          type="url"
-          value={currentMarketProxyPrefix}
-          placeholder="https://proxy.example.com/"
-          onChange={(event) =>
-            setDraft((prev) => ({ ...prev, market_github_proxy_prefix: event.target.value }))
-          }
-          className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 font-mono text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        />
-      </SectionCard>
-
-      {/* Footer */}
-      {isDirty && (
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
-          >
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
-            ) : null}
-            {saving ? t("common:saving") : t("common:save")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setDraft({})}
-            className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            {t("common:reset")}
-          </button>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="narration-speed-input">{t("narration_speed_label")}</Label>
+          <Input
+            id="narration-speed-input"
+            type="number"
+            min={0.1}
+            step={0.1}
+            aria-describedby="narration-speed-hint"
+            value={currentNarrationSpeed ?? ""}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setFields((prev) => {
+                if (raw === "") return { ...prev, narration_speed: null };
+                const next = Number(raw);
+                // 仅过滤非有限数：NaN/Infinity 会被 JSON 序列化为 null 误触"清除"语义。
+                // 0/负数允许临时存在（键入 0.5 会先经过 0），正数约束由保存时后端校验兜底。
+                if (!Number.isFinite(next)) return prev;
+                return { ...prev, narration_speed: next };
+              });
+            }}
+            className="w-40"
+          />
+          <FieldHint id="narration-speed-hint">{t("narration_speed_hint")}</FieldHint>
         </div>
-      )}
+      </ChannelCard>
+
+      <PageShellFooter>
+        <SaveBar unit={unit} />
+      </PageShellFooter>
     </div>
   );
 }

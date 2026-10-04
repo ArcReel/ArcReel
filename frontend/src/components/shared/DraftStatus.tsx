@@ -4,11 +4,11 @@ import { AlertTriangle, Bot, CheckCircle2, Loader2, OctagonAlert, RotateCcw, Sav
 import type { DraftDocType, DraftSoftViolation, ScriptReviewViolation } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
-import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { GlassModal } from "@/components/legacy/GlassModal";
+import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/shared/darkroom-tokens";
 import { itemIdsInEpisodeText } from "@/utils/episode-display";
 
 /** 把一段指令预填进 Agent 输入框并打开面板；只填不发送，用户核对后自行发送。 */
@@ -109,7 +109,7 @@ export function InvalidDraftBar({
   const saveLabel = saving ? t("draft_saving") : t("draft_save_action");
   return (
     <header
-      className="sticky top-0 z-10 flex flex-col gap-2 rounded-[10px] border border-red-500/35 px-3.5 py-2.5 backdrop-blur-md"
+      className="sticky top-0 z-10 flex flex-col gap-2 rounded-lg border border-red-500/35 px-3.5 py-2.5 backdrop-blur-md"
       style={CARD_STYLE}
     >
       <div className="flex items-start justify-between gap-3">
@@ -120,11 +120,11 @@ export function InvalidDraftBar({
             <OctagonAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-400" aria-hidden="true" />
           )}
           <div className="flex min-w-0 flex-col">
-            <span className="text-[12.5px] font-medium text-text">
+            <span className="text-[12.5px] font-medium text-foreground">
               {title ?? t("draft_status_invalid")}
               {!clean && <span className="ml-1.5 text-red-300">{t("draft_violation_count", { count: violationCount })}</span>}
             </span>
-            <span className="text-[11px] text-text-4">
+            <span className="text-[11px] text-muted-foreground">
               {clean ? (
                 t("draft_no_violations_hint")
               ) : (
@@ -274,14 +274,14 @@ function DraftRepairDialog({ repairing, onSubmit, onClose }: DraftRepairDialogPr
         <h2
           id={titleId}
           className="display-serif text-[17px] font-semibold tracking-tight"
-          style={{ color: "var(--color-text)" }}
+          style={{ color: "var(--foreground)" }}
         >
           {t("draft_repair_title")}
         </h2>
-        <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--color-text-3)" }}>
+        <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
           {t("draft_repair_desc")}
         </p>
-        <label htmlFor={fieldId} className="mt-4 block text-[12px] font-medium" style={{ color: "var(--color-text-2)" }}>
+        <label htmlFor={fieldId} className="mt-4 block text-[12px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
           {t("draft_repair_instructions_label")}
         </label>
         <textarea
@@ -328,14 +328,14 @@ export function AgentDraftBar({ busy, onFinish, onDiscard }: AgentDraftBarProps)
   const { t } = useTranslation("dashboard");
   return (
     <header
-      className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-[10px] border border-amber-500/35 px-3.5 py-2.5 backdrop-blur-md"
+      className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-lg border border-amber-500/35 px-3.5 py-2.5 backdrop-blur-md"
       style={CARD_STYLE}
     >
       <div className="flex min-w-0 items-start gap-2">
         <Bot className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
         <div className="flex min-w-0 flex-col">
-          <span className="text-[12.5px] font-medium text-text">{t("draft_agent_editing_title")}</span>
-          <span className="text-[11px] text-text-4">{t("draft_agent_editing_hint")}</span>
+          <span className="text-[12.5px] font-medium text-foreground">{t("draft_agent_editing_title")}</span>
+          <span className="text-[11px] text-muted-foreground">{t("draft_agent_editing_hint")}</span>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-3">
@@ -366,7 +366,7 @@ export function DraftEpisodeViolations({
   const { t } = useTranslation("dashboard");
   if (violations.length === 0) return null;
   return (
-    <section ref={anchorRef} className="rounded-[10px] border border-red-500/45 p-3.5" style={CARD_STYLE}>
+    <section ref={anchorRef} className="rounded-lg border border-red-500/45 p-3.5" style={CARD_STYLE}>
       <h3 className="text-[11px] font-medium text-red-300">{t("draft_episode_level_title")}</h3>
       <DraftViolationList violations={violations} />
     </section>

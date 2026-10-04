@@ -60,16 +60,16 @@ export function ChatMessage({ message, streaming }: ChatMessageProps) {
     : isSystem
       ? {
           background: "oklch(0.22 0.011 265 / 0.5)",
-          border: "1px solid var(--color-hairline-soft)",
+          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         }
       : {
           background: "oklch(0.21 0.012 265 / 0.5)",
-          border: "1px solid var(--color-hairline-soft)",
+          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
         };
 
   const labelStyle: React.CSSProperties = {
     ...BUBBLE_LABEL_STYLE,
-    color: isUser ? "var(--color-accent-2)" : "var(--color-text-4)",
+    color: isUser ? "var(--primary)" : "var(--muted-foreground)",
   };
 
   return (
@@ -82,7 +82,7 @@ export function ChatMessage({ message, streaming }: ChatMessageProps) {
       </div>
       <div
         className="min-w-0 overflow-hidden text-[12.5px] leading-[1.55]"
-        style={{ color: "var(--color-text)" }}
+        style={{ color: "var(--foreground)" }}
       >
         {blocks.map((block, index) => (
           <ContentBlockRenderer

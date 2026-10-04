@@ -54,24 +54,24 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
   });
 
   return (
-    <div className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--color-hairline)] bg-[linear-gradient(180deg,oklch(0.22_0.014_290_/_0.4),oklch(0.20_0.012_250_/_0.15))] px-6 py-4">
+    <div className="flex flex-wrap items-end justify-between gap-5 border-b border-border bg-[linear-gradient(180deg,oklch(0.22_0.014_290_/_0.4),oklch(0.20_0.012_250_/_0.15))] px-6 py-4">
       <div className="min-w-0 flex-1">
         <div className="mb-2 flex flex-wrap items-center gap-2.5">
           <span
-            className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--color-accent-2)]"
-            style={{ background: "var(--color-accent-dim)", padding: "2px 8px", borderRadius: 4 }}
+            className="font-mono text-[10px] font-semibold uppercase tracking-wider text-primary"
+            style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", padding: "2px 8px", borderRadius: 4 }}
             translate="no"
           >
             {epLabel}
           </span>
-          <span className="font-mono text-[11px] tabular-nums text-[var(--color-text-4)]">
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
             {t("reference_episode_header_units", { count: stats.total })} · ~{stats.totalDur}s
           </span>
-          <span aria-hidden="true" className="h-[3px] w-[3px] rounded-full bg-[var(--color-hairline)]" />
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-text-3)]">
+          <span aria-hidden="true" className="h-[3px] w-[3px] rounded-full bg-border" />
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <span
               aria-hidden="true"
-              className="h-[5px] w-[5px] rounded-full bg-[var(--color-accent)] motion-safe:animate-pulse"
+              className="h-[5px] w-[5px] rounded-full bg-primary motion-safe:animate-pulse"
             />
             <span className="tabular-nums">
               {stats.ready}/{stats.total} · {stats.percent}%
@@ -115,15 +115,15 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
           <div
             key={s.key}
             className={`min-w-[64px] px-3.5 ${
-              i === 0 ? "" : "border-l border-[var(--color-hairline-soft)]"
+              i === 0 ? "" : "border-l border-border/50"
             }`}
           >
-            <div className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-4)]">
+            <div className="font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               {s.label}
             </div>
             <div
               className={`mt-0.5 font-mono text-sm font-semibold tabular-nums ${
-                s.accent ? "text-[var(--color-accent-2)]" : "text-[var(--color-text)]"
+                s.accent ? "text-primary" : "text-foreground"
               }`}
             >
               {s.value}

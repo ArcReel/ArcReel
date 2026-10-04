@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { create } from "zustand";
 import { API } from "@/api";
+import type { SettingsSection } from "@/app-routes";
 import { useEndpointCatalogStore } from "./endpoint-catalog-store";
 
 // ---------------------------------------------------------------------------
@@ -8,8 +10,11 @@ import { useEndpointCatalogStore } from "./endpoint-catalog-store";
 
 export interface ConfigIssue {
   key: string;
-  tab: "agent" | "providers" | "media" | "usage";
+  /** 问题所属的全局设置分区。 */
+  section: SettingsSection;
   label: string;
+  /** 补充说明的 i18n 键：后果与处理方式。 */
+  description?: string;
 }
 
 async function getConfigStatus(): Promise<{
@@ -49,21 +54,21 @@ async function getConfigStatus(): Promise<{
   if (!hasMediaType("video")) {
     issues.push({
       key: "no-video-provider",
-      tab: "providers",
+      section: "providers",
       label: "video_provider_not_configured",
     });
   }
   if (!hasMediaType("image")) {
     issues.push({
       key: "no-image-provider",
-      tab: "providers",
+      section: "providers",
       label: "image_provider_not_configured",
     });
   }
   if (!hasMediaType("text")) {
     issues.push({
       key: "no-text-provider",
-      tab: "providers",
+      section: "providers",
       label: "text_provider_not_configured",
     });
   }
@@ -162,3 +167,24 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
     },
   };
 });
+
+const EMBEDDED_AGENT_ISSUE: ConfigIssue = {
+  key: "no-embedded-agent",
+  section: "arcreel-agent",
+  label: "embedded_agent_not_configured",
+  description: "embedded_agent_not_configured_desc",
+};
+
+/**
+ * 全局设置里某个分区要就地提示的配置问题；不传分区时返回全部分区的问题。
+ * 在 `issues` 之外加上「内嵌 Agent 未配置」：内嵌 Agent 是可选项，它不计入 `isComplete`，
+ * 大厅与顶栏的红点不因它亮起，只在「ArcReel Agent」分区与其侧栏项提示。
+ */
+export function useSectionConfigIssues(section?: SettingsSection): ConfigIssue[] {
+  const issues = useConfigStatusStore((s) => s.issues);
+  const agentMissing = useConfigStatusStore((s) => s.initialized && !s.isEmbeddedAgentConfigured);
+  return useMemo(() => {
+    const all = agentMissing ? [...issues, EMBEDDED_AGENT_ISSUE] : issues;
+    return section ? all.filter((issue) => issue.section === section) : all;
+  }, [issues, agentMissing, section]);
+}

@@ -1,13 +1,15 @@
 import { createContext, useCallback, useContext, useMemo, useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { CARD_STYLE, GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { EndpointPathItem } from "@/types";
 import { isPlainPath, pathItemText, type EndpointFormSection } from "./endpoint-definition-draft";
 
-export const LABEL_CLS = "mb-1 block text-[12px] font-medium text-text-2";
-export const HINT_CLS = "mt-1.5 block text-[12px] leading-[1.55] text-text-3";
-export const MONO_INPUT_CLS = "font-mono text-[12px]";
+export const LABEL_CLS = "mb-1.5 block text-sm font-medium";
+export const HINT_CLS = "mt-1.5 block text-xs text-muted-foreground";
 
 // ---------------------------------------------------------------------------
 // 变量插入
@@ -79,23 +81,26 @@ export function VariableChips({
   const { t } = useTranslation("dashboard");
   const insertion = useInsertion();
   return (
-    <div className="mt-3 rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 px-3 py-2.5">
-      <span className="mb-1.5 block text-[11.5px] text-text-3">{t("ce_variables_hint")}</span>
+    <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border px-3 py-2.5">
+      <span className="text-xs text-muted-foreground">{t("ce_variables_hint")}</span>
       <div className="flex flex-wrap gap-1.5">
         {variables.map((v) => (
-          <button
+          <Button
             key={v.token}
-            type="button"
+            variant="outline"
+            size="xs"
+            // 按下时不夺走焦点，插入点仍是最近聚焦的输入框
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => insertion?.insert(v.token)}
-            className="inline-flex items-baseline gap-1.5 rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 transition-colors hover:border-accent/40 hover:bg-accent-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            <span className="font-mono text-[11px] text-accent-2">{v.token}</span>
-            <span className="text-[11px] text-text-3">{v.desc}</span>
-          </button>
+            <span className="font-mono text-primary" translate="no">
+              {v.token}
+            </span>
+            <span className="text-muted-foreground">{v.desc}</span>
+          </Button>
         ))}
       </div>
-      {note && <span className="mt-1.5 block text-[11.5px] leading-[1.5] text-text-3">{note}</span>}
+      {note && <span className="text-xs text-muted-foreground">{note}</span>}
     </div>
   );
 }
@@ -119,21 +124,19 @@ export function FormSection({
   children: React.ReactNode;
 }) {
   return (
-    <section id={`ce-section-${id}`} aria-labelledby={`ce-section-${id}-title`} className="relative scroll-mt-4 pl-7">
-      <span aria-hidden className="absolute bottom-0 left-[7px] top-6 w-px bg-hairline-soft" />
+    <section id={`ce-section-${id}`} aria-labelledby={`ce-section-${id}-title`} className="relative scroll-mt-4 pl-8">
+      <span aria-hidden className="absolute top-7 bottom-0 left-2.5 w-px bg-border" />
       <span
         aria-hidden
-        className="absolute left-0 top-0.5 grid h-4 w-4 place-items-center rounded-full border border-accent/40 bg-accent-dim font-mono text-[8.5px] font-bold text-accent-2"
+        className="absolute top-0.5 left-0 grid size-5 place-items-center rounded-full border border-primary/40 bg-primary/15 text-xs text-primary tabular-nums"
       >
         {step}
       </span>
-      <h3 id={`ce-section-${id}-title`} className="text-[13.5px] font-semibold text-text">
+      <h3 id={`ce-section-${id}-title`} className="text-base font-medium">
         {title}
       </h3>
-      <p className="mb-2.5 mt-0.5 text-[12px] leading-[1.55] text-text-3">{desc}</p>
-      <div className="mb-6 rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
-        {children}
-      </div>
+      <p className="mt-0.5 mb-3 max-w-[40em] text-sm text-muted-foreground">{desc}</p>
+      <div className="mb-6 rounded-lg border border-border p-4">{children}</div>
     </section>
   );
 }
@@ -171,16 +174,20 @@ export function TextField({
   return (
     <label className="block">
       {label && <span className={LABEL_CLS}>{label}</span>}
-      <input
-        type="text"
-        value={value}
-        readOnly={readOnly}
-        placeholder={placeholder}
-        aria-label={label ? undefined : ariaLabel}
-        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
-        className={`${INPUT_CLS} ${mono ? MONO_INPUT_CLS : ""}`}
-        {...bound}
-      />
+      {/* 等宽字体经继承进入输入框：Input 自己不接受字体 class */}
+      <span className={mono ? "block font-mono" : "block"}>
+        <Input
+          type="text"
+          value={value}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          aria-label={label ? undefined : ariaLabel}
+          autoComplete="off"
+          spellCheck={mono ? false : undefined}
+          onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+          {...bound}
+        />
+      </span>
       {hint && <span className={HINT_CLS}>{hint}</span>}
     </label>
   );
@@ -198,13 +205,13 @@ export function CheckboxField({
   disabled?: boolean;
 }) {
   return (
-    <label className="flex items-center gap-2 text-[12.5px] text-text-2">
+    <label className="flex items-center gap-2 text-sm text-subtle-foreground">
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+        className="size-4 accent-primary"
       />
       {label}
     </label>
@@ -213,15 +220,48 @@ export function CheckboxField({
 
 export function RowDeleteButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className="grid h-8 w-8 place-items-center rounded-[6px] text-text-3 transition-colors hover:bg-bg-grad-a/55 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    <Button variant="ghost" size="icon" onClick={onClick} aria-label={label}>
+      <Trash2 aria-hidden />
+    </Button>
+  );
+}
+
+/** 表单内的下拉：选项文案由调用方本地化；只读时整体禁用。 */
+export function SelectField<V extends string>({
+  value,
+  options,
+  onChange,
+  disabled,
+  ariaLabel,
+  className,
+}: {
+  value: V;
+  options: readonly { value: V; label: string }[];
+  onChange: (next: V) => void;
+  disabled?: boolean;
+  ariaLabel?: string;
+  className?: string;
+}) {
+  return (
+    <Select
+      items={options}
+      value={value}
+      disabled={disabled}
+      onValueChange={(next) => {
+        if (next !== null) onChange(next);
+      }}
     >
-      <Trash2 className="h-3.5 w-3.5" aria-hidden />
-    </button>
+      <SelectTrigger aria-label={ariaLabel} className={cn("w-full min-w-0", className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -242,10 +282,10 @@ export function AddRowButton({
 }) {
   return (
     <div className="mt-2">
-      <button type="button" onClick={onClick} disabled={disabled} className={GHOST_BTN_CLS}>
-        <Plus className="h-3.5 w-3.5" aria-hidden />
+      <Button variant="outline" size="sm" onClick={onClick} disabled={disabled}>
+        <Plus aria-hidden data-icon="inline-start" />
         {label}
-      </button>
+      </Button>
       {disabled && disabledHint && <span className={HINT_CLS}>{disabledHint}</span>}
     </div>
   );
@@ -276,27 +316,30 @@ export function PathsEditor({
   return (
     <div>
       <span className={LABEL_CLS}>{label}</span>
-      <div className="space-y-1.5">
+      <div className="flex flex-col gap-1.5">
         {paths.map((item, index) => (
           <div key={index} className="flex items-center gap-2">
-            <span aria-hidden className="w-4 shrink-0 text-right font-mono text-[11px] text-text-3">
+            <span aria-hidden className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
               {index + 1}
             </span>
-            <input
-              type="text"
-              value={pathItemText(item)}
-              readOnly={readOnly || !isPlainPath(item)}
-              aria-label={`${label} ${index + 1}`}
-              placeholder="$.data.task_id"
-              onChange={(e) => {
-                const next = [...paths];
-                next[index] = e.target.value;
-                onChange(next);
-              }}
-              className={`${INPUT_CLS} ${MONO_INPUT_CLS} text-good/90`}
-            />
+            <span className="min-w-0 flex-1 font-mono">
+              <Input
+                type="text"
+                value={pathItemText(item)}
+                readOnly={readOnly || !isPlainPath(item)}
+                aria-label={`${label} ${index + 1}`}
+                placeholder="$.data.task_id"
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => {
+                  const next = [...paths];
+                  next[index] = e.target.value;
+                  onChange(next);
+                }}
+              />
+            </span>
             {!isPlainPath(item) && (
-              <span className="shrink-0 text-[11px] text-text-3">{t("ce_path_json_only")}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{t("ce_path_json_only")}</span>
             )}
             {!readOnly && (
               <RowDeleteButton
@@ -308,13 +351,10 @@ export function PathsEditor({
         ))}
       </div>
       {!readOnly && (
-        <button
-          type="button"
-          onClick={() => onChange([...paths, ""])}
-          className="mt-1.5 rounded-[6px] border border-dashed border-hairline px-2 py-1 text-[11.5px] text-text-3 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
+        <Button variant="ghost" size="xs" className="mt-1.5" onClick={() => onChange([...paths, ""])}>
+          <Plus aria-hidden data-icon="inline-start" />
           {t("ce_path_add")}
-        </button>
+        </Button>
       )}
       {hint && <span className={HINT_CLS}>{hint}</span>}
     </div>

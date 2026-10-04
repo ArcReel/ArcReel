@@ -101,8 +101,8 @@ export function EditableEpisodeTitle({
           }}
           disabled={saving}
           aria-label={t("edit_episode_title")}
-          className={`focus-ring min-w-0 flex-1 rounded border-b bg-transparent outline-none ${headingClassName ?? ""}`}
-          style={{ ...headingStyle, borderColor: "var(--color-accent-soft)" }}
+          className={`focus-ring min-w-0 flex-1 rounded-sm border-b bg-transparent outline-none ${headingClassName ?? ""}`}
+          style={{ ...headingStyle, borderColor: "color-mix(in oklab, var(--primary) 22%, transparent)" }}
         />
         <button
           type="button"
@@ -111,7 +111,7 @@ export function EditableEpisodeTitle({
           title={t("common:save")}
           aria-label={t("common:save")}
           className="focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.06)] disabled:opacity-40"
-          style={{ color: "var(--color-accent-2)" }}
+          style={{ color: "var(--primary)" }}
         >
           <Check className="h-4 w-4" />
         </button>
@@ -122,7 +122,7 @@ export function EditableEpisodeTitle({
           title={t("common:cancel")}
           aria-label={t("common:cancel")}
           className="focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.06)] disabled:opacity-40"
-          style={{ color: "var(--color-text-3)" }}
+          style={{ color: "var(--muted-foreground)" }}
         >
           <X className="h-4 w-4" />
         </button>
@@ -140,7 +140,7 @@ export function EditableEpisodeTitle({
         onClick={enterEdit}
         title={t("edit_episode_title")}
         aria-label={t("edit_episode_title")}
-        className="focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-text-3)] opacity-0 transition-[opacity,background-color] hover:bg-[oklch(1_0_0_/_0.06)] hover:text-[var(--color-text)] focus-visible:opacity-100 group-hover:opacity-100"
+        className="focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,background-color] hover:bg-[oklch(1_0_0_/_0.06)] hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
       >
         <Pencil className="h-3.5 w-3.5" />
       </button>

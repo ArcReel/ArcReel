@@ -1,312 +1,169 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Library, Search, Check } from "lucide-react";
+import { Check, Loader2, Search } from "lucide-react";
+import { cn } from "cn";
 import { API } from "@/api";
-import type { Asset, AssetType } from "@/types/asset";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { GlassModal } from "@/components/ui/GlassModal";
-import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { SecondaryButton } from "@/components/ui/SecondaryButton";
+import type { AssetType } from "@/types/asset";
+import { ASSET_TYPE_ICON } from "./asset-type-icons";
 import { AssetThumb } from "./AssetThumb";
+import { LoadMoreSentinel } from "./LoadMoreSentinel";
+import { useAssetPages } from "./useAssetPages";
 
 interface Props {
+  /** 当前画廊的类型，选择器只列这一类。 */
   type: AssetType;
+  /** 项目里已有的同类资产名，对应条目不可选。 */
   existingNames: Set<string>;
   onClose: () => void;
   onImport: (assetIds: string[]) => void;
 }
 
-const PAGE_SIZE = 50;
-
+/**
+ * 项目画廊里的「从资产库导入」：列出资产库里当前类型的资产，可搜索、滚动到底自动加载，显示匹配总数；多选后导入。
+ */
 export function AssetPickerModal({ type, existingNames, onClose, onImport }: Props) {
-  const { t } = useTranslation(["assets", "dashboard"]);
-  const [assets, setAssets] = useState<Asset[]>([]);
+  const { t } = useTranslation("assets");
   const [q, setQ] = useState("");
-  const debouncedQ = useDebouncedValue(q, 250);
-  const [selected, setSelected] = useState<Map<string, Asset>>(new Map());
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const titleId = useId();
-  const loadMoreCtrlRef = useRef<AbortController | null>(null);
+  const debouncedQ = useDebouncedValue(q, 250).trim();
+  const pages = useAssetPages({ type, q: debouncedQ });
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const Icon = ASSET_TYPE_ICON[type];
+  const typeLabel = t(`type.${type}`);
 
-  useEffect(() => {
-    const ctrl = new AbortController();
-    void (async () => {
-      setLoading(true);
-      try {
-        const res = await API.listAssets(
-          { type, q: debouncedQ || undefined, limit: PAGE_SIZE, offset: 0 },
-          { signal: ctrl.signal },
-        );
-        if (!ctrl.signal.aborted) {
-          setAssets(res.items);
-          setHasMore(res.items.length === PAGE_SIZE);
-          setLoading(false);
-        }
-      } catch (err) {
-        if ((err as Error).name !== "AbortError" && !ctrl.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      ctrl.abort();
-      loadMoreCtrlRef.current?.abort();
-    };
-  }, [type, debouncedQ]);
-
-  const assetsWithUrl = useMemo(
-    () => assets.map((a) => ({ asset: a, url: API.getGlobalAssetUrl(a.image_path, a.updated_at) })),
-    [assets],
-  );
-
-  const loadMore = async () => {
-    loadMoreCtrlRef.current?.abort();
-    const ctrl = new AbortController();
-    loadMoreCtrlRef.current = ctrl;
-    setLoading(true);
-    try {
-      const res = await API.listAssets(
-        { type, q: debouncedQ || undefined, limit: PAGE_SIZE, offset: assets.length },
-        { signal: ctrl.signal },
-      );
-      if (!ctrl.signal.aborted) {
-        setAssets((prev) => [...prev, ...res.items]);
-        setHasMore(res.items.length === PAGE_SIZE);
-        setLoading(false);
-      }
-    } catch (err) {
-      if ((err as Error).name !== "AbortError" && !ctrl.signal.aborted) {
-        setLoading(false);
-      }
-    }
-  };
-
-  const toggle = (a: Asset, disabled: boolean) => {
-    if (disabled) return;
+  const toggle = (id: string) => {
     setSelected((prev) => {
-      const next = new Map(prev);
-      if (next.has(a.id)) next.delete(a.id);
-      else next.set(a.id, a);
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
-  const titleKey = `picker_title_${type}` as const;
-
   return (
-    <GlassModal
+    <Dialog
       open
-      onClose={onClose}
-      labelledBy={titleId}
-      widthClassName="w-[760px] max-w-[96vw]"
-      panelClassName="flex max-h-[90vh] flex-col"
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
     >
-      {/* Header */}
-        <div
-          className="flex items-center gap-3 px-5 py-4"
-          style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
-        >
-          <span
-            aria-hidden
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
-            style={{
-              background:
-                "linear-gradient(135deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid var(--color-accent-soft)",
-              color: "var(--color-accent-2)",
-              boxShadow: "0 8px 18px -8px var(--color-accent-glow)",
-            }}
-          >
-            <Library className="h-4 w-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h3
-              id={titleId}
-              className="display-serif truncate text-[15px] font-semibold tracking-tight"
-              style={{ color: "var(--color-text)" }}
-            >
-              {t(titleKey)}
-            </h3>
-            <div
-              className="num text-[10px] uppercase"
-              style={{
-                color: "var(--color-text-4)",
-                letterSpacing: "1.0px",
-              }}
-            >
-              {t("dashboard:eyebrow_library", { type: t(`type.${type}`) })}
-            </div>
-          </div>
-
-          <div
-            className="flex w-52 items-center gap-2 rounded-md px-2.5 py-1.5"
-            style={{
-              background: "oklch(0.16 0.010 265 / 0.6)",
-              border: "1px solid var(--color-hairline)",
-            }}
-          >
-            <Search
-              className="h-3.5 w-3.5 shrink-0"
-              style={{ color: "var(--color-text-4)" }}
-            />
-            <input
-              type="text"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
+      <DialogContent size="xl">
+        <DialogHeader>
+          <DialogTitle>{t(`picker_title_${type}`)}</DialogTitle>
+          <DialogDescription aria-live="polite">
+            {pages.loading ? t("loading") : t("picker_match_count", { count: pages.total, type: typeLabel })}
+          </DialogDescription>
+          <InputGroup className="mt-2">
+            <InputGroupAddon>
+              <Search aria-hidden />
+            </InputGroupAddon>
+            <InputGroupInput
+              type="search"
+              aria-label={t("search_label")}
               placeholder={t("search_placeholder")}
-              aria-label={t("search_placeholder")}
-              className="focus-ring min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-              style={{ color: "var(--color-text)" }}
+              value={q}
+              onChange={(event) => setQ(event.target.value)}
             />
-          </div>
-
-          <ModalCloseButton onClick={onClose} />
-        </div>
-
-        {/* Grid */}
-        <div className="grid flex-1 grid-cols-4 gap-2 overflow-y-auto p-3">
-          {assetsWithUrl.length === 0 && !loading && (
-            <div
-              className="col-span-4 px-4 py-12 text-center text-[12px]"
-              style={{ color: "var(--color-text-4)" }}
-            >
-              {debouncedQ ? t("no_results") : t("search_hint")}
+          </InputGroup>
+        </DialogHeader>
+        <DialogBody>
+          {pages.loading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+              <Loader2 aria-hidden className="size-4 animate-spin" />
+              {t("loading")}
+            </div>
+          ) : pages.error ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <p role="alert" className="text-sm text-destructive">
+                {t("library_load_failed", { message: pages.error })}
+              </p>
+              <Button variant="outline" onClick={pages.retry}>
+                {t("retry")}
+              </Button>
+            </div>
+          ) : pages.items.length === 0 ? (
+            <p className="py-16 text-center text-sm text-muted-foreground">
+              {debouncedQ
+                ? t("library_no_match", { type: typeLabel, query: debouncedQ })
+                : t(`library_empty_${type}`)}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <ul className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+                {pages.items.map((asset) => {
+                  const inProject = existingNames.has(asset.name);
+                  const isSelected = selected.has(asset.id);
+                  return (
+                    <li key={asset.id} className="flex min-w-0">
+                      <button
+                        type="button"
+                        disabled={inProject}
+                        aria-pressed={isSelected}
+                        onClick={() => toggle(asset.id)}
+                        className={cn(
+                          "relative flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg border bg-card p-2 text-left outline-none transition-colors duration-fast focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
+                          isSelected ? "border-primary bg-primary/10" : "border-border hover:border-input",
+                        )}
+                      >
+                        <AssetThumb
+                          imageUrl={API.getGlobalAssetUrl(asset.image_path, asset.updated_at)}
+                          alt=""
+                          fallback={<Icon aria-hidden className="size-6" />}
+                          className="rounded-md"
+                        />
+                        <TruncatedText text={asset.name} focusable={false} className="w-full text-sm font-medium" />
+                        {inProject ? (
+                          <span className="text-xs text-muted-foreground">{t("already_in_project")}</span>
+                        ) : asset.description ? (
+                          <TruncatedText text={asset.description} focusable={false} className="w-full text-xs text-muted-foreground" />
+                        ) : null}
+                        {isSelected && (
+                          <span
+                            aria-hidden
+                            className="absolute top-3 right-3 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                          >
+                            <Check className="size-3" />
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <LoadMoreSentinel
+                hasMore={pages.hasMore}
+                loading={pages.loadingMore}
+                error={pages.moreError}
+                itemCount={pages.items.length}
+                onReach={pages.loadMore}
+                onRetry={pages.retry}
+              />
             </div>
           )}
-          {assetsWithUrl.map(({ asset: a, url }) => {
-            const dup = existingNames.has(a.name);
-            const sel = selected.has(a.id);
-            return (
-              <button
-                key={a.id}
-                type="button"
-                disabled={dup}
-                aria-pressed={sel}
-                onClick={() => toggle(a, dup)}
-                className="focus-ring relative rounded-lg p-2 text-left transition-colors disabled:cursor-not-allowed"
-                style={{
-                  border: dup
-                    ? "1px solid var(--color-hairline-soft)"
-                    : sel
-                      ? "1px solid var(--color-accent-soft)"
-                      : "1px solid var(--color-hairline)",
-                  background: dup
-                    ? "oklch(0.20 0.011 265 / 0.3)"
-                    : sel
-                      ? "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
-                      : "oklch(0.20 0.011 265 / 0.5)",
-                  opacity: dup ? 0.4 : 1,
-                  boxShadow: sel
-                    ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-accent-glow)"
-                    : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
-                }}
-                onMouseEnter={(e) => {
-                  if (!dup && !sel) {
-                    e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
-                    e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.7)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!dup && !sel) {
-                    e.currentTarget.style.borderColor = "var(--color-hairline)";
-                    e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.5)";
-                  }
-                }}
-              >
-                <AssetThumb imageUrl={url} alt={a.name} fallback="—" variant="picker" />
-                <div
-                  className="mt-1.5 truncate text-[12px] font-semibold"
-                  style={{ color: "var(--color-text)" }}
-                >
-                  {a.name}
-                </div>
-                {a.description && (
-                  <div
-                    className="truncate text-[10px]"
-                    style={{ color: "var(--color-text-4)" }}
-                  >
-                    {a.description}
-                  </div>
-                )}
-                {sel && (
-                  <span
-                    aria-hidden
-                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
-                    style={{
-                      color: "oklch(0.14 0 0)",
-                      background:
-                        "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
-                      boxShadow:
-                        "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-accent-soft)",
-                    }}
-                  >
-                    <Check className="h-3 w-3" strokeWidth={3} />
-                  </span>
-                )}
-                {dup && (
-                  <span
-                    className="num absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[9.5px]"
-                    style={{
-                      letterSpacing: "0.4px",
-                      color: "oklch(0.85 0.13 75)",
-                      background: "oklch(0.30 0.10 75 / 0.30)",
-                      border: "1px solid oklch(0.45 0.13 75 / 0.40)",
-                    }}
-                  >
-                    {t("already_in_project")}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {hasMore && (
-            <div className="col-span-4 flex justify-center py-2">
-              <SecondaryButton
-                size="sm"
-                onClick={() => void loadMore()}
-                disabled={loading}
-              >
-                {loading ? t("loading") : t("load_more")}
-              </SecondaryButton>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div
-          className="flex items-center gap-2 px-5 py-3"
-          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
-        >
-          <span
-            className="num flex-1 text-[11px]"
-            style={{ color: "var(--color-text-4)" }}
-          >
-            {t("import_count", { count: selected.size })}
+        </DialogBody>
+        <DialogFooter>
+          <span className="mr-auto text-sm text-muted-foreground tabular-nums">
+            {t("picker_selected", { count: selected.size })}
           </span>
-          <SecondaryButton size="sm" onClick={onClose}>
-            {t("cancel")}
-          </SecondaryButton>
-          <PrimaryButton
-            size="sm"
-            disabled={selected.size === 0}
-            onClick={() => onImport(Array.from(selected.keys()))}
-          >
-            <span>{t("confirm_import")}</span>
-            {selected.size > 0 && (
-              <span
-                className="num ml-1.5 rounded px-1.5 py-px text-[10.5px]"
-                style={{
-                  background: "oklch(0 0 0 / 0.18)",
-                  color: "oklch(0.14 0 0)",
-                }}
-              >
-                {selected.size}
-              </span>
-            )}
-          </PrimaryButton>
-        </div>
-    </GlassModal>
+          <DialogClose render={<Button variant="outline" />}>{t("cancel")}</DialogClose>
+          <Button disabled={selected.size === 0} onClick={() => onImport(Array.from(selected))}>
+            {t("import_count", { count: selected.size })}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

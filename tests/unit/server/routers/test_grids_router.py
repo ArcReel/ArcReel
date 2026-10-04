@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.i18n import _ as i18n_message
+from lib.project.project_change_hints import get_project_change_source
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.grid.grid_manager import GridManager
@@ -69,16 +70,24 @@ def _materialize_project(project_path, project: dict) -> None:
 class _FakeQueue:
     """记录入队调用的假队列。"""
 
-    def __init__(self):
+    def __init__(self, active_resource_ids: set[str] | None = None):
         self.calls = []
+        self.active_resource_ids = active_resource_ids
 
     async def enqueue_task(self, **kwargs):
         self.calls.append(kwargs)
+        if self.active_resource_ids is not None:
+            self.active_resource_ids.add(kwargs["resource_id"])
         return {"task_id": f"task-{len(self.calls)}", "deduped": False}
 
     async def get_active_tasks_for_resources(self, *, resource_ids, **_kwargs):
-        # 停在 pending / generating 的宫格记录，其任务都还在队列里
-        return [{"task_id": f"active-{resource_id}", "resource_id": resource_id} for resource_id in resource_ids]
+        # 未显式给 active_resource_ids 时沿用旧替身语义：所有待探测资源都有活动任务。
+        active = set(resource_ids) if self.active_resource_ids is None else self.active_resource_ids
+        return [
+            {"task_id": f"active-{resource_id}", "resource_id": resource_id}
+            for resource_id in resource_ids
+            if resource_id in active
+        ]
 
 
 def _client(monkeypatch, **patches):
@@ -980,6 +989,37 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
     assert saved.provider == ""
 
 
+def test_regenerate_replaces_an_orphan_with_an_active_task(monkeypatch, tmp_path):
+    """孤儿记录重新生成后会入队；后续切分仍被真实活动任务挡住。"""
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="",
+        model="",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "generating"
+    GridManager(tmp_path).save(grid)
+    queue = _FakeQueue(active_resource_ids=set())
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        get_generation_queue=lambda: queue,
+    )
+
+    with client:
+        regenerate = client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate")
+        split = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+
+    assert regenerate.status_code == 200, regenerate.text
+    assert split.status_code == 409, split.text
+    assert queue.active_resource_ids == {grid.id}
+
+
 class _FakePMRegeneratePendingPrompt(_FakePMRegenerate):
     def load_script(self, name, script_file):
         script = _narration_script()
@@ -1178,11 +1218,35 @@ def test_split_grid_conflict_while_generating(monkeypatch, tmp_path):
     grid = _make_completed_grid(tmp_path)
     grid.status = "generating"
     GridManager(tmp_path).save(grid)
+    queue = _FakeQueue(active_resource_ids={grid.id})
 
-    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        get_generation_queue=lambda: queue,
+    )
     with client:
         resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
         assert resp.status_code == 409
+
+
+def test_split_grid_allows_record_left_generating_after_cancel_or_restart(monkeypatch, tmp_path):
+    """记录停在 generating 且队列无活动任务时，切分越过在途闸门并落到图片未就绪。"""
+    grid = _make_completed_grid(tmp_path, with_image=False)
+    grid.status = "generating"
+    GridManager(tmp_path).save(grid)
+
+    queue = _FakeQueue(active_resource_ids=set())
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        get_generation_queue=lambda: queue,
+    )
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/split")
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("grid_image_not_ready", grid_id=grid.id)
 
 
 def test_split_grid_image_not_ready(monkeypatch, tmp_path):
@@ -1275,6 +1339,34 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
     assert saved.error_message is None
     assert saved.split_at is None
     assert saved.grid_image_path == f"grids/{grid.id}.png"
+
+
+def test_upload_grid_image_marks_stage_and_emit_as_webui(monkeypatch, tmp_path):
+    """上传的文件落盘和成功事件都必须在 webui 上下文内，避免前端误判为文件系统变更。"""
+    grid = _make_completed_grid(tmp_path)
+    sources: list[tuple[str, str]] = []
+    original_stage = grids.stage_uploaded_bytes
+
+    def _stage(*args, **kwargs):
+        sources.append(("stage", get_project_change_source()))
+        return original_stage(*args, **kwargs)
+
+    def _emit(**_kwargs):
+        sources.append(("emit", get_project_change_source()))
+        return {}
+
+    monkeypatch.setattr(grids, "stage_uploaded_bytes", _stage)
+    monkeypatch.setattr("server.services.tasks.generation_tasks.emit_generation_success_batch", _emit)
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("photo.png", _png_bytes(), "image/png")},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert sources == [("stage", "webui"), ("emit", "webui")]
 
 
 def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeypatch, tmp_path):
@@ -1453,13 +1545,41 @@ def test_upload_grid_image_conflict_while_generating(monkeypatch, tmp_path):
     grid = _make_completed_grid(tmp_path)
     grid.status = "pending"
     GridManager(tmp_path).save(grid)
-    client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
+    queue = _FakeQueue(active_resource_ids={grid.id})
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        get_generation_queue=lambda: queue,
+    )
     with client:
         resp = client.post(
             f"/api/v1/projects/demo/grids/{grid.id}/upload",
             files={"file": ("a.png", _png_bytes(), "image/png")},
         )
         assert resp.status_code == 409
+
+
+def test_upload_grid_image_recovers_record_left_pending_with_no_active_task(monkeypatch, tmp_path):
+    """重启后只剩 pending 记录的宫格可手动补图，上传成功后记录恢复为 completed。"""
+    grid = _make_completed_grid(tmp_path)
+    grid.status = "pending"
+    GridManager(tmp_path).save(grid)
+    queue = _FakeQueue(active_resource_ids=set())
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        get_generation_queue=lambda: queue,
+    )
+    with client:
+        resp = client.post(
+            f"/api/v1/projects/demo/grids/{grid.id}/upload",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+
+    assert resp.status_code == 200, resp.text
+    saved = GridManager(tmp_path).get(grid.id)
+    assert saved is not None
+    assert saved.status == "completed"
 
 
 def test_upload_grid_image_rejected_when_switch_off(monkeypatch, tmp_path):

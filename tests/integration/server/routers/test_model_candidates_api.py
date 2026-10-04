@@ -70,8 +70,7 @@ def _make_mock_svc(ready_providers: list[str]) -> ConfigService:
                 media_types=list(meta.media_types),
                 capabilities=list(meta.capabilities),
                 required_keys=list(meta.required_keys),
-                configured_keys=list(meta.required_keys) if name in ready else [],
-                missing_keys=[] if name in ready else list(meta.required_keys),
+                credential_count=1 if name in ready else 0,
             )
             for name, meta in PROVIDER_REGISTRY.items()
         ]
@@ -188,6 +187,22 @@ class TestBuiltinBucketFiltering:
         assert DS_R2V not in body["video"]["default"]
         assert DS_R2V not in body["video"]["buckets"]["r2v"]
         assert DS_R2V not in body["video"]["buckets"]["i2v"]
+
+    def test_agnes_25_candidates_are_visible_and_legacy_models_are_hidden(self, make_client):
+        with make_client(["agnes"]) as client:
+            body = client.get(CANDIDATES_URL).json()
+
+        for option in ("agnes/agnes-3.0-flash", "agnes/agnes-2.5-flash", "agnes/agnes-2.5-pro"):
+            assert option in body["model_names"]
+        assert "agnes/agnes-image-2.5-flash" in body["image"]["default"]
+        assert "agnes/agnes-video-2.5" in body["video"]["default"]
+        assert "agnes/agnes-video-2.5-flash" in body["video"]["default"]
+
+        all_candidates = {option for media in ("image", "video") for option in body[media]["default"]}
+        all_candidates.update(body["model_names"])
+        assert "agnes/agnes-2.0-flash" not in all_candidates
+        assert "agnes/agnes-image-2.1-flash" not in all_candidates
+        assert "agnes/agnes-video-v2.0" not in all_candidates
 
 
 # ---------------------------------------------------------------------------

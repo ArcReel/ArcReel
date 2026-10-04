@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
-import { FileJson2, Loader2, Lock, Plus, Store, Upload } from "lucide-react";
+import { FileJson2, Loader2, Lock, Plus, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { endpointSettingsPath, providerSettingsPath } from "@/app-routes";
+import { SecondaryRail, type SecondaryRailGroup, type SecondaryRailItem } from "@/components/shared/master-detail/SecondaryRail";
+import { DetailPane } from "@/components/shared/master-detail/DetailPane";
+import { Button } from "@/components/ui/button";
 import type {
   AnyEndpointDefinition,
   ComfyuiEndpointDefinition,
   ComfyuiMediaType,
-  MediaType,
   CustomEndpointInfo,
   CustomProviderInfo,
   EndpointDefinition,
@@ -26,36 +28,29 @@ import { MarketInstallDialog } from "../market/MarketInstallDialog";
 import { isDeclarativeDefinition, newEndpointDefinition } from "./endpoint-definition-draft";
 import { isComfyuiDefinition, reimportedDefinition, type ComfyuiImportDraft } from "./comfyui-import";
 import { EndpointDetail, type EndpointSelection } from "./EndpointDetail";
+import type { EndpointBackTarget } from "./EndpointHeader";
 import { EndpointImportDialog } from "./EndpointImportDialog";
-
-const KICKER_CLS = "font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4";
+import { groupUsagesByEndpoint } from "./EndpointUsageList";
 
 /** 有 kind 即是一份此刻就能显示的端点定义；其余形状的身份由服务端的分流结果给出。 */
 function hasKind(value: unknown): value is AnyEndpointDefinition {
   return typeof value === "object" && value !== null && "kind" in value;
 }
 
-interface ListEntry {
-  key: string;
-  label: string;
-  python: boolean;
-  /** 自定义端点才带媒体类型徽标：内置那两组这里只列视频，标了也说不出新东西。 */
-  mediaType: MediaType | null;
-  referenceCount: number;
-}
-
 /** 刚导入、还没保存的 ComfyUI 端点在 URL 里的占位键。 */
 const COMFYUI_DRAFT_KEY = "comfyui-new";
+/** 新建端点在 URL 里的占位键。 */
+const NEW_KEY = "new";
 
 /**
- * 详情组件的实例身份。定义、绑定与推断结果都是详情里的 `useState`，只在挂载那一刻取自 props，
+ * 详情组件的实例身份。定义、绑定与推断结果都是详情里的 state，只在挂载那一刻取自 props，
  * 换一份定义就得换一个实例，否则屏幕上还是旧的那份、保存下去的也是旧的。
  *
- * 端点键之外还有两处会在键不变的情况下换定义：市场更新原地替换（安装时间随之变化），重新导入
- * 产生一份新草稿（自带一次性 token）。
+ * 端点键之外还有三处会在键不变的情况下换定义：市场更新原地替换（安装时间随之变化），重新导入
+ * 产生一份新的未保存定义（自带一次性 token），放弃 ComfyUI 端点的修改（递增 `resetEpoch`）。
  */
-function detailInstanceKey(selectedKey: string | null, selection: EndpointSelection): string {
-  const key = selectedKey ?? "";
+function detailInstanceKey(selectedKey: string | null, selection: EndpointSelection, resetEpoch: number): string {
+  const key = `${selectedKey ?? ""}:${resetEpoch}`;
   if (selection.mode === "custom" || selection.mode === "comfyui") {
     return `${key}:${selection.record.installation?.installed_at ?? ""}`;
   }
@@ -70,12 +65,13 @@ interface MarketUpdateTarget {
 }
 
 /**
- * 调用端点小节：左侧按归属分组的端点列表，右侧生命周期表单。
- * 选中项写进 URL 的 endpoint 参数，刷新与外部跳转都能落回同一个端点。
+ * 调用端点分区（全出血档）：左侧二级栏按「我的端点 | 内置」分组，右侧端点详情。
+ * 选中项写进 URL 的 endpoint 参数，切换经路由，刷新与外部跳转都能落回同一个端点；
+ * 从自定义供应商跳来时带 from 参数，详情顶部显示「返回『供应商名』」，切换端点时保留。
  */
 export function EndpointsSection() {
   const { t } = useTranslation(["dashboard", "common"]);
-  const [location, navigate] = useLocation();
+  const [, navigate] = useLocation();
   const search = useSearch();
   const pushToast = useAppStore((s) => s.pushToast);
 
@@ -87,6 +83,7 @@ export function EndpointsSection() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [resetEpoch, setResetEpoch] = useState(0);
 
   const [importFileName, setImportFileName] = useState("");
   const [importDefinition, setImportDefinition] = useState<AnyEndpointDefinition | null>(null);
@@ -103,14 +100,18 @@ export function EndpointsSection() {
     definition: ComfyuiEndpointDefinition;
   } | null>(null);
   const [comfyuiDraft, setComfyuiDraft] = useState<ComfyuiImportDraft | null>(null);
-  // 草稿的一次性身份发号器；只进详情的 React key，不参与渲染。
+  // 未保存定义的一次性身份发号器；只进详情的 React key，不参与渲染。
   const draftSeq = useRef(0);
 
   const [marketUpdateTarget, setMarketUpdateTarget] = useState<MarketUpdateTarget | null>(null);
   const [marketUpdatePending, setMarketUpdatePending] = useState(false);
   const marketUpdateRef = useRef<AbortController | null>(null);
 
-  const selectedKey = new URLSearchParams(search).get("endpoint");
+  const params = new URLSearchParams(search);
+  const selectedKey = params.get("endpoint");
+  const fromParam = params.get("from");
+  const fromProviderId = fromParam !== null && /^\d+$/.test(fromParam) ? Number(fromParam) : undefined;
+
   // 官方服务开启时才有值：各端点最近一次分享提交，进入页面时刷新一次；关闭或取不回时不展示分享入口与状态。
   const [submissions, setSubmissions] = useState<Map<number, MarketSubmission> | null>(null);
 
@@ -132,100 +133,113 @@ export function EndpointsSection() {
     return () => controller.abort();
   }, []);
 
-  const select = useCallback(
-    (key: string | null) => {
-      const params = new URLSearchParams(search);
-      if (key === null) params.delete("endpoint");
-      else params.set("endpoint", key);
-      navigate(`${location}?${params.toString()}`, { replace: true });
-    },
-    [search, location, navigate],
+  /** 端点地址：保留「从哪个供应商来」，切到别的端点后仍能返回。 */
+  const hrefOf = useCallback(
+    (key: string | null) => endpointSettingsPath(key ?? undefined, { fromCustomProvider: fromProviderId }),
+    [fromProviderId],
   );
 
-  const reload = useCallback(async () => {
+  const select = useCallback(
+    (key: string | null) => navigate(hrefOf(key), { replace: true }),
+    [navigate, hrefOf],
+  );
+
+  const reload = useCallback(async (signal?: AbortSignal) => {
     const [endpointsRes, providersRes] = await Promise.all([
-      API.listCustomEndpoints(),
-      API.listCustomProviders(),
+      API.listCustomEndpoints({ signal }),
+      API.listCustomProviders({ signal }),
     ]);
+    if (signal?.aborted) return;
     setCustomEndpoints(endpointsRes.endpoints);
     setProviders(providersRes.providers);
     await refreshCatalog();
   }, [refreshCatalog]);
 
   useEffect(() => {
-    let disposed = false;
+    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reloadKey 变化时点亮加载态并重新拉取，是动作驱动重置
     setLoading(true);
     setLoadError(null);
     voidCall(
-      reload()
+      reload(controller.signal)
         .catch((e) => {
-          if (!disposed) setLoadError(errMsg(e));
+          if (!controller.signal.aborted) setLoadError(errMsg(e));
         })
         .finally(() => {
-          if (!disposed) setLoading(false);
+          if (!controller.signal.aborted) setLoading(false);
         }),
     );
     return () => {
-      disposed = true;
+      controller.abort();
     };
   }, [reload, reloadKey]);
 
-  /** 模型行对端点的引用数：只有自定义供应商的模型行能引用 ce-* 键。 */
-  const referenceCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const provider of providers) {
-      for (const model of provider.models) {
-        counts[model.endpoint] = (counts[model.endpoint] ?? 0) + 1;
-      }
-    }
-    return counts;
-  }, [providers]);
+  /** 使用各端点的模型行：只有自定义供应商的模型行能指定端点。 */
+  const usagesByEndpoint = useMemo(() => groupUsagesByEndpoint(providers), [providers]);
 
-  // 本节管的是自定义端点，内置那两组只作参照。自定义端点的媒体类型由定义自己声明（一份
+  // 本节管的是自定义端点，内置端点只作参照。自定义端点的媒体类型由定义自己声明（一份
   // ComfyUI workflow 可以产图），因此自定义端点不按 video 过滤——否则导进来的图像端点在设置页
-  // 里既看不到也删不掉。内置端点仍只列视频：内置图像端点在这里没有管理面。
+  // 里既看不到也删不掉。内置端点默认只列视频；来自模型行的深链也展示其选中的非视频端点。
   const sectionCatalog = useMemo(
-    () => catalog.filter((endpoint) => endpoint.media_type === "video" || endpoint.source === "custom"),
-    [catalog],
+    () => catalog.filter((endpoint) => endpoint.media_type === "video" || endpoint.source === "custom" || endpoint.key === selectedKey),
+    [catalog, selectedKey],
   );
 
-  const groups = useMemo(() => {
-    const toEntry = (descriptor: EndpointDescriptor): ListEntry => ({
-      key: descriptor.key,
-      label: descriptor.display_name ?? t(descriptor.display_name_key),
-      python: descriptor.kind === "python",
-      mediaType: descriptor.source === "custom" ? descriptor.media_type : null,
-      referenceCount: referenceCounts[descriptor.key] ?? 0,
-    });
+  const railGroups = useMemo<SecondaryRailGroup[]>(() => {
+    const usageText = (key: string) => {
+      const count = usagesByEndpoint.get(key)?.length ?? 0;
+      return count > 0 ? t("ce_rail_usage", { count }) : t("ce_rail_unused");
+    };
+    const toItem = (descriptor: EndpointDescriptor): SecondaryRailItem => {
+      const Icon = descriptor.kind === "python" ? Lock : descriptor.kind === "comfyui" ? Workflow : FileJson2;
+      return {
+        id: descriptor.key,
+        label: descriptor.display_name ?? t(descriptor.display_name_key),
+        description: usageText(descriptor.key),
+        icon: <Icon className="size-4" />,
+        href: hrefOf(descriptor.key),
+      };
+    };
+    // 刚导入还没保存的 ComfyUI 端点只在选中时列出：离开即放弃（离开前由拦截询问）。
+    const draftItem: SecondaryRailItem[] =
+      comfyuiDraft && comfyuiDraft.record === null && selectedKey === COMFYUI_DRAFT_KEY
+        ? [
+            {
+              id: COMFYUI_DRAFT_KEY,
+              label: comfyuiDraft.definition.meta.name || t("ce_cf_draft_entry"),
+              description: t("ce_rail_unsaved"),
+              icon: <Workflow className="size-4" />,
+              href: hrefOf(COMFYUI_DRAFT_KEY),
+            },
+          ]
+        : [];
     return [
       {
-        labelKey: "ce_group_mine",
-        entries: sectionCatalog.filter((e) => e.source === "custom" && e.kind !== "comfyui").map(toEntry),
+        id: "mine",
+        label: t("ce_group_mine"),
+        items: [...draftItem, ...sectionCatalog.filter((e) => e.source === "custom").map(toItem)],
+        action: {
+          id: NEW_KEY,
+          label: t("ce_new_endpoint"),
+          icon: <Plus className="size-4" />,
+          href: hrefOf(NEW_KEY),
+        },
+        emptyText: t("ce_rail_mine_empty"),
       },
       {
-        labelKey: "ce_group_comfyui",
-        entries: sectionCatalog.filter((e) => e.kind === "comfyui").map(toEntry),
-      },
-      {
-        labelKey: "ce_group_builtin",
-        entries: sectionCatalog
-          .filter((e) => e.source === "builtin" && e.kind === "declarative")
-          .map(toEntry),
-      },
-      {
-        labelKey: "ce_group_builtin_python",
-        entries: sectionCatalog.filter((e) => e.kind === "python").map(toEntry),
+        id: "builtin",
+        label: t("ce_group_builtin"),
+        items: sectionCatalog.filter((e) => e.source === "builtin").map(toItem),
       },
     ];
-  }, [sectionCatalog, referenceCounts, t]);
+  }, [sectionCatalog, usagesByEndpoint, comfyuiDraft, selectedKey, hrefOf, t]);
 
   const selection = useMemo((): EndpointSelection | null => {
     // 刚导入还没保存的那份压过同一个键上的已保存定义——不然重新导入一回来就看不见了。
     if (comfyuiDraft && (comfyuiDraft.record?.key ?? COMFYUI_DRAFT_KEY) === selectedKey) {
       return { mode: "comfyui-draft", draft: comfyuiDraft };
     }
-    if (selectedKey === "new") {
+    if (selectedKey === NEW_KEY) {
       return { mode: "new", definition: newEndpointDefinition("") };
     }
     const record = customEndpoints.find((e) => e.key === selectedKey);
@@ -241,6 +255,20 @@ export function EndpointsSection() {
       ? { mode: "python", descriptor }
       : { mode: "builtin", descriptor };
   }, [selectedKey, customEndpoints, sectionCatalog, comfyuiDraft]);
+
+  // 地址里没有选中项、或指向已不存在的新导入草稿时，选中第一个端点（我的端点优先）；与供应商分区的兜底一致，用 replace。
+  const firstKey = railGroups.find((group) => group.items.length > 0)?.items[0]?.id ?? null;
+  const needsFallback = selectedKey === null || (selectedKey === COMFYUI_DRAFT_KEY && selection === null);
+  useEffect(() => {
+    if (loading || loadError || !needsFallback || firstKey === null) return;
+    select(firstKey);
+  }, [loading, loadError, needsFallback, firstKey, select]);
+
+  const back = useMemo((): EndpointBackTarget | null => {
+    if (fromProviderId === undefined) return null;
+    const provider = providers.find((p) => p.id === fromProviderId);
+    return provider ? { providerId: provider.id, providerName: provider.display_name } : null;
+  }, [fromProviderId, providers]);
 
   // --- 导入 ---
 
@@ -406,7 +434,6 @@ export function EndpointsSection() {
     setImportBusy(true);
     try {
       await finishImport(await API.createCustomEndpoint(importDefinition));
-      pushToast(t("ce_imported"), "success");
     } catch (e) {
       pushToast(errMsg(e, t("ce_import_failed")), "error");
     } finally {
@@ -420,7 +447,6 @@ export function EndpointsSection() {
       setImportBusy(true);
       try {
         await finishImport(await API.updateCustomEndpoint(id, importDefinition));
-        pushToast(t("ce_imported"), "success");
       } catch (e) {
         pushToast(errMsg(e, t("ce_import_failed")), "error");
       } finally {
@@ -474,204 +500,101 @@ export function EndpointsSection() {
     [pushToast],
   );
 
-  const openMarket = useCallback(() => {
-    const params = new URLSearchParams(search);
-    params.set("section", "market");
-    navigate(`${location}?${params.toString()}`, { replace: true });
-  }, [location, navigate, search]);
 
   // --- 接线到供应商 ---
 
   const handleCreateProvider = useCallback(
     (definition: EndpointDefinition, endpointKey: string) => {
-      const params = new URLSearchParams();
-      params.set("section", "providers");
-      params.set("custom", "new");
-      params.set("endpoint", endpointKey);
-      const baseUrl = definition.meta.hints?.base_url;
-      if (baseUrl) params.set("base_url", baseUrl);
-      navigate(`${location}?${params.toString()}`);
+      navigate(providerSettingsPath({ newCustom: { endpoint: endpointKey, baseUrl: definition.meta.hints?.base_url } }));
     },
-    [location, navigate],
+    [navigate],
   );
 
   const handleNavigateToModel = useCallback(
     (reference: EndpointReference) => {
-      const params = new URLSearchParams();
-      params.set("section", "providers");
-      params.set("custom", String(reference.provider_id));
-      params.set("model", reference.model_id);
-      navigate(`${location}?${params.toString()}`);
+      navigate(providerSettingsPath({ custom: reference.provider_id, model: reference.model_id }));
     },
-    [location, navigate],
+    [navigate],
   );
+
+  const handleDiscardComfyui = useCallback(() => {
+    // 导入的未保存定义整份丢掉：新导入的由兜底选中落回第一个端点，重新导入的落回已保存的那份。
+    setComfyuiDraft(null);
+    setResetEpoch((n) => n + 1);
+  }, []);
 
   if (loadError) {
     return (
-      <div role="alert" className="flex flex-col items-start gap-2.5 px-6 py-8">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm">
-          {t("common:load_failed")}
-        </span>
-        <p className="text-[12.5px] text-text-2">{loadError}</p>
-        <button type="button" onClick={() => setReloadKey((k) => k + 1)} className={GHOST_BTN_CLS}>
+      <div role="alert" className="flex flex-col items-start gap-3 p-6">
+        <p className="text-sm font-medium text-warn">{t("common:load_failed")}</p>
+        <p className="text-sm text-subtle-foreground">{loadError}</p>
+        <Button variant="outline" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
           {t("common:retry")}
-        </button>
+        </Button>
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 px-6 py-8 text-text-3">
-        <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
-        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
-          {t("common:loading")}
-        </span>
+      <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+        <Loader2 aria-hidden className="size-4 animate-spin text-primary" />
+        {t("common:loading")}
       </div>
     );
   }
 
   return (
-    <div className="flex">
-      <nav
-        aria-label={t("ce_section_title")}
-        className="sticky top-0 max-h-screen w-60 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
-        style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
-      >
-        <div className="mb-3 flex items-center gap-1.5 px-1">
-          <button
-            type="button"
-            onClick={() => select("new")}
-            className={`${GHOST_BTN_CLS} flex-1 justify-center`}
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden />
-            {t("ce_new")}
-          </button>
-          <button
-            type="button"
-            onClick={openImport}
-            title={t("ce_import_hint")}
-            className={`${GHOST_BTN_CLS} flex-1 justify-center`}
-          >
-            <Upload className="h-3.5 w-3.5" aria-hidden />
-            {t("ce_import")}
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={openMarket}
-          title={t("ce_get_from_market_hint")}
-          className={`${GHOST_BTN_CLS} mx-1 mb-3 w-[calc(100%-0.5rem)] justify-center border-dashed`}
-        >
-          <Store className="h-3.5 w-3.5" aria-hidden />
-          {t("ce_get_from_market")}
-        </button>
+    // 全出血档：二级栏与详情栏各自滚动
+    <div className="flex min-h-0 min-w-0 flex-1">
+      <SecondaryRail label={t("ce_rail_label")} groups={railGroups} activeId={selectedKey} replace />
 
-        {(selectedKey === "new" || selectedKey === COMFYUI_DRAFT_KEY) && (
-          <div className="mb-4">
-            <div className={`${KICKER_CLS} mb-1.5 px-3`}>{t("ce_group_draft")}</div>
-            <span className="mb-0.5 flex w-full items-center gap-2 rounded-[8px] border border-accent/35 bg-accent-dim px-3 py-2 text-[12.5px] text-text">
-              {selectedKey === "new" ? t("ce_new_endpoint") : (comfyuiDraft?.definition.meta.name ?? t("ce_cf_draft_entry"))}
-            </span>
-          </div>
-        )}
-
-        {groups.map((group) =>
-          group.entries.length === 0 ? null : (
-            <div key={group.labelKey} className="mb-4">
-              <div className={`${KICKER_CLS} mb-1.5 px-3`}>{t(group.labelKey)}</div>
-              {group.entries.map((entry) => {
-                const isActive = entry.key === selectedKey;
-                return (
-                  <button
-                    key={entry.key}
-                    type="button"
-                    onClick={() => select(entry.key)}
-                    aria-current={isActive ? "page" : undefined}
-                    aria-pressed={isActive}
-                    className={
-                      "group relative mb-0.5 flex w-full items-center gap-2 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
-                      (isActive
-                        ? "border-accent/35 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-accent-glow)]"
-                        : "border-transparent text-text-3 hover:border-hairline-soft hover:bg-bg-grad-a/55 hover:text-text")
-                    }
-                  >
-                    <span
-                      aria-hidden
-                      className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r-[2px]"
-                      style={{
-                        background:
-                          "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-                        opacity: isActive ? 1 : 0,
-                      }}
-                    />
-                    {entry.python ? (
-                      <Lock className="h-3 w-3 shrink-0 text-text-3" aria-hidden />
-                    ) : (
-                      <FileJson2 className="h-3 w-3 shrink-0 text-text-3" aria-hidden />
-                    )}
-                    <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                    {entry.mediaType !== null && (
-                      <span className="shrink-0 rounded-[4px] border border-hairline-soft px-1 py-px font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-text-4">
-                        {t(entry.mediaType === "image" ? "endpoint_image_group" : "endpoint_video_group")}
-                      </span>
-                    )}
-                    {entry.referenceCount > 0 && (
-                      <span className="shrink-0 text-[10px] text-text-3">
-                        {entry.referenceCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ),
-        )}
-      </nav>
-
-      <div className="min-w-0 flex-1">
-        {selection ? (
-          <EndpointDetail
-            key={detailInstanceKey(selectedKey, selection)}
-            selection={selection}
-            providers={providers}
-            referenceCount={selectedKey ? (referenceCounts[selectedKey] ?? 0) : 0}
-            onSaved={(record) => {
-              // 草稿已经落盘，让位给列表里那一条，否则同一个键上两份定义谁也说不清。
-              setComfyuiDraft(null);
-              voidCall(reload().then(() => select(record.key)));
-            }}
-            onDeleted={() => {
-              setComfyuiDraft(null);
-              voidCall(reload().then(() => select(null)));
-            }}
-            onCopied={(record) => {
-              voidCall(reload().then(() => select(record.key)));
-            }}
-            onCreateProvider={handleCreateProvider}
-            onNavigateToModel={handleNavigateToModel}
-            onUpdateFromMarket={(installation, currentDefinition, hasUnsavedChanges) =>
-              void handleUpdateFromMarket(installation, currentDefinition, hasUnsavedChanges)
-            }
-            marketUpdatePending={marketUpdatePending}
-            onReimportComfyui={startComfyuiReimport}
-            share={
-              submissions
-                ? {
-                    submission:
-                      (selection.mode === "custom" || selection.mode === "comfyui"
-                        ? submissions.get(selection.record.id)
-                        : undefined) ?? null,
-                    onSubmitted: (submission) =>
-                      setSubmissions((current) => new Map(current).set(submission.endpoint_id, submission)),
-                  }
-                : undefined
-            }
-          />
-        ) : (
-          <p className="p-6 text-[12.5px] text-text-3">{t("ce_select_endpoint")}</p>
-        )}
-      </div>
+      {selection ? (
+        <EndpointDetail
+          key={detailInstanceKey(selectedKey, selection, resetEpoch)}
+          selection={selection}
+          providers={providers}
+          usages={(selectedKey && usagesByEndpoint.get(selectedKey)) || []}
+          back={back}
+          onSaved={(record) => {
+            // 未保存的导入定义已经落盘，让位给列表里那一条，否则同一个键上两份定义谁也说不清。
+            setComfyuiDraft(null);
+            voidCall(reload().then(() => select(record.key)));
+          }}
+          onDeleted={() => {
+            setComfyuiDraft(null);
+            voidCall(reload().then(() => select(null)));
+          }}
+          onCopied={(record) => {
+            voidCall(reload().then(() => select(record.key)));
+          }}
+          onCreateProvider={handleCreateProvider}
+          onNavigateToModel={handleNavigateToModel}
+          onImport={openImport}
+          onUpdateFromMarket={(installation, currentDefinition, hasUnsavedChanges) =>
+            void handleUpdateFromMarket(installation, currentDefinition, hasUnsavedChanges)
+          }
+          marketUpdatePending={marketUpdatePending}
+          onReimportComfyui={startComfyuiReimport}
+          onDiscardComfyui={handleDiscardComfyui}
+          share={
+            submissions
+              ? {
+                  submission:
+                    (selection.mode === "custom" || selection.mode === "comfyui"
+                      ? submissions.get(selection.record.id)
+                      : undefined) ?? null,
+                  onSubmitted: (submission) =>
+                    setSubmissions((current) => new Map(current).set(submission.endpoint_id, submission)),
+                }
+              : undefined
+          }
+        />
+      ) : (
+        <DetailPane>
+          <p className="p-6 text-sm text-muted-foreground">{t("ce_select_endpoint")}</p>
+        </DetailPane>
+      )}
 
       <EndpointImportDialog
         open={importOpen}

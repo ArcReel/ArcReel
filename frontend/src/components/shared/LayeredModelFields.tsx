@@ -10,11 +10,15 @@
  * 界面文案统一用「按用途指定模型」，不出现「能力」「桶」字样（见 CONTEXT.md 任务类型桶词条）。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronRight } from "lucide-react";
-import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-import { InlineWarning } from "@/components/ui/InlineWarning";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { InlineWarning } from "@/components/shared/InlineWarning";
+import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import type { GenerationTypeBucket } from "@/types/system";
 
 /**
@@ -133,8 +137,6 @@ export interface LayeredModelFieldsProps {
   footnote?: React.ReactNode;
 }
 
-const SUB_LABEL_CLS = "mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
-
 export function LayeredModelFields({
   defaultLabel,
   defaultValue,
@@ -163,13 +165,14 @@ export function LayeredModelFields({
   // 候选拉取失败通常发生在挂载之后（异步请求才回来），初始 state 已算过的 open 赶不上；
   // 错误从无到有时强制展开一次，确保用户不必先展开折叠区才能看到失败提示。之后允许用户
   // 手动收起——不在 hasError 保持 true 期间反复重开，重试按钮已给出下一步。
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 错误从无到有时强制展开一次，是有意的 UI 状态重置
+  const [prevHasError, setPrevHasError] = useState(hasError);
+  if (hasError !== prevHasError) {
+    setPrevHasError(hasError);
     if (hasError) setOpen(true);
-  }, [hasError]);
+  }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <ProviderModelSelect
         value={defaultValue}
         options={defaultOptions}
@@ -190,63 +193,56 @@ export function LayeredModelFields({
       {children}
 
       {(fields.length > 0 || hasError) && (
-        <details
-          className="group border-t border-hairline-soft pt-3"
-          open={open}
-          onToggle={(e) => setOpen(e.currentTarget.open)}
-        >
-          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-[7px] font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4 transition-colors hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden">
-            <ChevronRight
-              aria-hidden
-              className="h-3.5 w-3.5 shrink-0 motion-safe:transition-transform group-open:rotate-90"
-            />
-            <span>{t("model_bucket_section")}</span>
-            {configuredCount > 0 && (
-              <span className="shrink-0 rounded-full border border-accent/45 bg-accent-dim px-2 py-0.5 text-[9.5px] tracking-[0.1em] text-accent-2">
-                {t("model_bucket_configured_count", { n: configuredCount })}
-              </span>
-            )}
-          </summary>
+        <div className="border-t border-border pt-2">
+          <Collapsible open={open} onOpenChange={setOpen}>
+            <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="-ml-2" />}>
+              <ChevronRight aria-hidden className="transition-transform group-aria-expanded/button:rotate-90" />
+              {t("model_bucket_section")}
+              {configuredCount > 0 && (
+                <Badge variant="secondary">{t("model_bucket_configured_count", { n: configuredCount })}</Badge>
+              )}
+            </CollapsibleTrigger>
 
-          <div className="mt-3 space-y-3.5 border-l border-hairline-soft pl-3">
-            {subFieldsError ? (
-              <InlineWarning
-                message={t("model_bucket_candidates_error")}
-                action={{
-                  label: t("common:retry"),
-                  onClick: subFieldsError.onRetry,
-                  disabled: subFieldsError.retrying,
-                }}
-              />
-            ) : (
-              <p className="text-[11px] leading-[1.5] text-text-4">{t("model_bucket_section_hint")}</p>
-            )}
-            {fields.map((field) => (
-              <div key={field.key}>
-                <div className={SUB_LABEL_CLS}>{field.label}</div>
-                <ProviderModelSelect
-                  value={field.value}
-                  options={field.options}
-                  providerNames={providerNames}
-                  modelNames={modelNames}
-                  onChange={field.onChange}
-                  allowDefault
-                  defaultLabel={t("follow_model_default")}
-                  placeholder={t("follow_model_default")}
-                  fallbackValue={field.effective}
-                  fallbackLabel={t("follow_model_default")}
-                  aria-label={field.label}
-                  renderOptionMeta={
-                    renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue, field.key))
-                  }
-                />
-                {field.caption && (
-                  <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{field.caption}</p>
+            <CollapsibleContent className="mt-2">
+              <div className="flex flex-col gap-4 border-l border-border pl-3">
+                {subFieldsError ? (
+                  <InlineWarning
+                    message={t("model_bucket_candidates_error")}
+                    action={{
+                      label: t("common:retry"),
+                      onClick: subFieldsError.onRetry,
+                      disabled: subFieldsError.retrying,
+                    }}
+                  />
+                ) : (
+                  <p className="text-xs text-muted-foreground">{t("model_bucket_section_hint")}</p>
                 )}
+                {fields.map((field) => (
+                  <div key={field.key} className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">{field.label}</span>
+                    <ProviderModelSelect
+                      value={field.value}
+                      options={field.options}
+                      providerNames={providerNames}
+                      modelNames={modelNames}
+                      onChange={field.onChange}
+                      allowDefault
+                      defaultLabel={t("follow_model_default")}
+                      placeholder={t("follow_model_default")}
+                      fallbackValue={field.effective}
+                      fallbackLabel={t("follow_model_default")}
+                      aria-label={field.label}
+                      renderOptionMeta={
+                        renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue, field.key))
+                      }
+                    />
+                    {field.caption && <p className="text-xs text-muted-foreground">{field.caption}</p>}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </details>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
       )}
 
       {footnote}

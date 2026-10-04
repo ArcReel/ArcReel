@@ -1,5 +1,8 @@
 """Tests for projects_crud_and_batch_edit."""
 
+import os
+from datetime import UTC, datetime
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -86,6 +89,32 @@ class TestProjectsRouter:
 
             delete_ok = client.delete("/api/v1/projects/remove-me")
             assert delete_ok.status_code == 200
+
+    def test_list_puts_most_recently_active_projects_first(self, tmp_path, monkeypatch):
+        old, mid, new = (datetime(2026, month, 1, tzinfo=UTC) for month in (3, 6, 9))
+
+        class _ActivityPM(_FakePM):
+            def list_projects(self):
+                return ["broken", "ready", "ad-ready"]
+
+            def project_exists(self, name):
+                return name in {"broken", "ready", "ad-ready"}
+
+        pm = _ActivityPM(tmp_path)
+        pm.project_data["ready"]["metadata"] = {"updated_at": old.isoformat()}
+        pm.scripts[("ready", "episode_1.json")]["metadata"] = {"updated_at": mid.isoformat()}
+        storyboard = tmp_path / "ready" / "storyboards" / "scene_E1S01.png"
+        os.utime(storyboard, (old.timestamp(), old.timestamp()))
+        pm.project_data["ad-ready"]["metadata"] = {"updated_at": new.isoformat()}
+
+        with build_projects_client(monkeypatch, pm) as client:
+            listed = client.get("/api/v1/projects").json()["projects"]
+
+        assert [(p["name"], p["last_activity_at"]) for p in listed] == [
+            ("ad-ready", new.isoformat()),
+            ("ready", mid.isoformat()),
+            ("broken", None),
+        ]
 
     def test_create_does_not_record_a_project_level_source_kind(self, tmp_path, monkeypatch):
         """源文件类型随源文件记录：创建项目不接受、也不写入项目级类型。"""

@@ -15,8 +15,8 @@ export const USER_BUBBLE_LAYOUT_CLASS = "ml-auto max-w-[85%]";
 
 /** 用户气泡的底色与描边。 */
 export const USER_BUBBLE_STYLE: CSSProperties = {
-  background: "linear-gradient(180deg, var(--color-accent-dim), oklch(0.76 0.09 295 / 0.06))",
-  border: "1px solid var(--color-accent-soft)",
+  background: "linear-gradient(180deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.06))",
+  border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
 };
 
 /** 气泡内眉题（角色标签 / 编辑态标题），配色由调用方给。 */

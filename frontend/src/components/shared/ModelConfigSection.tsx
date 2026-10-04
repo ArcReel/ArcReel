@@ -1,6 +1,14 @@
-import { useEffect, useId, useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
+import { cn } from "cn";
 import { useTranslation } from "react-i18next";
-import { InlineWarning } from "@/components/ui/InlineWarning";
+import { RotateCcw } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { InlineWarning } from "@/components/shared/InlineWarning";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import {
   durationOutOfRangeReason,
   useModelCapabilities,
@@ -25,9 +33,9 @@ import {
   type LayeredSubField,
 } from "./LayeredModelFields";
 import { TextTierFields } from "./TextTierFields";
+import { CHANNEL_MODEL_FIELDS, channelOverridden, countModelOverrides, type ModelChannel } from "./model-overrides";
 import { VideoModelSpecBar, videoOptionMetaRenderer } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo, VoiceConsistencyTier } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import type { ModelCandidatesResponse } from "@/types/system";
@@ -116,6 +124,11 @@ export interface ModelConfigSectionProps {
    * 时长选项据此过滤——该模式由所在页面持有，故从外部传入而非在本组件推断。
    */
   usesReferenceImages?: boolean;
+  /**
+   * 标出各通道的来源（项目设置用）：顶部说明本项目覆盖了几项全局默认，并可全部恢复；每个通道标题行
+   * 显示「本项目」与「恢复全局」，或「跟随全局 · 全局默认模型名」。
+   */
+  showOverrideSources?: boolean;
   enable?: {
     video?: boolean;
     image?: boolean;
@@ -124,24 +137,21 @@ export interface ModelConfigSectionProps {
   };
 }
 
-interface ChannelCardProps {
-  kicker: string;
-  title: string;
-  children: React.ReactNode;
-}
-
-function ChannelCard({ kicker, title, children }: ChannelCardProps) {
+function ChannelCard({ title, source, children }: { title: string; source?: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
-      <div className="mb-3">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
-          {kicker}
-        </div>
-        <div className="mt-1 text-[13.5px] font-medium text-text">{title}</div>
+    <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <h3 className="shrink-0 text-sm font-medium">{title}</h3>
+        {source}
       </div>
       {children}
-    </div>
+    </section>
   );
+}
+
+/** 通道内的字段小标题：本地化常规字，不用等宽大写。 */
+function FieldTitle({ children }: { children: React.ReactNode }) {
+  return <div className="text-xs font-medium text-muted-foreground">{children}</div>;
 }
 
 export function ModelConfigSection({
@@ -159,11 +169,10 @@ export function ModelConfigSection({
   globalVideoGenerateAudio = true,
   onVideoGenerateAudioChange,
   usesReferenceImages,
+  showOverrideSources = false,
   enable,
 }: ModelConfigSectionProps) {
   const { t } = useTranslation(["templates", "dashboard"]);
-  // 派生唯一 radio name，避免同页多个 ModelConfigSection 实例的音频开关被浏览器并入同一互斥组
-  const generateAudioName = useId();
 
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const endpointConstraints = useEndpointCatalogStore((s) => s.endpointConstraints);
@@ -194,26 +203,47 @@ export function ModelConfigSection({
   // 新模型声明全集之外的时长退回自动。两条路径共用一处，避免只有主下拉做校验、细分项漏做。
   // 全集在目录里同步可得；新模型走参考图路径时若把该值收窄掉，由下方按成因的提示引导重选，
   // 事件处理器里拿不到服务端的收窄结果。
-  const applyVideoLayer = (patch: Partial<ModelConfigValue>) => {
-    const next = { ...value, ...patch };
+  const withVideoLayer = (base: ModelConfigValue, patch: Partial<ModelConfigValue>): ModelConfigValue => {
+    const next = { ...base, ...patch };
     const nextExecuting = executingVideoModel(next, globalDefaults, usesReferenceImages);
-    if (nextExecuting === executingVideo) {
-      onChange(next);
-      return;
-    }
+    if (nextExecuting === executingVideoModel(base, globalDefaults, usesReferenceImages)) return next;
     const nextDurations = catalogDurations(providers, customProviders, nextExecuting);
     const keepDuration = next.defaultDuration !== null && !!nextDurations?.includes(next.defaultDuration);
-    onChange({
+    return {
       ...next,
       defaultDuration: keepDuration ? next.defaultDuration : null,
-      videoResolution: value.videoResolutions ? (value.videoResolutions[nextExecuting] ?? null) : null,
-    });
+      videoResolution: base.videoResolutions ? (base.videoResolutions[nextExecuting] ?? null) : null,
+    };
   };
 
-  const applyImageLayer = (patch: Partial<ModelConfigValue>) => {
-    const next = { ...value, ...patch };
+  const withImageLayer = (base: ModelConfigValue, patch: Partial<ModelConfigValue>): ModelConfigValue => {
+    const next = { ...base, ...patch };
     const nextExecuting = executingImageModel(next, globalDefaults);
-    onChange(nextExecuting === executingImage ? next : { ...next, imageResolution: null });
+    return nextExecuting === executingImageModel(base, globalDefaults) ? next : { ...next, imageResolution: null };
+  };
+
+  const applyVideoLayer = (patch: Partial<ModelConfigValue>) => onChange(withVideoLayer(value, patch));
+  const applyImageLayer = (patch: Partial<ModelConfigValue>) => onChange(withImageLayer(value, patch));
+
+  // 恢复全局：清空通道的模型字段，经与下拉相同的路径校正时长与分辨率；视频通道连同「生成有声视频」。
+  const clearedFields = (channel: ModelChannel): Partial<ModelConfigValue> =>
+    Object.fromEntries(CHANNEL_MODEL_FIELDS[channel].map((field) => [field, ""]));
+  const resetChannel = (channel: ModelChannel) => {
+    if (channel === "video") {
+      applyVideoLayer(clearedFields("video"));
+      onVideoGenerateAudioChange?.(null);
+    } else if (channel === "image") {
+      applyImageLayer(clearedFields("image"));
+    } else {
+      onChange({ ...value, ...clearedFields("text") });
+    }
+  };
+  const resetAllChannels = () => {
+    onChange({
+      ...withImageLayer(withVideoLayer(value, clearedFields("video")), clearedFields("image")),
+      ...clearedFields("text"),
+    });
+    onVideoGenerateAudioChange?.(null);
   };
 
   const videoSubFields: LayeredSubField[] | undefined = showSubFields
@@ -369,11 +399,9 @@ export function ModelConfigSection({
     const constraints = lookupEndpointConstraints(backend, customProviders, endpointConstraints);
     const sizeFixed = constraints?.sizeFixed ?? false;
     return (
-      <div className="mt-3 flex flex-col gap-1">
+      <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-            {label}
-          </span>
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
           <ResolutionPicker
             mode={res.isCustom ? "combobox" : "select"}
             options={res.options}
@@ -385,17 +413,75 @@ export function ModelConfigSection({
           />
         </div>
         {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
-        {sizeFixed && <p className="text-[11px] text-text-4">{t("resolution_fixed_hint")}</p>}
+        {sizeFixed && <p className="text-xs text-muted-foreground">{t("resolution_fixed_hint")}</p>}
+      </div>
+    );
+  };
+
+  // 项目只记录覆盖了哪些字段；「生成有声视频」只在本表单渲染它时计入。
+  const audioOverride = onVideoGenerateAudioChange ? (videoGenerateAudio ?? null) : null;
+  const overrideCount = countModelOverrides(value, audioOverride);
+
+  const modelLabel = (fullValue: string | undefined) => {
+    if (!fullValue) return t("dashboard:auto_select");
+    const idx = fullValue.indexOf("/");
+    if (idx === -1) return options.providerNames[fullValue] || fullValue;
+    return options.modelNames?.[fullValue] || fullValue.slice(idx + 1);
+  };
+  // 跟随全局时实际生效的全局模型：视频按本项目走的路径取细分项，图片取文生图，文本取默认档。
+  const globalChannelModel: Record<ModelChannel, string | undefined> = {
+    video: effectiveModel(usesReferenceImages ? globalDefaults.videoR2V : globalDefaults.videoI2V, globalDefaults.video),
+    image: effectiveModel(globalDefaults.imageT2I, globalDefaults.image),
+    text: effectiveModel(globalDefaults.textDefault),
+  };
+
+  const channelSource = (channel: ModelChannel, title: string) => {
+    if (!showOverrideSources) return undefined;
+    if (!channelOverridden(channel, value, audioOverride)) {
+      return (
+        <TruncatedText
+          text={t("dashboard:model_follow_global_source", { model: modelLabel(globalChannelModel[channel]) })}
+          className="text-xs text-muted-foreground"
+        />
+      );
+    }
+    return (
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Badge variant="secondary">{t("dashboard:model_project_source")}</Badge>
+        <Button
+          variant="ghost"
+          size="xs"
+          aria-label={t("dashboard:model_channel_reset_aria", { channel: title })}
+          onClick={() => resetChannel(channel)}
+        >
+          {t("dashboard:model_channel_reset")}
+        </Button>
       </div>
     );
   };
 
   return (
-    <div className="space-y-4">
-      <p className="text-[12.5px] leading-[1.55] text-text-3">{t("default_hint")}</p>
+    <div className="flex flex-col gap-4">
+      {showOverrideSources ? (
+        <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm">
+          <p className="text-subtle-foreground">
+            {overrideCount === 0
+              ? t("dashboard:model_overrides_none")
+              : t("dashboard:model_overrides_notice", { count: overrideCount })}
+          </p>
+          {overrideCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={resetAllChannels}>
+              <RotateCcw data-icon="inline-start" />
+              {t("dashboard:model_overrides_reset_all")}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">{t("default_hint")}</p>
+      )}
 
       {showVideo && (
-        <ChannelCard kicker="Video Channel" title={t("model_video")}>
+        <ChannelCard title={t("model_video")} source={channelSource("video", t("model_video"))}>
           <LayeredModelFields
             defaultLabel={t("model_video_default")}
             defaultValue={value.videoBackend}
@@ -429,7 +515,7 @@ export function ModelConfigSection({
             `${bucketLabels.i2v.label} · ${t("resolution_label")}`,
           )}
           {usesReferenceImages && i2vCapabilities.videoModelError && (
-            <InlineWarning message={i2vCapabilities.videoModelError} className="mt-2" />
+            <InlineWarning message={i2vCapabilities.videoModelError} />
           )}
           {renderResolutionField(
             executingVideo,
@@ -441,24 +527,20 @@ export function ModelConfigSection({
               ? `${bucketLabels.r2v.label} · ${t("resolution_label")}`
               : t("resolution_label"),
           )}
-          {capabilities.videoModelError && <InlineWarning message={capabilities.videoModelError} className="mt-2" />}
+          {capabilities.videoModelError && <InlineWarning message={capabilities.videoModelError} />}
 
           {/* 档位空集且该模型的时长本就不由 ArcReel 驱动：控件无从渲染，但要说清为什么没有，
               否则用户只会看见时长这一节凭空消失。 */}
           {showDuration && supportedDurations?.length === 0 && videoDurationNotDriven && (
-            <>
-              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-                {t("duration_label")}
-              </div>
-              <p className="text-[11px] text-text-4">{t("duration_not_driven_notice")}</p>
-            </>
+            <div className="flex flex-col gap-2">
+              <FieldTitle>{t("duration_label")}</FieldTitle>
+              <p className="text-xs text-muted-foreground">{t("duration_not_driven_notice")}</p>
+            </div>
           )}
 
           {showDuration && supportedDurations && supportedDurations.length > 0 && (
-            <>
-              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-                {t("duration_label")}
-              </div>
+            <div className="flex flex-col gap-2">
+              <FieldTitle>{t("duration_label")}</FieldTitle>
               {isContinuousIntegerRange(supportedDurations) && supportedDurations.length >= 5 ? (
                 <DurationSlider
                   options={supportedDurations}
@@ -480,7 +562,6 @@ export function ModelConfigSection({
               )}
               {durationNoticeKey && (
                 <InlineWarning
-                  className="mt-2"
                   message={t(durationNoticeKey, { value: value.defaultDuration })}
                   action={{
                     label: t("duration_reset_auto"),
@@ -488,16 +569,19 @@ export function ModelConfigSection({
                   }}
                 />
               )}
-            </>
+            </div>
           )}
 
           {onVideoGenerateAudioChange && (
-            <div className="mt-3">
-              <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-                {t("dashboard:generate_audio_label")}
-              </div>
-              <fieldset className="flex flex-wrap gap-x-5 gap-y-2" disabled={audioLocked}>
-                <legend className="sr-only">{t("dashboard:audio_settings_sr_label")}</legend>
+            <div className="flex flex-col gap-2">
+              <FieldTitle>{t("dashboard:generate_audio_label")}</FieldTitle>
+              <RadioGroup
+                aria-label={t("dashboard:audio_settings_sr_label")}
+                // 三态值映射成字符串：RadioGroup 的值不能是 null
+                value={String(audioDisplayValue)}
+                onValueChange={(next) => onVideoGenerateAudioChange(next === "null" ? null : next === "true")}
+                disabled={audioLocked}
+              >
                 {(
                   [
                     [null, t("dashboard:follow_global_default")],
@@ -505,29 +589,15 @@ export function ModelConfigSection({
                     [false, t("dashboard:disabled_label")],
                   ] as const
                 ).map(([val, label]) => (
-                  <label
-                    key={String(val)}
-                    className={`inline-flex items-center gap-2 text-[12.5px] ${
-                      audioLocked ? "text-text-4" : "text-text-2"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name={generateAudioName}
-                      checked={audioDisplayValue === val}
-                      onChange={() => onVideoGenerateAudioChange(val)}
-                      className="accent-[oklch(0.76_0.09_295)]"
-                    />
+                  <Label key={String(val)}>
+                    <RadioGroupItem value={String(val)} />
                     {label}
-                  </label>
+                  </Label>
                 ))}
-              </fieldset>
-              {audioLockedHint && (
-                <p className="mt-1.5 text-[11px] leading-[1.5] text-text-4">{audioLockedHint}</p>
-              )}
+              </RadioGroup>
+              {audioLockedHint && <p className="text-xs text-muted-foreground">{audioLockedHint}</p>}
               {audioConflict && (
                 <InlineWarning
-                  className="mt-2"
                   message={t("dashboard:audio_switch_conflict_notice")}
                   action={{
                     label: t("dashboard:audio_switch_conflict_action"),
@@ -542,7 +612,7 @@ export function ModelConfigSection({
       )}
 
       {showImage && (
-        <ChannelCard kicker="Image Channel" title={t("model_image")}>
+        <ChannelCard title={t("model_image")} source={channelSource("image", t("model_image"))}>
           <LayeredModelFields
             defaultLabel={t("model_image_default")}
             defaultValue={value.imageBackendDefault}
@@ -568,7 +638,7 @@ export function ModelConfigSection({
       )}
 
       {showText && (
-        <ChannelCard kicker="Text Channel" title={t("model_text")}>
+        <ChannelCard title={t("model_text")} source={channelSource("text", t("model_text"))}>
           <TextTierFields
             value={{
               default: value.textBackendDefault,
@@ -615,18 +685,38 @@ export function ModelConfigSection({
 // Duration sub-components
 // ---------------------------------------------------------------------------
 
-const DURATION_PILL_BASE =
-  "rounded-[7px] border px-3 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-
-const durationActiveCls =
-  "border-accent/45 bg-accent-dim text-accent-2";
-
-const durationInactiveCls =
-  "border-hairline-soft bg-bg-grad-a/55 text-text-3 hover:border-hairline hover:text-text";
-
-const durationActiveStyle: CSSProperties = {
-  boxShadow: "0 0 18px -8px var(--color-accent-glow)",
-};
+/**
+ * 时长档位的单选项：选中项用 secondary 底色。过期上下文下用 aria-disabled 而不是 disabled，
+ * 选项仍可聚焦，不打断键盘走位。
+ */
+function DurationOption({
+  checked,
+  label,
+  tabIndex,
+  disabled,
+  onClick,
+}: {
+  checked: boolean;
+  label: string;
+  tabIndex?: number;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      variant={checked ? "secondary" : "outline"}
+      size="sm"
+      role="radio"
+      aria-checked={checked}
+      aria-label={label}
+      aria-disabled={disabled || undefined}
+      tabIndex={tabIndex}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  );
+}
 
 function DurationButtonGroup({
   options,
@@ -655,39 +745,30 @@ function DurationButtonGroup({
   };
   return (
     <div
-      className={`flex flex-wrap gap-2${disabled ? " opacity-60" : ""}`}
+      // 过期选项保留聚焦而不用原生 disabled，按钮自带的禁用淡化不生效，由整组淡化表明不可选
+      className={cn("flex flex-wrap gap-2", disabled && "opacity-50")}
       role="radiogroup"
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
     >
-      <button
-        type="button"
-        role="radio"
-        aria-checked={isAutoActive}
-        aria-label={autoLabel}
+      <DurationOption
+        checked={isAutoActive}
+        label={autoLabel}
         tabIndex={isAutoTabbable ? 0 : -1}
+        disabled={disabled}
         onClick={() => select(null)}
-        className={`${DURATION_PILL_BASE} ${isAutoActive ? durationActiveCls : durationInactiveCls}`}
-        style={isAutoActive ? durationActiveStyle : undefined}
-      >
-        {autoLabel}
-      </button>
+      />
       {options.map((d) => {
         const active = value === d;
         return (
-          <button
+          <DurationOption
             key={d}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            aria-label={t("duration_seconds_value_text", { value: d })}
+            checked={active}
+            label={t("duration_seconds_value_text", { value: d })}
             tabIndex={active ? 0 : -1}
+            disabled={disabled}
             onClick={() => select(d)}
-            className={`${DURATION_PILL_BASE} ${active ? durationActiveCls : durationInactiveCls}`}
-            style={active ? durationActiveStyle : undefined}
-          >
-            {t("duration_seconds_value_text", { value: d })}
-          </button>
+          />
         );
       })}
     </div>
@@ -722,21 +803,15 @@ function DurationSlider({
   const isAutoActive = value === null;
   const valueText = value === null ? autoLabel : t("duration_seconds_value_text", { value });
   return (
-    <div className={`flex flex-wrap items-center gap-3${disabled ? " opacity-60" : ""}`}>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={isAutoActive}
-        aria-label={autoLabel}
-        aria-disabled={disabled || undefined}
+    <div className={cn("flex flex-wrap items-center gap-3", disabled && "opacity-50")}>
+      <DurationOption
+        checked={isAutoActive}
+        label={autoLabel}
+        disabled={disabled}
         onClick={() => {
           if (!disabled) onChange(null);
         }}
-        className={`${DURATION_PILL_BASE} ${isAutoActive ? durationActiveCls : durationInactiveCls}`}
-        style={isAutoActive ? durationActiveStyle : undefined}
-      >
-        {autoLabel}
-      </button>
+      />
       <input
         type="range"
         aria-label={ariaLabel}
@@ -747,9 +822,9 @@ function DurationSlider({
         value={sliderValue}
         disabled={disabled}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
-        className="min-w-[120px] flex-1 accent-[var(--color-accent)]"
+        className="min-w-30 flex-1 accent-primary"
       />
-      <span className="min-w-[2.5rem] text-right font-mono text-[11px] tabular-nums text-text-2">
+      <span className="min-w-10 text-right text-xs tabular-nums text-subtle-foreground">
         {valueText}
       </span>
     </div>

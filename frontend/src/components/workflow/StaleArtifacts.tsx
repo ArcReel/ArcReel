@@ -42,7 +42,7 @@ export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) 
       >
         {t("stale_title", { count: staleIds.length })}
       </h4>
-      <p className="mt-0.5 text-[11.5px] leading-relaxed" style={{ color: "var(--color-text-3)" }}>
+      <p className="mt-0.5 text-[11.5px] leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
         {t("stale_still_usable")}
       </p>
       <ul className="mt-1.5 max-h-56 space-y-1 overflow-y-auto">
@@ -55,7 +55,7 @@ export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) 
                 onClick={() => onView(unitId)}
                 aria-label={t("stale_view_unit", { id: itemIdWithinEpisode(unitId) })}
                 className={INLINE_ACTION_CLS}
-                style={{ color: "var(--color-text-2)" }}
+                style={{ color: "var(--subtle-foreground)" }}
               >
                 {t("stale_view")}
               </button>

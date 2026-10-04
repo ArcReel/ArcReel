@@ -1,47 +1,5 @@
 /* 自定义样式 */
 
-/* 滚动条样式 — 极窄 + 滚动时渐显、停止后渐隐 */
-
-/* 注册可动画的自定义属性（::-webkit-scrollbar-thumb 不支持 transition，
-   但 @property 注册的自定义属性可在元素自身上过渡，伪元素读取插值后的值） */
-@property --scrollbar-opacity {
-    syntax: '<number>';
-    inherits: true;
-    initial-value: 0;
-}
-
-/* 放入 @layer base，避免 transition 简写覆盖 Tailwind utilities 层的过渡属性 */
-@layer base {
-    * {
-        --scrollbar-opacity: 0;
-        transition: --scrollbar-opacity 0.4s ease-out;
-    }
-
-    [data-scrolling] {
-        --scrollbar-opacity: 1;
-        transition: none;
-    }
-}
-
-::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
-}
-
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, calc(0.12 * var(--scrollbar-opacity)));
-    border-radius: 9999px;
-}
-
-/* 悬停在滑块上：提亮 */
-[data-scrolling]::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.25);
-}
-
 /* 卡片悬停效果 — 仅颜色过渡，禁止位移 */
 .project-card {
     transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;

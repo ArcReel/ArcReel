@@ -22,8 +22,7 @@ def _make_ready_provider(name: str, media_types: list[str]) -> ProviderStatus:
         media_types=media_types,
         capabilities=[],
         required_keys=[],
-        configured_keys=[],
-        missing_keys=[],
+        credential_count=0,
     )
 
 
@@ -750,7 +749,7 @@ class TestVoiceConsistency:
         assert caps["voice_consistency"] == "soft"
 
     async def test_grok_imagine_soft(self, db_factory):
-        """Grok Imagine：恒有声、无参考音频通道 → soft。"""
+        """Grok Imagine：音轨可开关、无参考音频通道 → soft。"""
         caps = await _video_caps(db_factory, {"video_backend": "grok/grok-imagine-video"})
         assert caps["voice_consistency"] == "soft"
 
@@ -1545,15 +1544,18 @@ class TestStyleAnalysisVisionGuard:
         with pytest.raises(ValueError, match="vision"):
             await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)
 
-    async def test_accepts_multimodal_lite_model(self):
+    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+    async def test_accepts_multimodal_lite_model(self, provider_id):
         from unittest.mock import MagicMock
 
         from lib.backends.text_backends.base import TextTaskType
+        from lib.config.registry import PROVIDER_REGISTRY
 
+        assert "gemini-3.1-flash-lite" in PROVIDER_REGISTRY[provider_id].models
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={"text_backend_simple": "gemini-aistudio/gemini-3.1-flash-lite-preview"})
+        fake_svc = _FakeConfigService(settings={"text_backend_simple": f"{provider_id}/gemini-3.1-flash-lite"})
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)
-        assert result == ("gemini-aistudio", "gemini-3.1-flash-lite-preview")
+        assert result == (provider_id, "gemini-3.1-flash-lite")
 
     async def test_accepts_registry_model_with_vision(self):
         from unittest.mock import MagicMock
@@ -1576,18 +1578,17 @@ class TestStyleAnalysisVisionGuard:
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)
         assert result == ("custom-abc", "some-model")
 
-    async def test_complex_tier_task_not_vision_checked(self):
+    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+    async def test_complex_tier_task_not_vision_checked(self, provider_id):
         """vision 校验只针对需要图像输入的任务，SCRIPT 不受限。"""
         from unittest.mock import MagicMock
 
         from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(
-            settings={"text_backend_complex": "gemini-aistudio/gemini-3.1-flash-lite-preview"}
-        )
+        fake_svc = _FakeConfigService(settings={"text_backend_complex": f"{provider_id}/gemini-3.1-flash-lite"})
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
-        assert result == ("gemini-aistudio", "gemini-3.1-flash-lite-preview")
+        assert result == (provider_id, "gemini-3.1-flash-lite")
 
 
 class TestProjectGenerationModeCaps:

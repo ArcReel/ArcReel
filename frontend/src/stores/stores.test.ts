@@ -76,8 +76,7 @@ describe("stores", () => {
     expect(useAppStore.getState().toast?.text).toBe("hello");
     expect(useAppStore.getState().toast?.tone).toBe("info");
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
-    app.clearToast();
-    expect(useAppStore.getState().toast).toBeNull();
+    useAppStore.setState({ toast: null });
 
     // pushNotification 同时写两者，tone 与 target 正确传递
     app.pushNotification("task failed", "error", {
@@ -93,8 +92,7 @@ describe("stores", () => {
         target: expect.objectContaining({ id: "S1" }),
       }),
     );
-    app.clearToast();
-    useAppStore.setState({ workspaceNotifications: [] });
+    useAppStore.setState({ toast: null, workspaceNotifications: [] });
 
     app.pushWorkspaceNotification({
       text: "AI 刚更新了角色「hero」，点击查看",
@@ -154,7 +152,9 @@ describe("stores", () => {
   it("updates projects store fields", () => {
     const projects = useProjectsStore.getState();
 
-    projects.setProjects([{ name: "demo", title: "Demo", style: "Anime", thumbnail: null, status: {} }]);
+    projects.setProjects([
+      { name: "demo", title: "Demo", style: "Anime", thumbnail: null, status: {}, last_activity_at: null },
+    ]);
     expect(useProjectsStore.getState().projects).toHaveLength(1);
 
     projects.setProjectsLoading(true);

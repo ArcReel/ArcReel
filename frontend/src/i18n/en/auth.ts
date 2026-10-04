@@ -5,4 +5,5 @@ export default {
   'login_failed': 'Login failed',
   'username': 'Username',
   'password': 'Password',
+  'login_subtitle': 'Sign in with your account',
 };

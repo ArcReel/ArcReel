@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import type { SourceFileImpact } from "@/types/episodes-view";
 
 /** 整本源文文件改动命令的响应：上传接口在 `status` 之外还带别的字段，这里只看确认协议需要的部分。 */
@@ -103,7 +103,7 @@ export function useSourceFileChange() {
         description={
           <>
             {pending.changed ? (
-              <span className="mb-2 block text-[var(--color-warm)]">{t("source_file_change_changed")}</span>
+              <span className="mb-2 block text-warn">{t("source_file_change_changed")}</span>
             ) : null}
             <span className="block">{t("source_file_change_impact")}</span>
             <span className="mt-1 block whitespace-pre-line">{pending.text}</span>

@@ -51,14 +51,14 @@ export function EpisodeViewSwitch({ view, onChange }: EpisodeViewSwitchProps) {
       onClick={() => onChange(key)}
       onKeyDown={onKeyDown}
       className="focus-ring relative px-3.5 py-2 text-[12.5px] font-medium transition-colors"
-      style={{ color: view === key ? "var(--color-text)" : "var(--color-text-3)" }}
+      style={{ color: view === key ? "var(--foreground)" : "var(--muted-foreground)" }}
     >
       {label}
       {view === key && (
         <span
           aria-hidden="true"
-          className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded"
-          style={{ background: "var(--color-accent)" }}
+          className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded-sm"
+          style={{ background: "var(--primary)" }}
         />
       )}
     </button>
@@ -68,7 +68,7 @@ export function EpisodeViewSwitch({ view, onChange }: EpisodeViewSwitchProps) {
       role="tablist"
       aria-label={t("episode_view_aria")}
       className="flex items-center gap-0.5 border-b px-3"
-      style={{ borderColor: "var(--color-hairline)" }}
+      style={{ borderColor: "var(--border)" }}
     >
       {tab("storyboard", t("episode_view_storyboard"))}
       {tab("edit", t("episode_view_edit"))}

@@ -1,8 +1,11 @@
 """GeminiVideoBackend 单元测试 — mock genai SDK。"""
 
+import asyncio
+import io
+import threading
+import time
 import urllib.error
 from email.message import Message
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -40,6 +43,36 @@ def mock_rate_limiter():
     return _RecordingRateLimiter()
 
 
+def _stream_to_destination(content: bytes = b"aistudio-bytes", *, fail_after: bytes | None = None):
+    """``files.download`` 替身：与 SDK 一样把内容分块写进可写的 destination。
+
+    ``fail_after`` 给定时先写入这段字节再抛错，模拟中途中断留下的截断文件。
+    """
+
+    def download(*, file, destination=None, config=None):
+        assert hasattr(destination, "write"), "AI Studio 取件必须带 destination，不得把整段视频读进内存"
+        if fail_after is not None:
+            destination.write(fail_after)
+            raise ConnectionError("download interrupted")
+        destination.write(content)
+
+    return download
+
+
+def _far_deadline() -> float:
+    return time.monotonic() + 3600
+
+
+class _FakeUrlResponse(io.BytesIO):
+    """``urlopen`` 返回值替身：可读正文加 ``headers``，``Content-Length`` 可与正文不符以模拟截断。"""
+
+    def __init__(self, body: bytes, *, content_length: int | None = None) -> None:
+        super().__init__(body)
+        length = len(body) if content_length is None else content_length
+        self.headers = Message()
+        self.headers["Content-Length"] = str(length)
+
+
 @pytest.fixture
 def gemini_backend(mock_rate_limiter):
     """创建 aistudio 模式的 GeminiVideoBackend（mock genai SDK）。"""
@@ -55,6 +88,8 @@ def gemini_backend(mock_rate_limiter):
         b._test_genai = genai_mock
         b._client = MagicMock()
         b._client.aio = MagicMock()
+        # 成片取件默认按 SDK 形态把内容流式写进 destination；个别用例改写 side_effect 模拟失败
+        b._client.files.download.side_effect = _stream_to_destination()
         yield b
 
 
@@ -153,10 +188,13 @@ class TestGeminiVideoBackendGenerate:
 
         # 确认调用了 API
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
-        # 成片经 files.download 取回后落盘到 output_path
-        video = mock_op.response.generated_videos[0].video
-        gemini_backend._client.files.download.assert_called_once_with(file=video)
-        video.save.assert_called_once_with(str(output))
+        # 成片经 files.download(destination=...) 流式落盘，最终产物在 output_path，不留 .part
+        assert output.read_bytes() == b"aistudio-bytes"
+        assert not output.with_name("out.mp4.part").exists()
+        gemini_backend._client.files.download.assert_called_once()
+        assert gemini_backend._client.files.download.call_args.kwargs["file"] is (
+            mock_op.response.generated_videos[0].video
+        )
 
     async def test_generate_image_to_video(self, gemini_backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -375,35 +413,111 @@ class TestPrepareImageParam:
 # ── _download_video 测试 ──────────────────────────────────
 
 
-class _AiStudioFileRef:
-    """AI Studio 文件引用替身：先 download 取到字节，save 才能把它落到给定路径。
-
-    这一支的契约是「下载后落盘到 output_path」，断言落在真实文件内容上；顺序颠倒
-    （未下载先落盘）在替身里直接 fail-loud。
-    """
-
-    def __init__(self, content: bytes = b"aistudio-bytes") -> None:
-        self._content = content
-        self._downloaded = False
-
-    def download(self) -> None:
-        self._downloaded = True
-
-    def save(self, path: str) -> None:
-        if not self._downloaded:
-            raise RuntimeError("save 前须先 files.download 取到字节")
-        Path(path).write_bytes(self._content)
-
-
 class TestDownloadVideo:
-    def test_aistudio_download(self, gemini_backend, tmp_path):
+    def test_aistudio_download_streams_to_destination(self, gemini_backend, tmp_path):
         output = tmp_path / "video.mp4"
-        ref = _AiStudioFileRef()
-        gemini_backend._client = SimpleNamespace(files=SimpleNamespace(download=lambda file: file.download()))
+        ref = MagicMock()
+        gemini_backend._client = SimpleNamespace(files=SimpleNamespace(download=_stream_to_destination()))
 
-        gemini_backend._download_video(ref, output)
+        gemini_backend._download_video(ref, output, deadline=_far_deadline())
 
         assert output.read_bytes() == b"aistudio-bytes"
+        assert list(tmp_path.iterdir()) == [output]
+        # 成片由 SDK 按 destination 直写磁盘，不经 video_ref.save() 从内存落盘
+        ref.save.assert_not_called()
+
+    async def test_cancelled_download_settles_the_write_before_propagating(self, gemini_backend, tmp_path):
+        # 线程里写 .part 再替换成片：取消若先于写盘传播，调用方清理完成片后线程才落盘
+        output = tmp_path / "video.mp4"
+        started = threading.Event()
+        release = threading.Event()
+
+        def blocking_download(*, file, destination, config):
+            started.set()
+            release.wait()
+            destination.write(b"aistudio-bytes")
+
+        gemini_backend._client = SimpleNamespace(files=SimpleNamespace(download=blocking_download))
+        task = asyncio.create_task(gemini_backend._download_video_with_retry(MagicMock(), output))
+        try:
+            assert await asyncio.to_thread(started.wait, 1)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+        finally:
+            release.set()
+            results = await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), timeout=1)
+
+        assert isinstance(results[0], asyncio.CancelledError)
+        assert output.read_bytes() == b"aistudio-bytes"
+        assert list(tmp_path.iterdir()) == [output]
+
+    def test_aistudio_download_carries_sdk_io_timeout(self, gemini_backend, tmp_path):
+        # SDK 缺省不设超时：每次取件经 http_options 带上 I/O 超时
+        output = tmp_path / "video.mp4"
+
+        gemini_backend._download_video(MagicMock(), output, deadline=_far_deadline())
+
+        timeout_ms = gemini_backend._client.files.download.call_args.kwargs["config"]["http_options"]["timeout"]
+        assert 0 < timeout_ms <= 120_000
+
+    async def test_slow_download_ends_within_artifact_budget(self, gemini_backend, tmp_path):
+        # 取消要等线程写完，外层 asyncio.timeout 管不住一直在慢速出数据的下载；线程须自己守住同一份预算
+        output = tmp_path / "video.mp4"
+
+        def trickle(*, file, destination, config):
+            for _ in range(200):  # 不守期限时约 10s 才结束
+                destination.write(b"x")
+                time.sleep(0.05)
+
+        gemini_backend._client = SimpleNamespace(files=SimpleNamespace(download=trickle))
+        started = time.monotonic()
+        with (
+            patch("lib.backends.video_backends.gemini.ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS", 0.3),
+            pytest.raises(TimeoutError),
+        ):
+            await gemini_backend._download_video_with_retry(MagicMock(), output)
+
+        assert time.monotonic() - started < 2
+        assert list(tmp_path.iterdir()) == []
+
+    def test_vertex_download_from_uri_past_deadline_does_not_connect(self, gemini_backend, tmp_path):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = None
+        mock_ref.uri = "https://example.com/video.mp4"
+
+        with patch("urllib.request.urlopen") as urlopen, pytest.raises(TimeoutError):
+            gemini_backend._download_video(mock_ref, output, deadline=time.monotonic() - 1)
+
+        urlopen.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_aistudio_download_failure_leaves_no_partial_file(self, gemini_backend, tmp_path):
+        output = tmp_path / "video.mp4"
+        gemini_backend._client = SimpleNamespace(
+            files=SimpleNamespace(download=_stream_to_destination(fail_after=b"partial"))
+        )
+
+        with pytest.raises(ConnectionError):
+            gemini_backend._download_video(MagicMock(), output, deadline=_far_deadline())
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_aistudio_download_failure_keeps_existing_video(self, gemini_backend, tmp_path):
+        # 重新生成时旧成片已在 output_path：下载中断不得把它破坏
+        output = tmp_path / "video.mp4"
+        output.write_bytes(b"previous-video")
+        gemini_backend._client = SimpleNamespace(
+            files=SimpleNamespace(download=_stream_to_destination(fail_after=b"partial"))
+        )
+
+        with pytest.raises(ConnectionError):
+            gemini_backend._download_video(MagicMock(), output, deadline=_far_deadline())
+
+        assert output.read_bytes() == b"previous-video"
+        assert list(tmp_path.iterdir()) == [output]
 
     def test_vertex_download_from_bytes(self, gemini_backend, tmp_path):
         gemini_backend._backend_type = "vertex"
@@ -412,9 +526,82 @@ class TestDownloadVideo:
         mock_ref = MagicMock()
         mock_ref.video_bytes = b"video-data"
 
-        gemini_backend._download_video(mock_ref, output)
+        gemini_backend._download_video(mock_ref, output, deadline=_far_deadline())
 
         assert output.read_bytes() == b"video-data"
+        assert list(tmp_path.iterdir()) == [output]
+
+    def test_vertex_download_from_bytes_failure_keeps_existing_video(self, gemini_backend, tmp_path):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        output.write_bytes(b"previous-video")
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = b"video-data"
+
+        def interrupted_write(self, data):
+            self.write_text("partial")
+            raise OSError("disk full")
+
+        with patch("pathlib.Path.write_bytes", interrupted_write), pytest.raises(OSError, match="disk full"):
+            gemini_backend._download_video(mock_ref, output, deadline=_far_deadline())
+
+        assert output.read_bytes() == b"previous-video"
+        assert list(tmp_path.iterdir()) == [output]
+
+    def test_vertex_download_from_bytes_failure_leaves_no_partial_file(self, gemini_backend, tmp_path):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = b"video-data"
+
+        def interrupted_write(self, data):
+            self.write_text("partial")
+            raise OSError("disk full")
+
+        with patch("pathlib.Path.write_bytes", interrupted_write), pytest.raises(OSError, match="disk full"):
+            gemini_backend._download_video(mock_ref, output, deadline=_far_deadline())
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_vertex_download_from_uri(self, gemini_backend, tmp_path):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = None
+        mock_ref.uri = "https://example.com/video.mp4"
+
+        with patch("urllib.request.urlopen", return_value=_FakeUrlResponse(b"uri-video")) as urlopen:
+            gemini_backend._download_video(mock_ref, output, deadline=_far_deadline())
+
+        assert output.read_bytes() == b"uri-video"
+        assert list(tmp_path.iterdir()) == [output]
+        # 连接停滞由 urlopen 的 I/O 超时结束
+        assert urlopen.call_args.args == ("https://example.com/video.mp4",)
+        assert 0 < urlopen.call_args.kwargs["timeout"] <= 120
+
+    @pytest.mark.parametrize("existing", [None, b"previous-video"])
+    def test_vertex_download_from_uri_failure_keeps_target_untouched(self, gemini_backend, tmp_path, existing):
+        gemini_backend._backend_type = "vertex"
+        output = tmp_path / "video.mp4"
+        if existing is not None:
+            output.write_bytes(existing)
+        mock_ref = MagicMock()
+        mock_ref.video_bytes = None
+        mock_ref.uri = "https://example.com/video.mp4"
+
+        # 连接提前关闭：正文短于 Content-Length，按截断报错
+        truncated = _FakeUrlResponse(b"partial", content_length=1024)
+
+        with (
+            patch("urllib.request.urlopen", return_value=truncated),
+            pytest.raises(urllib.error.ContentTooShortError),
+        ):
+            gemini_backend._download_video(mock_ref, output, deadline=_far_deadline())
+
+        expected = [] if existing is None else [output]
+        assert list(tmp_path.iterdir()) == expected
+        if existing is not None:
+            assert output.read_bytes() == existing
 
     def test_vertex_no_data_raises(self, gemini_backend, tmp_path):
         gemini_backend._backend_type = "vertex"
@@ -423,7 +610,7 @@ class TestDownloadVideo:
         mock_ref = MagicMock(spec=[])  # no attributes
 
         with pytest.raises(RuntimeError, match="无法获取视频数据"):
-            gemini_backend._download_video(mock_ref, output)
+            gemini_backend._download_video(mock_ref, output, deadline=_far_deadline())
 
 
 def _sdk_error(code: int, status: str, message: str) -> genai_errors.ClientError:
@@ -539,7 +726,7 @@ class TestGeminiResumeVideo:
 
         request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
         with (
-            patch("urllib.request.urlretrieve", side_effect=not_found),
+            patch("urllib.request.urlopen", side_effect=not_found),
             pytest.raises(urllib.error.HTTPError) as ei,
         ):
             await gemini_backend.resume_video("op-xyz", request)

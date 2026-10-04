@@ -8,18 +8,9 @@ import { useAuthStore } from "@/stores/auth-store";
 import { safeReturnPath } from "@/utils/safe-url";
 import { BRAND } from "@/branding";
 import type { LoginResponse, ErrorResponse } from "@/api";
-import { FieldLabel } from "@/components/ui/FieldLabel";
-import {
-  ACCENT_BTN_CLS,
-  ACCENT_BUTTON_STYLE,
-  CARD_STYLE,
-  INPUT_CLS,
-  ambientGlowStyle,
-  posterGridStyle,
-} from "@/components/ui/darkroom-tokens";
-
-const POSTER_GRID_STYLE = posterGridStyle({ size: 44, maskShape: "60% 60% at 50% 35%", opacity: 0.05 });
-const AMBIENT_GLOW_STYLE = ambientGlowStyle();
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export function LoginPage() {
   const { t, i18n } = useTranslation(["common", "auth"]);
@@ -71,78 +62,56 @@ export function LoginPage() {
   };
 
   return (
-    <div
-      data-testid="login-page"
-      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-bg px-4 text-text"
-    >
-      <div aria-hidden className="pointer-events-none absolute inset-0" style={AMBIENT_GLOW_STYLE} />
-      <div aria-hidden className="pointer-events-none absolute inset-0" style={POSTER_GRID_STYLE} />
-
-      <div
-        className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-hairline p-8 shadow-2xl"
-        style={CARD_STYLE}
-      >
-        <div className="mb-6 text-center">
-          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-text-4">
-            system · login
-          </div>
-          <h1 className="font-editorial mt-1 flex items-center justify-center gap-2 text-[28px] tracking-tight text-text">
+    <div data-testid="login-page" className="relative flex h-dvh overflow-y-auto bg-background p-4 text-foreground">
+      <div className="m-auto flex w-full max-w-sm flex-col gap-6 rounded-xl border bg-card p-8 shadow-overlay">
+        <div className="flex flex-col items-center gap-1.5 text-center">
+          <h1 className="flex items-center gap-2 font-editorial text-3xl tracking-tight">
             <picture>
               <source media="(prefers-reduced-motion: reduce)" srcSet="/logo.svg" />
-              <img src="/logo-animated.svg" alt="" aria-hidden className="block h-7 w-7" />
+              <img src="/logo-animated.svg" alt="" aria-hidden className="block size-7" />
             </picture>
             <span>{BRAND.name}</span>
           </h1>
+          <p className="text-xs font-medium text-muted-foreground">{t("auth:login_subtitle")}</p>
         </div>
 
-        <form onSubmit={voidPromise(handleSubmit)} className="space-y-4">
-          <div>
-            <FieldLabel htmlFor="login-username" required>
-              {t("auth:username")}
-            </FieldLabel>
-            <input
+        <form onSubmit={voidPromise(handleSubmit)} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="login-username">{t("auth:username")}</Label>
+            <Input
               id="login-username"
               type="text"
               autoComplete="username"
               spellCheck={false}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className={INPUT_CLS}
               ref={usernameRef}
               required
             />
           </div>
 
-          <div>
-            <FieldLabel htmlFor="login-password" required>
-              {t("auth:password")}
-            </FieldLabel>
-            <input
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="login-password">{t("auth:password")}</Label>
+            <Input
               id="login-password"
               type="password"
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={INPUT_CLS}
               required
             />
           </div>
 
           {error && (
-            <p role="alert" aria-live="polite" className="text-sm text-warm-bright">
+            <p role="alert" aria-live="polite" className="text-sm text-destructive">
               {error}
             </p>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className={`${ACCENT_BTN_CLS} w-full justify-center`}
-            style={ACCENT_BUTTON_STYLE}
-          >
-            {loading && <Loader2 aria-hidden className="h-4 w-4 motion-safe:animate-spin" />}
+          <Button type="submit" size="lg" disabled={loading}>
+            {loading && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
             {loading ? t("auth:logging_in") : t("auth:login")}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

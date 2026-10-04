@@ -61,12 +61,12 @@ export function SubagentCard({ block }: SubagentCardProps) {
   const statusLabel = t(statusLabelKeys[status]);
   const statusColor =
     status === "failed"
-      ? "var(--color-danger)"
+      ? "var(--destructive)"
       : status === "completed"
-        ? "var(--color-good)"
+        ? "var(--good)"
         : status === "stopped"
-          ? "var(--color-text-4)"
-          : "var(--color-accent)";
+          ? "var(--muted-foreground)"
+          : "var(--primary)";
 
   const header = (
     <>
@@ -74,7 +74,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
         {status === "running" ? (
           <span
             className="inline-block h-3 w-3 rounded-full border-t-transparent motion-safe:animate-spin"
-            style={{ border: "1px solid var(--color-accent)", borderTopColor: "transparent" }}
+            style={{ border: "1px solid var(--primary)", borderTopColor: "transparent" }}
           />
         ) : (
           <span className="text-xs font-medium" style={{ color: statusColor }}>
@@ -84,16 +84,16 @@ export function SubagentCard({ block }: SubagentCardProps) {
       </span>
       <span
         className="shrink-0 text-[10px] font-semibold uppercase tracking-wide"
-        style={{ color: "var(--color-text-4)" }}
+        style={{ color: "var(--muted-foreground)" }}
       >
         {agentType || t("subagent_card_label")}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[11.5px]" style={{ color: "var(--color-text-2)" }}>
+      <span className="min-w-0 flex-1 truncate text-[11.5px]" style={{ color: "var(--subtle-foreground)" }}>
         {description || summary || t("subagent_card_label")}
       </span>
       <span className="ml-1.5 flex shrink-0 items-center gap-1.5">
         {tokens != null && status === "running" && (
-          <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+          <span className="num text-[10px]" style={{ color: "var(--muted-foreground)" }}>
             {t("subagent_tokens", { count: tokens })}
           </span>
         )}
@@ -101,7 +101,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
           {statusLabel}
         </span>
         {expandable && (
-          <span className="text-[10px]" style={{ color: "var(--color-text-4)" }}>
+          <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
             {isExpanded ? "▼" : "▶"}
           </span>
         )}
@@ -112,7 +112,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
   return (
     <div
       className="my-1.5 min-w-0 overflow-hidden rounded-lg"
-      style={{ border: "1px solid var(--color-hairline-soft)", background: "oklch(0.21 0.012 265 / 0.5)" }}
+      style={{ border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)", background: "oklch(0.21 0.012 265 / 0.5)" }}
     >
       {expandable ? (
         <button
@@ -135,9 +135,9 @@ export function SubagentCard({ block }: SubagentCardProps) {
       )}
 
       {isExpanded && (
-        <div id={detailsId} className="px-2.5 pb-2" style={{ borderTop: "1px solid var(--color-hairline-soft)" }}>
+        <div id={detailsId} className="px-2.5 pb-2" style={{ borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}>
           {subTurns.length > 0 ? (
-            <div className="mt-2 ml-1 pl-2.5" style={{ borderLeft: "2px solid var(--color-accent-soft)" }}>
+            <div className="mt-2 ml-1 pl-2.5" style={{ borderLeft: "2px solid color-mix(in oklab, var(--primary) 22%, transparent)" }}>
               {subTurns.map((turn, turnIndex) => (
                 <SubTimelineTurn key={turn.uuid || `sub-turn-${turnIndex}`} turn={turn} />
               ))}
@@ -145,7 +145,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
           ) : (
             <pre
               className="num mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
-              style={{ color: "var(--color-text-2)" }}
+              style={{ color: "var(--subtle-foreground)" }}
             >
               {resultText}
             </pre>
@@ -164,11 +164,11 @@ function SubTimelineTurn({ turn }: Readonly<{ turn: Turn }>) {
     <div className="mb-2 min-w-0">
       <div
         className="mb-0.5 text-[9.5px] font-semibold uppercase"
-        style={{ color: "var(--color-text-4)", letterSpacing: "0.06em" }}
+        style={{ color: "var(--muted-foreground)", letterSpacing: "0.06em" }}
       >
         {getRoleLabel(turn.type, t)}
       </div>
-      <div className="min-w-0 overflow-hidden text-[12px] leading-[1.55]" style={{ color: "var(--color-text-2)" }}>
+      <div className="min-w-0 overflow-hidden text-[12px] leading-[1.55]" style={{ color: "var(--subtle-foreground)" }}>
         {blocks.map((subBlock, index) => (
           <ContentBlockRenderer key={subBlock.id ?? index} block={subBlock} index={index} />
         ))}

@@ -1,0 +1,39 @@
+{
+  "method": "GET",
+  "path": "/api/v1/assets?limit=60&type=character",
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "type": "character",
+        "name": "陈默",
+        "description": "沉默寡言的修表匠，左手腕上有一道旧疤。",
+        "voice_style": "",
+        "image_path": null,
+        "audio_path": null,
+        "source_project": null,
+        "updated_at": "2026-01-01T08:00:00.000Z",
+        "derivatives": []
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "type": "character",
+        "name": "林夕",
+        "description": "二十出头的旧城茶馆老板娘，短发，常穿靛蓝布衫。",
+        "voice_style": "温和、语速偏慢",
+        "image_path": null,
+        "audio_path": null,
+        "source_project": null,
+        "updated_at": "2026-01-01T08:00:00.000Z",
+        "derivatives": []
+      }
+    ],
+    "total": 2,
+    "counts": {
+      "character": 2,
+      "prop": 1,
+      "scene": 1
+    }
+  }
+}

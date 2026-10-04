@@ -1,10 +1,10 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { EndpointDuplicateDescriptor } from "@/types";
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { Button } from "@/components/ui/button";
 
 const ROW_CLS =
-  "flex items-center gap-3 rounded-[8px] border border-hairline bg-bg-grad-a/40 px-3 py-2 text-[12.5px] text-text-2";
+  "flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm text-subtle-foreground";
 
 type EndpointDuplicateChoicesProps = {
   duplicates: EndpointDuplicateDescriptor[];
@@ -36,15 +36,15 @@ export function EndpointDuplicateChoices({
   const groupName = useId();
   if (duplicates.length === 0) return null;
 
-  const version = (dup: EndpointDuplicateDescriptor) => <span className="ml-2 text-text-3">v{dup.version}</span>;
+  const version = (dup: EndpointDuplicateDescriptor) => <span className="ml-2 text-muted-foreground">v{dup.version}</span>;
   const relation = (dup: EndpointDuplicateDescriptor) => (
-    <span className="shrink-0 text-[11.5px] text-text-3">{t(`ce_import_relation_${dup.relation}`)}</span>
+    <span className="shrink-0 text-xs text-muted-foreground">{t(`ce_import_relation_${dup.relation}`)}</span>
   );
 
   return (
     <fieldset className="mt-4" disabled={disabled}>
-      <legend className="text-[12.5px] text-text-2">{t("ce_import_duplicates")}</legend>
-      <div className="mt-2 space-y-2">
+      <legend className="text-sm font-medium">{t("ce_import_duplicates")}</legend>
+      <div className="mt-2 flex flex-col gap-2">
         {duplicates.map((dup) => {
           if (!selection) {
             return (
@@ -54,9 +54,9 @@ export function EndpointDuplicateChoices({
                   {version(dup)}
                 </span>
                 {relation(dup)}
-                <button type="button" disabled={disabled} onClick={() => onOverwrite(dup.id)} className={GHOST_BTN_CLS}>
+                <Button variant="outline" size="sm" disabled={disabled} onClick={() => onOverwrite(dup.id)}>
                   {t("ce_import_overwrite")}
-                </button>
+                </Button>
               </div>
             );
           }
@@ -74,7 +74,7 @@ export function EndpointDuplicateChoices({
             );
           }
           return (
-            <label key={dup.id} className={`${ROW_CLS} flex-wrap`}>
+            <label key={dup.id} className={`${ROW_CLS} flex-wrap has-focus-visible:ring-3 has-focus-visible:ring-ring/50`}>
               <input
                 type="radio"
                 name={groupName}

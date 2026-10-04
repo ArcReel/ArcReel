@@ -16,6 +16,7 @@ import respx
 from arcreel_market_core.video_backend_contract import (
     ProviderResponseStage,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -96,21 +97,37 @@ def _sent_payload(routes: _AgnesRoutes) -> dict:
 
 
 class TestCapabilities:
-    def test_name_and_model(self):
+    def test_name_and_default_model(self):
         backend = AgnesVideoBackend(api_key="sk-test", base_url=_GATEWAY_BASE_URL)
         assert backend.name == PROVIDER_AGNES
-        assert backend.model == "agnes-video-v2.0"
+        assert backend.model == "agnes-video-2.5-flash"
 
     def test_default_model_when_unset(self):
         backend = AgnesVideoBackend(api_key="sk-test")
-        assert backend.model == "agnes-video-v2.0"
+        assert backend.model == "agnes-video-2.5-flash"
 
-    def test_video_capabilities(self):
+    def test_default_v25_flash_capabilities(self):
         backend = AgnesVideoBackend(api_key="sk-test")
         caps = backend.video_capabilities
         assert caps.first_frame is True
         assert caps.last_frame is True
-        assert caps.max_reference_images == 4
+        assert caps.max_reference_images == 5
+        assert caps.audio_track is VideoAudioMode.ALWAYS_ON
+
+    @pytest.mark.parametrize(
+        ("model", "max_reference_images", "audio_track"),
+        [
+            ("agnes-video-v2.0", 4, VideoAudioMode.ALWAYS_OFF),
+            ("agnes-video-2.5-flash", 5, VideoAudioMode.ALWAYS_ON),
+            ("agnes-video-2.5", 8, VideoAudioMode.ALWAYS_ON),
+        ],
+    )
+    def test_video_capabilities_by_model(self, model: str, max_reference_images: int, audio_track: VideoAudioMode):
+        caps = AgnesVideoBackend.video_capabilities_for_model(model)
+        assert caps.first_frame is True
+        assert caps.last_frame is True
+        assert caps.max_reference_images == max_reference_images
+        assert caps.audio_track is audio_track
 
 
 class TestNumFramesAndSize:
@@ -179,7 +196,7 @@ class TestTextToVideo:
             routes.poll.mock(return_value=_json(_completed("task-42", seconds="5.0")))
             routes.download.mock(return_value=httpx.Response(200, content=b"mp4-bytes"))
 
-            backend = AgnesVideoBackend(api_key="sk-test", base_url=_GATEWAY_BASE_URL)
+            backend = AgnesVideoBackend(api_key="sk-test", model="agnes-video-v2.0", base_url=_GATEWAY_BASE_URL)
             result = await backend.generate(
                 _request(
                     tmp_path,
@@ -222,6 +239,19 @@ class TestTextToVideo:
         assert str(downloaded.url) == "https://cdn.agnes/out.mp4"
         assert "Authorization" not in downloaded.headers
 
+    async def test_submit_prefers_task_id_for_v20(self, tmp_path: Path):
+        """v2.0 的轮询路径按 task_id；响应同时带 video_id 时不得改用后者。"""
+        with _agnes_api(base_url=_GATEWAY_BASE_URL) as routes:
+            routes.submit.mock(return_value=_json({"task_id": "task-v20", "video_id": "video-v20", "status": "queued"}))
+            routes.poll.mock(return_value=_json(_completed("task-v20", seconds="5")))
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4-bytes"))
+
+            backend = AgnesVideoBackend(api_key="sk-test", model="agnes-video-v2.0", base_url=_GATEWAY_BASE_URL)
+            result = await backend.generate(_request(tmp_path))
+
+        assert result.task_id == "task-v20"
+        assert only_request(routes.poll).url.path == "/v1/videos/task-v20"
+
     async def test_polls_through_in_progress(self, tmp_path: Path):
         in_progress = _json({"task_id": "t3", "status": "in_progress", "progress": 40})
 
@@ -230,7 +260,7 @@ class TestTextToVideo:
             routes.poll.mock(side_effect=[in_progress, in_progress, _json(_completed("t3"))])
             routes.download.mock(return_value=httpx.Response(200, content=b"v"))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
             assert routes.poll.call_count == 3
@@ -249,7 +279,7 @@ class TestImageChannels:
             routes.submit.mock(return_value=_queued("t1"))
             routes.poll.mock(return_value=_json(_completed("t1")))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             await backend.generate(_request(tmp_path, start_image=img_path))
 
             body = _sent_payload(routes)
@@ -268,7 +298,7 @@ class TestImageChannels:
             routes.submit.mock(return_value=_queued("t-kf"))
             routes.poll.mock(return_value=_json(_completed("t-kf")))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             await backend.generate(_request(tmp_path, start_image=start, end_image=end))
 
             body = _sent_payload(routes)
@@ -290,7 +320,7 @@ class TestImageChannels:
             routes.submit.mock(return_value=_queued("t-ref"))
             routes.poll.mock(return_value=_json(_completed("t-ref")))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             await backend.generate(_request(tmp_path, reference_images=[ref1, ref2]))
 
             body = _sent_payload(routes)
@@ -307,7 +337,7 @@ class TestImageChannels:
         refs = [_write_image(tmp_path / f"r{i}.png", f"r{i}".encode()) for i in range(5)]
 
         with _agnes_api() as routes:
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(VideoCapabilityError) as ei:
                 await backend.generate(_request(tmp_path, reference_images=refs))
 
@@ -321,7 +351,7 @@ class TestImageChannels:
         frame = _write_image(tmp_path / "f.png", b"frame")
 
         with _agnes_api() as routes:
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(VideoCapabilityError) as ei:
                 await backend.generate(
                     _request(
@@ -340,7 +370,7 @@ class TestImageChannels:
         end = _write_image(tmp_path / "e.png", b"end")
 
         with _agnes_api() as routes:
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(VideoCapabilityError) as ei:
                 await backend.generate(_request(tmp_path, end_image=end))
 
@@ -349,7 +379,7 @@ class TestImageChannels:
 
     async def test_missing_start_image_fails_loud(self, tmp_path: Path):
         with _agnes_api() as routes:
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(VideoCapabilityError) as ei:
                 await backend.generate(_request(tmp_path, start_image=tmp_path / "missing.png"))
 
@@ -361,7 +391,7 @@ class TestImageChannels:
         start = _write_image(tmp_path / "s.png", b"start-bytes")
 
         with _agnes_api() as routes:
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(VideoCapabilityError) as ei:
                 await backend.generate(_request(tmp_path, start_image=start, end_image=tmp_path / "missing-end.png"))
 
@@ -374,7 +404,7 @@ class TestImageChannels:
             routes.submit.mock(return_value=_queued("t-empty"))
             routes.poll.mock(return_value=_json(_completed("t-empty")))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             await backend.generate(_request(tmp_path, start_image=Path(""), reference_images=[Path("")]))
 
             body = _sent_payload(routes)
@@ -391,7 +421,7 @@ class TestFailureAndTimeout:
                 return_value=_json({"task_id": "t2", "status": "failed", "error": {"message": "upstream down"}})
             )
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(RuntimeError, match="upstream down"):
                 await backend.generate(_request(tmp_path))
 
@@ -405,7 +435,7 @@ class TestFailureAndTimeout:
                 return_value=_json({"task_id": "t-cxl", "status": "cancelled", "error": {"message": "user cancelled"}})
             )
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(RuntimeError, match="user cancelled"):
                 await backend.generate(_request(tmp_path))
 
@@ -417,7 +447,7 @@ class TestFailureAndTimeout:
             routes.submit.mock(return_value=_queued("t-nourl"))
             routes.poll.mock(return_value=_json({"task_id": "t-nourl", "status": "completed"}))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(RuntimeError, match="缺少成片 URL 与 video_id"):
                 await backend.generate(_request(tmp_path))
 
@@ -447,7 +477,7 @@ class TestFailureAndTimeout:
             routes.query.mock(return_value=_json({"video_id": "vid-123", "url": "https://cdn.agnes/queried.mp4"}))
             routes.download.mock(return_value=httpx.Response(200, content=b"queried-bytes"))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_GATEWAY_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_GATEWAY_BASE_URL)
             result = await backend.generate(_request(tmp_path, on_provider_response=_record))
 
             # 二次查询打网关根下的 /agnesapi，按 video_id 传参（不带 /v1，也不用 task_id）
@@ -474,7 +504,7 @@ class TestFailureAndTimeout:
                 )
             )
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
             assert routes.query.call_count == 0  # 未发起二次查询
@@ -497,7 +527,7 @@ class TestFailureAndTimeout:
                 )
             )
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
             assert routes.query.call_count == 0
@@ -521,7 +551,7 @@ class TestFailureAndTimeout:
             )
             routes.query.mock(return_value=_json({"url": "https://cdn.agnes/from-query.mp4"}))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
         assert result.video_uri == "https://cdn.agnes/from-query.mp4"
@@ -542,7 +572,7 @@ class TestFailureAndTimeout:
                 )
             )
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
             # 顶层/metadata 已命中权威字段，未发起二次查询
@@ -576,7 +606,7 @@ class TestFailureAndTimeout:
             )
             routes.download.mock(return_value=httpx.Response(200, content=b"meta-bytes"))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
         assert result.video_uri == "https://platform-outputs.agnes-ai.com/videos/meta.mp4"
@@ -592,7 +622,7 @@ class TestFailureAndTimeout:
             )
             routes.query.mock(return_value=_json({"video_id": "vid-789", "status": "unexpected"}))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(RuntimeError, match="video_id 查询响应缺少成片 URL"):
                 await backend.generate(_request(tmp_path))
 
@@ -604,7 +634,7 @@ class TestFailureAndTimeout:
             routes.submit.mock(return_value=_queued("t-timeout"))
             routes.poll.mock(return_value=_json({"task_id": "t-timeout", "status": "in_progress"}))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(TimeoutError, match="Agnes"):
                 await backend.generate(_request(tmp_path))
 
@@ -621,7 +651,7 @@ class TestSubmitResilience:
             routes.submit.mock(side_effect=[busy, busy, _queued("t-retry")])
             routes.poll.mock(return_value=_json(_completed("t-retry")))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
             assert routes.submit.call_count == 3
@@ -632,7 +662,7 @@ class TestSubmitResilience:
         with _agnes_api() as routes, bounded_poll_clock():
             routes.submit.mock(return_value=_json({"error": "bad request"}, status_code=400))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(httpx.HTTPStatusError):
                 await backend.generate(_request(tmp_path))
 
@@ -643,7 +673,7 @@ class TestSubmitResilience:
         with _agnes_api() as routes, bounded_poll_clock():
             routes.submit.mock(side_effect=httpx.ReadTimeout("read timed out"))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(AmbiguousSubmitError):
                 await backend.generate(_request(tmp_path))
 
@@ -665,7 +695,7 @@ class TestResume:
             routes.poll.mock(return_value=_json(_completed("task-download", "https://cdn.agnes/resumed.mp4")))
             routes.download.mock(side_effect=download_response)
             request = _request(tmp_path, task_id="worker-task", poll_timeout_seconds=1800)
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
 
             with pytest.raises(ArtifactDownloadError) as caught:
                 await backend.generate(request)
@@ -683,7 +713,7 @@ class TestResume:
             routes.poll.mock(return_value=_json(_completed("task-resume", "https://cdn.agnes/resumed.mp4")))
             routes.download.mock(return_value=httpx.Response(200, content=b"resumed"))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.resume_video("task-resume", _request(tmp_path, output_path=tmp_path / "out.mp4"))
 
             assert routes.submit.call_count == 0  # resume 不 POST create
@@ -713,7 +743,7 @@ class TestResume:
             )
             routes.download.mock(return_value=httpx.Response(200, content=b"resume-queried"))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_GATEWAY_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_GATEWAY_BASE_URL)
             result = await backend.resume_video("task-resume-vid", _request(tmp_path, output_path=tmp_path / "out.mp4"))
 
             assert routes.submit.call_count == 0
@@ -728,7 +758,7 @@ class TestResume:
         with _agnes_api() as routes:
             routes.poll.mock(return_value=_json({"error": "task not found"}, status_code=404))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(ResumeExpiredError) as ei:
                 await backend.resume_video("task-404", _request(tmp_path, output_path=tmp_path / "out.mp4"))
 
@@ -742,7 +772,7 @@ class TestDurationValidation:
     async def test_out_of_range_duration_fails_loud_without_submit(self, tmp_path: Path, duration: int):
         """越界时长（< 1 或 > 18）在建单前 fail-loud，不静默截帧到 441、不 POST、不错记计费时长。"""
         with _agnes_api() as routes:
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             with pytest.raises(VideoCapabilityError) as ei:
                 await backend.generate(_request(tmp_path, duration_seconds=duration))
 
@@ -757,7 +787,7 @@ class TestProviderJobIdPersistence:
             routes.submit.mock(return_value=_queued("agnes-task-42"))
             routes.poll.mock(return_value=_json(_completed("agnes-task-42")))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             await backend.generate(_request(tmp_path, task_id="worker-task-99"))
 
         assert persisted == [
@@ -776,7 +806,7 @@ class TestProviderJobIdPersistence:
             routes.submit.mock(return_value=_queued("agnes-task-1"))
             routes.poll.mock(return_value=_json(_completed("agnes-task-1")))
 
-            backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             await backend.generate(_request(tmp_path))
 
         assert persisted == []
@@ -796,7 +826,7 @@ class TestPollErrorRedaction:
     传的凭证渲染在 raise_for_status 写进消息的那条 URL 里，须先脱敏再抛。"""
 
     async def test_poll_4xx_message_drops_query_credentials(self):
-        backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+        backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
         with _agnes_api() as routes:
             routes.poll.mock(return_value=_json({"message": "forbidden"}, 403))
             async with httpx.AsyncClient(params={"api_key": "SECRETKEY"}) as client:
@@ -807,7 +837,7 @@ class TestPollErrorRedaction:
         assert excinfo.value.response.status_code == 403
 
     async def test_video_query_4xx_message_drops_query_credentials(self, tmp_path: Path):
-        backend = AgnesVideoBackend(api_key="k", base_url=_BASE_URL)
+        backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
         with _agnes_api() as routes:
             routes.query.mock(return_value=_json({"message": "forbidden"}, 403))
             async with httpx.AsyncClient(params={"api_key": "SECRETKEY"}) as client:

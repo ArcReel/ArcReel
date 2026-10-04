@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/video-capabilities",
+  "status": 422,
+  "body": {
+    "detail": "无法解析项目 'demo' 的视频模型能力，请检查供应商配置"
+  }
+}

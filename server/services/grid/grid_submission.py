@@ -81,6 +81,30 @@ def queue_active_grid_tasks(
     return probe
 
 
+async def grid_is_in_flight(
+    grid: GridGeneration,
+    *,
+    queue: GenerationQueue,
+    project_name: str,
+    user_id: str,
+) -> bool:
+    """Whether ``grid`` is still represented by an active queue task.
+
+    The record status alone is not enough: a cancelled/restarted task can leave the
+    record at ``pending`` or ``generating`` after the queue row is already terminal.
+    """
+
+    if grid.status not in GRID_IN_FLIGHT_STATUSES:
+        return False
+    active_ids = await queue_active_grid_tasks(
+        queue,
+        project_name=project_name,
+        script_file=grid.script_file,
+        user_id=user_id,
+    )([grid.id])
+    return grid.id in active_ids
+
+
 class GridSubmissionSection:
     """同一项目宫格提交的临界区：从读记录规划，到写记录、入队，同一时刻只有一个请求在里面。
 
@@ -662,6 +686,7 @@ __all__ = [
     "ensure_grid_submittable",
     "grid_artifact_key",
     "grid_artifact_path",
+    "grid_is_in_flight",
     "grid_submission_section",
     "plan_grid_submission",
     "queue_active_grid_tasks",

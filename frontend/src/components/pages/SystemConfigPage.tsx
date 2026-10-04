@@ -1,357 +1,176 @@
-
 import { useEffect, useMemo } from "react";
-import { Link, useLocation, useSearch } from "wouter";
+import { useSearch } from "wouter";
 import {
   AlertTriangle,
   BarChart3,
   Bot,
-  ChevronLeft,
+  Brain,
+  Cable,
   Film,
   Info,
   KeyRound,
-  Languages,
   Plug,
   ScrollText,
   Send,
+  SlidersHorizontal,
   Store,
   Waypoints,
+  type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useConfigStatusStore } from "@/stores/config-status-store";
+
+import { SETTINGS_SECTIONS, settingsSectionPath, type SettingsSection } from "@/app-routes";
+import { AgentMemorySection } from "@/components/agent-memory/AgentMemorySection";
+import { PageHeader } from "@/components/shared/page-shell/PageHeader";
+import { PageShell, type ContainerTier } from "@/components/shared/page-shell/PageShell";
+import { PageSidebar, type PageSidebarGroup } from "@/components/shared/page-shell/PageSidebar";
+import { useReturnTo } from "@/components/shared/page-shell/return-to";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { useConfigStatusStore, useSectionConfigIssues } from "@/stores/config-status-store";
+import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { AgentConfigTab } from "./AgentConfigTab";
-import { ApiKeysTab } from "./ApiKeysTab";
+import { ProviderSection } from "./ProviderSection";
 import { AboutSection } from "./settings/AboutSection";
+import { AccessTokensSection } from "./settings/agent-access/AccessTokensSection";
+import { ExternalAgentSection } from "./settings/agent-access/ExternalAgentSection";
+import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
+import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
+import { GeneralSection } from "./settings/GeneralSection";
+import { MarketSection } from "./settings/market/MarketSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
 import { SocialPublishSection } from "./settings/SocialPublishSection";
-import { ProviderSection } from "./ProviderSection";
-import { UsageRecordsSection } from "../usage/UsageRecordsSection";
-import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
-import { MarketSection } from "./settings/market/MarketSection";
-import {
-  SUPPORTED_LANGUAGES,
-  LANGUAGE_DISPLAY_LABELS,
-  type SupportedLanguage,
-} from "@/i18n";
-
-// 全局设置页 · "Control Booth"
-// 延续 Darkroom 美学：editorial 大标题 + mono kicker + 分组侧栏 + accent 紫色高亮。
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type SettingsSection =
-  | "agent"
-  | "providers"
-  | "endpoints"
-  | "market"
-  | "media"
-  | "distribution"
-  | "usage"
-  | "api-keys"
-  | "prompt-templates"
-  | "about";
-
-/** 引导第 5/6 步指向的侧栏入口——只有这两项挂锚点，其余小节不在当前引导覆盖范围内。 */
-const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
-  providers: ONBOARDING_ANCHORS.settingsProviders,
-  agent: ONBOARDING_ANCHORS.settingsAgent,
-};
 
 interface SectionDef {
-  id: SettingsSection;
   labelKey: string;
-  Icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
+  tier: ContainerTier;
 }
 
-interface SectionGroup {
-  kicker: string;
-  items: SectionDef[];
-}
+const SECTIONS: Record<SettingsSection, SectionDef> = {
+  providers: { labelKey: "dashboard:providers", icon: Plug, tier: "bleed" },
+  "default-models": { labelKey: "dashboard:settings_default_models", icon: Film, tier: "constrained" },
+  endpoints: { labelKey: "dashboard:ce_section_title", icon: Waypoints, tier: "bleed" },
+  distribution: { labelKey: "dashboard:social_publish_section_title", icon: Send, tier: "constrained" },
+  "arcreel-agent": { labelKey: "dashboard:settings_arcreel_agent", icon: Bot, tier: "constrained" },
+  "agent-memory": { labelKey: "dashboard:settings_agent_memory", icon: Brain, tier: "bleed" },
+  "external-agent": { labelKey: "dashboard:settings_external_agent", icon: Cable, tier: "constrained" },
+  "access-tokens": { labelKey: "dashboard:settings_access_tokens", icon: KeyRound, tier: "constrained" },
+  market: { labelKey: "dashboard:market_section_title", icon: Store, tier: "full" },
+  usage: { labelKey: "dashboard:usage", icon: BarChart3, tier: "full" },
+  general: { labelKey: "dashboard:settings_general", icon: SlidersHorizontal, tier: "constrained" },
+  "prompt-templates": { labelKey: "dashboard:prompt_templates", icon: ScrollText, tier: "constrained" },
+  about: { labelKey: "dashboard:about", icon: Info, tier: "constrained" },
+};
 
-// ---------------------------------------------------------------------------
-// Sidebar navigation config — grouped by purpose
-// ---------------------------------------------------------------------------
-
-const SECTION_GROUPS: SectionGroup[] = [
+/** 侧栏分组与顺序。市场与使用记录各自单独成项，不设分组标题。 */
+const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection[] }[] = [
+  { id: "generation", labelKey: "dashboard:settings_group_generation", sections: ["providers", "default-models", "endpoints", "distribution"] },
   {
-    kicker: "Configuration",
-    items: [
-      { id: "providers", labelKey: "dashboard:providers", Icon: Plug },
-      { id: "agent", labelKey: "dashboard:agents", Icon: Bot },
-      { id: "endpoints", labelKey: "dashboard:ce_section_title", Icon: Waypoints },
-      { id: "market", labelKey: "dashboard:market_section_title", Icon: Store },
-      { id: "media", labelKey: "dashboard:models", Icon: Film },
-      { id: "distribution", labelKey: "dashboard:social_publish_section_title", Icon: Send },
-    ],
+    id: "agent",
+    labelKey: "dashboard:settings_group_agent",
+    sections: ["arcreel-agent", "agent-memory", "external-agent", "access-tokens"],
   },
-  {
-    kicker: "Access",
-    items: [
-      { id: "usage", labelKey: "dashboard:usage", Icon: BarChart3 },
-      { id: "api-keys", labelKey: "dashboard:api_keys", Icon: KeyRound },
-    ],
-  },
-  {
-    kicker: "System",
-    items: [
-      { id: "prompt-templates", labelKey: "dashboard:prompt_templates", Icon: ScrollText },
-      { id: "about", labelKey: "dashboard:about", Icon: Info },
-    ],
-  },
+  { id: "standalone", sections: ["market", "usage"] },
+  { id: "system", labelKey: "dashboard:settings_group_system", sections: ["general", "prompt-templates", "about"] },
 ];
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+/** 引导第 4、5 步指向的侧栏入口。 */
+const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
+  providers: ONBOARDING_ANCHORS.settingsProviders,
+  "arcreel-agent": ONBOARDING_ANCHORS.settingsAgent,
+};
+
+function parseSection(search: string): SettingsSection {
+  const value = new URLSearchParams(search).get("section");
+  return SETTINGS_SECTIONS.find((section) => section === value) ?? "providers";
+}
 
 export function SystemConfigPage() {
-  const { t, i18n } = useTranslation(["common", "dashboard"]);
-  const [location, navigate] = useLocation();
+  const { t } = useTranslation(["common", "dashboard"]);
   const search = useSearch();
+  const activeSection = parseSection(search);
+  const goBack = useReturnTo();
 
-  const activeSection = useMemo((): SettingsSection => {
-    const section = new URLSearchParams(search).get("section");
-    if (section === "agent") return "agent";
-    if (section === "endpoints") return "endpoints";
-    if (section === "market") return "market";
-    if (section === "media") return "media";
-    if (section === "distribution") return "distribution";
-    if (section === "usage") return "usage";
-    if (section === "api-keys") return "api-keys";
-    if (section === "prompt-templates") return "prompt-templates";
-    if (section === "about") return "about";
-    return "providers";
-  }, [search]);
-
-  const setActiveSection = (section: SettingsSection) => {
-    const params = new URLSearchParams(search);
-    params.set("section", section);
-    navigate(`${location}?${params.toString()}`, { replace: true });
-  };
-
-  const configIssues = useConfigStatusStore((s) => s.issues);
+  const configIssues = useSectionConfigIssues();
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
 
   useEffect(() => {
     void fetchConfigStatus();
   }, [fetchConfigStatus]);
 
-  const currentLang = i18n.language.split("-")[0] as SupportedLanguage;
-  const langDisplay =
-    LANGUAGE_DISPLAY_LABELS[currentLang] ?? i18n.language;
-
-  const cycleLang = () => {
-    const idx = SUPPORTED_LANGUAGES.indexOf(currentLang);
-    const nextIdx = idx === -1 ? 0 : (idx + 1) % SUPPORTED_LANGUAGES.length;
-    void i18n.changeLanguage(SUPPORTED_LANGUAGES[nextIdx]);
-  };
-
-  // -------------------------------------------------------------------------
-  // Main render
-  // -------------------------------------------------------------------------
+  // 侧栏警告点与就地提示都只落在问题所属的分区。
+  const issueSections = useMemo(() => new Set(configIssues.map((issue) => issue.section)), [configIssues]);
+  const activeIssues = useMemo(
+    () => configIssues.filter((issue) => issue.section === activeSection),
+    [configIssues, activeSection],
+  );
+  const groups = useMemo<PageSidebarGroup[]>(
+    () =>
+      SECTION_GROUPS.map((group) => ({
+        id: group.id,
+        label: group.labelKey ? t(group.labelKey) : undefined,
+        items: group.sections.map((id) => ({
+          id,
+          label: t(SECTIONS[id].labelKey),
+          icon: SECTIONS[id].icon,
+          href: settingsSectionPath(id),
+          onboardingAnchor: SECTION_ONBOARDING_ANCHORS[id],
+          badge:
+            issueSections.has(id) ? (
+              <span role="img" aria-label={t("dashboard:config_incomplete")} className="text-warn">
+                <AlertTriangle aria-hidden className="size-3.5" />
+              </span>
+            ) : undefined,
+        })),
+      })),
+    [t, issueSections],
+  );
 
   return (
-    <div
-      className="relative flex h-screen flex-col text-text"
-      style={
-        {
-          background:
-            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
-        }
-      }
+    <PageShell
+      header={<PageHeader back={{ label: t("common:back"), onClick: goBack }} title={t("common:settings")} />}
+      sidebar={<PageSidebar label={t("common:settings")} groups={groups} activeId={activeSection} replace />}
+      tier={SECTIONS[activeSection].tier}
     >
-      {/* ─── Top bar ─── */}
-      <header
-        className="shrink-0 sticky top-0 z-30"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
-          backdropFilter: "blur(28px) saturate(1.5)",
-          WebkitBackdropFilter: "blur(28px) saturate(1.5)",
-          borderBottom: "1px solid var(--color-hairline)",
-          boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.05), 0 6px 24px -12px oklch(0 0 0 / 0.45)",
-        }}
-      >
-        <div className="mx-auto flex max-w-[1320px] items-center gap-5 px-6 py-4">
-          <Link
-            href="/app/projects"
-            className="inline-flex items-center gap-1.5 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            aria-label={t("common:back")}
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-            <span>{t("common:back")}</span>
-          </Link>
-          <span aria-hidden className="h-5 w-px bg-hairline-soft" />
-          <div className="min-w-0 flex-1">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-              Control Booth — {currentLang.toUpperCase()}
-            </div>
-            <h1
-              className="font-editorial mt-0.5"
-              style={{
-                fontWeight: 400,
-                fontSize: 26,
-                lineHeight: 1.05,
-                letterSpacing: "-0.012em",
-                color: "var(--color-text)",
-              }}
-            >
-              {t("common:settings")}
-              <span className="ml-2 align-middle font-mono text-[11.5px] font-medium uppercase tracking-[0.08em] text-text-3">
-                {t("dashboard:system_config_title")}
-              </span>
-            </h1>
-          </div>
-          <button
-            type="button"
-            onClick={cycleLang}
-            className="inline-flex items-center gap-2 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title={langDisplay}
-            aria-label={t("dashboard:language_setting")}
-          >
-            <Languages className="h-3.5 w-3.5" />
-            <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em]">
-              {currentLang}
-            </span>
-          </button>
+      {/* 全出血分区没有统一的页头，提示放在分区顶部；限宽分区在自己的页头说明之后放提示 */}
+      {SECTIONS[activeSection].tier === "bleed" && activeIssues.length > 0 && (
+        <div className="shrink-0 px-6 pt-4">
+          <ConfigIssueNotice issues={activeIssues} />
         </div>
-      </header>
-
-      {/* ─── Body: sidebar + content ─── */}
-      <div className="flex min-h-0 flex-1">
-        {/* Sidebar */}
-        <nav
-          aria-label={t("common:settings")}
-          className="w-[220px] shrink-0 overflow-y-auto border-r border-hairline-soft px-3 py-5"
-          style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
-        >
-          {SECTION_GROUPS.map((group, gi) => (
-            <div key={group.kicker} className={gi > 0 ? "mt-5" : undefined}>
-              <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4">
-                {group.kicker}
-              </div>
-              {group.items.map(({ id, labelKey, Icon }) => {
-                const isActive = activeSection === id;
-                const hasIssue =
-                  (id === "providers" || id === "agent" || id === "media") &&
-                  configIssues.length > 0;
-
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setActiveSection(id)}
-                    data-onboarding={SECTION_ONBOARDING_ANCHORS[id]}
-                    aria-current={isActive ? "page" : undefined}
-                    aria-pressed={isActive}
-                    className={
-                      "group relative mb-0.5 flex w-full items-center gap-2.5 rounded-[8px] border px-3 py-2 text-left text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
-                      (isActive
-                        ? "border-accent/35 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.04),0_0_22px_-10px_var(--color-accent-glow)]"
-                        : "border-transparent text-text-3 hover:border-hairline-soft hover:bg-bg-grad-a/55 hover:text-text")
-                    }
-                  >
-                    {/* Active rail — thin accent bar on the left edge */}
-                    <span
-                      aria-hidden
-                      className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-[2px] transition-opacity"
-                      style={{
-                        background:
-                          "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
-                        opacity: isActive ? 1 : 0,
-                      }}
-                    />
-                    <Icon
-                      className={
-                        "h-3.5 w-3.5 shrink-0 " +
-                        (isActive ? "text-accent-2" : "text-text-3 group-hover:text-text-2")
-                      }
-                    />
-                    <span className="flex-1 truncate">{t(labelKey)}</span>
-                    {hasIssue && (
-                      <span
-                        aria-label={t("dashboard:config_incomplete")}
-                        className="grid h-4 w-4 place-items-center rounded-full"
-                        style={{
-                          background: "oklch(0.30 0.10 25 / 0.22)",
-                          color: "var(--color-warm-bright)",
-                        }}
-                      >
-                        <AlertTriangle className="h-2.5 w-2.5" />
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-
-        {/* Content area — main is the scroll container.
-            providers section bypasses the centered padded wrapper so its sticky bottom bar
-            can truly hug the viewport edge (and sidebar can sticky-top across full height). */}
-        <main className="min-w-0 flex-1 overflow-y-auto">
-          {activeSection === "providers" ? (
-            <ProviderSection />
-          ) : activeSection === "endpoints" ? (
-            <EndpointsSection />
-          ) : activeSection === "market" ? (
-            <MarketSection />
-          ) : (
-            <div className="mx-auto max-w-4xl px-8 py-8">
-              {/* Quick alert for config issues (hidden on the read-only prompt-templates section) */}
-              {configIssues.length > 0 && activeSection !== "prompt-templates" && (
-                <div
-                  className="mb-7 rounded-[10px] border p-4"
-                  style={{
-                    borderColor: "var(--color-warm-ring)",
-                    background: "var(--color-warm-tint)",
-                  }}
-                >
-                  <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warm-bright">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    {t("dashboard:config_issues")}
-                  </div>
-                  <p className="mb-2.5 text-[12px] leading-[1.55] text-text-2">
-                    {t("dashboard:config_issues_hint")}
-                  </p>
-                  <ul className="space-y-1.5">
-                    {configIssues.map((issue, idx) => (
-                      <li
-                        key={idx}
-                        className="flex items-start gap-2 text-[12px] text-text-3"
-                      >
-                        <span
-                          aria-hidden
-                          className="mt-1.5 h-[5px] w-[5px] shrink-0 rounded-full"
-                          style={{ background: "var(--color-warm)" }}
-                        />
-                        {t(`dashboard:${issue.label}`)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {activeSection === "agent" && <AgentConfigTab visible />}
-              {activeSection === "media" && <MediaModelSection />}
-              {activeSection === "distribution" && <SocialPublishSection />}
-              {activeSection === "usage" && <UsageRecordsSection />}
-              {activeSection === "api-keys" && (
-                <div className="p-6">
-                  <ApiKeysTab />
-                </div>
-              )}
-              {activeSection === "prompt-templates" && <PromptTemplatesSection />}
-              {activeSection === "about" && <AboutSection />}
-            </div>
-          )}
-        </main>
-      </div>
-    </div>
+      )}
+      <SectionContent section={activeSection} />
+    </PageShell>
   );
+}
+
+function SectionContent({ section }: { section: SettingsSection }) {
+  switch (section) {
+    case "providers":
+      return <ProviderSection />;
+    case "default-models":
+      return <MediaModelSection />;
+    case "endpoints":
+      return <EndpointsSection />;
+    case "distribution":
+      return <SocialPublishSection />;
+    case "arcreel-agent":
+      return <AgentConfigTab />;
+    case "agent-memory":
+      return <AgentMemorySection />;
+    case "external-agent":
+      return <ExternalAgentSection />;
+    case "access-tokens":
+      return <AccessTokensSection />;
+    case "market":
+      return <MarketSection />;
+    case "usage":
+      return <UsageRecordsSection />;
+    case "general":
+      return <GeneralSection />;
+    case "prompt-templates":
+      return <PromptTemplatesSection />;
+    case "about":
+      return <AboutSection />;
+  }
 }

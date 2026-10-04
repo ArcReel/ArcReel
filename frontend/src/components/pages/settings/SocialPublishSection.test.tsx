@@ -36,9 +36,8 @@ function config(overrides: Record<string, unknown> = {}): GetSystemConfigRespons
 
 describe("SocialPublishSection", () => {
   beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
     vi.restoreAllMocks();
-    // el store es global: sin esto el toast de un caso anterior se cuela en el siguiente
-    useAppStore.setState({ toast: null });
   });
 
   it("never renders the stored key, not even a masked fragment of it", async () => {
@@ -95,11 +94,9 @@ describe("SocialPublishSection", () => {
     await waitFor(() => expect(profiles).toHaveBeenCalled());
   });
 
-  it("does not claim a successful save when reading the config back fails", async () => {
-    vi.spyOn(API, "getSystemConfig")
-      .mockResolvedValueOnce(config())
-      .mockRejectedValue(new Error("no se pudo releer la configuración"));
-    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(config());
+  it("keeps the edits and skips reloading the accounts when saving fails", async () => {
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(config());
+    vi.spyOn(API, "updateSystemConfig").mockRejectedValue(new Error("no se pudo guardar"));
     const profiles = vi.spyOn(API, "getSocialPublishProfiles");
     const user = userEvent.setup();
     render(<SocialPublishSection />);
@@ -107,9 +104,8 @@ describe("SocialPublishSection", () => {
     await user.type(await screen.findByLabelText("档案名"), "studio");
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("no se pudo releer la configuración");
-    // el aviso de guardado haría creer que en pantalla está lo recién guardado
-    expect(useAppStore.getState().toast).toBeNull();
+    expect(await screen.findByText(/no se pudo guardar/)).toBeInTheDocument();
+    expect(screen.getByLabelText("档案名")).toHaveValue("studio");
     expect(profiles).not.toHaveBeenCalled();
   });
 

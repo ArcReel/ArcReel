@@ -1,359 +1,240 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, Landmark, Package as PackageIcon, Plus, Search, User } from "lucide-react";
-import { AssetGrid } from "@/components/assets/AssetGrid";
-import { AssetFormModal } from "@/components/assets/AssetFormModal";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { useAssetsStore } from "@/stores/assets-store";
-import { API } from "@/api";
-import { useAppStore } from "@/stores/app-store";
+import { Loader2, Plus, Search } from "lucide-react";
+import { ApplyToProjectDialog } from "@/components/assets/ApplyToProjectDialog";
+import { AssetCard, type AssetCardAction } from "@/components/assets/AssetCard";
+import { AssetCreateDialog } from "@/components/assets/AssetCreateDialog";
+import { AssetDetailSheet, type AssetSheetMode } from "@/components/assets/AssetDetailSheet";
+import { ASSET_TYPE_ICON, ASSET_TYPES } from "@/components/assets/asset-type-icons";
+import { DeleteAssetDialog } from "@/components/assets/DeleteAssetDialog";
+import { LoadMoreSentinel } from "@/components/assets/LoadMoreSentinel";
+import { useAssetPages, type AssetPages } from "@/components/assets/useAssetPages";
+import { PageHeader } from "@/components/shared/page-shell/PageHeader";
+import { PageShell } from "@/components/shared/page-shell/PageShell";
+import { useReturnTo } from "@/components/shared/page-shell/return-to";
+import { Button } from "@/components/ui/button";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { errMsg } from "@/utils/async";
-import {
-  ACCENT_BTN_CLS,
-  ACCENT_BTN_SM_CLS,
-  ACCENT_BUTTON_STYLE,
-  ICON_BTN_FILLED_CLS,
-  INPUT_CLS,
-  ambientGlowStyle,
-} from "@/components/ui/darkroom-tokens";
 import type { Asset, AssetType } from "@/types/asset";
 
-const ASSET_LIBRARY_RETURN_TO_KEY = "assetLibrary:returnTo";
-
-/** 入口按钮点击前调用，记录返回目标。只接受应用内部路径，避免 open redirect 风险。 */
-export function rememberAssetLibraryReturnTo(pathname: string) {
-  if (pathname.startsWith("/app/")) {
-    sessionStorage.setItem(ASSET_LIBRARY_RETURN_TO_KEY, pathname);
-  }
+function isAssetType(value: string | null): value is AssetType {
+  return value === "character" || value === "scene" || value === "prop";
 }
 
-interface TabDef {
-  type: AssetType;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-const TABS: TabDef[] = [
-  { type: "character", icon: User },
-  { type: "scene", icon: Landmark },
-  { type: "prop", icon: PackageIcon },
-];
-
-const EMPTY_KEY: Record<AssetType, string> = {
-  character: "library_empty_character",
-  scene: "library_empty_scene",
-  prop: "library_empty_prop",
-};
-
-const HEADER_GLOW_STYLE = ambientGlowStyle({ at: "30% 0%", intensity: 0.08 });
-
+/**
+ * 全局资产库：铺满档的页面外壳，类型标签显示当前搜索下各类型的匹配数，网格滚动到底时自动加载下一页。
+ * 当前类型与搜索词记在地址的 `tab`、`q` 参数里。点卡片打开详情 Sheet，在详情里点「编辑」才进入表单。
+ */
 export function AssetLibraryPage() {
-  const { t } = useTranslation("assets");
-  const [, navigate] = useLocation();
+  const { t } = useTranslation(["assets", "common"]);
+  const [pathname, navigate] = useLocation();
   const search = useSearch();
+  const goBack = useReturnTo();
 
-  const activeTab = useMemo((): AssetType => {
-    const tab = new URLSearchParams(search).get("tab");
-    return tab === "scene" || tab === "prop" ? tab : "character";
-  }, [search]);
+  const params = useMemo(() => new URLSearchParams(search), [search]);
+  const tabParam = params.get("tab");
+  const activeTab: AssetType = isAssetType(tabParam) ? tabParam : "character";
+  const urlQ = params.get("q") ?? "";
 
-  const writeQuery = useCallback((patch: { tab?: AssetType; q?: string }) => {
-    const params = new URLSearchParams(window.location.search);
-    if (patch.tab !== undefined) {
-      if (patch.tab === "character") params.delete("tab");
-      else params.set("tab", patch.tab);
-    }
-    if (patch.q !== undefined) {
-      if (patch.q) params.set("q", patch.q);
-      else params.delete("q");
-    }
-    const qs = params.toString();
-    navigate(qs ? `${window.location.pathname}?${qs}` : window.location.pathname, { replace: true });
-  }, [navigate]);
-
-  const setActiveTab = useCallback((next: AssetType) => writeQuery({ tab: next }), [writeQuery]);
-
-  // WAI-ARIA tablist 键盘导航：roving tabindex + 方向键 + Home/End。
-  // 切换后用 requestAnimationFrame 把焦点搬到新激活 tab，避免与 React commit 抢时序。
-  const tabRefs = useRef<Map<AssetType, HTMLButtonElement>>(new Map());
-  const moveTabFocus = useCallback(
-    (next: AssetType) => {
-      setActiveTab(next);
-      requestAnimationFrame(() => {
-        tabRefs.current.get(next)?.focus();
-      });
-    },
-    [setActiveTab],
-  );
-  const handleTabKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>, current: AssetType) => {
-      const idx = TABS.findIndex((tab) => tab.type === current);
-      if (idx < 0) return;
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        moveTabFocus(TABS[(idx + 1) % TABS.length].type);
-      } else if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        moveTabFocus(TABS[(idx - 1 + TABS.length) % TABS.length].type);
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        moveTabFocus(TABS[0].type);
-      } else if (event.key === "End") {
-        event.preventDefault();
-        moveTabFocus(TABS[TABS.length - 1].type);
+  const writeQuery = useCallback(
+    (patch: { tab?: AssetType; q?: string }) => {
+      const next = new URLSearchParams(search);
+      if (patch.tab !== undefined) {
+        if (patch.tab === "character") next.delete("tab");
+        else next.set("tab", patch.tab);
       }
+      if (patch.q !== undefined) {
+        if (patch.q) next.set("q", patch.q);
+        else next.delete("q");
+      }
+      const qs = next.toString();
+      navigate(qs ? `${pathname}?${qs}` : pathname, { replace: true });
     },
-    [moveTabFocus],
+    [navigate, pathname, search],
   );
 
-  const urlQ = useMemo(() => new URLSearchParams(search).get("q") ?? "", [search]);
-  const [q, setQ] = useState(urlQ);
-  const debouncedQ = useDebouncedValue(q, 250);
-
-  // 浏览器前进/后退或外部地址栏变化导致 urlQ 改变时，把 URL 当前值同步到本地 q。
+  const [input, setInput] = useState({ urlQ, value: urlQ });
+  // URL 变化立即作废旧输入与其防抖发布，浏览器前进/后退不会被旧值回写。
+  if (input.urlQ !== urlQ) setInput({ urlQ, value: urlQ });
+  const q = input.urlQ === urlQ ? input.value : urlQ;
+  const debounced = useDebouncedValue(input, 250);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部 URL 变化驱动本地 q 同步，functional setState 已做幂等保护
-    setQ((prev) => (prev === urlQ ? prev : urlQ));
-  }, [urlQ]);
+    if (debounced.urlQ !== urlQ || debounced.value !== q || urlQ === debounced.value) return;
+    writeQuery({ q: debounced.value });
+  }, [debounced, q, urlQ, writeQuery]);
 
-  // debouncedQ 与 URL 不一致时回写，使用 urlQ（已订阅 search）做对比，避免覆盖外部变更。
-  useEffect(() => {
-    if (urlQ === debouncedQ) return;
-    writeQuery({ q: debouncedQ });
-  }, [debouncedQ, urlQ, writeQuery]);
-  const [formModal, setFormModal] = useState<{ mode: "create" | "edit"; asset?: Asset } | null>(null);
+  const searchTerm = urlQ.trim();
+  const pages = useAssetPages({ type: activeTab, q: searchTerm });
+  const { add, update, remove } = pages;
+
+  const [detail, setDetail] = useState<{ id: string; mode: AssetSheetMode } | null>(null);
+  const [creatingType, setCreatingType] = useState<AssetType | null>(null);
+  const [applyTarget, setApplyTarget] = useState<Asset | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const detailAsset = detail ? (pages.items.find((asset) => asset.id === detail.id) ?? null) : null;
+  // 选中的资产离开当前结果（改名后不再匹配、被删除、换了搜索词）时详情随之关闭；
+  // 同时清掉选中，之后它重新出现在结果里时详情不会自己打开
+  if (detail && detailAsset === null) setDetail(null);
 
-  const byType = useAssetsStore((s) => s.byType);
-  const loadList = useAssetsStore((s) => s.loadList);
-  const addAsset = useAssetsStore((s) => s.addAsset);
-  const updateAssetLocal = useAssetsStore((s) => s.updateAsset);
-  const deleteAssetLocal = useAssetsStore((s) => s.deleteAsset);
+  const handleCardAction = useCallback((action: AssetCardAction, asset: Asset) => {
+    if (action === "open") setDetail({ id: asset.id, mode: "view" });
+    else if (action === "edit") setDetail({ id: asset.id, mode: "edit" });
+    else if (action === "apply") setApplyTarget(asset);
+    else setDeleteTarget(asset);
+  }, []);
 
-  useEffect(() => {
-    void loadList(activeTab, debouncedQ || undefined);
-  }, [activeTab, debouncedQ, loadList]);
-
-  const assets = byType[activeTab];
-  const ActiveIcon = TABS.find((tab) => tab.type === activeTab)!.icon;
-
-  const handleSubmit = async (payload: {
-    name: string; description: string; voice_style: string; image?: File | null;
-  }) => {
-    try {
-      if (formModal?.mode === "edit" && formModal.asset) {
-        const { asset } = await API.updateAsset(formModal.asset.id, {
-          name: payload.name, description: payload.description, voice_style: payload.voice_style,
-        });
-        if (payload.image) {
-          const { asset: after } = await API.replaceAssetImage(asset.id, payload.image);
-          updateAssetLocal(after);
-        } else {
-          updateAssetLocal(asset);
-        }
-      } else {
-        const { asset } = await API.createAsset({
-          type: activeTab, name: payload.name, description: payload.description,
-          voice_style: payload.voice_style, image: payload.image ?? undefined,
-        });
-        addAsset(asset);
-      }
-    } catch (err) {
-      useAppStore.getState().pushToast(errMsg(err), "error");
-      throw err; // 让 modal 的 submit 感知失败并保留对话框，用户可修正后重试
-    }
-  };
-
-  const handleEditAsset = useCallback((a: Asset) => setFormModal({ mode: "edit", asset: a }), []);
-  const handleDeleteAsset = useCallback((a: Asset) => setDeleteTarget(a), []);
-
-  const confirmDelete = async () => {
-    if (!deleteTarget || deleting) return;
-    const asset = deleteTarget;
-    setDeleting(true);
-    try {
-      await deleteAssetLocal(asset.id, asset.type);
-      setDeleteTarget(null);
-    } catch (err) {
-      useAppStore.getState().pushToast(errMsg(err), "error");
-    } finally {
-      setDeleting(false);
-    }
-  };
+  const createButton = (
+    <Button onClick={() => setCreatingType(activeTab)}>
+      <Plus aria-hidden data-icon="inline-start" />
+      {t("add_asset")}
+    </Button>
+  );
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-bg text-text">
-      {/* Decorative ambient glow */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-72" style={HEADER_GLOW_STYLE} />
-
-      <header className="sticky top-0 z-30 border-b border-hairline bg-bg/85 backdrop-blur-[28px]">
-        <div className="mx-auto flex max-w-6xl items-start justify-between gap-6 px-6 py-6">
-          <div className="flex items-start gap-4">
-            <button
-              type="button"
-              onClick={() => {
-                const returnTo = sessionStorage.getItem(ASSET_LIBRARY_RETURN_TO_KEY);
-                sessionStorage.removeItem(ASSET_LIBRARY_RETURN_TO_KEY);
-                navigate(returnTo && returnTo.startsWith("/app/") ? returnTo : "/app/projects");
-              }}
-              aria-label={t("back_to_projects")}
-              title={t("back_to_projects")}
-              className={`mt-1 ${ICON_BTN_FILLED_CLS}`}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <div>
-              <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-text-4">
-                library · assets
-              </div>
-              <h1 className="font-editorial mt-0.5 text-[34px] leading-[1.05] tracking-tight text-text">
-                {t("library_title")}
-              </h1>
-              <p className="mt-1.5 text-[13px] text-text-3">{t("library_subtitle")}</p>
-            </div>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2 pt-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-4" />
-              <input
-                type="search"
-                aria-label={t("search_placeholder")}
-                placeholder={t("search_placeholder")}
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                className={`${INPUT_CLS} w-[240px] pl-8`}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => setFormModal({ mode: "create" })}
-              className={ACCENT_BTN_CLS}
-              style={ACCENT_BUTTON_STYLE}
-            >
-              <Plus className="h-4 w-4" />
-              {t("add_asset")}
-            </button>
-          </div>
-        </div>
-
-        <div
-          role="tablist"
-          aria-orientation="horizontal"
-          aria-label={t("library_tabs_label")}
-          className="mx-auto flex max-w-6xl items-center gap-2 px-6 pb-3"
-        >
-          {TABS.map(({ type, icon: Icon }) => {
-            const active = activeTab === type;
-            const count = byType[type].length;
-            const cls = active
-              ? "border-accent/45 bg-accent-dim text-text shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_var(--color-accent-glow)]"
-              : "border-hairline-soft bg-bg-grad-a/40 text-text-2 hover:border-hairline hover:text-text";
-            return (
-              <button
-                key={type}
-                ref={(el) => {
-                  if (el) tabRefs.current.set(type, el);
-                  else tabRefs.current.delete(type);
-                }}
-                type="button"
-                role="tab"
-                id={`asset-tab-${type}`}
-                aria-selected={active}
-                aria-controls="asset-panel"
-                tabIndex={active ? 0 : -1}
-                onClick={() => setActiveTab(type)}
-                onKeyDown={(e) => handleTabKeyDown(e, type)}
-                className={`inline-flex items-center gap-2 rounded-[8px] border px-3.5 py-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${cls}`}
-              >
-                <Icon className={`h-4 w-4 ${active ? "text-accent-2" : "text-text-4"}`} />
-                <span className="font-medium">{t(`type.${type}`)}</span>
-                <span
-                  className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ${
-                    active ? "bg-accent-soft text-accent-2" : "bg-bg-grad-b/70 text-text-4"
-                  }`}
-                >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </header>
-
-      <main className="relative mx-auto w-full max-w-6xl flex-1 px-6 py-8">
-        <div
-          role="tabpanel"
-          id="asset-panel"
-          aria-labelledby={`asset-tab-${activeTab}`}
-          tabIndex={0}
-          className="rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-        {assets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-hairline bg-bg-grad-a/30 py-24 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-dim text-accent-2">
-              <ActiveIcon className="h-5 w-5" />
-            </div>
-            <p className="font-editorial text-[20px] leading-tight text-text">{t(EMPTY_KEY[activeTab])}</p>
-            <p className="max-w-sm text-[12px] leading-5 text-text-4">{t("library_empty_hint")}</p>
-            <button
-              type="button"
-              onClick={() => setFormModal({ mode: "create" })}
-              className={`mt-2 ${ACCENT_BTN_SM_CLS}`}
-              style={ACCENT_BUTTON_STYLE}
-            >
-              <Plus className="h-4 w-4" />
-              {t("add_asset")}
-            </button>
-          </div>
-        ) : (
-          <AssetGrid
-            assets={assets}
-            onEdit={handleEditAsset}
-            onDelete={handleDeleteAsset}
-          />
-        )}
-        </div>
-      </main>
-
-      {formModal && (
-        <AssetFormModal
-          type={formModal.asset?.type ?? activeTab}
-          mode={formModal.mode}
-          initialData={formModal.asset}
-          previewImageUrl={
-            formModal.asset
-              ? API.getGlobalAssetUrl(formModal.asset.image_path, formModal.asset.updated_at) ?? undefined
-              : undefined
+    <PageShell
+      tier="full"
+      header={
+        <PageHeader
+          back={{ label: t("common:back"), onClick: goBack }}
+          title={t("library_title")}
+          subtitle={t("library_subtitle")}
+          actions={
+            <>
+              <InputGroup className="w-56">
+                <InputGroupAddon>
+                  <Search aria-hidden />
+                </InputGroupAddon>
+                <InputGroupInput
+                  type="search"
+                  aria-label={t("search_label")}
+                  placeholder={t("search_placeholder")}
+                  value={q}
+                  onChange={(event) => setInput({ urlQ, value: event.target.value })}
+                />
+              </InputGroup>
+              {createButton}
+            </>
           }
-          derivatives={formModal.asset?.derivatives}
-          imageFingerprint={formModal.asset?.updated_at}
-          onClose={() => setFormModal(null)}
-          onSubmit={handleSubmit}
         />
-      )}
+      }
+    >
+      <Tabs value={activeTab} onValueChange={(next: AssetType) => writeQuery({ tab: next })}>
+        <div className="border-b border-border">
+          <TabsList variant="line" aria-label={t("library_tabs_label")} activateOnFocus>
+            {ASSET_TYPES.map((type) => {
+              const Icon = ASSET_TYPE_ICON[type];
+              const count = pages.counts?.[type];
+              return (
+                <TabsTrigger key={type} value={type}>
+                  <Icon aria-hidden data-icon="inline-start" />
+                  {t(`type.${type}`)}
+                  {count !== undefined && <span className="text-muted-foreground tabular-nums">{count}</span>}
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </div>
+        {ASSET_TYPES.map((type) => (
+          <TabsContent key={type} value={type} className="mt-4">
+            {type === activeTab && (
+              <LibraryPanel
+                type={type}
+                pages={pages}
+                searchTerm={searchTerm}
+                createButton={createButton}
+                onCardAction={handleCardAction}
+              />
+            )}
+          </TabsContent>
+        ))}
+      </Tabs>
 
-      <ConfirmDialog
-        open={!!deleteTarget}
-        tone="danger"
-        title={
-          deleteTarget
-            ? t(deleteTarget.audio_path ? "delete_confirm_with_audio" : "delete_confirm", {
-                type: t(`type.${deleteTarget.type}`),
-              })
-            : ""
-        }
-        description={deleteTarget ? <span className="font-mono">「{deleteTarget.name}」</span> : null}
-        confirmLabel={t("delete")}
-        loadingLabel={t("loading")}
-        cancelLabel={t("cancel")}
-        loading={deleting}
-        onConfirm={() => void confirmDelete()}
-        onCancel={() => {
-          if (!deleting) setDeleteTarget(null);
-        }}
+      <AssetDetailSheet
+        asset={detailAsset}
+        mode={detail?.mode ?? "view"}
+        onModeChange={(mode) => setDetail((prev) => (prev ? { ...prev, mode } : prev))}
+        onClose={() => setDetail(null)}
+        onApply={setApplyTarget}
+        onDelete={setDeleteTarget}
+        onChanged={update}
+      />
+      <AssetCreateDialog type={creatingType} onClose={() => setCreatingType(null)} onCreated={add} />
+      <ApplyToProjectDialog asset={applyTarget} onClose={() => setApplyTarget(null)} />
+      <DeleteAssetDialog asset={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={remove} />
+    </PageShell>
+  );
+}
+
+function LibraryPanel({
+  type,
+  pages,
+  searchTerm,
+  createButton,
+  onCardAction,
+}: {
+  type: AssetType;
+  pages: AssetPages;
+  searchTerm: string;
+  createButton: ReactNode;
+  onCardAction: (action: AssetCardAction, asset: Asset) => void;
+}) {
+  const { t } = useTranslation("assets");
+  const Icon = ASSET_TYPE_ICON[type];
+
+  if (pages.loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
+        <Loader2 aria-hidden className="size-4 animate-spin" />
+        {t("loading")}
+      </div>
+    );
+  }
+  if (pages.error) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-24 text-center">
+        <p role="alert" className="text-sm text-destructive">
+          {t("library_load_failed", { message: pages.error })}
+        </p>
+        <Button variant="outline" onClick={pages.retry}>
+          {t("retry")}
+        </Button>
+      </div>
+    );
+  }
+  if (pages.items.length === 0) {
+    return searchTerm ? (
+      <p className="py-24 text-center text-sm text-muted-foreground">
+        {t("library_no_match", { type: t(`type.${type}`), query: searchTerm })}
+      </p>
+    ) : (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-20 text-center">
+        <span className="flex size-10 items-center justify-center rounded-full bg-primary/15 text-primary">
+          <Icon aria-hidden className="size-5" />
+        </span>
+        <p className="text-base font-medium">{t(`library_empty_${type}`)}</p>
+        <p className="max-w-sm text-sm text-muted-foreground">{t("library_empty_hint")}</p>
+        {createButton}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+        {pages.items.map((asset) => (
+          <li key={asset.id} className="flex min-w-0">
+            <AssetCard asset={asset} onAction={onCardAction} />
+          </li>
+        ))}
+      </ul>
+      <LoadMoreSentinel
+        hasMore={pages.hasMore}
+        loading={pages.loadingMore}
+        error={pages.moreError}
+        itemCount={pages.items.length}
+        onReach={pages.loadMore}
+        onRetry={pages.retry}
       />
     </div>
   );

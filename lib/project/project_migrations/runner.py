@@ -55,6 +55,7 @@ from lib.project.project_migrations.v12_to_v13_legacy_media_provenance import mi
 from lib.project.project_migrations.v13_to_v14_legacy_style_values import migrate_v13_to_v14
 from lib.project.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
 from lib.project.project_migrations.v15_to_v16_edit_decisions import RecordedEpisodeIds, migrate_v15_to_v16
+from lib.project.project_migrations.v16_to_v17_retired_text_model_ids import migrate_v16_to_v17
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -362,3 +363,4 @@ MIGRATORS[12] = migrate_v12_to_v13
 MIGRATORS[13] = migrate_v13_to_v14
 MIGRATORS[14] = migrate_v14_to_v15
 MIGRATORS[15] = migrate_v15_to_v16
+MIGRATORS[16] = migrate_v16_to_v17

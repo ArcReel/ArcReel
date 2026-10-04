@@ -14,7 +14,7 @@ export function EmptyScriptState({
 }) {
   const { t } = useTranslation("dashboard");
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 text-[13px]" style={{ color: "var(--color-text-4)" }}>
+    <div className="flex h-full flex-col items-center justify-center gap-3 text-[13px]" style={{ color: "var(--muted-foreground)" }}>
       <p className="m-0">{t("timeline_empty_script_hint")}</p>
       {onInsert && (
         <InsertShotButton

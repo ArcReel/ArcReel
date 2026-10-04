@@ -6,10 +6,15 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import Select, delete, func, select
 
 from lib.db.models.asset import Asset, AssetDerivative
 from lib.db.repositories.base import BaseRepository
+
+
+def _match_name[S: Select](stmt: S, q: str | None) -> S:
+    """列表与计数共用的搜索条件：名称包含 ``q``。"""
+    return stmt.where(Asset.name.contains(q)) if q else stmt
 
 
 class AssetRepository(BaseRepository):
@@ -59,13 +64,17 @@ class AssetRepository(BaseRepository):
         limit: int = 100,
         offset: int = 0,
     ) -> list[Asset]:
-        stmt = select(Asset)
+        stmt = _match_name(select(Asset), q)
         if type:
             stmt = stmt.where(Asset.type == type)
-        if q:
-            stmt = stmt.where(Asset.name.contains(q))
-        stmt = stmt.order_by(Asset.updated_at.desc()).limit(limit).offset(offset)
+        # id 作次序键：更新时间相同的条目在多次查询间顺序不变，offset 分页才不会重复或漏掉
+        stmt = stmt.order_by(Asset.updated_at.desc(), Asset.id.desc()).limit(limit).offset(offset)
         return list((await self.session.execute(stmt)).scalars())
+
+    async def count_by_type(self, *, q: str | None) -> dict[str, int]:
+        """按类型统计名称匹配 ``q`` 的条目数；没有匹配条目的类型不出现在结果里。"""
+        stmt = _match_name(select(Asset.type, func.count()), q).group_by(Asset.type)
+        return dict((await self.session.execute(stmt)).tuples().all())
 
     async def update(self, asset_id: str, **fields: Any) -> Asset:
         asset = await self.get_by_id(asset_id)

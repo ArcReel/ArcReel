@@ -6,15 +6,16 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.backend_assembly.assembler import OutputLimitFacts, _load_builtin_config, output_limit_facts
+from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from tests.fakes import captured_backend_construction
+from tests.fakes import captured_backend_construction, captured_openai_clients, patched_instructor_from_openai
 
 
 async def _seed_provider_config(factory, provider: str, **kv: str) -> None:
@@ -131,6 +132,42 @@ class TestAssembleBuiltinEndToEnd:
             }
         ]
 
+    async def test_dashscope_qwen_long_resolved_backend_skips_native_structured_output(self, db_factory):
+        from pydantic import BaseModel
+
+        class Person(BaseModel):
+            name: str
+
+        await _seed_provider_config(db_factory, "dashscope", api_key="ds-secret")
+        instructor_result = Person(name="Alice")
+        instructor_completion = MagicMock()
+        instructor_completion.usage = MagicMock()
+        instructor_completion.usage.prompt_tokens = 50
+        instructor_completion.usage.completion_tokens = 20
+
+        mock_client = AsyncMock()
+        mock_patched = AsyncMock(on=MagicMock())
+        mock_patched.chat.completions.create_with_completion = AsyncMock(
+            return_value=(instructor_result, instructor_completion)
+        )
+
+        with (
+            captured_openai_clients(mock_client),
+            patched_instructor_from_openai(return_value=mock_patched),
+        ):
+            backend = await assemble_backend(
+                provider_id="dashscope",
+                media_type="text",
+                model_id="qwen-long",
+                resolver=ConfigResolver(db_factory),
+            )
+            assert TextCapability.STRUCTURED_OUTPUT not in backend.capabilities
+            result = await backend.generate(TextGenerationRequest(prompt="Extract", response_schema=Person))
+
+        assert result.text == instructor_result.model_dump_json()
+        mock_client.chat.completions.create.assert_not_awaited()
+        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
+
     async def test_kling_image_api_model_name_decoupled_end_to_end(self, db_factory):
         # kling 特例族：双 secret overlay 真进闭包；api_model_name 解耦从 registry models 读到（别名键）
         await _seed_provider_config(db_factory, "kling", access_key="ak-1", secret_key="sk-1")
@@ -156,6 +193,41 @@ class TestAssembleBuiltinEndToEnd:
 
 
 class TestAssembleCustomEndToEnd:
+    async def test_custom_text_provider_keeps_structured_output_capability(self, db_factory):
+        from lib.custom_provider import make_provider_id
+        from lib.custom_provider.backends import CustomTextBackend
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as s:
+            repo = CustomProviderRepository(s)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": "gpt-5",
+                        "display_name": "gpt-5",
+                        "endpoint": "openai-chat",
+                        "is_enabled": True,
+                    }
+                ],
+            )
+            await s.commit()
+            pid = make_provider_id(provider.id)
+
+        with captured_openai_clients():
+            result = await assemble_backend(
+                provider_id=pid,
+                media_type="text",
+                model_id="gpt-5",
+                resolver=ConfigResolver(db_factory),
+            )
+
+        assert isinstance(result, CustomTextBackend)
+        assert TextCapability.STRUCTURED_OUTPUT in result.capabilities
+
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_custom_provider_delegates_to_loader(self, mock_cls, db_factory):
         from lib.custom_provider import make_provider_id

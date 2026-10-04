@@ -286,6 +286,52 @@ class TestGrokVideoCost:
         assert cost == pytest.approx(0.50)
         assert currency == "USD"
 
+    @pytest.mark.parametrize(
+        ("resolution", "expected"),
+        [
+            ("480p", 0.50),
+            ("720p", 0.70),
+            # 未显式指定分辨率时 xAI 按 480p 出片，结算跟随同一默认档
+            (None, 0.50),
+        ],
+    )
+    def test_per_second_rate_follows_resolution(self, resolution, expected):
+        cost, currency = _cost("grok", "video", duration_seconds=10, resolution=resolution, model="grok-imagine-video")
+        assert cost == pytest.approx(expected)
+        assert currency == "USD"
+
+    @pytest.mark.parametrize("generate_audio", [True, False])
+    def test_audio_track_does_not_change_rate(self, generate_audio):
+        cost, _ = _cost(
+            "grok",
+            "video",
+            duration_seconds=10,
+            resolution="720p",
+            generate_audio=generate_audio,
+            model="grok-imagine-video",
+        )
+        assert cost == pytest.approx(0.70)
+
+    @pytest.mark.parametrize(
+        ("model", "resolution", "expected"),
+        [
+            # https://docs.x.ai/developers/models/grok-imagine-video-1.5
+            ("grok-imagine-video-1.5", "480p", 0.80),
+            ("grok-imagine-video-1.5", "720p", 1.40),
+            ("grok-imagine-video-1.5", "1080p", 2.50),
+            ("grok-imagine-video-1.5", None, 0.80),
+            # https://docs.x.ai/developers/models/grok-imagine-video-1.5-lite
+            ("grok-imagine-video-1.5-lite", "480p", 0.20),
+            ("grok-imagine-video-1.5-lite", "720p", 0.30),
+            ("grok-imagine-video-1.5-lite", "1080p", 1.40),
+            ("grok-imagine-video-1.5-lite", None, 0.20),
+        ],
+    )
+    def test_1_5_family_per_second_rate_follows_resolution(self, model, resolution, expected):
+        cost, currency = _cost("grok", "video", duration_seconds=10, resolution=resolution, model=model)
+        assert cost == pytest.approx(expected)
+        assert currency == "USD"
+
     def test_short_video(self):
         cost, currency = _cost("grok", "video", duration_seconds=1, model="grok-imagine-video")
         assert cost == pytest.approx(0.050)

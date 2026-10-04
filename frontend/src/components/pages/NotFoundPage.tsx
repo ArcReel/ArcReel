@@ -1,24 +1,23 @@
-import { useLocation } from "wouter";
+import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
-import { GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { ROUTE_APP_PROJECTS } from "@/app-routes";
+import { buttonVariants } from "@/components/ui/button";
 
 export function NotFoundPage() {
-  const [, navigate] = useLocation();
   const { t } = useTranslation("common");
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 text-text animate-[fadeIn_0.5s_ease-out]">
-      <h1 className="font-editorial text-[8rem] font-extralight leading-none tracking-tighter text-text-4">
-        404
-      </h1>
-      <p className="mt-4 text-[15px] text-text-3">{t("not_found_title")}</p>
-      <button
-        type="button"
-        onClick={() => navigate("/app/projects", { replace: true })}
-        className={`mt-8 ${GHOST_BTN_LG_CLS}`}
-      >
-        {t("not_found_back")}
-      </button>
-    </div>
+    <main className="relative flex h-dvh overflow-y-auto bg-background p-4 text-foreground">
+      <div className="m-auto flex flex-col items-center gap-3 text-center">
+        <p aria-hidden className="font-editorial text-9xl leading-none tracking-tighter text-muted-foreground">
+          404
+        </p>
+        <h1 className="text-lg font-medium">{t("not_found_title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("not_found_description")}</p>
+        <Link href={`~${ROUTE_APP_PROJECTS}`} replace className={buttonVariants({ variant: "outline", className: "mt-5" })}>
+          {t("not_found_back")}
+        </Link>
+      </div>
+    </main>
   );
 }

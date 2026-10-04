@@ -10,7 +10,6 @@ import {
   countTicks,
   seriesFor,
   shortDay,
-  tickEvery,
 } from "./usage-trend";
 
 describe("buildTrendBuckets", () => {
@@ -105,17 +104,10 @@ describe("series", () => {
       "video",
       "text",
     ]);
-    expect(seriesFor("calls").find((entry) => entry.key === "cancelled")?.hatched).toBe(true);
   });
 });
 
 describe("axis helpers", () => {
-  it("thins date labels so they never overlap", () => {
-    expect(tickEvery(10, 640)).toBe(1);
-    expect(tickEvery(90, 640)).toBe(9);
-    expect(tickEvery(0, 0)).toBe(1);
-  });
-
   it("drops the year from bucket labels and orders month and day by language", () => {
     expect(shortDay("2026-03-05", "zh")).toBe("3/5");
     expect(shortDay("2026-11-20", "en")).toBe("11/20");

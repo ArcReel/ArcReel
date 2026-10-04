@@ -1,7 +1,10 @@
 import { useId, useMemo, useState } from "react";
 import { Loader2, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { GHOST_BTN_CLS, INPUT_CLS } from "@/components/ui/darkroom-tokens";
+import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type {
   ComfyuiBindingCandidate,
   ComfyuiBindingKey,
@@ -30,21 +33,21 @@ import {
 
 const STATUS_CLS: Record<ComfyuiRowStatus, string> = {
   auto: "border-good/40 bg-good/10 text-good",
-  manual: "border-accent/40 bg-accent-dim text-accent-2",
+  manual: "border-primary/40 bg-primary/12 text-primary",
   ambiguous: "border-warn/50 bg-warn/10 text-warn",
-  not_found: "border-hairline-strong bg-bg-grad-a/60 text-text-3",
-  unsupported: "border-hairline-soft bg-transparent text-text-4 line-through decoration-text-4/60",
-  required_unbound: "border-danger/50 bg-danger/10 text-danger",
+  not_found: "border-input text-muted-foreground",
+  unsupported: "border-border/50 text-muted-foreground line-through",
+  required_unbound: "border-destructive/50 bg-destructive/10 text-destructive",
 };
 
 /** 一条目标的四元组写法：`#节点 class_type .输入 “标题”`。 */
 function TargetLabel({ target }: { target: ComfyuiBindingTarget }) {
   return (
-    <span className="font-mono text-[11.5px] text-text" translate="no">
+    <span className="font-mono text-xs text-foreground" translate="no">
       #{target.node}
-      <span className="text-text-3"> {target.class_type}</span>
-      {target.input !== undefined && <span className="text-text"> .{target.input}</span>}
-      {target.title ? <span className="ml-1.5 font-sans text-[11px] text-text-4">“{target.title}”</span> : null}
+      <span className="text-muted-foreground"> {target.class_type}</span>
+      {target.input !== undefined && <span className="text-foreground"> .{target.input}</span>}
+      {target.title ? <span className="ml-1.5 font-sans text-muted-foreground">“{target.title}”</span> : null}
     </span>
   );
 }
@@ -53,10 +56,12 @@ function ScoreBar({ score, best }: { score: number; best: number }) {
   const pct = Math.max(6, Math.round((score / Math.max(best, 1)) * 100));
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5">
-      <span aria-hidden className="h-1 w-14 overflow-hidden rounded-full bg-bg-grad-a">
-        <span className="block h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
-      </span>
-      <span className="font-mono text-[10px] tabular-nums text-text-4">{score}</span>
+      {/* 比例条用 SVG 画：宽度随得分变化，写成元素属性而不是内联样式 */}
+      <svg aria-hidden viewBox="0 0 100 4" preserveAspectRatio="none" className="h-1 w-14 overflow-hidden rounded-full">
+        <rect width="100" height="4" className="fill-muted" />
+        <rect width={pct} height="4" className="fill-primary" />
+      </svg>
+      <span className="font-mono text-xs tabular-nums text-muted-foreground">{score}</span>
     </span>
   );
 }
@@ -79,16 +84,17 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
 
   // 各个候选由 radiogroup 直接持有，中间不隔一层 listitem。
   return (
-    <div className="space-y-1" role={multiple ? "group" : "radiogroup"} aria-label={t("ce_cf_candidates_label")}>
+    <div className="flex flex-col gap-1" role={multiple ? "group" : "radiogroup"} aria-label={t("ce_cf_candidates_label")}>
       {candidates.map((candidate, index) => {
         const selected = chosen.has(index);
         const order = selected && ordered ? (targets ?? []).findIndex((x) => sameTarget(x, candidate.target)) + 1 : 0;
         return (
           <label
             key={`${candidate.target.node}.${candidate.target.input ?? ""}`}
-            className={`flex cursor-pointer items-start gap-2.5 rounded-[7px] border px-2.5 py-1.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
-              selected ? "border-accent/45 bg-accent-dim" : "border-hairline-soft hover:border-hairline"
-            }`}
+            className={cn(
+              "flex cursor-pointer items-start gap-2.5 rounded-md border px-2.5 py-1.5 transition-colors has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
+              selected ? "border-primary/50 bg-primary/15" : "border-border/50 hover:border-border",
+            )}
           >
             <input
               type={multiple ? "checkbox" : "radio"}
@@ -99,9 +105,10 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
             />
             <span
               aria-hidden
-              className={`mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border font-mono text-[8px] text-bg ${
-                selected ? "border-accent-2 bg-accent-2" : "border-hairline-strong"
-              }`}
+              className={cn(
+                "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border font-mono text-xs leading-none text-primary-foreground",
+                selected ? "border-primary bg-primary" : "border-input",
+              )}
             >
               {order > 0 ? order : ""}
             </span>
@@ -110,11 +117,11 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
                 <TargetLabel target={candidate.target} />
                 <ScoreBar score={candidate.score} best={best} />
               </span>
-              <span className="mt-0.5 block text-[11px] leading-[1.5] text-text-4">
+              <span className="mt-0.5 block text-xs text-muted-foreground">
                 {candidate.signals.map((signal) => signal.message).join(" · ")}
               </span>
               {candidate.origin !== "inferred" && (
-                <span className="mt-0.5 inline-block font-mono text-[10px] uppercase tracking-[0.08em] text-accent-2">
+                <span className="mt-0.5 inline-block text-xs text-primary">
                   {t(candidate.origin === "kept" ? "ce_cf_origin_kept" : "ce_cf_origin_rematched")}
                 </span>
               )}
@@ -150,8 +157,9 @@ function ManualPicker({ bindingKey, nodes, onPick }: ManualPickerProps) {
   }, [nodes, bindingKey]);
 
   return (
+    // 原生下拉：选项是带节点号与字面值的一长串落点，值选中即生效、随即回到占位项
     <select
-      className={`${INPUT_CLS} w-72 py-1 font-mono text-[12px]`}
+      className="h-8 w-full max-w-72 min-w-0 rounded-lg border border-input bg-input/30 px-2.5 font-mono text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       translate="no"
       value=""
       aria-label={t("ce_cf_manual_pick_label", { key: bindingKey })}
@@ -197,33 +205,34 @@ function positiveInteger(raw: string): number | undefined {
 /** 条目自带的附加项：对齐步长、手填帧率、种子策略、帧率的只读说明。 */
 function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
   const { t } = useTranslation("dashboard");
+  const policyLabelId = useId();
   const target = targets?.[0];
 
   if (bindingKey === "fps") {
-    return <span className="text-[11.5px] text-text-4">{t("ce_cf_fps_readonly_note")}</span>;
+    return <span className="text-xs text-muted-foreground">{t("ce_cf_fps_readonly_note")}</span>;
   }
   if (bindingKey === "width" || bindingKey === "height" || bindingKey === "frames") {
     if (!target) return null;
     return (
       <span className="flex flex-wrap items-center gap-3">
-        <label className="inline-flex items-center gap-1.5 text-[11.5px] text-text-3">
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           {t("ce_cf_step_label")}
-          <input
+          <Input
             type="number"
             min={1}
             inputMode="numeric"
             autoComplete="off"
             value={target.step ?? ""}
             onChange={(event) => onPatch({ step: positiveInteger(event.target.value) })}
-            className={`${INPUT_CLS} w-16 py-0.5 text-[12px]`}
+            className="w-20"
           />
         </label>
         {bindingKey === "frames" && (
           <>
-            <span className="text-[11px] text-text-4">{t("ce_cf_frames_step_note")}</span>
-            <label className="inline-flex items-center gap-1.5 text-[11.5px] text-text-3">
+            <span className="text-xs text-muted-foreground">{t("ce_cf_frames_step_note")}</span>
+            <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               {t("ce_cf_frames_fps_label")}
-              <input
+              <Input
                 type="number"
                 min={1}
                 step="any"
@@ -231,7 +240,7 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
                 autoComplete="off"
                 value={target.fps ?? ""}
                 onChange={(event) => onPatch({ fps: positiveNumber(event.target.value) })}
-                className={`${INPUT_CLS} w-20 py-0.5 text-[12px]`}
+                className="w-24"
               />
             </label>
           </>
@@ -243,21 +252,24 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
     if (!target) return null;
     const policy = target.policy ?? "random";
     return (
-      <span className="inline-flex items-center gap-2 text-[11.5px] text-text-3">
-        {t("ce_cf_seed_policy_label")}
-        {(["random", "keep"] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={policy === option}
-            onClick={() => onPatch({ policy: option })}
-            className={`rounded-full border px-2 py-0.5 font-mono text-[10.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-              policy === option ? "border-accent/45 bg-accent-dim text-accent-2" : "border-hairline-soft text-text-3"
-            }`}
-          >
-            {t(option === "random" ? "ce_cf_seed_random" : "ce_cf_seed_keep")}
-          </button>
-        ))}
+      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+        <span id={policyLabelId}>{t("ce_cf_seed_policy_label")}</span>
+        <ToggleGroup
+          aria-labelledby={policyLabelId}
+          variant="outline"
+          size="sm"
+          value={[policy]}
+          onValueChange={(next: string[]) => {
+            // 单选：再次点击已选项不取消选择
+            if (next[0] === "random" || next[0] === "keep") onPatch({ policy: next[0] });
+          }}
+        >
+          {(["random", "keep"] as const).map((option) => (
+            <ToggleGroupItem key={option} value={option}>
+              {t(option === "random" ? "ce_cf_seed_random" : "ce_cf_seed_keep")}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       </span>
     );
   }
@@ -317,9 +329,9 @@ export function ComfyuiBindingTable({
 
   return (
     <div>
-      <div className="mb-2.5 flex flex-wrap items-end justify-between gap-3">
-        <p className="max-w-xl text-[12px] leading-[1.55] text-text-3">{t("ce_cf_bindings_desc")}</p>
-        <span className="font-mono text-[11px] tabular-nums text-text-4" aria-live="polite">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <p className="max-w-xl text-xs text-muted-foreground">{t("ce_cf_bindings_desc")}</p>
+        <span className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
           {t("ce_cf_tally", {
             bound: tally.bound,
             ambiguous: tally.ambiguous,
@@ -330,16 +342,16 @@ export function ComfyuiBindingTable({
       </div>
 
       {inference.notes.length > 0 && (
-        <ul className="mb-2.5 space-y-1">
+        <ul className="mb-3 flex flex-col gap-1">
           {inference.notes.map((note) => (
-            <li key={note.code} className="text-[11.5px] leading-[1.5] text-warm-bright">
+            <li key={note.code} className="text-xs text-warn">
               {note.message}
             </li>
           ))}
         </ul>
       )}
 
-      <div className="divide-y divide-hairline-soft">
+      <div className="divide-y divide-border">
         {keys.map((key, index) => {
           const result = inference.bindings[key];
           const candidates = result?.candidates ?? [];
@@ -353,160 +365,166 @@ export function ComfyuiBindingTable({
 
           return (
             <div key={key} className="py-2.5">
-              <div className="grid grid-cols-[minmax(150px,190px)_96px_minmax(0,1fr)_auto] items-center gap-3">
-                <span className="inline-flex items-baseline gap-1.5 text-[12.5px]">
-                  <span className="font-mono text-[11.5px] text-accent-2" translate="no">
+              <div className="grid grid-cols-[minmax(9rem,12rem)_6rem_minmax(0,1fr)_auto] items-center gap-x-3">
+                <span className="inline-flex items-baseline gap-1.5 text-sm">
+                  <span className="font-mono text-xs text-primary" translate="no">
                     {key}
                   </span>
-                  <span className="text-text-2">{t(`ce_cf_key_${key}`)}</span>
+                  <span className="text-subtle-foreground">{t(`ce_cf_key_${key}`)}</span>
                   {required && (
-                    <span className="text-warm-bright" title={t("ce_cf_required")} aria-label={t("ce_cf_required")}>
+                    <span className="text-warn" title={t("ce_cf_required")} aria-label={t("ce_cf_required")}>
                       *
                     </span>
                   )}
                 </span>
 
                 <span
-                  className={`inline-flex items-center justify-center rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold ${STATUS_CLS[status]}`}
+                  className={cn(
+                    "inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+                    STATUS_CLS[status],
+                  )}
                 >
                   {t(`ce_cf_status_${status}`)}
                 </span>
 
-                <span className="flex min-w-0 items-center gap-1.5 truncate text-[12px]">
+                <span className="flex min-w-0 items-center gap-1.5 truncate text-xs">
                   {targets && targets.length > 0 ? (
                     <>
                       {isListBindingKey(key) && targets.length > 1 ? (
-                        <span className="text-text-2">{t("ce_cf_target_count", { n: targets.length })}</span>
+                        <span className="text-subtle-foreground">{t("ce_cf_target_count", { n: targets.length })}</span>
                       ) : (
                         <TargetLabel target={targets[0]} />
                       )}
                       {origin !== null && (
-                        <span className="shrink-0 rounded-[4px] border border-accent/35 px-1 py-px font-mono text-[9.5px] uppercase tracking-[0.08em] text-accent-2">
+                        <span className="shrink-0 rounded-sm border border-primary/40 px-1 text-xs text-primary">
                           {t(origin === "kept" ? "ce_cf_origin_kept" : "ce_cf_origin_rematched")}
                         </span>
                       )}
                     </>
                   ) : status === "unsupported" ? (
-                    <span className="text-text-4">{t("ce_cf_unsupported_text")}</span>
+                    <span className="text-muted-foreground">{t("ce_cf_unsupported_text")}</span>
                   ) : status === "ambiguous" ? (
-                    <span className="text-warm-bright">
+                    <span className="text-warn">
                       {candidates.length > 0
                         ? t("ce_cf_ambiguous_text", { n: candidates.length })
                         : t("ce_cf_lost_text")}
                     </span>
                   ) : (
-                    <span className="text-text-4">{t(`ce_cf_hint_${key}`)}</span>
+                    <span className="text-muted-foreground">{t(`ce_cf_hint_${key}`)}</span>
                   )}
                 </span>
 
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="xs"
                   aria-expanded={open}
                   aria-controls={panelId}
                   onClick={() => setToggled((current) => ({ ...current, [key]: !open }))}
-                  className="text-[11.5px] text-text-3 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   {open
                     ? t("ce_cf_collapse")
                     : candidates.length > 0
                       ? t("ce_cf_expand_candidates", { n: candidates.length })
                       : t("ce_cf_expand_manual")}
-                </button>
+                </Button>
               </div>
 
-              {result && result.notes.length > 0 && (
-                <ul className="ml-[202px] mt-1 space-y-0.5">
-                  {result.notes.map((note) => (
-                    <li key={note.code} className="text-[11px] leading-[1.5] text-text-4">
-                      {note.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {/* 说明与展开区与上面那行同列宽，从状态列起排，与语义键名错开 */}
+              <div className="grid grid-cols-[minmax(9rem,12rem)_6rem_minmax(0,1fr)_auto] gap-x-3">
+                {result && result.notes.length > 0 && (
+                  <ul className="col-span-3 col-start-2 mt-1 flex flex-col gap-0.5">
+                    {result.notes.map((note) => (
+                      <li key={note.code} className="text-xs text-muted-foreground">
+                        {note.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
-              {open && (
-                <div id={panelId} className="ml-[202px] mt-2 space-y-2">
-                  {result?.state === "needs_confirmation" && (
-                    <p className="text-[11.5px] text-warm-bright">{t("ce_cf_needs_confirmation")}</p>
-                  )}
-                  {candidates.length > 0 && (
-                    <CandidateList
-                      bindingKey={key}
-                      candidates={candidates}
-                      targets={targets}
-                      onToggle={(candidate) => {
-                        if (isListBindingKey(key)) {
-                          const ordered = toggleListTarget(candidates, targets ?? [], candidate.target);
-                          onChange(key, ordered.length > 0 ? ordered : undefined);
-                          return;
-                        }
-                        if (!isMultiTargetBindingKey(key)) {
-                          onChange(key, [candidate.target]);
-                          return;
-                        }
-                        const next = toggleSetTarget(targets ?? [], candidate.target);
-                        onChange(key, next.length > 0 ? next : undefined);
-                      }}
-                    />
-                  )}
-                  <div className="flex flex-wrap items-center gap-3">
-                    <ManualPicker
-                      bindingKey={key}
-                      nodes={nodes}
-                      onPick={(target) => {
-                        const current = targets ?? [];
-                        if (isListBindingKey(key)) {
+                {open && (
+                  <div id={panelId} className="col-span-3 col-start-2 mt-2 flex flex-col gap-2">
+                    {result?.state === "needs_confirmation" && (
+                      <p className="text-xs text-warn">{t("ce_cf_needs_confirmation")}</p>
+                    )}
+                    {candidates.length > 0 && (
+                      <CandidateList
+                        bindingKey={key}
+                        candidates={candidates}
+                        targets={targets}
+                        onToggle={(candidate) => {
+                          if (isListBindingKey(key)) {
+                            const ordered = toggleListTarget(candidates, targets ?? [], candidate.target);
+                            onChange(key, ordered.length > 0 ? ordered : undefined);
+                            return;
+                          }
+                          if (!isMultiTargetBindingKey(key)) {
+                            onChange(key, [candidate.target]);
+                            return;
+                          }
+                          const next = toggleSetTarget(targets ?? [], candidate.target);
+                          onChange(key, next.length > 0 ? next : undefined);
+                        }}
+                      />
+                    )}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <ManualPicker
+                        bindingKey={key}
+                        nodes={nodes}
+                        onPick={(target) => {
+                          const current = targets ?? [];
+                          if (isListBindingKey(key)) {
+                            if (current.some((entry) => sameTarget(entry, target))) return;
+                            onChange(key, toggleListTarget(candidates, current, target));
+                            return;
+                          }
+                          if (!isMultiTargetBindingKey(key)) {
+                            onChange(key, [target]);
+                            return;
+                          }
+                          // 手选只做加法：同键的其余落点是别的分支在用的，删要从候选列表里取消勾选。
                           if (current.some((entry) => sameTarget(entry, target))) return;
-                          onChange(key, toggleListTarget(candidates, current, target));
-                          return;
-                        }
-                        if (!isMultiTargetBindingKey(key)) {
-                          onChange(key, [target]);
-                          return;
-                        }
-                        // 手选只做加法：同键的其余落点是别的分支在用的，删要从候选列表里取消勾选。
-                        if (current.some((entry) => sameTarget(entry, target))) return;
-                        onChange(key, [...current, target]);
-                      }}
-                    />
-                    <BindingExtras
-                      bindingKey={key}
-                      targets={targets}
-                      onPatch={(patch) => {
-                        if (!targets || targets.length === 0) return;
-                        onChange(key, [{ ...targets[0], ...patch }, ...targets.slice(1)]);
-                      }}
-                    />
-                    <span className="ml-auto inline-flex items-center gap-1">
-                      {!required && status !== "unsupported" && (
-                        <button
-                          type="button"
-                          title={t("ce_cf_mark_unsupported_hint")}
-                          onClick={() => onChange(key, [])}
-                          className={`${GHOST_BTN_CLS} px-2 py-1 text-[11px]`}
-                        >
-                          <X className="h-3 w-3" aria-hidden />
-                          {t("ce_cf_mark_unsupported")}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        title={t("ce_cf_reinfer_hint")}
-                        disabled={reinferring !== null}
-                        onClick={() => onReinfer(key)}
-                        className={`${GHOST_BTN_CLS} px-2 py-1 text-[11px]`}
-                      >
-                        {reinferring === key ? (
-                          <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
-                        ) : (
-                          <RefreshCw className="h-3 w-3" aria-hidden />
+                          onChange(key, [...current, target]);
+                        }}
+                      />
+                      <BindingExtras
+                        bindingKey={key}
+                        targets={targets}
+                        onPatch={(patch) => {
+                          if (!targets || targets.length === 0) return;
+                          onChange(key, [{ ...targets[0], ...patch }, ...targets.slice(1)]);
+                        }}
+                      />
+                      <span className="ml-auto inline-flex items-center gap-1">
+                        {!required && status !== "unsupported" && (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            title={t("ce_cf_mark_unsupported_hint")}
+                            onClick={() => onChange(key, [])}
+                          >
+                            <X aria-hidden data-icon="inline-start" />
+                            {t("ce_cf_mark_unsupported")}
+                          </Button>
                         )}
-                        {t("ce_cf_reinfer")}
-                      </button>
-                    </span>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          title={t("ce_cf_reinfer_hint")}
+                          disabled={reinferring !== null}
+                          onClick={() => onReinfer(key)}
+                        >
+                          {reinferring === key ? (
+                            <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+                          ) : (
+                            <RefreshCw aria-hidden data-icon="inline-start" />
+                          )}
+                          {t("ce_cf_reinfer")}
+                        </Button>
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           );
         })}

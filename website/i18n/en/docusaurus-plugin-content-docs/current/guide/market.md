@@ -11,7 +11,7 @@ The market lets you browse call endpoints that others have already adapted, from
 
 ## 1. What Are the Market and Market Sources {#what-is-market}
 
-- **Market**: the "Market" section in the Configuration group of Settings, placed after "Endpoints". Browsing and installing run only on your local ArcReel and the market source repositories. They do not depend on any central service, and no account is required. Install counts and ratings come from an official service you can turn off; see [Install Counts, Ratings, and the Official Service](#official-service). In the first release, the only market entry type is call endpoints.
+- **Market**: the "Market" section of global settings, with three tabs: "Browse", "My shares", and "Settings". Browsing and installing run only on your local ArcReel and the market source repositories. They do not depend on any central service, and no account is required. Install counts and ratings come from an official service you can turn off; see [Install Counts, Ratings, and the Official Service](#official-service). In the first release, the only market entry type is call endpoints.
 - **Market source**: a GitHub repository (or an equivalent `https://` direct link) whose root index file `arcreel-market.json` lists its market entries. The ArcReel backend fetches the index and definitions on your behalf and only accesses raw file URLs.
 - **Official market source**: [`ArcReel/arcreel-market`](https://github.com/ArcReel/arcreel-market) ships preconfigured. It can be disabled, renamed, and reordered, but not deleted. Every other source you add yourself is a third-party market source.
 - **Market entry**: an installable item in an index, whose payload is a call endpoint definition. An entry is uniquely identified by its slug within its market source. The same slug in different market sources does not mean the same definition; such entries are displayed side by side.
@@ -20,11 +20,11 @@ The market is a user feature: the embedded Agent does not browse or install mark
 
 ## 2. Manage Market Sources {#manage-sources}
 
-Click "Manage market sources" in the header of the "Market" section to open the dialog. The list order is the display order of the entry grid. Each row shows the status, display name (the official source carries an "Official" badge), address, and last successful refresh time.
+Open the "Settings" tab in the "Market" section; the "Market sources" list is where you manage sources. The list order is the display order of the entry grid. Each row shows the status, display name (the official source carries an "Official" badge), address, and last successful refresh time.
 
 ### 2.1 Add a Market Source {#add-source}
 
-Enter any of the following forms in "Market source address" at the bottom of the dialog, then click "Add":
+Enter any of the following forms in "Market source address" below the list, then click "Add":
 
 | Form | Example |
 |---|---|
@@ -35,12 +35,10 @@ Enter any of the following forms in "Market source address" at the bottom of the
 
 GitHub forms without a ref follow the repository's default branch. `http://` URLs, local paths, and `git@` addresses are not accepted, and a market source that is already registered cannot be added again.
 
-Adding a source fetches its index immediately. If the fetch fails or the index is invalid, the source is rejected and the reason is shown. The display name defaults to the name in the index and can be edited directly in the list after adding.
+Adding a source fetches its index immediately. If the fetch fails or the index is invalid, the source is rejected and the reason is shown. The display name defaults to the name in the index and can be renamed after adding.
 
 A fixed third-party notice is shown below the add form:
 
-> **Adding a third-party market source**
->
 > This market source is maintained by a third party and its content has not been reviewed by ArcReel. Make sure you trust the source before installing anything from it.
 
 A market entry determines where your API key is sent, so only add market sources you trust.
@@ -48,17 +46,17 @@ A market entry determines where your API key is sent, so only add market sources
 ### 2.2 Enable, Disable, Reorder, Refresh, and Delete {#source-actions}
 
 - **Enable toggle**: a disabled market source stays registered, but its entries are hidden. Endpoints installed from it show "Unavailable in market" and keep working.
-- **Reorder**: drag the handle at the start of a row, or focus the handle and press the up and down arrow keys.
-- **Rename**: edit the display name directly in the row.
-- **Refresh**: click the refresh icon for a single source. "Refresh all" in the section header refreshes all enabled market sources in parallel.
-- **Delete**: click the delete icon. The delete button is unavailable for the official market source; disable it instead if needed.
-- **Homepage**: when the index provides a homepage, the row shows an external link.
+- **Reorder**: drag the handle at the start of a row, or focus the handle and press the up and down arrow keys. You can also choose "Move up" or "Move down" from the "More actions" menu at the end of the row.
+- **Rename**: choose "Rename" from the "More actions" menu.
+- **Refresh**: for a single source, choose "Refresh" from the "More actions" menu. "Refresh all" in the list header refreshes all enabled market sources in parallel.
+- **Delete**: choose "Delete" from the "More actions" menu; it runs after confirmation. The official market source cannot be deleted; disable it instead if needed.
+- **Homepage**: when the index provides a homepage, the "More actions" menu shows "Open homepage".
 
 When you open the "Market" section, enabled market sources last refreshed more than 1 hour ago are refreshed automatically in the background, while the page shows cached content first. If a refresh fails, the last successful snapshot is kept, and a banner above the grid lists each affected source's status, error, and snapshot time. Market source statuses are "OK", "Not refreshed yet", "Unreachable", "Invalid index", and "Requires a newer ArcReel".
 
 ### 2.3 GitHub Raw Proxy Prefix {#github-proxy-prefix}
 
-If your deployment cannot reach `raw.githubusercontent.com` directly, find "GitHub raw proxy prefix" in the "Models" section of Settings. When set, ArcReel prepends the prefix to every `raw.githubusercontent.com` address, covering index, definition, and icon fetches. Leave it empty to connect directly.
+If your deployment cannot reach `raw.githubusercontent.com` directly, find "GitHub raw proxy prefix" on the "Settings" tab in the "Market" section of global settings. When set, ArcReel prepends the prefix to every `raw.githubusercontent.com` address, covering index, definition, and icon fetches. Leave it empty to connect directly.
 
 This is a single global setting, empty by default, and ArcReel does not preconfigure any proxy address. Once set, failed requests do not fall back to a direct connection. The proxy can see the requests passing through it, so only use a proxy you trust.
 
@@ -153,11 +151,11 @@ After you install an entry from the official market source for the **first** tim
 
 The instance ID is a randomly generated UUID, created the first time it is needed and stored locally. It is not tied to your machine or any account, and the official service stores only its hash.
 
-The first time you open the "Market" section, a notice at the top explains what is reported. Click "Got it", or click "Turn off official service" right away.
+The first time you open the "Market" section with the official service on, a notice at the top explains what is reported. Click "Got it", or click "Turn off official service" right away.
 
 ### 6.3 Turn Off the Official Service and Reset the Instance ID {#turn-off-official-service}
 
-In the "Official service" card under Settings › About:
+On the "Settings" tab of the "Market" section, the "Official service" block provides:
 
 - **Use the official service**: when turned off, the market page no longer shows install counts, ratings, or the notice, and the local server sends nothing to the official service.
 - **Reset instance ID**: deletes the current instance ID; a new one is created the next time the official service is contacted. The official service then treats this ArcReel as a new instance, and earlier install reports and ratings are no longer linked to it. Entries installed before the reset must be reinstalled before you can rate them again.
@@ -175,7 +173,7 @@ When the official service is on, your own declarative and ComfyUI endpoints unde
 
 Endpoint definitions contain no credentials; the `auth` section holds only placeholders. The submitted content appears publicly in the PR. Anything that looks like a secret written in directly blocks the submission: literal credentials in the `auth` section, literal values named `api_key`, `token`, `secret`, `Authorization`, `Cookie`, and similar at any depth of a ComfyUI workflow, or in the request headers, body, or URL query parameters of a declarative endpoint, and request header values that look like keys. Clear them before sharing. Submitting the same slug again while the PR is open pushes your changes to the same PR; submitting after the PR is merged or closed opens a new PR for review.
 
-The endpoint header and "My submissions" in the "Market" section show the status of each endpoint's latest submission (In review / Accepted / Rejected) with a PR link, refreshed once when you open the page. When the official service is unreachable, the last known status is shown.
+The endpoint header and the "My shares" tab in the "Market" section show the status of each endpoint's latest submission (In review / Accepted / Rejected) with a PR link, refreshed once when you open the page. When the official service is unreachable, the last known status is shown.
 
 ## 7. Contribute and Host Your Own Market Source {#contribute-and-host}
 
@@ -184,4 +182,4 @@ The official market source repository documentation is authoritative for the con
 - [Official market source README](https://github.com/ArcReel/arcreel-market/blob/main/README.en.md): browsing entries and hosting your own market source;
 - [Official market source CONTRIBUTING](https://github.com/ArcReel/arcreel-market/blob/main/CONTRIBUTING.md): contribution workflow and content guidelines.
 
-"Read the contribution guide" at the end of the "Market" section, and "Contribute to market" next to "Export" in endpoint details, also point to the CONTRIBUTING document above.
+"Read the contribution guide" on the "My shares" tab of the "Market" section, and "Contribute to market" next to "Export" in endpoint details, also point to the CONTRIBUTING document above.

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import { Button } from "@/components/ui/button";
 import type { UsageSummary } from "@/types";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import { SeriesSwatch, UsageTrendChart } from "./UsageTrendChart";
@@ -47,43 +47,34 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
   const name = t(NAME_KEYS[metric][weekly ? "weekly" : "daily"]);
 
   return (
-    <section className="rounded-[10px] border border-hairline p-4" style={CARD_STYLE}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h4 className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
-          {t("usage_trend_title")}
-        </h4>
+    <section aria-label={t("usage_trend_title")} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-medium">{t("usage_trend_title")}</h3>
         {weekly && (
-          <span className="rounded-full border border-hairline-soft px-1.5 py-px font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-4">
+          <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
             {t("usage_trend_weekly_chip")}
           </span>
         )}
-        <div
-          role="group"
-          aria-label={t("usage_trend_metric_label")}
-          className="ml-auto flex items-center gap-1"
-        >
+        <div role="group" aria-label={t("usage_trend_metric_label")} className="ml-auto flex items-center gap-1">
           {METRICS.map((option) => {
             const active = metric === option.value;
             return (
-              <button
+              <Button
                 key={option.value}
-                type="button"
+                size="xs"
+                variant={active ? "secondary" : "ghost"}
                 aria-pressed={active}
                 onClick={() => setMetric(option.value)}
-                className={
-                  "focus-ring rounded-full px-2 py-0.5 text-[11px] transition-colors " +
-                  (active ? "bg-accent-dim text-accent-2" : "text-text-3 hover:text-text")
-                }
               >
                 {t(option.labelKey)}
-              </button>
+              </Button>
             );
           })}
         </div>
       </div>
 
       {buckets.length === 0 ? (
-        <p className="py-8 text-center text-[12px] text-text-3">{t("usage_trend_empty")}</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">{t("usage_trend_empty")}</p>
       ) : (
         <UsageTrendChart
           buckets={buckets}
@@ -94,8 +85,8 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
         />
       )}
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {seriesFor(metric).map((entry) => (
             <li key={entry.key} className="inline-flex items-center gap-1.5">
               <SeriesSwatch series={entry} />
@@ -104,13 +95,11 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
           ))}
         </ul>
         {metric === "cost" && primary && (
-          <p className="text-[11px] text-text-4">
+          <p className="text-xs text-muted-foreground">
             {excluded.length > 0
               ? t("usage_trend_cost_footnote_excluded", {
                   currency: primary,
-                  amounts: excluded
-                    .map(([currency, amount]) => formatCurrencyAmount(currency, amount))
-                    .join(" + "),
+                  amounts: excluded.map(([currency, amount]) => formatCurrencyAmount(currency, amount)).join(" + "),
                 })
               : t("usage_trend_cost_footnote", { currency: primary })}
           </p>

@@ -117,6 +117,20 @@ describe("GridPreviewPanel regenerate", () => {
 });
 
 describe("GridPreviewPanel occupancy", () => {
+  it("记录停在 generating 但队列无活动任务时显示已中断，并允许重新生成", async () => {
+    vi.spyOn(API, "getGrid").mockResolvedValue(
+      makeGrid({ status: "generating", grid_image_path: null }),
+    );
+    useTasksStore.setState({ tasks: [], connected: true, optimisticActive: new Set() });
+
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
+
+    expect(await screen.findByText("已中断")).toBeInTheDocument();
+    expect(screen.getByText("上次生成已中断，可重新生成")).toBeInTheDocument();
+    expect(screen.queryByText("生成中")).not.toBeInTheDocument();
+    expect(screen.getByText("重新生成").closest("button")).toBeEnabled();
+  });
+
   it("live tasks store 中任务运行时即使 grid.status 仍为已完成也判定占用，重新生成按钮被禁用", async () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ status: "completed" }));
 

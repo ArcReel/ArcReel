@@ -5,43 +5,71 @@
  * 和「这个档案一个号都没连」退化成同一条报错。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, RefreshCw } from "lucide-react";
 import { API } from "@/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { InlineWarning } from "@/components/shared/InlineWarning";
+import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
+import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { PageShellFooter } from "@/components/shared/page-shell/PageShell";
 import type { SystemConfigPatch, SystemConfigSettings } from "@/types/system";
 import type { SocialPublishProfile } from "@/types/social-publish";
-import { InlineWarning } from "@/components/ui/InlineWarning";
-import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
 
-const INPUT_CLS =
-  "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
-const LABEL_CLS =
-  "mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
+interface SocialPublishFields {
+  /** 新密钥；已存的密钥从不回显，空串表示保持不变。 */
+  upload_post_api_key: string;
+  upload_post_profile: string;
+  upload_post_base_url: string;
+}
 
-interface CardProps {
-  kicker: string;
+function fieldsFrom(settings: SystemConfigSettings | null): SocialPublishFields {
+  return {
+    upload_post_api_key: "",
+    upload_post_profile: settings?.upload_post_profile ?? "",
+    upload_post_base_url: settings?.upload_post_base_url ?? "",
+  };
+}
+
+function changedFields(fields: SocialPublishFields, saved: SocialPublishFields): SystemConfigPatch {
+  const patch: SystemConfigPatch = {};
+  if (fields.upload_post_api_key !== "") patch.upload_post_api_key = fields.upload_post_api_key;
+  if (fields.upload_post_profile !== saved.upload_post_profile) patch.upload_post_profile = fields.upload_post_profile;
+  if (fields.upload_post_base_url !== saved.upload_post_base_url) {
+    patch.upload_post_base_url = fields.upload_post_base_url;
+  }
+  return patch;
+}
+
+function SettingsCard({
+  title,
+  description,
+  children,
+}: {
   title: string;
   description?: string;
   children: React.ReactNode;
-}
-
-function SectionCard({ kicker, title, description, children }: CardProps) {
+}) {
   return (
-    <div className="rounded-[10px] border border-hairline p-5" style={CARD_STYLE}>
-      <div className="mb-4">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
-          {kicker}
-        </div>
-        <h4 className="mt-1.5 text-[14px] font-medium text-text">{title}</h4>
-        {description && (
-          <p className="mt-1 text-[12px] leading-[1.55] text-text-3">{description}</p>
-        )}
+    <section className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
       {children}
-    </div>
+    </section>
+  );
+}
+
+function FieldHint({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <p id={id} className="text-xs text-muted-foreground">
+      {children}
+    </p>
   );
 }
 
@@ -50,30 +78,23 @@ export function SocialPublishSection() {
 
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<SystemConfigPatch>({});
-  const [saving, setSaving] = useState(false);
   const [profiles, setProfiles] = useState<SocialPublishProfile[] | null>(null);
   const [profilesError, setProfilesError] = useState<string | null>(null);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
 
-  /** 回读是否成功。读配置失败要说出来：静默吞掉 rejection 会让 settings 一直是 null，
-   *  界面卡在转圈图标上，除非整块重新挂载。 */
+  // 读配置失败要说出来：静默吞掉 rejection 会让 settings 一直是 null，界面卡在加载态上。
   const fetchConfig = useCallback(async () => {
     setConfigError(null);
     try {
       const res = await API.getSystemConfig();
       setSettings(res.settings);
-      setDraft({});
-      return true;
     } catch (err) {
       setConfigError(errMsg(err));
-      return false;
     }
   }, []);
 
   useEffect(() => {
-    // mount 时异步拉取配置，回调内 setSettings（异步 fetch 后回写）
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 时异步拉取配置后回写
     void fetchConfig();
   }, [fetchConfig]);
 
@@ -91,192 +112,141 @@ export function SocialPublishSection() {
     }
   }, []);
 
-  const handleSave = useCallback(async () => {
-    if (Object.keys(draft).length === 0) return;
-    setSaving(true);
-    try {
-      await API.updateSystemConfig(draft);
-      // PATCH 成功但回读失败时不报成功：旧的 settings 还在，界面看起来像是已经刷新，
-      // 而用户看到的其实是保存前的那一份。
-      const reloaded = await fetchConfig();
-      if (!reloaded) return;
-      useAppStore.getState().pushToast(t("dashboard:social_publish_saved"), "success");
+  const source = useMemo(() => fieldsFrom(settings), [settings]);
+  const saveFields = useCallback(
+    async (fields: SocialPublishFields, saved: SocialPublishFields) => {
+      const res = await API.updateSystemConfig(changedFields(fields, saved));
+      setSettings(res.settings);
       // 凭证刚换过，旧的账号列表已经无效：重取而不是留着上一份显示。
       void loadProfiles();
-    } catch (err) {
-      useAppStore.getState().pushToast(t("dashboard:save_failed", { message: errMsg(err) }), "error");
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, fetchConfig, loadProfiles, t]);
+      return fieldsFrom(res.settings);
+    },
+    [loadProfiles],
+  );
+  const unit = useEditUnit({ source, save: saveFields });
+  const fields = unit.value;
+  const setFields = unit.setValue;
 
   if (!settings) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 p-10 text-text-4">
-        {configError === null ? (
-          <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
-        ) : (
-          <>
-            <InlineWarning message={configError} />
-            <button
-              type="button"
-              onClick={() => void fetchConfig()}
-              className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              {t("common:retry")}
-            </button>
-          </>
-        )}
+    return configError === null ? (
+      <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+        {t("common:loading")}
+      </div>
+    ) : (
+      <div className="flex flex-col items-start gap-3 py-12">
+        <InlineWarning message={configError} />
+        <Button variant="outline" onClick={() => void fetchConfig()}>
+          {t("common:retry")}
+        </Button>
       </div>
     );
   }
 
   const keyIsSet = settings.upload_post_api_key?.is_set ?? false;
-  const currentProfile = draft.upload_post_profile ?? settings.upload_post_profile ?? "";
-  const currentBaseUrl = draft.upload_post_base_url ?? settings.upload_post_base_url ?? "";
-  const isDirty = Object.keys(draft).length > 0;
 
   return (
-    <div className="space-y-4 p-6">
-      {/* 首次加载失败走上面的空态分支；这里是「已经有一份配置、但刚才那次回读失败了」，
-          不画出来的话保存后界面看着像已刷新，其实显示的是保存前的那一份。 */}
-      {configError !== null && <InlineWarning message={configError} />}
-      <SectionCard
-        kicker="Distribution"
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-1">
+        <h2 className="text-lg font-medium">{t("dashboard:social_publish_section_title")}</h2>
+      </header>
+
+      <SettingsCard
         title={t("dashboard:social_publish_credentials_title")}
         description={t("dashboard:social_publish_credentials_desc")}
       >
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="upload-post-api-key" className={LABEL_CLS}>
-              {t("dashboard:social_publish_api_key_label")}
-            </label>
-            <input
-              id="upload-post-api-key"
-              type="password"
-              autoComplete="off"
-              value={draft.upload_post_api_key ?? ""}
-              placeholder={
-                keyIsSet
-                  ? t("dashboard:social_publish_api_key_configured")
-                  : t("dashboard:social_publish_api_key_placeholder")
-              }
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, upload_post_api_key: event.target.value }))
-              }
-              className={`${INPUT_CLS} font-mono`}
-            />
-            <p className="mt-1 text-[11px] text-text-4">
-              {keyIsSet
-                ? t("dashboard:social_publish_api_key_set_hint")
-                : t("dashboard:social_publish_api_key_hint")}
-            </p>
-          </div>
-
-          <div>
-            <label htmlFor="upload-post-profile" className={LABEL_CLS}>
-              {t("dashboard:social_publish_profile_label")}
-            </label>
-            <input
-              id="upload-post-profile"
-              type="text"
-              value={currentProfile}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, upload_post_profile: event.target.value }))
-              }
-              className={INPUT_CLS}
-            />
-            <p className="mt-1 text-[11px] text-text-4">{t("dashboard:social_publish_profile_hint")}</p>
-          </div>
-
-          <div>
-            <label htmlFor="upload-post-base-url" className={LABEL_CLS}>
-              {t("dashboard:social_publish_base_url_label")}
-            </label>
-            <input
-              id="upload-post-base-url"
-              type="url"
-              value={currentBaseUrl}
-              placeholder="https://api.upload-post.com/api"
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, upload_post_base_url: event.target.value }))
-              }
-              className={`${INPUT_CLS} font-mono`}
-            />
-            <p className="mt-1 text-[11px] text-text-4">{t("dashboard:social_publish_base_url_hint")}</p>
-          </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="upload-post-api-key">{t("dashboard:social_publish_api_key_label")}</Label>
+          <Input
+            id="upload-post-api-key"
+            type="password"
+            autoComplete="off"
+            aria-describedby="upload-post-api-key-hint"
+            value={fields.upload_post_api_key}
+            placeholder={
+              keyIsSet
+                ? t("dashboard:social_publish_api_key_configured")
+                : t("dashboard:social_publish_api_key_placeholder")
+            }
+            onChange={(event) => setFields((prev) => ({ ...prev, upload_post_api_key: event.target.value }))}
+          />
+          <FieldHint id="upload-post-api-key-hint">
+            {keyIsSet ? t("dashboard:social_publish_api_key_set_hint") : t("dashboard:social_publish_api_key_hint")}
+          </FieldHint>
         </div>
-      </SectionCard>
 
-      <SectionCard
-        kicker="Connected Accounts"
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="upload-post-profile">{t("dashboard:social_publish_profile_label")}</Label>
+          <Input
+            id="upload-post-profile"
+            type="text"
+            aria-describedby="upload-post-profile-hint"
+            value={fields.upload_post_profile}
+            onChange={(event) => setFields((prev) => ({ ...prev, upload_post_profile: event.target.value }))}
+          />
+          <FieldHint id="upload-post-profile-hint">{t("dashboard:social_publish_profile_hint")}</FieldHint>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="upload-post-base-url">{t("dashboard:social_publish_base_url_label")}</Label>
+          <Input
+            id="upload-post-base-url"
+            type="url"
+            aria-describedby="upload-post-base-url-hint"
+            value={fields.upload_post_base_url}
+            placeholder="https://api.upload-post.com/api"
+            onChange={(event) => setFields((prev) => ({ ...prev, upload_post_base_url: event.target.value }))}
+          />
+          <FieldHint id="upload-post-base-url-hint">{t("dashboard:social_publish_base_url_hint")}</FieldHint>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
         title={t("dashboard:social_publish_accounts_title")}
         description={t("dashboard:social_publish_accounts_desc")}
       >
-        <button
-          type="button"
-          onClick={() => void loadProfiles()}
-          disabled={loadingProfiles}
-          className="mb-3 inline-flex items-center gap-1.5 rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline-strong hover:text-text disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          {loadingProfiles ? (
-            <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-          )}
-          {t("dashboard:social_publish_accounts_refresh")}
-        </button>
+        <div>
+          <Button variant="outline" size="sm" onClick={() => void loadProfiles()} disabled={loadingProfiles}>
+            {loadingProfiles ? (
+              <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <RefreshCw aria-hidden data-icon="inline-start" />
+            )}
+            {t("dashboard:social_publish_accounts_refresh")}
+          </Button>
+        </div>
 
-        {profilesError && <p className="text-[12px] text-warm">{profilesError}</p>}
+        {profilesError && <InlineWarning message={profilesError} />}
 
         {profiles !== null && profiles.length === 0 && (
-          <p className="text-[12px] text-text-3">{t("dashboard:social_publish_accounts_empty")}</p>
+          <p className="text-sm text-muted-foreground">{t("dashboard:social_publish_accounts_empty")}</p>
         )}
 
-        {profiles?.map((profile) => (
-          <div key={profile.username} className="mb-3 last:mb-0">
-            <div className="font-mono text-[11px] text-text-3">{profile.username}</div>
-            <ul className="mt-1 flex flex-wrap gap-1.5">
-              {profile.accounts.map((account) => (
-                <li
-                  key={account.platform}
-                  className="rounded-[6px] border border-hairline px-2 py-1 text-[11.5px] text-text-2"
-                >
-                  <span className="text-text">{account.platform}</span>
-                  {account.handle && <span className="ml-1 text-text-4">{account.handle}</span>}
-                  {account.reauth_required && (
-                    <span className="ml-1.5 text-warm">
-                      {t("dashboard:social_publish_reauth_required")}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
+        {profiles !== null && profiles.length > 0 && (
+          <div className="flex flex-col gap-3">
+            {profiles.map((profile) => (
+              <div key={profile.username} className="flex flex-col gap-1.5">
+                <div className="font-mono text-xs text-muted-foreground">{profile.username}</div>
+                <ul className="flex flex-wrap gap-1.5">
+                  {profile.accounts.map((account) => (
+                    <li key={account.platform} className="rounded-md border border-border px-2 py-1 text-xs">
+                      <span>{account.platform}</span>
+                      {account.handle && <span className="ml-1 text-muted-foreground">{account.handle}</span>}
+                      {account.reauth_required && (
+                        <span className="ml-1.5 text-warn">{t("dashboard:social_publish_reauth_required")}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
-        ))}
-      </SectionCard>
+        )}
+      </SettingsCard>
 
-      {isDirty && (
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden /> : null}
-            {saving ? t("common:saving") : t("common:save")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setDraft({})}
-            className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            {t("common:reset")}
-          </button>
-        </div>
-      )}
+      <PageShellFooter>
+        <SaveBar unit={unit} />
+      </PageShellFooter>
     </div>
   );
 }

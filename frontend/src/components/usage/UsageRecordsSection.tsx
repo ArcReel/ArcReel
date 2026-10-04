@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useSearch } from "wouter";
 import { useShallow } from "zustand/react/shallow";
+import { cn } from "cn";
 
 import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { isActiveStatus, useTasksStore } from "@/stores/tasks-store";
@@ -204,17 +205,10 @@ export function UsageRecordsSection() {
       : () => void cancellation.requestAll(cancelProject);
 
   return (
-    <section className="space-y-4">
-      <header>
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2">
-          Usage Records
-        </div>
-        <h3 className="mt-1 text-[14.5px] font-medium text-text">
-          {t("usage_records_title")}
-        </h3>
-        <p className="mt-1 text-[12px] leading-[1.55] text-text-3">
-          {t("usage_records_desc")}
-        </p>
+    <section className="flex flex-col gap-4">
+      <header className="flex flex-col gap-1">
+        <h2 className="text-lg font-medium">{t("usage_records_title")}</h2>
+        <p className="text-sm text-muted-foreground">{t("usage_records_desc")}</p>
       </header>
 
       <UsageFilterBar
@@ -231,7 +225,7 @@ export function UsageRecordsSection() {
       />
 
       {(summaryFailed || recordsFailed) && (
-        <p role="status" className="text-[12px] text-danger-2">
+        <p role="status" className="text-sm text-destructive">
           {t("usage_load_failed")}
         </p>
       )}
@@ -240,15 +234,15 @@ export function UsageRecordsSection() {
 
       <UsageTrendCard summary={summary} />
 
-      <div className="grid grid-cols-12 gap-4">
-        <UsageBreakdownCard
-          summary={summary}
-          filters={filters}
-          onChange={onFiltersChange}
-          wide={!hasAttention}
-        />
+      {/* 构成与需要关注在内容列够宽时并排，窄时上下叠放；没有需要关注时构成占满整行 */}
+      <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-12">
+        <div className={cn("flex min-w-0 flex-col", hasAttention ? "@4xl/page:col-span-7" : "@4xl/page:col-span-12")}>
+          <UsageBreakdownCard summary={summary} filters={filters} onChange={onFiltersChange} />
+        </div>
         {hasAttention && summary && (
-          <UsageAttentionCard summary={summary} onChange={onFiltersChange} />
+          <div className="flex min-w-0 flex-col @4xl/page:col-span-5">
+            <UsageAttentionCard summary={summary} onChange={onFiltersChange} />
+          </div>
         )}
       </div>
 
