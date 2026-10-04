@@ -1089,7 +1089,7 @@ describe("ScriptReviewGate item fields", () => {
 
     fireEvent.click(xiaotao);
     fireEvent.click(within(dialog).getByRole("button", { name: /旧宅/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "确定" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     expect(await saveAndReadContent(save)).toMatchObject({

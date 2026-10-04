@@ -4,7 +4,7 @@ import {
   defaultEpisodeView,
   episodeViewTabs,
   resolveEpisodeView,
-  staysOnEpisodeCanvas,
+  staysInEpisodeView,
   withEpisodeView,
   type EpisodeViewFacts,
 } from "./episode-view";
@@ -85,11 +85,22 @@ describe("withEpisodeView", () => {
   });
 });
 
-describe("staysOnEpisodeCanvas", () => {
-  it("lets canvas view switches through and stops edit or other pages", () => {
-    expect(staysOnEpisodeCanvas("/episodes/1?view=plan", "/episodes/1")).toBe(true);
-    expect(staysOnEpisodeCanvas("?view=grid", "/episodes/1?view=plan")).toBe(true);
-    expect(staysOnEpisodeCanvas("/episodes/1?view=edit", "/episodes/1")).toBe(false);
-    expect(staysOnEpisodeCanvas("/episodes/2", "/episodes/1")).toBe(false);
+describe("staysInEpisodeView", () => {
+  it("lets navigation through only while the resolved view stays the same", () => {
+    expect(staysInEpisodeView("/episodes/1", "/episodes/1?view=board", SCRIPTED)).toBe(true);
+    expect(staysInEpisodeView("/episodes/1?view=board&unit=2", "/episodes/1", SCRIPTED)).toBe(true);
+    expect(staysInEpisodeView("/episodes/1?view=plan", "/episodes/1", SCRIPTED)).toBe(false);
+    expect(staysInEpisodeView("?view=grid", "/episodes/1", { ...SCRIPTED, grid: true })).toBe(false);
+    expect(staysInEpisodeView("/episodes/1?view=edit", "/episodes/1", SCRIPTED)).toBe(false);
+    expect(staysInEpisodeView("/episodes/2", "/episodes/1", SCRIPTED)).toBe(false);
+  });
+
+  it("resolves a missing or unavailable view to the default view of the episode", () => {
+    // 参考生视频在中间稿阶段缺省停在脚本规划：去掉 view 就是离开视频单元
+    const referenceDraft: EpisodeViewFacts = { ...SCRIPTED, route: "reference_video", hasScript: false };
+    expect(staysInEpisodeView("/episodes/1", "/episodes/1?view=board", referenceDraft)).toBe(false);
+    expect(staysInEpisodeView("/episodes/1?view=plan", "/episodes/1", referenceDraft)).toBe(true);
+    // 没开宫格时 view=grid 不可选，按缺省视图（分镜）显示
+    expect(staysInEpisodeView("/episodes/1?view=grid", "/episodes/1", SCRIPTED)).toBe(true);
   });
 });

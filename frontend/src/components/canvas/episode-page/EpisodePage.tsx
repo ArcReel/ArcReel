@@ -32,6 +32,7 @@ import {
 import { EpisodeHead } from "./EpisodeHead";
 import { EpisodeHeaderActions, EpisodeHeaderSlotProvider } from "./EpisodeHeaderActions";
 import { EpisodePageHeader, episodeViewTabId } from "./EpisodePageHeader";
+import { EpisodeViewFactsProvider } from "./EpisodeViewScope";
 
 export interface EpisodeViewChangeOptions {
   /** 替换当前历史记录而不是新增一条：程序触发的切换（如跳到某个单元）用它，后退不必多退一步。 */
@@ -47,7 +48,8 @@ export interface EpisodeCanvasContext {
  * 一集的页面：两行页头（集头、制作进度、视图 tab 与动作插槽）与下方的视图区。
  *
  * 视图记在地址的 `?view=` 上（见 `episode-view.ts`）。脚本规划、多宫格分镜图与分镜三个视图由同一个画布承担，
- * 切换时画布不卸载，未保存的草稿留在原处；剪辑视图替换整个画布。剧本还没生成时脚本规划视图是集原文确认。
+ * 切换时画布不卸载；画布里的编辑单元只挂在某一个视图下，经 `EpisodeViewFactsProvider` 判断哪些跳转会卸载自己。
+ * 剪辑视图替换整个画布。剧本还没生成时脚本规划视图是集原文确认。
  */
 export function EpisodePage({
   projectName,
@@ -153,7 +155,7 @@ export function EpisodePage({
   } else if (sourceReview) {
     body = <EpisodeSourceReview projectName={projectName} episode={episode} episodes={projectData?.episodes ?? []} />;
   } else {
-    body = renderCanvas({ view, onViewChange: changeView });
+    body = <EpisodeViewFactsProvider value={facts}>{renderCanvas({ view, onViewChange: changeView })}</EpisodeViewFactsProvider>;
   }
 
   return (

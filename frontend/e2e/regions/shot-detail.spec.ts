@@ -135,7 +135,27 @@ const API: ApiOverrides = {
       })),
     },
   },
-  "POST /api/v1/projects/demo/script-items/E1S01/move": { status: 200, body: { success: true } },
+  "POST /api/v1/projects/demo/script-items/E1S02/move": { status: 200, body: { success: true } },
+};
+
+// 时长弹层要有可选档位：录制的视频能力是解析失败，时长按钮因此禁用。
+const API_WITH_DURATIONS: ApiOverrides = {
+  ...API,
+  "GET /api/v1/projects/demo/video-capabilities": {
+    status: 200,
+    body: {
+      provider_id: "gemini-aistudio",
+      model: "veo-3.1-generate-preview",
+      supported_durations: [4, 6, 8],
+      max_duration: 8,
+      max_reference_images: 3,
+      first_frame: true,
+      last_frame: true,
+      source: "registry",
+      voice_consistency: "none",
+      duration_constraints: { resolution: null, uses_reference_images: false, allowed: [4, 6, 8], planning: [4, 6, 8], excluded: {} },
+    },
+  },
 };
 
 const COMPACT_TIER_MAX_WIDTH = 1279;
@@ -190,11 +210,11 @@ defineRegionScenarios("分镜详情", [
     act: async (page) => {
       await expect(shotList(page).getByRole("button", { name: /^S01/ })).toHaveAttribute("aria-current", "true");
       const { width } = viewport(page);
-      // 1440 宽、Agent 面板展开时，引用与台词同屏可见
+      // 1440 宽、Agent 面板展开时，引用与台词区同屏可见（提示词随内容撑高，长台词可能在首屏之下）
       if (width === 1440) {
         await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("heading", { name: "引用" })).toBeInViewport();
-        await expect(page.getByText(UTTERANCES[1].text)).toBeInViewport();
+        await expect(page.getByRole("heading", { name: "发声序列" })).toBeInViewport();
       }
       // 1920 宽时媒体栏约 660px，分镜图与视频并排
       if (width === 1920) {
@@ -276,21 +296,101 @@ defineRegionScenarios("分镜详情", [
     screenshot: { name: "shot-detail-versions", target: (page) => page.getByRole("dialog", { name: "历史版本" }) },
   },
   {
-    name: "用键盘把第一个分镜移到第二个之后",
+    name: "改了提示词后出现未保存提示条，生成按钮改为保存并生成",
+    path: BOARD_PATH,
+    api: API,
+    ready: boardReady,
+    act: async (page) => {
+      await clearAgentOverlay(page);
+      const prompt = page.getByRole("textbox", { name: "分镜图提示词" });
+      await prompt.fill(`${LONG_IMAGE_PROMPT}\n\n${LONG_VIDEO_PROMPT}`);
+      await expect(page.getByRole("status").filter({ hasText: "有未保存的修改" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "放弃修改" })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^保存并生成/ }).first()).toBeAttached();
+    },
+    screenshot: { name: "shot-detail-unsaved", target: detail },
+  },
+  {
+    name: "有未保存修改时按 J 切换分镜先询问",
+    path: BOARD_PATH,
+    api: API,
+    ready: boardReady,
+    act: async (page) => {
+      await page.getByRole("textbox", { name: "分镜图提示词" }).fill("雨停后的旧城街景");
+      // 焦点在输入框里时 J 是要输入的字符；移开焦点再按
+      await page.getByRole("textbox", { name: "分镜图提示词" }).blur();
+      await page.keyboard.press("j");
+      const dialog = page.getByRole("alertdialog", { name: "「S01」有未保存的修改" });
+      await expect(dialog.getByRole("button", { name: "保存并切换" })).toBeVisible();
+      await waitForEntrance(dialog);
+    },
+    screenshot: { name: "shot-detail-leave-confirm", target: (page) => page.getByRole("alertdialog") },
+  },
+  {
+    name: "打开时长弹层",
+    path: BOARD_PATH,
+    api: API_WITH_DURATIONS,
+    ready: boardReady,
+    act: async (page) => {
+      await page.getByRole("button", { name: /^8 秒/ }).click();
+      const popover = page.getByRole("dialog", { name: "时长选择" });
+      await expect(popover).toBeVisible();
+      await waitForEntrance(popover);
+      const rect = await box(popover);
+      const { width, height } = viewport(page);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(height);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+    },
+    screenshot: { name: "shot-detail-duration", target: (page) => page.getByRole("dialog", { name: "时长选择" }) },
+  },
+  {
+    name: "打开引用编辑对话框并改动引用",
+    path: BOARD_PATH,
+    api: API,
+    ready: boardReady,
+    act: async (page) => {
+      await clearAgentOverlay(page);
+      await page.getByRole("button", { name: "编辑引用" }).click();
+      const dialog = page.getByRole("dialog", { name: /引用/ });
+      await dialog.getByRole("button", { name: /陈默/ }).click();
+      await expect(dialog.getByText("引用有改动，确定后生效")).toBeVisible();
+      await waitForEntrance(dialog);
+    },
+    screenshot: { name: "shot-detail-refs-dialog", target: (page) => page.getByRole("dialog", { name: /引用/ }) },
+  },
+  {
+    name: "把文本提示词切回结构化前确认",
+    path: BOARD_PATH,
+    api: API,
+    ready: boardReady,
+    act: async (page) => {
+      await clearAgentOverlay(page);
+      await page.getByRole("button", { name: "结构化" }).first().click();
+      const dialog = page.getByRole("alertdialog", { name: "切换回结构化提示词？" });
+      await expect(dialog.getByRole("button", { name: "丢弃并切换" })).toBeVisible();
+      await waitForEntrance(dialog);
+    },
+  },
+  {
+    name: "用键盘把第二个分镜移到最前",
     path: BOARD_PATH,
     api: API,
     ready: boardReady,
     act: async (page) => {
       const move = page.waitForRequest(
-        (request) => request.method() === "POST" && request.url().endsWith("/script-items/E1S01/move"),
+        (request) => request.method() === "POST" && request.url().endsWith("/script-items/E1S02/move"),
       );
-      await shotList(page).getByRole("button", { name: "调整 S01 的顺序" }).focus();
+      await shotList(page).getByRole("button", { name: "调整 S02 的顺序" }).focus();
       await page.keyboard.press("Space");
-      await expect(page.getByText(/已拿起「S01」/)).toBeAttached();
-      await page.keyboard.press("ArrowDown");
-      await expect(page.getByText(/「S01」移到第 2 项/)).toBeAttached();
+      await expect(page.getByText(/已拿起「S02」/)).toBeAttached();
+      // dnd-kit 拿起后要等测量完成才响应方向键，之前的按键会被丢掉；按到播报移动为止。
+      // 目标是第 1 项，已在最前时再按上移不会继续移动，重按是安全的。
+      await expect(async () => {
+        await page.keyboard.press("ArrowUp");
+        await expect(page.getByText(/「S02」移到第 1 项/)).toBeAttached({ timeout: 200 });
+      }).toPass();
       await page.keyboard.press("Space");
-      expect((await move).postDataJSON()).toEqual({ script_file: "episode_1.json", after_id: "E1S02" });
+      expect((await move).postDataJSON()).toEqual({ script_file: "episode_1.json", after_id: null });
     },
   },
 ]);

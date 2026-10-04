@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import { useTasksStore } from "@/stores/tasks-store";
@@ -6,8 +6,10 @@ import type { DramaScene } from "@/types";
 
 /**
  * 逐个分镜时长编辑器：候选取经联动约束收窄后的集合，已保存的越界值不静默改写、
- * 按成因给警告并引导重选。
+ * 按成因给警告并引导重选。选中的时长进入未保存修改，随分镜一起保存。
  */
+
+const saved = () => vi.fn().mockResolvedValue(true);
 
 function makeScene(durationSeconds: number): DramaScene {
   return {
@@ -26,6 +28,23 @@ function makeScene(durationSeconds: number): DramaScene {
   };
 }
 
+function baseProps(onUpdatePrompt: Parameters<typeof ShotDetail>[0]["onUpdatePrompt"]) {
+  return {
+    segment: makeScene(4),
+    segmentId: "E1S01",
+    contentMode: "drama" as const,
+    aspectRatio: "9:16" as const,
+    projectName: "demo",
+    scriptFile: "episode_1.json",
+    selectedIndex: 0,
+    totalCount: 1,
+    onPrev: () => {},
+    onNext: () => {},
+    onUpdatePrompt,
+    durationOptions: [8],
+  };
+}
+
 function renderDetail(props: Partial<Parameters<typeof ShotDetail>[0]> = {}, seconds = 4) {
   return render(
     <ShotDetail
@@ -39,21 +58,22 @@ function renderDetail(props: Partial<Parameters<typeof ShotDetail>[0]> = {}, sec
       totalCount={1}
       onPrev={() => {}}
       onNext={() => {}}
-      onUpdatePrompt={() => {}}
+      onUpdatePrompt={saved()}
       durationOptions={[8]}
       {...props}
     />,
   );
 }
 
-/** 时长 pill 是唯一带秒数文案的按钮；越界时它带 aria-label 的 ⚠ 兄弟节点。 */
+/** 时长按钮是唯一以秒数开头的按钮；越界时秒数后面跟着读屏可读的警告。 */
 function warningLabel(): string | null {
-  return screen.queryByText("⚠")?.getAttribute("aria-label") ?? null;
+  const name = screen.getByRole("button", { name: /^\d+ 秒/ }).textContent ?? "";
+  return name.replace(/^\d+ 秒/, "") || null;
 }
 
 describe("ShotDetail 时长候选与越界提示", () => {
   it("只呈现收窄后的候选，越界的已保存值仍原样显示、不被改写", () => {
-    const onUpdatePrompt = vi.fn();
+    const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
 
     // 存值 4 秒照常显示——静默改写会让用户在不知情下丢掉自己的设置
@@ -67,12 +87,28 @@ describe("ShotDetail 时长候选与越界提示", () => {
     expect(radios[0]).toHaveTextContent("8 秒");
   });
 
-  it("重选写回选中的候选值", () => {
-    const onUpdatePrompt = vi.fn();
+  it("重选的时长进入未保存修改，保存时写回", async () => {
+    const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
     fireEvent.click(screen.getByRole("radio", { name: /8 秒/ }));
-    expect(onUpdatePrompt).toHaveBeenCalledWith("E1S01", "duration_seconds", 8);
+    expect(onUpdatePrompt).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onUpdatePrompt).toHaveBeenCalledWith("E1S01", { duration_seconds: 8 }));
+  });
+
+  it("改完时长后分镜开始生成：保存被拒并说明原因，不写回", async () => {
+    const onUpdatePrompt = saved();
+    const { rerender } = render(<ShotDetail {...baseProps(onUpdatePrompt)} />);
+    fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /8 秒/ }));
+
+    rerender(<ShotDetail {...baseProps(onUpdatePrompt)} generatingVideo />);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("该分镜正在生成中，暂不能修改时长");
+    expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
 
   it("候选内的值不告警", () => {
@@ -117,13 +153,13 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
       const { unmount } = renderDetail({ [busyProp]: true }, 8);
       const pill = screen.getByRole("button", { name: /8 秒/ });
       expect(pill).toBeDisabled();
-      expect(pill).toHaveAttribute("title", "该分镜正在生成中，暂不能修改时长");
+      expect(pill).toHaveAccessibleDescription("该分镜正在生成中，暂不能修改时长");
       unmount();
     }
   });
 
   it("面板打开后任务才启动时收起面板，且提交被拒不写回", () => {
-    const onUpdatePrompt = vi.fn();
+    const onUpdatePrompt = saved();
     const { rerender } = render(
       <ShotDetail
         segment={makeScene(4)}
@@ -168,7 +204,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
   it("prop 还没跟上、但 store 已记录该分镜在跑时，提交仍被拒", () => {
     // 提交时刻复核的存在理由：prop 反映的是上次渲染，store 更新到重渲染提交之间用户仍可能
     // 点下去。故走 tasks-store 的 isResourceBusy 新鲜读，而不是只看 busy prop。
-    const onUpdatePrompt = vi.fn();
+    const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
 
@@ -199,13 +235,13 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     });
 
     fireEvent.click(screen.getByRole("radio", { name: /8 秒/ }));
-    expect(onUpdatePrompt).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
 
   it("同集宫格任务在跑时提交被拒（grid 按 scriptFile 判，归不进分镜粒度）", () => {
     // grid 任务的 resource_id 是 grid_id，isResourceBusy 的分镜粒度判定看不到它；
     // 而切割阶段会覆写本集多个分镜、与改时长并发写同一份剧本。
-    const onUpdatePrompt = vi.fn();
+    const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
 
@@ -236,13 +272,13 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     });
 
     fireEvent.click(screen.getByRole("radio", { name: /8 秒/ }));
-    expect(onUpdatePrompt).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
 
   it("prop 还没跟上、但 store 已记录该分镜在跑时，面板打不开", () => {
     // 打开时刻同样要新鲜复核：渲染完成到用户点击之间任务可能才启动，此时 busy prop
     // 还停留在上次渲染，只看它会让面板照常展开。
-    const onUpdatePrompt = vi.fn();
+    const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
 
     useTasksStore.setState({
@@ -279,7 +315,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
   it("任务结束后旧面板不自行重现", () => {
     // 只派生可见性（open && !locked）会在 locked 回落时让旧面板连同未提交草稿一起回来。
     // 转入锁定态必须真正清掉 open 与 draftSeconds。
-    const onUpdatePrompt = vi.fn();
+    const onUpdatePrompt = saved();
     const props = {
       segment: makeScene(4),
       segmentId: "E1S01",
@@ -310,18 +346,14 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
   it("空档位的两种成因各说各的话", () => {
     renderDetail({ durationOptions: [] });
 
-    expect(screen.getByRole("button", { name: /4 秒/ })).toHaveAttribute(
-      "title",
-      "当前模型未配置可用时长，无法修改",
-    );
+    expect(screen.getByRole("button", { name: /4 秒/ })).toHaveAccessibleDescription("当前模型未配置可用时长，无法修改");
   });
 
   it("时长由端点固定时不说成「未配置」", () => {
     // 这份 workflow 的配置是完整的，只是片长不由 ArcReel 驱动。
     renderDetail({ durationOptions: [], durationEndpointFixed: true });
 
-    expect(screen.getByRole("button", { name: /4 秒/ })).toHaveAttribute(
-      "title",
+    expect(screen.getByRole("button", { name: /4 秒/ })).toHaveAccessibleDescription(
       "时长由端点固定：每段成片多长由 workflow 决定。",
     );
   });

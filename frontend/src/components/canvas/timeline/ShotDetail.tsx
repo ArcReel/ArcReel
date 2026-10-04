@@ -1,12 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  ImageIcon,
-  Film,
-  Check,
-  Loader2,
-  Undo2,
-} from "lucide-react";
+import { AlertTriangle, Film, ImageIcon, Timer } from "lucide-react";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   NarrationSegment,
@@ -26,6 +20,25 @@ import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
 import { ShotDetailLayout, ShotGroup, ShotMediaGrid, ShotSection, ShotSourceCollapsible } from "./ShotDetailLayout";
 import { ShotDetailHeader } from "./ShotDetailHeader";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { UnsavedChangesBar } from "@/components/shared/edit-unit/UnsavedChangesBar";
+import { useStaysInEpisodeView } from "@/components/canvas/episode-page/EpisodeViewScope";
 import { MediaCard } from "./MediaCard";
 import { EndFrameRow } from "./EndFrameRow";
 import { NarrationAudioCard } from "./NarrationAudioCard";
@@ -35,8 +48,6 @@ import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { ShotStructureActions, type InsertShotHandler } from "./ShotStructureActions";
 import { SegmentBreakToggle } from "./SegmentBreakToggle";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
-import { Popover } from "@/components/legacy/FloatingPopover";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, isScriptFileBusy } from "@/stores/tasks-store";
@@ -45,6 +56,8 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { speakerCandidates } from "@/utils/plan-new-assets";
 import { durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
 import { errMsg } from "@/utils/async";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { charactersFieldFor, type CharactersField } from "@/utils/script-shape";
 import {
   emptyImagePrompt,
   emptyVideoPrompt,
@@ -78,11 +91,11 @@ interface ShotDetailProps {
   totalCount: number;
   onPrev: () => void;
   onNext: () => void;
-  onUpdatePrompt?: (
-    segmentId: string,
-    fieldOrPatch: string | Record<string, unknown>,
-    value?: unknown,
-  ) => void | Promise<void>;
+  /**
+   * 提交分镜字段的增量修改，失败时抛错。resolve 为保存后项目是否已刷新：
+   * 为 false 时界面上的剧本还是旧的，「保存并生成」不能接着生成。缺省时只读展示。
+   */
+  onUpdatePrompt?: (segmentId: string, patch: Record<string, unknown>) => Promise<boolean>;
   /** 分镜改序：向前或向后移动一位 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
   /** 分镜重排请求在途，移动按钮禁用 */
@@ -108,12 +121,136 @@ interface ShotDetailProps {
   capabilitiesLoading?: boolean;
   /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
+  /** 分镜视图经它读当前分镜有无未保存修改、用 ⌘S / Ctrl+S 保存；卸载时清空。 */
+  editRef?: RefObject<ShotEditHandle | null>;
 }
 
-function getNarrationText(seg: Segment, mode: DetailContentMode): string {
-  if (mode === "narration") return (seg as NarrationSegment).novel_text || "";
-  if (mode === "ad") return (seg as AdShot).voiceover_text || "";
-  const utterances = (seg as DramaScene).utterances ?? [];
+/** 分镜视图需要的当前分镜编辑状态。 */
+export interface ShotEditHandle {
+  dirty: boolean;
+  /** 保存当前分镜；保存在途或没有修改时什么都不做。 */
+  save: () => void;
+}
+
+/**
+ * 分镜详情的编辑单元：提示词、口播与台词、旁白正文、时长、备注、引用与切分点。
+ * 这些字段都先进入未保存修改，由提示条统一保存或放弃。可选字段只在对应内容类型下存在。
+ */
+interface ShotFields {
+  image_prompt: ImagePromptValue;
+  video_prompt: VideoPromptValue;
+  duration_seconds: number;
+  note: string;
+  characters: string[];
+  scenes: string[];
+  props: string[];
+  /** 旁白 / 剧情演绎：章节切分点 */
+  segment_break?: boolean;
+  /** 广告 / 短片：口播文案与带货框架段落标签 */
+  voiceover_text?: string;
+  section?: string;
+  /** 剧情演绎：分镜级有序发声序列（台词 + 画外音） */
+  utterances?: Utterance[];
+  /** 旁白 / 解说：旁白正文 */
+  novel_text?: string;
+}
+
+const SHOT_FIELD_KEYS = [
+  "image_prompt",
+  "video_prompt",
+  "duration_seconds",
+  "note",
+  "characters",
+  "scenes",
+  "props",
+  "segment_break",
+  "voiceover_text",
+  "section",
+  "utterances",
+  "novel_text",
+] as const satisfies readonly (keyof ShotFields)[];
+
+type ShotFieldKey = (typeof SHOT_FIELD_KEYS)[number];
+
+const EMPTY_UTTERANCES: Utterance[] = [];
+
+// voiceover 的 speaker 允许缺省或 null，两种写法语义等价（无说话人）。比较前归一：
+// voiceover speaker 统一为 null、并固定键序，避免 `{}` 与 `{ speaker: null }` 判成不同，
+// 否则上游把画外音字段规范化后修改标记清不掉。
+const canonicalUtterance = (u: Utterance): Utterance =>
+  u.kind === "dialogue"
+    ? { kind: "dialogue", speaker: u.speaker, text: u.text }
+    : { kind: "voiceover", speaker: null, text: u.text };
+
+/**
+ * 字段的等值签名。字段集合稳定，JSON 即可：键序差异只会来自同一构造路径。
+ * 尚无提示词（null）与空文本等价：既没有内容可保存，PATCH 也不接受清空提示词。
+ */
+function fieldSig(key: ShotFieldKey, value: unknown): string {
+  if (key === "image_prompt" || key === "video_prompt") return JSON.stringify(value ?? "");
+  if (key === "utterances") return JSON.stringify(((value as Utterance[] | undefined) ?? []).map(canonicalUtterance));
+  return JSON.stringify(value ?? null);
+}
+
+function fieldEqual(key: ShotFieldKey, a: ShotFields, b: ShotFields): boolean {
+  return a[key] === b[key] || fieldSig(key, a[key]) === fieldSig(key, b[key]);
+}
+
+function shotFieldsEqual(a: ShotFields, b: ShotFields): boolean {
+  return a === b || SHOT_FIELD_KEYS.every((key) => fieldEqual(key, a, b));
+}
+
+/** 只提交改过的字段；角色引用按内容类型写回对应的字段名。 */
+function shotPatch(value: ShotFields, saved: ShotFields, charField: CharactersField): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const key of SHOT_FIELD_KEYS) {
+    if (fieldEqual(key, value, saved)) continue;
+    patch[key === "characters" ? charField : key] = value[key];
+  }
+  return patch;
+}
+
+function shotFieldsOf(seg: Segment, mode: DetailContentMode): ShotFields {
+  const base = {
+    image_prompt: seg.image_prompt,
+    video_prompt: seg.video_prompt,
+    duration_seconds: seg.duration_seconds ?? 0,
+    note: seg.note ?? "",
+    scenes: seg.scenes ?? [],
+    props: seg.props ?? [],
+  };
+  if (mode === "ad") {
+    const shot = seg as AdShot;
+    return {
+      ...base,
+      characters: shot.characters_in_shot ?? [],
+      voiceover_text: shot.voiceover_text ?? "",
+      section: shot.section ?? "",
+    };
+  }
+  if (mode === "drama") {
+    const scene = seg as DramaScene;
+    return {
+      ...base,
+      characters: scene.characters_in_scene ?? [],
+      segment_break: scene.segment_break === true,
+      utterances: scene.utterances ?? EMPTY_UTTERANCES,
+    };
+  }
+  const segment = seg as NarrationSegment;
+  return {
+    ...base,
+    characters: segment.characters_in_segment ?? [],
+    segment_break: segment.segment_break === true,
+    novel_text: segment.novel_text ?? "",
+  };
+}
+
+/** 配音的文本：旁白取正文，广告取口播；剧情演绎只在没有台词时取画外音。 */
+function narrationTextOf(fields: ShotFields, mode: DetailContentMode): string {
+  if (mode === "narration") return fields.novel_text ?? "";
+  if (mode === "ad") return fields.voiceover_text ?? "";
+  const utterances = fields.utterances ?? EMPTY_UTTERANCES;
   if (utterances.some((utterance) => utterance.kind === "dialogue")) return "";
   return utterances
     .filter((utterance) => utterance.kind === "voiceover")
@@ -122,73 +259,17 @@ function getNarrationText(seg: Segment, mode: DetailContentMode): string {
     .join("\n");
 }
 
-interface DraftState {
-  image_prompt: ImagePromptValue;
-  video_prompt: VideoPromptValue;
-  /** 仅 广告/短片：一等口播文案草稿 */
-  voiceover_text?: string;
-  /** 仅 广告/短片：带货框架段落标签草稿 */
-  section?: string;
-  /** 仅剧情演绎：分镜级有序发声序列草稿（台词 + 画外音） */
-  utterances?: Utterance[];
-  /** 仅旁白/解说：旁白正文草稿 */
-  novel_text?: string;
-}
-
-// 字段集合稳定（ImagePrompt/VideoPrompt/string），JSON.stringify 即可作等值签名：
-// 任何字段顺序差异都来自我们自己的 setter 或上游同一构造路径，键序一致。
-const stableSig = (value: unknown): string => JSON.stringify(value ?? null);
-
-// 稳定空 utterances 引用：缺省 / 非 drama 时统一指向同一常量，避免每次渲染新建 `[]`
-// 让 upstreamSig memo 依赖失效而做无谓 stringify。UtteranceListEditor 只经 map/filter/spread
-// 产出新数组、从不就地改写，故共享此常量安全。
-const EMPTY_UTTERANCES: Utterance[] = [];
-
-// voiceover 的 speaker 允许缺省或 null，两种写法语义等价（无说话人）。签名前归一：
-// voiceover speaker 统一为 null、并固定键序，避免 `{}` 与 `{ speaker: null }` 判成不同，
-// 否则上游把画外音字段规范化后 dirty 清不掉，切镜与生成会持续被禁用。
-const canonicalUtterance = (u: Utterance): Utterance =>
-  u.kind === "dialogue"
-    ? { kind: "dialogue", speaker: u.speaker, text: u.text }
-    : { kind: "voiceover", speaker: null, text: u.text };
-
-const utterancesSig = (list: Utterance[]): string => stableSig(list.map(canonicalUtterance));
-
-/** 草稿各字段的上游已保存值，连同决定草稿形状的内容类型。 */
-interface UpstreamContent {
-  ip: ImagePromptValue;
-  vp: VideoPromptValue;
-  isAd: boolean;
-  voiceover: string;
-  section: string;
-  isDrama: boolean;
-  utterances: Utterance[];
-  isNarration: boolean;
-  novelText: string;
-}
-
-type DraftShape = Pick<UpstreamContent, "isAd" | "isDrama" | "isNarration">;
-
-/** 由上游值构造干净草稿（useState 初始化 / 上游静默跟随 / 取消编辑三处共用）。 */
-function baselineDraft(upstream: UpstreamContent): DraftState {
-  return {
-    image_prompt: upstream.ip,
-    video_prompt: upstream.vp,
-    ...(upstream.isAd ? { voiceover_text: upstream.voiceover, section: upstream.section } : {}),
-    ...(upstream.isDrama ? { utterances: upstream.utterances } : {}),
-    ...(upstream.isNarration ? { novel_text: upstream.novelText } : {}),
-  };
-}
-
-/** 草稿等值签名：与上游基线签名同键形状（漂移会让"干净草稿静默跟随上游"失效）。 */
-function draftSig(d: DraftState, shape: DraftShape): string {
-  return stableSig({
-    ip: d.image_prompt,
-    vp: d.video_prompt,
-    ...(shape.isAd ? { voiceover_text: d.voiceover_text ?? "", section: d.section ?? "" } : {}),
-    ...(shape.isDrama ? { utterances: (d.utterances ?? EMPTY_UTTERANCES).map(canonicalUtterance) } : {}),
-    ...(shape.isNarration ? { novel_text: d.novel_text ?? "" } : {}),
-  });
+/**
+ * 时长是否被在跑的任务锁住：分镜图与视频任务已捕获旧时长，改了两边就不一致。
+ * 宫格任务另按 scriptFile 判：它的 resource_id 是 grid_id，切割阶段会覆写本集内多个分镜。
+ * 读 tasks-store 的当前值，不吃渲染之后才启动的任务。
+ */
+function durationLockedByTasks(projectName: string, segmentId: string, scriptFile?: string): boolean {
+  return (
+    isResourceBusy("storyboard", projectName, segmentId) ||
+    isResourceBusy("video", projectName, segmentId) ||
+    isScriptFileBusy("grid", scriptFile, projectName)
+  );
 }
 
 interface DurationPillProps {
@@ -200,8 +281,9 @@ interface DurationPillProps {
   durationOptions: number[];
   durationEndpointFixed?: boolean;
   durationWarningReason?: ShotDetailProps["durationWarningReason"];
-  onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
-  /** 该分镜有分镜图 / 视频任务在跑；置真时禁止改时长（在跑的任务已捕获旧值，改了两边就不一致）。 */
+  /** 选中的时长写进未保存修改；缺省时只读展示。 */
+  onChange?: (seconds: number) => void;
+  /** 该分镜有分镜图 / 视频任务在跑；置真时禁止改时长。 */
   busy?: boolean;
 }
 
@@ -213,230 +295,143 @@ function DurationPill({
   durationOptions,
   durationEndpointFixed = false,
   durationWarningReason,
-  onUpdatePrompt,
+  onChange,
   busy = false,
 }: DurationPillProps) {
   const { t } = useTranslation("dashboard");
+  const hintId = useId();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLButtonElement>(null);
 
-  // 拖动 slider 期间用本地 state 跟随；松手 / 失焦 / 键盘抬起时再提交一次
-  // 避免 onChange 每像素一次 onUpdatePrompt 产生并发写请求 + 乱序落库
-  const [draftSeconds, setDraftSeconds] = useState<number | null>(null);
-  const displaySeconds = draftSeconds ?? seconds;
-  // 提交时刻复核占用态：面板打开后任务可能才启动，只查打开/渲染时刻会留一个竞态窗口。
-  // 走 tasks-store 的 isResourceBusy 新鲜读而非 busy prop——prop 反映的是上次渲染，
-  // store 更新到重渲染提交之间用户仍可能点下去。命中则拒绝并给可见反馈（与立绘上传的
-  // rejectIfAssetBusy 同口径）。
+  // 打开时与选中时都复核占用态：面板打开后任务可能才启动，busy prop 只反映上次渲染。
   const rejectIfBusy = useCallback(() => {
-    // 宫格任务另按 scriptFile 判：它的 resource_id 是 grid_id，归不进按分镜 resource_id 的
-    // 判定，而切割阶段会覆写本集内多个分镜、与改时长并发写同一份剧本。
-    const stillBusy =
-      busy ||
-      isResourceBusy("storyboard", projectName, segmentId) ||
-      isResourceBusy("video", projectName, segmentId) ||
-      isScriptFileBusy("grid", scriptFile, projectName);
-    if (!stillBusy) return false;
+    if (!busy && !durationLockedByTasks(projectName, segmentId, scriptFile)) return false;
     useAppStore.getState().pushToast(t("duration_locked_generating"), "info");
     return true;
   }, [busy, projectName, segmentId, scriptFile, t]);
 
-  const commitDraft = useCallback(() => {
-    if (draftSeconds == null) return;
-    if (rejectIfBusy()) {
-      setDraftSeconds(null);
-      return;
-    }
-    if (draftSeconds !== seconds) {
-      void onUpdatePrompt?.(segmentId, "duration_seconds", draftSeconds);
-    }
-    setDraftSeconds(null);
-  }, [draftSeconds, seconds, segmentId, onUpdatePrompt, rejectIfBusy]);
-
-  const editable = !!onUpdatePrompt;
   const noOptions = durationOptions.length === 0;
   const locked = noOptions || busy;
-
-  // 转入锁定态时真正清掉面板与草稿，而不只是遮蔽：只派生可见性的话，任务结束、locked 回到
-  // false 时旧面板会自行重现，未提交的 slider 草稿也一起回来、可能被误写回。
-  // 用「prop 变化时于渲染期调整 state」这一 React 官方模式，而不是 effect——后者多一个渲染
-  // 周期，且踩 react-hooks/set-state-in-effect。
+  // 转入锁定态时真正收起面板，而不只是遮蔽：只派生可见性的话，任务结束后旧面板会自行重现。
   const [prevLocked, setPrevLocked] = useState(locked);
   if (locked !== prevLocked) {
     setPrevLocked(locked);
-    if (locked) {
-      setOpen(false);
-      setDraftSeconds(null);
-    }
+    if (locked) setOpen(false);
   }
-  const isIncompatible =
-    durationOptions.length > 0 && !durationOptions.includes(seconds);
+
+  const isIncompatible = durationOptions.length > 0 && !durationOptions.includes(seconds);
   // 与项目默认时长的三种提示同一套判定（见 useModelCapabilities.durationOutOfRangeReason）。
   const incompatibleLabel = durationIncompatibleLabel(t, seconds, durationOptions, durationWarningReason?.(seconds));
-  const useSlider =
-    isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
+  const useSlider = isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
 
-  const baseClass =
-    "inline-flex items-center gap-1.5 rounded-md px-2 py-[3px] text-[11.5px] focus-ring";
-  const baseStyle: React.CSSProperties = {
-    background: isIncompatible
-      ? "oklch(0.32 0.10 75 / 0.35)"
-      : "oklch(0.22 0.011 265 / 0.6)",
-    border: isIncompatible
-      ? "1px solid oklch(0.65 0.12 75 / 0.5)"
-      : "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-    color: isIncompatible ? "oklch(0.85 0.12 80)" : "var(--subtle-foreground)",
+  const select = (next: number) => {
+    if (rejectIfBusy()) {
+      setOpen(false);
+      return;
+    }
+    onChange?.(next);
   };
 
-  if (!editable) {
+  const content = (
+    <>
+      <Timer aria-hidden className="size-3.5" />
+      <span className="num">{t("duration_seconds_value_text", { value: seconds })}</span>
+      {isIncompatible ? (
+        <>
+          <AlertTriangle aria-hidden className="size-3.5 text-warn" />
+          <span className="sr-only">{incompatibleLabel}</span>
+        </>
+      ) : null}
+    </>
+  );
+
+  if (!onChange) {
+    return <span className="inline-flex items-center gap-1 text-xs text-subtle-foreground">{content}</span>;
+  }
+
+  if (locked) {
+    const reason = busy
+      ? t("duration_locked_generating")
+      : t(durationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options");
     return (
-      <span className={baseClass} style={baseStyle}>
-        <span style={{ color: "var(--muted-foreground)" }}>⏱</span>
-        <span className="num">
-          {t("duration_seconds_value_text", { value: seconds })}
+      <>
+        <Tooltip>
+          <TooltipTrigger render={<span className="inline-flex" />}>
+            <Button variant="outline" size="xs" disabled aria-describedby={hintId}>
+              {content}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{reason}</TooltipContent>
+        </Tooltip>
+        <span id={hintId} hidden>
+          {reason}
         </span>
-        {isIncompatible && (
-          <span aria-label={incompatibleLabel} title={incompatibleLabel}>
-            ⚠
-          </span>
-        )}
-      </span>
+      </>
     );
   }
 
   return (
-    <>
-      <button
-        ref={ref}
-        type="button"
-        onClick={() => {
-          if (locked) return;
-          if (!open && rejectIfBusy()) return;
-          setOpen((o) => !o);
-        }}
-        disabled={locked}
-        aria-disabled={locked || undefined}
-        title={
-          busy
-            ? t("duration_locked_generating")
-            : noOptions
-              ? t(durationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options")
-              : undefined
-        }
-        className={`${baseClass} transition-colors disabled:cursor-not-allowed disabled:opacity-60`}
-        style={baseStyle}
-      >
-        <span style={{ color: "var(--muted-foreground)" }}>⏱</span>
-        <span className="num">
-          {t("duration_seconds_value_text", { value: seconds })}
-        </span>
-        {isIncompatible && (
-          <span aria-label={incompatibleLabel} title={incompatibleLabel}>
-            ⚠
-          </span>
-        )}
-      </button>
-      <Popover
-        open={open}
-        onClose={() => setOpen(false)}
-        anchorRef={ref}
-        width="w-auto"
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next && rejectIfBusy()) return;
+        setOpen(next);
+      }}
+    >
+      <PopoverTrigger render={<Button variant="outline" size="xs" />}>{content}</PopoverTrigger>
+      {/* 弹层盖在编辑栏与媒体栏的控件上，fixed 定位与对话框同属浮层 */}
+      <PopoverContent
         align="start"
-        sideOffset={6}
-        backgroundColor="oklch(0.21 0.012 265 / 0.98)"
-        className="rounded-lg p-2"
-        style={{
-          border: "1px solid var(--border)",
-          boxShadow:
-            "0 24px 60px -20px oklch(0 0 0 / 0.7), 0 0 0 1px color-mix(in oklab, var(--border) 50%, transparent)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-        }}
+        positionMethod="fixed"
+        aria-label={t("duration_selector_aria")}
+        className="w-auto max-w-80"
       >
+        {isIncompatible ? (
+          <p className="flex items-start gap-1.5 text-xs text-subtle-foreground">
+            <AlertTriangle aria-hidden className="mt-px size-3.5 shrink-0 text-warn" />
+            {incompatibleLabel}
+          </p>
+        ) : null}
         {useSlider ? (
-          <div className="flex items-center gap-2 px-1 py-1">
+          <div className="flex items-center gap-2">
             <input
               type="range"
               aria-label={t("duration_selector_aria")}
-              aria-valuetext={t("duration_seconds_value_text", { value: displaySeconds })}
+              aria-valuetext={t("duration_seconds_value_text", { value: seconds })}
               min={durationOptions[0]}
               max={durationOptions[durationOptions.length - 1]}
               step={1}
-              value={displaySeconds}
-              onChange={(e) => setDraftSeconds(parseInt(e.target.value, 10))}
-              onPointerUp={commitDraft}
-              onKeyUp={(e) => {
-                if (
-                  e.key === "ArrowLeft" ||
-                  e.key === "ArrowRight" ||
-                  e.key === "ArrowUp" ||
-                  e.key === "ArrowDown" ||
-                  e.key === "Home" ||
-                  e.key === "End" ||
-                  e.key === "PageUp" ||
-                  e.key === "PageDown"
-                ) {
-                  commitDraft();
-                }
-              }}
-              onBlur={commitDraft}
-              className="theme-slider w-40"
+              value={seconds}
+              onChange={(e) => select(Number(e.target.value))}
+              className="w-40 accent-primary"
             />
-            <span
-              className="num min-w-[2.25rem] text-right text-[11.5px]"
-              style={{ color: "var(--subtle-foreground)" }}
-            >
-              {t("duration_seconds_value_text", { value: displaySeconds })}
+            <span className="num min-w-9 text-right text-xs text-subtle-foreground">
+              {t("duration_seconds_value_text", { value: seconds })}
             </span>
           </div>
         ) : (
-          <div
-            className="flex flex-wrap gap-1"
-            role="radiogroup"
-            aria-label={t("duration_selector_aria")}
-          >
+          <div className="num flex flex-wrap gap-1" role="radiogroup" aria-label={t("duration_selector_aria")}>
             {durationOptions.map((d) => {
               const checked = d === seconds;
               return (
-                <button
+                <Button
                   key={d}
                   role="radio"
-                  type="button"
                   aria-checked={checked}
+                  variant={checked ? "default" : "outline"}
+                  size="xs"
                   onClick={() => {
-                    // 与 commitDraft 同口径：提交时刻再复核一次，不吃面板打开后才启动的任务。
-                    if (rejectIfBusy()) {
-                      setOpen(false);
-                      return;
-                    }
-                    void onUpdatePrompt(segmentId, "duration_seconds", d);
+                    select(d);
                     setOpen(false);
                   }}
-                  className="num rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors focus-ring"
-                  style={
-                    checked
-                      ? {
-                          background:
-                            "var(--primary)",
-                          color: "oklch(0.14 0 0)",
-                          boxShadow:
-                            "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 2px 6px -2px color-mix(in oklab, var(--primary) 35%, transparent)",
-                        }
-                      : {
-                          background: "oklch(0.22 0.011 265 / 0.5)",
-                          color: "var(--subtle-foreground)",
-                          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-                        }
-                  }
                 >
                   {t("duration_seconds_value_text", { value: d })}
-                </button>
+                </Button>
               );
             })}
           </div>
         )}
-      </Popover>
-    </>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -471,45 +466,68 @@ export function ShotDetail({
   lastFrame,
   capabilitiesLoading,
   durationWarningReason,
+  editRef,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
-  const narrationText = getNarrationText(segment, contentMode);
-  const hasNarrationText = narrationText.trim().length > 0;
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
-  const ip = segment.image_prompt;
-  const vp = segment.video_prompt;
-  const note = segment.note ?? "";
   const isAd = contentMode === "ad";
-  const adShot = isAd ? (segment as AdShot) : null;
-  const upstreamVoiceover = adShot?.voiceover_text ?? "";
-  const upstreamSection = adShot?.section ?? "";
   const isDrama = contentMode === "drama";
-  const dramaScene = isDrama ? (segment as DramaScene) : null;
-  // drama 分镜级发声序列；缺省字段按无发声处理。
-  const upstreamUtterances = dramaScene?.utterances ?? EMPTY_UTTERANCES;
   const isNarration = contentMode === "narration";
-  const upstreamNovelText = isNarration ? (segment as NarrationSegment).novel_text ?? "" : "";
-  const upstreamContent = useMemo<UpstreamContent>(
-    () => ({
-      ip,
-      vp,
-      isAd,
-      voiceover: upstreamVoiceover,
-      section: upstreamSection,
-      isDrama,
-      utterances: upstreamUtterances,
-      isNarration,
-      novelText: upstreamNovelText,
-    }),
-    [ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances, isNarration, upstreamNovelText],
-  );
+  const readOnly = !onUpdatePrompt;
+  const charField = charactersFieldFor(contentMode);
 
-  // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
-  // 在切分镜时硬重置整个组件，所以这里只需处理"上游同字段静默更新"的情况。
-  // 备注不进入草稿，由 NotesDrawer 收起时直接落库。
-  const [draft, setDraft] = useState<DraftState>(() => baselineDraft(upstreamContent));
-  const [saving, setSaving] = useState(false);
+  // 父级 ShotSplitView 按 segmentId 作 key 挂载：切换分镜前由离开拦截询问。
+  const source = useMemo(() => shotFieldsOf(segment, contentMode), [segment, contentMode]);
+  const save = useCallback(
+    async (value: ShotFields, saved: ShotFields) => {
+      if (!onUpdatePrompt) return;
+      const patch = shotPatch(value, saved, charField);
+      if (Object.keys(patch).length === 0) return;
+      // 在跑的任务已捕获旧时长：保存时再复核一次，不吃改完时长之后才启动的任务
+      if (
+        "duration_seconds" in patch &&
+        (generatingStoryboard || generatingVideo || durationLockedByTasks(projectName, segmentId, scriptFile))
+      ) {
+        throw new Error(t("duration_locked_generating"));
+      }
+      const refreshed = await onUpdatePrompt(segmentId, patch);
+      // 已落盘但界面上的剧本没刷新：不能当作保存成功，否则「保存并生成」会接着用旧剧本生成
+      if (!refreshed) throw new PartialSaveError(t("shot_saved_not_refreshed"), { saved: value });
+    },
+    [onUpdatePrompt, charField, generatingStoryboard, generatingVideo, projectName, segmentId, scriptFile, t],
+  );
+  const allowNavigation = useStaysInEpisodeView();
+  const unit = useEditUnit({
+    source,
+    save,
+    isEqual: shotFieldsEqual,
+    leaveTitle: t("shot_leave_title", { id: itemIdWithinEpisode(segmentId) }),
+    allowNavigation,
+  });
+  const { value: fields, setValue, dirty } = unit;
+  const saving = unit.status === "saving";
+
+  const saveUnit = unit.save;
+  useEffect(() => {
+    if (!editRef) return;
+    editRef.current = {
+      dirty,
+      save: () => {
+        if (!saving) void saveUnit();
+      },
+    };
+    return () => {
+      editRef.current = null;
+    };
+  }, [editRef, dirty, saveUnit, saving]);
+
+  const setField = <K extends keyof ShotFields>(key: K, next: ShotFields[K]) =>
+    setValue((prev) => ({ ...prev, [key]: next }));
+
+  const narrationText = narrationTextOf(fields, contentMode);
+  const hasNarrationText = narrationText.trim().length > 0;
+
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
   const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
   const handleUpload = async (kind: "storyboard" | "video", file: File) => {
@@ -525,135 +543,47 @@ export function ShotDetail({
       } else {
         await onRestoreVideo?.();
       }
-      useAppStore
-        .getState()
-        .pushToast(t("media_upload_success", { id: segmentId }), "success");
+      useAppStore.getState().pushToast(t("media_upload_success", { id: segmentId }), "success");
     } catch (err) {
-      useAppStore
-        .getState()
-        .pushToast(t("media_upload_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("media_upload_failed", { message: errMsg(err) }), "error");
     } finally {
       setUploadingKind(null);
     }
   };
 
-  const upstreamSig = useMemo(() => draftSig(baselineDraft(upstreamContent), upstreamContent), [upstreamContent]);
-  // 上游发声序列签名单独记忆化：dirtyPatch 随每次 keystroke 重算，
-  // 但上游极少变，避免逐键重复序列化整个 upstreamUtterances。
-  const upstreamUtterancesSig = useMemo(() => utterancesSig(upstreamUtterances), [upstreamUtterances]);
-  // 上游变更（保存完成 / Agent 编辑）：草稿干净时静默跟随；脏时保留用户输入。
-  // 渲染阶段状态同步（React 推荐）：本次渲染内直接比对上游签名并校正草稿，
-  // 免去 useEffect 的额外渲染周期与依赖项管理。draft 直接读当前渲染值，无需 ref 镜像。
-  const [syncedUpstreamSig, setSyncedUpstreamSig] = useState(upstreamSig);
-  if (syncedUpstreamSig !== upstreamSig) {
-    if (draftSig(draft, upstreamContent) === syncedUpstreamSig) {
-      setDraft(baselineDraft(upstreamContent));
-    }
-    setSyncedUpstreamSig(upstreamSig);
-  }
-
   const projectCharacters = useProjectsStore((s) => s.currentProjectData?.characters);
   const speakerNames = useMemo(() => speakerCandidates(projectCharacters ?? {}), [projectCharacters]);
 
-  // 引用相等优先：未编辑过的字段直接跳过 stringify。
-  const dirtyPatch = useMemo<Record<string, unknown>>(() => {
-    const patch: Record<string, unknown> = {};
-    // 尚无提示词（上游 null）的一侧，空文本不算改动：既没有内容可保存，PATCH 也不接受清空提示词。
-    if (
-      draft.image_prompt !== ip &&
-      stableSig(draft.image_prompt) !== stableSig(ip) &&
-      !(ip === null && draft.image_prompt === "")
-    )
-      patch.image_prompt = draft.image_prompt;
-    if (
-      draft.video_prompt !== vp &&
-      stableSig(draft.video_prompt) !== stableSig(vp) &&
-      !(vp === null && draft.video_prompt === "")
-    )
-      patch.video_prompt = draft.video_prompt;
-    if (isAd) {
-      if ((draft.voiceover_text ?? "") !== upstreamVoiceover)
-        patch.voiceover_text = draft.voiceover_text ?? "";
-      if ((draft.section ?? "") !== upstreamSection)
-        patch.section = draft.section ?? "";
-    }
-    if (isDrama) {
-      const draftUtterances = draft.utterances ?? EMPTY_UTTERANCES;
-      if (draftUtterances !== upstreamUtterances && utterancesSig(draftUtterances) !== upstreamUtterancesSig)
-        patch.utterances = draftUtterances;
-    }
-    if (isNarration && (draft.novel_text ?? "") !== upstreamNovelText) patch.novel_text = draft.novel_text ?? "";
-    return patch;
-  }, [
-    draft,
-    ip,
-    vp,
-    isAd,
-    upstreamVoiceover,
-    upstreamSection,
-    isDrama,
-    upstreamUtterances,
-    upstreamUtterancesSig,
-    isNarration,
-    upstreamNovelText,
-  ]);
-
-  const dirty = Object.keys(dirtyPatch).length > 0;
-
-
-  const isStructIp = isStructuredImagePrompt(draft.image_prompt);
-  const isStructVp = isStructuredVideoPrompt(draft.video_prompt);
-  const imgDraft: ImagePrompt | null = isStructIp
-    ? (draft.image_prompt as ImagePrompt)
-    : null;
-  const vidDraft: VideoPrompt | null = isStructVp
-    ? (draft.video_prompt as VideoPrompt)
-    : null;
+  const imgValue = isStructuredImagePrompt(fields.image_prompt) ? fields.image_prompt : null;
+  const vidValue = isStructuredVideoPrompt(fields.video_prompt) ? fields.video_prompt : null;
 
   const handleImgUpdate = (patch: Partial<ImagePrompt>) => {
-    setDraft((d) => {
-      if (!isStructuredImagePrompt(d.image_prompt)) return d;
+    setValue((prev) => {
+      if (!isStructuredImagePrompt(prev.image_prompt)) return prev;
       const merged: ImagePrompt = {
-        ...d.image_prompt,
+        ...prev.image_prompt,
         ...patch,
-        composition: {
-          ...d.image_prompt.composition,
-          ...(patch.composition ?? {}),
-        },
+        composition: { ...prev.image_prompt.composition, ...(patch.composition ?? {}) },
       };
-      return { ...d, image_prompt: merged };
+      return { ...prev, image_prompt: merged };
     });
   };
 
   const handleVidUpdate = (patch: Partial<VideoPrompt>) => {
-    setDraft((d) => {
-      if (!isStructuredVideoPrompt(d.video_prompt)) return d;
-      const merged: VideoPrompt = { ...d.video_prompt, ...patch };
-      return { ...d, video_prompt: merged };
+    setValue((prev) => {
+      if (!isStructuredVideoPrompt(prev.video_prompt)) return prev;
+      return { ...prev, video_prompt: { ...prev.video_prompt, ...patch } };
     });
   };
 
-  const handleDialogueChange = (dialogue: Dialogue[]) => {
-    handleVidUpdate({ dialogue });
-  };
-
-  const handleUtterancesChange = (utterances: Utterance[]) => {
-    setDraft((d) => ({ ...d, utterances }));
-  };
-
-  const handleImgStringChange = (val: string) => {
-    setDraft((d) => ({ ...d, image_prompt: val }));
-  };
-
-  const handleVidStringChange = (val: string) => {
-    setDraft((d) => ({ ...d, video_prompt: val }));
-  };
+  const handleDialogueChange = (dialogue: Dialogue[]) => handleVidUpdate({ dialogue });
 
   // 提示词形态切换。结构化 → 文本以后端渲染结果为初值（前端不复刻渲染逻辑）；
   // 文本 → 结构化不做解析，须显式确认丢弃文本。
   const [formSwitching, setFormSwitching] = useState<PromptSide | null>(null);
   const [pendingStructSwitch, setPendingStructSwitch] = useState<PromptSide | null>(null);
   const [formSwitchError, setFormSwitchError] = useState<{ side: PromptSide; message: string } | null>(null);
+  const formHintId = useId();
 
   const switchToTextForm = async (side: PromptSide) => {
     if (!scriptFile || formSwitching) return;
@@ -668,8 +598,8 @@ export function ShotDetail({
         setFormSwitchError({ side, message: rendered.unavailable ?? t("prompt_form_switch_unavailable") });
         return;
       }
-      if (side === "image") handleImgStringChange(rendered.text);
-      else handleVidStringChange(rendered.text);
+      const text = rendered.text;
+      setField(side === "image" ? "image_prompt" : "video_prompt", text);
     } catch (e) {
       setFormSwitchError({ side, message: errMsg(e) });
     } finally {
@@ -678,59 +608,54 @@ export function ShotDetail({
   };
 
   const renderFormSwitchError = (side: PromptSide) =>
-    formSwitchError?.side === side ? (
-      <p className="mt-2 text-[11px]" style={{ color: "var(--warn)" }}>
-        {formSwitchError.message}
-      </p>
-    ) : null;
+    formSwitchError?.side === side ? <p className="text-xs text-warn">{formSwitchError.message}</p> : null;
 
   const confirmStructuredForm = () => {
     const side = pendingStructSwitch;
     if (!side) return;
-    setDraft((d) =>
-      side === "image"
-        ? { ...d, image_prompt: emptyImagePrompt() }
-        : { ...d, video_prompt: emptyVideoPrompt(isDrama) },
-    );
+    if (side === "image") setField("image_prompt", emptyImagePrompt());
+    else setField("video_prompt", emptyVideoPrompt(isDrama));
     setPendingStructSwitch(null);
   };
 
   const renderFormToggle = (side: PromptSide, isStructured: boolean) => {
-    // 草稿脏时禁用：结构化 → 文本的初值取自已保存内容，带着未保存改动切换会静默丢弃它们。
-    const blocked = refsReadOnly || !scriptFile || dirty || formSwitching !== null;
-    const title = dirty ? t("prompt_form_switch_needs_save") : undefined;
+    // 结构化 → 文本的初值取自已保存内容，带着未保存修改切换会静默丢弃它们，须先保存；
+    // 文本 → 结构化本就丢弃文本，由确认框把关。
+    const needsSave = isStructured && dirty;
+    const blocked = readOnly || !scriptFile || formSwitching !== null || needsSave;
+    const current = isStructured ? "structured" : "text";
+    const group = (
+      <ToggleGroup
+        aria-label={t("prompt_form_group_label")}
+        aria-describedby={needsSave ? formHintId : undefined}
+        variant="outline"
+        size="sm"
+        spacing={0}
+        value={[current]}
+        onValueChange={(next: string[]) => {
+          // 再点当前形态会清空选择，忽略
+          if (next[0] === "text") void switchToTextForm(side);
+          else if (next[0] === "structured") setPendingStructSwitch(side);
+        }}
+      >
+        <ToggleGroupItem value="structured" disabled={readOnly || (!isStructured && blocked)}>
+          {t("prompt_form_structured")}
+        </ToggleGroupItem>
+        <ToggleGroupItem value="text" disabled={readOnly || (isStructured && blocked)}>
+          {t("prompt_form_text")}
+        </ToggleGroupItem>
+      </ToggleGroup>
+    );
+    if (!needsSave) return group;
     return (
-      <span className="inline-flex items-center gap-0.5" role="group" aria-label={t("prompt_form_group_label")}>
-        {(
-          [
-            ["structured", t("prompt_form_structured"), isStructured],
-            ["text", t("prompt_form_text"), !isStructured],
-          ] as const
-        ).map(([key, label, active]) => (
-          <button
-            key={key}
-            type="button"
-            aria-pressed={active}
-            disabled={blocked || active}
-            title={title}
-            onClick={() => {
-              if (key === "text") void switchToTextForm(side);
-              else setPendingStructSwitch(side);
-            }}
-            className="focus-ring rounded-sm px-1.5 py-0.5 text-[10px] transition-colors disabled:cursor-default"
-            style={{
-              color: active ? "var(--subtle-foreground)" : "var(--muted-foreground)",
-              background: active ? "var(--card)" : "transparent",
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </span>
+      <Tooltip>
+        <TooltipTrigger render={<span className="inline-flex" />}>{group}</TooltipTrigger>
+        <TooltipContent>{t("prompt_form_switch_needs_save")}</TooltipContent>
+      </Tooltip>
     );
   };
 
-  // 预览读已保存的剧本：与执行期同一渲染出口，草稿脏时由口径说明提示差异。
+  // 预览读已保存的剧本：与执行期同一渲染出口，有未保存修改时由口径说明提示差异。
   const renderPromptPreview = (side: PromptSide) => {
     if (!scriptFile) return null;
     const previewSide = side === "image" ? "storyboard_image" : "video";
@@ -745,27 +670,6 @@ export function ShotDetail({
     );
   };
 
-  const handleNotesCommit = (value: string) => {
-    if (value === note) return;
-    void onUpdatePrompt?.(segmentId, "note", value);
-  };
-
-  const handleSave = async () => {
-    if (!dirty || saving) return;
-    setSaving(true);
-    try {
-      await onUpdatePrompt?.(segmentId, dirtyPatch);
-      // 上游会刷新 → 渲染阶段同步检测到上游签名变化 → 草稿等于新基线时保持干净
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    if (saving) return;
-    setDraft(baselineDraft(upstreamContent));
-  };
-
   const sbEstimate = segCost?.estimate?.image;
   const vidEstimate = segCost?.estimate?.video;
   const narrationEstimate = segCost?.estimate?.audio;
@@ -773,23 +677,17 @@ export function ShotDetail({
   const assets = segment.generated_assets;
   const hasStoryboard = !!assets?.storyboard_image;
 
-  const dirtyHint = t("shot_detail_save_first");
-
-  const characterNames =
-    contentMode === "drama"
-      ? (segment as DramaScene).characters_in_scene ?? []
-      : contentMode === "ad"
-        ? (segment as AdShot).characters_in_shot ?? []
-        : (segment as NarrationSegment).characters_in_segment ?? [];
-  const sceneNames = segment.scenes ?? [];
-  const propNames = segment.props ?? [];
   // 展示用去重：products_in_shot 无唯一性约束（同一商品多次入画合法），重复名直接作 key 会撞
-  const productNames = isAd ? Array.from(new Set(adShot?.products_in_shot ?? [])) : [];
-  const refsReadOnly = !onUpdatePrompt;
+  const productNames = isAd ? Array.from(new Set((segment as AdShot).products_in_shot ?? [])) : [];
 
-  const handleRefsSave = async (patch: Record<string, string[]>) => {
-    if (!onUpdatePrompt || Object.keys(patch).length === 0) return;
-    await onUpdatePrompt(segmentId, patch);
+  // 引用弹窗的「确定」只把改动写进未保存修改，与其他字段一起保存
+  const handleRefsApply = (patch: Record<string, string[]>) => {
+    setValue((prev) => ({
+      ...prev,
+      ...(patch[charField] !== undefined ? { characters: patch[charField] } : {}),
+      ...(patch.scenes !== undefined ? { scenes: patch.scenes } : {}),
+      ...(patch.props !== undefined ? { props: patch.props } : {}),
+    }));
   };
 
   // 广告/短片的段落标签、口播与商品与引用同属中栏顶部的「引用」组。
@@ -798,16 +696,13 @@ export function ShotDetail({
       {isAd && (
         <>
           <ShotSection title={t("detail_section_shot_section")} htmlFor={`shot-section-${segmentId}`}>
-            <input
+            <Input
               id={`shot-section-${segmentId}`}
-              type="text"
               list={`shot-section-options-${segmentId}`}
-              value={draft.section ?? ""}
-              onChange={(e) => setDraft((d) => ({ ...d, section: e.target.value }))}
-              readOnly={refsReadOnly}
+              value={fields.section ?? ""}
+              onChange={(e) => setField("section", e.target.value)}
+              readOnly={readOnly}
               placeholder={t("detail_shot_section_placeholder")}
-              className="prompt-ta"
-              style={{ minHeight: 0 }}
             />
             <datalist id={`shot-section-options-${segmentId}`}>
               {AD_SECTION_VALUES.map((v) => (
@@ -820,18 +715,17 @@ export function ShotDetail({
             htmlFor={`shot-voiceover-${segmentId}`}
             actions={
               <span className="num text-xs text-muted-foreground">
-                {t("detail_field_chars_count", { count: (draft.voiceover_text ?? "").length })}
+                {t("detail_field_chars_count", { count: (fields.voiceover_text ?? "").length })}
               </span>
             }
           >
-            <textarea
+            <Textarea
               id={`shot-voiceover-${segmentId}`}
-              className="prompt-ta"
-              value={draft.voiceover_text ?? ""}
-              onChange={(e) => setDraft((d) => ({ ...d, voiceover_text: e.target.value }))}
-              readOnly={refsReadOnly}
+              value={fields.voiceover_text ?? ""}
+              onChange={(e) => setField("voiceover_text", e.target.value)}
+              readOnly={readOnly}
               placeholder={t("detail_voiceover_placeholder")}
-              style={{ minHeight: 96 }}
+              className="max-h-none min-h-24"
             />
           </ShotSection>
           {productNames.length > 0 && (
@@ -850,12 +744,11 @@ export function ShotDetail({
       <ReferencesSection
         projectName={projectName}
         contentMode={contentMode}
-        characterNames={characterNames}
-        sceneNames={sceneNames}
-        propNames={propNames}
-        onSave={handleRefsSave}
-        disabled={dirty || saving || refsReadOnly}
-        disabledHint={dirty ? dirtyHint : undefined}
+        characterNames={fields.characters}
+        sceneNames={fields.scenes}
+        propNames={fields.props}
+        onSave={handleRefsApply}
+        disabled={saving || readOnly}
       />
     </ShotGroup>
   );
@@ -866,12 +759,7 @@ export function ShotDetail({
         <h3 className="text-sm font-medium text-subtle-foreground">{t("detail_section_prompts")}</h3>
         <span className="flex-1" />
         {episode !== undefined && (
-          <PromptAuthoringButton
-            projectName={projectName}
-            episode={episode}
-            scope="current"
-            currentEntryId={segmentId}
-          />
+          <PromptAuthoringButton projectName={projectName} episode={episode} scope="current" currentEntryId={segmentId} />
         )}
       </div>
 
@@ -886,27 +774,26 @@ export function ShotDetail({
         icon={<ImageIcon aria-hidden className="size-3.5" />}
         actions={
           <>
-            {imgDraft && (
+            {imgValue && (
               <span className="num text-xs text-muted-foreground">
-                {t("detail_field_chars_count", { count: imgDraft.scene.length })}
+                {t("detail_field_chars_count", { count: imgValue.scene.length })}
               </span>
             )}
             {renderPromptPreview("image")}
-            {renderFormToggle("image", isStructIp)}
+            {renderFormToggle("image", imgValue !== null)}
           </>
         }
       >
-        {imgDraft ? (
-          <ImagePromptEditor prompt={imgDraft} onUpdate={handleImgUpdate} readOnly={refsReadOnly} />
+        {imgValue ? (
+          <ImagePromptEditor prompt={imgValue} onUpdate={handleImgUpdate} readOnly={readOnly} />
         ) : (
-          <textarea
-            className="prompt-ta"
+          <Textarea
             aria-label={t("detail_image_prompt_title")}
-            value={typeof draft.image_prompt === "string" ? draft.image_prompt : ""}
-            onChange={(e) => handleImgStringChange(e.target.value)}
-            readOnly={refsReadOnly}
+            value={typeof fields.image_prompt === "string" ? fields.image_prompt : ""}
+            onChange={(e) => setField("image_prompt", e.target.value)}
+            readOnly={readOnly}
             placeholder={t("detail_image_prompt_placeholder")}
-            style={{ minHeight: 124 }}
+            className="max-h-none min-h-31"
           />
         )}
         {renderFormSwitchError("image")}
@@ -917,31 +804,33 @@ export function ShotDetail({
         icon={<Film aria-hidden className="size-3.5" />}
         actions={
           <>
-            {vidDraft && (
+            {vidValue && (
               <span className="num text-xs text-muted-foreground">
-                {t("detail_field_chars_count", { count: vidDraft.action.length })}
+                {t("detail_field_chars_count", { count: vidValue.action.length })}
               </span>
             )}
             {renderPromptPreview("video")}
-            {renderFormToggle("video", isStructVp)}
+            {renderFormToggle("video", vidValue !== null)}
           </>
         }
       >
-        {vidDraft ? (
-          <VideoPromptEditor prompt={vidDraft} onUpdate={handleVidUpdate} readOnly={refsReadOnly} />
+        {vidValue ? (
+          <VideoPromptEditor prompt={vidValue} onUpdate={handleVidUpdate} readOnly={readOnly} />
         ) : (
-          <textarea
-            className="prompt-ta"
+          <Textarea
             aria-label={t("detail_video_prompt_title")}
-            value={typeof draft.video_prompt === "string" ? draft.video_prompt : ""}
-            onChange={(e) => handleVidStringChange(e.target.value)}
-            readOnly={refsReadOnly}
+            value={typeof fields.video_prompt === "string" ? fields.video_prompt : ""}
+            onChange={(e) => setField("video_prompt", e.target.value)}
+            readOnly={readOnly}
             placeholder={t("detail_video_prompt_placeholder")}
-            style={{ minHeight: 88 }}
+            className="max-h-none min-h-22"
           />
         )}
         {renderFormSwitchError("video")}
       </ShotSection>
+      <span id={formHintId} hidden>
+        {t("prompt_form_switch_needs_save")}
+      </span>
     </ShotGroup>
   );
 
@@ -951,20 +840,16 @@ export function ShotDetail({
       {isDrama ? (
         <ShotSection title={t("detail_section_utterances")}>
           <UtteranceListEditor
-            utterances={draft.utterances ?? EMPTY_UTTERANCES}
-            onChange={handleUtterancesChange}
-            disabled={saving || refsReadOnly}
+            utterances={fields.utterances ?? EMPTY_UTTERANCES}
+            onChange={(utterances) => setField("utterances", utterances)}
+            disabled={saving || readOnly}
             speakerCandidates={speakerNames}
           />
         </ShotSection>
       ) : (
         <ShotSection title={t("detail_section_dialogue")}>
-          {vidDraft ? (
-            <DialogueListEditor
-              dialogue={vidDraft.dialogue ?? []}
-              onChange={handleDialogueChange}
-              readOnly={refsReadOnly}
-            />
+          {vidValue ? (
+            <DialogueListEditor dialogue={vidValue.dialogue ?? []} onChange={handleDialogueChange} readOnly={readOnly} />
           ) : (
             <p className="rounded-lg border border-dashed border-border py-3 text-center text-xs text-muted-foreground">
               {t("detail_dialogue_empty")}
@@ -978,39 +863,46 @@ export function ShotDetail({
           htmlFor={`shot-narration-text-${segmentId}`}
           actions={
             <span className="num text-xs text-muted-foreground">
-              {t("detail_field_chars_count", { count: (draft.novel_text ?? "").length })}
+              {t("detail_field_chars_count", { count: (fields.novel_text ?? "").length })}
             </span>
           }
         >
-          <textarea
-            id={`shot-narration-text-${segmentId}`}
-            className="prompt-ta display-serif"
-            value={draft.novel_text ?? ""}
-            onChange={(e) => setDraft((d) => ({ ...d, novel_text: e.target.value }))}
-            readOnly={refsReadOnly}
-            placeholder={t("detail_narration_text_placeholder")}
-            style={{ minHeight: 120, lineHeight: 1.65 }}
-          />
+          {/* 旁白正文用衬线字体，与配音卡里的正文一致；字体由外层继承 */}
+          <div className="display-serif">
+            <Textarea
+              id={`shot-narration-text-${segmentId}`}
+              value={fields.novel_text ?? ""}
+              onChange={(e) => setField("novel_text", e.target.value)}
+              readOnly={readOnly}
+              placeholder={t("detail_narration_text_placeholder")}
+              className="max-h-none min-h-30"
+            />
+          </div>
         </ShotSection>
       )}
     </ShotGroup>
   );
 
-  const hasSource = isDrama || (isAd && hasNarrationText);
+  const savedNarrationText = narrationTextOf(unit.savedValue, contentMode).trim();
+  const hasSource = isDrama || (isAd && savedNarrationText.length > 0);
   const sourceGroup = hasSource ? (
     <ShotGroup>
       <ShotSourceCollapsible>
-        {isDrama && <SourceTextReadonly text={dramaScene?.source_text} />}
-        {isAd && hasNarrationText && (
+        {isDrama && <SourceTextReadonly text={(segment as DramaScene).source_text} />}
+        {isAd && savedNarrationText && (
           <ShotSection title={t("detail_section_novel")}>
-            <p className="display-serif max-w-[40em] border-l-2 border-primary/25 pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-foreground">
-              {narrationText.trim()}
+            <p className="display-serif max-w-[40em] border-l-2 border-primary/25 pl-3 text-sm leading-relaxed whitespace-pre-wrap text-foreground">
+              {savedNarrationText}
             </p>
           </ShotSection>
         )}
       </ShotSourceCollapsible>
     </ShotGroup>
   ) : null;
+
+  // 有未保存修改时生成按钮先保存再生成；保存失败不生成
+  const generateLabel = dirty ? t("common:save_and_generate") : undefined;
+  const savingHint = saving ? t("common:save_status_saving") : undefined;
 
   const storyboardMedia = (
     <MediaCard
@@ -1021,14 +913,17 @@ export function ShotDetail({
       aspectRatio={aspectRatio}
       generating={generatingStoryboard}
       estimatedCost={sbEstimate ?? undefined}
-      onGenerate={onGenerateStoryboard ? () => onGenerateStoryboard(segmentId) : undefined}
+      onGenerate={
+        onGenerateStoryboard ? () => void unit.saveAndGenerate(() => onGenerateStoryboard(segmentId)) : undefined
+      }
+      generateLabel={generateLabel}
       onRestore={onRestoreStoryboard}
-      onUpload={scriptFile && !refsReadOnly ? (file) => handleUpload("storyboard", file) : undefined}
+      onUpload={scriptFile && !readOnly ? (file) => handleUpload("storyboard", file) : undefined}
       uploading={uploadingKind === "storyboard"}
       uploadDisabled={uploadingKind !== null}
-      editScriptFile={refsReadOnly ? undefined : scriptFile}
-      generateDisabled={dirty || saving}
-      generateDisabledHint={dirty ? dirtyHint : undefined}
+      editScriptFile={readOnly ? undefined : scriptFile}
+      generateDisabled={saving}
+      generateDisabledHint={savingHint}
     />
   );
 
@@ -1044,7 +939,7 @@ export function ShotDetail({
           contentMode={contentMode}
           aspectRatio={aspectRatio}
           endFramePath={segment.end_frame_image ?? null}
-          readOnly={refsReadOnly}
+          readOnly={readOnly}
           onSubmittingChange={setEndFrameSubmitting}
           videoUploadBusy={uploadingKind === "video"}
         />
@@ -1057,12 +952,13 @@ export function ShotDetail({
         posterPath={assets?.video_thumbnail ?? null}
         aspectRatio={aspectRatio}
         generating={generatingVideo}
-        generateDisabled={!hasStoryboard || dirty || saving}
-        generateDisabledHint={dirty ? dirtyHint : undefined}
+        generateDisabled={!hasStoryboard || saving}
+        generateDisabledHint={hasStoryboard ? savingHint : undefined}
         estimatedCost={vidEstimate ?? undefined}
-        onGenerate={onGenerateVideo ? () => void onGenerateVideo(segmentId) : undefined}
+        onGenerate={onGenerateVideo ? () => void unit.saveAndGenerate(() => onGenerateVideo(segmentId)) : undefined}
+        generateLabel={generateLabel}
         onRestore={onRestoreVideo}
-        onUpload={scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined}
+        onUpload={scriptFile && !readOnly ? (file) => handleUpload("video", file) : undefined}
         uploading={uploadingKind === "video"}
         uploadDisabled={uploadingKind !== null || endFrameSubmitting}
       />
@@ -1070,31 +966,35 @@ export function ShotDetail({
   );
 
   const audioMedia =
-    contentMode === "narration" || hasNarrationText || Boolean(assets?.narration_audio) ? (
+    isNarration || hasNarrationText || Boolean(assets?.narration_audio) ? (
       <NarrationAudioCard
         projectName={projectName}
         segmentId={segmentId}
         novelText={narrationText}
         assetPath={assets?.narration_audio ?? null}
         generating={generatingNarration}
-        generateDisabled={!hasNarrationText || dirty || saving}
-        generateDisabledHint={!hasNarrationText ? t("no_original_text") : dirty ? dirtyHint : undefined}
+        generateDisabled={!hasNarrationText || saving}
+        generateDisabledHint={!hasNarrationText ? t("no_original_text") : savingHint}
+        generateLabel={generateLabel}
         estimatedCost={narrationEstimate ?? undefined}
-        onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
+        onGenerate={
+          onGenerateNarration ? () => void unit.saveAndGenerate(() => onGenerateNarration(segmentId)) : undefined
+        }
       />
     ) : null;
 
   // 重排在途也要锁定切镜：ShotSplitView 在移动完成回调里按当前 selectedIndex 偏移，
-  // 在途切换分镜会让偏移作用到新选中项，选中态跳到错误分镜。
-  const navDisabled = dirty || saving || !!movePending || !!structurePending;
-  // 禁用原因提示与禁用条件同源：重排在途、增删在途与未保存修改分别给出对应说明
+  // 在途切换分镜会让偏移作用到新选中项，选中态跳到错误分镜。有未保存修改时切镜由离开拦截询问。
+  const navDisabled = !!movePending || !!structurePending;
   const navDisabledHint = movePending
     ? t("shot_move_pending")
     : structurePending
       ? t("shot_structure_pending")
-      : dirty || saving
-        ? dirtyHint
-        : undefined;
+      : undefined;
+  // 增删会刷新整份剧本并改变选中项，有未保存修改时先保存或放弃
+  const structureDisabled = navDisabled || dirty || saving;
+  const structureDisabledHint = navDisabledHint ?? (dirty || saving ? t("shot_detail_save_first") : undefined);
+  const durationBusy = !!generatingStoryboard || !!generatingVideo;
 
   const header = (
     <ShotDetailHeader
@@ -1104,22 +1004,22 @@ export function ShotDetail({
       meta={
         <>
           <DurationPill
-            seconds={segment.duration_seconds ?? 0}
+            seconds={fields.duration_seconds}
             segmentId={segmentId}
             projectName={projectName}
             scriptFile={scriptFile}
             durationOptions={durationOptions}
             durationEndpointFixed={durationEndpointFixed}
             durationWarningReason={durationWarningReason}
-            onUpdatePrompt={onUpdatePrompt}
-            busy={!!generatingStoryboard || !!generatingVideo}
+            onChange={readOnly ? undefined : (seconds) => setField("duration_seconds", seconds)}
+            busy={durationBusy}
           />
           <StatusBadge status={status} />
-          {(isNarration || isDrama) && onUpdatePrompt && (
+          {(isNarration || isDrama) && !readOnly && (
             <SegmentBreakToggle
-              checked={(segment as NarrationSegment | DramaScene).segment_break === true}
-              onChange={(next) => onUpdatePrompt(segmentId, "segment_break", next)}
-              disabled={!!generatingStoryboard || !!generatingVideo}
+              checked={fields.segment_break === true}
+              onChange={(next) => setField("segment_break", next)}
+              disabled={durationBusy}
             />
           )}
         </>
@@ -1130,8 +1030,8 @@ export function ShotDetail({
         <ShotStructureActions
           segmentId={segmentId}
           contentMode={contentMode}
-          disabled={navDisabled}
-          disabledHint={navDisabledHint}
+          disabled={structureDisabled}
+          disabledHint={structureDisabledHint}
           removeBlockedHint={
             generatingStoryboard || generatingVideo || generatingNarration
               ? t("shot_remove_blocked_generating")
@@ -1149,83 +1049,18 @@ export function ShotDetail({
       navDisabledHint={navDisabledHint}
       notes={
         // 备注只有落库才有意义：只读展示下不给入口，免得输入的备注静默丢弃
-        refsReadOnly ? null : <NotesDrawer shotId={segmentId} value={note} onCommit={handleNotesCommit} />
+        readOnly ? null : (
+          <NotesDrawer shotId={segmentId} value={fields.note} onChange={(note) => setField("note", note)} />
+        )
       }
     />
   );
-
-  const unsavedBanner = dirty ? (
-    <div
-      role="status"
-      aria-live="polite"
-      className="flex items-center gap-2 px-5 py-2"
-      style={{
-        background:
-          "linear-gradient(180deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.20 0.012 270 / 0.35))",
-        borderBottom: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-      }}
-    >
-      <span
-        aria-hidden="true"
-        className="h-1.5 w-1.5 rounded-full"
-        style={{
-          background: "var(--primary)",
-          boxShadow: "0 0 6px color-mix(in oklab, var(--primary) 35%, transparent)",
-        }}
-      />
-      <span
-        className="num text-[10.5px] uppercase"
-        style={{
-          letterSpacing: "1.0px",
-          color: "var(--primary)",
-        }}
-      >
-        {t("shot_detail_unsaved")}
-      </span>
-      <span className="flex-1" />
-      <button
-        type="button"
-        onClick={handleCancel}
-        disabled={saving}
-        className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] text-muted-foreground transition-colors [&:not(:disabled)]:hover:bg-[oklch(0.26_0.013_265_/_0.7)] [&:not(:disabled)]:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-        style={{
-          border: "1px solid var(--border)",
-          background: "oklch(0.22 0.011 265 / 0.5)",
-        }}
-      >
-        <Undo2 className="h-3.5 w-3.5" />
-        <span>{t("shot_detail_cancel")}</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => void handleSave()}
-        disabled={saving}
-        className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform [&:not(:disabled)]:hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-        style={{
-          color: "oklch(0.14 0 0)",
-          background:
-            "var(--primary)",
-          boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
-        }}
-      >
-        {saving ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Check className="h-3.5 w-3.5" />
-        )}
-        <span>
-          {saving ? t("shot_detail_saving") : t("shot_detail_save")}
-        </span>
-      </button>
-    </div>
-  ) : null;
 
   return (
     <>
       <ShotDetailLayout
         header={header}
-        banner={unsavedBanner}
+        footer={<UnsavedChangesBar unit={unit} className="mx-5 my-3 shrink-0" />}
         main={
           <>
             {refsGroup}
@@ -1238,15 +1073,20 @@ export function ShotDetail({
           <ShotMediaGrid aspectRatio={aspectRatio} storyboard={storyboardMedia} video={videoMedia} audio={audioMedia} />
         }
       />
-      <ConfirmDialog
-        open={pendingStructSwitch !== null}
-        title={t("prompt_form_to_structured_title")}
-        description={t("prompt_form_to_structured_desc")}
-        confirmLabel={t("prompt_form_to_structured_confirm")}
-        tone="danger"
-        onConfirm={confirmStructuredForm}
-        onCancel={() => setPendingStructSwitch(null)}
-      />
+      <AlertDialog open={pendingStructSwitch !== null} onOpenChange={(next) => !next && setPendingStructSwitch(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("prompt_form_to_structured_title")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("prompt_form_to_structured_desc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={confirmStructuredForm}>
+              {t("prompt_form_to_structured_confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

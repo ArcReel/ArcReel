@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, SearchIcon } from "lucide-react";
 import { cn } from "cn";
@@ -40,6 +40,8 @@ interface ShotListProps {
   onMove?: (itemId: string, afterId: string | null) => void | Promise<void>;
   /** 改序或增删在途时禁用排序。 */
   moveDisabled?: boolean;
+  /** 展开时固定在列表底部的内容（快捷键提示）；收起时不显示。 */
+  footer?: ReactNode;
 }
 
 function getImagePromptScene(seg: Segment): string {
@@ -83,6 +85,7 @@ export function ShotList({
   appendDisabled = false,
   onMove,
   moveDisabled = false,
+  footer,
 }: ShotListProps) {
   const { t } = useTranslation("dashboard");
   const [search, setSearch] = useState("");
@@ -286,6 +289,7 @@ export function ShotList({
           </ul>
         </SortableList>
       </div>
+      {footer}
     </nav>
   );
 }

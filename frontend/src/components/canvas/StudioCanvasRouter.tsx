@@ -137,48 +137,25 @@ export function StudioCanvasRouter() {
 
   // ---- Timeline action callbacks ----
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
-  // 返回是否写入成功：本函数内部吞掉异常并转 toast，调用方靠返回值而非
-  // "是否抛出"判断能否清空本地草稿——不依赖此契约的调用方
-  // （TimelineCanvas / GridImageToVideoCanvas）按 void 用即可，多出的返回值不影响它们。
+  // 分镜详情编辑单元的保存：PATCH 失败时如实抛错，由编辑单元显示在未保存提示条上。
+  // resolve 为本地 store 是否已同步到新剧本；PATCH 已落库但刷新失败或被取消时为 false，
+  // 此时 store 仍是旧剧本，接着生成会拿旧提示词入队，调用方据此不再继续生成。
   const handleUpdatePrompt = useCallback(async (
     segmentId: string,
-    fieldOrPatch: string | Record<string, unknown>,
-    value?: unknown,
+    patch: Record<string, unknown>,
     scriptFile?: string,
   ): Promise<boolean> => {
-    if (!currentProjectName) return false;
+    if (!currentProjectName) throw new Error(tRef.current("common:no_project_selected"));
     const mode = currentProjectData?.content_mode ?? "narration";
-    const patch =
-      typeof fieldOrPatch === "string"
-        ? { [fieldOrPatch]: value }
-        : fieldOrPatch;
-    try {
-      if (mode === "ad") {
-        await API.updateShot(currentProjectName, segmentId, scriptFile ?? "", patch);
-      } else if (mode === "drama") {
-        await API.updateScene(currentProjectName, segmentId, scriptFile ?? "", patch);
-      } else {
-        await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
-      }
-      // 仅在本地 store 已同步成功时报告成功：PATCH 已落库但刷新失败/取消时 store
-      // 仍是旧剧本，此时报告成功会让调用方清空草稿却回显旧值——与 handleMoveShot 同一契约。
-      return await refreshProject();
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("update_prompt_failed", { message: errMsg(err) }), "error");
-      return false;
+    if (mode === "ad") {
+      await API.updateShot(currentProjectName, segmentId, scriptFile ?? "", patch);
+    } else if (mode === "drama") {
+      await API.updateScene(currentProjectName, segmentId, scriptFile ?? "", patch);
+    } else {
+      await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
     }
+    return refreshProject();
   }, [currentProjectName, currentProjectData, refreshProject]);
-
-  // 不走 voidPromise（见其 JSDoc）：ShotDetail.handleSave / handleRefsSave 靠
-  // await 这个回调维持保存中状态——真正要丢弃的只是布尔返回值，等待本身必须
-  // 原样保留。TimelineCanvas 与 GridImageToVideoCanvas 均不消费返回值，共用
-  // 同一适配回调。
-  const awaitedUpdatePrompt = useCallback(
-    async (...args: Parameters<typeof handleUpdatePrompt>) => {
-      await handleUpdatePrompt(...args);
-    },
-    [handleUpdatePrompt],
-  );
 
   // 分镜改序（各形态通用）：把分镜移到 afterId 之后，null 移到最前。
   // 返回是否移动成功，供编辑器把选中态跟随到分镜的新位置。
@@ -254,9 +231,12 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, refreshProject]);
 
+  // 生成回调在调用时读 store 里的最新剧本，不用渲染时的闭包：「保存并生成」在同一次点击里先保存、
+  // 刷新剧本再生成，此刻调用的仍是点击前那次渲染的回调，闭包里是保存前的提示词。
   const handleGenerateStoryboard = useCallback(async (segmentId: string, scriptFile?: string) => {
-    if (!currentProjectName || !currentScripts) return;
-    const resolved = resolveSegmentPrompt(currentScripts, segmentId, "image_prompt", scriptFile);
+    const scripts = useProjectsStore.getState().currentScripts;
+    if (!currentProjectName || !scripts) return;
+    const resolved = resolveSegmentPrompt(scripts, segmentId, "image_prompt", scriptFile);
     if (!resolved) return;
     try {
       await enqueueStoryboard(
@@ -268,11 +248,12 @@ export function StudioCanvasRouter() {
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_storyboard_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentScripts]);
+  }, [currentProjectName]);
 
   const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
-    if (!currentProjectName || !currentScripts) return;
-    const resolved = resolveSegmentPrompt(currentScripts, segmentId, "video_prompt", scriptFile);
+    const scripts = useProjectsStore.getState().currentScripts;
+    if (!currentProjectName || !scripts) return;
+    const resolved = resolveSegmentPrompt(scripts, segmentId, "video_prompt", scriptFile);
     if (!resolved) return;
     try {
       await enqueueVideo(
@@ -285,7 +266,7 @@ export function StudioCanvasRouter() {
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentScripts]);
+  }, [currentProjectName]);
 
   // 未配置 audio 供应商时在前端就给出清晰提示（后端入队前还有同语义的 400 兜底）
   const ensureAudioProviderConfigured = useCallback((): boolean => {
@@ -740,7 +721,7 @@ export function StudioCanvasRouter() {
                     videoModelUnresolved={capabilities.videoModelUnresolved}
                     lastFrame={capabilities.lastFrame}
                     capabilitiesLoading={capabilities.loading}
-                    onUpdatePrompt={awaitedUpdatePrompt}
+                    onUpdatePrompt={handleUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={handleGenerateVideo}
                     onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
@@ -773,7 +754,7 @@ export function StudioCanvasRouter() {
                     videoModelUnresolved={capabilities.videoModelUnresolved}
                     lastFrame={capabilities.lastFrame}
                     capabilitiesLoading={capabilities.loading}
-                    onUpdatePrompt={awaitedUpdatePrompt}
+                    onUpdatePrompt={handleUpdatePrompt}
                     onMoveShot={handleMoveShot}
                     onInsertShot={handleInsertShot}
                     onRemoveShot={handleRemoveShot}

@@ -1,19 +1,19 @@
-import { useId, useMemo, useState, type ReactNode } from "react";
-import {
-  Check,
-  ExternalLink,
-  Link2,
-  MapPin,
-  Puzzle,
-  Search,
-  User,
-} from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { AlertTriangle, Check, ExternalLink, MapPin, Puzzle, SearchIcon, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import { API } from "@/api";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { Character, Prop, Scene } from "@/types";
 import { type AssetKind, SHEET_FIELD } from "@/types/reference-video";
@@ -25,7 +25,6 @@ import {
   formatReferenceName,
   referenceInitial,
 } from "@/utils/reference-mentions";
-import { WARM_TONE } from "@/utils/severity-tone";
 
 type Asset = Character | Scene | Prop;
 
@@ -53,8 +52,9 @@ export interface SegmentRefsChanges {
 interface SegmentRefsEditModalProps {
   open: boolean;
   onClose: () => void;
+  /** 确定：只带改动过的类型。返回的 Promise 落定前两个按钮禁用、不响应关闭。 */
   onSave: (changes: SegmentRefsChanges) => void | Promise<void>;
-  /** 保存中：禁用 Save 按钮防止重复提交；由调用方维护 */
+  /** 提交中：禁用按钮并忽略关闭请求；由调用方维护 */
   saving?: boolean;
   initialCharacters: string[];
   initialScenes: string[];
@@ -160,7 +160,6 @@ export function SegmentRefsEditModal({
   skippedNames,
 }: SegmentRefsEditModalProps) {
   const { t } = useTranslation("dashboard");
-  const titleId = useId();
   const [query, setQuery] = useState("");
   const [tempChars, setTempChars] = useState<string[]>(initialCharacters);
   const [tempScenes, setTempScenes] = useState<string[]>(initialScenes);
@@ -232,64 +231,26 @@ export function SegmentRefsEditModal({
     await onSave(changes);
   };
 
-  return (
-    <GlassModal
-      open={open}
-      onClose={onClose}
-      labelledBy={titleId}
-      widthClassName="w-[680px] max-w-[96vw]"
-      panelClassName="flex max-h-[80vh] flex-col"
-    >
-        {/* Header */}
-        <div
-          className="flex items-center gap-3 px-5 py-4"
-          style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-        >
-          <span
-            aria-hidden
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
-            style={{
-              background:
-                "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
-              border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-              color: "var(--primary)",
-              boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
-            }}
-          >
-            <Link2 className="h-4 w-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h3
-              id={titleId}
-              className="display-serif truncate text-[15px] font-semibold tracking-tight"
-              style={{ color: "var(--foreground)" }}
-            >
-              {t("segment_refs_edit_title")}
-            </h3>
-            <div
-              className="num text-[10px] uppercase"
-              style={{
-                color: "var(--muted-foreground)",
-                letterSpacing: "1.0px",
-              }}
-            >
-              {t("eyebrow_segment_refs")}
-            </div>
-          </div>
+  const sectionProps = {
+    selectedSets: { character: tempCharsSet, scene: tempScenesSet, prop: tempPropsSet },
+    onToggle: toggle,
+    projectName,
+    onManageClick,
+    hasQuery: !!q,
+  };
 
-          <div
-            className="flex w-44 items-center gap-2 rounded-md px-2.5 py-1.5 sm:w-52"
-            style={{
-              background: "oklch(0.16 0.010 265 / 0.6)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <Search
-              className="h-3.5 w-3.5 shrink-0"
-              style={{ color: "var(--muted-foreground)" }}
-              aria-hidden="true"
-            />
-            <input
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !saving) onClose();
+      }}
+    >
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>{t("segment_refs_edit_title")}</DialogTitle>
+          <InputGroup className="mt-1">
+            <InputGroupInput
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -297,97 +258,58 @@ export function SegmentRefsEditModal({
               aria-label={t("segment_refs_search_placeholder")}
               autoComplete="off"
               spellCheck={false}
-              className="focus-ring min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-              style={{ color: "var(--foreground)" }}
+            />
+            <InputGroupAddon>
+              <SearchIcon aria-hidden />
+            </InputGroupAddon>
+          </InputGroup>
+        </DialogHeader>
+
+        <DialogBody>
+          <div className="flex flex-col gap-5">
+            <Section
+              {...sectionProps}
+              title={t("segment_refs_badge_character")}
+              kind="character"
+              icon={<User aria-hidden className="size-3.5" />}
+              rows={filtered.character}
+              staleCount={staleCounts.character}
+              emptyText={t("segment_refs_empty_characters")}
+            />
+            <Section
+              {...sectionProps}
+              title={t("segment_refs_badge_scene")}
+              kind="scene"
+              icon={<MapPin aria-hidden className="size-3.5" />}
+              rows={filtered.scene}
+              staleCount={staleCounts.scene}
+              emptyText={t("segment_refs_empty_clues")}
+            />
+            <Section
+              {...sectionProps}
+              title={t("segment_refs_badge_prop")}
+              kind="prop"
+              icon={<Puzzle aria-hidden className="size-3.5" />}
+              rows={filtered.prop}
+              staleCount={staleCounts.prop}
+              emptyText={t("segment_refs_empty_clues")}
             />
           </div>
+        </DialogBody>
 
-          <ModalCloseButton onClick={onClose} ariaLabel={t("segment_refs_close")} />
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
-          <Section
-            title={t("segment_refs_badge_character")}
-            kind="character"
-            icon={<User className="h-3.5 w-3.5" aria-hidden="true" />}
-            rows={filtered.character}
-            selectedSet={tempCharsSet}
-            staleCount={staleCounts.character}
-            onToggle={toggle}
-            projectName={projectName}
-            emptyText={t("segment_refs_empty_characters")}
-            manageText={t("segment_refs_manage_link")}
-            onManageClick={onManageClick}
-            hasQuery={!!q}
-            staleHint={t("segment_refs_stale_hint")}
-            searchEmptyText={t("segment_refs_search_empty")}
-          />
-          <Section
-            title={t("segment_refs_badge_scene")}
-            kind="scene"
-            icon={<MapPin className="h-3.5 w-3.5" aria-hidden="true" />}
-            rows={filtered.scene}
-            selectedSet={tempScenesSet}
-            staleCount={staleCounts.scene}
-            onToggle={toggle}
-            projectName={projectName}
-            emptyText={t("segment_refs_empty_clues")}
-            manageText={t("segment_refs_manage_link")}
-            onManageClick={onManageClick}
-            hasQuery={!!q}
-            staleHint={t("segment_refs_stale_hint")}
-            searchEmptyText={t("segment_refs_search_empty")}
-          />
-          <Section
-            title={t("segment_refs_badge_prop")}
-            kind="prop"
-            icon={<Puzzle className="h-3.5 w-3.5" aria-hidden="true" />}
-            rows={filtered.prop}
-            selectedSet={tempPropsSet}
-            staleCount={staleCounts.prop}
-            onToggle={toggle}
-            projectName={projectName}
-            emptyText={t("segment_refs_empty_clues")}
-            manageText={t("segment_refs_manage_link")}
-            onManageClick={onManageClick}
-            hasQuery={!!q}
-            staleHint={t("segment_refs_stale_hint")}
-            searchEmptyText={t("segment_refs_search_empty")}
-          />
-        </div>
-
-        {/* Footer */}
-        <div
-          className="flex items-center gap-2 px-5 py-3"
-          style={{
-            borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-            background: "oklch(0.17 0.010 250 / 0.5)",
-          }}
-        >
-          <span
-            className="num flex-1 text-[11px] uppercase"
-            style={{
-              letterSpacing: "0.8px",
-              color: hasChanges ? WARM_TONE.color : "var(--muted-foreground)",
-            }}
-          >
-            {hasChanges
-              ? t("segment_refs_changes_pending")
-              : t("segment_refs_no_changes")}
+        <DialogFooter>
+          <span role="status" className={cn("flex-1 text-xs", hasChanges ? "text-foreground" : "text-muted-foreground")}>
+            {hasChanges ? t("segment_refs_changes_pending") : t("segment_refs_no_changes")}
           </span>
-          <SecondaryButton size="sm" onClick={onClose} disabled={saving}>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
             {t("segment_refs_cancel")}
-          </SecondaryButton>
-          <PrimaryButton
-            size="sm"
-            disabled={!hasChanges || saving}
-            onClick={() => void handleSave()}
-          >
-            {saving ? t("shot_detail_saving") : t("segment_refs_save")}
-          </PrimaryButton>
-        </div>
-    </GlassModal>
+          </Button>
+          <Button disabled={!hasChanges || saving} onClick={() => void handleSave()}>
+            {t("segment_refs_apply")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -396,17 +318,14 @@ interface SectionProps {
   kind: SegmentAssetKind;
   icon: ReactNode;
   rows: RefRow[];
-  selectedSet: Set<string>;
+  selectedSets: Record<SegmentAssetKind, Set<string>>;
   /** 已选且失效的引用数；由 parent 基于未过滤集合计算，避免搜索过滤后徽标消失 */
   staleCount: number;
   onToggle: (kind: SegmentAssetKind, name: string) => void;
   projectName: string;
   emptyText: string;
-  manageText: string;
   onManageClick?: (kind: SegmentAssetKind) => void;
   hasQuery: boolean;
-  staleHint: string;
-  searchEmptyText: string;
 }
 
 function Section({
@@ -414,96 +333,50 @@ function Section({
   kind,
   icon,
   rows,
-  selectedSet,
+  selectedSets,
   staleCount,
   onToggle,
   projectName,
   emptyText,
-  manageText,
   onManageClick,
   hasQuery,
-  staleHint,
-  searchEmptyText,
 }: SectionProps) {
   const { t } = useTranslation("dashboard");
-  const selectedCount = rows.reduce(
-    (n, r) => (selectedSet.has(r.name) ? n + 1 : n),
-    0,
-  );
+  const selectedSet = selectedSets[kind];
+  const selectedCount = rows.reduce((n, r) => (selectedSet.has(r.name) ? n + 1 : n), 0);
   return (
-    <section>
-      <div className="mb-2 flex items-center gap-2">
-        <span style={{ color: "var(--muted-foreground)" }}>{icon}</span>
-        <h4
-          className="num text-[10.5px] font-bold uppercase"
-          style={{
-            color: "var(--muted-foreground)",
-            letterSpacing: "1.0px",
-          }}
-        >
-          {title}
-        </h4>
+    <section className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="flex text-muted-foreground">{icon}</span>
+        <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
         {rows.length > 0 && (
-          <span
-            className="num text-[10.5px]"
-            style={{ color: "var(--muted-foreground)" }}
-          >
+          <span className="num text-xs text-muted-foreground">
             {selectedCount}/{rows.length}
           </span>
         )}
         {staleCount > 0 && (
-          <span
-            className="num inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px]"
-            style={{
-              background: WARM_TONE.soft,
-              border: `1px solid ${WARM_TONE.ring}`,
-              color: WARM_TONE.color,
-            }}
-            title={staleHint}
-          >
-            <span aria-hidden="true">⚠</span>
-            <span>{t("segment_refs_stale_badge", { count: staleCount })}</span>
+          <span className="num inline-flex items-center gap-1 rounded-full bg-warn/10 px-1.5 py-0.5 text-xs text-warn ring-1 ring-warn/30">
+            <AlertTriangle aria-hidden className="size-3" />
+            {t("segment_refs_stale_badge", { count: staleCount })}
           </span>
         )}
       </div>
       {rows.length === 0 && hasQuery && (
-        <p
-          className="px-2 py-1 text-[11.5px]"
-          style={{ color: "var(--muted-foreground)" }}
-        >
-          {searchEmptyText}
-        </p>
+        <p className="px-2 py-1 text-xs text-muted-foreground">{t("segment_refs_search_empty")}</p>
       )}
       {rows.length === 0 && !hasQuery && (
-        <div
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-[12px]"
-          style={{
-            border: "1px dashed var(--border)",
-            color: "var(--muted-foreground)",
-          }}
-        >
+        <div className="flex items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
           <span className="flex-1">{emptyText}</span>
           {onManageClick && (
-            <button
-              type="button"
-              onClick={() => onManageClick(kind)}
-              className="focus-ring inline-flex items-center gap-1 rounded-sm transition-colors"
-              style={{ color: "var(--primary)" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--foreground)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--primary)";
-              }}
-            >
-              <span>{manageText}</span>
-              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-            </button>
+            <Button variant="link" size="xs" onClick={() => onManageClick(kind)}>
+              {t("segment_refs_manage_link")}
+              <ExternalLink aria-hidden data-icon="inline-end" />
+            </Button>
           )}
         </div>
       )}
       {rows.length > 0 && (
-        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-1.5">
           {rows.map((r) => (
             <Row
               key={`${kind}-${r.name}`}
@@ -511,7 +384,6 @@ function Section({
               selected={selectedSet.has(r.name)}
               onToggle={() => onToggle(r.kind, r.name)}
               projectName={projectName}
-              staleHint={staleHint}
             />
           ))}
         </div>
@@ -525,162 +397,78 @@ interface RowProps {
   selected: boolean;
   onToggle: () => void;
   projectName: string;
-  staleHint: string;
 }
 
-function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
+/** 一条候选：整行是一个切换按钮，按下即选中。失效引用与「不登记」的新增项在第二行说明。 */
+function Row({ row, selected, onToggle, projectName }: RowProps) {
   const { t } = useTranslation("dashboard");
   const sheetFp = useProjectsStore((s) =>
     row.thumbPath ? s.getAssetFingerprint(row.thumbPath) : null,
   );
-  const isCharacter = row.kind === "character";
-  const thumbShape = isCharacter ? "rounded-full" : "rounded-md";
+  const thumbShape = row.kind === "character" ? "rounded-full" : "rounded-md";
   const showImage = !!row.thumbPath && !row.isStale;
-
-  const baseStyle = row.isSkipped
-    ? {
-        background: "transparent",
-        border: "1px dashed var(--border)",
-      }
+  const displayName = formatReferenceName(row.name);
+  const secondLine = row.isSkipped
+    ? t("segment_refs_skipped_hint")
     : row.isStale
-    ? {
-        background: WARM_TONE.soft,
-        border: `1px solid ${WARM_TONE.ring}`,
-      }
-    : selected
-      ? {
-          background:
-            "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent) 0%, oklch(0.20 0.011 265 / 0.5) 60%)",
-          border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-          boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 4px 14px -6px color-mix(in oklab, var(--primary) 35%, transparent)",
-        }
-      : {
-          background: "oklch(0.20 0.011 265 / 0.4)",
-          border: "1px solid var(--border)",
-        };
+      ? t("segment_refs_stale_hint")
+      : row.description?.split("\n")[0];
 
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-pressed={selected}
-      title={
+      className={cn(
+        "focus-ring flex min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors",
         row.isSkipped
-          ? t("segment_refs_skipped_hint")
+          ? "border-dashed border-border"
           : row.isStale
-            ? staleHint
-            : formatReferenceName(row.name)
-      }
-      className="focus-ring group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors"
-      style={baseStyle}
-      onMouseEnter={(e) => {
-        if (row.isStale || row.isSkipped) return;
-        if (selected) {
-          e.currentTarget.style.borderColor = "var(--primary)";
-        } else {
-          e.currentTarget.style.borderColor = "var(--input)";
-          e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.7)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (row.isSkipped) return;
-        if (row.isStale) {
-          e.currentTarget.style.borderColor = WARM_TONE.ring;
-          return;
-        }
-        if (selected) {
-          e.currentTarget.style.borderColor = "color-mix(in oklab, var(--primary) 22%, transparent)";
-        } else {
-          e.currentTarget.style.borderColor = "var(--border)";
-          e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.4)";
-        }
-      }}
+            ? "border-warn/30 bg-warn/10"
+            : selected
+              ? "border-primary/40 bg-primary/12 hover:border-primary"
+              : "border-border bg-muted/30 hover:border-input hover:bg-muted/60",
+      )}
     >
       {showImage ? (
         <img
           src={API.getFileUrl(projectName, row.thumbPath!, sheetFp)}
-          alt={formatReferenceName(row.name)}
-          className={`h-8 w-8 shrink-0 object-cover ${thumbShape}`}
+          alt=""
+          className={cn("size-8 shrink-0 object-cover", thumbShape)}
         />
       ) : (
         <span
-          className={`grid h-8 w-8 shrink-0 place-items-center text-[10px] font-semibold text-white ${thumbShape} ${
-            row.isStale ? "" : colorForName(row.name)
-          }`}
-          style={
-            row.isStale
-              ? { background: WARM_TONE.soft, color: WARM_TONE.color }
-              : undefined
-          }
+          aria-hidden
+          className={cn(
+            "grid size-8 shrink-0 place-items-center text-xs font-semibold",
+            thumbShape,
+            row.isStale ? "bg-warn/10 text-warn" : cn(colorForName(row.name), "text-foreground"),
+          )}
         >
           {referenceInitial(row.name)}
         </span>
       )}
-      <div className="min-w-0 flex-1">
-        <p
-          className={`truncate text-[13px] ${
-            selected ? "font-semibold" : "font-medium"
-          }`}
-          style={{
-            color: row.isStale ? WARM_TONE.color : "var(--foreground)",
-          }}
-        >
-          {formatReferenceName(row.name)}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className={cn("flex min-w-0 items-center gap-1.5 text-sm", selected ? "font-semibold" : "font-medium", row.isStale ? "text-warn" : "text-foreground")}>
+          <TruncatedText text={displayName} focusable={false} className="min-w-0" />
           {row.isNew && (
-            <span
-              className="ml-1.5 rounded-sm px-1 py-px align-middle text-[10px] font-normal"
-              style={{ border: "1px solid var(--border)", color: "var(--muted-foreground)" }}
-            >
+            <span className="shrink-0 rounded-sm border border-border px-1 text-xs font-normal text-subtle-foreground">
               {t("segment_refs_new_tag")}
             </span>
           )}
-        </p>
-        {row.isSkipped ? (
-          <p
-            className="truncate text-[11px]"
-            style={{ color: "var(--muted-foreground)" }}
-          >
-            {t("segment_refs_skipped_hint")}
-          </p>
-        ) : row.isStale ? (
-          <p
-            className="truncate text-[11px]"
-            style={{ color: WARM_TONE.color }}
-          >
-            {staleHint}
-          </p>
-        ) : (
-          row.description && (
-            <p
-              className="truncate text-[11px]"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              {row.description.split("\n")[0]}
-            </p>
-          )
-        )}
-      </div>
+        </span>
+        {secondLine ? (
+          <span className={cn("truncate text-xs", row.isStale ? "text-warn" : "text-subtle-foreground")}>{secondLine}</span>
+        ) : null}
+      </span>
       <span
-        aria-hidden="true"
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full transition-colors"
-        style={
-          selected
-            ? {
-                color: "oklch(0.14 0 0)",
-                background:
-                  "var(--primary)",
-                border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-                boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.35)",
-              }
-            : {
-                color: "var(--muted-foreground)",
-                background: "transparent",
-                border: "1px solid var(--border)",
-              }
-        }
+        aria-hidden
+        className={cn(
+          "grid size-5 shrink-0 place-items-center rounded-full border transition-colors",
+          selected ? "border-primary bg-primary text-primary-foreground" : "border-border text-transparent",
+        )}
       >
-        <Check className="h-3 w-3" strokeWidth={3} />
+        <Check className="size-3" strokeWidth={3} />
       </span>
     </button>
   );

@@ -6,26 +6,25 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 /**
- * 分镜详情的栏位：页头与提示条在上，下面是「编辑栏 + 媒体栏」两栏，各自滚动。
+ * 分镜详情的栏位：页头在上，中间是「编辑栏 + 媒体栏」两栏，各自滚动，未保存提示条在最下方。
  * 不做拖拽调宽，按分镜详情自身的宽度切换：窄于 860px 时编辑栏占满、媒体栏 300px；
  * 否则编辑栏 360–560px，多出的宽度全部给媒体栏。
  */
 export function ShotDetailLayout({
   header,
-  banner,
+  footer,
   main,
   media,
 }: {
   header: ReactNode;
-  /** 页头下方横跨两栏的提示（如未保存修改）。 */
-  banner?: ReactNode;
+  /** 两栏下方横跨整宽的未保存提示条：出现时不推动正在编辑的字段。 */
+  footer?: ReactNode;
   main: ReactNode;
   media: ReactNode;
 }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-col">
       {header}
-      {banner}
       <div className="@container/shot-detail flex min-h-0 flex-1 flex-col">
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] grid-rows-[minmax(0,1fr)] @min-[860px]/shot-detail:grid-cols-[minmax(360px,560px)_minmax(0,1fr)]">
           <div className="relative min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
@@ -36,6 +35,7 @@ export function ShotDetailLayout({
           </div>
         </div>
       </div>
+      {footer}
     </div>
   );
 }
