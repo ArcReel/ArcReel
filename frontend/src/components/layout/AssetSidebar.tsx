@@ -180,7 +180,8 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
       {collapsed ? (
         <div className="relative flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           {addEpisodeMenu}
-          {filteredEps.map(({ ep, position }) => (
+          {/* 图标栏不显示搜索框，按看不见的搜索词过滤会让集无故消失 */}
+          {positioned.map(({ ep, position }) => (
             <RailLink
               key={ep.episode}
               href={`/episodes/${ep.episode}`}

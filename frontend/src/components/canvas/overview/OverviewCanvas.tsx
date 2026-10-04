@@ -43,7 +43,7 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
     debouncedFetch(projectName);
   }, [projectName, projectData?.episodes, debouncedFetch]);
 
-  // 上传对话框按项目记录，切项目后不沿用。`fromWelcome` 时对话框打开期间保留欢迎页，
+  // 上传对话框按项目记录，切项目后不沿用。对话框打开期间保留欢迎页（见 showWelcome），
   // 上传登记出整本源文或第一集后背景不会先闪成概览。
   const [upload, setUpload] = useState<{ projectName: string; files: File[] } | null>(null);
   const uploadFiles = upload?.projectName === projectName ? upload.files : null;
@@ -64,10 +64,17 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
     try {
       await API.generateOverview(projectName, { signal: controller.signal });
       if (controller.signal.aborted) return;
-      await useProjectsStore.getState().refreshProject(projectName);
+      // refreshProject 以结算值报告失败而不 reject：生成已落盘却停在旧内容上，会引人再生成一次
+      const refreshed = await useProjectsStore.getState().refreshProject(projectName);
+      if (refreshed === "failed" && !controller.signal.aborted) {
+        setGenerateError({ projectName, error: { kind: "refresh" } });
+      }
     } catch (err) {
       if (controller.signal.aborted) return;
-      setGenerateError({ projectName, error: { message: errMsg(err), truncation: outputTruncationOfError(err) } });
+      setGenerateError({
+        projectName,
+        error: { kind: "generate", message: errMsg(err), truncation: outputTruncationOfError(err) },
+      });
     } finally {
       if (generateControllerRef.current === controller) {
         generateControllerRef.current = null;

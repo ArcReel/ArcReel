@@ -5,6 +5,7 @@ import { memoryLocation } from "wouter/memory-location";
 import { StudioLayout } from "@/components/layout/StudioLayout";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 
@@ -100,6 +101,33 @@ describe("StudioLayout", () => {
 
     act(() => navigate("/characters"));
     expect(screen.getByRole("button", { name: "折叠侧栏" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("lists every episode on the icon rail even when the hidden search box still holds a query", () => {
+    vi.spyOn(useCostStore.getState(), "debouncedFetch").mockImplementation(() => {});
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: {
+        title: "Demo",
+        content_mode: "drama",
+        style: "",
+        episodes: [
+          { episode: 1, title: "开端", script_file: "scripts/episode_1.json" },
+          { episode: 2, title: "转折", script_file: "scripts/episode_2.json" },
+        ],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+    const { navigate } = renderShell("/characters");
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索集名或编号…" }), { target: { value: "转折" } });
+
+    // 进入单集页自动收为图标栏：搜索框随之隐藏，图标栏不能按看不见的搜索词过滤
+    act(() => navigate("/episodes/2"));
+
+    expect(screen.getByRole("link", { name: "1 · 开端" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "2 · 转折" })).toBeInTheDocument();
   });
 
   it("keeps a manually collapsed sidebar collapsed outside episode pages", () => {

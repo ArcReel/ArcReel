@@ -72,6 +72,9 @@ PROJECT_LEVEL_SEGMENT_KEY = "\x00__project__"
 # 友好显示名；registry 只登记新格式 key（gemini-aistudio / gemini-vertex），故裸值查不到 meta。
 _LEGACY_PROVIDER_DISPLAY_NAMES = {PROVIDER_GEMINI: "Gemini"}
 
+# 产出项目媒体（资产图、分镜、视频、配音）的调用类型
+_MEDIA_CALL_TYPES = ("image", "video", "audio")
+
 
 @dataclass(frozen=True)
 class SettlementInput:
@@ -576,7 +579,7 @@ class UsageRepository(BaseRepository):
             .where(
                 ApiCall.project_name == project_name,
                 ApiCall.status == CallStatus.SUCCESS,
-                ApiCall.call_type.in_(("image", "video", "audio")),
+                ApiCall.call_type.in_(_MEDIA_CALL_TYPES),
                 or_(ApiCall.cost_amount.is_(None), ApiCall.cost_amount <= 0),
             )
             .group_by(ApiCall.call_type, ApiCall.provider, ApiCall.model)
@@ -585,9 +588,21 @@ class UsageRepository(BaseRepository):
         rows = (await self.session.execute(stmt)).all()
         return [(call_type, provider, model, calls) for call_type, provider, model, calls in rows]
 
-    async def has_calls(self, project_name: str) -> bool:
-        """本机是否有这个项目的调用记录（任意状态）。"""
-        stmt = self._scope_query(select(ApiCall.id).where(ApiCall.project_name == project_name).limit(1), ApiCall)
+    async def has_media_calls(self, project_name: str) -> bool:
+        """本机是否有这个项目成功的媒体调用记录。
+
+        文本调用与失败、进行中的调用都对应不到已有产物的费用，不计入。
+        """
+        stmt = self._scope_query(
+            select(ApiCall.id)
+            .where(
+                ApiCall.project_name == project_name,
+                ApiCall.status == CallStatus.SUCCESS,
+                ApiCall.call_type.in_(_MEDIA_CALL_TYPES),
+            )
+            .limit(1),
+            ApiCall,
+        )
         return (await self.session.execute(stmt)).first() is not None
 
     async def get_project_image_costs_by_asset_type(

@@ -145,17 +145,6 @@ async function messagesReady(page: Page) {
   await page.getByRole("table", { name: "表格" }).waitFor();
   // 代码块的高亮组件按需加载，加载完会替换掉先渲染的代码块；等它落定再交互与截图
   await page.waitForLoadState("networkidle");
-  // 离屏的消息项跳过渲染（content-visibility: auto），高度沿用最后一次渲染时记下的尺寸。
-  // Markdown 渲染器晚于首屏到位时，上方的项可能还记着纯文本时的高度，总高的小数部分随之变化，
-  // 底部消息的像素取整会差 1px。让每一项按最终内容排版一次，再交还给浏览器跳过渲染。
-  await transcript(page).evaluate(async (el) => {
-    const items = [...el.querySelectorAll<HTMLElement>("[data-slot=message-scroller-item]")];
-    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    for (const item of items) item.style.contentVisibility = "visible";
-    await nextFrame();
-    for (const item of items) item.style.contentVisibility = "";
-    await nextFrame();
-  });
 }
 
 /** 视口停在最底部（误差 1px 以内）。 */

@@ -59,12 +59,13 @@ export function GlobalHeader() {
   const usageProjectName =
     demoMode || !currentProjectName || isDemoProject(currentProjectName) ? null : currentProjectName;
 
-  // 导出对话框打开期间切到演示项目（如浏览器前进 / 后退复用同一路由实例）时随即关闭：
-  // 触发按钮已按 demoMode 禁用，已打开的对话框不受影响，仍可点击「导出」。
+  // 导出对话框打开期间切到别的项目或演示项目（如浏览器前进 / 后退复用同一路由实例）时随即关闭：
+  // 对话框在打开时记下了当时的项目，留着会在选定范围后导出上一个项目；触发按钮已按 demoMode
+  // 禁用，但已打开的对话框不受影响，仍可点击「导出」。
   const closeExport = projectExport.close;
   useEffect(() => {
-    if (demoMode) closeExport();
-  }, [demoMode, closeExport]);
+    closeExport();
+  }, [currentProjectName, demoMode, closeExport]);
 
   // 入口的数据随项目走：切到别的项目或演示项目时清空上一项目的用量，并收起悬浮层。
   useEffect(() => {

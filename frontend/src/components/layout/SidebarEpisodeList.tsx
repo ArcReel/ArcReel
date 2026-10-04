@@ -53,8 +53,10 @@ export function SidebarEpisodeList({
   onDelete,
 }: SidebarEpisodeListProps) {
   const { t } = useTranslation(["dashboard", "common"]);
-  // 移动提交到刷新完成之间先按新顺序显示，松手后条目不会弹回原处再跳过去
+  // 移动提交到刷新完成之间先按新顺序显示，松手后条目不会弹回原处再跳过去。这段时间里不接受新的
+  // 移动：校验与提交仍按 store 里的旧顺序，叠加的移动会算错落点。把手不禁用，键盘放下后焦点留在原处。
   const [pendingOrder, setPendingOrder] = useState<number[] | null>(null);
+  const moving = pendingOrder !== null;
   const byId = new Map(episodes.map((ep) => [ep.episode, ep]));
   const ids = pendingOrder ?? episodes.map((ep) => ep.episode);
   const rows = reorderable
@@ -70,6 +72,7 @@ export function SidebarEpisodeList({
     episodeMoveCheck(episodes, wholeSourceFiles, episode, after);
 
   const move = (episode: number, after: number | null) => {
+    if (moving) return;
     if (check(episode, after) === "ok") {
       const rest = ids.filter((id) => id !== episode);
       const at = after === null ? 0 : rest.indexOf(after) + 1;
@@ -90,7 +93,7 @@ export function SidebarEpisodeList({
         const ep = byId.get(id);
         return ep ? nameOf(ep, index + 1) : String(id);
       }}
-      canMove={(sortableMove) => check(sortableMove.id, afterOf(sortableMove)) === "ok"}
+      canMove={(sortableMove) => !moving && check(sortableMove.id, afterOf(sortableMove)) === "ok"}
       onMove={(sortableMove) => move(sortableMove.id, afterOf(sortableMove))}
     >
       <ul className="flex flex-col gap-0.5">
@@ -138,14 +141,14 @@ export function SidebarEpisodeList({
                         {t("dashboard:episode_menu_create_after")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabled={!reorderable || earlier === undefined}
+                        disabled={!reorderable || moving || earlier === undefined}
                         onClick={() => earlier !== undefined && move(ep.episode, earlier)}
                       >
                         <ArrowUp aria-hidden />
                         {t("dashboard:episode_menu_move_earlier")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabled={!reorderable || later === undefined}
+                        disabled={!reorderable || moving || later === undefined}
                         onClick={() => later !== undefined && move(ep.episode, later)}
                       >
                         <ArrowDown aria-hidden />

@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { ContentBlock } from "@/types";
-import { WorkRow, useSessionDone } from "./WorkRow";
+import { WorkDetail, WorkRow, useSessionDone } from "./WorkRow";
 import { BACKGROUND_TASK_ICON, type WorkStatus } from "./work-label";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +31,17 @@ export function TaskProgressBlock({ block }: { block: ContentBlock }) {
   const text = (status === "running" || status === "stopped" ? block.description : block.summary || block.description) ?? "";
   const tokens = status === "running" ? block.usage?.total_tokens : undefined;
   const summary = [text, tokens != null ? t("subagent_tokens", { count: tokens }) : ""].filter(Boolean).join(" · ");
+  const input = block.description?.trim() ? block.description : "";
+  const output = block.summary?.trim() ? block.summary : "";
 
-  return <WorkRow icon={BACKGROUND_TASK_ICON} name={t("work_background_task")} summary={summary} status={status} />;
+  return (
+    <WorkRow icon={BACKGROUND_TASK_ICON} name={t("work_background_task")} summary={summary} status={status}>
+      {(input || output) && (
+        <>
+          {input && <WorkDetail label={t("tool_call_input_label")} text={input} />}
+          {output && <WorkDetail label={t("tool_call_result_label")} text={output} error={status === "error"} />}
+        </>
+      )}
+    </WorkRow>
+  );
 }

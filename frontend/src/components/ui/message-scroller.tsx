@@ -41,9 +41,10 @@ function MessageScrollerViewport({
     <MessageScrollerPrimitive.Viewport
       data-slot="message-scroller-viewport"
       // 去掉上游的 scrollbar-thin 与自动滚动时隐藏滑块：元素一旦设置 scrollbar-width / scrollbar-color，
-      // Chromium 就不再使用 index.css 里统一的滚动条样式。补 relative：滚动容器须是定位元素
+      // Chromium 就不再使用 index.css 里统一的滚动条样式。补 relative：滚动容器须是定位元素。
+      // 滚动跟随由原语负责；禁用浏览器锚定，避免异步正文缩短时向上补偿被原语误判为用户上翻。
       className={cn(
-        "relative size-full min-h-0 min-w-0 scroll-fade-b scrollbar-gutter-stable overflow-y-auto overscroll-contain contain-content data-pending-scroll:invisible",
+        "relative size-full min-h-0 min-w-0 scroll-fade-b scrollbar-gutter-stable overflow-y-auto overscroll-contain [overflow-anchor:none] contain-content data-pending-scroll:invisible",
         className
       )}
       {...props}
@@ -75,7 +76,8 @@ function MessageScrollerItem({
       data-slot="message-scroller-item"
       scrollAnchor={scrollAnchor}
       className={cn(
-        "min-w-0 shrink-0 [contain-intrinsic-size:auto_10rem] [content-visibility:auto]",
+        // Markdown 按需渲染会改变离屏项高度；保持真实排版，使贴底跟随使用完整内容高度。
+        "min-w-0 shrink-0",
         className
       )}
       {...props}

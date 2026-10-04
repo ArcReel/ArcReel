@@ -92,11 +92,11 @@ function CommandList({
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.List>) {
   return (
-    // 滚动条始终可见（index.css 统一样式），去掉上游的 no-scrollbar
+    // 滚动条始终可见（index.css 统一样式），去掉上游的 no-scrollbar；补 relative：滚动容器须是定位元素
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
+        "relative max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
         className
       )}
       {...props}

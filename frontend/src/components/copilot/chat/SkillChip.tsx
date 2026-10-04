@@ -3,8 +3,8 @@ import { WorkDetail, WorkRow, useSessionDone } from "./WorkRow";
 import { SKILL_ICON } from "./work-label";
 
 // ---------------------------------------------------------------------------
-// SkillChip – Skill 调用的工序行：「/skill-name」加入参。注入的 skill 全文不在日志里，
-// 成功时不可展开；失败时展开看错误原文。
+// SkillChip – Skill 调用的工序行：「/skill-name」加入参。展开查看日志中已有的参数与
+// 结果；注入的 skill 全文不在日志里，没有参数与结果时不可展开。
 // ---------------------------------------------------------------------------
 
 interface SkillChipProps {
@@ -20,11 +20,17 @@ export function SkillChip({ name, args, pending = false, failed = false, result 
   const { t } = useTranslation("dashboard");
   const sessionDone = useSessionDone();
   const status = failed ? "error" : !pending ? "ok" : sessionDone ? "stopped" : "running";
-  const detail = status === "error" && result?.trim() ? result : "";
+  const input = args?.trim() ? args : "";
+  const output = result?.trim() ? result : "";
 
   return (
     <WorkRow icon={SKILL_ICON} name={`/${name || t("skill_chip_unknown")}`} summary={args} status={status}>
-      {detail && <WorkDetail label={t("tool_call_result_label")} text={detail} error />}
+      {(input || output) && (
+        <>
+          {input && <WorkDetail label={t("tool_call_input_label")} text={input} />}
+          {output && <WorkDetail label={t("tool_call_result_label")} text={output} error={status === "error"} />}
+        </>
+      )}
     </WorkRow>
   );
 }

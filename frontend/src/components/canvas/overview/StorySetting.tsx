@@ -39,11 +39,13 @@ function fieldsOf(overview: ProjectOverview | undefined): SettingFields {
   };
 }
 
-/** 从原文生成故事设定失败的原因；输出被截断时附带出路。 */
-export interface StoryGenerateError {
-  message: string;
-  truncation: OutputTruncation | null;
-}
+/**
+ * 从原文生成故事设定没有就地填入的原因：`generate` 是生成请求失败，输出被截断时附带出路；
+ * `refresh` 是生成已落盘，之后取回项目数据失败。
+ */
+export type StoryGenerateError =
+  | { kind: "generate"; message: string; truncation: OutputTruncation | null }
+  | { kind: "refresh" };
 
 interface StorySettingProps {
   projectName: string;
@@ -215,8 +217,14 @@ export function StorySetting({
 
       {generateError && !generating && !readOnly ? (
         <div role="alert" className="flex flex-col gap-1.5 text-sm text-destructive">
-          <p>{t("overview_generate_failed", { message: generateError.message })}</p>
-          {generateError.truncation ? <OutputTruncationHint truncation={generateError.truncation} /> : null}
+          {generateError.kind === "refresh" ? (
+            <p>{t("overview_generate_refresh_failed")}</p>
+          ) : (
+            <>
+              <p>{t("overview_generate_failed", { message: generateError.message })}</p>
+              {generateError.truncation ? <OutputTruncationHint truncation={generateError.truncation} /> : null}
+            </>
+          )}
         </div>
       ) : null}
 

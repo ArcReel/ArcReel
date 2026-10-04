@@ -356,6 +356,15 @@ describe("MessageRow", () => {
     expect(screen.getByText("把 **第 3 集** 改短")).toBeInTheDocument();
   });
 
+  it("keeps user HTML, event attributes and unsafe links as literal text", () => {
+    const text = '<img src=x onerror="alert(1)"><script>alert(1)</script> [x](javascript:alert(1))';
+    const { container } = render(<MessageRow turn={{ ...userTurn, content: [{ type: "text", text }] }} />);
+
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(container.querySelector("img, script, a[href]")).toBeNull();
+    expect(container.querySelector("[onerror]")).toBeNull();
+  });
+
   it("marks an interrupted round with a separator line", () => {
     render(<MessageRow turn={{ type: "system", uuid: "s-1", content: [{ type: "interrupt_notice" }] }} />);
 

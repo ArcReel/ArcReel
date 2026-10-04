@@ -9,6 +9,8 @@ import type { CostByType, UnpricedModel } from "@/types";
 import { costEntries, formatCostTotal, totalBreakdown } from "@/utils/cost-format";
 import { customModelSettingsPath } from "@/utils/output-truncation";
 
+type MediaCallType = UnpricedModel["call_type"];
+
 interface CostRow {
   label: string;
   value: string;
@@ -54,7 +56,7 @@ const countOf = (models: UnpricedModel[]) => models.reduce((sum, model) => sum +
  * 费用一行：「费用 预估 … · 已花 …」，「明细」打开预估与实际两列的 Popover，底部链接到本项目的使用记录。
  * 数据来自 `useCostStore` 的项目合计（`costData.project_totals`），由概览挂载时按项目拉取。
  *
- * 合计为空时区分真实的 0 与未知：有没计价的部分、或项目没有本机调用记录时写「—」，并在下方说明原因；
+ * 合计为空时区分真实的 0 与未知：有没计价的部分、或项目没有本机生成记录时写「—」，并在下方说明原因；
  * 原因是模型没有价格时列出这些模型，链接到自定义供应商里的对应模型。部分没计价时仍显示已计价的金额。
  * 拿不到数据（未加载、加载失败、属于别的项目）时同样写「—」。只读的演示项目不在本机，没有费用数据。
  */
@@ -68,21 +70,29 @@ export function CostLine({ projectName, readOnly = false }: { projectName: strin
   const totals = data?.project_totals;
   const unpricedEstimate = data?.unpriced.estimate ?? [];
   const unpricedActual = data?.unpriced.actual ?? [];
+  const recorded = !data?.missing_local_calls;
   const estimateComplete = unpricedEstimate.length === 0;
-  const actualComplete = unpricedActual.length === 0 && !data?.missing_local_calls;
+  const actualComplete = unpricedActual.length === 0 && recorded;
+  // 明细逐行判断：只有含没计价调用的那一类写「—」，其余类型照常区分真实的 0
+  const estimateUnpriced = new Set(unpricedEstimate.map((model) => model.call_type));
+  const actualUnpriced = new Set(unpricedActual.map((model) => model.call_type));
 
-  const typeRows = (by: CostByType, complete: boolean): CostRow[] => [
-    { label: t("storyboard"), value: formatCostTotal(by.image, complete) },
-    { label: t("video"), value: formatCostTotal(by.video, complete) },
-    ...(costEntries(by.audio).length > 0
-      ? [{ label: t("media_narration_title"), value: formatCostTotal(by.audio, complete) }]
+  const typeRows = (by: CostByType, unpriced: Set<MediaCallType>, recorded: boolean): CostRow[] => [
+    { label: t("storyboard"), value: formatCostTotal(by.image, recorded && !unpriced.has("image")) },
+    { label: t("video"), value: formatCostTotal(by.video, recorded && !unpriced.has("video")) },
+    ...(costEntries(by.audio).length > 0 || unpriced.has("audio")
+      ? [{ label: t("media_narration_title"), value: formatCostTotal(by.audio, recorded && !unpriced.has("audio")) }]
       : []),
   ];
   const actualRows = (by: CostByType): CostRow[] => [
-    ...typeRows(by, actualComplete),
+    ...typeRows(by, actualUnpriced, recorded),
+    // 资产图都来自图片调用
     ...(["characters", "scenes", "props", "products"] as const)
       .filter((kind) => by[kind] != null)
-      .map((kind) => ({ label: t(`actual_${kind}`), value: formatCostTotal(by[kind], actualComplete) })),
+      .map((kind) => ({
+        label: t(`actual_${kind}`),
+        value: formatCostTotal(by[kind], recorded && !actualUnpriced.has("image")),
+      })),
     ...(costEntries(by.unassigned).length > 0
       ? [{ label: t("actual_unassigned_history"), value: formatCostTotal(by.unassigned, actualComplete) }]
       : []),
@@ -131,7 +141,7 @@ export function CostLine({ projectName, readOnly = false }: { projectName: strin
               <div className="grid grid-cols-2 gap-5 p-1">
                 <CostColumn
                   label={t("overview_cost_estimate_column")}
-                  rows={typeRows(totals.estimate, estimateComplete)}
+                  rows={typeRows(totals.estimate, estimateUnpriced, true)}
                   total={estimate}
                 />
                 <CostColumn label={t("overview_cost_actual_column")} rows={actualRows(totals.actual)} total={spent} />

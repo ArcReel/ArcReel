@@ -86,7 +86,7 @@ const LONG_PROJECT: ApiOverrides = {
   },
 };
 
-// 压力变体：费用拿不到完整数字。导入的项目没有本机调用记录，六个自定义供应商模型（长名称）没有价格。
+// 压力变体：费用拿不到完整数字。导入的项目没有本机生成记录，六个自定义供应商模型（长名称）没有价格。
 const UNPRICED_MODELS = Array.from({ length: 6 }, (_, i) => ({
   call_type: i % 2 === 0 ? "image" : "video",
   provider: `custom-${i + 1}`,
@@ -138,6 +138,9 @@ async function box(locator: Locator) {
 
 async function overviewReady(page: Page) {
   await storySetting(page).waitFor();
+  // 字体与费用响应都会改变内容高度；等真实页面加载完成再测滚动可达性。
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => document.fonts.ready);
 }
 
 defineRegionScenarios("项目概览", [
@@ -198,7 +201,7 @@ defineRegionScenarios("项目概览", [
     act: async (page) => {
       await collapseAgentPanel(page);
       await expect(page.getByText("已花 —")).toBeVisible();
-      await expect(page.getByText(/本机没有这个项目的调用记录/)).toBeVisible();
+      await expect(page.getByText(/本机没有这个项目的生成记录/)).toBeVisible();
       const lastModel = page.getByRole("link", { name: new RegExp(UNPRICED_MODELS[5].model) });
       await expect(lastModel).toHaveAttribute(
         "href",
@@ -221,9 +224,9 @@ defineRegionScenarios("项目概览", [
       await collapseAgentPanel(page);
       await storySetting(page).getByRole("textbox", { name: "类型" }).fill("历史战争");
       const save = storySetting(page).getByRole("button", { name: "保存" });
+      await settle(page);
       await save.scrollIntoViewIfNeeded();
       await expect(save).toBeInViewport({ ratio: 1 });
-      await settle(page);
     },
   },
   {

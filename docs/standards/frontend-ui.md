@@ -128,7 +128,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 - **Sheet**：左右两侧默认宽度为 `w-md`。调整右侧宽度时写 `data-[side=right]:w-*`，直接写 `w-*` 会被原语里带 `data-[side=right]:` 前缀的默认宽度盖住。Sheet 同样按 Header、Body、Footer 组合。
 - **Popover**：高度不超过触发点到视口边缘的可用空间（`max-h-(--available-height)`），内容超出时在 Popup 内滚动。
 - **DropdownMenu**：分组标题传给 `DropdownMenuGroup` 的 `label`；删除等不可逆的菜单项用 `variant="destructive"`。
-- **Command**（cmdk，常放在 Popover 里做可搜索的选择列表）：`CommandList` 是 listbox，只放 `CommandEmpty`、`CommandGroup` 与 `CommandItem`。分隔线、加载中与加载失败的提示放在 `CommandList` 之外，否则 axe 报 `aria-required-children`；不随搜索词过滤的固定入口（如「全部项目」）写成 Command 之外的 `Button` 或 `Link`，用 Tab 到达。Popover 打开时用 `initialFocus` 把焦点交给 `CommandInput`。
+- **Command**（cmdk，常放在 Popover 里做可搜索的选择列表）：`CommandList` 是 listbox，传入本地化 `label` 覆盖默认英文名称，只放 `CommandEmpty`、`CommandGroup` 与 `CommandItem`。分隔线、加载中与加载失败的提示放在 `CommandList` 之外，否则 axe 报 `aria-required-children`；不随搜索词过滤的固定入口（如「全部项目」）写成 Command 之外的 `Button` 或 `Link`，用 Tab 到达。Popover 打开时用 `initialFocus` 把焦点交给 `CommandInput`。
 
 ### 层级只用 z-index token，调用处不写 `z-*`
 
@@ -195,6 +195,8 @@ Agent 面板是名为 `agent` 的尺寸容器，面板内 `Textarea` 的默认�
 ### Agent 面板的消息区由 `MessageFlow` 管理滚动跟随，消息按 turn 类型分发渲染
 
 消息区是 `components/copilot/chat/MessageFlow`，滚动交给 `components/ui/message-scroller`：贴底时随新内容跟随到底，用户上翻即停止跟随，底部出现圆形的「跳到最新」按钮。不手写 `scrollTop` 赋值或「内容变化就滚到底」的 effect。新增或改动消息区时遵守五条：
+
+`MessageScrollerItem` 保持离屏项的真实排版，不使用 `content-visibility: auto`：Markdown 按需加载会改变消息高度，浏览器缓存的占位高度可能与最终内容不符，使滚动范围和底部排版不稳定。消息视口禁用浏览器的滚动锚定（`overflow-anchor: none`），避免异步正文缩短时的锚定补偿被原语误判为用户上翻。
 
 - **用户动作后显式回到底部。** 发送消息、提交回答这类「接下来要看回复」的动作，先调用 `MessageFlowHandle.scrollToEnd()`，它同时恢复跟随。切换会话以会话 id 作 `key` 重新挂载，新会话从底部开始。
 - **显示层整理在纯函数里。** 两条用户消息之间连续的 assistant turn 合成一轮、跳过没有可见内容的 turn，都在 `display-items.ts` 的 `buildDisplayItems` 中完成并有单元测试；渲染组件不再自行合并或过滤。
