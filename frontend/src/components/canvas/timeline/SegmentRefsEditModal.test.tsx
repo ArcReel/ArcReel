@@ -59,23 +59,23 @@ describe("SegmentRefsEditModal", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it("save button is disabled until at least one change is made", () => {
+  it("apply button is disabled until at least one change is made", () => {
     render(<SegmentRefsEditModal {...baseProps} />);
-    const saveBtn = screen.getByRole("button", { name: "保存" });
+    const saveBtn = screen.getByRole("button", { name: "确定" });
     expect(saveBtn).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: /Villain/ }));
     expect(saveBtn).toBeEnabled();
   });
 
-  it("clicking save calls onSave with only changed fields", () => {
+  it("applying calls onSave with only changed fields", () => {
     const onSave = vi.fn();
     render(<SegmentRefsEditModal {...baseProps} onSave={onSave} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Villain/ })); // add char
     fireEvent.click(screen.getByRole("button", { name: /Forest/ })); // add scene
 
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    fireEvent.click(screen.getByRole("button", { name: "确定" }));
     // props unchanged → not in payload
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0][0]).toEqual({
@@ -106,11 +106,11 @@ describe("SegmentRefsEditModal", () => {
     );
     const ghostRow = screen.getByRole("button", { name: /Ghost/ });
     expect(ghostRow).toBeInTheDocument();
-    // Stale rows render with a hint title
-    expect(ghostRow).toHaveAttribute("title", expect.stringContaining("失效"));
+    // 失效说明写在行内，读屏随按钮名称一起读出
+    expect(ghostRow).toHaveAccessibleName(expect.stringContaining("失效"));
     // Removing the stale ref enables save
     fireEvent.click(ghostRow);
-    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "确定" })).toBeEnabled();
   });
 
   it("empty dictionary shows manage link button (kind passed to callback)", () => {
@@ -155,7 +155,7 @@ describe("SegmentRefsEditModal", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Hero \/ Armored/ }));
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    fireEvent.click(screen.getByRole("button", { name: "确定" }));
 
     expect(onSave).toHaveBeenCalledWith({ characters: ["Hero/Armored"] });
   });

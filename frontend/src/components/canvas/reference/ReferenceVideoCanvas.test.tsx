@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { Router, useLocation } from "wouter";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
+import { EpisodeViewFactsProvider } from "@/components/canvas/episode-page/EpisodeViewScope";
+import type { EpisodeViewFacts } from "@/components/canvas/episode-page/episode-view";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -458,13 +460,25 @@ describe("ReferenceVideoCanvas", () => {
       [, navigate] = useLocation();
       return null;
     }
+    /** 有剧本的参考生视频集：缺省视图是视频单元，另有脚本规划与剪辑。 */
+    const FACTS: EpisodeViewFacts = {
+      isAd: false,
+      route: "reference_video",
+      grid: false,
+      hasScript: true,
+      hasDraft: true,
+      sourceReview: false,
+      demo: false,
+    };
     function renderAt(path: string, base = "") {
       window.history.replaceState(null, "", `${base}${path}`);
       return rtlRender(
         <LeaveGuardProvider>
           <Router base={base}>
             <Navigator />
-            <ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />
+            <EpisodeViewFactsProvider value={FACTS}>
+              <ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />
+            </EpisodeViewFactsProvider>
           </Router>
         </LeaveGuardProvider>,
       );
@@ -524,18 +538,32 @@ describe("ReferenceVideoCanvas", () => {
     it.each([
       ["", "/episodes/1"],
       ["/app/projects/proj", "/episodes/1"],
-    ])("同一集的画布视图之间切换不询问，去剪辑视图时询问（base=%s）", async (base, path) => {
+    ])("有未保存的正文时切到脚本规划会询问（base=%s）", async (base, path) => {
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "推门。")], unit_capabilities: {} });
       renderAt(`${path}?view=board`, base);
       fireEvent.change(await screen.findByRole("combobox"), { target: { value: "推门而入。" } });
 
       act(() => navigate(`${path}?view=plan`));
-      expect(window.location.pathname + window.location.search).toBe(`${base}${path}?view=plan`);
+      expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+      expect(window.location.search).toBe("?view=board");
+    });
+
+    it.each([
+      ["", "/episodes/1"],
+      ["/app/projects/proj", "/episodes/1"],
+    ])("停留在视频单元视图的跳转不询问，去剪辑视图时询问（base=%s）", async (base, path) => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "推门。")], unit_capabilities: {} });
+      renderAt(`${path}?view=board`, base);
+      fireEvent.change(await screen.findByRole("combobox"), { target: { value: "推门而入。" } });
+
+      // 有剧本时缺省视图就是视频单元：去掉 view 仍停在原视图
+      act(() => navigate(path));
+      expect(window.location.pathname + window.location.search).toBe(`${base}${path}`);
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
 
       act(() => navigate(`${path}?view=edit`));
       expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
-      expect(window.location.search).toBe("?view=plan");
+      expect(window.location.search).toBe("");
     });
   });
 

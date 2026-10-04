@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TooltipIconButtonProps {
@@ -9,6 +10,8 @@ interface TooltipIconButtonProps {
   disabled?: boolean;
   onClick: () => void;
   size?: "icon-xs" | "icon-sm";
+  /** 对应的快捷键（如「J」）：写进 `aria-keyshortcuts`，并显示在提示里。 */
+  shortcut?: string;
   children: ReactNode;
 }
 
@@ -16,7 +19,15 @@ interface TooltipIconButtonProps {
  * 只有图标的工具按钮，悬停或聚焦显示名称。禁用的按钮不响应指针，提示改挂在外层，
  * 悬停时仍能看到禁用原因。
  */
-export function TooltipIconButton({ label, hint, disabled = false, onClick, size = "icon-sm", children }: TooltipIconButtonProps) {
+export function TooltipIconButton({
+  label,
+  hint,
+  disabled = false,
+  onClick,
+  size = "icon-sm",
+  shortcut,
+  children,
+}: TooltipIconButtonProps) {
   const hintId = useId();
   const describe = disabled && hint !== undefined;
   const buttonProps = {
@@ -24,6 +35,7 @@ export function TooltipIconButton({ label, hint, disabled = false, onClick, size
     size,
     "aria-label": label,
     "aria-describedby": describe ? hintId : undefined,
+    "aria-keyshortcuts": shortcut,
     disabled,
   } as const;
   return (
@@ -36,7 +48,10 @@ export function TooltipIconButton({ label, hint, disabled = false, onClick, size
         ) : (
           <TooltipTrigger render={<Button {...buttonProps} onClick={onClick} />}>{children}</TooltipTrigger>
         )}
-        <TooltipContent>{describe ? hint : label}</TooltipContent>
+        <TooltipContent>
+          {describe ? hint : label}
+          {shortcut && !describe ? <Kbd>{shortcut}</Kbd> : null}
+        </TooltipContent>
       </Tooltip>
       {describe ? (
         <span id={hintId} hidden>

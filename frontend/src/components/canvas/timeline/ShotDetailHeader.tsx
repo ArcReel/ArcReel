@@ -72,10 +72,22 @@ export function ShotDetailHeader({
           </>
         ) : null}
         {structureActions}
-        <TooltipIconButton label={t("shot_detail_prev")} hint={navDisabledHint} disabled={navDisabled} onClick={onPrev}>
+        <TooltipIconButton
+          label={t("shot_detail_prev")}
+          hint={navDisabledHint}
+          disabled={navDisabled}
+          onClick={onPrev}
+          shortcut="K"
+        >
           <ChevronLeft aria-hidden />
         </TooltipIconButton>
-        <TooltipIconButton label={t("shot_detail_next")} hint={navDisabledHint} disabled={navDisabled} onClick={onNext}>
+        <TooltipIconButton
+          label={t("shot_detail_next")}
+          hint={navDisabledHint}
+          disabled={navDisabled}
+          onClick={onNext}
+          shortcut="J"
+        >
           <ChevronRight aria-hidden />
         </TooltipIconButton>
         {notes}

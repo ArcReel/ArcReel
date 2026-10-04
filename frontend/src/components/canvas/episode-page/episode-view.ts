@@ -82,11 +82,19 @@ export function withEpisodeView(params: URLSearchParams, next: EpisodeView, fact
 }
 
 /**
- * 应用内跳转 `to` 是否只在同一集的画布视图之间切换（脚本规划、多宫格分镜图、分镜），画布不卸载。
- * 画布里的编辑单元把它传给 `allowNavigation`，这类切换不触发离开拦截；去剪辑视图会卸载画布，照常拦截。
+ * 应用内跳转 `to` 之后是否仍停留在当前视图：同一集，且地址上的 `view` 按上面的规则落到同一个视图。
+ *
+ * 脚本规划、多宫格分镜图与分镜之间切换时画布实例不卸载，但画布里的编辑单元只挂在其中一个视图下
+ * （分镜详情、视频单元正文只在分镜视图渲染）：画布实例不卸载不等于编辑单元不卸载。编辑单元把它作为
+ * `allowNavigation`，只有不会卸载自己的跳转才不询问；去别的视图、剪辑视图或别的集都照常拦截。
+ * `to` 与 `here` 都带嵌套路由的 base，`view` 缺省时按 `facts` 算出的缺省视图判断。
  */
-export function staysOnEpisodeCanvas(to: string, here: string): boolean {
+export function staysInEpisodeView(to: string, here: string, facts: EpisodeViewFacts): boolean {
   const current = new URL(here, "http://episode-view.invalid");
   const target = new URL(to, current);
-  return target.pathname === current.pathname && target.searchParams.get(EPISODE_VIEW_PARAM) !== EPISODE_VIEW_EDIT;
+  if (target.pathname !== current.pathname) return false;
+  return (
+    resolveEpisodeView(target.searchParams.get(EPISODE_VIEW_PARAM), facts) ===
+    resolveEpisodeView(current.searchParams.get(EPISODE_VIEW_PARAM), facts)
+  );
 }

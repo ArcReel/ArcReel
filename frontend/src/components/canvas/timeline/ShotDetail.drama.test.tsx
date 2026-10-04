@@ -127,12 +127,11 @@ describe("ShotDetail 剧情演绎", () => {
     // 初始干净：保存栏不渲染
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
 
-    const toggleTitle = "在台词与画外音间切换";
     // 切到台词：真实变更 → 变脏 → 保存栏出现
-    fireEvent.click(screen.getByTitle(toggleTitle));
+    fireEvent.click(screen.getByRole("button", { name: "画外音" }));
     expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
     // 切回画外音（speaker 归 null，文本不变）：归一化后与上游等价 → 复归干净 → 保存栏消失
-    fireEvent.click(screen.getByTitle(toggleTitle));
+    fireEvent.click(screen.getByRole("button", { name: "台词" }));
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
 
@@ -218,7 +217,7 @@ describe("ShotDetail 剧情演绎", () => {
       await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     });
 
-    it("有未保存草稿时增删入口禁用；未传回调时不渲染入口", () => {
+    it("有未保存修改时增删入口禁用；未传回调时不渲染入口", () => {
       const { unmount } = renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot: vi.fn(), onRemoveShot: vi.fn() });
       fireEvent.change(screen.getByDisplayValue("三年后。"), { target: { value: "五年后。" } });
       expect(screen.getByRole("button", { name: "在此后插入" })).toBeDisabled();

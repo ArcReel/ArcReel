@@ -10,7 +10,10 @@ interface SegmentBreakToggleProps {
   disabled?: boolean;
 }
 
-/** 章节切分点开关：切换即保存，不弹确认。悬停或聚焦时说明它对分镜图参考链和宫格分组的影响。 */
+/**
+ * 章节切分点开关，不弹确认。悬停或聚焦时说明它对分镜图参考链和宫格分组的影响。
+ * 分镜详情里它写进分镜的未保存修改；脚本规划页里写进规划草稿。
+ */
 export function SegmentBreakToggle({ checked, onChange, disabled = false }: SegmentBreakToggleProps) {
   const { t } = useTranslation("dashboard");
   const labelId = useId();

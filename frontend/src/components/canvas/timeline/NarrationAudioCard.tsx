@@ -25,6 +25,8 @@ interface NarrationAudioCardProps {
   estimatedCost?: CostBreakdown;
   /** 触发生成 */
   onGenerate?: () => void;
+  /** 生成按钮文案，缺省按有无产物写「生成」或「重新生成」；有未保存修改时传「保存并生成」。 */
+  generateLabel?: string;
 }
 
 export function NarrationAudioCard({
@@ -37,6 +39,7 @@ export function NarrationAudioCard({
   generateDisabledHint,
   estimatedCost,
   onGenerate,
+  generateLabel: generateLabelOverride,
 }: NarrationAudioCardProps) {
   const { t } = useTranslation("dashboard");
   // 与 ShotDetail 的按钮禁用判定共用同一套 trim 规则，避免"卡片有正文、按钮却禁用"的矛盾态
@@ -47,9 +50,8 @@ export function NarrationAudioCard({
   );
   const audioUrl = assetPath ? API.getFileUrl(projectName, assetPath, assetFp) : null;
 
-  const generateLabel = assetPath
-    ? t("media_regenerate_narration")
-    : t("media_generate_narration");
+  const generateLabel =
+    generateLabelOverride ?? (assetPath ? t("media_regenerate_narration") : t("media_generate_narration"));
 
   return (
     <div>

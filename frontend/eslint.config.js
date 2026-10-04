@@ -160,6 +160,8 @@ const REWORKED_FILES = [
   "src/components/canvas/timeline/{TimelineCanvas,ShotSplitView,ShotList,ShotDetailLayout,ShotDetailHeader,TooltipIconButton,ShotStructureActions,EmptyScriptState,StatusBadge,SegmentBreakToggle,NotesDrawer,MediaCard,EndFrameRow,NarrationAudioCard,ReferencesSection,AvatarStack,ClueStack,RefThumbnail,VersionTimeMachine}.tsx",
   // 制作进度弹层内容：步骤行、提示、整批准入结论、进行中的任务与过期产物
   "src/components/workflow/**",
+  // 分镜的编辑单元：分镜详情与提示词、台词、发声序列编辑器、引用编辑对话框、快捷键与提示
+  "src/components/canvas/timeline/{ShotDetail,ImagePromptEditor,VideoPromptEditor,PromptFieldGrid,PromptFieldSelect,CompactInput,DialogueListEditor,UtteranceListEditor,SegmentRefsEditModal,ShotShortcutHint,useShotShortcuts}.{ts,tsx}",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

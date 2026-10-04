@@ -63,7 +63,7 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     episodeScript: unknown;
     scriptFile?: string;
     durationOptions?: number[];
-    onUpdatePrompt?: (segmentId: string, field: string, value: unknown, scriptFile?: string) => void;
+    onUpdatePrompt?: (segmentId: string, patch: Record<string, unknown>, scriptFile?: string) => Promise<boolean>;
     onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean> | void;
     onInsertShot?: (afterId: string, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
     onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
@@ -75,7 +75,15 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     <div data-testid="timeline-canvas" data-view={view}>
       <div data-testid="timeline-has-script">{episodeScript ? "yes" : "no"}</div>
       <div data-testid="timeline-duration-options">{(durationOptions ?? []).join(",")}</div>
-      <button onClick={() => onUpdatePrompt?.("SEG-1", "image_prompt", "new prompt", scriptFile)}>
+      <button
+        onClick={(e) => {
+          const el = e.currentTarget;
+          onUpdatePrompt?.("SEG-1", { image_prompt: "new prompt" }, scriptFile).then(
+            (refreshed) => el.setAttribute("data-result", String(refreshed)),
+            (err: Error) => el.setAttribute("data-error", err.message),
+          );
+        }}
+      >
         update-prompt
       </button>
       <button
@@ -83,7 +91,7 @@ vi.mock("./timeline/TimelineCanvas", () => ({
           const el = e.currentTarget;
           el.setAttribute("data-update-pending", "true");
           void Promise.resolve(
-            onUpdatePrompt?.("SEG-1", "image_prompt", "new prompt", scriptFile),
+            onUpdatePrompt?.("SEG-1", { image_prompt: "new prompt" }, scriptFile),
           ).then(() => {
             el.setAttribute("data-update-pending", "false");
           });
@@ -1149,8 +1157,10 @@ describe("StudioCanvasRouter", () => {
         script_file: "episode_1.json",
         image_prompt: "new prompt",
       });
-      expect(useAppStore.getState().toast?.text).toContain("更新 Prompt 失败");
+      // 保存失败如实抛给分镜详情，由提示条显示，不另弹全局提示
+      expect(screen.getByText("update-prompt")).toHaveAttribute("data-error", "update failed");
     });
+    expect(useAppStore.getState().toast).toBeNull();
 
     fireEvent.click(screen.getByText("generate-storyboard"));
     await waitFor(() => {

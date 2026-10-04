@@ -2,7 +2,10 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, X } from "lucide-react";
 import type { Dialogue } from "@/types";
-import { useAutoResizeTextarea } from "@/hooks/useAutoResizeTextarea";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { TooltipIconButton } from "./TooltipIconButton";
 
 interface DialogueListEditorProps {
   dialogue: Dialogue[];
@@ -18,51 +21,39 @@ interface DialogueRowProps {
   readOnly?: boolean;
 }
 
-/** A single speaker/line pair. The line uses an auto-growing textarea so long
- *  dialogue wraps and stays fully visible instead of being clipped. */
+/** 一条「说话人 + 台词」。台词随内容撑高折行，长台词完整可见。 */
 function DialogueRow({ value, onUpdate, onRemove, readOnly }: DialogueRowProps) {
   const { t } = useTranslation("dashboard");
-  const { ref, resize } = useAutoResizeTextarea(value.line);
 
   return (
     <div className="flex items-start gap-1.5">
-      <input
-        type="text"
+      <Input
         value={value.speaker}
         onChange={(e) => onUpdate({ speaker: e.target.value })}
         readOnly={readOnly}
         placeholder={t("speaker_placeholder")}
-        className="dlg-input dlg-input--speaker w-16 shrink-0"
+        aria-label={t("speaker_placeholder")}
+        className="w-20 shrink-0"
       />
-      <textarea
-        ref={ref}
+      <Textarea
         value={value.line}
         onChange={(e) => onUpdate({ line: e.target.value })}
         onKeyDown={(e) => {
-          // A dialogue line stays single-line; the textarea only wraps long
-          // text. Block Enter from inserting a newline, but let IME use it to
-          // commit a candidate (isComposing).
+          // 一条台词只占一段：回车不换行，只折行显示长文本；输入法用回车确认候选时放行。
           if (e.key === "Enter" && !e.nativeEvent.isComposing) {
             e.preventDefault();
           }
         }}
-        onInput={resize}
         readOnly={readOnly}
         placeholder={t("line_placeholder")}
+        aria-label={t("line_placeholder")}
         rows={1}
-        className="dlg-input min-w-0 flex-1 resize-none overflow-hidden"
+        className="min-h-8 min-w-0 flex-1"
       />
       {readOnly ? null : (
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label={t("dialogue_remove")}
-          title={t("dialogue_remove")}
-          className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-          style={{ color: "var(--muted-foreground)" }}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <TooltipIconButton label={t("dialogue_remove")} onClick={onRemove}>
+          <X aria-hidden />
+        </TooltipIconButton>
       )}
     </div>
   );
@@ -127,15 +118,10 @@ export function DialogueListEditor({
       ))}
 
       {readOnly ? null : (
-        <button
-          type="button"
-          onClick={add}
-          className="focus-ring inline-flex items-center gap-1 self-start rounded-md px-2 py-1 text-[11.5px] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-          style={{ color: "var(--muted-foreground)" }}
-        >
-          <Plus className="h-3 w-3" />
+        <Button variant="ghost" size="xs" className="self-start" onClick={add}>
+          <Plus aria-hidden data-icon="inline-start" />
           {t("add_dialogue")}
-        </button>
+        </Button>
       )}
     </div>
   );

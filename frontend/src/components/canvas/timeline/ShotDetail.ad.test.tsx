@@ -175,7 +175,7 @@ describe("ShotDetail 广告/短片", () => {
     expect(screen.getByText("尾帧")).toBeInTheDocument();
   });
 
-  it("有口播的分镜生成视频只提交分镜 ID，不提供旁白交付选择也不触发 TTS", () => {
+  it("有口播的分镜生成视频只提交分镜 ID，不提供旁白交付选择也不触发 TTS", async () => {
     const onGenerateVideo = vi.fn();
     const onGenerateNarration = vi.fn();
     renderDetail({
@@ -199,7 +199,7 @@ describe("ShotDetail 广告/短片", () => {
     expect(screen.queryByRole("button", { name: "后期配音" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "生成视频" }));
 
-    expect(onGenerateVideo).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onGenerateVideo).toHaveBeenCalledTimes(1));
     expect(onGenerateVideo.mock.calls[0]).toEqual(["E1S01"]);
     expect(onGenerateNarration).not.toHaveBeenCalled();
   });

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useRouter, useSearch } from "wouter";
 import {
   AlertTriangle,
   ChevronDown,
@@ -31,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { staysOnEpisodeCanvas } from "@/components/canvas/episode-page/episode-view";
+import { useStaysInEpisodeView } from "@/components/canvas/episode-page/EpisodeViewScope";
 import { UnitList } from "./UnitList";
 import { UnitRail } from "./UnitRail";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
@@ -154,18 +153,6 @@ function unitNarrationText(unit: ReferenceVideoUnit | null): string {
     }
   }
   return hasCharacterSpeech ? "" : narration.join("\n");
-}
-
-/**
- * 当前地址（含 base 与查询串）下，应用内跳转是否只在同一集的画布视图之间切换。
- * wouter 交给离开拦截的目标地址带嵌套路由的 base，这里拼出同样形式的当前地址再比较。
- */
-function useStaysOnEpisodeCanvas(): (to: string) => boolean {
-  const { base } = useRouter();
-  const [path] = useLocation();
-  const search = useSearch();
-  const here = `${base}${path}${search ? `?${search}` : ""}`;
-  return useCallback((to: string) => staysOnEpisodeCanvas(to, here), [here]);
 }
 
 /**
@@ -812,7 +799,7 @@ export function ReferenceVideoCanvas({
     },
     [patchUnit, projectName, episode],
   );
-  const allowNavigation = useStaysOnEpisodeCanvas();
+  const allowNavigation = useStaysInEpisodeView();
 
   // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
   // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。

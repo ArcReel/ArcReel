@@ -1,11 +1,10 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { CompactInput } from "@/components/canvas/timeline/CompactInput";
-import { DropdownPill } from "@/components/legacy/DropdownPill";
 import { CAMERA_MOTIONS, CAMERA_MOTION_I18N_KEYS } from "@/types";
-import type { VideoPrompt, CameraMotion } from "@/types";
+import type { VideoPrompt } from "@/types";
+import { CompactInput } from "./CompactInput";
+import { PromptFieldGrid } from "./PromptFieldGrid";
+import { PromptFieldSelect } from "./PromptFieldSelect";
 
 interface VideoPromptEditorProps {
   prompt: VideoPrompt;
@@ -14,14 +13,9 @@ interface VideoPromptEditorProps {
   readOnly?: boolean;
 }
 
-/** Structured editor for VideoPrompt fields with collapsible metadata section. */
-export function VideoPromptEditor({
-  prompt,
-  onUpdate,
-  readOnly,
-}: VideoPromptEditorProps) {
+/** 结构化的视频提示词：动作描述加可折叠的镜头运动与环境音效。台词在分镜详情的台词区单独编辑。 */
+export function VideoPromptEditor({ prompt, onUpdate, readOnly }: VideoPromptEditorProps) {
   const { t } = useTranslation("dashboard");
-  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <div className="flex flex-col gap-2">
@@ -29,40 +23,27 @@ export function VideoPromptEditor({
         value={prompt.action}
         onChange={(e) => onUpdate({ action: e.target.value })}
         readOnly={readOnly}
+        aria-label={t("detail_video_prompt_title")}
         placeholder={t("video_prompt_placeholder")}
+        className="max-h-none"
       />
-
-      {/* Collapsible metadata fields */}
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        className="inline-flex items-center gap-1 self-start text-[10px] text-gray-500 hover:text-gray-400"
-      >
-        <ChevronDown
-          className={`h-3 w-3 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+      <PromptFieldGrid title={t("camera_motion_section")}>
+        <PromptFieldSelect
+          label={t("camera_motion_label")}
+          value={prompt.camera_motion}
+          options={CAMERA_MOTIONS}
+          renderOption={(value) => t(CAMERA_MOTION_I18N_KEYS[value])}
+          disabled={readOnly}
+          onChange={(camera_motion) => onUpdate({ camera_motion })}
         />
-        {t("camera_motion_section")}
-      </button>
-
-      {!collapsed && (
-        <div className="flex flex-col gap-2 pl-1">
-          <DropdownPill
-            label={t("camera_motion_label")}
-            value={prompt.camera_motion}
-            options={CAMERA_MOTIONS}
-            renderOption={(v: CameraMotion) => t(CAMERA_MOTION_I18N_KEYS[v])}
-            disabled={readOnly}
-            onChange={(v: CameraMotion) => onUpdate({ camera_motion: v })}
-          />
-          <CompactInput
-            label={t("ambiance_audio_label")}
-            value={prompt.ambiance_audio}
-            onChange={(v) => onUpdate({ ambiance_audio: v })}
-            readOnly={readOnly}
-            placeholder={t("ambiance_audio_placeholder")}
-          />
-        </div>
-      )}
+        <CompactInput
+          label={t("ambiance_audio_label")}
+          value={prompt.ambiance_audio}
+          onChange={(ambiance_audio) => onUpdate({ ambiance_audio })}
+          readOnly={readOnly}
+          placeholder={t("ambiance_audio_placeholder")}
+        />
+      </PromptFieldGrid>
     </div>
   );
 }

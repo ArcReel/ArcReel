@@ -1,45 +1,31 @@
+import { useId } from "react";
+import { Input } from "@/components/ui/input";
+
 interface CompactInputProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  className?: string;
   /** 只读展示：保留可选中的文本，但不接受输入。 */
   readOnly?: boolean;
 }
 
-/** Single-line labeled input with dark theme styling. */
-export function CompactInput({
-  label,
-  value,
-  onChange,
-  placeholder,
-  className,
-  readOnly,
-}: CompactInputProps) {
+/** 结构化提示词里的单行字段：左侧标签、右侧输入框，放在 `PromptFieldGrid` 的两列里。 */
+export function CompactInput({ label, value, onChange, placeholder, readOnly }: CompactInputProps) {
+  const id = useId();
   return (
-    <label className={`flex items-center gap-2 ${className ?? ""}`}>
-      <span
-        className="shrink-0 text-[11px]"
-        style={{ color: "var(--muted-foreground)" }}
-      >
+    <>
+      <label htmlFor={id} className="text-xs text-muted-foreground">
         {label}
-      </span>
-      <input
-        type="text"
+      </label>
+      <Input
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         readOnly={readOnly}
         placeholder={placeholder}
-        className="focus-ring min-w-0 flex-1 rounded-md px-2 py-1 text-xs outline-none"
-        style={{
-          background:
-            "linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4))",
-          border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-          color: "var(--foreground)",
-          boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
-        }}
+        className="min-w-0"
       />
-    </label>
+    </>
   );
 }

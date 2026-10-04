@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef } from "react";
 import { StickyNote } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -9,33 +9,23 @@ import { itemIdWithinEpisode } from "@/utils/episode-display";
 interface NotesDrawerProps {
   /** 当前 shot 的 ID（用于 placeholder） */
   shotId: string;
-  /** 持久化值 */
+  /** 备注的当前内容，包含未保存修改 */
   value: string;
-  /** 收起弹层时调用，参数即输入框当前值 */
-  onCommit: (value: string) => void;
+  /** 输入即写入分镜的未保存修改，由分镜详情统一保存 */
+  onChange: (value: string) => void;
 }
 
 /**
- * 分镜备注：页头行尾的图标按钮打开弹层，收起弹层时把改动落库。已有备注时按钮带一个小圆点。
+ * 分镜备注：页头行尾的图标按钮打开弹层。备注是分镜的字段，输入写进分镜的未保存修改，
+ * 与提示词一起由提示条保存或放弃。有备注时按钮带一个小圆点。
  */
-export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
+export function NotesDrawer({ shotId, value, onChange }: NotesDrawerProps) {
   const { t } = useTranslation("dashboard");
   const titleId = useId();
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleOpenChange = (next: boolean) => {
-    if (next) {
-      setDraft(value);
-    } else if (draft !== value) {
-      onCommit(draft);
-    }
-    setOpen(next);
-  };
-
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover>
       <PopoverTrigger
         render={<Button variant="ghost" size="icon-sm" className="relative" aria-label={t("shot_notes_button")} />}
       >
@@ -48,13 +38,13 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
           <PopoverTitle id={titleId} className="min-w-0 flex-1">
             {t("shot_notes_title")}
           </PopoverTitle>
-          <span className="num text-xs text-muted-foreground">{draft.length}</span>
+          <span className="num text-xs text-muted-foreground">{value.length}</span>
         </div>
         <Textarea
           ref={textareaRef}
           aria-labelledby={titleId}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
           placeholder={t("shot_notes_placeholder", { id: itemIdWithinEpisode(shotId) })}
           className="min-h-36"
         />

@@ -41,6 +41,8 @@ interface MediaCardProps {
   estimatedCost?: CostBreakdown;
   /** 触发生成 */
   onGenerate?: () => void;
+  /** 生成按钮文案，缺省按有无产物写「生成」或「重新生成」；有未保存修改时传「保存并生成」。 */
+  generateLabel?: string;
   /** 版本恢复回调；未提供时不显示版本入口（只读展示无版本可回滚） */
   onRestore?: () => Promise<void> | void;
   /** 自主上传回调（替换该分镜的分镜图/视频）；未提供时不显示上传入口 */
@@ -70,6 +72,7 @@ export function MediaCard({
   generating,
   estimatedCost,
   onGenerate,
+  generateLabel: generateLabelOverride,
   onRestore,
   onUpload,
   uploading,
@@ -91,13 +94,14 @@ export function MediaCard({
   const title =
     kind === "storyboard" ? t("media_storyboard_title") : t("media_video_title");
   const generateLabel =
-    kind === "storyboard"
+    generateLabelOverride ??
+    (kind === "storyboard"
       ? assetPath
         ? t("media_regenerate_storyboard")
         : t("media_generate_storyboard")
       : assetPath
         ? t("media_regenerate_video")
-        : t("media_generate_video");
+        : t("media_generate_video"));
   const resourceType: "storyboards" | "videos" =
     kind === "storyboard" ? "storyboards" : "videos";
   // uploadDisabled 是本卡片之外的互斥占用（如同一分镜另一张卡在上传中）；
