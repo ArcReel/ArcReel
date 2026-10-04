@@ -1,7 +1,7 @@
 """
 项目的最近活动时间（读时计算）。
 
-项目大厅按它把最近在做的项目排在前面。取项目内任何内容最近一次被修改的时刻，来源有两类：
+项目大厅按它把最近在做的项目排在前面。根据项目账本与可识别内容计算最近修改的时刻，来源有两类：
 
 1. 账本里的业务时间戳：`project.json` 与各集剧本的 `metadata.updated_at`。业务写入会刷新它们，
    项目结构迁移改写这些 JSON 时保留原值，所以不用这些 JSON 文件的修改时间。
@@ -9,8 +9,8 @@
 
 不计入的文件不代表创作者的活动，却会在启动或后台流程中被统一改写，计入会让所有项目同时「刚刚更新」：
 
-- 名字以 `.` 开头的文件与目录：锁、产物清单、迁移报告、Agent 配置副本等。
-- 所有 `.json` 文件：账本与派生数据，迁移会改写它们；业务改动已由第 1 类或同时写下的媒体文件反映。
+- 名字以 `.` 开头的文件与目录：锁、产物清单、迁移报告、Agent 配置副本等。项目记忆单独计入。
+- 所有 `.json` 文件：项目与剧本取第 1 类业务时间；其余 JSON 的修改时间无法区分业务写入与迁移改写，不计入。
 - 迁移备份（文件名含 `.bak`）与锁文件（`.lock` 结尾）。
 - 项目根目录的 `CLAUDE.md`：内嵌 Agent 的配置由启动时的配置同步改写。
 """
@@ -23,6 +23,8 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from lib.agent.agent_memory_paths import project_memory_dir
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +53,13 @@ def _metadata_updated_at(doc: Mapping[str, Any]) -> datetime | None:
         parsed = datetime.fromisoformat(raw)
     except ValueError:
         return None
-    # 早期版本写的是不带时区的本机时间。
+    # 无时区的旧数据按本机时间解释。
     return parsed.astimezone(UTC)
 
 
 def _latest_content_mtime(project_dir: Path) -> float | None:
     latest: float | None = None
-    pending = [(project_dir, True)]
+    pending = [(project_dir, True), (project_memory_dir(project_dir), False)]
     while pending:
         directory, is_root = pending.pop()
         try:

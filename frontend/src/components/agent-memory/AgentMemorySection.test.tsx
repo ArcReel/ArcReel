@@ -7,6 +7,7 @@ import "@/i18n";
 import { API } from "@/api";
 import { AgentMemorySection } from "@/components/agent-memory/AgentMemorySection";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
+import { createDeferred } from "@/test/deferred";
 import { useAppStore } from "@/stores/app-store";
 import type { AgentMemoryOverview } from "@/types/agent-memory";
 
@@ -98,7 +99,8 @@ describe("AgentMemorySection", () => {
     vi.spyOn(API, "getAgentMemory").mockResolvedValue(overview());
     renderSection("section=agent-memory&file=feedback-no-plot-changes.md");
 
-    expect(await screen.findByRole("heading", { level: 2, name: "feedback-no-plot-changes.md" })).toBeInTheDocument();
+    await screen.findByRole("textbox", { name: "feedback-no-plot-changes.md" });
+    expect(screen.getByRole("heading", { level: 2, name: "feedback-no-plot-changes.md" })).toBeInTheDocument();
     expect(screen.getByText("反馈")).toBeInTheDocument();
     expect(screen.getByText(/^修改于 /)).toBeInTheDocument();
   });
@@ -118,6 +120,33 @@ describe("AgentMemorySection", () => {
     expect(await screen.findByText("已保存")).toBeInTheDocument();
     expect(getMemory).toHaveBeenCalledTimes(2);
     expect(useAppStore.getState().toast).toBeNull();
+  });
+
+  it("保存进行中禁用删除与更多操作，失败后恢复操作", async () => {
+    vi.spyOn(API, "getAgentMemory").mockResolvedValue(overview());
+    const pending = createDeferred<{ name: string }>();
+    vi.spyOn(API, "saveAgentMemoryFile").mockReturnValue(pending.promise);
+    const remove = vi.spyOn(API, "deleteAgentMemoryFile").mockResolvedValue({ name: "MEMORY.md" });
+    const clear = vi.spyOn(API, "clearAgentMemory").mockResolvedValue({ cleared: true });
+    renderSection();
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "MEMORY.md" }), { target: { value: "新的记忆" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    const deleteButton = screen.getByRole("button", { name: "删除" });
+    const moreButton = screen.getByRole("button", { name: "更多操作" });
+    expect(deleteButton).toBeDisabled();
+    expect(moreButton).toBeDisabled();
+    fireEvent.click(deleteButton);
+    fireEvent.click(moreButton);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    expect(remove).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+
+    pending.reject(new Error("磁盘已满"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("磁盘已满");
+    expect(deleteButton).toBeEnabled();
+    expect(moreButton).toBeEnabled();
   });
 
   it("保存失败时提示条显示原因，修改保留", async () => {
@@ -159,6 +188,24 @@ describe("AgentMemorySection", () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
+  it("新建在途时切到别的文件：创建完成后刷新列表，但不把人拉回新文件", async () => {
+    const getMemory = vi.spyOn(API, "getAgentMemory").mockResolvedValue(overview());
+    const pending = createDeferred<{ name: string }>();
+    vi.spyOn(API, "saveAgentMemoryFile").mockReturnValue(pending.promise);
+    const location = renderSection();
+
+    fireEvent.click(within(await fileList()).getByRole("link", { name: "新建记忆文件" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "文件名" }), { target: { value: "tone.md" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+    fireEvent.click(within(await fileList()).getByRole("link", { name: /^aspect-ratio\.md/ }));
+    await waitFor(() => expect(lastSearch(location).get("file")).toBe("aspect-ratio.md"));
+    const loads = getMemory.mock.calls.length;
+
+    pending.resolve({ name: "tone.md" });
+    await waitFor(() => expect(getMemory.mock.calls.length).toBeGreaterThan(loads));
+    expect(lastSearch(location).get("file")).toBe("aspect-ratio.md");
+  });
+
   it("新建：文件名不合规或重名时就地报错、不发请求；创建后选中新文件", async () => {
     const getMemory = vi.spyOn(API, "getAgentMemory").mockResolvedValue(overview());
     const save = vi.spyOn(API, "saveAgentMemoryFile").mockResolvedValue({ name: "tone.md" });
@@ -172,6 +219,10 @@ describe("AgentMemorySection", () => {
     fireEvent.click(create);
     expect(await screen.findByRole("alert")).toHaveTextContent(/以 \.md 结尾/);
     fireEvent.change(input, { target: { value: "aspect-ratio.md" } });
+    fireEvent.click(create);
+    expect(await screen.findByRole("alert")).toHaveTextContent("已存在同名文件");
+    // 默认不区分大小写的文件系统上，只差大小写的文件名指向同一个文件
+    fireEvent.change(input, { target: { value: "memory.md" } });
     fireEvent.click(create);
     expect(await screen.findByRole("alert")).toHaveTextContent("已存在同名文件");
     expect(save).not.toHaveBeenCalled();

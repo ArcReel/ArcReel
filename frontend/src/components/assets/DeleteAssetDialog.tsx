@@ -30,10 +30,15 @@ export function DeleteAssetDialog({
   const { t } = useTranslation("assets");
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 关闭动画期间沿用上一次的资产；每次打开（含再次打开同一个资产）都清掉上一次的错误
+  const [prev, setPrev] = useState(asset);
   const [shown, setShown] = useState(asset);
-  if (asset !== null && asset !== shown) {
-    setShown(asset);
-    setError(null);
+  if (asset !== prev) {
+    setPrev(asset);
+    if (asset) {
+      setShown(asset);
+      setError(null);
+    }
   }
 
   const handleDelete = async () => {
@@ -65,7 +70,7 @@ export function DeleteAssetDialog({
             {t("delete_title", { type: shown ? t(`type.${shown.type}`) : "", name: shown?.name ?? "" })}
           </AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={t("delete_title", { type: shown ? t(`type.${shown.type}`) : "", name: shown?.name ?? "" })}>
           <div className="flex flex-col gap-3">
             <AlertDialogDescription>
               {t(shown?.audio_path ? "delete_description_with_audio" : "delete_description")}

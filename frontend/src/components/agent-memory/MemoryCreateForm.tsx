@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Plus } from "lucide-react";
 
@@ -30,8 +30,11 @@ export function MemoryCreateForm({
   /** 记忆层级的说明；所在页面已有说明时不传。 */
   intro?: string;
   heading: "h2" | "h3";
-  /** 创建成功后选中新文件；返回 Promise 时等它完成再结束提交态。 */
-  onCreated: (name: string) => Promise<void> | void;
+  /**
+   * 创建成功后选中新文件；返回 Promise 时等它完成再结束提交态。
+   * `signal` 在表单卸载（已切到别的文件或离开本页）时中止，此时不再跳到新文件。
+   */
+  onCreated: (name: string, signal: AbortSignal) => Promise<void> | void;
 }) {
   const { t } = useTranslation("dashboard");
   const inputId = useId();
@@ -39,6 +42,12 @@ export function MemoryCreateForm({
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const mountedRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    mountedRef.current = controller;
+    return () => controller.abort();
+  }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -49,6 +58,7 @@ export function MemoryCreateForm({
       setError(t(problem === "invalid" ? "agent_memory_name_invalid" : "agent_memory_name_duplicate"));
       return;
     }
+    const signal = mountedRef.current?.signal ?? AbortSignal.abort();
     setCreating(true);
     setError(null);
     try {
@@ -59,7 +69,7 @@ export function MemoryCreateForm({
         t("agent_memory_template_body"),
       );
       await API.saveAgentMemoryFile(scope, trimmed, template);
-      await onCreated(trimmed);
+      await onCreated(trimmed, signal);
     } catch (err) {
       setError(t("agent_memory_action_failed", { message: errMsg(err) }));
     } finally {

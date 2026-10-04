@@ -55,20 +55,15 @@ export function AssetLibraryPage() {
     [navigate, pathname, search],
   );
 
-  const [q, setQ] = useState(urlQ);
-  const debouncedQ = useDebouncedValue(q, 250);
-
-  // 浏览器前进/后退或外部地址栏变化导致 urlQ 改变时，把 URL 当前值同步到本地 q。
+  const [input, setInput] = useState({ urlQ, value: urlQ });
+  // URL 变化立即作废旧输入与其防抖发布，浏览器前进/后退不会被旧值回写。
+  if (input.urlQ !== urlQ) setInput({ urlQ, value: urlQ });
+  const q = input.urlQ === urlQ ? input.value : urlQ;
+  const debounced = useDebouncedValue(input, 250);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部 URL 变化驱动本地 q 同步，functional setState 已做幂等保护
-    setQ((prev) => (prev === urlQ ? prev : urlQ));
-  }, [urlQ]);
-
-  // debouncedQ 与 URL 不一致时回写，使用 urlQ（已订阅 search）做对比，避免覆盖外部变更。
-  useEffect(() => {
-    if (urlQ === debouncedQ) return;
-    writeQuery({ q: debouncedQ });
-  }, [debouncedQ, urlQ, writeQuery]);
+    if (debounced.urlQ !== urlQ || debounced.value !== q || urlQ === debounced.value) return;
+    writeQuery({ q: debounced.value });
+  }, [debounced, q, urlQ, writeQuery]);
 
   const searchTerm = urlQ.trim();
   const pages = useAssetPages({ type: activeTab, q: searchTerm });
@@ -79,6 +74,9 @@ export function AssetLibraryPage() {
   const [applyTarget, setApplyTarget] = useState<Asset | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
   const detailAsset = detail ? (pages.items.find((asset) => asset.id === detail.id) ?? null) : null;
+  // 选中的资产离开当前结果（改名后不再匹配、被删除、换了搜索词）时详情随之关闭；
+  // 同时清掉选中，之后它重新出现在结果里时详情不会自己打开
+  if (detail && detailAsset === null) setDetail(null);
 
   const handleCardAction = useCallback((action: AssetCardAction, asset: Asset) => {
     if (action === "open") setDetail({ id: asset.id, mode: "view" });
@@ -113,7 +111,7 @@ export function AssetLibraryPage() {
                   aria-label={t("search_label")}
                   placeholder={t("search_placeholder")}
                   value={q}
-                  onChange={(event) => setQ(event.target.value)}
+                  onChange={(event) => setInput({ urlQ, value: event.target.value })}
                 />
               </InputGroup>
               {createButton}

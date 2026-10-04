@@ -235,4 +235,25 @@ defineRegionScenarios("资产库", [
     },
     screenshot: { name: "asset-library-add-preview", target: (page) => page.getByRole("dialog") },
   },
+  {
+    name: "删除失败原因很长：正文可聚焦并用键盘滚动，取消仍可达",
+    path: LIBRARY_PATH,
+    ready: libraryReady,
+    api: { "DELETE /api/v1/assets/00000000-0000-4000-8000-000000000002": {
+      status: 500, body: { detail: "无法删除资产，存储系统返回诊断：".repeat(120) },
+    } },
+    act: async (page) => {
+      await page.getByRole("button", { name: "「林夕」的更多操作" }).click();
+      await page.getByRole("menuitem", { name: "删除" }).click();
+      const dialog = page.getByRole("alertdialog", { name: "删除角色「林夕」？" });
+      await dialog.getByRole("button", { name: "删除", exact: true }).click();
+      await expect(dialog.getByRole("alert")).toContainText("无法删除资产");
+      const body = dialog.getByRole("region", { name: "删除角色「林夕」？" });
+      await body.focus();
+      await body.press("End");
+      await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
+      await settled(dialog);
+    },
+  },
 ]);

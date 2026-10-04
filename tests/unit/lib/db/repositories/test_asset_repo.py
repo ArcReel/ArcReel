@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC, datetime
 
+import pytest
+from sqlalchemy import update
+
+from lib.db.models.asset import Asset
 from lib.db.repositories.asset_repo import AssetRepository
 
 
@@ -38,6 +42,17 @@ async def test_list_filters_by_type_and_name_fuzzy(repo):
 
     scenes = await repo.list(type="scene", q=None, limit=10, offset=0)
     assert len(scenes) == 1
+
+
+async def test_list_pages_ties_on_updated_at_in_a_stable_order(repo, db_session):
+    """同一更新时间的条目按 id 排出确定的次序，offset 分页不重不漏。"""
+    created = [await repo.create(type="character", name=f"角色{i}", description="", voice_style="") for i in range(6)]
+    tied = datetime(2026, 9, 1, tzinfo=UTC)
+    await db_session.execute(update(Asset).values(updated_at=tied))
+
+    pages = [await repo.list(type="character", q=None, limit=2, offset=offset) for offset in (0, 2, 4)]
+
+    assert [asset.id for page in pages for asset in page] == sorted((a.id for a in created), reverse=True)
 
 
 async def test_update_patch_fields(repo):

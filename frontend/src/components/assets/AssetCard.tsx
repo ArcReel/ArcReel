@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { memo, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { FolderInput, Layers, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
@@ -50,9 +51,10 @@ export const AssetCard = memo(function AssetCard({
             <button
               type="button"
               onClick={() => onAction("open", asset)}
-              className="block w-full truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-3 focus-visible:after:ring-ring/50"
+              aria-label={asset.name}
+              className="block w-full text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-3 focus-visible:after:ring-ring/50"
             >
-              {asset.name}
+              <TruncatedText text={asset.name} focusable={false} />
             </button>
           </h3>
           <DropdownMenu>

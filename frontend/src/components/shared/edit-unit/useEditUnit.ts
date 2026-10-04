@@ -19,7 +19,7 @@ export interface EditUnitOptions<T> {
   /**
    * 提交未保存修改。`savedValue` 是提交前的已保存内容，供按字段生成增量 PATCH。
    * 返回服务端保存后的内容；不返回时以提交的内容为准。抛错即保存失败，错误信息显示在保存栏或提示条上。
-   * 需传稳定引用（`useCallback`）。
+   * 一次保存分几步提交、前几步已经落盘时抛 `PartialSaveError`。需传稳定引用（`useCallback`）。
    */
   save: (value: T, savedValue: T) => Promise<T | void>;
   /** 判断两份内容是否相同，默认按 JSON 序列化比较。需传稳定引用（或模块级函数）。 */
@@ -70,6 +70,23 @@ interface UnitState<T> {
   status: SaveStatus;
   error: string | null;
   externallyUpdated: boolean;
+}
+
+/**
+ * 保存只落盘了一部分（如项目 PATCH 成功、随后的参考图上传失败）：`saved` 成为新的已保存内容，
+ * 放弃修改回到它，再次保存也以它为基准；`value` 是仍未保存的内容，缺省保留提交的内容。
+ * 只抛普通错误会让已保存内容停在保存前，放弃修改后表单显示旧值，下次保存再把旧值写回。
+ */
+export class PartialSaveError<T> extends Error {
+  readonly saved: T;
+  readonly value: T | undefined;
+
+  constructor(message: string, { saved, value, cause }: { saved: T; value?: T; cause?: unknown }) {
+    super(message, { cause });
+    this.name = "PartialSaveError";
+    this.saved = saved;
+    this.value = value;
+  }
 }
 
 function jsonEqual<T>(a: T, b: T): boolean {
@@ -158,6 +175,18 @@ export function useEditUnit<T>({
       }));
       return true;
     } catch (err) {
+      if (err instanceof PartialSaveError) {
+        const { saved: partial, value: unsaved } = err as PartialSaveError<T>;
+        setState((prev) => ({
+          ...prev,
+          saved: partial,
+          value: unsaved !== undefined && isEqual(prev.value, submitted) ? unsaved : prev.value,
+          status: "error",
+          error: errMsg(err),
+          externallyUpdated: false,
+        }));
+        return false;
+      }
       setState((prev) => ({ ...prev, status: "error", error: errMsg(err) }));
       return false;
     }

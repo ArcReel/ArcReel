@@ -34,6 +34,18 @@ describe("provider-models fetchers", () => {
 
     expect(spy).toHaveBeenCalledTimes(2);
   });
+
+  it("forwards the caller's AbortSignal to the requests", async () => {
+    const providers = vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
+    const custom = vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    const { signal } = new AbortController();
+
+    await getProviderModels({ signal });
+    await getCustomProviderModels({ signal });
+
+    expect(providers).toHaveBeenCalledWith({ signal });
+    expect(custom).toHaveBeenCalledWith({ signal });
+  });
 });
 
 const VEO_PROVIDERS: ProviderInfo[] = [

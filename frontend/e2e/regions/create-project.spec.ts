@@ -50,7 +50,7 @@ function wizard(page: Page): Locator {
 }
 
 async function settle(locator: Locator) {
-  await locator.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
+  await locator.evaluate((el) => Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)));
 }
 
 async function openWizard(page: Page) {
@@ -215,5 +215,29 @@ defineRegionScenarios("新建项目向导", [
       await scrollBodyToTop(page);
     },
     screenshot: { name: "create-project-style", target: wizard },
+  },
+  {
+    name: "自定义风格上传后往返步骤，参考图预览仍有效",
+    path: LOBBY,
+    ready: lobbyReady,
+    act: async (page) => {
+      await openWizard(page);
+      await fillBasics(page);
+      await goNext(page);
+      await goNext(page);
+      const dialog = wizard(page);
+      await dialog.getByRole("tab", { name: /自定义/ }).click();
+      await dialog.locator('input[type="file"]').setInputFiles({
+        name: "reference.png", mimeType: "image/png",
+        buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4X0AAAAASUVORK5CYII=", "base64"),
+      });
+      const preview = dialog.getByRole("img", { name: "上传风格参考图" });
+      await expect(preview).toBeVisible();
+      await dialog.getByRole("button", { name: "上一步" }).click();
+      await goNext(page);
+      await expect(preview).toBeVisible();
+      await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+      await settle(dialog);
+    },
   },
 ]);

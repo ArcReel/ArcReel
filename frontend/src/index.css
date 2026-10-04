@@ -67,7 +67,9 @@
 
     /* 层级。弹层 Portal 到 body，与隔离了层叠上下文的 #app-root 同级，z-index 只需在三者间排序：
        弹层（Dialog、Sheet、Popover、菜单、Tooltip）< Toast < 新手引导（driver.js 遮罩与气泡）。
-       同层弹层按打开顺序叠放：后打开的 Portal 节点排在 DOM 后面。 */
+       同层弹层按打开顺序叠放：后打开的 Portal 节点排在 DOM 后面。
+       sticky 是 #app-root 内部的层级：吸顶工具栏盖住同一滚动区里带定位的内容（如卡片角上的菜单按钮）。 */
+    --z-sticky: 10;
     --z-overlay: 50;
     --z-toast: 60;
     --z-onboarding: 10000;
@@ -156,6 +158,7 @@
 
     --shadow-overlay: 0 16px 40px -12px oklch(0 0 0 / 0.6);
 
+    --z-index-sticky: var(--z-sticky);
     --z-index-overlay: var(--z-overlay);
     --z-index-toast: var(--z-toast);
     --z-index-onboarding: var(--z-onboarding);

@@ -1,3 +1,4 @@
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Loader2, Search } from "lucide-react";
@@ -123,11 +124,11 @@ export function AssetPickerModal({ type, existingNames, onClose, onImport }: Pro
                           fallback={<Icon aria-hidden className="size-6" />}
                           className="rounded-md"
                         />
-                        <span className="truncate text-sm font-medium">{asset.name}</span>
+                        <TruncatedText text={asset.name} focusable={false} className="w-full text-sm font-medium" />
                         {inProject ? (
                           <span className="text-xs text-muted-foreground">{t("already_in_project")}</span>
                         ) : asset.description ? (
-                          <span className="truncate text-xs text-muted-foreground">{asset.description}</span>
+                          <TruncatedText text={asset.description} focusable={false} className="w-full text-xs text-muted-foreground" />
                         ) : null}
                         {isSelected && (
                           <span

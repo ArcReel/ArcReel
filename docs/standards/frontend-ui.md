@@ -129,7 +129,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 ### 层级只用 z-index token，调用处不写 `z-*`
 
-弹层（Dialog、Sheet、AlertDialog、Popover、菜单、Tooltip）使用 `z-overlay`，提示使用 `z-toast`，首次使用引导使用 `z-onboarding`，三者依次升高，原语已经自带。`#app-root` 是独立的层叠上下文（`isolation: isolate`），挂在 `body` 上的 Portal 总在应用之上，应用内部的 `z-*` 不必与弹层比较大小。
+弹层（Dialog、Sheet、AlertDialog、Popover、菜单、Tooltip）使用 `z-overlay`，提示使用 `z-toast`，首次使用引导使用 `z-onboarding`，三者依次升高，原语已经自带。`#app-root` 是独立的层叠上下文（`isolation: isolate`），挂在 `body` 上的 Portal 总在应用之上，应用内部的 `z-*` 不必与弹层比较大小。应用内吸顶的工具栏用 `z-sticky`，盖住同一滚动区里带定位的内容。
 
 ### 弹层表面不透明，不使用背景模糊
 
@@ -240,7 +240,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 一个设置视图或一块画布内容是一个编辑单元（见 `CONTEXT.md`），用 `components/shared/edit-unit/useEditUnit` 持有已保存内容与未保存修改。字段（描述、提示词、时长、引用，设置表单里的开关与下拉）一律写进 `unit.setValue`，由单元统一保存或放弃；上传、生成、改名、删除、排序这类动作不进入未保存修改，立即执行。同一视图里回车即存、松手即存与手动保存混用时，创作者分不清哪些修改已经生效。
 
 - 已保存内容经 `source` 传入，加载结果与之后的推送都从这里进来。不要在 effect 里把本地状态重置成服务端数据：没有未保存修改时 hook 直接采用新内容，有修改时保留修改，并在保存栏或提示条上标出「此内容已被 Agent 更新」。
-- `save(value, savedValue)` 提交修改，返回保存后的内容，失败时抛错。错误显示在保存栏或提示条上；保存成功不弹提示。
+- `save(value, savedValue)` 提交修改，返回保存后的内容，失败时抛错。错误显示在保存栏或提示条上；保存成功不弹提示。一次保存分几步提交、前几步已经落盘时抛 `PartialSaveError`，带上已落盘的内容：放弃修改与下次保存都以它为基准，否则会把旧值写回。
 - 设置表单用常驻的 `SaveBar`，放在表单滚动区之外的底部：限宽与铺满档经 `PageShellFooter` 放进外壳底行，全出血档放在详情栏底部。画布内容用 `UnsavedChangesBar`，放在所属内容下方。不再另设「编辑模式」开关。
 - 有未保存修改时，生成按钮写「保存并生成」（`common:save_and_generate`），点击时调用 `unit.saveAndGenerate(generate, { confirm })`。`confirm` 是「重新生成会让下游失效」这类确认：取消时什么都不保存，保存失败时不生成。
 - 界面文案与代码命名不单称「草稿」，这个词已指待修复草稿与可编辑草稿。

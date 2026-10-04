@@ -96,7 +96,7 @@ const CUSTOMIZED_PROFILE: ApiOverrides = {
 
 async function waitForAnimations(page: Page) {
   // 弹层淡入、保存按钮切换启用色时的过渡中间色会被 axe 判为对比度不足，等动画结束再探测。
-  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
+  await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
 }
 
 const sidebar = (page: Page) => page.getByRole("navigation", { name: "项目设置" });

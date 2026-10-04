@@ -161,7 +161,7 @@ export function DeleteProjectDialog({ project, onClose, onDone }: ProjectDialogP
         <AlertDialogHeader>
           <AlertDialogTitle>{t("dashboard:lobby_delete_title", { title })}</AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={t("dashboard:lobby_delete_title", { title })}>
           <div className="flex flex-col gap-3">
             <AlertDialogDescription>{t("dashboard:lobby_delete_desc")}</AlertDialogDescription>
             {error && (

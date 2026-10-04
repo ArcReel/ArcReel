@@ -150,8 +150,16 @@ export function CreateProjectModal() {
     return () => controller.abort();
   }, [i18n.language]);
 
-  // blob: URL 所有权集中在此：StylePicker 只通过 onChange 更换引用，
-  // revoke 统一由本 effect 在 URL 变更或卸载时触发。非 blob: 跳过。
+  // 页面持有独立的预览地址，选择器切换步骤卸载时只收回自己的地址。
+  const changeStyle = (next: StylePickerValue) => {
+    const uploadedPreview = next.uploadedFile
+      ? next.uploadedFile === style.uploadedFile
+        ? style.uploadedPreview
+        : URL.createObjectURL(next.uploadedFile)
+      : next.uploadedPreview;
+    setStyle({ ...next, uploadedPreview });
+  };
+  // 页面地址在变更或卸载时收回；已保存的服务端地址无需收回。
   useEffect(() => {
     const url = style.uploadedPreview;
     if (!url?.startsWith("blob:")) return;
@@ -333,7 +341,7 @@ export function CreateProjectModal() {
               error={generationError}
             />
           )}
-          {step === 3 && <StylePicker value={style} onChange={setStyle} />}
+          {step === 3 && <StylePicker value={style} onChange={changeStyle} />}
         </DialogBody>
 
         <DialogFooter>
