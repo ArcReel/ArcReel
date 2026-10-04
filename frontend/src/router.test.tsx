@@ -80,13 +80,17 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "/app/projects");
   });
 
-  // 旧的 lorebook、clues 入口已移除且不重定向；项目内未注册的子路径同样落到 404，不加载项目。
+  // 旧的 lorebook、clues 入口已移除且不重定向；项目内未注册的子路径保留工作区外壳，空状态由画布显示。
   it.each(["/app/projects/demo/lorebook", "/app/projects/demo/clues", "/app/projects/demo/unknown/"])(
-    "renders 404 for the unregistered workspace path %s",
-    (path) => {
+    "keeps the workspace shell for the unregistered workspace path %s",
+    async (path) => {
+      vi.spyOn(API, "getProject").mockResolvedValue({
+        project: { title: "Demo", content_mode: "narration", style: "Anime", episodes: [], characters: {}, scenes: {}, props: {} },
+        scripts: {},
+      });
       renderAt(path);
-      expect(screen.getByRole("heading", { name: "页面未找到" })).toBeInTheDocument();
-      expect(screen.queryByTestId("studio-layout")).not.toBeInTheDocument();
+      expect(await screen.findByTestId("studio-canvas-router")).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "页面未找到" })).not.toBeInTheDocument();
     },
   );
 

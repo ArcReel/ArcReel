@@ -1,54 +1,43 @@
-import { startTransition, useState, useEffect, useRef } from "react";
-import { errMsg } from "@/utils/async";
-import { useLocation } from "wouter";
-import { ChevronLeft, Settings, Bell, Download, Loader2, Package } from "lucide-react";
+import { startTransition, useEffect, type ReactNode } from "react";
+import { Link, useLocation } from "wouter";
+import { ChevronLeft, Download, Library, Loader2, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { ROUTE_APP_ASSETS, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, episodeEditViewPath } from "@/app-routes";
+import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { isDemoProject } from "@/onboarding/demo-project";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
-import { isDemoProject } from "@/onboarding/demo-project";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
-import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
-import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
-import { ExportScopeDialog } from "./ExportScopeDialog";
+import type { WorkspaceNotification } from "@/types";
 import { episodeDisplayName } from "@/utils/episode-display";
+import { AgentPanelToggle } from "./AgentPanelToggle";
 import { ProjectMenu } from "./ProjectMenu";
 import { ProjectStatusBar } from "./ProjectStatusBar";
-import { AgentPanelToggle } from "./AgentPanelToggle";
-
-import { API } from "@/api";
-import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
-import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
-import { ROUTE_APP_PROJECTS, episodeEditViewPath } from "@/app-routes";
-import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
-import { triggerBrowserDownload } from "@/utils/download";
-
-interface GlobalHeaderProps {
-  onNavigateBack?: () => void;
-}
+import { useProjectExport } from "./useProjectExport";
+import { WorkspaceNotifications } from "./WorkspaceNotificationsDrawer";
 
 /**
- * 工作台顶栏（48px，玻璃面板）。三段式 grid：
- * - 左：返回按钮 + ProjectMenu（项目切换菜单）
+ * 工作区顶栏，三段：
+ * - 左：回到项目大厅 + 项目切换器
  * - 中：ProjectStatusBar（集进度与项目层的下一步；数据升级失败时是迁移重试）
- * - 右：通知 / 使用记录 / 导出 / 资产库 / 设置 / Agent 面板开关
+ * - 右：通知 / 使用记录 / 导出 / 资产库 / 全局设置 / Agent 面板开关
  */
-export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
-  const { t } = useTranslation();
+export function GlobalHeader() {
+  const { t } = useTranslation(["dashboard", "common", "assets", "onboarding"]);
   const [location, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
-  const { setUsagePanelOpen, triggerScrollTo, markWorkspaceNotificationRead } = useAppStore();
-  const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
-  const [exportingProject, setExportingProject] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [exportDiagnostics, setExportDiagnostics] = useState<ExportDiagnostics | null>(null);
-  const notificationAnchorRef = useRef<HTMLDivElement>(null);
+  const setUsagePanelOpen = useAppStore((s) => s.setUsagePanelOpen);
+  const triggerScrollTo = useAppStore((s) => s.triggerScrollTo);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
-  const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
+  const demoMode = useDemoWorkbench();
 
-  // 「导出项目」提示里的剪辑视图链接：在集页时指向当前集，否则指向播出顺序上的第一集；文案用集名。
+  // 导出提示里的剪辑视图链接：在集页时指向当前集，否则指向播出顺序上的第一集；文案用集名。
   const routeEpisode = /\/episodes\/(\d+)/.exec(location)?.[1];
   const projectEpisodes = currentProjectData?.episodes ?? [];
   const editViewEpisodeId = routeEpisode !== undefined ? Number(routeEpisode) : projectEpisodes[0]?.episode;
@@ -56,25 +45,26 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     editViewEpisodeId !== undefined && projectEpisodes.some((ep) => ep.episode === editViewEpisodeId)
       ? { episode: editViewEpisodeId, name: episodeDisplayName(projectEpisodes, editViewEpisodeId, t) }
       : null;
-  const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
-  // 数据升级失败时中段是唯一的重试入口，窄屏也要显示。
-  const needsRepair = currentProjectData?.status?.needs_repair === true;
+  const projectExport = useProjectExport({
+    editViewEpisode,
+    onOpenEditView: (episode) => {
+      if (!currentProjectName) return;
+      setLocation(`~${ROUTE_APP_PROJECTS}/${encodeURIComponent(currentProjectName)}${episodeEditViewPath(episode)}`);
+    },
+  });
+  const exporting = projectExport.exporting !== null;
 
   // 演示项目在后端没有用量记录，入口整个不渲染。demoMode 在演示→真实切换时先于 store
   // 变为 false，currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
-  const demoMode = useDemoWorkbench();
   const usageProjectName =
-    demoMode || !currentProjectName || isDemoProject(currentProjectName)
-      ? null
-      : currentProjectName;
+    demoMode || !currentProjectName || isDemoProject(currentProjectName) ? null : currentProjectName;
 
-  // 导出弹窗打开期间切到演示项目（如浏览器前进/后退复用同一路由实例）时随即关闭——
-  // 触发按钮虽已按 demoMode 禁用，但已打开的弹窗不受影响，仍会展示可点击的导出/剪映草稿操作
+  // 导出对话框打开期间切到演示项目（如浏览器前进 / 后退复用同一路由实例）时随即关闭：
+  // 触发按钮已按 demoMode 禁用，已打开的对话框不受影响，仍可点击「导出」。
+  const closeExport = projectExport.close;
   useEffect(() => {
-    if (!demoMode) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切入演示态时关闭已打开的导出弹窗，是有意的 UI 状态重置
-    setExportDialogOpen(false);
-  }, [demoMode]);
+    if (demoMode) closeExport();
+  }, [demoMode, closeExport]);
 
   // 入口的数据随项目走：切到别的项目或演示项目时清空上一项目的用量，并收起悬浮层。
   useEffect(() => {
@@ -87,11 +77,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   }, [fetchConfigStatus]);
 
   const handleNotificationNavigate = (notification: WorkspaceNotification) => {
-    if (!notification.target) return;
     const target = notification.target;
-
-    markWorkspaceNotificationRead(notification.id);
-    setNotificationDrawerOpen(false);
+    if (!target) return;
     startTransition(() => {
       setLocation(target.route);
     });
@@ -104,273 +91,82 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
     });
   };
 
-  const handleExportProject = async (scope: "current" | "full") => {
-    if (!currentProjectName || exportingProject) return;
-
-    setExportDialogOpen(false);
-    setExportingProject(true);
-    try {
-      const { download_token, diagnostics } = await API.requestExportToken(
-        currentProjectName,
-        scope,
-      );
-      const url = API.getExportDownloadUrl(currentProjectName, download_token, scope);
-      triggerBrowserDownload(url);
-      const diagnosticCount =
-        diagnostics.blocking.length + diagnostics.auto_fixed.length + diagnostics.warnings.length;
-      if (diagnosticCount > 0) {
-        setExportDiagnostics(diagnostics);
-        useAppStore.getState().pushToast(
-          t("dashboard:project_zip_download_started_with_diagnostics", { count: diagnosticCount }),
-          "warning",
-        );
-      } else {
-        useAppStore.getState().pushToast(t("dashboard:project_zip_download_started"), "success");
-      }
-    } catch (err) {
-      useAppStore
-        .getState()
-        .pushNotification(t("dashboard:export_failed", { message: errMsg(err) }), "error");
-    } finally {
-      setExportingProject(false);
-    }
-  };
-
   return (
-    <>
-      <header
-        className="grid h-12 shrink-0 items-center px-4"
-        style={{
-          gridTemplateColumns: "minmax(0, 256px) 1fr auto",
-          gap: 14,
-          background:
-            "linear-gradient(180deg, oklch(0.21 0.011 265 / 0.85), oklch(0.19 0.010 265 / 0.75))",
-          backdropFilter: "blur(16px) saturate(1.1)",
-          WebkitBackdropFilter: "blur(16px) saturate(1.1)",
-          borderBottom: "1px solid var(--border)",
-          boxShadow: "0 1px 0 0 oklch(1 0 0 / 0.02) inset",
-          position: "relative",
-          zIndex: 20,
-        }}
-      >
-        {/* ---- Left: back + project menu ---- */}
-        <div className="flex min-w-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={onNavigateBack}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors focus-ring"
-            style={{ color: "var(--muted-foreground)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--foreground)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted-foreground)")}
-            aria-label={t("dashboard:projects")}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            <span className="hidden sm:inline">{t("dashboard:projects")}</span>
-          </button>
-          <div
-            aria-hidden="true"
-            className="h-4 w-px"
-            style={{ background: "var(--border)" }}
-          />
-          <ProjectMenu />
-        </div>
+    <header className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(min-content,1fr)] items-center gap-3 border-b border-border bg-background px-2">
+      <div className="flex min-w-0 items-center gap-1">
+        <Link href={`~${ROUTE_APP_PROJECTS}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+          <ChevronLeft aria-hidden data-icon="inline-start" />
+          {t("dashboard:projects")}
+        </Link>
+        <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
+        <ProjectMenu />
+      </div>
 
-        {/* ---- Center: project status bar ---- */}
-        <div className={`${needsRepair ? "flex" : "hidden md:flex"} justify-self-center`}>
-          {currentProjectName ? <ProjectStatusBar key={currentProjectName} projectName={currentProjectName} /> : null}
-        </div>
+      <div className="flex justify-center">
+        {currentProjectName ? <ProjectStatusBar key={currentProjectName} projectName={currentProjectName} /> : null}
+      </div>
 
-        {/* ---- Right: actions ---- */}
-        <div className="flex items-center gap-1">
-          <div className="relative" ref={notificationAnchorRef}>
-            <button
-              type="button"
-              onClick={() => setNotificationDrawerOpen(!notificationDrawerOpen)}
-              className="relative grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
-              style={{
-                color: notificationDrawerOpen
-                  ? "var(--primary)"
-                  : "var(--muted-foreground)",
-                background: notificationDrawerOpen
-                  ? "color-mix(in oklab, var(--primary) 12%, transparent)"
-                  : "transparent",
-              }}
-              onMouseEnter={(e) => {
-                if (!notificationDrawerOpen)
-                  e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-              }}
-              onMouseLeave={(e) => {
-                if (!notificationDrawerOpen) e.currentTarget.style.background = "transparent";
-              }}
-              title={t("dashboard:notification_tooltip", { count: workspaceNotifications.length })}
-              aria-label={t("dashboard:open_notification_center")}
-            >
-              <Bell className="h-3.5 w-3.5" />
-              {unreadNotificationCount > 0 && (
-                <span
-                  className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
-                  style={{
-                    background: "var(--warn)",
-                    color: "oklch(0.14 0 0)",
-                  }}
-                >
-                  {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
-                </span>
-              )}
-            </button>
-            <WorkspaceNotificationsDrawer
-              open={notificationDrawerOpen}
-              onClose={() => setNotificationDrawerOpen(false)}
-              anchorRef={notificationAnchorRef}
-              onNavigate={handleNotificationNavigate}
-            />
-          </div>
-
-          {/* Usage entry + popover */}
-          {usageProjectName && <UsageHeaderEntry projectName={usageProjectName} />}
-
-          <div
-            aria-hidden="true"
-            className="mx-1 h-[18px] w-px"
-            style={{ background: "var(--border)" }}
-          />
-
-          {/* Export project archive */}
-          <div className="relative" data-onboarding={ONBOARDING_ANCHORS.workbenchExport}>
-            <button
-              type="button"
-              onClick={() => setExportDialogOpen(!exportDialogOpen)}
-              disabled={!currentProjectName || exportingProject || demoMode}
-              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                color: exportDialogOpen ? "var(--foreground)" : "var(--muted-foreground)",
-                background: exportDialogOpen ? "oklch(0.28 0.012 265 / 0.6)" : "transparent",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-                e.currentTarget.style.color = "var(--foreground)";
-              }}
-              onMouseLeave={(e) => {
-                if (exportDialogOpen) return;
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "var(--muted-foreground)";
-              }}
-              title={
-                demoMode
-                  ? t("onboarding:demo_action_unavailable")
-                  : t("dashboard:export_project_zip")
+      <div className="flex items-center justify-end gap-1">
+        <WorkspaceNotifications onNavigate={handleNotificationNavigate} />
+        {usageProjectName && <UsageHeaderEntry projectName={usageProjectName} />}
+        <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+        <span className="flex" data-onboarding={ONBOARDING_ANCHORS.workbenchExport}>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={t("dashboard:export_project_zip")}
+                  aria-busy={exporting}
+                  disabled={!currentProjectName || exporting || demoMode}
+                  onClick={() => currentProjectName && projectExport.open(currentProjectName)}
+                />
               }
-              aria-label={t("dashboard:export_project_zip")}
             >
-              {exportingProject ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {exporting ? (
+                <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
               ) : (
-                <Download className="h-3.5 w-3.5" />
+                <Download aria-hidden data-icon="inline-start" />
               )}
-              <span className="hidden lg:inline">
-                {exportingProject ? t("dashboard:exporting_zip") : t("dashboard:export_zip")}
-              </span>
-            </button>
-            <ExportScopeDialog
-              open={exportDialogOpen}
-              onClose={() => setExportDialogOpen(false)}
-              onSelect={(scope) => void handleExportProject(scope)}
-              editViewEpisode={editViewEpisode}
-              onOpenEditView={(episode) => {
-                setExportDialogOpen(false);
-                if (!currentProjectName) return;
-                setLocation(
-                  `~${ROUTE_APP_PROJECTS}/${encodeURIComponent(currentProjectName)}${episodeEditViewPath(episode)}`,
-                );
-              }}
+              {exporting ? t("dashboard:exporting_zip") : t("dashboard:export_zip")}
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {demoMode ? t("onboarding:demo_action_unavailable") : t("dashboard:export_project_zip")}
+            </TooltipContent>
+          </Tooltip>
+        </span>
+        <IconLink href={`~${ROUTE_APP_ASSETS}`} label={t("assets:library_title")}>
+          <Library aria-hidden />
+        </IconLink>
+        <IconLink href={`~${ROUTE_APP_SETTINGS}`} label={t("dashboard:global_settings")}>
+          <Settings aria-hidden />
+          {!isConfigComplete && (
+            <span
+              role="img"
+              aria-label={t("common:config_incomplete")}
+              className="absolute top-1 right-1 size-2 rounded-full bg-warn"
             />
-          </div>
+          )}
+        </IconLink>
+        <AgentPanelToggle />
+      </div>
+      {projectExport.element}
+    </header>
+  );
+}
 
-          {/* Asset library */}
-          <button
-            type="button"
-            onClick={() => setLocation("~/app/assets")}
-            className="grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
-            style={{ color: "var(--muted-foreground)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-              e.currentTarget.style.color = "var(--foreground)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--muted-foreground)";
-            }}
-            title={t("assets:library_title")}
-            aria-label={t("assets:library_title")}
-          >
-            <Package className="h-4 w-4" />
-          </button>
-
-          {/* Settings */}
-          <button
-            type="button"
-            onClick={() =>
-              setLocation(
-                // 演示项目没有项目级设置页可看，指向全局设置
-                currentProjectName && !demoMode
-                  ? `~/app/projects/${encodeURIComponent(currentProjectName)}/settings`
-                  : "~/app/settings",
-              )
-            }
-            className="relative grid h-[30px] w-[30px] place-items-center rounded-md transition-colors focus-ring"
-            style={{ color: "var(--muted-foreground)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
-              e.currentTarget.style.color = "var(--foreground)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--muted-foreground)";
-            }}
-            title={t("settings")}
-            aria-label={t("settings")}
-          >
-            <Settings className="h-4 w-4" />
-            {!isConfigComplete && !currentProjectName && (
-              <span
-                className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full"
-                style={{ background: "var(--destructive)" }}
-                aria-label={t("dashboard:config_incomplete")}
-              />
-            )}
-          </button>
-
-          <AgentPanelToggle />
-        </div>
-      </header>
-
-      {exportDiagnostics !== null && (
-        <ArchiveDiagnosticsDialog
-          title={t("dashboard:export_diagnostics_title")}
-          description={t("dashboard:export_diagnostics_description")}
-          sections={[
-            {
-              key: "blocking",
-              title: t("dashboard:diagnostics_blocking"),
-              severity: "blocking",
-              items: exportDiagnostics.blocking,
-            },
-            {
-              key: "auto_fixed",
-              title: t("dashboard:diagnostics_auto_fixed"),
-              severity: "auto_fixed",
-              items: exportDiagnostics.auto_fixed,
-            },
-            {
-              key: "warnings",
-              title: t("dashboard:diagnostics_warnings"),
-              severity: "warnings",
-              items: exportDiagnostics.warnings,
-            },
-          ]}
-          onClose={() => setExportDiagnostics(null)}
-        />
-      )}
-    </>
+function IconLink({ href, label, children }: { href: string; label: string; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link href={href} aria-label={label} className={buttonVariants({ variant: "ghost", size: "icon", className: "relative" })} />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   );
 }

@@ -1,7 +1,7 @@
 // router.tsx — Route definitions for the studio layout
 
 import { useEffect, useRef } from "react";
-import { Route, Switch, Redirect, useLocation, useParams } from "wouter";
+import { Route, Switch, Redirect, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { StudioLayout } from "@/components/layout";
@@ -35,7 +35,6 @@ import {
   ROUTE_APP_PROJECTS,
   ROUTE_APP_SETTINGS,
   WORKSPACE_ROUTE_SETTINGS,
-  isWorkspacePath,
 } from "@/app-routes";
 
 /** 记录最近停留的应用页面，全局设置与资产库的「返回」据此回到进入之前的位置。 */
@@ -197,7 +196,6 @@ function StudioWorkspace() {
 // ---------------------------------------------------------------------------
 
 export function AppRoutes() {
-  const [location] = useLocation();
   // 离开拦截包住全部路由：未保存修改在任何应用内跳转前先询问
   return (
     <LeaveGuardProvider>
@@ -253,15 +251,11 @@ export function AppRoutes() {
           </AuthGuard>
         </Route>
 
-        {/* Studio workspace (three-column layout)；内层 Switch 没有兜底，未注册的子路径在这里显示 404 */}
+        {/* Studio workspace (three-column layout)；未注册的子路径由画布内层 Switch 的兜底路由显示空状态 */}
         <Route path={`${ROUTE_APP_PROJECTS}/:projectName`} nest>
-          {isWorkspacePath(location) ? (
-            <AuthGuard>
-              <StudioWorkspace />
-            </AuthGuard>
-          ) : (
-            <NotFoundPage />
-          )}
+          <AuthGuard>
+            <StudioWorkspace />
+          </AuthGuard>
         </Route>
 
         {/* 404 */}

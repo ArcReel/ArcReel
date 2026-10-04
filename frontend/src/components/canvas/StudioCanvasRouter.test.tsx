@@ -507,6 +507,16 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByTestId("overview-canvas")).toBeInTheDocument();
   });
 
+  it("shows an empty state for an unknown workspace path and leads back to the overview", async () => {
+    useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: makeProjectData() });
+
+    renderAt("/lorebook");
+
+    expect(screen.getByRole("heading", { name: "这个页面不存在" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "回到概览" }));
+    expect(await screen.findByTestId("overview-canvas")).toBeInTheDocument();
+  });
+
   // 同一 StudioCanvasRouter 实例从真实项目切到演示项目（路由 nest 下 projectName 参数
   // 变化，组件不会重新挂载）时，上一个真实项目遗留的时长能力缓存必须清空，否则真实后端的
   // 时长限制会继续套用到演示的虚构时长上，重新触发「不兼容」误报。

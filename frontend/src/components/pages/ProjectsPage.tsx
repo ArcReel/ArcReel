@@ -18,7 +18,7 @@ import { LobbyToolbar } from "./lobby/LobbyToolbar";
 import { ProjectCard, type ProjectCardActions } from "./lobby/ProjectCard";
 import { DeleteProjectDialog, RenameProjectDialog } from "./lobby/ProjectDialogs";
 import { LOBBY_FILTERS, asProjectStatus, matchesFilter, type LobbyFilter } from "./lobby/lobby-projects";
-import { useProjectExport } from "./lobby/useProjectExport";
+import { useProjectExport } from "@/components/layout/useProjectExport";
 import { useProjectImport } from "./lobby/useProjectImport";
 
 /**
@@ -104,7 +104,7 @@ export function ProjectsPage() {
   const openCreate = () => setShowCreateModal(true);
   const actions: ProjectCardActions = {
     onRename: setRenaming,
-    onExport: projectExport.startExport,
+    onExport: (project) => projectExport.open(project.name),
     onDelete: setDeleting,
   };
 

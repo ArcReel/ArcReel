@@ -138,8 +138,8 @@ const WORKSPACE_STATIC_LEAF_ROUTES = [
  * `/app/projects/:projectName` 下真正有路由承接的子路径——`.../settings`
  * 是 router.tsx 里独立注册的 `ProjectSettingsPage` 全屏路由；其余是
  * `StudioCanvasRouter`（nest 路由）内层 `<Switch>` 实际注册的路由集合。
- * 内层没有兜底路由，未匹配的子路径由 router.tsx 按这份路由表拦下、显示 404，
- * 因此不能整段 `/app/projects/` 前缀放行，需要精确匹配。
+ * 内层 `<Switch>` 的兜底路由在画布内显示空状态；新手引导据此判断地址是否落在主界面内，
+ * 未注册的子路径不算。
  * wouter 底层 regexparam 编译路由时带 `i` 标志（大小写不敏感），这里同步加
  * 上 `i`，否则大小写变体的合法路径会被本模式误判为未注册子路径。
  */
@@ -147,8 +147,3 @@ export const APP_PROJECT_WORKSPACE_PATTERN = new RegExp(
   `^${ROUTE_APP_PROJECTS}/[^/]+(/(?:${WORKSPACE_STATIC_LEAF_ROUTES.join("|")}|${WORKSPACE_ROUTE_EPISODES}/[^/]+))?$`,
   "i",
 );
-
-/** 地址是否落在项目工作区已注册的路由上；与 wouter 一样容忍末尾斜杠。 */
-export function isWorkspacePath(location: string): boolean {
-  return APP_PROJECT_WORKSPACE_PATTERN.test(location.replace(/(.)\/$/, "$1"));
-}
