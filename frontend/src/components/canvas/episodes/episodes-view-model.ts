@@ -22,13 +22,9 @@ export function episodesViewPath(
   return `/${WORKSPACE_ROUTE_EPISODES}${query ? `?${query}` : ""}`;
 }
 
-/** 每集的身份色相：按集 ID 取，调序、插入都不换色。 */
+/** 每集的身份色相：按集 ID 取，调序、插入都不换色。写进元素的 `--episode-hue` 后，元素及其子孙用 `bg-episode`、`text-episode`、`border-episode` 取这一集的身份色。 */
 export function episodeHue(episodeId: number): number {
   return (episodeId * 67) % 360;
-}
-
-export function episodeColor(episodeId: number, alpha = 1): string {
-  return `oklch(0.72 0.1 ${episodeHue(episodeId)} / ${alpha})`;
 }
 
 /** 体量：「1,234 字」或「1,234 词」。 */
@@ -47,24 +43,24 @@ export function formatSpoken(t: TFunction, seconds: number): string {
     : t("dashboard:episodes_view_spoken_minutes", { count: minutes });
 }
 
-export type RailRow =
+export type OutlineRow =
   | { kind: "episode"; episode: EpisodeMeta; info: EpisodesViewEpisode }
   | { kind: "gap"; units: number; key: string; sourceFile: string; end: number };
 
-export interface RailFileGroup {
+export interface OutlineFileGroup {
   file: EpisodesViewFile;
   index: number;
-  rows: RailRow[];
+  rows: OutlineRow[];
   /** 本文件在最后一个切出集之后尚未分集的原文体量。 */
   tailUnits: number;
 }
 
-/** 右栏「来自整本源文」：按文件分组，组内按源文位置列出切出集与夹在其间的未切分原文。 */
-export function railFileGroups(view: EpisodesView, episodes: EpisodeMeta[]): RailFileGroup[] {
+/** 集目录「来自整本源文」：按文件分组，组内按源文位置列出切出集与夹在其间的未切分原文。 */
+export function outlineFileGroups(view: EpisodesView, episodes: EpisodeMeta[]): OutlineFileGroup[] {
   const meta = new Map(episodes.map((episode) => [episode.episode, episode]));
   const info = new Map(view.episodes.map((episode) => [episode.episode, episode]));
   return view.files.flatMap((file, index) => {
-    const rows: RailRow[] = [];
+    const rows: OutlineRow[] = [];
     let tailUnits = 0;
     for (const segment of file.segments) {
       if (segment.kind === "episode" && segment.episode !== null) {
@@ -89,7 +85,7 @@ export function railFileGroups(view: EpisodesView, episodes: EpisodeMeta[]): Rai
   });
 }
 
-/** 右栏「其他集」：原文不在整本源文里的集（自带原文、无原文、原文位置没有记录的切出集），按播出顺序。 */
+/** 集目录「其他集」：原文不在整本源文里的集（自带原文、无原文、原文位置没有记录的切出集），按播出顺序。 */
 export function otherEpisodes(
   view: EpisodesView,
   episodes: EpisodeMeta[],

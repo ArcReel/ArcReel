@@ -1,11 +1,14 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import { cn } from "cn";
 import { useTranslation } from "react-i18next";
 import { MoveHorizontal, Scissors, X } from "lucide-react";
 
 import type { EpisodeMeta, EpisodesView } from "@/types";
 import { episodeDisplayName } from "@/utils/episode-display";
 
-import { episodeColor, formatVolume } from "./episodes-view-model";
+import { Button } from "@/components/ui/button";
+
+import { episodeHue, formatVolume } from "./episodes-view-model";
 import { rangeUnits, type PointAction } from "./manual-split-model";
 
 interface ManualSplitToolbarProps {
@@ -19,9 +22,9 @@ interface ManualSplitToolbarProps {
   onCancel: () => void;
 }
 
-/** 插入光标的颜色：拆分取这一集的集色，切分与移动分界取强调色。 */
-export function caretColor(action: PointAction): string {
-  return action.kind === "split" ? episodeColor(action.episode) : "var(--primary)";
+/** 插入光标取哪一集的集色：拆分取这一集，切分与移动分界取品牌色（null）。 */
+export function caretEpisode(action: PointAction): number | null {
+  return action.kind === "split" ? action.episode : null;
 }
 
 /**
@@ -39,7 +42,8 @@ export function ManualSplitToolbar({
 }: ManualSplitToolbarProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const volume = (start: number, end: number) => formatVolume(t, rangeUnits(view, start, end), view.unit);
-  const color = caretColor(action);
+  const tinted = caretEpisode(action);
+  const iconCls = cn("size-3.5 shrink-0", tinted === null ? "text-primary" : "text-episode");
   const ref = useRef<HTMLSpanElement>(null);
 
   // 操作条默认从光标左侧 24px 起；靠近行首或行尾时夹在原文列之内，确认与取消按钮始终可见
@@ -59,12 +63,12 @@ export function ManualSplitToolbar({
   if (action.kind === "cut") {
     summary = (
       <>
-        <Scissors className="h-3.5 w-3.5 shrink-0" style={{ color }} aria-hidden />
+        <Scissors className={iconCls} aria-hidden />
         <span className="text-muted-foreground">{t("dashboard:manual_split_cut_summary", { volume: volume(action.start, action.end) })}</span>
         <input
           aria-label={t("dashboard:manual_split_title_label")}
           placeholder={t("dashboard:manual_split_title_placeholder")}
-          className="w-32 border-b border-input bg-transparent px-1 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+          className="w-32 border-b border-input bg-transparent px-1 text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary"
           value={title}
           onChange={(event) => onTitleChange(event.target.value)}
         />
@@ -74,7 +78,7 @@ export function ManualSplitToolbar({
   } else if (action.kind === "split") {
     summary = (
       <>
-        <Scissors className="h-3.5 w-3.5 shrink-0" style={{ color }} aria-hidden />
+        <Scissors className={iconCls} aria-hidden />
         <span className="text-muted-foreground">
           {t("dashboard:manual_split_split_summary", {
             name: episodeDisplayName(episodes, action.episode, t),
@@ -89,7 +93,7 @@ export function ManualSplitToolbar({
     const forward = action.at > action.boundary;
     summary = (
       <>
-        <MoveHorizontal className="h-3.5 w-3.5 shrink-0" style={{ color }} aria-hidden />
+        <MoveHorizontal className={iconCls} aria-hidden />
         <span className="text-muted-foreground">
           {t("dashboard:manual_split_move_summary", {
             left: episodeDisplayName(episodes, action.left, t),
@@ -97,7 +101,7 @@ export function ManualSplitToolbar({
             right: episodeDisplayName(episodes, action.right, t),
             rightVolume: volume(action.at, action.end),
           })}
-          <span className="ml-1 text-muted-foreground">
+          <span className="ml-1">
             {t(forward ? "dashboard:manual_split_move_later" : "dashboard:manual_split_move_earlier", {
               volume: volume(Math.min(action.at, action.boundary), Math.max(action.at, action.boundary)),
             })}
@@ -115,32 +119,20 @@ export function ManualSplitToolbar({
       data-manual-split-toolbar
       role="toolbar"
       aria-label={t("dashboard:manual_split_toolbar_label")}
-      className="absolute -left-6 top-full z-20 mt-1.5 inline-flex items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 py-1 text-[12px] leading-normal [font-family:var(--font-sans)]"
-      style={{
-        background: "oklch(0.2 0.015 265 / 0.97)",
-        border: `1px solid ${color}`,
-        boxShadow: "0 10px 28px -8px oklch(0 0 0 / 0.7)",
-      }}
+      className={cn(
+        "absolute top-full -left-6 z-sticky mt-1.5 inline-flex items-center gap-2.5 rounded-md border bg-popover px-2.5 py-1 font-sans text-xs leading-normal whitespace-nowrap shadow-overlay",
+        tinted === null ? "border-primary" : "border-episode",
+      )}
+      style={{ "--episode-hue": episodeHue(tinted ?? 0) } as CSSProperties}
     >
       {summary}
-      <span className="text-[11px] text-muted-foreground">{t("dashboard:manual_split_nudge_hint")}</span>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onConfirm}
-        className="focus-ring rounded-sm font-medium disabled:opacity-50"
-        style={{ color }}
-      >
+      <span className="text-muted-foreground">{t("dashboard:manual_split_nudge_hint")}</span>
+      <Button size="xs" disabled={busy} onClick={onConfirm}>
         {confirmLabel}
-      </button>
-      <button
-        type="button"
-        aria-label={t("common:cancel")}
-        onClick={onCancel}
-        className="focus-ring rounded-sm p-0.5 text-muted-foreground hover:bg-[oklch(0.3_0.01_265)] hover:text-foreground"
-      >
-        <X className="h-3.5 w-3.5" aria-hidden />
-      </button>
+      </Button>
+      <Button variant="ghost" size="icon-xs" aria-label={t("common:cancel")} onClick={onCancel}>
+        <X aria-hidden />
+      </Button>
     </span>
   );
 }

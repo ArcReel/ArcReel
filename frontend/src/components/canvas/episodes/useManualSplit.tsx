@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodesView, ManualSplitAction, ManualSplitResponse } from "@/types";
 import { errMsg } from "@/utils/async";
 
+import { ImpactConfirmDialog, ImpactText } from "./ImpactConfirmDialog";
 import { resolvePointAction, stepPoint, type ManuscriptPoint, type PointAction } from "./manual-split-model";
 
 interface PendingConfirm {
@@ -77,11 +77,10 @@ export function useManualSplit(
       setMoving(null);
       setTitle("");
       setConfirm(null);
-      useAppStore.getState().pushToast(t("manual_split_done"), "success");
       await useProjectsStore.getState().refreshProject(projectName);
       onApplied(response.episode);
     },
-    [onApplied, projectName, t],
+    [onApplied, projectName],
   );
 
   const submit = useCallback(
@@ -208,13 +207,18 @@ export function useManualSplit(
   }, []);
 
   const dialog = (
-    <ConfirmDialog
-      open={confirm !== null}
-      title={confirm?.title ?? ""}
-      description={<span className="whitespace-pre-line">{confirm?.text}</span>}
-      confirmLabel={t("manual_split_dialog_confirm")}
-      tone="danger"
-      loading={busy}
+    <ImpactConfirmDialog
+      request={
+        confirm === null
+          ? null
+          : {
+              title: confirm.title,
+              body: <ImpactText text={confirm.text} />,
+              confirmLabel: t("manual_split_dialog_confirm"),
+              destructive: true,
+            }
+      }
+      busy={busy}
       onCancel={() => setConfirm(null)}
       onConfirm={() => {
         if (confirm) {

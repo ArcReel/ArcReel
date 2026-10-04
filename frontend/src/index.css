@@ -155,6 +155,8 @@
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-scrim: var(--scrim);
+    /* 每集的身份色：明度与彩度固定，色相按集 ID 取，由调用处经 style 写入 --episode-hue（episodeHue）。 */
+    --color-episode: oklch(0.72 0.1 var(--episode-hue, 0));
 
     --shadow-overlay: 0 16px 40px -12px oklch(0 0 0 / 0.6);
 
@@ -267,6 +269,12 @@ body {
 /* 统一焦点指示（a11y） */
 @utility focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+}
+
+/* 长文本跳过屏幕外部分的渲染（「分集」视图的原文）；占位高度按 600px 估计，渲染过后记住真实高度 */
+@utility offscreen-skip {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 600px;
 }
 
 /* 条件呈现的从属条滑入 — 表达「随上方选择展开」的从属关系 */

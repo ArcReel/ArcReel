@@ -1,15 +1,18 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodeReplan } from "@/actions/generation";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy } from "@/stores/tasks-store";
 import type { ReplanPreview } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName } from "@/utils/episode-display";
+
+import { ImpactConfirmDialog, type ImpactConfirmRequest } from "./ImpactConfirmDialog";
 
 interface PendingReplan {
   episode: number;
@@ -25,6 +28,7 @@ export function useReplanEpisode(projectName: string, onStarted: (episode: numbe
   const { t } = useTranslation(["dashboard", "common"]);
   const [pending, setPending] = useState<PendingReplan | null>(null);
   const [busy, setBusy] = useState(false);
+  const instructionId = useId();
 
   const requestReplan = useCallback(
     async (episode: number) => {
@@ -56,51 +60,49 @@ export function useReplanEpisode(projectName: string, onStarted: (episode: numbe
     }
   };
 
-  let dialog: ReactNode = null;
+  let request: ImpactConfirmRequest | null = null;
   if (pending !== null) {
     const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
     const name = (episode: number) => episodeDisplayName(episodes, episode, t);
     const { preview } = pending;
-    dialog = (
-      <ConfirmDialog
-        open
-        title={t("dashboard:replan_start_title", { name: name(preview.episode) })}
-        description={
-          <>
-            {preview.from_beginning ? (
-              <span className="mb-2 block text-warn">{t("dashboard:replan_start_from_beginning")}</span>
-            ) : null}
-            <span className="block">{t("dashboard:replan_start_detail", { count: preview.replaced.length })}</span>
-            {preview.started.length > 0 ? (
-              <span className="mt-2 block">
-                {t("dashboard:replan_start_started", {
-                  names: preview.started.map(name).join(t("dashboard:replan_name_separator")),
-                })}
-              </span>
-            ) : null}
-            <label className="mt-3 block">
-              <span className="mb-0.5 block text-[11px] text-muted-foreground">{t("dashboard:guide_instruction_label")}</span>
-              <input
-                value={pending.instruction}
-                onChange={(e) => setPending({ ...pending, instruction: e.target.value })}
-                placeholder={t("dashboard:guide_instruction_placeholder")}
-                className="focus-ring w-full rounded-md px-2 py-1 text-[12px]"
-                style={{
-                  background: "var(--muted)",
-                  border: "1px solid var(--border)",
-                  color: "var(--foreground)",
-                }}
-              />
-            </label>
-          </>
-        }
-        confirmLabel={t("dashboard:replan_start_confirm")}
-        loading={busy}
-        onConfirm={confirm}
-        onCancel={() => setPending(null)}
-      />
-    );
+    request = {
+      title: t("dashboard:replan_start_title", { name: name(preview.episode) }),
+      body: (
+        <div className="flex flex-col gap-2">
+          {preview.from_beginning ? <p className="text-warn">{t("dashboard:replan_start_from_beginning")}</p> : null}
+          <p>{t("dashboard:replan_start_detail", { count: preview.replaced.length })}</p>
+          {preview.started.length > 0 ? (
+            <p>
+              {t("dashboard:replan_start_started", {
+                names: preview.started.map(name).join(t("dashboard:replan_name_separator")),
+              })}
+            </p>
+          ) : null}
+          <div className="mt-2 flex flex-col gap-1.5">
+            <Label htmlFor={instructionId}>{t("dashboard:guide_instruction_label")}</Label>
+            <Input
+              id={instructionId}
+              value={pending.instruction}
+              disabled={busy}
+              onChange={(e) => setPending({ ...pending, instruction: e.target.value })}
+              placeholder={t("dashboard:guide_instruction_placeholder")}
+            />
+          </div>
+        </div>
+      ),
+      confirmLabel: t("dashboard:replan_start_confirm"),
+      destructive: false,
+      interactiveBody: true,
+    };
   }
+  const dialog: ReactNode = (
+    <ImpactConfirmDialog
+      request={request}
+      busy={busy}
+      onConfirm={() => void confirm()}
+      onCancel={() => setPending(null)}
+    />
+  );
 
   return { requestReplan, dialog };
 }

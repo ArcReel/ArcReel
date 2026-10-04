@@ -30,18 +30,6 @@ const ACCENT_BTN_BASE_CLS =
 
 export const ACCENT_BTN_CLS = `${ACCENT_BTN_BASE_CLS} gap-2 px-4 py-2 text-[12.5px]`;
 
-export const ICON_BTN_CLS =
-  "rounded-sm p-1 text-muted-foreground transition-colors enabled:hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40";
-
-const RADIO_CARD_BASE_CLS =
-  "relative flex-1 cursor-pointer rounded-md border px-3.5 py-2.5 text-center text-[12.5px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring";
-
-export function radioCardClass(selected: boolean): string {
-  return selected
-    ? `${RADIO_CARD_BASE_CLS} border-primary/45 bg-primary/12 text-foreground shadow-[inset_0_1px_0_oklch(1_0_0_/_0.05),0_0_22px_-10px_color-mix(in_oklab,var(--primary)_35%,transparent)]`
-    : `${RADIO_CARD_BASE_CLS} border-border/50 bg-card/40 text-subtle-foreground hover:border-border hover:text-foreground`;
-}
-
 /**
  * 由字符串派生一个稳定色相（0-359）。同名同 salt 恒得同色，换名字才换色，
  * 让「没有配图」的资源在整个界面里保持各自固定的身份色。

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
-import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
@@ -37,15 +37,19 @@ export function PlanGapButton({ sourceFile, end, blocked }: { sourceFile: string
   };
 
   return (
-    <button
-      type="button"
-      className={GHOST_BTN_CLS}
+    <Button
+      variant="outline"
+      size="xs"
       disabled={planning || submitting || blocked !== null}
       title={blocked ?? (planning ? t("episode_planning_busy") : undefined)}
       onClick={() => void submit()}
     >
-      <Sparkles className="h-3.5 w-3.5" aria-hidden />
+      {submitting ? (
+        <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+      ) : (
+        <Sparkles aria-hidden data-icon="inline-start" />
+      )}
       {t("episode_plan_gap")}
-    </button>
+    </Button>
   );
 }

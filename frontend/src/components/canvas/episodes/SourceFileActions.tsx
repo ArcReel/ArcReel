@@ -1,22 +1,35 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowDown, ArrowUp, FileUp, MoreHorizontal, PencilLine, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, FileUp, Loader2, MoreHorizontal, PencilLine, Trash2, Upload } from "lucide-react";
 
 import { API } from "@/api";
-import { ActionMenu } from "@/components/legacy/ActionMenu";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
-import { FieldLabel } from "@/components/shared/FieldLabel";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
-import { INPUT_CLS } from "@/components/shared/darkroom-tokens";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodesViewFile, SourceFileChangeResponse, SourceKind } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_FORMATS_LABEL } from "@/utils/source-files";
 
+import { ImpactConfirmDialog } from "./ImpactConfirmDialog";
 import { SourceKindSelect } from "./SourceKindSelect";
 import { useSourceFileChange } from "./useSourceFileChange";
 
@@ -34,7 +47,7 @@ type Editor = "edit" | "replace" | "delete" | null;
  *
  * 波及切出集的改动先呈现服务端成文的受影响集清单，确认后才执行；没有受影响的集时直接执行。
  * 删除一个不含切出集的文件不波及任何集，改由本地确认框提醒删除不可恢复。
- * 文件在 ArcReel 之外被改动过、还没有更新分集账本时，只有删除可用。
+ * 文件在 ArcReel 之外被改动过、还没有更新分集账本时，只有删除可用。执行结果直接体现在原文里，不另行提示。
  */
 export function SourceFileActions({ projectName, file, index, total }: SourceFileActionsProps) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -43,18 +56,16 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
   const hasEpisodes = file.segments.some((segment) => segment.kind === "episode");
   const paused = change.busy || file.changed_outside;
 
-  /** 跑一次改动；执行后刷新项目并提示，返回是否已执行。 */
+  /** 跑一次改动；执行后刷新项目，返回是否已执行。 */
   const perform = async (
     title: string,
     confirmLabel: string,
     call: (revision: string | null) => Promise<SourceFileChangeResponse>,
-    doneMessage: string,
   ): Promise<boolean> => {
     try {
       const reply = await change.run(title, confirmLabel, call);
       if (reply === null) return false;
       await useProjectsStore.getState().refreshProject(projectName);
-      useAppStore.getState().pushToast(doneMessage, "success");
       return true;
     } catch (err) {
       useAppStore
@@ -69,7 +80,6 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
       t("dashboard:source_file_move_title", { name: file.name }),
       t("dashboard:source_file_move_confirm"),
       (revision) => API.moveSourceFile(projectName, file.name, direction, revision),
-      t("dashboard:source_file_change_done", { name: file.name }),
     );
 
   const remove = () =>
@@ -77,93 +87,88 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
       t("dashboard:source_file_delete_title", { name: file.name }),
       t("dashboard:source_file_delete_confirm"),
       (revision) => API.deleteWholeSourceFile(projectName, file.name, revision),
-      t("dashboard:source_file_delete_done", { name: file.name }),
     );
 
   return (
     <>
-      <ActionMenu
-        label={t("dashboard:source_file_actions_label", { name: file.name })}
-        triggerClassName="focus-ring grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-45"
-        triggerStyle={{ background: "oklch(0.25 0.012 265 / 0.9)" }}
-        items={[
-          {
-            key: "up",
-            label: t("dashboard:source_file_move_up"),
-            icon: ArrowUp,
-            disabled: index === 0 || paused,
-            onSelect: () => move("up"),
-          },
-          {
-            key: "down",
-            label: t("dashboard:source_file_move_down"),
-            icon: ArrowDown,
-            disabled: index === total - 1 || paused,
-            onSelect: () => move("down"),
-          },
-          {
-            key: "edit",
-            label: t("dashboard:source_file_edit"),
-            icon: PencilLine,
-            disabled: file.missing || paused,
-            onSelect: () => setEditor("edit"),
-          },
-          {
-            key: "replace",
-            label: t("dashboard:source_file_replace"),
-            icon: FileUp,
-            disabled: file.missing || paused,
-            onSelect: () => setEditor("replace"),
-          },
-          {
-            key: "delete",
-            label: t("dashboard:source_file_delete"),
-            icon: Trash2,
-            danger: true,
-            disabled: change.busy,
-            onSelect: () => (hasEpisodes ? void remove() : setEditor("delete")),
-          },
-        ]}
-      >
-        <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
-      </ActionMenu>
-      {editor === "edit" ? (
-        <EditSourceFileDialog
-          projectName={projectName}
-          file={file}
-          onClose={() => setEditor(null)}
-          onSave={(text) =>
-            perform(
-              t("dashboard:source_file_edit_title", { name: file.name }),
-              t("dashboard:source_file_edit_save"),
-              (revision) => API.editSourceFile(projectName, file.name, text, revision),
-              t("dashboard:source_file_change_done", { name: file.name }),
-            )
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={t("dashboard:source_file_actions_label", { name: file.name })}
+            />
           }
-        />
-      ) : null}
-      {editor === "replace" ? (
-        <ReplaceSourceFileDialog
-          file={file}
-          onClose={() => setEditor(null)}
-          onReplace={(upload, sourceKind) =>
-            perform(
-              t("dashboard:source_file_replace_title", { name: file.name }),
-              t("dashboard:source_file_replace_confirm"),
-              (revision) => API.replaceSourceFile(projectName, file.name, upload, { sourceKind, revision }),
-              t("dashboard:source_file_change_done", { name: file.name }),
-            )
-          }
-        />
-      ) : null}
-      <ConfirmDialog
-        open={editor === "delete"}
-        tone="danger"
-        title={t("dashboard:source_file_delete_title", { name: file.name })}
-        description={t("dashboard:source_file_delete_desc")}
-        confirmLabel={t("dashboard:source_file_delete_confirm")}
-        loadingLabel={t("dashboard:source_file_change_running")}
-        loading={change.busy}
+        >
+          <MoreHorizontal aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-44">
+          <DropdownMenuItem disabled={index === 0 || paused} onClick={() => move("up")}>
+            <ArrowUp aria-hidden />
+            {t("dashboard:source_file_move_up")}
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={index === total - 1 || paused} onClick={() => move("down")}>
+            <ArrowDown aria-hidden />
+            {t("dashboard:source_file_move_down")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={file.missing || paused} onClick={() => setEditor("edit")}>
+            <PencilLine aria-hidden />
+            {t("dashboard:source_file_edit")}
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={file.missing || paused} onClick={() => setEditor("replace")}>
+            <FileUp aria-hidden />
+            {t("dashboard:source_file_replace")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={change.busy}
+            onClick={() => (hasEpisodes ? void remove() : setEditor("delete"))}
+          >
+            <Trash2 aria-hidden />
+            {t("dashboard:source_file_delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <EditSourceFileDialog
+        open={editor === "edit"}
+        projectName={projectName}
+        file={file}
+        onClose={() => setEditor(null)}
+        onSave={(text) =>
+          perform(
+            t("dashboard:source_file_edit_title", { name: file.name }),
+            t("dashboard:source_file_edit_save"),
+            (revision) => API.editSourceFile(projectName, file.name, text, revision),
+          )
+        }
+      />
+      <ReplaceSourceFileDialog
+        open={editor === "replace"}
+        file={file}
+        onClose={() => setEditor(null)}
+        onReplace={(upload, sourceKind) =>
+          perform(
+            t("dashboard:source_file_replace_title", { name: file.name }),
+            t("dashboard:source_file_replace_confirm"),
+            (revision) => API.replaceSourceFile(projectName, file.name, upload, { sourceKind, revision }),
+          )
+        }
+      />
+      <ImpactConfirmDialog
+        request={
+          editor === "delete"
+            ? {
+                title: t("dashboard:source_file_delete_title", { name: file.name }),
+                body: <p>{t("dashboard:source_file_delete_desc")}</p>,
+                confirmLabel: t("dashboard:source_file_delete_confirm"),
+                destructive: true,
+              }
+            : null
+        }
+        busy={change.busy}
         onConfirm={() => {
           setEditor(null);
           void remove();
@@ -177,22 +182,63 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
 
 /** 编辑整本源文文件的全文。保存时波及切出集的，先确认受影响集清单；执行后关闭。 */
 function EditSourceFileDialog({
+  open,
   projectName,
   file,
   onClose,
   onSave,
 }: {
+  open: boolean;
   projectName: string;
   file: EpisodesViewFile;
   onClose: () => void;
   onSave: (text: string) => Promise<boolean>;
 }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // 保存在途时不响应 Esc 与遮罩点击
+        if (!next && !busy) onClose();
+      }}
+    >
+      <DialogContent size="xl" showCloseButton={!busy}>
+        {open ? (
+          <EditSourceFileForm
+            projectName={projectName}
+            file={file}
+            busy={busy}
+            setBusy={setBusy}
+            onSave={onSave}
+            onDone={onClose}
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditSourceFileForm({
+  projectName,
+  file,
+  busy,
+  setBusy,
+  onSave,
+  onDone,
+}: {
+  projectName: string;
+  file: EpisodesViewFile;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  onSave: (text: string) => Promise<boolean>;
+  onDone: () => void;
+}) {
   const { t } = useTranslation(["dashboard", "common"]);
-  const titleId = useId();
+  const formId = useId();
   const fieldId = useId();
   const [text, setText] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -207,145 +253,163 @@ function EditSourceFileDialog({
   }, [projectName, file.name]);
 
   const save = async () => {
-    if (text === null) return;
+    if (text === null || busy) return;
     setBusy(true);
     const done = await onSave(text);
     setBusy(false);
-    if (done) onClose();
+    if (done) onDone();
   };
 
   return (
-    <GlassModal
-      open
-      onClose={busy ? () => {} : onClose}
-      labelledBy={titleId}
-      closeOnBackdrop={false}
-      closeOnEscape={!busy}
-    >
-      <form
-        className="flex max-h-[min(86vh,820px)] flex-col"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!busy) void save();
-        }}
-      >
-        <header className="flex items-start justify-between gap-3 px-6 pt-5">
-          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-foreground">
-            {t("dashboard:source_file_edit_title", { name: file.name })}
-          </h2>
-          <ModalCloseButton onClick={onClose} disabled={busy} />
-        </header>
-        <div className="mt-4 flex min-h-0 flex-1 flex-col px-6">
-          <p className="mb-2 text-[11.5px] leading-[1.6] text-muted-foreground">{t("dashboard:source_file_edit_hint")}</p>
+    <>
+      <DialogHeader>
+        <DialogTitle>{t("dashboard:source_file_edit_title", { name: file.name })}</DialogTitle>
+        <DialogDescription>{t("dashboard:source_file_edit_hint")}</DialogDescription>
+      </DialogHeader>
+      <DialogBody>
+        <form
+          id={formId}
+          className="flex flex-col gap-1.5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
           {loadError !== null ? (
-            <p role="alert" className="text-[12.5px] text-warn">
+            <p role="alert" className="text-destructive">
               {t("dashboard:source_file_edit_load_failed", { message: loadError })}
             </p>
           ) : text === null ? (
-            <p role="status" className="text-[12.5px] text-muted-foreground">
+            <p role="status" className="text-muted-foreground">
               {t("dashboard:source_file_edit_loading")}
             </p>
           ) : (
-            <textarea
-              id={fieldId}
-              aria-label={t("dashboard:source_file_edit_label", { name: file.name })}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              rows={18}
-              className={`${INPUT_CLS} min-h-0 flex-1 resize-y leading-[1.8]`}
-              disabled={busy}
-            />
+            <>
+              <Label htmlFor={fieldId} className="sr-only">
+                {t("dashboard:source_file_edit_label", { name: file.name })}
+              </Label>
+              <Textarea
+                id={fieldId}
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                disabled={busy}
+                className="min-h-80"
+              />
+            </>
           )}
-        </div>
-        <footer className="flex justify-end gap-2 px-6 pb-5 pt-4">
-          <SecondaryButton type="button" onClick={onClose} disabled={busy}>
-            {t("common:cancel")}
-          </SecondaryButton>
-          <PrimaryButton type="submit" disabled={busy || text === null || text.trim() === ""}>
-            {t("dashboard:source_file_edit_save")}
-          </PrimaryButton>
-        </footer>
-      </form>
-    </GlassModal>
+        </form>
+      </DialogBody>
+      <DialogFooter>
+        <DialogClose render={<Button variant="outline" disabled={busy} />}>{t("common:cancel")}</DialogClose>
+        <Button type="submit" form={formId} disabled={busy || text === null || text.trim() === ""}>
+          {busy ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+          {t("dashboard:source_file_edit_save")}
+        </Button>
+      </DialogFooter>
+    </>
   );
 }
 
 /** 用新文件替换整本源文文件：保留文件名与位置。剧情演绎项目可以改源文件类型，预填为原类型。 */
 function ReplaceSourceFileDialog({
+  open,
   file,
   onClose,
   onReplace,
 }: {
+  open: boolean;
   file: EpisodesViewFile;
   onClose: () => void;
   onReplace: (upload: File, sourceKind: SourceKind | undefined) => Promise<boolean>;
 }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !busy) onClose();
+      }}
+    >
+      <DialogContent showCloseButton={!busy}>
+        {open ? (
+          <ReplaceSourceFileForm file={file} busy={busy} setBusy={setBusy} onReplace={onReplace} onDone={onClose} />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReplaceSourceFileForm({
+  file,
+  busy,
+  setBusy,
+  onReplace,
+  onDone,
+}: {
+  file: EpisodesViewFile;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  onReplace: (upload: File, sourceKind: SourceKind | undefined) => Promise<boolean>;
+  onDone: () => void;
+}) {
   const { t } = useTranslation(["dashboard", "common"]);
-  const titleId = useId();
+  const formId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [upload, setUpload] = useState<File | null>(null);
   const [sourceKind, setSourceKind] = useState<SourceKind | null>(file.source_kind);
-  const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    if (upload === null) return;
+    if (upload === null || busy) return;
     setBusy(true);
     const kindChanged = sourceKind !== null && sourceKind !== file.source_kind;
     const done = await onReplace(upload, kindChanged ? sourceKind : undefined);
     setBusy(false);
-    if (done) onClose();
+    if (done) onDone();
   };
 
   return (
-    <GlassModal open onClose={busy ? () => {} : onClose} labelledBy={titleId} closeOnBackdrop={!busy} closeOnEscape={!busy}>
-      <form
-        className="flex flex-col"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!busy) void submit();
-        }}
-      >
-        <header className="flex items-start justify-between gap-3 px-6 pt-5">
-          <h2 id={titleId} className="display-serif text-[17px] font-semibold tracking-tight text-foreground">
-            {t("dashboard:source_file_replace_title", { name: file.name })}
-          </h2>
-          <ModalCloseButton onClick={onClose} disabled={busy} />
-        </header>
-        <div className="mt-4 space-y-4 px-6">
-          <p className="text-[12.5px] leading-[1.7] text-muted-foreground">
-            {t("dashboard:source_file_replace_hint", { name: file.name })}
-          </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              ref={inputRef}
-              type="file"
-              accept={SOURCE_FILE_ACCEPT}
-              className="hidden"
-              aria-label={t("dashboard:source_file_replace_pick")}
-              onChange={(event) => {
-                setUpload(event.target.files?.[0] ?? null);
-                event.target.value = "";
-              }}
-            />
-            <SecondaryButton
-              size="sm"
-              type="button"
-              disabled={busy}
-              onClick={() => inputRef.current?.click()}
-              leadingIcon={<Upload className="h-3.5 w-3.5" aria-hidden />}
-            >
-              {t("dashboard:source_file_replace_pick")}
-            </SecondaryButton>
-            <span className="min-w-0 truncate text-[12px] text-subtle-foreground">
-              {upload?.name ?? t("dashboard:source_file_replace_none")}
-            </span>
+    <>
+      <DialogHeader>
+        <DialogTitle>{t("dashboard:source_file_replace_title", { name: file.name })}</DialogTitle>
+        <DialogDescription>{t("dashboard:source_file_replace_hint", { name: file.name })}</DialogDescription>
+      </DialogHeader>
+      <DialogBody>
+        <form
+          id={formId}
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 items-center gap-3">
+              <input
+                ref={inputRef}
+                type="file"
+                accept={SOURCE_FILE_ACCEPT}
+                hidden
+                aria-label={t("dashboard:source_file_replace_pick")}
+                onChange={(event) => {
+                  setUpload(event.target.files?.[0] ?? null);
+                  event.target.value = "";
+                }}
+              />
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
+                <Upload aria-hidden data-icon="inline-start" />
+                {t("dashboard:source_file_replace_pick")}
+              </Button>
+              <span className="min-w-0 truncate text-subtle-foreground">
+                {upload?.name ?? t("dashboard:source_file_replace_none")}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("dashboard:source_upload_pick_hint", { formats: SOURCE_FILE_FORMATS_LABEL })}
+            </p>
           </div>
-          <p className="text-[11.5px] text-muted-foreground">
-            {t("dashboard:source_upload_pick_hint", { formats: SOURCE_FILE_FORMATS_LABEL })}
-          </p>
           {sourceKind !== null ? (
-            <div>
-              <FieldLabel>{t("dashboard:source_file_replace_kind")}</FieldLabel>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">{t("dashboard:source_file_replace_kind")}</span>
               <SourceKindSelect
                 value={sourceKind}
                 onChange={setSourceKind}
@@ -354,16 +418,15 @@ function ReplaceSourceFileDialog({
               />
             </div>
           ) : null}
-        </div>
-        <footer className="flex justify-end gap-2 px-6 pb-5 pt-4">
-          <SecondaryButton type="button" onClick={onClose} disabled={busy}>
-            {t("common:cancel")}
-          </SecondaryButton>
-          <PrimaryButton type="submit" disabled={busy || upload === null}>
-            {t("dashboard:source_file_replace_confirm")}
-          </PrimaryButton>
-        </footer>
-      </form>
-    </GlassModal>
+        </form>
+      </DialogBody>
+      <DialogFooter>
+        <DialogClose render={<Button variant="outline" disabled={busy} />}>{t("common:cancel")}</DialogClose>
+        <Button type="submit" form={formId} disabled={busy || upload === null}>
+          {busy ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+          {t("dashboard:source_file_replace_confirm")}
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

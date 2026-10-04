@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
 import { prefillAssistant } from "@/components/shared/DraftStatus";
 import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
-import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
-import { StepActButton } from "@/components/workflow/StepActButton";
-import type { StepAct } from "@/components/workflow/step-list";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { PopoverDescription, PopoverTitle } from "@/components/ui/popover";
 import { withInstruction } from "@/components/layout/project-guide";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -30,18 +31,21 @@ interface Props {
   view: EpisodesView;
   /** 本项目有分集规划在排队或执行。 */
   active: boolean;
+  /** 已提交规划或交给 Agent：调用方据此收起弹层。 */
+  onStarted?: () => void;
 }
 
 /**
- * 「分集」视图右栏的 AI 规划分集：附加指令、「交给 Agent」与直接调用，进行中显示进度与停止，
+ * 「分集」视图页头「AI 规划分集」弹层的内容：附加指令、「交给 Agent」与直接调用，进行中显示进度与停止，
  * 上一次规划失败时给出原因与出路，整本规划完后给出体量统计。
  */
-export function EpisodePlanningPanel({ projectName, view, active }: Props) {
+export function EpisodePlanningPanel({ projectName, view, active, onStarted }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [instruction, setInstruction] = useState(() => lastInstruction(projectName));
   const [submitting, setSubmitting] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
   const [finishingWindow, setFinishingWindow] = useState(false);
+  const instructionId = useId();
   const tasks = useTasksStore((s) => s.tasks);
   const targetSeconds = useProjectsStore((s) => s.currentProjectData?.episode_target_duration ?? null);
   const failure = useMemo(() => (active ? null : lastPlanningFailure(tasks, projectName)), [active, tasks, projectName]);
@@ -84,6 +88,7 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
     setSubmitting(true);
     try {
       await enqueueEpisodePlanning(projectName, instruction.trim() || null);
+      onStarted?.();
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
@@ -106,41 +111,41 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
 
   if (active) {
     return (
-      <section
-        aria-labelledby="episode-planning-title"
-        className="space-y-2 rounded-md py-2 pl-3 pr-2"
-        style={{ borderLeft: "3px solid var(--primary)", background: "color-mix(in oklab, var(--primary) 12%, transparent)" }}
-      >
-        <h3 id="episode-planning-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
-          <Loader2 aria-hidden className="h-3.5 w-3.5 text-primary motion-safe:animate-spin" />
-          {t("dashboard:episode_planning_running", { percent })}
-        </h3>
-        <p className="m-0 text-[11.5px] leading-[1.6] text-muted-foreground">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin text-primary" />
+          <PopoverTitle>{t("dashboard:episode_planning_running", { percent })}</PopoverTitle>
+        </div>
+        <PopoverDescription>
           {finishingWindow ? t("dashboard:episode_planning_finishing") : t("dashboard:episode_planning_running_hint")}
-        </p>
+        </PopoverDescription>
         {!stopRequested ? (
-          <button type="button" className={GHOST_BTN_CLS} onClick={() => void stop()}>
+          <Button variant="outline" size="sm" className="self-start" onClick={() => void stop()}>
             {t("dashboard:episode_planning_stop")}
-          </button>
+          </Button>
         ) : null}
-      </section>
+      </div>
     );
   }
 
   if (remaining === 0 && started) {
     const stats = wholeSourceStats(view);
     return (
-      <section aria-labelledby="episode-planning-title" className="space-y-2 border-t border-border pt-4">
-        <h3 id="episode-planning-title" className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
-          <CheckCircle2 aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--good)" }} />
-          {hasGaps ? t("dashboard:episode_planning_done_with_gaps") : t("dashboard:episode_planning_done")}
-        </h3>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <CheckCircle2 aria-hidden className="size-3.5 shrink-0 text-good" />
+          <PopoverTitle>
+            {hasGaps ? t("dashboard:episode_planning_done_with_gaps") : t("dashboard:episode_planning_done")}
+          </PopoverTitle>
+        </div>
         {stats ? (
-          <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11.5px]">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
             <dt className="text-muted-foreground">{t("dashboard:episode_planning_stats_count")}</dt>
-            <dd className="num m-0 text-subtle-foreground">{t("dashboard:episodes_view_episode_count", { count: stats.count })}</dd>
+            <dd className="num text-subtle-foreground">
+              {t("dashboard:episodes_view_episode_count", { count: stats.count })}
+            </dd>
             <dt className="text-muted-foreground">{t("dashboard:episode_planning_stats_median")}</dt>
-            <dd className="num m-0 text-subtle-foreground">
+            <dd className="num text-subtle-foreground">
               {formatVolume(t, stats.medianUnits, view.unit)}
               {stats.medianSpokenSeconds !== null
                 ? t("dashboard:episode_planning_stats_spoken", { spoken: formatSpoken(t, stats.medianSpokenSeconds) })
@@ -149,71 +154,68 @@ export function EpisodePlanningPanel({ projectName, view, active }: Props) {
             {targetSeconds ? (
               <>
                 <dt className="text-muted-foreground">{t("dashboard:episode_planning_stats_target")}</dt>
-                <dd className="num m-0 text-subtle-foreground">{t("dashboard:episode_planning_stats_seconds", { count: targetSeconds })}</dd>
+                <dd className="num text-subtle-foreground">
+                  {t("dashboard:episode_planning_stats_seconds", { count: targetSeconds })}
+                </dd>
               </>
             ) : null}
           </dl>
         ) : null}
-      </section>
+      </div>
     );
   }
 
-  const agentAct: StepAct = {
-    key: "agent",
-    label: t("dashboard:guide_hand_to_agent"),
-    kind: "agent",
-    intent: { type: "agent", text: "" },
-  };
-  const aiAct: StepAct = {
-    key: "ai",
-    label: started ? t("dashboard:episode_planning_continue") : t("dashboard:episode_planning_start"),
-    kind: "ai",
-    intent: { type: "agent", text: "" },
-  };
-  const handToAgent = () =>
+  const handToAgent = () => {
     prefillAssistant(
       withInstruction(t, started ? t("dashboard:guide_prefill_plan_continue") : t("dashboard:guide_prefill_plan"), instruction),
     );
+    onStarted?.();
+  };
 
   return (
-    <section aria-labelledby="episode-planning-title" className="space-y-2 border-t border-border pt-4">
-      <h3 id="episode-planning-title" className="text-[12.5px] font-medium text-foreground">
-        {started ? t("dashboard:guide_plan_continue_title") : t("dashboard:guide_plan_title")}
-      </h3>
-      <p className="m-0 text-[11.5px] leading-[1.6] text-muted-foreground">
-        {started
-          ? t("dashboard:episode_planning_continue_detail", { volume: formatVolume(t, remaining, view.unit) })
-          : t("dashboard:guide_plan_detail")}
-      </p>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <PopoverTitle>{started ? t("dashboard:guide_plan_continue_title") : t("dashboard:guide_plan_title")}</PopoverTitle>
+        <PopoverDescription>
+          {started
+            ? t("dashboard:episode_planning_continue_detail", { volume: formatVolume(t, remaining, view.unit) })
+            : t("dashboard:guide_plan_detail")}
+        </PopoverDescription>
+      </div>
       {failure ? <FailureNote failure={failure} /> : null}
-      <label className="block">
-        <span className="mb-0.5 block text-[11px] text-muted-foreground">{t("dashboard:guide_instruction_label")}</span>
-        <input
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={instructionId}>{t("dashboard:guide_instruction_label")}</Label>
+        <Input
+          id={instructionId}
           value={instruction}
           onChange={(e) => updateInstruction(e.target.value)}
           placeholder={t("dashboard:guide_instruction_placeholder")}
-          className="focus-ring w-full rounded-md px-2 py-1 text-[12px]"
-          style={{
-            background: "var(--muted)",
-            border: "1px solid var(--border)",
-            color: "var(--foreground)",
-          }}
         />
-      </label>
-      <div className="flex flex-wrap items-center gap-2">
-        <StepActButton act={agentAct} onRun={handToAgent} />
-        <StepActButton act={aiAct} onRun={() => void start()} busy={submitting} />
       </div>
-    </section>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={handToAgent}>
+          <Bot aria-hidden data-icon="inline-start" />
+          {t("dashboard:guide_hand_to_agent")}
+        </Button>
+        <Button variant="outline" size="sm" disabled={submitting} onClick={() => void start()}>
+          {submitting ? (
+            <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <Sparkles aria-hidden data-icon="inline-start" />
+          )}
+          {started ? t("dashboard:episode_planning_continue") : t("dashboard:episode_planning_start")}
+        </Button>
+      </div>
+    </div>
   );
 }
 
 function FailureNote({ failure }: { failure: PlanningFailure }) {
   const { t } = useTranslation("dashboard");
   return (
-    <div role="alert" className="space-y-1.5 rounded-md p-2 text-[11.5px] leading-[1.6]" style={{ background: "color-mix(in oklab, var(--warn) 10%, transparent)" }}>
-      <p className="m-0 flex gap-1.5 text-subtle-foreground">
-        <AlertTriangle aria-hidden className="mt-[3px] h-3.5 w-3.5 shrink-0" style={{ color: "var(--warn)" }} />
+    <div role="alert" className="flex flex-col gap-1.5 rounded-md bg-warn/10 p-2 text-xs">
+      <p className="flex gap-1.5 text-subtle-foreground">
+        <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warn" />
         <span>{t("episode_planning_failed", { reason: failure.message })}</span>
       </p>
       {failure.truncated ? <OutputTruncationHint truncation={failure.truncated} /> : null}

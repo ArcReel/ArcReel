@@ -2,8 +2,7 @@ import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
 
 import { API } from "@/api";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ExternalSourceChange } from "@/types/episodes-view";
@@ -25,6 +24,7 @@ function fileName(sourceFile: string): string {
  * 「分集」视图顶部的提示：整本源文里在 ArcReel 之外被改动过的文件，各列出按快照对齐算出的受影响集。
  *
  * 「更新分集账本」带着提示里这份清单的 `revision` 提交，即确认这份清单；清单在此期间变了时换成新清单再确认一次。
+ * 更新后提示随之消失，不另行提示。
  */
 export function ExternalChangeNotice({ projectName, changes, onLocate }: ExternalChangeNoticeProps) {
   const { t } = useTranslation("dashboard");
@@ -42,48 +42,46 @@ export function ExternalChangeNotice({ projectName, changes, onLocate }: Externa
       );
       if (reply === null) return;
       await useProjectsStore.getState().refreshProject(projectName);
-      useAppStore.getState().pushToast(t("episodes_view_external_done", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(t("source_file_change_failed", { name, message: errMsg(err) }), "error");
     }
   };
 
   return (
-    <div className="mt-4 space-y-3">
+    <div className="flex flex-col gap-3 pt-4">
       {changes.map((item) => {
         const name = fileName(item.source_file);
         return (
           <section
             key={item.source_file}
             aria-label={t("episodes_view_external_title", { name })}
-            className="rounded-md border px-4 py-3"
-            style={{ borderColor: "var(--warn)", background: "oklch(0.24 0.03 60 / 0.35)" }}
+            className="flex flex-col gap-2 rounded-lg border border-warn/50 bg-warn/10 px-4 py-3 text-sm"
           >
-            <h2 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
-              <TriangleAlert className="h-4 w-4 shrink-0 text-warn" aria-hidden />
+            <h2 className="flex items-center gap-2 font-medium text-foreground">
+              <TriangleAlert className="size-4 shrink-0 text-warn" aria-hidden />
               {t("episodes_view_external_title", { name })}
             </h2>
             {item.problem !== null ? (
-              <p role="alert" className="mt-2 text-[12.5px] leading-[1.7] text-warn">
+              <p role="alert" className="text-warn">
                 {item.problem}
               </p>
             ) : (
               <>
-                <p className="mt-2 text-[12px] leading-[1.7] text-muted-foreground">{t("episodes_view_external_hint")}</p>
-                <p className="mt-2 whitespace-pre-line text-[12.5px] leading-[1.7] text-subtle-foreground">
+                <p className="text-muted-foreground">{t("episodes_view_external_hint")}</p>
+                <p className="whitespace-pre-line text-subtle-foreground">
                   {item.impact?.text || t("episodes_view_external_none")}
                 </p>
               </>
             )}
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 pt-1">
               {item.problem === null ? (
-                <PrimaryButton size="sm" disabled={change.busy} onClick={() => void accept(item)}>
+                <Button size="sm" disabled={change.busy} onClick={() => void accept(item)}>
                   {t("episodes_view_external_accept")}
-                </PrimaryButton>
+                </Button>
               ) : null}
-              <SecondaryButton size="sm" onClick={() => onLocate(item.source_file)}>
+              <Button size="sm" variant="outline" onClick={() => onLocate(item.source_file)}>
                 {t("episodes_view_external_locate")}
-              </SecondaryButton>
+              </Button>
             </div>
           </section>
         );

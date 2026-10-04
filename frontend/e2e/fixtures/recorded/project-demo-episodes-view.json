@@ -1,0 +1,28 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/episodes-view",
+  "status": 200,
+  "body": {
+    "unit": "chars",
+    "units": 0,
+    "cut_units": 0,
+    "files": [],
+    "episodes": [
+      {
+        "episode": 1,
+        "origin": "none",
+        "placed": false,
+        "source_file": null,
+        "units": null,
+        "spoken_seconds": null,
+        "first_sentence": "",
+        "last_sentence": "",
+        "source_kind": null,
+        "end_file": null
+      }
+    ],
+    "unregistered": [],
+    "replan": null,
+    "external_changes": []
+  }
+}

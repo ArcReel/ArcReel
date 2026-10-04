@@ -316,7 +316,7 @@ describe("OverviewCanvas", () => {
       });
 
       expect(screen.getByRole("dialog", { name: "上传原文" })).toBeInTheDocument();
-      expect(screen.getByTitle("novel.txt")).toBeInTheDocument();
+      expect(screen.getByText("novel.txt")).toBeInTheDocument();
     });
 
     it("switches to the overview right after the first whole-source upload and fills the story setting in place", async () => {

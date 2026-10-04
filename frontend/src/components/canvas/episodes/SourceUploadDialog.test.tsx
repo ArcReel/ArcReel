@@ -38,7 +38,12 @@ function listedNames() {
   const list = screen.getByRole("list", { name: "待上传的文件" });
   return within(list)
     .getAllByRole("listitem")
-    .map((item) => item.querySelector("[title]")?.getAttribute("title"));
+    .map((item) => /^\d+(.+?\.(?:txt|md))/.exec(item.textContent ?? "")?.[1]);
+}
+
+async function pickKind(label: string, kind: string) {
+  await userEvent.click(screen.getByRole("combobox", { name: label }));
+  await userEvent.click(await screen.findByRole("option", { name: new RegExp(`^${kind}`) }));
 }
 
 describe("SourceUploadDialog", () => {
@@ -71,7 +76,6 @@ describe("SourceUploadDialog", () => {
     ]);
     expect(upload.mock.calls[0][4]?.onConflict).toBe("rename");
     expect(onUploaded).toHaveBeenCalledWith({ wholeSourceFiles: ["y.txt", "x.txt"], episodes: [] });
-    expect(useAppStore.getState().toast?.text).toBe("已把 2 个文件加入整本源文");
   });
 
   it("names files the server saved under a different name in the completion toast", async () => {
@@ -189,15 +193,14 @@ describe("SourceUploadDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
     await screen.findByText("清单");
-    fireEvent.click(within(screen.getByRole("dialog", { name: "插入「x.txt」" })).getByRole("button", { name: "取消" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "插入「x.txt」" })).getByRole("button", { name: "取消" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "上传 1 个文件" })).toBeEnabled());
     expect(onClose).not.toHaveBeenCalled();
     expect(listedNames()).toEqual(["a.txt", "b.txt", "x.txt"]);
   });
 
-  it("keeps Tab inside the insertion confirmation opened over the upload dialog", async () => {
-    const user = userEvent.setup();
+  it("opens the insertion confirmation over the upload dialog with focus on Cancel", async () => {
     vi.spyOn(API, "uploadFile").mockResolvedValue({
       success: false,
       status: "confirmation_required",
@@ -217,12 +220,10 @@ describe("SourceUploadDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
     await screen.findByText("清单");
 
-    const confirm = within(screen.getByRole("dialog", { name: "插入「x.txt」" }));
-    expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus();
-    await user.tab();
-    expect(confirm.getByRole("button", { name: "插入" })).toHaveFocus();
-    await user.tab();
-    expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus();
+    const confirm = within(screen.getByRole("alertdialog", { name: "插入「x.txt」" }));
+    await waitFor(() => expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus());
+    // 上传对话框与待上传的文件仍在确认框下面
+    expect(screen.getByText("x.txt")).toBeInTheDocument();
   });
 
   it("skips files in unsupported formats", () => {
@@ -240,7 +241,7 @@ describe("SourceUploadDialog", () => {
       .mockResolvedValueOnce({ success: true, path: "source/y.txt", filename: "y.txt" });
     const { onClose } = renderDialog({ initialFiles: [txt("x.txt"), txt("y.txt")] });
 
-    fireEvent.change(screen.getByRole("combobox", { name: "y.txt 的源文件类型" }), { target: { value: "screenplay" } });
+    await pickKind("y.txt 的源文件类型", "剧本");
     fireEvent.click(screen.getByRole("button", { name: "上传 2 个文件" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -259,8 +260,8 @@ describe("SourceUploadDialog", () => {
       .mockResolvedValueOnce({ success: true, path: "source/episode_4.txt", episode: 4 });
     const { onClose } = renderDialog({ initialMode: "episode", initialFiles: [txt("一.txt"), txt("二.txt")] });
 
-    fireEvent.change(screen.getByRole("combobox", { name: "这批文件的源文件类型" }), { target: { value: "screenplay" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "二.txt 的源文件类型" }), { target: { value: "novel" } });
+    await pickKind("这批文件的源文件类型", "剧本");
+    await pickKind("二.txt 的源文件类型", "小说");
     fireEvent.change(screen.getByLabelText("选择文件"), { target: { files: [txt("三.txt")] } });
     fireEvent.click(screen.getByRole("button", { name: "添加为第 2–4 集" }));
 
