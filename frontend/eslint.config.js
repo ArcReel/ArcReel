@@ -162,6 +162,11 @@ const REWORKED_FILES = [
   "src/components/workflow/**",
   // 分镜的编辑单元：分镜详情与提示词、台词、发声序列编辑器、引用编辑对话框、快捷键与提示
   "src/components/canvas/timeline/{ShotDetail,ImagePromptEditor,VideoPromptEditor,PromptFieldGrid,PromptFieldSelect,CompactInput,DialogueListEditor,UtteranceListEditor,SegmentRefsEditModal,ShotShortcutHint,useShotShortcuts}.{ts,tsx}",
+  // 脚本规划：起步态（起步区、本集原文与导览）、内容确认页、重新规划对话框与共用的规划按钮、时长下拉
+  "src/components/canvas/EpisodeSourceReview.tsx",
+  "src/components/canvas/timeline/ScriptReviewGate.tsx",
+  "src/components/canvas/shared/{ScriptPlanStart,ScriptPlanDialog,ScriptPlanButton,StartBlankScriptButton,PlanDurationSelect}.tsx",
+  "src/components/shared/SourceTextReadonly.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

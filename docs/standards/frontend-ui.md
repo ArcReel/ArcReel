@@ -150,7 +150,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 尺寸用 `size`：`xs`、`sm`、`default`、`lg`，只有图标时用 `icon`、`icon-xs`、`icon-sm`、`icon-lg`。按钮内的图标加 `data-icon="inline-start"` 或 `data-icon="inline-end"`，不写尺寸 class。`Button` 没有 loading 属性；加载时禁用按钮，并把前置图标换成带 `animate-spin` 的 `Loader2`。
 
-`components/legacy/` 的 `PrimaryButton`、`SecondaryButton`、`ModalCloseButton`，以及 `.arc-btn-primary`、`.arc-btn-secondary` 与 `ACCENT_BUTTON_STYLE`，已改为与 `Button` 外观一致的过渡封装，只供未重做的区域使用，新代码不再引用。
+`components/legacy/` 的 `PrimaryButton`、`SecondaryButton`、`ModalCloseButton`，以及 `.arc-btn-primary` 与 `.arc-btn-secondary`，已改为与 `Button` 外观一致的过渡封装，只供未重做的区域使用，新代码不再引用。
 
 ## 图表
 

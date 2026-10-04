@@ -1,28 +1,33 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Anchor, ChevronDown, Loader2, PencilLine } from "lucide-react";
+import { Anchor, ChevronRight } from "lucide-react";
+import { Link } from "wouter";
+import { cn } from "cn";
 import { API } from "@/api";
-import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
-import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
-import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
-import { useAppStore } from "@/stores/app-store";
+import { useStaysInEpisodeView } from "@/components/canvas/episode-page/EpisodeViewScope";
+import { ImpactConfirmDialog } from "@/components/canvas/episodes/ImpactConfirmDialog";
+import { SourceKindSelect } from "@/components/canvas/episodes/SourceKindSelect";
+import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
+import { ScriptPlanStart } from "@/components/canvas/shared/ScriptPlanStart";
+import { UnsavedChangesBar } from "@/components/shared/edit-unit/UnsavedChangesBar";
+import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Textarea } from "@/components/ui/textarea";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { SourceKindSelect } from "@/components/canvas/episodes/SourceKindSelect";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import type { EpisodeMeta } from "@/types";
 import type { SourceKind } from "@/types/episodes-view";
-import { errMsg } from "@/utils/async";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
 /**
- * 已选集但既没有脚本规划也没有正式脚本时的画布视图：呈现本集原文与分集元信息（边界、节拍、
- * 尾钩子），标题行放脚本的起步入口；AI 规划脚本在跑时显示任务进度，完成后集页转入内容确认。
- * 适用 narration/drama 全部生成路径；ad 恒单集无源文切片，由 StudioCanvasRouter 排除。
+ * 「脚本规划」tab 的起步态：本集既没有脚本规划也没有正式脚本。自上而下是起步区（首次规划的唯一入口）
+ * 与本集原文；本集导览在视图宽 860px 以上放右侧栏并随滚动固定，更窄时回到原文上方、可折叠。
+ * 适用 narration、drama 与参考生视频；广告项目恒单集、没有源文切片，由集页排除。
  *
- * 本集原文按来源区分：切自整本源文的集只读（集文件由分集规划派生）；自带原文的集可改写；
- * 无原文的集直接给出填写框，保存后转为自带原文的集。剧情演绎项目填写或改写时一并选源文件类型；
- * 改类型会让本集已有的脚本规划过期时，先请创作者确认再保存。
+ * 本集原文按来源区分：切自整本源文的集只读（集文件由分集规划派生，去「分集」视图修改）；自带原文的集
+ * 与无原文的集就地编辑，原文是一个编辑单元。剧情演绎项目一并选源文件类型，改类型会让本集已有的
+ * 脚本规划过期时，保存前先确认。
  */
 
 type SourceOrigin = NonNullable<EpisodeMeta["source_origin"]>;
@@ -32,264 +37,343 @@ function sourceOriginOf(meta: EpisodeMeta | undefined): SourceOrigin {
 }
 
 // ---------------------------------------------------------------------------
-// 状态行：脚本未生成 + 源文元信息 + 起步入口（集标题与删除在集页页头）
+// 本集导览：节拍是顺序，保留编号；尾钩子单独一块
 // ---------------------------------------------------------------------------
 
-function SourceStatusRow({ meta, actions }: { meta: EpisodeMeta | undefined; actions: React.ReactNode }) {
-  const { t } = useTranslation("dashboard");
-  const r = meta?.source_range;
-  // 跨文件的原文范围：起止偏移在不同文件里，不能直接相减，只显示起止文件
-  const crossesFiles = r?.end_file != null && r.end_file !== r.source_file;
-  const chars = !crossesFiles && r?.start != null && r?.end != null ? r.end - r.start : null;
-  const fileName = (path: string | undefined) => path?.replace(/^source\//, "");
-  const sourceName = crossesFiles ? `${fileName(r?.source_file)} – ${fileName(r?.end_file)}` : fileName(r?.source_file);
-  return (
-    <div className="flex items-start gap-3.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="shrink-0 rounded-full px-2.5 py-0.5 text-[10.5px]"
-            style={{
-              color: "var(--warn)",
-              background: "color-mix(in oklab, var(--warn) 10%, transparent)",
-              border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
-            }}
-          >
-            {t("episode_workspace_script_pending")}
-          </span>
-        </div>
-        <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-          {sourceName ? <span className="truncate">{sourceName}</span> : null}
-          {!crossesFiles && r?.start != null && r?.end != null ? (
-            <>
-              <span aria-hidden>·</span>
-              <span className="num shrink-0">
-                {r.start.toLocaleString()}–{r.end.toLocaleString()}
-              </span>
-            </>
-          ) : null}
-          {chars != null ? (
-            <>
-              <span aria-hidden>·</span>
-              <span className="num shrink-0">
-                {t("episode_workspace_chars_approx", { count: chars.toLocaleString() })}
-              </span>
-            </>
-          ) : null}
-        </div>
-      </div>
-      <div className="mt-0.5 flex shrink-0 items-center gap-2">{actions}</div>
-    </div>
-  );
+function hasGuide(meta: EpisodeMeta | undefined): boolean {
+  return (meta?.outline?.story_beats?.length ?? 0) > 0 || Boolean(meta?.hook);
 }
 
-// ---------------------------------------------------------------------------
-// AI 规划脚本的任务进度：排队 / 生成中。上一次失败的原因由集页顶部的文本任务失败条呈现
-// ---------------------------------------------------------------------------
-
-function ScriptPlanProgress({ projectName, episode }: { projectName: string; episode: number }) {
+function GuideContent({ meta }: { meta: EpisodeMeta | undefined }) {
   const { t } = useTranslation("dashboard");
-  const { busy, latestTask } = useScriptPlanEntry(projectName, episode);
-  if (!busy) return null;
-  return (
-    <div
-      role="status"
-      className="mt-4 flex items-center gap-2.5 rounded-xl px-4 py-3 text-[12.5px]"
-      style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)", color: "var(--subtle-foreground)" }}
-    >
-      <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--primary)" }} aria-hidden />
-      <span>
-        {latestTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}
-        {" "}
-        <span style={{ color: "var(--muted-foreground)" }}>{t("script_plan_progress_hint")}</span>
-      </span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 可折叠导览区：节拍横排卡 + 尾钩子条
-// ---------------------------------------------------------------------------
-
-function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
-  const { t } = useTranslation("dashboard");
-  const [collapsed, setCollapsed] = useState(false);
   const beats = meta?.outline?.story_beats ?? [];
   const hook = meta?.hook;
-  if (beats.length === 0 && !hook) return null;
-
-  const summary = [
-    beats.length > 0 ? t("episode_workspace_guide_beats", { count: beats.length }) : null,
-    hook ? t("episode_workspace_guide_hook") : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  // 开关做成容器卡的 header 行：折叠时整卡收成一行，展开时内容都在同一个框内，
-  // 「开关控制的是这个框」的对应关系可见
   return (
-    <section
-      className="mt-4 overflow-hidden rounded-xl"
-      style={{ background: "oklch(0.21 0.012 265 / 0.35)", border: "1px solid var(--border)" }}
-    >
-      <button
-        type="button"
-        onClick={() => setCollapsed((v) => !v)}
-        aria-expanded={!collapsed}
-        className="focus-ring flex w-full items-center gap-2 px-4 py-2.5 text-left text-[11.5px] font-semibold tracking-wide transition-colors hover:bg-[oklch(1_0_0_/_0.03)]"
-        style={{
-          color: "var(--muted-foreground)",
-          borderBottom: collapsed ? "none" : "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-        }}
-      >
-        <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
-          aria-hidden
-        />
-        {t("episode_workspace_guide_title")}
-        <span className="font-normal" style={{ color: "var(--muted-foreground)" }}>
-          {summary}
-        </span>
-        <span className="ml-auto shrink-0 font-normal" style={{ color: "var(--muted-foreground)" }}>
-          {collapsed ? t("episode_workspace_guide_expand") : t("episode_workspace_guide_collapse")}
-        </span>
-      </button>
-
-      {!collapsed && (
-        <div className="space-y-2.5 px-4 pb-4 pt-3">
-          {beats.length > 0 ? (
-            <div
-              className="grid gap-2.5"
-              style={{ gridTemplateColumns: `repeat(${Math.min(beats.length, 4)}, 1fr)` }}
-            >
-              {beats.map((b, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg px-3.5 py-3"
-                  style={{ background: "oklch(0.24 0.012 265 / 0.55)", border: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-                >
-                  <span className="num text-[15px] font-bold" style={{ color: "var(--primary)" }}>
-                    {i + 1}
-                  </span>
-                  <p className="mt-1 text-[12px] leading-[1.6]" style={{ color: "var(--subtle-foreground)" }}>
-                    {b}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {hook ? (
-            <div
-              className="flex items-start gap-2.5 rounded-lg px-3.5 py-3"
-              style={{ background: "color-mix(in oklab, var(--primary) 12%, transparent)", border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)" }}
-            >
-              <Anchor className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "var(--primary)" }} aria-hidden />
-              <p className="text-[12.5px] leading-[1.7]" style={{ color: "var(--subtle-foreground)" }}>
-                <span className="mr-2 font-semibold" style={{ color: "var(--primary)" }}>
-                  {t("episode_workspace_guide_hook")}
-                </span>
-                {hook}
-              </p>
-            </div>
-          ) : null}
+    <div className="flex flex-col gap-3">
+      {beats.length > 0 && (
+        <ol className="flex flex-col gap-2.5">
+          {beats.map((beat, index) => (
+            <li key={index} className="flex gap-2.5 text-sm leading-relaxed">
+              <span aria-hidden className="w-4 shrink-0 text-right font-semibold text-primary tabular-nums">
+                {index + 1}
+              </span>
+              <span className="min-w-0 text-subtle-foreground">{beat}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {hook && (
+        <div className="flex items-start gap-2.5 rounded-lg bg-primary/10 px-3 py-2.5 text-sm leading-relaxed">
+          <Anchor aria-hidden className="mt-1 size-3.5 shrink-0 text-primary" />
+          <p className="min-w-0 text-subtle-foreground">
+            <span className="mr-1.5 font-semibold text-primary">{t("episode_workspace_guide_hook")}</span>
+            {hook}
+          </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function guideSummary(meta: EpisodeMeta | undefined, t: (key: string, options?: Record<string, unknown>) => string) {
+  const beats = meta?.outline?.story_beats?.length ?? 0;
+  return [
+    beats > 0 ? t("episode_workspace_guide_beats", { count: beats }) : null,
+    meta?.hook ? t("episode_workspace_guide_hook") : null,
+  ].filter((part): part is string => part !== null);
+}
+
+/** 窄视图：导览放在原文上方，默认展开，可以收起。 */
+function GuideCollapsible({ meta, className }: { meta: EpisodeMeta | undefined; className?: string }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <div className={cn("rounded-xl border border-border p-1", className)}>
+      <Collapsible defaultOpen>
+        <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="w-full justify-start" />}>
+          <ChevronRight aria-hidden data-icon="inline-start" className="group-aria-expanded/button:rotate-90" />
+          <span className="font-medium text-foreground">{t("episode_workspace_guide_title")}</span>
+          {guideSummary(meta, t).map((part) => (
+            <span key={part} className="font-normal text-muted-foreground">
+              {part}
+            </span>
+          ))}
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="px-2.5 pt-2 pb-2">
+            <GuideContent meta={meta} />
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
+
+/** 宽视图：导览在右侧栏，随滚动固定在视野里。 */
+function GuideRail({ meta, className }: { meta: EpisodeMeta | undefined; className?: string }) {
+  const { t } = useTranslation("dashboard");
+  const titleId = useId();
+  return (
+    <aside aria-labelledby={titleId} className={className}>
+      <div className="flex flex-col gap-3">
+        <h2 id={titleId} className="text-sm font-medium text-muted-foreground">
+          {t("episode_workspace_guide_title")}
+        </h2>
+        <GuideContent meta={meta} />
+      </div>
+    </aside>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 本集原文
+// ---------------------------------------------------------------------------
+
+/** 切片的来源说明：文件名、起止偏移与约略字数；跨文件的切片起止偏移不能相减，只写起止文件。 */
+function SourceRangeNote({ meta }: { meta: EpisodeMeta | undefined }) {
+  const { t } = useTranslation("dashboard");
+  const r = meta?.source_range;
+  if (!r) return null;
+  const crossesFiles = r.end_file != null && r.end_file !== r.source_file;
+  const fileName = (path: string | undefined) => path?.replace(/^source\//, "");
+  const parts = crossesFiles
+    ? [`${fileName(r.source_file)} – ${fileName(r.end_file)}`]
+    : [
+        fileName(r.source_file),
+        r.start != null && r.end != null ? `${r.start.toLocaleString()}–${r.end.toLocaleString()}` : null,
+        r.start != null && r.end != null
+          ? t("episode_workspace_chars_approx", { count: (r.end - r.start).toLocaleString() })
+          : null,
+      ];
+  return (
+    <p className="flex min-w-0 flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums">
+      {parts.filter(Boolean).map((part) => (
+        <span key={part}>
+          {part}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+const READING_CLS = "max-w-[40em] font-editorial text-base leading-loose whitespace-pre-wrap text-subtle-foreground";
+
+interface SourceValue {
+  text: string;
+  /** 源文件类型；null 时不提供类型选择（非剧情演绎项目）。 */
+  kind: SourceKind | null;
+}
+
+/** 自带原文与无原文的集：原文就地编辑，保存前按需确认改类型。保存后由调用方采用新内容并刷新项目。 */
+function SourceEditor({
+  projectName,
+  episode,
+  episodes,
+  saved,
+  onSaved,
+}: {
+  projectName: string;
+  episode: number;
+  episodes: EpisodeMeta[];
+  saved: SourceValue;
+  onSaved: (text: string) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  // 改类型的确认：受影响的集，以及等确认结果的保存
+  const [pending, setPending] = useState<number[] | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const resolveRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const settle = (confirmed: boolean) => {
+    resolveRef.current?.(confirmed);
+    resolveRef.current = null;
+  };
+  // 卸载时还在等确认：按取消结算，保存随之失败
+  useEffect(() => () => resolveRef.current?.(false), []);
+
+  const save = useCallback(
+    async (value: SourceValue) => {
+      if (value.text.trim() === "") throw new Error(t("episode_workspace_source_blank"));
+      const kind = value.kind ?? undefined;
+      const first = await API.updateEpisodeSource(projectName, episode, value.text, kind, false);
+      if (first.needs_confirmation) {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          resolveRef.current = resolve;
+          setPending(first.affected_episodes);
+        });
+        if (!confirmed) {
+          setPending(null);
+          throw new Error(t("episode_workspace_source_kind_declined"));
+        }
+        setConfirming(true);
+        try {
+          await API.updateEpisodeSource(projectName, episode, value.text, kind, true);
+        } finally {
+          setConfirming(false);
+          setPending(null);
+        }
+      }
+      onSaved(value.text);
+      void useProjectsStore.getState().refreshProject(projectName);
+      return value;
+    },
+    [projectName, episode, onSaved, t],
+  );
+  // 只放行仍停留在脚本规划视图的跳转；去分集、别的集或别的视图照常询问
+  const allowNavigation = useStaysInEpisodeView();
+  const unit = useEditUnit({ source: saved, save, allowNavigation });
+
+  useEpisodeSurfaceRequest(projectName, episode, "episode_source", () => {
+    fieldRef.current?.focus();
+    fieldRef.current?.scrollIntoView({ block: "center" });
+  });
+
+  return (
+    <div className="flex flex-col gap-3">
+      {saved.text === "" && <p className="text-sm text-muted-foreground">{t("episode_workspace_source_empty_hint")}</p>}
+      {unit.value.kind !== null && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          {t("source_kind")}
+          <SourceKindSelect
+            value={unit.value.kind}
+            onChange={(kind) => unit.setValue((prev) => ({ ...prev, kind }))}
+            disabled={unit.status === "saving"}
+            label={t("source_kind")}
+          />
+        </label>
+      )}
+      {/* 正文用编辑体，与只读的原文同一字族；框随内容撑高，由起步态整体滚动 */}
+      <div className="max-w-[calc(40em+1.25rem)] font-editorial">
+        <Textarea
+          ref={fieldRef}
+          variant="plain"
+          value={unit.value.text}
+          onChange={(event) => unit.setValue((prev) => ({ ...prev, text: event.target.value }))}
+          placeholder={t("episode_workspace_source_placeholder")}
+          aria-label={t("episode_workspace_source_title")}
+          className="-mx-2.5 min-h-40 max-h-none"
+        />
+      </div>
+      <UnsavedChangesBar unit={unit} className="max-w-[40em]" />
+      <ImpactConfirmDialog
+        request={
+          pending && {
+            title: t("source_kind_change_episode_title"),
+            body: (
+              <div className="flex flex-col gap-2">
+                <p>{t("source_kind_change_episode_desc")}</p>
+                <ul className="list-disc pl-5">
+                  {pending.map((affected) => (
+                    <li key={affected}>
+                      {t("source_kind_change_episode", {
+                        position: episodePosition(episodes, affected) ?? "?",
+                        name: episodeDisplayName(episodes, affected, t),
+                      })}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ),
+            confirmLabel: t("source_kind_change_episode_confirm"),
+            destructive: false,
+          }
+        }
+        busy={confirming}
+        onConfirm={() => settle(true)}
+        onCancel={() => settle(false)}
+      />
+    </div>
+  );
+}
+
+function EpisodeSource({
+  projectName,
+  episode,
+  episodes,
+  meta,
+}: {
+  projectName: string;
+  episode: number;
+  episodes: EpisodeMeta[];
+  meta: EpisodeMeta | undefined;
+}) {
+  const { t } = useTranslation("dashboard");
+  const titleId = useId();
+  const isDrama = useProjectsStore((s) => s.currentProjectData?.content_mode === "drama");
+  const origin = sourceOriginOf(meta);
+  const editable = origin !== "whole_source";
+  // 无原文的集没有集原文文件：盘上同名的 episode_N.txt 是未登记文件，不当作本集原文读取
+  const withoutSource = meta !== undefined && origin === "none";
+  const fetchKey = `${projectName}::${episode}`;
+  // 取到的原文带上归属 key，加载中由 key 是否匹配派生；无原文的集只显示本页刚保存的内容
+  const [fetched, setFetched] = useState<{ key: string; text: string | null } | null>(null);
+
+  useEffect(() => {
+    if (withoutSource) return;
+    const controller = new AbortController();
+    void API.getSourceContent(projectName, `episode_${episode}.txt`, { signal: controller.signal })
+      .catch(() => null)
+      .then((text) => {
+        if (!controller.signal.aborted) setFetched({ key: `${projectName}::${episode}`, text });
+      });
+    return () => controller.abort();
+  }, [projectName, episode, withoutSource]);
+
+  const loading = !withoutSource && fetched?.key !== fetchKey;
+  const text = fetched?.key === fetchKey ? fetched.text : null;
+  const savedKind = isDrama ? (meta?.source_kind ?? "novel") : null;
+  const saved = useMemo<SourceValue>(() => ({ text: text ?? "", kind: savedKind }), [text, savedKind]);
+  const handleSaved = useCallback((value: string) => setFetched({ key: fetchKey, text: value }), [fetchKey]);
+
+  let body;
+  if (loading) {
+    body = (
+      <p role="status" className="text-sm text-muted-foreground">
+        {t("episode_workspace_source_loading")}
+      </p>
+    );
+  } else if (editable) {
+    body = (
+      <SourceEditor
+        key={fetchKey}
+        projectName={projectName}
+        episode={episode}
+        episodes={episodes}
+        saved={saved}
+        onSaved={handleSaved}
+      />
+    );
+  } else if (text) {
+    body = <p className={READING_CLS}>{text}</p>;
+  } else {
+    body = <p className="text-sm text-muted-foreground">{t("episode_workspace_source_missing")}</p>;
+  }
+
+  return (
+    <section aria-labelledby={titleId} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h2 id={titleId} className="text-base font-semibold text-foreground">
+          {t("episode_workspace_source_title")}
+        </h2>
+        <SourceRangeNote meta={meta} />
+        {!editable && (
+          <p className="text-sm text-muted-foreground">
+            {t("episode_workspace_source_readonly_hint")}{" "}
+            <Link
+              href={episodesViewPath({ episode })}
+              className="focus-ring rounded-sm text-primary underline underline-offset-2"
+            >
+              {t("episode_workspace_source_go_episodes")}
+            </Link>
+          </p>
+        )}
+      </div>
+      {body}
     </section>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 集原文填写框：无原文的集填写或粘贴，自带原文的集改写
-// ---------------------------------------------------------------------------
-
-function SourceEditor({
-  initialText,
-  initialKind,
-  saving,
-  focusToken,
-  onSave,
-  onCancel,
-}: {
-  initialText: string;
-  /** 源文件类型的初始值；null 时不提供类型选择（非剧情演绎项目）。 */
-  initialKind: SourceKind | null;
-  saving: boolean;
-  /** 每次变化都把焦点移到填写框（制作进度面板的「补充集原文」）。 */
-  focusToken: number;
-  onSave: (text: string, sourceKind: SourceKind | undefined) => void;
-  onCancel: (() => void) | null;
-}) {
-  const { t } = useTranslation(["dashboard", "common"]);
-  const [draft, setDraft] = useState(initialText);
-  const [kind, setKind] = useState<SourceKind | null>(initialKind);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const blank = draft.trim() === "";
-
-  useEffect(() => {
-    if (focusToken === 0) return;
-    textareaRef.current?.focus();
-    textareaRef.current?.scrollIntoView({ block: "center" });
-  }, [focusToken]);
-  return (
-    <div className="mx-auto flex h-full max-w-[66ch] flex-col gap-3">
-      {onCancel ? null : (
-        <p className="text-[13px] leading-[1.7]" style={{ color: "var(--muted-foreground)" }}>
-          {t("episode_workspace_source_empty_hint")}
-        </p>
-      )}
-      <textarea
-        ref={textareaRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder={t("episode_workspace_source_placeholder")}
-        aria-label={t("episode_workspace_source_placeholder")}
-        disabled={saving}
-        className="focus-ring min-h-[280px] flex-1 resize-none rounded-lg px-4 py-3 text-[14px] leading-[1.9]"
-        style={{
-          color: "var(--subtle-foreground)",
-          background: "oklch(0.18 0.010 265 / 0.6)",
-          border: "1px solid var(--border)",
-        }}
-      />
-      <div className="flex items-center justify-end gap-2">
-        {kind !== null ? (
-          <label className="mr-auto flex items-center gap-2 text-[12px]" style={{ color: "var(--muted-foreground)" }}>
-            {t("dashboard:source_kind")}
-            <SourceKindSelect
-              value={kind}
-              onChange={setKind}
-              disabled={saving}
-              label={t("dashboard:source_kind")}
-            />
-          </label>
-        ) : null}
-        {onCancel ? (
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={saving}
-            className="focus-ring rounded-lg px-3.5 py-1.5 text-[12.5px]"
-            style={{ color: "var(--muted-foreground)", border: "1px solid var(--border)" }}
-          >
-            {t("common:cancel")}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => onSave(draft, kind ?? undefined)}
-          disabled={saving || blank}
-          className="arc-btn-primary focus-ring rounded-lg px-4 py-1.5 text-[12.5px] font-semibold disabled:opacity-50"
-        >
-          {saving ? t("common:saving") : t("episode_workspace_source_save")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 入口：顶栏导览（可折叠） + 全宽居中阅读列
+// 入口
 // ---------------------------------------------------------------------------
 
 export function EpisodeSourceReview({
@@ -301,179 +385,33 @@ export function EpisodeSourceReview({
   episode: number;
   episodes: EpisodeMeta[];
 }) {
-  const { t } = useTranslation("dashboard");
-  // 取到的切片带上归属 key，loading 由 key 是否匹配派生（避免 effect 内同步 setState）
-  const [fetched, setFetched] = useState<{ key: string; text: string | null } | null>(null);
-
   const meta = episodes.find((e) => e.episode === episode);
-  const isDrama = useProjectsStore((s) => s.currentProjectData?.content_mode === "drama");
-
-  const origin = sourceOriginOf(meta);
-  // 无原文的集没有集原文文件：盘上同名的 episode_N.txt 是未登记文件，不当作本集原文读取
-  const withoutSource = meta !== undefined && origin === "none";
-  const fetchKey = `${projectName}::${episode}`;
-  useEffect(() => {
-    if (withoutSource) return;
-    let disposed = false;
-    void API.getSourceContent(projectName, `episode_${episode}.txt`)
-      .catch(() => null)
-      .then((text) => {
-        if (disposed) return;
-        setFetched({ key: `${projectName}::${episode}`, text });
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [projectName, episode, withoutSource]);
-
-  const loading = !withoutSource && fetched?.key !== fetchKey;
-  // 无原文的集只显示本页刚保存的内容（保存后账本刷新前，来源仍是 none）
-  const text = !loading && fetched?.key === fetchKey ? fetched.text : null;
-  // 编辑态同样带归属 key，切集后自动退出
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const editable = origin !== "whole_source";
-  const editing = editable && (editingKey === fetchKey || (!loading && !text));
-  const [focusToken, setFocusToken] = useState(0);
-
-  useEpisodeSurfaceRequest(projectName, episode, "episode_source", () => {
-    if (!editable) return;
-    setEditingKey(fetchKey);
-    setFocusToken((value) => value + 1);
-  });
-
-  const [pendingSave, setPendingSave] = useState<{
-    draft: string;
-    sourceKind: SourceKind | undefined;
-    episodes: number[];
-  } | null>(null);
-
-  const handleSave = useCallback(
-    async (draft: string, sourceKind: SourceKind | undefined, confirm = false) => {
-      setSaving(true);
-      try {
-        const result = await API.updateEpisodeSource(projectName, episode, draft, sourceKind, confirm);
-        if (result.needs_confirmation) {
-          setPendingSave({ draft, sourceKind, episodes: result.affected_episodes });
-          return;
-        }
-        setPendingSave(null);
-        setFetched({ key: `${projectName}::${episode}`, text: draft });
-        setEditingKey(null);
-        useAppStore.getState().pushToast(t("episode_workspace_source_saved"), "success");
-        void useProjectsStore.getState().refreshProject(projectName);
-      } catch (err) {
-        useAppStore.getState().pushToast(t("episode_workspace_source_save_failed", { message: errMsg(err) }), "error");
-      } finally {
-        setSaving(false);
-      }
-    },
-    [projectName, episode, t],
-  );
-
+  const guide = hasGuide(meta);
   return (
-    <div className="flex h-full flex-col p-6">
-      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
-        <SourceStatusRow
-          meta={meta}
-          actions={
-            <>
-              <StartBlankScriptButton
-                projectName={projectName}
-                episode={episode}
-                discardsPlan={false}
-                className="focus-ring rounded-lg border border-border px-4 py-2 text-[12.5px] font-medium text-subtle-foreground transition-colors hover:text-foreground"
-              />
-              <ScriptPlanButton
-                projectName={projectName}
-                episode={episode}
-                replaces="none"
-                className="arc-btn-primary focus-ring rounded-lg px-4 py-2 text-[12.5px] font-semibold"
-              />
-            </>
-          }
-        />
-        <ScriptPlanProgress projectName={projectName} episode={episode} />
-        <GuideSection key={episode} meta={meta} />
-
-        <div className="mt-4 flex min-h-0 flex-1 flex-col">
-          <div
-            className="min-h-0 flex-1 overflow-y-auto rounded-2xl px-12 py-9"
-            style={{
-              background: "linear-gradient(180deg, oklch(0.215 0.011 265 / 0.75), oklch(0.195 0.010 265 / 0.75))",
-              border: "1px solid var(--border)",
-              boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
-            }}
-          >
-            {loading ? (
-              <p className="text-center text-[13px]" style={{ color: "var(--muted-foreground)" }}>
-                {t("episode_workspace_source_loading")}
-              </p>
-            ) : editing ? (
-              <SourceEditor
-                key={fetchKey}
-                initialText={text ?? ""}
-                initialKind={isDrama ? (meta?.source_kind ?? "novel") : null}
-                saving={saving}
-                focusToken={focusToken}
-                onSave={(draft, sourceKind) => void handleSave(draft, sourceKind)}
-                onCancel={text ? () => setEditingKey(null) : null}
-              />
-            ) : text ? (
-              <div className="mx-auto max-w-[66ch] pb-10">
-                {editable ? (
-                  <div className="mb-3 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setEditingKey(fetchKey)}
-                      className="focus-ring inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[12px]"
-                      style={{ color: "var(--muted-foreground)", border: "1px solid var(--border)" }}
-                    >
-                      <PencilLine className="h-3.5 w-3.5" aria-hidden />
-                      {t("episode_workspace_source_edit")}
-                    </button>
-                  </div>
-                ) : null}
-                <p
-                  className="whitespace-pre-wrap text-[14px] leading-[2]"
-                  style={{ color: "var(--subtle-foreground)", textAlign: "justify" }}
-                >
-                  {text}
-                </p>
-              </div>
-            ) : (
-              <p className="text-center text-[13px]" style={{ color: "var(--muted-foreground)" }}>
-                {t("episode_workspace_source_missing")}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-      <ConfirmDialog
-        open={pendingSave !== null}
-        title={t("source_kind_change_episode_title")}
-        description={
-          <>
-            <span className="block">{t("source_kind_change_episode_desc")}</span>
-            <ul className="mt-2 list-disc space-y-0.5 pl-5">
-              {(pendingSave?.episodes ?? []).map((affected) => (
-                <li key={affected}>
-                  {t("source_kind_change_episode", {
-                    position: episodePosition(episodes, affected) ?? "?",
-                    name: episodeDisplayName(episodes, affected, t),
-                  })}
-                </li>
-              ))}
-            </ul>
-          </>
+    <div className="@container/plan-start relative flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
+      <div
+        className={
+          guide
+            ? "mx-auto grid w-full max-w-280 gap-x-10 gap-y-6 px-6 pt-6 pb-16 @min-[860px]/plan-start:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]"
+            : "mx-auto grid w-full max-w-190 gap-y-6 px-6 pt-6 pb-16"
         }
-        confirmLabel={t("source_kind_change_episode_confirm")}
-        loading={saving}
-        onConfirm={() => {
-          if (pendingSave) void handleSave(pendingSave.draft, pendingSave.sourceKind, true);
-        }}
-        onCancel={() => setPendingSave(null)}
-      />
+      >
+        <div className="flex min-w-0 flex-col gap-6">
+          <ScriptPlanStart
+            projectName={projectName}
+            episode={episode}
+            savedInstructions={meta?.script_plan_instructions ?? ""}
+          />
+          {guide && <GuideCollapsible key={episode} meta={meta} className="@min-[860px]/plan-start:hidden" />}
+          <EpisodeSource projectName={projectName} episode={episode} episodes={episodes} meta={meta} />
+        </div>
+        {guide && (
+          <GuideRail
+            meta={meta}
+            className="hidden self-start @min-[860px]/plan-start:sticky @min-[860px]/plan-start:top-6 @min-[860px]/plan-start:block"
+          />
+        )}
+      </div>
     </div>
   );
 }

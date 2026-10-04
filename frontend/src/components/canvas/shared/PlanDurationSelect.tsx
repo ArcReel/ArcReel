@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 
 const INCOMPATIBLE_KEY: Record<DurationOutOfRangeReason, string> = {
@@ -45,32 +46,39 @@ export function PlanDurationSelect({
   const notice = endpointFixed ? t("duration_not_driven_notice") : undefined;
   if (!options?.length) {
     return (
-      <span className="text-[11px] text-muted-foreground" title={notice}>
+      <span className="text-xs text-muted-foreground">
         {t("reference_script_plan_duration_option", { seconds })}
         {notice && ` · ${notice}`}
       </span>
     );
   }
+  // 存量秒数可能已不在当前档位内：补一个当前值选项，否则下拉显示不出盘上的秒数。
+  const values = options.includes(seconds) ? options : [...options, seconds].sort((a, b) => a - b);
+  const items = values.map((value) => ({ value, label: t("reference_script_plan_duration_option", { seconds: value }) }));
   const select = (
-    <select
+    <Select
+      items={items}
       value={seconds}
-      onChange={(e) => onChange(Number(e.target.value))}
+      onValueChange={(next) => {
+        if (next !== null) onChange(next);
+      }}
       disabled={disabled}
-      aria-label={label}
-      className="rounded-sm border border-border bg-card/40 px-1 py-0.5 text-[11px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
     >
-      {/* 存量秒数可能已不在当前档位内：补一个当前值选项，否则 select 会静默跳到首档，
-          用户看到的秒数与盘上的对不上。 */}
-      {(options.includes(seconds) ? options : [...options, seconds].sort((a, b) => a - b)).map((d) => (
-        <option key={d} value={d}>
-          {t("reference_script_plan_duration_option", { seconds: d })}
-        </option>
-      ))}
-    </select>
+      <SelectTrigger size="sm" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent alignItemWithTrigger={false} align="start" className="w-auto">
+        {items.map((item) => (
+          <SelectItem key={item.value} value={item.value}>
+            {item.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
   if (!notice) return select;
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground" title={notice}>
+    <span className="inline-flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
       {select}
       {notice}
     </span>

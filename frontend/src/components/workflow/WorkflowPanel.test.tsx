@@ -3,6 +3,7 @@ import { act, render, screen, fireEvent, waitFor, within } from "@testing-librar
 import { API } from "@/api";
 import { useAdScriptStore } from "@/stores/ad-script-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
 import { useTasksStore } from "@/stores/tasks-store";
@@ -85,6 +86,7 @@ beforeEach(() => {
   useWorkflowStore.getState().resetTarget();
   useAssistantStore.getState().setInput("");
   useProjectsStore.setState({ currentProjectData: null });
+  useEpisodeSurfaceStore.setState({ request: null });
 });
 
 afterEach(() => {
@@ -218,7 +220,7 @@ describe("WorkflowPanel 准入与置灰", () => {
       }),
     );
     const plan = screen.getByTestId("workflow-row-plan");
-    const entry = within(plan).getByRole("button", { name: "交给 Agent 规划脚本" });
+    const entry = within(plan).getByRole("button", { name: "去规划脚本" });
     expect(entry).toHaveAttribute("aria-disabled", "true");
     expect(entry).toHaveAttribute("title", "需要先补充集原文");
     // 下一步挂在正式脚本行，给的是从空白开始
@@ -530,29 +532,15 @@ describe("WorkflowPanel AI 规划脚本", () => {
       status: { artifacts: { script_plan: { state: "missing" } } },
     });
 
-  it("AI 规划脚本直接提交，附加指令预填本集保存的内容", async () => {
-    useTasksStore.getState().setTasks([]);
-    useProjectsStore.setState({
-      currentProjectData: {
-        episodes: [{ episode: 1, title: "第一集", script_file: "", script_plan_instructions: "多保留对白" }],
-      } as unknown as ProjectData,
-    });
-    const submit = vi
-      .spyOn(API, "planScript")
-      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.planScript>>);
-    await renderExpanded(plan());
-    expect(screen.getByRole("textbox")).toHaveValue("多保留对白");
-    fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "AI 规划脚本" }));
-    await waitFor(() => expect(submit).toHaveBeenCalledWith("proj", 1, { instructions: "多保留对白" }));
-  });
-
-  it("交给 Agent 先按集保存附加指令，再预填", async () => {
-    const save = vi.spyOn(API, "saveScriptPlanInstructions").mockResolvedValue({ success: true });
-    await renderExpanded(plan());
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "节奏紧凑" } });
-    fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "交给 Agent" }));
-    await waitFor(() => expect(useAssistantStore.getState().input).toContain("节奏紧凑"));
-    expect(save).toHaveBeenCalledWith("proj", 1, "节奏紧凑");
+  it("下一步是规划脚本时只给跳转：点名集页的脚本规划并收起弹层，不在这里提交", async () => {
+    const submit = vi.spyOn(API, "planScript");
+    const toggle = await renderExpanded(plan());
+    const next = screen.getByTestId("workflow-next-step");
+    expect(within(next).queryByRole("textbox")).not.toBeInTheDocument();
+    fireEvent.click(within(next).getByRole("button", { name: "去规划脚本" }));
+    expect(useEpisodeSurfaceStore.getState().request).toEqual({ projectName: "proj", episode: 1, surface: "script_plan" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it("从空白开始的集没有规划时，脚本规划行给出 AI 规划脚本，弹窗说明确认后才替换正式脚本", async () => {
@@ -588,7 +576,7 @@ describe("WorkflowPanel AI 规划脚本", () => {
     expect(entry).toHaveAttribute("title", "需要先补充集原文");
   });
 
-  it("没有正式脚本也没有规划、下一步另有其事时，脚本规划行交给 Agent 预填规划请求原文", async () => {
+  it("没有正式脚本也没有规划、下一步另有其事时，脚本规划行同样跳到集页的脚本规划", async () => {
     await renderExpanded(
       scenario({
         next: nextAction("generate_script"),
@@ -599,8 +587,9 @@ describe("WorkflowPanel AI 规划脚本", () => {
         },
       }),
     );
-    fireEvent.click(within(screen.getByTestId("workflow-row-plan")).getByRole("button", { name: "交给 Agent 规划脚本" }));
-    await waitFor(() => expect(useAssistantStore.getState().input).toMatch(/^请为.+规划脚本。$/));
+    fireEvent.click(within(screen.getByTestId("workflow-row-plan")).getByRole("button", { name: "去规划脚本" }));
+    expect(useEpisodeSurfaceStore.getState().request).toEqual({ projectName: "proj", episode: 1, surface: "script_plan" });
+    expect(useAssistantStore.getState().input).toBe("");
   });
 });
 

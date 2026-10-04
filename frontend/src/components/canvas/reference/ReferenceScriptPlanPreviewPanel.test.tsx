@@ -1,10 +1,12 @@
 import { itemIdsInEpisodeText } from "@/utils/episode-display";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useScriptPlanStore } from "@/stores/script-plan-store";
 import { ReferenceScriptPlanPreviewPanel } from "./ReferenceScriptPlanPreviewPanel";
 import { makeReferenceUnitCapability, makeScriptOverwrite, makeScriptOverwriteEntry } from "@/test/factories";
 import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
@@ -24,6 +26,22 @@ const VIDEO_CAPS = {
   supported_durations: [4, 8],
   max_duration: 8,
 } as VideoCapabilities;
+
+/** 展开单元时长下拉，读出可选秒数后收起。 */
+async function durationOptions(name = "U01 时长"): Promise<string[]> {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("combobox", { name }));
+  const values = (await screen.findAllByRole("option")).map((option) => option.textContent?.replace(/\D/g, "") ?? "");
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+  return values;
+}
+
+async function pickDuration(seconds: number, name = "U01 时长") {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("combobox", { name }));
+  await user.click(await screen.findByRole("option", { name: `${seconds} 秒` }));
+}
 
 // 等能力请求的回调落地后再断言「无提示」：只等到 spy 被调用时回调尚未执行，「无提示」恒成立。
 async function settleCapabilityRequests(spy: MockInstance<typeof API.getVideoCapabilities>) {
@@ -127,6 +145,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    useScriptPlanStore.setState(useScriptPlanStore.getInitialState(), true);
     // 确认后的全局副作用（toast + 预填）只在「用户仍在看这个项目」时才生效，测试渲染面板时
     // 用的 projectName="p"，需要同步告诉 store 当前正在看的就是它。
     useProjectsStore.setState({ currentProjectName: "p" });
@@ -197,8 +216,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(
       <ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} videoModelUnresolved={false} planningDurations={[4, 8]} />,
     );
-    const select = await screen.findByRole("combobox", { name: "U01 时长" });
-    expect([...select.querySelectorAll("option")].map((o) => o.value)).toEqual(["4", "8"]);
+    expect(await durationOptions()).toEqual(["4", "8"]);
     expect(screen.getByText(/时长由端点固定/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
   });
@@ -208,11 +226,10 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(
       <ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} videoModelUnresolved={false} planningDurations={[4, 8]} />,
     );
-    const select = await screen.findByRole("combobox", { name: "U01 时长" });
-    expect(screen.getByText("档位已失效")).toBeInTheDocument();
+    expect(await screen.findByText("档位已失效")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
 
-    fireEvent.change(select, { target: { value: "8" } });
+    await pickDuration(8);
     expect(screen.queryByText("档位已失效")).not.toBeInTheDocument();
   });
 
@@ -558,7 +575,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "U01 正文" }), {
       target: { value: "门开了\n@[阿离]：我来了。" },
     });
-    fireEvent.change(screen.getByRole("combobox", { name: "U01 时长" }), { target: { value: "4" } });
+    await pickDuration(4);
     fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
 
     await waitFor(() =>
@@ -602,23 +619,35 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
   });
 
-  it("shows an empty state when there is no script_plan content", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue({
-      episode: 1,
-      content_mode: "narration",
-      status: "no_script_plan",
-      fingerprint: null,
-      confirmed_at: null,
-      content: null,
-      quarantine: null,
-      supported_durations: null,
-      duration_tiers: null,
-      episode_target_duration: null,
-      script_overwrite: null,
-    });
+  const NO_PLAN: ScriptReviewState = {
+    episode: 1,
+    content_mode: "narration",
+    status: "no_script_plan",
+    fingerprint: null,
+    confirmed_at: null,
+    content: null,
+    quarantine: null,
+    supported_durations: null,
+    duration_tiers: null,
+    episode_target_duration: null,
+    script_overwrite: null,
+  };
+
+  it("shows the first-plan starter when the episode has neither a plan nor a formal script", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(NO_PLAN);
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "AI 规划脚本" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "这一集还没有脚本" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "附加指令（可选）" })).toBeInTheDocument();
+    expect(screen.queryByText("暂无脚本规划结果")).not.toBeInTheDocument();
+  });
+
+  it("offers a re-plan that replaces the formal script when only the formal script exists", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({ ...NO_PLAN, script_overwrite: makeScriptOverwrite() });
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    expect(await screen.findByText("暂无脚本规划结果")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "AI 规划脚本" }));
+    expect(useScriptPlanStore.getState().request).toEqual({ projectName: "p", episode: 1, replaces: "formal_script" });
+    expect(screen.queryByRole("heading", { name: "这一集还没有脚本" })).not.toBeInTheDocument();
   });
 
   it("edits the unit body in the non-quarantined state and persists the units draft", async () => {
@@ -668,8 +697,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
 
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    const select = await screen.findByRole("combobox", { name: "U01 时长" });
-    fireEvent.change(select, { target: { value: "4" } });
+    await pickDuration(4);
 
     fireEvent.click(await screen.findByText("保存"));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
@@ -694,11 +722,10 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     }));
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "U01 时长" });
-    expect(select.value).toBe("8");
-    // 越档兜底项插入 options 时按数值排序，不是简单地把当前值塞到最前面（那样 8/4/6 的
+    expect(await screen.findByRole("combobox", { name: "U01 时长" })).toHaveTextContent("8 秒");
+    // 越档兜底项插入选项时按数值排序，不是简单地把当前值塞到最前面（那样 8/4/6 的
     // 显示顺序会乱）。
-    expect([...select.options].map((o) => o.value)).toEqual(["4", "6", "8"]);
+    expect(await durationOptions()).toEqual(["4", "6", "8"]);
   });
 
   it("pins unit-less violations at the top and offers no hand fix when the draft structure is broken", async () => {
@@ -756,8 +783,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     // 服务端判定 @[阿离]/@[长街] 参考图齐全、落 r2v 并收窄到 8 秒：4/6 秒不再可选。
-    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "U01 时长" });
-    expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+    expect(await durationOptions()).toEqual(["8"]);
     expect(screen.queryByText(/引用的资产缺图/)).not.toBeInTheDocument();
   });
 
@@ -784,8 +810,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     );
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "U01 时长" });
-    expect([...select.options].map((o) => o.value)).toEqual(["4", "6", "8"]);
+    expect(await durationOptions()).toEqual(["4", "6", "8"]);
     // 与画布同源的结构化分裂提示：点名缺图引用并说明将按 i2v 执行而非声明的 r2v；不拦确认。
     const alert = screen.getByTestId("reference-split-alert");
     expect(alert).toHaveTextContent("引用的资产缺图：阿离");
@@ -834,8 +859,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     );
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "U01 时长" });
-    expect(select.value).toBe("8");
+    expect(await screen.findByRole("combobox", { name: "U01 时长" })).toHaveTextContent("8 秒");
     expect(screen.getByText("档位已失效")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });
@@ -868,26 +892,25 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       },
     });
     (saved.content as ReferenceScriptPlanDraft).units[0].text = "@[阿离] 推门而入。";
-    vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(saved);
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(saved);
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     // 初始无引用：服务端落 i2v，4/6/8 全可选。
-    let select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "U01 时长" });
-    expect([...select.options].map((o) => o.value).sort()).toEqual(["4", "6", "8"]);
+    expect(await durationOptions()).toEqual(["4", "6", "8"]);
 
     // 编辑正文新增 @[阿离]（尚未保存）：面板不自判「名字已登记」，档位保持服务端上一份结论。
     fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
     const textarea = await screen.findByDisplayValue("门开了");
     fireEvent.change(textarea, { target: { value: "@[阿离] 推门而入。" } });
-    select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "U01 时长" });
-    expect([...select.options].map((o) => o.value).sort()).toEqual(["4", "6", "8"]);
+    expect(await durationOptions()).toEqual(["4", "6", "8"]);
 
     // 保存后服务端按可用参考图重新定桶：r2v 收窄到仅 8 秒。
     fireEvent.click(await screen.findByText("保存"));
-    await waitFor(() => {
-      select = screen.getByRole<HTMLSelectElement>("combobox", { name: "U01 时长" });
-      expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await save.mock.results[0].value;
     });
+    expect(await durationOptions()).toEqual(["8"]);
   });
 
   it("lets a draft without violations be saved to adopt it, or handed to the assistant to promote", async () => {
