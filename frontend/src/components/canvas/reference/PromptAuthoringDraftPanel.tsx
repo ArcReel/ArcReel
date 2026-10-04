@@ -7,7 +7,6 @@ import { useDraftEditor } from "@/hooks/useDraftEditor";
 import { voidPromise } from "@/utils/async";
 import { groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
 import { Textarea } from "@/components/ui/textarea";
-import { CARD_STYLE } from "@/components/shared/darkroom-tokens";
 import {
   AgentDraftBar,
   DiscardDraftDialog,
@@ -170,10 +169,9 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
               if (el) itemRefs.current.set(i, el);
               else itemRefs.current.delete(i);
             }}
-            className={`scroll-mt-28 rounded-lg border p-3.5 ${violations.length > 0 ? "border-red-500/45" : "border-border"}`}
-            style={CARD_STYLE}
+            className={`scroll-mt-28 rounded-lg border bg-card p-3.5 ${violations.length > 0 ? "border-destructive/45" : "border-border"}`}
           >
-            <span className="mb-2 inline-block rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-[11px] text-subtle-foreground">
+            <span className="mb-2 inline-block rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-xs text-subtle-foreground">
               {itemIdWithinEpisode(unitIds[i])}
             </span>
             <Textarea
@@ -181,7 +179,6 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
               onChange={(e) => updateText(i, e.target.value)}
               disabled={busy}
               aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unitIds[i]) })}
-              className="text-muted-foreground"
             />
             <DraftViolationList violations={violations} />
             <DraftSoftViolationList softViolations={softByUnit.get(i) ?? []} />

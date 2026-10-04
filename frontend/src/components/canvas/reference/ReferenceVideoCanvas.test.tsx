@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
+import { Router, useLocation } from "wouter";
+import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -76,6 +80,17 @@ function mkAdmission(patch: Record<string, unknown> = {}) {
 // 单元预览面板的生成 CTA。锚定行首把批量入口「补齐视频」排除在外——两者都含
 // 「生成视频」，不锚定会按 DOM 顺序先匹配到批量按钮，测到的就不是这条提交路径。
 const UNIT_GENERATE_CTA = /^(Generate video|生成视频)/;
+
+/** 与应用根部一致：画布挂在离开拦截之下，未保存的修改由它拦截。 */
+function render(ui: ReactElement) {
+  return rtlRender(ui, { wrapper: LeaveGuardProvider });
+}
+
+/** 打开时长下拉，返回各选项的秒数。 */
+async function openDurationOptions(): Promise<number[]> {
+  await userEvent.click(await screen.findByRole("combobox", { name: /Duration|时长/ }));
+  return (await screen.findAllByRole("option")).map((option) => Number.parseInt(option.textContent ?? "", 10));
+}
 
 /** 集页路由给画布的视图：缺省停在视频单元视图。 */
 const BOARD = { view: "board", onViewChange: () => {} } as const;
@@ -194,7 +209,7 @@ describe("ReferenceVideoCanvas", () => {
     await screen.findByTestId("unit-row-E1U1");
 
     fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("alertdialog");
     expect(within(dialog).getByText(/U1/)).toBeInTheDocument();
     expect(deleteSpy).not.toHaveBeenCalled();
 
@@ -203,7 +218,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
     await waitFor(() => expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument());
     expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("does not remove a unit that became busy after the confirmation opened", async () => {
@@ -215,7 +230,7 @@ describe("ReferenceVideoCanvas", () => {
     act(() => {
       useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
     });
-    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ });
+    const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ });
     await waitFor(() => expect(confirm).toBeDisabled());
     fireEvent.click(confirm);
 
@@ -244,7 +259,7 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.change(textarea, { target: { value: "unsaved edit" } });
 
     fireEvent.click(screen.getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
     await waitFor(() => expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument());
 
     await waitFor(() => {
@@ -286,9 +301,8 @@ describe("ReferenceVideoCanvas", () => {
     expect(await screen.findByRole("combobox")).toBeInTheDocument();
   });
 
-  // 两个 tabpanel 同时刻只挂载一个，共用静态 id 会让未选中 tab 的 aria-controls
-  // 指向当前激活面板——而该面板的 aria-labelledby 归属对方 tab，读屏播报错位。
-  it("points each editor-view tab at its own panel", async () => {
+  // 解析预览只读、没有可聚焦的后代：面板自身须能接焦点，键盘用户才翻得到折线以下的内容
+  it("lets the keyboard reach the read-only parse preview", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1", "中景。")], unit_capabilities: {} });
     vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
@@ -297,22 +311,8 @@ describe("ReferenceVideoCanvas", () => {
     });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
 
-    const scriptTab = await screen.findByRole("tab", { name: /^(Script|文稿)$/ });
-    const parseTab = screen.getByRole("tab", { name: /Parse preview|解析预览/ });
-    const scriptControls = scriptTab.getAttribute("aria-controls");
-    const parseControls = parseTab.getAttribute("aria-controls");
-    expect(scriptControls).not.toBe(parseControls);
-
-    // 每个 tab 指向的面板，其 aria-labelledby 必须指回该 tab 自身
-    const scriptPanel = screen.getByRole("tabpanel");
-    expect(scriptPanel.id).toBe(scriptControls);
-    expect(scriptPanel).toHaveAttribute("aria-labelledby", scriptTab.id);
-
-    fireEvent.click(parseTab);
-    const parsePanel = await screen.findByRole("tabpanel");
-    expect(parsePanel.id).toBe(parseControls);
-    expect(parsePanel).toHaveAttribute("aria-labelledby", parseTab.id);
-    // 解析预览只读、无可聚焦后代：面板自身须能接焦点，否则键盘用户翻不到折线以下的内容
+    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+    const parsePanel = await screen.findByRole("tabpanel", { name: /Parse preview|解析预览/ });
     expect(parsePanel).toHaveAttribute("tabindex", "0");
   });
 
@@ -424,6 +424,121 @@ describe("ReferenceVideoCanvas", () => {
     );
   });
 
+  it("图标栏展开的完整列表里也能用键盘排序", async () => {
+    // jsdom 不做布局：按条目在列表里的位置给出纵向排开的矩形，键盘拖动才有落点可算。
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const item = this.closest("li");
+      const index = item ? Array.from(item.parentElement?.children ?? []).indexOf(item) : 0;
+      return DOMRect.fromRect({ x: 0, y: index * 60, width: 300, height: 60 });
+    });
+    const units = [mkUnit("E1U1"), mkUnit("E1U2"), mkUnit("E1U3")];
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units, unit_capabilities: {} });
+    const moveSpy = vi
+      .spyOn(API, "moveReferenceVideoUnit")
+      .mockResolvedValue({ units: [units[1], units[0], units[2]] });
+    render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Expand list|展开列表/ }));
+    const sheet = within(await screen.findByRole("dialog"));
+    sheet.getByRole("button", { name: /U2/, description: /空格|space/i }).focus();
+    await userEvent.keyboard(" ");
+    await waitFor(() => expect(screen.getByText(/已拿起「U2」|picked up/i)).toBeInTheDocument());
+    // 弹层会拦下方向键的冒泡；焦点在把手上时须放行给排序
+    await userEvent.keyboard("{ArrowUp}");
+    await waitFor(() => expect(screen.getByText(/「U2」移到第 1 项|moved to position 1/i)).toBeInTheDocument());
+    await userEvent.keyboard(" ");
+
+    await waitFor(() => expect(moveSpy).toHaveBeenCalledWith("proj", 1, "E1U2", null));
+  });
+
+  describe("正文编辑单元", () => {
+    /** 在离开拦截之下导航：`base` 模拟项目路由的嵌套前缀。 */
+    let navigate: (to: string) => void = () => {};
+    function Navigator() {
+      [, navigate] = useLocation();
+      return null;
+    }
+    function renderAt(path: string, base = "") {
+      window.history.replaceState(null, "", `${base}${path}`);
+      return rtlRender(
+        <LeaveGuardProvider>
+          <Router base={base}>
+            <Navigator />
+            <ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />
+          </Router>
+        </LeaveGuardProvider>,
+      );
+    }
+    afterEach(() => window.history.replaceState(null, "", "/"));
+
+    it("「保存并生成」先保存正文，再为该单元入队", async () => {
+      const unit = mkUnit("E1U1", "推门。");
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit], unit_capabilities: {} });
+      const patchSpy = vi
+        .spyOn(API, "patchReferenceVideoUnit")
+        .mockResolvedValue({ unit: { ...unit, text: "推门而入。" }, unit_capability: makeReferenceUnitCapability("E1U1") });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockResolvedValue({ task_id: "t1", deduped: false });
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+
+      fireEvent.change(await screen.findByRole("combobox"), { target: { value: "推门而入。" } });
+      fireEvent.click(screen.getByRole("button", { name: /^(Save and generate|保存并生成)$/ }));
+
+      await waitFor(() => expect(genSpy).toHaveBeenCalled());
+      expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { prompt: "推门而入。" });
+      expect(patchSpy.mock.invocationCallOrder[0]).toBeLessThan(genSpy.mock.invocationCallOrder[0]);
+    });
+
+    it("正文保存失败时不入队，错误留在提示条上", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "推门。")], unit_capabilities: {} });
+      vi.spyOn(API, "patchReferenceVideoUnit").mockRejectedValue(new Error("磁盘已满"));
+      const genSpy = vi.spyOn(API, "generateReferenceVideoUnit");
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+
+      fireEvent.change(await screen.findByRole("combobox"), { target: { value: "推门而入。" } });
+      fireEvent.click(screen.getByRole("button", { name: /^(Save and generate|保存并生成)$/ }));
+
+      expect(await screen.findByText(/磁盘已满/)).toBeInTheDocument();
+      expect(genSpy).not.toHaveBeenCalled();
+    });
+
+    it("有未保存的正文时切换单元先询问，放弃修改后才切换", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1", "hello from A"), mkUnit("E1U2", "hello from B")], unit_capabilities: {} });
+      const patchSpy = vi.spyOn(API, "patchReferenceVideoUnit");
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+      fireEvent.change(await screen.findByRole("combobox"), { target: { value: "edited A" } });
+
+      fireEvent.click(screen.getByTestId("unit-row-E1U2"));
+      const dialog = within(await screen.findByRole("alertdialog"));
+      expect(dialog.getByText(/「U1」有未保存的修改|“U1” has unsaved changes/)).toBeInTheDocument();
+      expect(dialog.getByRole("button", { name: /^(Save and switch|保存并切换)$/ })).toBeInTheDocument();
+      expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U1");
+
+      fireEvent.click(dialog.getByRole("button", { name: /^(Discard changes|放弃修改)$/ }));
+      await waitFor(() => expect((screen.getByRole("combobox") as HTMLTextAreaElement).value).toBe("hello from B"));
+      expect(patchSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["", "/episodes/1"],
+      ["/app/projects/proj", "/episodes/1"],
+    ])("同一集的画布视图之间切换不询问，去剪辑视图时询问（base=%s）", async (base, path) => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "推门。")], unit_capabilities: {} });
+      renderAt(`${path}?view=board`, base);
+      fireEvent.change(await screen.findByRole("combobox"), { target: { value: "推门而入。" } });
+
+      act(() => navigate(`${path}?view=plan`));
+      expect(window.location.pathname + window.location.search).toBe(`${base}${path}?view=plan`);
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+      act(() => navigate(`${path}?view=edit`));
+      expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+      expect(window.location.search).toBe("?view=plan");
+    });
+  });
+
   // 未登记的 `@[名称]` 只是提示：保存与生成入口都不受影响。
   it("keeps saving and generating available when the body mentions an unregistered name", async () => {
     const unit = mkUnit("E1U1", "推门。");
@@ -433,9 +548,7 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.change(ta, { target: { value: "@[查无此人] 推门而入。" } });
 
     expect(await screen.findByRole("button", { name: /^(Save|保存)$/ })).toBeEnabled();
-    for (const btn of screen.getAllByRole("button", { name: /Generate video|生成视频/ })) {
-      expect(btn).toBeEnabled();
-    }
+    expect(screen.getByRole("button", { name: /^(Save and generate|保存并生成)$/ })).toBeEnabled();
   });
 
   // 时长是 unit 级单一真相：下拉档位来自服务端逐单元结论，选中即单独 PATCH（不牵连正文草稿）
@@ -449,11 +562,8 @@ describe("ReferenceVideoCanvas", () => {
       unit_capability: makeReferenceUnitCapability("E1U1"),
     });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-    const select = (await screen.findByRole("combobox", {
-      name: /Duration|时长/,
-    })) as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
-    fireEvent.change(select, { target: { value: "8" } });
+    expect(await openDurationOptions()).toEqual([3, 8]);
+    await userEvent.click(screen.getByRole("option", { name: /^8/ }));
     await waitFor(() =>
       expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_seconds: 8 }),
     );
@@ -492,6 +602,7 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "12" } });
 
+    // 离开拦截在关闭标签页时请求浏览器原生提示
     await waitFor(() => {
       const event = new Event("beforeunload", { cancelable: true });
       window.dispatchEvent(event);
@@ -531,8 +642,8 @@ describe("ReferenceVideoCanvas", () => {
     });
     const fetchSpy = vi.spyOn(useCostStore.getState(), "debouncedFetch").mockImplementation(() => {});
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-    const select = await screen.findByRole("combobox", { name: /Duration|时长/ });
-    fireEvent.change(select, { target: { value: "8" } });
+    await openDurationOptions();
+    await userEvent.click(screen.getByRole("option", { name: /^8/ }));
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("proj"));
   });
 
@@ -543,11 +654,8 @@ describe("ReferenceVideoCanvas", () => {
       unit_capabilities: { E1U1: makeReferenceUnitCapability("E1U1", { allowed_durations: [4, 8] }) },
     });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-    const select = (await screen.findByRole("combobox", {
-      name: /Duration|时长/,
-    })) as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
-    expect(select.value).toBe("3");
+    expect(await screen.findByRole("combobox", { name: /Duration|时长/ })).toHaveTextContent(/^3/);
+    expect(await openDurationOptions()).toEqual([3, 4, 8]);
   });
 
   // 桶由服务端按此刻可用的参考图判定：正文提及了已登记的角色但角色还没有参考图，服务端落 i2v，
@@ -580,10 +688,7 @@ describe("ReferenceVideoCanvas", () => {
       },
     });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-    const select = (await screen.findByRole("combobox", {
-      name: /Duration|时长/,
-    })) as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
+    expect(await openDurationOptions()).toEqual([3, 4, 8]);
     // 分裂以结构化块点名：缺图的引用与桶的改变，不静默换桶。
     const alert = screen.getByTestId("reference-split-alert");
     expect(alert).toHaveTextContent("引用的资产缺图：王");
@@ -603,10 +708,7 @@ describe("ReferenceVideoCanvas", () => {
       },
     });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-    const select = (await screen.findByRole("combobox", {
-      name: /Duration|时长/,
-    })) as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
+    expect(await openDurationOptions()).toEqual([3, 8]);
     expect(screen.queryByTestId("reference-split-alert")).not.toBeInTheDocument();
   });
 
@@ -617,7 +719,7 @@ describe("ReferenceVideoCanvas", () => {
       unit_capabilities: { E1U1: makeReferenceUnitCapability("E1U1", { allowed_durations: null }) },
     });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-    expect((await screen.findAllByText("3s")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/^3 ?(s|秒)/)).length).toBeGreaterThan(0);
     expect(screen.queryByRole("combobox", { name: /Duration|时长/ })).not.toBeInTheDocument();
   });
 
@@ -655,7 +757,7 @@ describe("ReferenceVideoCanvas", () => {
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
     await screen.findByTestId("unit-row-E1U1");
     expect(screen.queryByRole("combobox", { name: /Duration|时长/ }) === null).toBe(fixed);
-    expect(Boolean(screen.queryByTitle(/workflow/i))).toBe(fixed);
+    expect(Boolean(screen.queryByText(/workflow/i))).toBe(fixed);
   });
 
   it("remounts the card so textarea shows the new unit's prompt when selection changes", async () => {
@@ -768,7 +870,7 @@ describe("ReferenceVideoCanvas", () => {
     // 入队成功（202 返回）后、任务轮询写回前：动作层打乐观标记，按钮立即
     // busy 并显示 "Generating…/生成中"；请求飞行中的双击由后端去重索引兜底
     resolveGen({ task_id: "t1", deduped: false });
-    await waitFor(() => expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^(Generating|生成中)/ })).toBeDisabled());
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toMatch(/Queued for generation|已加入生成队列/);
     });
@@ -941,7 +1043,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toMatch(/已提交 2 个视频生成任务|Queued 2 video/);
     });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("批量入口只提交目标单元，不提供也不携带旁白交付方式", async () => {
@@ -1235,7 +1337,7 @@ describe("ReferenceVideoCanvas", () => {
       await clickBatch();
 
       const confirm = await screen.findByRole("button", { name: BATCH_CONFIRM_CTA });
-      const dialog = within(screen.getByRole("dialog"));
+      const dialog = within(screen.getByRole("alertdialog"));
       // 档位分组：秒数 × 单元数 + 合计费用；报价不全的档位不展示假合计
       expect(dialog.getByText(/^(?:8 秒|8s)$/)).toBeInTheDocument();
       expect(dialog.getByText(/2 个单元|2 units/)).toBeInTheDocument();
@@ -1251,7 +1353,7 @@ describe("ReferenceVideoCanvas", () => {
         unit_ids: ["E1U1", "E1U2", "E1U3"],
         confirmed_request_durations: { E1U1: 8, E1U2: 8, E1U3: 4 },
       });
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     });
 
     // 弹窗停留时长由用户决定，可以很长：其间别处完成的单元若按冻结清单原样重发，队列
@@ -1366,7 +1468,7 @@ describe("ReferenceVideoCanvas", () => {
       render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
       await clickBatch();
 
-      const dialog = within(await screen.findByRole("dialog"));
+      const dialog = within(await screen.findByRole("alertdialog"));
       // 全部缺口都在，不塌成第一条
       expect(dialog.getByText("引用的角色图缺失")).toBeInTheDocument();
       expect(dialog.getByText("该单元需要重新规划")).toBeInTheDocument();
@@ -1382,7 +1484,7 @@ describe("ReferenceVideoCanvas", () => {
 
       // 受阻是终局：关闭不重发
       fireEvent.click(dialog.getByRole("button", { name: /Got it|知道了/ }));
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
       expect(batchSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -1412,7 +1514,7 @@ describe("ReferenceVideoCanvas", () => {
       render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
       await clickBatch();
 
-      const dialog = within(await screen.findByRole("dialog"));
+      const dialog = within(await screen.findByRole("alertdialog"));
       // 逐个 unit 与各自原因都在，不塌成一句计数
       expect(dialog.getByText("U2")).toBeInTheDocument();
       expect(dialog.getByText("U3")).toBeInTheDocument();
@@ -1435,7 +1537,7 @@ describe("ReferenceVideoCanvas", () => {
 
       // 陈述型结局：关闭不重发
       fireEvent.click(dialog.getByRole("button", { name: /Got it|知道了/ }));
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
       expect(batchSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -1468,7 +1570,7 @@ describe("ReferenceVideoCanvas", () => {
       render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
       await clickBatch();
 
-      const dialog = within(await screen.findByRole("dialog"));
+      const dialog = within(await screen.findByRole("alertdialog"));
       // 缺口明细照旧逐个列出
       expect(dialog.getByText("U1")).toBeInTheDocument();
       expect(dialog.getByText("U2")).toBeInTheDocument();
@@ -1490,7 +1592,7 @@ describe("ReferenceVideoCanvas", () => {
       await waitFor(() => {
         expect(useAppStore.getState().toast?.text).toMatch(/批量生成请求失败|Batch generation request failed/);
       });
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
   });
 
@@ -1527,7 +1629,6 @@ describe("ReferenceVideoCanvas", () => {
   });
 
   it("窄屏下带起始时间的单元链接把预览子页签切到前台", async () => {
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 600 } as DOMRect);
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);

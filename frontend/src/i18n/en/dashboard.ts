@@ -1449,7 +1449,7 @@ export default {
   'no_script_plan_content': 'No script plan results',
   'reference_tab_editor': 'Script',
   'reference_tab_preview': 'Video',
-  'reference_tab_aria': 'Reference unit panel tabs',
+  'reference_tab_aria': 'Switch between editor and preview',
 
   // ArcReel Workbench v3 — Reference-to-Video
   'no_episode_search_results': 'No matching episodes',
@@ -1487,8 +1487,10 @@ export default {
   'reference_batch_request_failed': 'Batch generation request failed: {{error}}',
   'reference_unit_search_placeholder': 'Search units / prompts…',
   'reference_unit_search_empty': 'No matching units',
-  'reference_unit_dirty_hint': 'Unsaved',
   'reference_unit_rail_expand': 'Expand list',
+  'reference_unit_reorder': 'Reorder “{{id}}”',
+  'reference_unit_leave_title': '“{{id}}” has unsaved changes',
+  'reference_notices_aria': 'Workbench notices',
   'reference_unit_prev': 'Previous unit',
   'reference_unit_next': 'Next unit',
   'reference_unit_remove': 'Remove unit',
@@ -1496,7 +1498,7 @@ export default {
   'reference_unit_remove_desc': 'This unit will be removed from the script. Its generated videos and other outputs are removed with it and will no longer be shown.',
   'reference_unit_remove_confirm': 'Remove unit',
   'reference_preview_label': 'Video preview',
-  'reference_preview_metadata': 'Metadata',
+  'reference_preview_metadata': 'Unit details',
   'reference_preview_in_flight': 'Generating video…',
   'reference_preview_in_flight_meta': '{{duration}}s',
   'reference_preview_failed_title': 'Generation failed',
@@ -1507,8 +1509,6 @@ export default {
   'reference_meta_status': 'Status',
   'reference_meta_cost': 'Cost',
   'reference_meta_cost_spent': 'spent',
-  'reference_unsaved': 'Unsaved changes',
-  'reference_synced': 'Synced',
 
   // Source file normalization toasts
 

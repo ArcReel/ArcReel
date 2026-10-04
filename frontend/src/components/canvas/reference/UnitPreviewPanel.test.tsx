@@ -56,7 +56,7 @@ function mkUnit(
 describe("UnitPreviewPanel", () => {
   it("shows placeholder when no unit is selected", () => {
     render(<UnitPreviewPanel unit={null} />);
-    expect(screen.getByText(/Select a unit|选中左侧 Unit/)).toBeInTheDocument();
+    expect(screen.getByText(/Select a unit|选中左侧的视频单元/)).toBeInTheDocument();
   });
 
   it("shows empty-video placeholder when unit has no video_clip", () => {

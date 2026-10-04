@@ -11,6 +11,8 @@ import { formatCost } from "@/utils/cost-format";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { previewAspect } from "@/utils/preview-aspect";
+import { Button } from "@/components/ui/button";
 
 export interface UnitPreviewPanelProps {
   unit: ReferenceVideoUnit | null;
@@ -56,6 +58,10 @@ export interface UnitPreviewPanelProps {
   checkBusy?: (unitId: string) => boolean;
   /** 版本恢复后的刷新回调（重新拉取 units） */
   onRestored?: () => void | Promise<void>;
+  /** 正文有未保存修改：生成按钮写「保存并生成」，`onGenerate` 负责先保存。 */
+  saveFirst?: boolean;
+  /** 正文保存请求在途：生成按钮置灰，避免按保存前的内容生成。 */
+  saving?: boolean;
 }
 
 function hasCost(b: CostBreakdown | undefined): boolean {
@@ -84,16 +90,19 @@ export function UnitPreviewPanel({
   onRestoringChange,
   checkBusy,
   onRestored,
+  saveFirst = false,
+  saving = false,
 }: UnitPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const clip = unit?.generated_assets?.video_clip ?? null;
   // 上传/还原后路径不变，靠 fingerprint cache-bust 让 <video> 重新拉取
   const clipFp = useProjectsStore((s) => (clip ? s.getAssetFingerprint(clip) : null));
   const playbackStart = usePlaybackStart("reference_videos", unit?.unit_id ?? "");
+  const aspect = useProjectsStore((s) => previewAspect(s.currentProjectData));
 
   if (!unit) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
         {t("reference_preview_empty")}
       </div>
     );
@@ -113,20 +122,22 @@ export function UnitPreviewPanel({
     busy ||
     effectiveStatus === "running" ||
     (effectiveStatus === "ready" && !videoUrl);
+  const generateDisabled = inFlight || busy || restoring || generationBlocked || saving;
 
-  const ctaLabel = ready
-    ? t("reference_preview_regenerate")
-    : failed
-      ? t("reference_preview_retry")
-      : t("reference_preview_generate");
+  const ctaLabel = saveFirst
+    ? t("common:save_and_generate")
+    : ready
+      ? t("reference_preview_regenerate")
+      : failed
+        ? t("reference_preview_retry")
+        : t("reference_preview_generate");
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-3.5 py-3.5">
+    // 预览栏是宽度容器：竖屏画框的高度按栏宽换算（100cqw）。
+    <div className="@container/preview relative flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3.5">
       <div className="flex items-center gap-1.5">
-        <Film className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-        <span className="text-xs font-semibold text-subtle-foreground">
-          {t("reference_preview_label")}
-        </span>
+        <Film className="size-4 text-muted-foreground" aria-hidden="true" />
+        <h3 className="text-xs font-semibold text-subtle-foreground">{t("reference_preview_label")}</h3>
         <span className="flex-1" />
         {/* 上传是同一 unit 上的兄弟控件，与主 CTA 同步接线禁用：占用期间上传会与
             在跑的生成回写同一个成片文件 */}
@@ -153,14 +164,18 @@ export function UnitPreviewPanel({
             iconOnly
           />
         )}
-        <StatusBadge status={effectiveStatus} size="md" />
+        <StatusBadge status={effectiveStatus} />
       </div>
 
+      {/* 画框按项目画幅：竖屏 9:16、高度取 55dvh 与栏宽换算值中较小的一个；横屏 16:9、高度同样不超过 55dvh。
+          画框不随栏高收缩，栏放不下时整栏滚动。 */}
       <div
-        className={`relative aspect-video w-full overflow-hidden rounded-lg border border-border shadow-[0_16px_40px_-16px_oklch(0_0_0_/_0.7)] ${
-          ready
-            ? "bg-[linear-gradient(135deg,oklch(0.32_0.04_240),oklch(0.18_0.02_280))]"
-            : "bg-[oklch(0.18_0.010_265_/_0.5)]"
+        data-testid="reference-preview-frame"
+        data-aspect={aspect}
+        className={`relative mx-auto shrink-0 overflow-hidden rounded-lg border border-border bg-muted/40 ${
+          aspect === "9:16"
+            ? "aspect-9/16 h-[min(55dvh,calc(100cqw*16/9))]"
+            : "aspect-video w-full max-w-[calc(55dvh*16/9)]"
         }`}
       >
         {ready && videoUrl && projectName && (
@@ -173,7 +188,7 @@ export function UnitPreviewPanel({
               {...playbackStart}
             />
             <div
-              className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-sm border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[10px] text-white/85 backdrop-blur"
+              className="pointer-events-none absolute top-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-sm bg-background/80 px-2 py-0.5 font-mono text-xs text-subtle-foreground"
               translate="no"
             >
               {clip}
@@ -182,86 +197,71 @@ export function UnitPreviewPanel({
         )}
 
         {inFlight && !ready && (
-          <div className="absolute inset-0 grid place-items-center">
-            <div className="text-center">
-              <div className="mx-auto mb-2.5 h-9 w-9 animate-spin rounded-full border-2 border-primary/22 border-t-primary" />
-              <div className="text-[11.5px] text-subtle-foreground">
-                {t("reference_preview_in_flight")}
-              </div>
-              <div className="mt-1 text-[10.5px] text-muted-foreground">
+          <div className="absolute inset-0 grid place-items-center p-4 text-center">
+            <div>
+              <Loader2 className="mx-auto mb-2.5 size-8 animate-spin text-primary" aria-hidden="true" />
+              <p className="text-xs text-subtle-foreground">{t("reference_preview_in_flight")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
                 {t("reference_preview_in_flight_meta", { duration: unit.duration_seconds })}
-              </div>
+              </p>
             </div>
           </div>
         )}
 
         {failed && !inFlight && (
-          <div className="absolute inset-0 grid place-items-center p-5">
-            <div className="max-w-[280px] text-center">
-              <div className="mx-auto mb-2.5 grid h-9 w-9 place-items-center rounded-full border border-red-400/60 bg-red-500/15 text-red-300">
-                <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-              </div>
-              <div className="mb-1 text-xs font-semibold text-red-300">
-                {t("reference_preview_failed_title")}
-              </div>
-              <div className="text-[11px] leading-relaxed text-muted-foreground">
-                {errorMessage ?? t("reference_preview_failed_unknown")}
-              </div>
+          // 失败原因可能很长：画框里只留标题与前几行，全文放在画框下方。
+          <div className="absolute inset-0 grid place-items-center p-4 text-center">
+            <div>
+              <span className="mx-auto mb-2.5 grid size-9 place-items-center rounded-full bg-destructive/10 text-destructive">
+                <AlertTriangle className="size-4" aria-hidden="true" />
+              </span>
+              <p className="text-xs font-semibold text-destructive">{t("reference_preview_failed_title")}</p>
             </div>
           </div>
         )}
 
         {!ready && !inFlight && !failed && (
-          <div className="absolute inset-0 grid place-items-center">
-            <div className="text-center">
-              <Film
-                className="mx-auto mb-2 h-5 w-5 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <div className="text-[11.5px] text-muted-foreground">
-                {t("reference_preview_empty_unit")}
-              </div>
+          <div className="absolute inset-0 grid place-items-center text-center">
+            <div>
+              <Film className="mx-auto mb-2 size-5 text-muted-foreground" aria-hidden="true" />
+              <p className="text-xs text-muted-foreground">{t("reference_preview_empty_unit")}</p>
             </div>
           </div>
         )}
       </div>
 
+      {failed && !inFlight && (
+        <p className="text-xs leading-relaxed wrap-break-word text-muted-foreground">
+          {errorMessage ?? t("reference_preview_failed_unknown")}
+        </p>
+      )}
+
       {onGenerate && (
-        <button
-          type="button"
-          onClick={() => onGenerate(unit.unit_id)}
-          disabled={inFlight || busy || restoring || generationBlocked}
-          className={`focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors ${
-            inFlight || busy || restoring || generationBlocked
-              ? "cursor-not-allowed border border-border bg-[oklch(0.22_0.011_265_/_0.6)] text-muted-foreground"
-              : "text-[oklch(0.14_0_0)] bg-primary shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
-          }`}
-        >
+        <Button className="w-full shrink-0" onClick={() => onGenerate(unit.unit_id)} disabled={generateDisabled}>
           {inFlight ? (
             <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              <span>{t("reference_preview_generating")}</span>
+              <Loader2 className="animate-spin" aria-hidden="true" data-icon="inline-start" />
+              {t("reference_preview_generating")}
             </>
           ) : (
             <>
-              {failed ? (
-                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              {failed && !saveFirst ? (
+                <RotateCcw aria-hidden="true" data-icon="inline-start" />
               ) : (
-                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                <Sparkles aria-hidden="true" data-icon="inline-start" />
               )}
-              <span>{ctaLabel}</span>
+              {ctaLabel}
               {hasCost(estimatedCost) && (
-                <span className="ml-1 font-mono text-[11px] tabular-nums opacity-70">
-                  ≈ {formatCost(estimatedCost)}
-                </span>
+                <span className="font-mono tabular-nums">≈ {formatCost(estimatedCost)}</span>
               )}
             </>
           )}
-        </button>
+        </Button>
       )}
 
+      {/* 单元头部已用 alert 播报这一状态；这里只在生成按钮旁说明它为何不可用 */}
       {generationBlocked && (
-        <p role="alert" className="text-xs text-amber-300">
+        <p className="text-xs text-warn">
           {t("reference_needs_replan")}
         </p>
       )}
@@ -280,36 +280,32 @@ export function UnitPreviewPanel({
         />
       )}
 
-      <div className="rounded-lg border border-border/50 bg-[oklch(0.18_0.010_265_/_0.5)] p-3">
-        <div className="mb-2 font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          {t("reference_preview_metadata")}
-        </div>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 text-[11.5px]">
+      <section className="rounded-lg border border-border bg-card p-3">
+        <h3 className="mb-2 text-xs font-medium text-muted-foreground">{t("reference_preview_metadata")}</h3>
+        <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3.5 gap-y-1.5 text-xs">
           <dt className="text-muted-foreground">{t("reference_meta_unit")}</dt>
           <dd className="font-mono text-subtle-foreground" translate="no">
             {itemIdWithinEpisode(unit.unit_id)}
           </dd>
           <dt className="text-muted-foreground">{t("reference_meta_duration")}</dt>
           <dd className="font-mono tabular-nums text-subtle-foreground">
-            {unit.duration_seconds}s
+            {t("reference_editor_unit_meta", { duration: unit.duration_seconds })}
           </dd>
           <dt className="text-muted-foreground">{t("reference_meta_status")}</dt>
           <dd>
-            <StatusBadge status={effectiveStatus} size="md" />
+            <StatusBadge status={effectiveStatus} />
           </dd>
           {hasCost(actualCost) && (
             <>
               <dt className="text-muted-foreground">{t("reference_meta_cost")}</dt>
-              <dd className="font-mono tabular-nums text-emerald-300">
+              <dd className="font-mono tabular-nums text-good">
                 {formatCost(actualCost)}
-                <span className="ml-1 text-muted-foreground">
-                  {t("reference_meta_cost_spent")}
-                </span>
+                <span className="ml-1 text-muted-foreground">{t("reference_meta_cost_spent")}</span>
               </dd>
             </>
           )}
         </dl>
-      </div>
+      </section>
     </div>
   );
 }

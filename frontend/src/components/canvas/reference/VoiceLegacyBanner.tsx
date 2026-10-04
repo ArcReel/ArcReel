@@ -14,6 +14,7 @@
  * 计数的每个角色分别写回。
  */
 import { History, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { Character, CharacterVoiceBinding } from "@/types/project";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types/project";
 import { dialogueSpeakers, normalizeAssetName } from "@/utils/reference-mentions";
@@ -107,20 +108,12 @@ export function VoiceLegacyBanner({
   message: string;
 }) {
   return (
-    <div
-      className="flex shrink-0 items-start gap-2.5 border-b px-5 py-2.5"
-      style={{ borderColor: "color-mix(in oklab, var(--warn) 30%, transparent)", background: "color-mix(in oklab, var(--warn) 10%, transparent)" }}
-    >
-      <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--warn)" }} aria-hidden="true" />
-      <p className="m-0 flex-1 text-[12px] leading-[1.55] text-subtle-foreground">{message}</p>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label={dismissLabel}
-        className="focus-ring grid h-5 w-5 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-[oklch(1_0_0_/_0.06)]"
-      >
-        <X className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+    <div className="flex items-start gap-2.5 border-b border-warn/30 bg-warn/10 px-5 py-2">
+      <History className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden="true" />
+      <p className="flex-1 text-xs leading-relaxed text-subtle-foreground">{message}</p>
+      <Button variant="ghost" size="icon-xs" onClick={onDismiss} aria-label={dismissLabel}>
+        <X aria-hidden="true" />
+      </Button>
     </div>
   );
 }

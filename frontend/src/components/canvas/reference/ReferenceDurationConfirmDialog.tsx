@@ -1,5 +1,15 @@
 import { useTranslation } from "react-i18next";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { ReferenceDurationPrecheck } from "@/types";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { advisoryProblems } from "./advisory-problems";
@@ -31,21 +41,13 @@ function DurationRow({
   const seconds = (value: number) => t("reference_duration_seconds", { value });
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-      {label && (
-        <span className="font-mono text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
-          {label}
-        </span>
-      )}
-      <span className="tabular-nums" style={{ color: "var(--subtle-foreground)" }}>
-        {seconds(item.precheck.script_duration)}
-      </span>
-      <span aria-hidden style={{ color: "var(--muted-foreground)" }}>
+      {label && <span className="font-mono text-xs text-muted-foreground">{label}</span>}
+      <span className="tabular-nums text-subtle-foreground">{seconds(item.precheck.script_duration)}</span>
+      <span aria-hidden className="text-muted-foreground">
         →
       </span>
-      <span className="tabular-nums font-medium" style={{ color: "var(--foreground)" }}>
-        {seconds(item.precheck.request_duration)}
-      </span>
-      <span style={{ color: "var(--muted-foreground)" }}>{diffText}</span>
+      <span className="font-medium tabular-nums text-foreground">{seconds(item.precheck.request_duration)}</span>
+      <span className="text-muted-foreground">{diffText}</span>
     </li>
   );
 }
@@ -101,7 +103,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
   ) : durationItems.length > 0 ? (
     <div className="space-y-2">
       <p>{t("reference_duration_batch_summary", { count: durationItems.length })}</p>
-      <ul className="max-h-48 space-y-1 overflow-y-auto">
+      <ul className="space-y-1">
         {durationItems.map((item) => (
           <DurationRow
             key={item.unitId}
@@ -119,7 +121,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
     advisoryItems.length > 0 ? (
       <div className="space-y-2">
         <p>{t("reference_advisory_heading")}</p>
-        <ul className="max-h-32 space-y-1 overflow-y-auto">
+        <ul className="space-y-1">
           {advisoryItems.flatMap(({ unitId, problems }) =>
             problems.map((problem, index) => (
               <li
@@ -127,14 +129,9 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
                 className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
               >
                 {items.length > 1 && (
-                  <span
-                    className="font-mono text-[11.5px]"
-                    style={{ color: "var(--muted-foreground)" }}
-                  >
-                    {itemIdWithinEpisode(unitId)}
-                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">{itemIdWithinEpisode(unitId)}</span>
                 )}
-                <span style={{ color: "var(--subtle-foreground)" }}>{problem.message}</span>
+                <span className="text-subtle-foreground">{problem.message}</span>
               </li>
             )),
           )}
@@ -154,18 +151,31 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
     );
   const durationChanges = durationItems.length > 0;
 
+  const title = t(
+    durationChanges ? "reference_duration_confirm_title" : "reference_advisory_confirm_title",
+  );
   return (
-    <ConfirmDialog
+    <AlertDialog
       open={open}
-      title={t(
-        durationChanges ? "reference_duration_confirm_title" : "reference_advisory_confirm_title",
-      )}
-      description={description}
-      confirmLabel={t(
-        durationChanges ? "reference_duration_confirm_cta" : "reference_advisory_confirm_cta",
-      )}
-      onConfirm={onConfirm}
-      onCancel={onCancel}
-    />
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+        </AlertDialogHeader>
+        {/* 多单元的对照行可能很长，正文可以用键盘滚动 */}
+        <AlertDialogBody tabIndex={0} role="region" aria-label={title}>
+          <AlertDialogDescription render={<div />}>{description}</AlertDialogDescription>
+        </AlertDialogBody>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>
+            {t(durationChanges ? "reference_duration_confirm_cta" : "reference_advisory_confirm_cta")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

@@ -204,7 +204,7 @@ describe("MentionPicker", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("closes on outside pointerdown", () => {
+  it("closes on outside press", async () => {
     const onClose = vi.fn();
     render(
       <div>
@@ -218,7 +218,7 @@ describe("MentionPicker", () => {
         />
       </div>,
     );
-    fireEvent.pointerDown(screen.getByTestId("outside"));
+    await userEvent.click(screen.getByTestId("outside"));
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -235,20 +235,6 @@ describe("MentionPicker", () => {
     );
     fireEvent.pointerDown(screen.getByRole("option", { name: /a/ }));
     expect(onClose).not.toHaveBeenCalled();
-  });
-
-  it("option has focus-visible ring class", () => {
-    render(
-      <MentionPicker
-        open
-        query=""
-        candidates={{ character: [{ name: "a", imagePath: null }], scene: [], prop: [] }}
-        onSelect={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
-    const option = screen.getByRole("option", { name: /a/ });
-    expect(option.className).toMatch(/focus-visible:ring/);
   });
 
   it("pointermove on option updates activeIndex; mouseenter at same coords does not", () => {

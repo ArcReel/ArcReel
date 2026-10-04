@@ -31,13 +31,12 @@ import { sumItemDuration } from "@/utils/script-shape";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { PlanDurationSelect } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
-import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/shared/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { dialogueSpeakers, extractMentions, normalizeAssetName } from "@/utils/reference-mentions";
@@ -46,6 +45,9 @@ import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, itemIdsInEpisodeText, itemIdWithinEpisode } from "@/utils/episode-display";
 import { tierProblemText } from "./unit-tier-problem";
 import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
+
+/** 面板里的次要动作（重新规划、从空白开始等共享按钮）用同一外观。 */
+const SECONDARY_ACTION_CLS = buttonVariants({ variant: "outline", size: "sm" });
 
 interface ReferenceScriptPlanPreviewPanelProps {
   projectName: string;
@@ -240,8 +242,8 @@ function InlineViolations({ violations, unitKey }: { violations: ScriptReviewVio
           ? t(speechKey, { unitId: itemIdWithinEpisode(unitKey), location })
           : itemIdsInEpisodeText(v.message);
         return (
-          <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-red-300">
-            <OctagonAlert className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+          <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-xs leading-snug text-destructive">
+            <OctagonAlert className="mt-px size-3 shrink-0" aria-hidden="true" />
             <span>{message}</span>
           </p>
         );
@@ -306,14 +308,14 @@ function UnitCard({
   return (
     <article
       ref={(el) => onScrollRef(unit.key, el)}
-      className={`scroll-mt-28 rounded-lg border p-4 ${hasViolation ? "border-red-500/45" : "border-border"}`}
-      style={CARD_STYLE}
+      className={`scroll-mt-28 rounded-lg border bg-card p-4 ${hasViolation ? "border-destructive/45" : "border-border"}`}
     >
       <div className="flex items-center gap-2">
-        <span className="rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-[11px] text-subtle-foreground">{itemIdWithinEpisode(unit.key)}</span>
+        <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-subtle-foreground">{itemIdWithinEpisode(unit.key)}</span>
         {durationProblem ? (
-          <span className="text-[11px] text-amber-300" title={durationProblem.hint}>
+          <span className="text-xs font-medium text-warn">
             {durationProblem.label}
+            <span className="sr-only">{durationProblem.hint}</span>
           </span>
         ) : (
           <PlanDurationSelect
@@ -326,46 +328,47 @@ function UnitCard({
           />
         )}
         {outOfTier && (
-          <span className="rounded-sm bg-red-500/15 px-1 py-px text-[10px] text-red-300">
+          <span className="rounded-sm bg-destructive/10 px-1 py-px text-xs text-destructive">
             {t("reference_script_plan_duration_out_of_tier")}
           </span>
         )}
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {t("reference_script_plan_unit_stats", { utterances: stats.utterances })}
         </span>
         <span className="flex-1" />
         {onTextChange && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={onToggleEdit}
             aria-label={editing ? t("reference_script_plan_edit_done") : t("reference_script_plan_edit_text")}
-            className={`rounded-sm p-1 transition-colors ${editing ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            aria-pressed={editing}
           >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+            <Pencil aria-hidden />
+          </Button>
         )}
       </div>
       {/* 面板不因分裂拦确认（规划期资产图常尚未生成），但按 i2v 取档时要说明桶已改变，不静默换桶。 */}
       {split && (
         <ReferenceSplitAlert
           capability={split}
-          className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+          className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
         />
       )}
 
       <details open className="group mt-3">
-        <summary className="flex cursor-pointer list-none items-center gap-1 font-mono text-[10px] tracking-[0.08em] text-muted-foreground">
-          <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
+        <summary className="focus-ring flex cursor-pointer list-none items-center gap-1 rounded-sm text-xs font-medium text-muted-foreground">
+          <ChevronDown className="size-3 transition-transform duration-fast group-open:rotate-180" aria-hidden="true" />
           {t("reference_script_plan_source_text_label")}
           {anchorBroken && (
-            <span className="ml-1 rounded-sm bg-red-500/15 px-1 py-px text-[10px] text-red-300">
+            <span className="ml-1 rounded-sm bg-destructive/10 px-1 py-px text-xs text-destructive">
               {t("reference_script_plan_source_anchor_broken")}
             </span>
           )}
         </summary>
         <p
-          className={`mt-1.5 border-l pl-3 text-[11.5px] leading-relaxed ${
-            anchorBroken ? "border-red-400/50 text-red-200/70" : "border-border text-muted-foreground"
+          className={`mt-1.5 border-l pl-3 text-xs leading-relaxed ${
+            anchorBroken ? "border-destructive/50 text-destructive" : "border-border text-muted-foreground"
           }`}
         >
           {unit.sourceText}
@@ -380,7 +383,6 @@ function UnitCard({
             onChange={(e) => onTextChange(e.target.value)}
             disabled={busy}
             aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unit.key) })}
-            className="text-muted-foreground"
           />
         ) : (
           <ScriptHighlight
@@ -397,8 +399,8 @@ function UnitCard({
 
       {/* 降级提示（不阻断确认），与违约的红标区分开：正文合法，只是画面地点没被钉住。 */}
       {lacksScene && (
-        <p className="mt-2 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-amber-300">
-          <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+        <p className="mt-2 flex items-start gap-1.5 pl-1 text-xs leading-snug text-subtle-foreground">
+          <AlertTriangle className="mt-px size-3 shrink-0 text-warn" aria-hidden="true" />
           <span>{t("reference_script_plan_unit_without_scene")}</span>
         </p>
       )}
@@ -538,15 +540,15 @@ export function ReferenceScriptPlanPreviewPanel({
   if (loadError) {
     return (
       <div role="alert" className="flex h-64 flex-col items-center justify-center gap-3 text-center">
-        <AlertTriangle className="h-6 w-6 text-amber-400" aria-hidden="true" />
+        <AlertTriangle className="size-6 text-warn" aria-hidden="true" />
         <div className="flex flex-col gap-1">
-          <p className="text-[13px] font-medium text-subtle-foreground">{t("dashboard:review_load_failed")}</p>
-          {loadError.message && <p className="max-w-sm px-4 font-mono text-[11px] text-muted-foreground">{loadError.message}</p>}
+          <p className="text-sm font-medium text-subtle-foreground">{t("dashboard:review_load_failed")}</p>
+          {loadError.message && <p className="max-w-sm px-4 font-mono text-xs text-muted-foreground">{loadError.message}</p>}
         </div>
-        <button type="button" onClick={handleRetry} className={GHOST_BTN_LG_CLS}>
-          <RotateCcw className="h-3.5 w-3.5" />
+        <Button variant="outline" onClick={handleRetry}>
+          <RotateCcw aria-hidden data-icon="inline-start" />
           {t("dashboard:review_retry")}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -562,7 +564,7 @@ export function ReferenceScriptPlanPreviewPanel({
             projectName={projectName}
             episode={episode}
             replaces={state?.script_overwrite != null ? "formal_script" : "none"}
-            className={GHOST_BTN_LG_CLS}
+            className={buttonVariants({ variant: "outline" })}
           />
         )}
       </div>
@@ -588,7 +590,7 @@ export function ReferenceScriptPlanPreviewPanel({
   // Agent 正在编辑草稿时不给入口，服务端同样拒绝。
   const blankStartAction =
     state?.script_overwrite == null && status !== "confirmed" && quarantine?.editable_by !== "agent" ? (
-      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan className={GHOST_BTN_CLS} />
+      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan className={SECONDARY_ACTION_CLS} />
     ) : null;
 
   if (quarantine != null && quarantine.editable_by === "user") {
@@ -631,7 +633,7 @@ export function ReferenceScriptPlanPreviewPanel({
           regenerateAction={
             <>
               {blankStartAction}
-              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={SECONDARY_ACTION_CLS} />
             </>
           }
         />
@@ -740,21 +742,18 @@ export function ReferenceScriptPlanPreviewPanel({
           onDiscard={() => setDiscardOpen(true)}
         />
       ) : (
-        <header
-          className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-lg border border-border px-3.5 py-2.5 backdrop-blur-md"
-          style={CARD_STYLE}
-        >
+        <header className="sticky top-0 z-sticky flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-3.5 py-2.5">
           <div className="flex items-center gap-2">
             {confirmed ? (
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+              <CheckCircle2 aria-hidden className="size-4 shrink-0 text-good" />
             ) : (
-              <Clock className="h-4 w-4 shrink-0 text-amber-400" />
+              <Clock aria-hidden className="size-4 shrink-0 text-warn" />
             )}
             <div className="flex flex-col">
-              <span className="text-[12.5px] font-medium text-foreground">
+              <span className="text-sm font-medium text-foreground">
                 {confirmed ? t("dashboard:review_status_confirmed") : t("dashboard:review_status_pending")}
               </span>
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {scriptMissing
                   ? t("dashboard:review_script_missing_hint")
                   : confirmed
@@ -768,45 +767,48 @@ export function ReferenceScriptPlanPreviewPanel({
 
           <div className="flex shrink-0 items-center gap-2">
             {confirmed && onOpenTimeline && (
-              <button type="button" onClick={onOpenTimeline} className={GHOST_BTN_CLS}>
-                <ArrowRight className="h-3.5 w-3.5" />
+              <Button variant="outline" size="sm" onClick={onOpenTimeline}>
+                <ArrowRight aria-hidden data-icon="inline-start" />
                 {t("dashboard:review_open_timeline")}
-              </button>
+              </Button>
             )}
             {blankStartAction}
             <ScriptPlanButton
               projectName={projectName}
               episode={episode}
               replaces={confirmed ? "confirmed_plan" : "pending_plan"}
-              className={GHOST_BTN_CLS}
+              className={SECONDARY_ACTION_CLS}
               disabledReason={!readOnly && dirty ? t("dashboard:script_plan_dirty_hint") : null}
             />
             {!readOnly && dirty && (
-              <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
-                <Save className="h-3.5 w-3.5" />
+              <Button variant="outline" size="sm" onClick={voidPromise(handleSave)} disabled={busy}>
+                <Save aria-hidden data-icon="inline-start" />
                 {saving ? t("common:saving") : t("common:save")}
-              </button>
+              </Button>
             )}
             {overwrite ? (
-              <PrimaryButton
-                tone="danger"
+              <Button
+                variant="destructive"
+                size="sm"
                 onClick={() => setOverwriteOpen(true)}
                 disabled={busy || overwriteBlocked}
                 title={confirmBlockedHint}
-                leadingIcon={<AlertTriangle className="h-3.5 w-3.5" />}
               >
+                <AlertTriangle aria-hidden data-icon="inline-start" />
                 {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
-              </PrimaryButton>
+              </Button>
             ) : (
-              <button
-                type="button"
+              <Button
+                size="sm"
                 onClick={voidPromise(() => handleConfirm())}
                 disabled={busy || confirmLocked || outOfTierUnitKeys.size > 0 || unknownUnitKeys.size > 0 || videoModelBlocked}
-                className={ACCENT_BTN_CLS}
-                style={ACCENT_BUTTON_STYLE}
                 title={confirmBlockedHint}
               >
-                {confirmLocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                {confirmLocked ? (
+                  <Lock aria-hidden data-icon="inline-start" />
+                ) : (
+                  <CheckCircle2 aria-hidden data-icon="inline-start" />
+                )}
                 {confirming
                   ? t("dashboard:review_confirming")
                   : scriptMissing
@@ -814,7 +816,7 @@ export function ReferenceScriptPlanPreviewPanel({
                     : confirmed
                       ? t("dashboard:review_confirmed_badge")
                       : t("reference_script_plan_confirm_continue")}
-              </button>
+              </Button>
             )}
           </div>
         </header>
@@ -823,7 +825,7 @@ export function ReferenceScriptPlanPreviewPanel({
 
       {videoModelBlocked && !agentEditing && <VideoModelUnresolvedNotice projectName={projectName} />}
       {firstUnknownProblem && !agentEditing && (
-        <p role="alert" className="rounded-md border border-amber-500/40 p-3 text-sm text-amber-200">
+        <p role="alert" className="rounded-md border border-warn/40 bg-warn/10 p-3 text-sm text-subtle-foreground">
           {firstUnknownProblem.hint}
         </p>
       )}
