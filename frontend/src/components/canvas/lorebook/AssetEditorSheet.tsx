@@ -70,7 +70,8 @@ export function AssetEditorSheet({
   const [last, setLast] = useState<{ name: string; asset: GalleryAssetSource } | null>(null);
   if (name !== null && live && (last?.name !== name || last.asset !== live)) setLast({ name, asset: live });
   const [held, setHeld] = useState(false);
-  const retention = useMemo(() => ({ protect: setHeld }), []);
+  // 只有 RetainedEditUnit 一个登记方
+  const retention = useMemo(() => ({ protect: (_key: string, value: boolean) => setHeld(value) }), []);
   const [submitting, setSubmitting] = useState(false);
 
   const present = target?.mode === "create" || live !== undefined;

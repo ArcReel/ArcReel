@@ -373,7 +373,11 @@ defineRegionScenarios("资产画廊", [
   {
     name: "点卡片打开详情 Sheet",
     path: PATH,
-    api: BASE,
+    api: {
+      ...BASE,
+      // 详情的衍生区块读取衍生图状态
+      "GET /api/v1/projects/demo/characters/林夕/derivatives": { status: 200, body: { success: true, derivatives: {} } },
+    },
     ready: galleryReady,
     act: async (page) => {
       await clearAgentOverlay(page);

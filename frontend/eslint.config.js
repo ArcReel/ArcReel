@@ -177,6 +177,8 @@ const REWORKED_FILES = [
   "src/components/canvas/lorebook/{AssetDetailEditor,AssetCreateForm,asset-editor-model,useAssetWrites,EditableAssetName,AssetOriginalsField,CharacterVoiceField,AssetAliasesField,VoiceSampleButton,AssetImageDialog}.{ts,tsx}",
   // 画廊的图片查看器：在有资产图的资产之间切换、查看与还原版本
   "src/components/canvas/lorebook/AssetImageViewer.tsx",
+  // 角色详情的衍生区块：逐条衍生的行内编辑与衍生图状态
+  "src/components/canvas/lorebook/{CharacterDerivativesField,CharacterDerivativeRow,useCharacterDerivativeSheets}.{ts,tsx}",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

@@ -6,6 +6,7 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 资产详情 Sheet：点浏览卡打开的右侧编辑器，四类资产共用。头部改名与上一个、下一个，正文按类型
 // 开关字段区块，底部是未保存修改的内联提示条；「添加」在同一个 Sheet 里打开空白表单。
+// 角色的「衍生」区块逐条列出衍生，每条的外观变化在行内保存。
 
 const CHARACTERS_PATH = "/app/projects/demo/characters";
 const PRODUCTS_PATH = "/app/projects/demo/products";
@@ -33,7 +34,7 @@ const CHARACTERS: Record<string, Asset> = {
     character_sheet: svg(220),
     reference_image: svg(200, 720, 960),
     aliases: ["林老板", "夕姐"],
-    derivatives: { 夜行装: { description: "换上深色长袍与斗笠。" } },
+    derivatives: { 夜行装: { description: "换上深色长袍与斗笠。", character_sheet: svg(250), referenced: true } },
   },
   沈砚: { description: "沉默寡言的账房先生，戴一副圆框眼镜。", character_sheet: svg(30) },
   阿岚: { description: "茶馆跑堂的少年，手脚麻利，爱打听消息。" },
@@ -74,6 +75,34 @@ function statusRows(type: string, names: string[]) {
   };
 }
 
+/** 衍生图状态接口的响应：按项目数据里的衍生登记，`stale` 列出已过期的衍生。 */
+function derivativeSheets(derivatives: Record<string, Asset>, stale: string[] = []) {
+  return {
+    status: 200,
+    body: {
+      success: true,
+      derivatives: Object.fromEntries(
+        Object.entries(derivatives).map(([name, d]) => [name, { ...d, stale: stale.includes(name) }]),
+      ),
+    },
+  };
+}
+
+// 压力变体：多条衍生，名称与外观变化很长，有的已过期、有的还没有衍生图。
+const MANY_DERIVATIVES: Record<string, Asset> = Object.fromEntries(
+  Array.from({ length: 8 }, (_, i) => [
+    i === 0 ? "雨夜里披着蓑衣赶往码头接应走私船的夜行装束" : `外观 ${i + 1}`,
+    {
+      description:
+        i % 3 === 0
+          ? Array.from({ length: 3 }, () => "换上深色长袍与斗笠，腰间别一把短刀，袖口用麻绳扎紧，脚上换成草鞋，其余保持不变。").join("")
+          : "换上深色长袍与斗笠。",
+      ...(i % 2 === 0 ? { character_sheet: svg(250 + i * 12) } : {}),
+      referenced: i % 3 !== 1,
+    },
+  ]),
+);
+
 const NO_TASKS = { status: 200, body: { items: [], total: 0, page: 1, page_size: 200 } };
 
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，Sheet 停在替换的项目数据上。
@@ -82,6 +111,15 @@ const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo": projectWith({ characters: CHARACTERS }),
   "GET /api/v1/projects/demo/asset-sheets/status": statusRows("character", Object.keys(CHARACTERS)),
   "GET /api/v1/tasks?page_size=200&project_name=demo": NO_TASKS,
+  "GET /api/v1/projects/demo/characters/林夕/derivatives": derivativeSheets(CHARACTERS.林夕.derivatives as Record<string, Asset>),
+};
+
+const DERIVATIVES_API: ApiOverrides = {
+  ...BASE,
+  "GET /api/v1/projects/demo": projectWith({
+    characters: { ...CHARACTERS, 林夕: { ...CHARACTERS.林夕, derivatives: MANY_DERIVATIVES } },
+  }),
+  "GET /api/v1/projects/demo/characters/林夕/derivatives": derivativeSheets(MANY_DERIVATIVES, ["外观 3"]),
 };
 
 const PRODUCT_API: ApiOverrides = {
@@ -120,6 +158,18 @@ async function openSheet(page: Page, name: string): Promise<Locator> {
   await sheet.waitFor();
   await waitForEntrance(sheet);
   return sheet;
+}
+
+/** 角色详情里的「衍生」区块。 */
+function derivativesSection(sheet: Locator): Locator {
+  return sheet.locator("section").filter({ has: sheet.page().getByRole("heading", { name: "衍生", exact: true }) });
+}
+
+/** 滚到某条衍生并返回这一行。 */
+async function derivativeRow(sheet: Locator, name: string): Promise<Locator> {
+  const row = derivativesSection(sheet).getByRole("listitem").filter({ has: sheet.page().getByRole("heading", { name, exact: true }) });
+  await row.scrollIntoViewIfNeeded();
+  return row;
 }
 
 async function editDescription(sheet: Locator, text: string) {
@@ -262,6 +312,125 @@ defineRegionScenarios("资产详情 Sheet", [
       await viewer.getByRole("button", { name: "关闭" }).click();
       await expect(page.getByRole("dialog", { name: "林夕" })).toHaveCount(1);
       await expect(sheet.getByRole("textbox", { name: "描述" })).toBeVisible();
+    },
+  },
+  {
+    name: "衍生区块：缩略图、引用记号、引用状态与外观变化",
+    path: CHARACTERS_PATH,
+    api: BASE,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      const row = await derivativeRow(sheet, "夜行装");
+      await expect(row.getByText("@[林夕/夜行装]")).toBeVisible();
+      await expect(row.getByText("脚本中已引用")).toBeVisible();
+      await expect(row.getByRole("button", { name: "复制引用记号 @[林夕/夜行装]" })).toBeInViewport({ ratio: 1 });
+      await expect(row.getByRole("button", { name: "重新生成" })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "asset-editor-derivatives", target: (page) => derivativesSection(page.getByRole("dialog", { name: "林夕" })) },
+  },
+  {
+    name: "衍生多且名称与外观变化很长：只有正文滚动，末条的操作完整可见",
+    path: CHARACTERS_PATH,
+    api: DERIVATIVES_API,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      await expect(derivativesSection(sheet).getByRole("listitem")).toHaveCount(8);
+      await expect((await derivativeRow(sheet, "外观 3")).getByText("已过期")).toBeVisible();
+      const last = await derivativeRow(sheet, "外观 8");
+      await expect(last.getByRole("button", { name: "「外观 8」的更多操作" })).toBeInViewport({ ratio: 1 });
+      const add = sheet.getByRole("button", { name: "新增衍生" });
+      await add.scrollIntoViewIfNeeded();
+      await expect(add).toBeInViewport({ ratio: 1 });
+      await expect(sheet.getByRole("button", { name: "关闭" })).toBeInViewport({ ratio: 1 });
+    },
+  },
+  {
+    name: "改了衍生的外观变化：行内出现未保存提示，关闭 Sheet 先弹出离开拦截",
+    path: CHARACTERS_PATH,
+    api: BASE,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      const row = await derivativeRow(sheet, "夜行装");
+      await row.getByRole("textbox", { name: "「夜行装」的外观变化" }).fill("换上深色长袍与斗笠，披一件蓑衣。");
+      await expect(row.getByText("有未保存的修改")).toBeVisible();
+      await expect(row.getByRole("button", { name: "保存并生成" })).toBeVisible();
+      await expect(row.getByRole("button", { name: "保存", exact: true })).toBeInViewport({ ratio: 1 });
+      await sheet.getByRole("button", { name: "关闭" }).click();
+      const leave = page.getByRole("alertdialog", { name: "「林夕/夜行装」有未保存的修改" });
+      await leave.waitFor();
+      await waitForEntrance(leave);
+      await expect(leave.getByRole("button", { name: "保存并离开" })).toBeInViewport({ ratio: 1 });
+    },
+  },
+  {
+    name: "打开衍生的「更多」菜单",
+    path: CHARACTERS_PATH,
+    api: BASE,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      const row = await derivativeRow(sheet, "夜行装");
+      await row.getByRole("button", { name: "「夜行装」的更多操作" }).click();
+      const menu = page.getByRole("menu");
+      await menu.waitFor();
+      await waitForEntrance(menu);
+      await expect(menu.getByRole("menuitem", { name: "删除" })).toBeInViewport({ ratio: 1 });
+    },
+  },
+  {
+    name: "打开「新增衍生」弹层",
+    path: CHARACTERS_PATH,
+    api: BASE,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      const trigger = sheet.getByRole("button", { name: "新增衍生" });
+      await trigger.scrollIntoViewIfNeeded();
+      await trigger.click();
+      const popover = page.getByRole("dialog").filter({ has: page.getByRole("textbox", { name: "衍生名" }) });
+      await popover.waitFor();
+      await waitForEntrance(popover);
+      await expect(popover.getByRole("textbox", { name: "衍生名" })).toBeFocused();
+      await expect(popover.getByRole("button", { name: "添加" })).toBeInViewport({ ratio: 1 });
+    },
+  },
+  {
+    name: "删除衍生的确认框",
+    path: CHARACTERS_PATH,
+    api: BASE,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      const row = await derivativeRow(sheet, "夜行装");
+      await row.getByRole("button", { name: "「夜行装」的更多操作" }).click();
+      await page.getByRole("menuitem", { name: "删除" }).click();
+      const confirm = page.getByRole("alertdialog", { name: "删除衍生「夜行装」？" });
+      await confirm.waitFor();
+      await waitForEntrance(confirm);
+      await expect(confirm.getByRole("button", { name: "取消" })).toBeFocused();
+      await expect(confirm.getByRole("button", { name: "删除" })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "asset-editor-derivative-delete", target: (page) => page.getByRole("alertdialog") },
+  },
+  {
+    name: "查看衍生图大图：Esc 只关闭大图，Sheet 留在原处",
+    path: CHARACTERS_PATH,
+    api: BASE,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      const row = await derivativeRow(sheet, "夜行装");
+      await row.getByRole("button", { name: "查看大图：衍生「林夕/夜行装」的资产图" }).click();
+      const viewer = page.getByRole("dialog", { name: "林夕/夜行装" });
+      await viewer.waitFor();
+      await waitForEntrance(viewer);
+      await page.keyboard.press("Escape");
+      await expect(viewer).toBeHidden();
+      await expect(sheet).toBeVisible();
+      await expect(row.getByRole("textbox", { name: "「夜行装」的外观变化" })).toBeVisible();
     },
   },
 ]);
