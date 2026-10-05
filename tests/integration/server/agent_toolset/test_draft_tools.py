@@ -10,11 +10,13 @@ import os
 import subprocess
 import sys
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
 from lib.script.draft_quarantine import (
@@ -588,6 +590,33 @@ async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelop
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["meta"]["schema_version"] == QUARANTINE_SCHEMA_VERSION
     assert saved["meta"]["source"] == "source/episode_1.txt"
+
+
+async def test_patch_draft_moves_project_activity_forward(fake_ctx: ToolHarness) -> None:
+    # 草稿是 JSON，修改时间不计入活动，由写入出口记账。
+    rv_source(fake_ctx)
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+    (fake_ctx.project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
+
+    content = opened["content"]
+    content["units"][0]["text"] = "@[张三] 走向 @[村口]"
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
+        {
+            "episode_id": 1,
+            "doc_type": "reference_script_plan",
+            "content": content,
+            "base_revision": opened["revision"],
+        },
+    )
+
+    assert patched.problem is None, patched
+    recorded = recorded_project_activity(fake_ctx.project_path)
+    assert recorded is not None
+    assert recorded > stale
 
 
 async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(fake_ctx: ToolHarness) -> None:

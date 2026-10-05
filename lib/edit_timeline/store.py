@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import EditTimelineDocument, is_timeline_id
 from lib.infra.json_io import atomic_write_json
+from lib.project.project_activity import record_project_activity
 from lib.project.project_change_hints import build_change_label, emit_project_change_batch
 from lib.project.project_manager import ProjectManager
 
@@ -39,7 +40,8 @@ class EditTimelineStore:
     def __init__(self, projects: ProjectManager, project_name: str) -> None:
         self._projects = projects
         self._project_name = project_name
-        self._root = projects.get_project_path(project_name) / EDIT_TIMELINES_DIRNAME
+        self._project_dir = projects.get_project_path(project_name)
+        self._root = self._project_dir / EDIT_TIMELINES_DIRNAME
 
     def _episode_dir(self, episode: int) -> Path:
         return self._root / f"episode_{episode}"
@@ -113,14 +115,16 @@ class EditTimelineStore:
         path = self._episode_dir(document.episode) / f"{document.id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(path, document.model_dump(mode="json"))
-        self._notify(document.episode)
+        self._changed(document.episode)
 
     def delete(self, document: EditTimelineDocument) -> None:
         """删除一条剪辑时间线的文件；调用方须持有该集的锁。"""
         (self._episode_dir(document.episode) / f"{document.id}.json").unlink(missing_ok=True)
-        self._notify(document.episode)
+        self._changed(document.episode)
 
-    def _notify(self, episode: int) -> None:
+    def _changed(self, episode: int) -> None:
+        # 剪辑时间线是 JSON，修改时间不计入项目活动；删除后连文件都不在了，所以在这里记账。
+        record_project_activity(self._project_dir)
         emit_project_change_batch(
             self._project_name,
             [

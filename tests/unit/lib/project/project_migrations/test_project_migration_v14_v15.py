@@ -146,6 +146,35 @@ def test_drama_materialization_takes_the_script_plan_title(tmp_path: Path) -> No
     assert _episode(project_dir, 2)["title"] == "规划第2集"
 
 
+@pytest.mark.parametrize(
+    ("confirmed_at", "expected"),
+    [
+        ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        ("", None),
+        ("2026-01-01T00:00:00", None),
+        (None, None),
+    ],
+)
+def test_materialized_script_is_dated_by_the_confirmation(
+    tmp_path: Path, confirmed_at: str | None, expected: str | None
+) -> None:
+    # 剧本的 updated_at 计入项目最近活动时间：取迁移运行的时刻会把项目顶到大厅最前面。
+    project_dir = write_legacy_script_plan_project(tmp_path, variant="narration")
+    project = _project(project_dir)
+    review = next(entry for entry in project["episodes"] if entry["episode"] == 2)["script_plan_review"]
+    if confirmed_at is None:
+        del review["confirmed_at"]
+    else:
+        review["confirmed_at"] = confirmed_at
+    _write_json(project_dir / "project.json", project)
+
+    migrate_v14_to_v15(project_dir)
+
+    metadata = _read_json(project_dir / "scripts" / "episode_2.json")["metadata"]
+    assert metadata.get("created_at") == expected
+    assert metadata.get("updated_at") == expected
+
+
 def test_unconfirmed_episode_without_a_formal_script_is_not_materialized(tmp_path: Path) -> None:
     project_dir = write_legacy_script_plan_project(tmp_path, variant="narration")
     plan_path = _plan_path(project_dir, "narration", 2)

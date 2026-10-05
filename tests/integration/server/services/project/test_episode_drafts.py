@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from lib.backends.text_generator import TextGenerator
+from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.project.project_manager import ProjectManager
 from lib.script.draft_quarantine import (
     FORMAL_EDIT_META_KEY,
@@ -167,6 +169,24 @@ async def test_save_that_still_violates_keeps_the_draft_with_refreshed_violation
         ("duration_off_tier", 0),
     }
     assert quarantine_path(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN).exists()
+
+
+async def test_saving_a_draft_moves_project_activity_forward(narration) -> None:
+    # 草稿是 JSON，修改时间不计入活动，由写入出口记账。
+    pm, project_path = narration
+    _write_narration_draft(project_path, [_segment(characters_in_segment=["王五"])])
+    stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+    (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
+    service = EpisodeDraftService(pm)
+    view = await service.get_draft("demo", 1, "narration_script_plan")
+
+    edited = {"segments": [_segment(characters_in_segment=["王五"], duration_seconds=5)]}
+    result = await service.save_draft("demo", 1, "narration_script_plan", edited, view["revision"])
+
+    assert result["adopted"] is False
+    recorded = recorded_project_activity(project_path)
+    assert recorded is not None
+    assert recorded > stale
 
 
 async def test_save_that_clears_every_violation_adopts_the_draft(narration) -> None:

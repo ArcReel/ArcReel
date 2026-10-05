@@ -1,16 +1,18 @@
 """
 项目的最近活动时间（读时计算）。
 
-项目大厅按它把最近在做的项目排在前面。根据项目账本与可识别内容计算最近修改的时刻，来源有两类：
+项目大厅按它把最近在做的项目排在前面。根据项目账本与可识别内容计算最近修改的时刻，取以下来源中最晚的一个：
 
 1. 账本里的业务时间戳：`project.json` 与各集剧本的 `metadata.updated_at`。业务写入会刷新它们，
    项目结构迁移改写这些 JSON 时保留原值，所以不用这些 JSON 文件的修改时间。
-2. 其余内容文件的修改时间：原文、草稿、生成的图片与视频等。
+2. 项目活动账本（`lib.project.project_activity`）：草稿、脚本规划、剪辑时间线等其余 JSON 的业务写入，
+   以及删除记忆、删除剪辑时间线这类删除，由写入出口记下时刻。缺失时只看另外两类来源。
+3. 其余内容文件的修改时间：原文、生成的图片与视频、项目记忆等。
 
 不计入的文件不代表创作者的活动，却会在启动或后台流程中被统一改写，计入会让所有项目同时「刚刚更新」：
 
-- 名字以 `.` 开头的文件与目录：锁、产物清单、迁移报告、Agent 配置副本等。项目记忆单独计入。
-- 所有 `.json` 文件：项目与剧本取第 1 类业务时间；其余 JSON 的修改时间无法区分业务写入与迁移改写，不计入。
+- 名字以 `.` 开头的文件与目录：锁、产物清单、迁移报告、Agent 配置副本等。项目记忆单独计入，活动账本取第 2 类。
+- 所有 `.json` 文件：项目与剧本取第 1 类业务时间，其余 JSON 的业务写入取第 2 类；它们的修改时间无法区分业务写入与迁移改写，不计入。
 - 迁移备份（文件名含 `.bak`）与锁文件（`.lock` 结尾）。
 - 项目根目录的 `CLAUDE.md`：内嵌 Agent 的配置由启动时的配置同步改写。
 """
@@ -25,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.agent.agent_memory_paths import project_memory_dir
+from lib.project.project_activity import recorded_project_activity
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +41,9 @@ def project_last_activity_at(
 ) -> datetime | None:
     """项目内容最近一次修改的时刻（UTC）；没有任何可用的时间时为 None。"""
     candidates = [stamp for stamp in (_metadata_updated_at(doc) for doc in (project, *scripts)) if stamp is not None]
+    recorded = recorded_project_activity(project_dir)
+    if recorded is not None:
+        candidates.append(recorded)
     content_mtime = _latest_content_mtime(project_dir)
     if content_mtime is not None:
         candidates.append(datetime.fromtimestamp(content_mtime, UTC))

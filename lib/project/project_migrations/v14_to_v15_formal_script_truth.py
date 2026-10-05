@@ -202,7 +202,26 @@ def _materialize(
         return None, "materialized script from the confirmed script_plan fails structure validation"
     # 与 ``ProjectManager.save_script`` 写盘时补的默认状态一致。
     script["metadata"].setdefault("status", "draft")
+    _stamp_confirmation_time(script["metadata"], stored_review(project, episode).get("confirmed_at"))
     return script, None
+
+
+def _stamp_confirmation_time(metadata: dict[str, Any], confirmed_at: object) -> None:
+    """转出的正式脚本以确认时间为创建与更新时间。
+
+    投影按迁移运行的时刻盖时间戳；剧本的 ``updated_at`` 是项目最近活动时间的来源，留着它会让
+    迁移把项目顶到大厅最前面。确认时间读不出来时去掉两个时间戳，最近活动时间回落到其他来源。
+    """
+    try:
+        valid = isinstance(confirmed_at, str) and datetime.fromisoformat(confirmed_at).tzinfo is not None
+    except ValueError:
+        valid = False
+    if valid:
+        metadata["created_at"] = confirmed_at
+        metadata["updated_at"] = confirmed_at
+    else:
+        metadata.pop("created_at", None)
+        metadata.pop("updated_at", None)
 
 
 def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:

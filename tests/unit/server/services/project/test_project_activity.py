@@ -6,6 +6,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lib.project.project_activity import ACTIVITY_FILENAME
 from server.services.project.project_activity import project_last_activity_at
 
 OLD = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
@@ -67,3 +68,14 @@ def test_project_memory_counts_but_internal_state_does_not(tmp_path):
     assert project_last_activity_at(tmp_path, _ledger(OLD), []) == NEW
     (tmp_path / ".arcreel" / "memory" / "MEMORY.md").unlink()
     assert project_last_activity_at(tmp_path, _ledger(OLD), []) == OLD
+
+
+def test_activity_recorded_by_business_writes_counts(tmp_path):
+    # 草稿等 JSON 的改写与删除只在活动账本里留下时刻。
+    _write(tmp_path / "source" / "chapter.txt", OLD)
+    (tmp_path / ACTIVITY_FILENAME).write_text(NEW.isoformat(), encoding="utf-8")
+
+    assert project_last_activity_at(tmp_path, _ledger(OLD), []) == NEW
+
+    (tmp_path / ACTIVITY_FILENAME).write_text(OLD.isoformat(), encoding="utf-8")
+    assert project_last_activity_at(tmp_path, _ledger(NEW), []) == NEW
