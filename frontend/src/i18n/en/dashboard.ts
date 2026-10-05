@@ -212,9 +212,9 @@ export default {
   'subagent_card_label': 'Subagent',
   'subagent_tokens': '{{count}} tokens',
   'task_in_progress_default': 'In progress',
-  'agent_handoff_headline': 'Ready to roll',
-  'agent_handoff_subtitle': 'Chat with the agent to start producing your video.',
-  'agent_handoff_dismiss': 'Got it',
+  // One-time inline tip after the story setting is extracted
+  'overview_handoff_tip': 'The story setting has been extracted. Next, send "Start production" to the agent on the right.',
+  'overview_handoff_dismiss': 'Got it',
   // Project overview and the empty-project welcome page
   'overview_meta_episodes_one': '{{count}} episode',
   'overview_meta_episodes_other': '{{count}} episodes',

@@ -213,9 +213,9 @@ export default {
   'subagent_card_label': '子智能体',
   'subagent_tokens': '{{count}} tokens',
   'task_in_progress_default': '任务进行中',
-  'agent_handoff_headline': '准备就绪',
-  'agent_handoff_subtitle': '与 Agent 对话，开启视频制作。',
-  'agent_handoff_dismiss': '知道了',
+  // 故事设定提炼完成后的一次性就地提示
+  'overview_handoff_tip': '故事设定已提炼完成。接下来在右侧向 Agent 发送「开始制作」。',
+  'overview_handoff_dismiss': '知道了',
   // 项目概览与空项目欢迎页
   'overview_meta_episodes_one': '{{count}} 集',
   'overview_meta_episodes_other': '{{count}} 集',

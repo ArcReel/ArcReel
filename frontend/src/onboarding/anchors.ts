@@ -8,20 +8,20 @@
  * | 锚点 | 步 | 指向 |
  * |---|---|---|
  * | `lobby-create-project` | 大厅 2 | 项目大厅顶栏「新建项目」分体按钮的主按钮 |
- * | `lobby-settings` | 大厅 3 | 项目大厅顶栏的设置图标（配置不完整时带提示点） |
+ * | `lobby-settings` | 大厅 3 | 项目大厅顶栏的设置图标（配置不完整时带警示色提示点） |
  * | `settings-providers` | 设置 4 | 设置页侧栏「供应商」入口 |
  * | `settings-agent` | 设置 5 | 设置页侧栏「ArcReel Agent」入口（不是整个「Agent」分组） |
- * | `lobby-demo-card` | 大厅 6 | 引导期间注入大厅的演示项目卡（进演示工作台的桥） |
- * | `workbench-overview` | 工作台 7 | 项目概览的故事设定区 |
- * | `workbench-agent` | 工作台 8 | 演示工作台右侧的 Agent 面板（静态演示对话） |
- * | `workbench-lorebook` | 工作台 9 | 角色集页面的卡片区 |
- * | `workbench-timeline` | 工作台 10 | 剧集分镜画布的分镜主体 |
+ * | `lobby-demo-card` | 大厅 6 | 引导期间大厅「示例项目」区块里的演示卡（进演示工作台的桥） |
+ * | `workbench-agent` | 工作台 7 | 演示工作台右侧的 Agent 面板本身（静态演示对话） |
+ * | `workbench-overview` | 工作台 8 | 项目概览的故事设定区 |
+ * | `workbench-lorebook` | 工作台 9 | 角色画廊的网格容器 |
+ * | `workbench-timeline` | 工作台 10 | 集页分镜视图的主体（步骤路由带 `?view=board`） |
  * | `workbench-export` | 工作台 11 | 顶栏的导出按钮 |
  *
- * 工作台五步落在演示项目的只读工作台上（见 `demo-project.ts`）。概述/角色集/分镜/导出
- * 的锚点挂在真实工作台组件上而不是演示专用的副本——演示与真实项目共用同一份实现，锚点
- * 因此对两者都成立；`workbench-agent` 是例外，真实 Agent 面板是写路径、演示态不挂载，锚点
- * 挂在演示专用的 `DemoAssistantPanel` 上。
+ * 工作台五步落在演示项目的只读工作台上（见 `demo-project.ts`）。概览、角色画廊、分镜与导出
+ * 的锚点挂在真实工作台组件上，而不是演示专用的副本：演示与真实项目共用同一份实现，锚点
+ * 对两者都成立。`workbench-agent` 是例外：真实 Agent 面板是写路径，演示态不挂载，锚点
+ * 挂在演示专用的 `DemoAssistantPanel` 根节点上，它占满 Agent 面板。
  *
  * 大厅第 1 步与收尾步是居中的气泡，不挂锚点。
  */

@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { DEMO_SCRIPTED_EPISODE } from "./demo-project";
 
 /**
@@ -11,11 +12,11 @@ export function DemoEpisodePlaceholder() {
   const { t } = useTranslation("onboarding");
 
   return (
-    <div className="flex h-full items-center justify-center px-6">
-      <p className="max-w-sm text-center text-[13px] leading-relaxed text-muted-foreground">
+    <Empty className="min-h-0 flex-1">
+      <EmptyHeader>
         {/* 演示账本按集 ID 升序排列，集 ID 即播出位置。 */}
-        {t("demo_episode_placeholder", { position: DEMO_SCRIPTED_EPISODE })}
-      </p>
-    </div>
+        <EmptyDescription>{t("demo_episode_placeholder", { position: DEMO_SCRIPTED_EPISODE })}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }

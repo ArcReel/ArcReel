@@ -78,7 +78,7 @@
     --sidebar-border: var(--border);
     --sidebar-ring: var(--ring);
 
-    /* 模态遮罩：与新手引导遮罩同一规范（onboarding/tour.ts 的 OVERLAY_INK 与 overlayOpacity） */
+    /* 模态遮罩：Dialog、Sheet 与新手引导遮罩共用（onboarding/tour.ts 把它交给 driver.js 的遮罩） */
     --scrim: oklch(0.10 0.012 265 / 0.78);
 
     /* 层级。弹层 Portal 到 body，与隔离了层叠上下文的 #app-root 同级，z-index 只需在三者间排序：

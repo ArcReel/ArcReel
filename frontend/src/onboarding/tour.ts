@@ -61,8 +61,14 @@ export interface TourHandle {
   dispose: () => void;
 }
 
-/** 遮罩墨色 —— body 背景同色系的冷紫墨，而不是 driver 默认纯黑 */
-const OVERLAY_INK = "oklch(0.10 0.012 265)";
+/**
+ * 遮罩与 Dialog、Sheet 共用 `--scrim` token（颜色与不透明度都在 token 里）。driver 把它写进
+ * SVG 路径的内联 `fill`，内联样式可以引用 CSS 变量，因此透明度固定为 1，不再另算一份。
+ */
+const OVERLAY_FILL = "var(--scrim)";
+
+/** 遮罩与气泡的淡入时长，与 `duration-base` 一致；driver 默认 400ms，超出动效时长上限。 */
+const FADE_MS = 200;
 
 /**
  * 锚点缺席时的等待上限（毫秒）。driver 在这段时间里挂 MutationObserver 等元素出现，
@@ -193,6 +199,54 @@ function closeInteractiveHole(): void {
   interactiveHoleElements = [];
 }
 
+/**
+ * driver 给高亮元素写 `aria-haspopup="dialog"`、`aria-expanded`、`aria-controls`，离开时把这三个
+ * 属性整组删掉。这组属性写在 div、section 这类非交互元素上不合法（axe 的 aria-allowed-attr），
+ * 删除时还会抹掉触发器自己的同名属性（如「新建项目」的下拉按钮）。引导期间界面整体是 inert，
+ * 这组属性没有读屏可以宣读的对象，因此每次高亮前快照原值，driver 写完或删完后还原。
+ */
+const DRIVER_ARIA = ["aria-haspopup", "aria-expanded", "aria-controls"] as const;
+
+/** 居中气泡时 driver 高亮的占位元素，回调里拿不到它，按 id 取。 */
+const DRIVER_DUMMY_ID = "driver-dummy-element";
+
+function snapshotAria(snapshots: Map<Element, (string | null)[]>, el: Element): void {
+  if (!snapshots.has(el)) snapshots.set(el, DRIVER_ARIA.map((name) => el.getAttribute(name)));
+}
+
+function restoreAria(snapshots: Map<Element, (string | null)[]>): void {
+  snapshots.forEach((values, el) => {
+    DRIVER_ARIA.forEach((name, i) => {
+      const value = values[i];
+      if (value == null) el.removeAttribute(name);
+      else el.setAttribute(name, value);
+    });
+  });
+  const dummy = document.getElementById(DRIVER_DUMMY_ID);
+  DRIVER_ARIA.forEach((name) => dummy?.removeAttribute(name));
+}
+
+/**
+ * 页面结构变化时（增删节点、改文字）在下一帧回调一次。driver 只在窗口缩放与滚动时重新对齐
+ * 高亮框；锚点高亮之后，排在它上方的内容才渲染出来（如从设置页回到大厅，问候区晚于「示例项目」
+ * 区块出现），会把锚点推开，高亮框却留在原位。不观察属性变化：driver 自己对齐时只写属性。
+ */
+function observeLayoutChanges(onChange: () => void): () => void {
+  let frame = 0;
+  const observer = new MutationObserver(() => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      onChange();
+    });
+  });
+  observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+  return () => {
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+  };
+}
+
 /** 进度齿孔轨道 —— 装饰，语义由同级的 sr-only 文本承载 */
 function renderProgress(progress: HTMLElement, current: number, total: number, label: string): void {
   progress.replaceChildren();
@@ -243,6 +297,9 @@ export function startTour(
   const total = steps.length;
   let exited = false;
   let disposing = false;
+  const ariaSnapshots = new Map<Element, (string | null)[]>();
+  // 高亮框是否已停在当前锚点上。转场途中 driver 自己逐帧移动高亮框，这时不重新对齐。
+  let highlightSettled = false;
 
   const driveSteps: DriveStep[] = steps.map((step) => ({
     ...(step.anchor === null ? {} : { element: anchorSelector(step.anchor) }),
@@ -255,8 +312,9 @@ export function startTour(
     steps: driveSteps,
     popoverClass: "arc-tour",
     animate: !prefersReducedMotion(),
-    overlayColor: OVERLAY_INK,
-    overlayOpacity: 0.78,
+    duration: FADE_MS,
+    overlayColor: OVERLAY_FILL,
+    overlayOpacity: 1,
     stagePadding: 8,
     stageRadius: 10,
     // 全程只读：driver 的 `.driver-active *{pointer-events:none}` 已经封死了底层界面，
@@ -297,6 +355,13 @@ export function startTour(
       if (step.data?.interactive && element instanceof HTMLElement) {
         openInteractiveHole(element);
       }
+      if (element) snapshotAria(ariaSnapshots, element);
+      highlightSettled = false;
+    },
+    // driver 此时已给当前元素写上、给上一个元素删掉那组 aria 属性，两者都还原
+    onHighlighted: () => {
+      restoreAria(ariaSnapshots);
+      highlightSettled = true;
     },
     // 退出全部收口到这里，而不是 driver 的 onDestroyed。后者只在 driver 内部把高亮元素
     // 写进 state 之后才会触发，而那次写入排在 requestAnimationFrame 里 —— 同步 destroy
@@ -337,9 +402,15 @@ export function startTour(
       onExit();
     }
     window.removeEventListener("keyup", onKeyUp);
+    stopRealign();
     closeInteractiveHole();
     setPeripheralIsolation(false);
     instance.destroy();
+    restoreAria(ariaSnapshots);
+    // driver 把焦点还给最后一步开始时的焦点元素，那是已移除的气泡按钮，焦点于是落到 body。
+    // 引导启动前开着模态对话框时，从 body 按 Tab 会越过对话框的焦点陷阱进到背景页面，
+    // 这里还给引导启动前的焦点元素；它已随换页卸载时不处理。
+    if (focusBeforeTour instanceof HTMLElement && focusBeforeTour.isConnected) focusBeforeTour.focus();
   }
 
   // allowKeyboardControl 关闭后 driver 不再自行处理 Esc/方向键，这里接管：Esc 走 finish()
@@ -355,8 +426,13 @@ export function startTour(
     }
   }
 
+  // 隔离会让焦点所在的元素变 inert 而失焦，先记下
+  const focusBeforeTour = document.activeElement;
   setPeripheralIsolation(true);
   window.addEventListener("keyup", onKeyUp);
+  const stopRealign = observeLayoutChanges(() => {
+    if (highlightSettled) instance.refresh();
+  });
   instance.drive(Math.min(Math.max(startIndex, 0), total - 1));
 
   return {
@@ -364,9 +440,11 @@ export function startTour(
     dispose: () => {
       disposing = true;
       window.removeEventListener("keyup", onKeyUp);
+      stopRealign();
       closeInteractiveHole();
       setPeripheralIsolation(false);
       instance.destroy();
+      restoreAria(ariaSnapshots);
     },
   };
 }

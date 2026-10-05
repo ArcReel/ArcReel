@@ -213,9 +213,9 @@ export default {
   'subagent_card_label': 'Subagent',
   'subagent_tokens': '{{count}} tokens',
   'task_in_progress_default': 'Đang xử lý',
-  'agent_handoff_headline': 'Sẵn sàng',
-  'agent_handoff_subtitle': 'Trò chuyện với Agent để bắt đầu sản xuất video.',
-  'agent_handoff_dismiss': 'Đã hiểu',
+  // Gợi ý tại chỗ một lần sau khi trích xuất xong thiết lập câu chuyện
+  'overview_handoff_tip': 'Đã trích xuất xong thiết lập câu chuyện. Tiếp theo, gửi "Bắt đầu sản xuất" cho Agent ở bên phải.',
+  'overview_handoff_dismiss': 'Đã hiểu',
   // Tổng quan dự án và trang chào mừng của dự án trống
   'overview_meta_episodes_one': '{{count}} tập',
   'overview_meta_episodes_other': '{{count}} tập',
