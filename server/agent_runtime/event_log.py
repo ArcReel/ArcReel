@@ -12,6 +12,7 @@ import asyncio
 import logging
 import random
 import re
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
@@ -65,7 +66,7 @@ _INTERRUPT_ECHO_PREFIX = "[Request interrupted"
 # 摘要开头的固定措辞识别。措辞是 CLI 内部实现细节，只在写入点识别一次。
 _COMPACT_SUMMARY_PREFIX = "This session is being continued from a previous conversation"
 
-# 推断出的子代理描述取首条指令的首行，截到这个长度。
+# 推断出的子代理描述合并为一行后截到这个长度。
 _SUBAGENT_DESCRIPTION_MAX_CHARS = 200
 
 # SDK 以用户消息形态注入的后台任务通知 XML。
@@ -535,25 +536,31 @@ def _assistant_tool_use_ids(message: Any) -> list[str]:
     return ids
 
 
-def infer_subagent_outcome(tool_use_id: str, messages: list[dict[str, Any]]) -> dict[str, Any] | None:
+def infer_subagent_outcome(
+    tool_use_id: str,
+    messages: list[dict[str, Any]],
+    description: str | None = None,
+) -> dict[str, Any] | None:
     """为主线缺锚点 tool_use 的子代理，按子时间线推断描述与终态。
 
     压缩续接后，主线从续接摘要开始，摘要之前发起的子代理没有锚点，也就没有
-    调用参数里的描述与 tool_result。描述取子时间线首条指令的首行；最后一条
-    是不再调用工具的回答时视为已完成，结论即回答正文；最后一条带 SDK 错误
-    标记时视为失败；其余（停在工具调用中途）视为已停止。
+    调用参数里的描述与 tool_result。描述优先用原始载荷里调用参数的
+    ``description``（由调用方传入），没有时取子时间线的首条指令；多行合并为
+    一行再截断。最后一条是不再调用工具的回答时视为已完成，结论即回答正文；
+    最后一条带 SDK 错误标记时视为失败；其余（停在工具调用中途）视为已停止。
     """
     conversation = [m for m in messages if m.get("type") in (ENTRY_TYPE_USER, ENTRY_TYPE_ASSISTANT)]
     if not conversation:
         return None
-    description = ""
-    for message in conversation:
-        if message.get("type") != ENTRY_TYPE_USER:
-            continue
-        text = _blocks_text(normalize_content(message.get("content", ""))).strip()
-        if text:
-            description = text.splitlines()[0].strip()[:_SUBAGENT_DESCRIPTION_MAX_CHARS]
-            break
+    text = (description or "").strip()
+    if not text:
+        for message in conversation:
+            if message.get("type") != ENTRY_TYPE_USER:
+                continue
+            text = _blocks_text(normalize_content(message.get("content", ""))).strip()
+            if text:
+                break
+    description = " ".join(text.split())[:_SUBAGENT_DESCRIPTION_MAX_CHARS]
 
     last = conversation[-1]
     last_blocks = normalize_content(last.get("content", ""))
@@ -889,6 +896,13 @@ class TranscriptReader(Protocol):
         project_cwd: Path | str | None = None,
     ) -> dict[str, list[dict[str, Any]]]: ...
 
+    async def read_subagent_descriptions(
+        self,
+        sdk_session_id: str | None,
+        project_cwd: Path | str | None,
+        tool_use_ids: Collection[str],
+    ) -> dict[str, str]: ...
+
 
 class EventLogService:
     """事件日志读取入口：懒生成 + 游标列举。"""
@@ -955,10 +969,18 @@ class EventLogService:
             # 主线缺失锚点 tool_use 的残余组（多见于压缩续接）仍全量入日志：
             # 前端按 parent 归组，无锚时呈现为独立卡片，不丢子时间线数据。
             # 组末附一条推断出的描述与终态，卡片据此显示，而不是一律「已停止」。
+            descriptions: dict[str, str] = {}
+            if subagent_groups:
+                try:
+                    descriptions = await self._adapter.read_subagent_descriptions(
+                        session_id, project_cwd, list(subagent_groups)
+                    )
+                except Exception:
+                    logger.exception("子代理调用描述读取失败，改用子时间线推断 session_id=%s", session_id)
             for tool_use_id, group in subagent_groups.items():
                 for sub_message in group:
                     _consume(sub_message, tool_use_id)
-                outcome = infer_subagent_outcome(tool_use_id, group)
+                outcome = infer_subagent_outcome(tool_use_id, group, descriptions.get(tool_use_id))
                 if outcome is not None:
                     entries.append(outcome)
             if entries:

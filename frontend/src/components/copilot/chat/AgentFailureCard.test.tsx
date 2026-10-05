@@ -38,7 +38,7 @@ describe("AgentFailureCard", () => {
   it("states a one-line conclusion and keeps the raw observation folded under Details", async () => {
     render(<AgentFailureCard failure={turnFailure} onRetry={vi.fn()} />);
 
-    const card = screen.getByRole("alert");
+    const card = screen.getByRole("region", { name: "这一轮没有完成" });
     expect(card).toHaveTextContent("这一轮没有完成");
     expect(card).toHaveTextContent("模型服务拒绝了这次请求。");
     // 原始错误码与消息不在默认层
@@ -70,11 +70,15 @@ describe("AgentFailureCard", () => {
     const { summary } = turnFailure;
     const { key: _key, ...withoutKey } = summary;
     const { unmount } = render(<AgentFailureCard failure={{ ...turnFailure, summary: withoutKey }} />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Agent 运行时出错，原始信息见「详情」。");
+    expect(screen.getByRole("region", { name: "这一轮没有完成" })).toHaveTextContent(
+      "Agent 运行时出错，原始信息见「详情」。",
+    );
     unmount();
 
     render(<AgentFailureCard failure={{ ...turnFailure, phase: "startup", summary: { ...summary, key: "invalid_request" } }} />);
-    expect(screen.getByRole("alert")).toHaveTextContent("启动过程中出错，原始信息见「详情」。");
+    expect(screen.getByRole("region", { name: "Agent 没能启动" })).toHaveTextContent(
+      "启动过程中出错，原始信息见「详情」。",
+    );
   });
 
   it("offers retry only for a startup failure whose caller supplies it", () => {
@@ -82,6 +86,7 @@ describe("AgentFailureCard", () => {
     render(
       <AgentFailureCard
         failure={{ ...turnFailure, phase: "startup", summary: { ...turnFailure.summary, key: "cli_not_found" } }}
+        announce
         onRetry={onRetry}
       />,
     );
@@ -91,5 +96,13 @@ describe("AgentFailureCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
 
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("is announced only when it newly arrived", () => {
+    const { rerender } = render(<AgentFailureCard failure={turnFailure} />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    rerender(<AgentFailureCard failure={turnFailure} announce />);
+    expect(screen.getByRole("alert")).toHaveAccessibleName("这一轮没有完成");
   });
 });

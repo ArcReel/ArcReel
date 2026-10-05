@@ -1,5 +1,5 @@
-import { useEffect, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
-import i18n from "@/i18n";
+import { useEffect, useMemo, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { useOpenAppLink } from "@/hooks/useOpenAppLink";
 import { parseAppLink } from "@/utils/app-link";
 import { voidCall } from "@/utils/async";
@@ -100,7 +100,8 @@ const COMPONENTS = { [APP_LINK_TAG]: AppLink };
 // 聚焦后用方向键滚动。Streamdown 把代码块 `code` 元素上的属性透传给外层的滚动容器，
 // 标成可聚焦的区域；表格的滚动容器是它外层的包裹元素，属性只能落在表格上，因此只让
 // 表格可聚焦（保留表格语义），聚焦后方向键滚动的是最近的滚动祖先。
-// 排在默认插件之后，不会被清洗掉。
+// 排在默认插件之后，不会被清洗掉。区域名称作为插件参数随界面语言传入；Streamdown 外层的
+// memo 不比较 rehypePlugins，所以切换语言时以语言作 key 重新挂载，已渲染的块随之换成新名称。
 // ---------------------------------------------------------------------------
 
 interface HastNode {
@@ -110,21 +111,21 @@ interface HastNode {
   children?: HastNode[];
 }
 
-function markScrollRegions(node: HastNode, parent?: HastNode): void {
-  if (node.type === "element" && node.tagName === "code" && parent?.tagName === "pre") {
-    node.properties = {
-      ...node.properties,
-      tabIndex: 0,
-      role: "region",
-      ariaLabel: i18n.t("dashboard:chat_code_block_label"),
-    };
-  } else if (node.type === "element" && node.tagName === "table") {
-    node.properties = { ...node.properties, tabIndex: 0, ariaLabel: i18n.t("dashboard:chat_table_label") };
-  }
-  node.children?.forEach((child) => markScrollRegions(child, node));
+interface ScrollRegionLabels {
+  code: string;
+  table: string;
 }
 
-const rehypeScrollRegions = () => (tree: HastNode) => markScrollRegions(tree);
+function markScrollRegions(node: HastNode, labels: ScrollRegionLabels, parent?: HastNode): void {
+  if (node.type === "element" && node.tagName === "code" && parent?.tagName === "pre") {
+    node.properties = { ...node.properties, tabIndex: 0, role: "region", ariaLabel: labels.code };
+  } else if (node.type === "element" && node.tagName === "table") {
+    node.properties = { ...node.properties, tabIndex: 0, ariaLabel: labels.table };
+  }
+  node.children?.forEach((child) => markScrollRegions(child, labels, node));
+}
+
+const rehypeScrollRegions = (labels: ScrollRegionLabels) => (tree: HastNode) => markScrollRegions(tree, labels);
 
 interface SanitizeSchema {
   tagNames?: string[];
@@ -132,7 +133,7 @@ interface SanitizeSchema {
 }
 
 // 传入自定义 rehypePlugins 后，Streamdown 不再把 allowedTags 合进清洗白名单（只在默认插件时合并），
-// 这里照它的做法补上：raw → 放行 app-link 的 sanitize → harden，再接滚动区标记。
+// 这里照它的做法补上：raw → 放行 app-link 的 sanitize → harden；滚动区标记随语言在渲染时接上。
 function buildRehypePlugins(defaults: Record<string, unknown>): unknown[] {
   const { raw, sanitize, harden } = defaults;
   const [rehypeSanitize, schema] = sanitize as [unknown, SanitizeSchema];
@@ -141,7 +142,52 @@ function buildRehypePlugins(defaults: Record<string, unknown>): unknown[] {
     tagNames: [...(schema.tagNames ?? []), ...Object.keys(ALLOWED_TAGS)],
     attributes: { ...schema.attributes, ...ALLOWED_TAGS },
   };
-  return [raw, [rehypeSanitize, appLinkSchema], harden, rehypeScrollRegions];
+  return [raw, [rehypeSanitize, appLinkSchema], harden];
+}
+
+// ---------------------------------------------------------------------------
+// 代码块的焦点：Streamdown 的代码块主体按需加载，分块到达时整块替换先渲染的占位节点，
+// 此前聚焦在代码块上的焦点会落回 body。记下聚焦的是第几个代码块，节点被替换后把焦点
+// 交给同一位置的新节点；焦点已经移到别处时不抢回。
+// ---------------------------------------------------------------------------
+
+const CODE_BLOCK_BODY = '[data-streamdown="code-block-body"]';
+
+function useKeepCodeBlockFocus(root: HTMLElement | null): void {
+  useEffect(() => {
+    if (!root) return;
+    let focused: { node: HTMLElement; index: number } | null = null;
+    const codeBlocks = () => Array.from(root.querySelectorAll<HTMLElement>(CODE_BLOCK_BODY));
+
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      focused = target instanceof HTMLElement && target.matches(CODE_BLOCK_BODY)
+        ? { node: target, index: codeBlocks().indexOf(target) }
+        : null;
+    };
+    const onFocusOut = () => {
+      // 节点被移除时不算离开：替换后的恢复由下面的观察者处理
+      queueMicrotask(() => {
+        if (focused?.node.isConnected) focused = null;
+      });
+    };
+    const observer = new MutationObserver(() => {
+      if (!focused || focused.node.isConnected) return;
+      const { index } = focused;
+      focused = null;
+      if (document.activeElement && document.activeElement !== document.body) return;
+      codeBlocks()[index]?.focus({ preventScroll: true });
+    });
+
+    root.addEventListener("focusin", onFocusIn);
+    root.addEventListener("focusout", onFocusOut);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => {
+      root.removeEventListener("focusin", onFocusIn);
+      root.removeEventListener("focusout", onFocusOut);
+      observer.disconnect();
+    };
+  }, [root]);
 }
 
 interface StreamMarkdownProps {
@@ -151,7 +197,17 @@ interface StreamMarkdownProps {
 }
 
 export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProps) {
+  const { t, i18n } = useTranslation("dashboard");
   const [streamdown, setStreamdown] = useState<LoadedStreamdown | null>(null);
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  useKeepCodeBlockFocus(root);
+  const codeLabel = t("chat_code_block_label");
+  const tableLabel = t("chat_table_label");
+  // 引用只随加载与名称变化：Streamdown 按引用比较插件，变了会让已渲染的块全部重算。
+  const rehypePlugins = useMemo(
+    () => streamdown && [...streamdown.rehypePlugins, [rehypeScrollRegions, { code: codeLabel, table: tableLabel }]],
+    [streamdown, codeLabel, tableLabel],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -171,15 +227,19 @@ export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProp
   }
 
   return (
-    <streamdown.Component
-      className={size === "compact" ? "markdown-body text-xs leading-5" : "markdown-body text-sm leading-6"}
-      parseIncompleteMarkdown={true}
-      remarkPlugins={streamdown.remarkPlugins}
-      rehypePlugins={streamdown.rehypePlugins}
-      allowedTags={ALLOWED_TAGS}
-      components={COMPONENTS}
-    >
-      {String(content || "")}
-    </streamdown.Component>
+    // 只为监听焦点与节点替换，不参与排版
+    <div ref={setRoot} className="contents">
+      <streamdown.Component
+        key={i18n.resolvedLanguage}
+        className={size === "compact" ? "markdown-body text-xs leading-5" : "markdown-body text-sm leading-6"}
+        parseIncompleteMarkdown={true}
+        remarkPlugins={streamdown.remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        allowedTags={ALLOWED_TAGS}
+        components={COMPONENTS}
+      >
+        {String(content || "")}
+      </streamdown.Component>
+    </div>
   );
 }

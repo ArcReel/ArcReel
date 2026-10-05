@@ -202,7 +202,7 @@ Agent 面板是名为 `agent` 的尺寸容器，面板内 `Textarea` 的默认�
 - **用户动作后显式回到底部。** 发送消息、提交回答这类「接下来要看回复」的动作，先调用 `MessageFlowHandle.scrollToEnd()`，它同时恢复跟随。切换会话以会话 id 作 `key` 重新挂载，新会话从底部开始。
 - **显示层整理在纯函数里。** 两条用户消息之间连续的 assistant turn 合成一轮、跳过没有可见内容的 turn，都在 `display-items.ts` 的 `buildDisplayItems` 中完成并有单元测试；渲染组件不再自行合并或过滤。
 - **按类型分发。** `MessageRow` 按 turn 类型分发：用户消息是靠右的 `Bubble`（`tinted`，宽度上限 85%），Agent 正文不加气泡、限宽 40em，系统事件逐块渲染；不显示「你」「Agent」角色眉题。块级渲染统一经 `ContentBlockRenderer`。操作行占住固定行高，悬停或焦点进入所在消息时才显示。
-- **按写入点的标记显示，不嗅探文本。** 压缩续接摘要（`compact_summary`）显示为「上下文已压缩」分隔线，缺锚点子代理的推断终态（`subagent_outcome`）挂到合成卡片上，都在 `utils/entry-projection` 里由条目子类型投影，渲染组件不按英文前缀识别。Agent 失败卡片的结论由故障观测的 `summary.key` 本地化（`agent_failure_conclusion_<key>`），不认识的 key 回落到按阶段的通用结论；原始类型、状态、消息与载荷只放在「详情」里。
+- **按写入点的标记显示，不嗅探文本。** 压缩续接摘要（`compact_summary`）显示为「上下文已压缩」分隔线，缺锚点子代理的推断终态（`subagent_outcome`）挂到合成卡片上，都在 `utils/entry-projection` 里由条目子类型投影，渲染组件不按英文前缀识别。Agent 失败卡片的结论由故障观测的 `summary.key` 本地化（`agent_failure_conclusion_<key>`），不认识的 key 回落到按阶段的通用结论；原始类型、状态、消息与载荷只放在「详情」里。失败卡片只为查看期间新到达的失败播报（`role="alert"`），历史边界是 store 的 `historySeq`；打开会话时已有的失败照常显示，不播报。
 - **工序显示为单行。** 工具调用、子智能体、Skill 与后台任务都用 `chat/WorkRow`：图标、本地化名称、一句摘要、状态，有详情时整行折叠，展开后的长文本由 `WorkDetail` 截断并给「显示全部」，不做内层滚动。显示名与摘要在 `work-label.ts` 生成；新增 ArcReel MCP 工具时，除了 `tool_name_<id>` 显示名，还要在 `arcreel-tool-summaries.ts` 登记摘要格式，`tests/unit/test_frontend_mcp_tool_i18n.py` 校验两者都没有缺漏。摘要里的集 ID、剧本文件名与条目 ID 换成集名与集内编号，不写剪辑时间线 ID 这类不透明标识。
 
 Markdown 正文（`StreamMarkdown`）里的代码块与表格放不下时横向滚动，由它的 rehype 插件统一标成可用键盘聚焦的区域，调用处不需要另外处理。

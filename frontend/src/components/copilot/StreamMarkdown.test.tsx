@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { StreamMarkdown } from "./StreamMarkdown";
@@ -114,6 +115,23 @@ describe("StreamMarkdown 横向滚动区", () => {
     expect(code).toHaveAttribute("tabindex", "0");
     expect(code.querySelector("pre")).not.toBeNull();
     expect(screen.getByRole("table", { name: "表格" })).toHaveAttribute("tabindex", "0");
+  });
+
+  it("切换界面语言后，已渲染的代码块与表格换成新语言的名称", async () => {
+    await renderLoaded("```ts\nconst answer = 42;\n```\n\n| 列 A | 列 B |\n| --- | --- |\n| 1 | 2 |\n");
+    expect(await screen.findByRole("region", { name: "代码块" })).toBeInTheDocument();
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      expect(await screen.findByRole("region", { name: "Code block" })).toHaveTextContent("const answer = 42;");
+      expect(screen.getByRole("table", { name: "Table" })).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh");
+      });
+    }
   });
 });
 

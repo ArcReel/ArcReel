@@ -109,7 +109,7 @@ describe("AgentCopilot", () => {
   const interrupt = vi.fn().mockResolvedValue(undefined);
   const createNewSession = vi.fn();
   const switchSession = vi.fn().mockResolvedValue(undefined);
-  const deleteSession = vi.fn().mockResolvedValue(undefined);
+  const deleteSession = vi.fn().mockResolvedValue(true);
 
   beforeEach(() => {
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
@@ -238,8 +238,9 @@ describe("AgentCopilot", () => {
 
     it("deletes a session only after confirming in an alert dialog", async () => {
       const user = userEvent.setup();
-      deleteSession.mockImplementation(async (id: string) => {
+      deleteSession.mockImplementationOnce(async (id: string) => {
         useAssistantStore.setState((s) => ({ sessions: s.sessions.filter((item) => item.id !== id) }));
+        return true;
       });
       render(<AgentCopilot />);
       await user.click(screen.getByRole("button", { name: "会话历史" }));
@@ -255,10 +256,22 @@ describe("AgentCopilot", () => {
       expect(screen.queryByRole("button", { name: /给朱汉杨补服装衍生/ })).not.toBeInTheDocument();
     });
 
-    it("keeps the dialog open with an error when the session is still there after deleting", async () => {
+    it("closes the dialog once deleting succeeds, before the list catches up", async () => {
       const user = userEvent.setup();
-      // 删除接口失败时 deleteSession 自己吞掉错误，会话留在列表里
-      deleteSession.mockImplementationOnce(async () => {});
+      // 删除成功由返回值告知，不看列表此刻是否已经去掉这一条
+      deleteSession.mockResolvedValueOnce(true);
+      render(<AgentCopilot />);
+      await user.click(screen.getByRole("button", { name: "会话历史" }));
+      await user.click(screen.getByRole("button", { name: "删除会话「给朱汉杨补服装衍生」" }));
+      const dialog = await screen.findByRole("alertdialog");
+      await user.click(within(dialog).getByRole("button", { name: "删除会话" }));
+
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    });
+
+    it("keeps the dialog open with an error when deleting fails", async () => {
+      const user = userEvent.setup();
+      deleteSession.mockResolvedValueOnce(false);
       render(<AgentCopilot />);
       await user.click(screen.getByRole("button", { name: "会话历史" }));
       await user.click(screen.getByRole("button", { name: "删除会话「给朱汉杨补服装衍生」" }));

@@ -272,6 +272,8 @@ describe("子智能体的工序行", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /探索费用计算逻辑/ }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Agent 运行时出错");
+    // 子智能体里的失败是展开卡片看到的既有内容，不播报
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "这一轮没有完成" })).toHaveTextContent("Agent 运行时出错");
   });
 });

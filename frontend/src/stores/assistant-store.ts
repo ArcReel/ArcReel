@@ -37,6 +37,12 @@ interface AssistantState {
   turns: Turn[];
   draftTurn: Turn | null;
   messagesLoading: boolean;
+  /**
+   * 载入会话时已有的最后一条条目的 seq：不大于它的条目是打开会话前的历史，大于它的是
+   * 查看期间新到达的，失败卡片只为后者播报。null 表示历史仍在回放（running 会话经
+   * entry 流补发存量），此时到达的条目都算历史。没有载入过程的会话（新建、草稿）为 -1。
+   */
+  historySeq: number | null;
 
   // Input
   input: string;
@@ -91,6 +97,10 @@ interface AssistantState {
   /** 清空时间线（项目切换 / 新会话）。 */
   resetTimeline: () => void;
   setMessagesLoading: (loading: boolean) => void;
+  /** 开始载入会话历史：此后到达的条目都算历史，直到 settleHistory。 */
+  beginHistory: () => void;
+  /** 会话历史载入完毕：以当前最后一条条目为界；已经定界时不变。 */
+  settleHistory: () => void;
   setInput: (input: string) => void;
   setSending: (sending: boolean) => void;
   setInterrupting: (interrupting: boolean) => void;
@@ -158,6 +168,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     turns: [],
     draftTurn: null,
     messagesLoading: false,
+    historySeq: -1,
     input: "",
     sending: false,
     interrupting: false,
@@ -248,6 +259,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
         draftRev: 0,
         turns: [],
         draftTurn: null,
+        historySeq: -1,
         startupFailure: null,
         startupFailureOrigin: null,
         // 编辑态锚在被清空的那条时间线上，重建后锚点不再存在
@@ -256,6 +268,11 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     },
 
     setMessagesLoading: (loading) => set({ messagesLoading: loading }),
+    beginHistory: () => set({ historySeq: null }),
+    settleHistory: () => {
+      const { historySeq, entries } = get();
+      if (historySeq === null) set({ historySeq: entries.at(-1)?.seq ?? -1 });
+    },
     setInput: (input) => set({ input }),
     setSending: (sending) => set({ sending }),
     setInterrupting: (interrupting) => set({ interrupting }),
