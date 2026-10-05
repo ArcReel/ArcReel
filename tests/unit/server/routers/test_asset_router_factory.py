@@ -71,6 +71,20 @@ class _FakePM(FakeProjectAssetMutationMixin):
             dry_run=dry_run,
         )
 
+    def preview_asset_deletion(self, project_name, table, name):
+        from lib.project.asset_rename import AssetDeletionPreview, AssetEpisodeReferences
+        from lib.project.asset_types import resolve_asset_key
+
+        key = resolve_asset_key(self.load_project(project_name).get(table), name)
+        if key is None:
+            raise KeyError(name)
+        return AssetDeletionPreview(
+            table=table,
+            name=key,
+            references=3,
+            episodes=(AssetEpisodeReferences(episode=1, references=2), AssetEpisodeReferences(episode=4, references=1)),
+        )
+
     def save_project(self, project_name, project):
         self.projects[project_name] = project
 
@@ -451,3 +465,23 @@ class TestRenameEndpoint:
         client, _fake_pm = _client(monkeypatch)
         resp = client.post("/api/v1/projects/demo/characters/Bob/rename", json={"new_name": "bad/name"})
         assert resp.status_code == 400
+
+
+class TestDeleteDryRun:
+    """删除端点的 dry_run：只返回按集列出的引用数，资产保留。"""
+
+    def test_dry_run_returns_references_by_episode_and_keeps_the_asset(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Bob"] = {"description": "hero"}
+
+        resp = client.delete("/api/v1/projects/demo/characters/Bob", params={"dry_run": "true"})
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "success": True,
+            "dry_run": True,
+            "name": "Bob",
+            "references": 3,
+            "episodes": [{"episode": 1, "references": 2}, {"episode": 4, "references": 1}],
+        }
+        assert "Bob" in fake_pm.projects["demo"]["characters"]

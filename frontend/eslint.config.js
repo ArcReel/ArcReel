@@ -171,6 +171,8 @@ const REWORKED_FILES = [
   "src/components/canvas/lorebook/{AssetGallery,AssetBrowseCard,AssetEditorSheet,GalleryToolbar,GalleryEmptyState,GalleryStatusMarker,gallery-model,AssetSheetBatchControls,AssetSheetBatchDialog,MergeAssetDialog,useStaleRegenerateConfirm,GenerateButton,CharactersPage,ScenesPage,PropsPage,ProductsPage,ProductCreateDialog,useAssetSheetStatus}.{ts,tsx}",
   "src/components/canvas/timeline/ImageEditButton.tsx",
   "src/components/canvas/shared/CrossfadeImage.tsx",
+  // 资产画廊：删除项目资产的确认框
+  "src/components/canvas/lorebook/ProjectAssetDeleteDialog.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

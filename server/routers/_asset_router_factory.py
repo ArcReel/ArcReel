@@ -452,11 +452,26 @@ def build_asset_router(
                 raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     @router.delete(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
-    async def delete_entry(project_name: str, entry_name: str, _t: Translator):
+    async def delete_entry(project_name: str, entry_name: str, _t: Translator, dry_run: bool = False):
+        """删除资产；``dry_run=true`` 只返回按集列出的引用数（与重命名同一套扫描），不改动任何数据。
+
+        删除不改写脚本里的引用，也不因有引用而拒绝：预览只用于删除前告知影响。
+        """
         try:
 
             def _sync():
                 manager = pm_getter()
+                if dry_run:
+                    preview = manager.preview_asset_deletion(project_name, spec.bucket_key, entry_name)
+                    return {
+                        "success": True,
+                        "dry_run": True,
+                        "name": preview.name,
+                        "references": preview.references,
+                        "episodes": [
+                            {"episode": item.episode, "references": item.references} for item in preview.episodes
+                        ],
+                    }
 
                 with project_change_source("webui"):
                     manager.delete_asset(project_name, spec.bucket_key, entry_name)

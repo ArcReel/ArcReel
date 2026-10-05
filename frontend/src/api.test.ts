@@ -390,18 +390,16 @@ describe("API", () => {
 
       await API.addCharacter("demo", "Hero", "brave");
       await API.updateCharacter("demo", "Hero", { description: "updated" });
-      await API.deleteCharacter("demo", "Hero");
 
       await API.addProjectScene("demo", "Temple", "ancient");
       await API.updateProjectScene("demo", "Temple", { description: "dark" });
-      await API.deleteProjectScene("demo", "Temple");
       await API.addProjectProp("demo", "Sword", "rusty");
       await API.updateProjectProp("demo", "Sword", { description: "shiny" });
-      await API.deleteProjectProp("demo", "Sword");
       await API.addProjectProduct("demo", "Phone", "sleek");
       await API.addProjectProduct("demo", "Phone", "sleek", "Acme");
       await API.updateProjectProduct("demo", "Phone", { description: "matte" });
-      await API.deleteProjectProduct("demo", "Phone");
+      await API.deleteProjectAsset("demo", "product", "Phone");
+      await API.previewProjectAssetDeletion("demo", "character", "Hero");
       await API.renameProjectAsset("demo", "character", "Hero", "Knight");
       await API.renameProjectAsset("demo", "product", "Phone", "Tablet", { dryRun: true });
 
@@ -485,6 +483,10 @@ describe("API", () => {
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/products/Phone", {
         method: "DELETE",
+      });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/characters/Hero?dry_run=true", {
+        method: "DELETE",
+        signal: undefined,
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/characters/Hero/rename", {
         method: "POST",
