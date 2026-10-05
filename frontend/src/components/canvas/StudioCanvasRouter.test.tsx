@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -204,125 +203,23 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
   ),
 }));
 
-// 画廊替身直接渲染每个资产的详情正文，路由测试经详情卡片的替身触发回调。
+// 画廊替身为每个资产渲染一个生成按钮，路由测试经它触发资产图生成回调。
 vi.mock("./lorebook/AssetGallery", () => ({
   AssetGallery: ({
+    assetType,
     assets,
-    renderEditor,
+    onGenerate,
   }: {
+    assetType: string;
     assets: Record<string, unknown>;
-    renderEditor: (name: string, context: { sheetStatus: undefined; generating: boolean }) => ReactNode;
+    onGenerate: (name: string) => void;
   }) => (
-    <>
+    <div data-testid={`${assetType}-gallery`} data-names={Object.keys(assets).join(",")}>
       {Object.keys(assets).map((name) => (
-        <div key={name}>{renderEditor(name, { sheetStatus: undefined, generating: false })}</div>
+        <button key={name} onClick={() => onGenerate(name)}>
+          generate-{assetType}
+        </button>
       ))}
-    </>
-  ),
-}));
-
-vi.mock("./lorebook/CharacterCard", () => ({
-  CharacterCard: ({
-    name,
-    onSave,
-    onGenerate,
-  }: {
-    name: string;
-    onSave: (
-      name: string,
-      payload: { description: string; voiceStyle: string; referenceFile?: File | null; audioFile?: File | null },
-    ) => Promise<void>;
-    onGenerate: (name: string) => void;
-  }) => (
-    <div data-testid="character-card" data-name={name}>
-      <button
-        onClick={() =>
-          void onSave(name, {
-            description: "new desc",
-            voiceStyle: "new voice",
-            referenceFile: new File(["ref"], "hero.png", { type: "image/png" }),
-          })
-        }
-      >
-        update-character
-      </button>
-      <button
-        onClick={() =>
-          void onSave(name, {
-            description: "new desc",
-            voiceStyle: "new voice",
-            audioFile: new File(["audio"], "hero.wav", { type: "audio/wav" }),
-          })
-        }
-      >
-        update-character-with-audio
-      </button>
-      <button onClick={() => onGenerate(name)}>generate-character</button>
-    </div>
-  ),
-}));
-
-vi.mock("./lorebook/SceneCard", () => ({
-  SceneCard: ({
-    name,
-    onUpdate,
-    onGenerate,
-  }: {
-    name: string;
-    onUpdate: (name: string, updates: Record<string, unknown>) => void;
-    onGenerate: (name: string) => void;
-  }) => (
-    <div data-testid="scene-card" data-name={name}>
-      <button onClick={() => onUpdate(name, { description: "new scene desc" })}>
-        update-scene
-      </button>
-      <button onClick={() => onGenerate(name)}>generate-scene</button>
-    </div>
-  ),
-}));
-
-vi.mock("./lorebook/PropCard", () => ({
-  PropCard: ({
-    name,
-    onUpdate,
-    onGenerate,
-  }: {
-    name: string;
-    onUpdate: (name: string, updates: Record<string, unknown>) => void;
-    onGenerate: (name: string) => void;
-  }) => (
-    <div data-testid="prop-card" data-name={name}>
-      <button onClick={() => onUpdate(name, { description: "new prop desc" })}>
-        update-prop
-      </button>
-      <button onClick={() => onGenerate(name)}>generate-prop</button>
-    </div>
-  ),
-}));
-
-vi.mock("./lorebook/ProductsPage", () => ({
-  ProductsPage: ({
-    products,
-    onUpdateProduct,
-    onGenerateProduct,
-    onAddProduct,
-  }: {
-    products: Record<string, { description: string }>;
-    onUpdateProduct: (name: string, updates: Record<string, unknown>) => void;
-    onGenerateProduct: (name: string) => void;
-    onAddProduct: (name: string, description: string, brand: string) => Promise<void>;
-  }) => (
-    <div data-testid="products-page" data-names={Object.keys(products).join(",")}>
-      <button onClick={() => onUpdateProduct("Phone", { description: "new product desc" })}>
-        update-product
-      </button>
-      <button onClick={() => onGenerateProduct("Phone")}>generate-product</button>
-      <button onClick={() => void onAddProduct("NewPhone", "desc", "Acme").catch(() => {})}>
-        add-product
-      </button>
-      <button onClick={() => void onAddProduct("NewPhone", "desc", "").catch(() => {})}>
-        add-product-no-brand
-      </button>
     </div>
   ),
 }));
@@ -484,7 +381,7 @@ describe("StudioCanvasRouter", () => {
     renderAt("/characters");
 
     expect(screen.getByText("加载中...")).toBeInTheDocument();
-    expect(screen.queryByTestId("character-card")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("character-gallery")).not.toBeInTheDocument();
   });
 
   it("routes characters/scenes/props/episodes views correctly", async () => {
@@ -497,15 +394,15 @@ describe("StudioCanvasRouter", () => {
     });
 
     const viewCharacters = renderAt("/characters");
-    expect(screen.getByTestId("character-card")).toHaveAttribute("data-name", "Hero");
+    expect(screen.getByTestId("character-gallery")).toHaveAttribute("data-names", "Hero");
     viewCharacters.unmount();
 
     const viewScenes = renderAt("/scenes");
-    expect(screen.getByTestId("scene-card")).toHaveAttribute("data-name", "Temple");
+    expect(screen.getByTestId("scene-gallery")).toHaveAttribute("data-names", "Temple");
     viewScenes.unmount();
 
     const viewProps = renderAt("/props");
-    expect(screen.getByTestId("prop-card")).toHaveAttribute("data-name", "Sword");
+    expect(screen.getByTestId("prop-gallery")).toHaveAttribute("data-names", "Sword");
     viewProps.unmount();
 
     const viewEpisodeList = renderAt("/episodes");
@@ -878,38 +775,15 @@ describe("StudioCanvasRouter", () => {
     expect(screen.queryByTestId("edit-timeline-view")).not.toBeInTheDocument();
   });
 
-  it("runs character callbacks and reports API failures with toast", async () => {
+  it("submits character generation, marks the character active and confirms with a toast", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData(),
       currentScripts: { "episode_1.json": makeScript() },
     });
-
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
-      scripts: { "episode_1.json": makeScript() },
-    });
-    vi.spyOn(API, "updateCharacter").mockResolvedValue({ success: true });
-    vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "x", url: "y" });
     vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", deduped: false, message: "已提交" });
 
     renderAt("/characters");
-
-    fireEvent.click(screen.getByText("update-character"));
-    await waitFor(() => {
-      expect(API.updateCharacter).toHaveBeenCalledWith("demo", "Hero", {
-        description: "new desc",
-        voice_style: "new voice",
-      });
-      expect(API.uploadFile).toHaveBeenNthCalledWith(
-        1,
-        "demo",
-        "character_ref",
-        expect.any(File),
-        "Hero",
-      );
-      expect(API.getProject).toHaveBeenCalled();
-    });
 
     fireEvent.click(screen.getByText("generate-character"));
     await waitFor(() => {
@@ -923,95 +797,25 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("refreshes the project even when the audio upload step fails partway through save", async () => {
+  it("reports scene and prop generation failures with toast", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData(),
       currentScripts: { "episode_1.json": makeScript() },
     });
-
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
-      scripts: { "episode_1.json": makeScript() },
-    });
-    vi.spyOn(API, "updateCharacter").mockResolvedValue({ success: true });
-    vi.spyOn(API, "uploadFile").mockRejectedValue(new Error("audio_duration_out_of_range"));
-
-    renderAt("/characters");
-
-    fireEvent.click(screen.getByText("update-character-with-audio"));
-    await waitFor(() => {
-      expect(API.uploadFile).toHaveBeenCalledWith(
-        "demo",
-        "character_audio_ref",
-        expect.any(File),
-        expect.any(String),
-      );
-      // description/voice_style 已持久化成功，仅音频上传失败：即便整体 catch 到错误，
-      // 也要刷新 store 让已保存的部分反映到 UI，而不是让用户误以为整个保存都没生效
-      expect(API.getProject).toHaveBeenCalled();
-      expect(useAppStore.getState().toast?.text).toContain("更新角色失败");
-      expect(useAppStore.getState().toast?.tone).toBe("error");
-    });
-  });
-
-  it("runs scene callbacks and reports API failures with toast", async () => {
-    useProjectsStore.setState({
-      currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
-      currentScripts: { "episode_1.json": makeScript() },
-    });
-
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
-      scripts: { "episode_1.json": makeScript() },
-    });
-    vi.spyOn(API, "updateProjectScene").mockRejectedValue(new Error("scene update failed"));
     vi.spyOn(API, "generateProjectScene").mockRejectedValue(new Error("scene generate failed"));
+    vi.spyOn(API, "generateProjectProp").mockRejectedValue(new Error("prop generate failed"));
 
-    renderAt("/scenes");
-
-    fireEvent.click(screen.getByText("update-scene"));
-    await waitFor(() => {
-      expect(API.updateProjectScene).toHaveBeenCalledWith("demo", "Temple", {
-        description: "new scene desc",
-      });
-      expect(useAppStore.getState().toast?.text).toContain("更新场景失败");
-      expect(useAppStore.getState().toast?.tone).toBe("error");
-    });
-
+    const scenes = renderAt("/scenes");
     fireEvent.click(screen.getByText("generate-scene"));
     await waitFor(() => {
       expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple");
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
     });
-  });
-
-  it("runs prop callbacks and reports API failures with toast", async () => {
-    useProjectsStore.setState({
-      currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
-      currentScripts: { "episode_1.json": makeScript() },
-    });
-
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
-      scripts: { "episode_1.json": makeScript() },
-    });
-    vi.spyOn(API, "updateProjectProp").mockRejectedValue(new Error("prop update failed"));
-    vi.spyOn(API, "generateProjectProp").mockRejectedValue(new Error("prop generate failed"));
+    scenes.unmount();
+    useAppStore.setState({ toast: null });
 
     renderAt("/props");
-
-    fireEvent.click(screen.getByText("update-prop"));
-    await waitFor(() => {
-      expect(API.updateProjectProp).toHaveBeenCalledWith("demo", "Sword", {
-        description: "new prop desc",
-      });
-      expect(useAppStore.getState().toast?.text).toContain("更新道具失败");
-      expect(useAppStore.getState().toast?.tone).toBe("error");
-    });
-
     fireEvent.click(screen.getByText("generate-prop"));
     await waitFor(() => {
       expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword");
@@ -1063,7 +867,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("runs product callbacks and reports API failures with toast", async () => {
+  it("submits product generation and reports its failure with toast", async () => {
     const projectData = makeProjectData({
       products: { Phone: { description: "sleek phone" } },
     });
@@ -1072,27 +876,13 @@ describe("StudioCanvasRouter", () => {
       currentProjectData: projectData,
       currentScripts: { "episode_1.json": makeScript() },
     });
-
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: projectData,
-      scripts: { "episode_1.json": makeScript() },
-    });
-    const updateSpy = vi.spyOn(API, "updateProjectProduct").mockResolvedValue({ success: true });
     const generateSpy = vi
       .spyOn(API, "generateProjectProduct")
-      .mockResolvedValue({ success: true, task_id: "t-1", deduped: false, message: "已提交" });
-    const addSpy = vi.spyOn(API, "addProjectProduct").mockResolvedValue({ success: true });
+      .mockResolvedValueOnce({ success: true, task_id: "t-1", deduped: false, message: "已提交" })
+      .mockRejectedValueOnce(new Error("product generate failed"));
 
     renderAt("/products");
-    expect(screen.getByTestId("products-page")).toHaveAttribute("data-names", "Phone");
-
-    fireEvent.click(screen.getByText("update-product"));
-    await waitFor(() => {
-      expect(updateSpy).toHaveBeenCalledWith("demo", "Phone", {
-        description: "new product desc",
-      });
-      expect(API.getProject).toHaveBeenCalled();
-    });
+    expect(screen.getByTestId("product-gallery")).toHaveAttribute("data-names", "Phone");
 
     fireEvent.click(screen.getByText("generate-product"));
     await waitFor(() => {
@@ -1103,52 +893,10 @@ describe("StudioCanvasRouter", () => {
       expect(selectActiveResourceIds(tasks, "product", "demo", optimisticActive).has("Phone")).toBe(true);
     });
 
-    fireEvent.click(screen.getByText("add-product"));
-    await waitFor(() => {
-      expect(addSpy).toHaveBeenCalledWith("demo", "NewPhone", "desc", "Acme");
-      expect(useAppStore.getState().toast?.text).toContain("已添加");
-    });
-
-    fireEvent.click(screen.getByText("add-product-no-brand"));
-    await waitFor(() => {
-      expect(addSpy).toHaveBeenCalledWith("demo", "NewPhone", "desc", undefined);
-    });
-  });
-
-  it("reports product callback failures with error toasts", async () => {
-    const projectData = makeProjectData({
-      products: { Phone: { description: "sleek phone" } },
-    });
-    useProjectsStore.setState({
-      currentProjectName: "demo",
-      currentProjectData: projectData,
-      currentScripts: { "episode_1.json": makeScript() },
-    });
-
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: projectData,
-      scripts: { "episode_1.json": makeScript() },
-    });
-    vi.spyOn(API, "updateProjectProduct").mockRejectedValue(new Error("product update failed"));
-    vi.spyOn(API, "generateProjectProduct").mockRejectedValue(new Error("product generate failed"));
-    vi.spyOn(API, "addProjectProduct").mockRejectedValue(new Error("product add failed"));
-
-    renderAt("/products");
-
-    fireEvent.click(screen.getByText("update-product"));
-    await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("更新商品失败");
-      expect(useAppStore.getState().toast?.tone).toBe("error");
-    });
-
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
     fireEvent.click(screen.getByText("generate-product"));
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
-    });
-
-    fireEvent.click(screen.getByText("add-product"));
-    await waitFor(() => {
-      expect(useAppStore.getState().toast?.text).toContain("添加失败");
     });
   });
 

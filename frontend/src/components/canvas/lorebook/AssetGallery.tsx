@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import type { LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
@@ -9,10 +9,10 @@ import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { AssetSheetStatusRow, AssetSheetType, WorkspaceFocusTarget } from "@/types";
+import type { AssetSheetType, WorkspaceFocusTarget } from "@/types";
 import { errMsg } from "@/utils/async";
 import { AssetBrowseCard } from "./AssetBrowseCard";
-import { AssetEditorSheet } from "./AssetEditorSheet";
+import { AssetEditorSheet, type AssetEditorTarget } from "./AssetEditorSheet";
 import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
 import { GalleryEmptyState } from "./GalleryEmptyState";
 import { GalleryToolbar } from "./GalleryToolbar";
@@ -37,19 +37,16 @@ export interface AssetGalleryProps<T extends GalleryAssetSource> {
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => Promise<void> | void;
   onReload?: () => Promise<unknown> | void;
-  onAdd?: () => void;
   /**
    * 入库预览的内容。传入即表示这类资产与全局资产库互通：卡片可加入资产库、并入同类资产，
    * 工具栏可从资产库选择。商品不入资产库，不传。需传稳定引用。
    */
   libraryPreview?: (asset: T) => LibraryImportPreview;
-  /** 详情 Sheet 的正文。资产已不存在时返回 null。 */
-  renderEditor: (name: string, context: { sheetStatus: AssetSheetStatusRow | undefined; generating: boolean }) => ReactNode;
 }
 
 /**
  * 角色、场景、道具、商品共用的画廊：工具栏、按画布宽度加列的浏览卡网格、详情 Sheet 与大图查看。
- * 画廊只负责浏览，点卡片打开详情，次要操作在卡片的「更多」里。
+ * 画廊只负责浏览，点卡片打开详情，次要操作在卡片的「更多」里；「添加」在详情 Sheet 里打开空白表单。
  */
 export function AssetGallery<T extends GalleryAssetSource>({
   projectName,
@@ -61,15 +58,13 @@ export function AssetGallery<T extends GalleryAssetSource>({
   onGenerate,
   onRestoreVersion,
   onReload,
-  onAdd,
   libraryPreview,
-  renderEditor,
 }: AssetGalleryProps<T>) {
   const { t } = useTranslation("assets");
   const rows = useAssetSheetStatus(projectName);
   const statusByName = useSheetStatusByName(rows, assetType);
   const [filter, setFilter] = useState<GalleryFilter>("all");
-  const [openName, setOpenName] = useState<string | null>(null);
+  const [editorTarget, setEditorTarget] = useState<AssetEditorTarget | null>(null);
   const [viewName, setViewName] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const getFingerprint = useProjectsStore((s) => s.getAssetFingerprint);
@@ -83,6 +78,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
     [items, libraryPreview],
   );
   const shown = items.filter(({ asset }) => matchesGalleryFilter(asset, statusByName.get(asset.name), filter));
+  const shownNames = shown.map(({ asset }) => asset.name);
   const filterCounts = {
     pending: items.filter(({ asset }) => matchesGalleryFilter(asset, statusByName.get(asset.name), "pending")).length,
     stale: items.filter(({ asset }) => matchesGalleryFilter(asset, statusByName.get(asset.name), "stale")).length,
@@ -99,7 +95,8 @@ export function AssetGallery<T extends GalleryAssetSource>({
   );
   useScrollTarget(assetType, { prepareTarget });
 
-  const openAsset = useCallback((name: string) => setOpenName(name), []);
+  const openAsset = useCallback((name: string) => setEditorTarget({ mode: "edit", name }), []);
+  const onAdd = readOnly ? undefined : () => setEditorTarget({ mode: "create" });
   const viewAsset = useCallback((name: string) => setViewName(name), []);
 
   const importable = libraryPreview !== undefined && assetType !== "product";
@@ -129,7 +126,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
         filter={filter}
         onFilterChange={setFilter}
         filterCounts={filterCounts}
-        onAdd={readOnly ? undefined : onAdd}
+        onAdd={onAdd}
         onPickFromLibrary={onPickFromLibrary}
       >
         {!readOnly && <AssetSheetBatchControls projectName={projectName} assetType={assetType} rows={rows} />}
@@ -138,7 +135,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
         {items.length === 0 ? (
           <GalleryEmptyState
             assetType={assetType}
-            onAdd={readOnly ? undefined : onAdd}
+            onAdd={onAdd}
             onPickFromLibrary={onPickFromLibrary}
           />
         ) : shown.length === 0 ? (
@@ -176,11 +173,18 @@ export function AssetGallery<T extends GalleryAssetSource>({
         )}
       </div>
 
-      <AssetEditorSheet name={openName !== null && openName in assets ? openName : null} onClose={() => setOpenName(null)}>
-        {(name) =>
-          renderEditor(name, { sheetStatus: statusByName.get(name), generating: generatingNames?.has(name) ?? false })
-        }
-      </AssetEditorSheet>
+      <AssetEditorSheet
+        projectName={projectName}
+        assetType={assetType}
+        assets={assets}
+        target={editorTarget}
+        onTargetChange={setEditorTarget}
+        order={shownNames}
+        statusByName={statusByName}
+        generatingNames={generatingNames}
+        readOnly={readOnly}
+        onGenerate={onGenerate}
+      />
 
       {picking && assetType !== "product" && (
         <AssetPickerModal

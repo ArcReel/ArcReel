@@ -98,9 +98,7 @@ const RENDERERS: Record<OnboardingAnchor, () => void> = {
       <CharactersPage
         projectName={DEMO_PROJECT_NAME}
         characters={buildDemoProjectData(demoT).characters ?? {}}
-        onSaveCharacter={vi.fn()}
         onGenerateCharacter={vi.fn()}
-        onAddCharacter={vi.fn()}
         readOnly
       />,
     );

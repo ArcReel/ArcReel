@@ -1115,13 +1115,19 @@ class API {
     projectName: string,
     name: string,
     description: string,
-    brand?: string
+    brand?: string,
+    sellingPoints?: string[]
   ): Promise<SuccessResponse> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/products`,
       {
         method: "POST",
-        body: JSON.stringify(brand ? { name, description, brand } : { name, description }),
+        body: JSON.stringify({
+          name,
+          description,
+          ...(brand ? { brand } : {}),
+          ...(sellingPoints?.length ? { selling_points: sellingPoints } : {}),
+        }),
       }
     );
   }

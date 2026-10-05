@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import {
@@ -20,6 +20,14 @@ type ImpactState =
   | { phase: "loading" }
   | { phase: "ready"; impact: AssetRegenerationImpact }
   | { phase: "failed"; message: string };
+
+export interface StaleConfirmOptions {
+  /**
+   * 保存未保存修改后资产图会过期（如改了描述）：服务端此刻还判为最新，也要确认。
+   * 「保存并生成」在保存之前确认，取消时什么都不保存。
+   */
+  willBeStale?: boolean;
+}
 
 /**
  * 单张重生一张过期资产图前的确认：列出会随之过期的分镜图、视频与衍生图数量。
@@ -43,31 +51,77 @@ export function useStaleRegenerateConfirm({
   /** 资产条目上是否登记了资产图文件；没有时就是首次生成。 */
   hasSheet: boolean;
   onGenerate: () => void;
-}): { request: () => void; dialog: ReactNode } {
+}): {
+  /** 确认后生成。 */
+  request: () => void;
+  /** 只确认不生成：resolve 为是否继续。 */
+  confirm: (options?: StaleConfirmOptions) => Promise<boolean>;
+  dialog: ReactNode;
+} {
   const { t } = useTranslation(["assets", "common"]);
   const [state, setState] = useState<ImpactState>({ phase: "closed" });
+  // 等待创作者答复的那次确认；新一次确认或卸载时按取消结算上一次
+  const pendingRef = useRef<{ resolve: (ok: boolean) => void; controller: AbortController } | null>(null);
+
+  const settle = useCallback((ok: boolean) => {
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    pending?.controller.abort();
+    setState({ phase: "closed" });
+    pending?.resolve(ok);
+  }, []);
+
+  useEffect(
+    () => () => {
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      pending?.controller.abort();
+      pending?.resolve(false);
+    },
+    [],
+  );
+
+  const firstGeneration = !hasSheet || status?.status === "missing";
+
+  const confirm = (options?: StaleConfirmOptions): Promise<boolean> => {
+    if (firstGeneration) return Promise.resolve(true);
+    const previous = pendingRef.current;
+    pendingRef.current = null;
+    previous?.controller.abort();
+    previous?.resolve(false);
+
+    const controller = new AbortController();
+    const willBeStale = options?.willBeStale ?? false;
+    return new Promise<boolean>((resolve) => {
+      pendingRef.current = { resolve, controller };
+      setState({ phase: willBeStale || status?.status === "stale" ? "loading" : "checking" });
+      (derivativeName
+        ? API.getAssetRegenerationImpact(projectName, assetType, name, derivativeName)
+        : API.getAssetRegenerationImpact(projectName, assetType, name))
+        .then((impact) => {
+          if (controller.signal.aborted) return;
+          if (impact.stale || willBeStale) {
+            setState({ phase: "ready", impact });
+            return;
+          }
+          settle(true);
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return;
+          setState({ phase: "failed", message: errMsg(err) });
+        });
+    });
+  };
 
   const request = () => {
-    if (!hasSheet || status?.status === "missing") {
+    if (firstGeneration) {
       onGenerate();
       return;
     }
-    setState({ phase: status?.status === "stale" ? "loading" : "checking" });
-    (derivativeName
-      ? API.getAssetRegenerationImpact(projectName, assetType, name, derivativeName)
-      : API.getAssetRegenerationImpact(projectName, assetType, name))
-      .then((impact) => {
-        if (impact.stale) {
-          setState({ phase: "ready", impact });
-          return;
-        }
-        setState({ phase: "closed" });
-        onGenerate();
-      })
-      .catch((err: unknown) => setState({ phase: "failed", message: errMsg(err) }));
+    void confirm().then((ok) => {
+      if (ok) onGenerate();
+    });
   };
-
-  const close = () => setState({ phase: "closed" });
 
   let description: ReactNode = null;
   if (state.phase === "ready") {
@@ -90,7 +144,7 @@ export function useStaleRegenerateConfirm({
     <AlertDialog
       open={state.phase !== "closed" && state.phase !== "checking"}
       onOpenChange={(next) => {
-        if (!next) close();
+        if (!next) settle(false);
       }}
     >
       <AlertDialogContent>
@@ -100,13 +154,7 @@ export function useStaleRegenerateConfirm({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={state.phase === "loading"}
-            onClick={() => {
-              close();
-              onGenerate();
-            }}
-          >
+          <AlertDialogAction disabled={state.phase === "loading"} onClick={() => settle(true)}>
             {t("sheet_regenerate_confirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -114,5 +162,5 @@ export function useStaleRegenerateConfirm({
     </AlertDialog>
   );
 
-  return { request, dialog };
+  return { request, confirm, dialog };
 }

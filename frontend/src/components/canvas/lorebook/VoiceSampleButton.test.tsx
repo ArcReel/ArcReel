@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VoiceSampleButton } from "./VoiceSampleButton";
 import { API } from "@/api";
@@ -26,10 +27,11 @@ describe("VoiceSampleButton", () => {
       <VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />,
     );
 
-    const button = screen.getByRole("button", { name: /配置音频供应商/ });
+    const button = screen.getByRole("button", { name: "用 TTS 生成参考音频" });
     expect(button).toBeDisabled();
+    expect(screen.getByText("请先在设置中配置音频供应商")).toBeInTheDocument();
 
-    // 入口禁用即不打开弹窗，也不为每张角色卡预取音色列表
+    // 入口禁用即不打开弹窗，也不为每个角色预取音色列表
     fireEvent.click(button);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
@@ -50,7 +52,7 @@ describe("VoiceSampleButton", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
     // 默认文案按界面语言预填，且可编辑
     expect(screen.getByDisplayValue(/这是一段声音示例/)).toBeInTheDocument();
@@ -80,7 +82,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
 
     // 点击「生成」提交样本 A，taskId 落定为 task-1。
@@ -135,7 +137,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -192,7 +194,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -245,7 +247,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -272,7 +274,8 @@ describe("VoiceSampleButton", () => {
 
     // 用 Cherry 生成成功后改选 Serena：Confirm 此时仍指向 Cherry 合成的旧字节，继续显示
     // 会诱导用户以为确认的是当前选中的 Serena——须随选择变化一并隐藏，逼用户重新生成。
-    fireEvent.change(screen.getByLabelText("音色"), { target: { value: "Serena" } });
+    await userEvent.click(screen.getByRole("combobox", { name: "音色" }));
+    await userEvent.click(await screen.findByRole("option", { name: "苏瑶 · 温柔女声" }));
     expect(screen.queryByRole("button", { name: "确认并保存" })).not.toBeInTheDocument();
   });
 
@@ -293,7 +296,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -339,7 +342,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -389,7 +392,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
