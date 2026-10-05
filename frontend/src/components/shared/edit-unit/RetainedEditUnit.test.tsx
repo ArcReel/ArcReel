@@ -29,4 +29,28 @@ describe("RetainedEditUnit 主动离开", () => {
     expect(location.history).toEqual(["/notes", "/elsewhere"]);
     expect(screen.getByDisplayValue("外部的新内容")).toBeInTheDocument();
   });
+
+  it("同一视图里另一个单元放弃修改后，仍因有修改的单元保留旧视图", () => {
+    function Two({ source }: { source: string }) {
+      const first = useEditUnit({ source, save });
+      const second = useEditUnit({ source: "备注", save });
+      return (
+        <>
+          <label>正文<textarea value={first.value} onChange={(event) => first.setValue(event.target.value)} /></label>
+          <label>备注<textarea value={second.value} onChange={(event) => second.setValue(event.target.value)} /></label>
+          <button type="button" onClick={second.discard}>放弃备注</button>
+          <output>{source}</output>
+        </>
+      );
+    }
+    const page = (identity: string, source: string) => <LeaveGuardProvider><RetainedEditUnit identity={identity} value={source} message="外部替换了正文">{(shown) => <Two source={shown} />}</RetainedEditUnit></LeaveGuardProvider>;
+    const { rerender } = render(page("notes", "原文"));
+    fireEvent.change(screen.getByRole("textbox", { name: "正文" }), { target: { value: "未保存正文" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "备注" }), { target: { value: "未保存备注" } });
+    fireEvent.click(screen.getByRole("button", { name: "放弃备注" }));
+
+    rerender(page("replaced", "外部的新内容"));
+
+    expect(screen.getByRole("status")).toHaveTextContent("原文");
+  });
 });

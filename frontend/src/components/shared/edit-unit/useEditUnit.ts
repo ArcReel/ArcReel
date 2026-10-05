@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useState } from "react";
 
 import { errMsg } from "@/utils/async";
 
@@ -140,10 +140,11 @@ export function useEditUnit<T>({
   const dirty = !isEqual(value, saved);
   const retention = useContext(EditUnitRetentionContext);
   const protect = retention?.protect;
+  const unitKey = useId();
   useLayoutEffect(() => {
-    protect?.(dirty || status === "saving");
-    return () => protect?.(false);
-  }, [protect, dirty, status]);
+    protect?.(unitKey, dirty || status === "saving");
+    return () => protect?.(unitKey, false);
+  }, [protect, unitKey, dirty, status]);
 
   useEffect(() => {
     if (status !== "saved") return;

@@ -28,7 +28,7 @@ import {
   updateAssetFields,
   type AssetFields,
 } from "./asset-editor-model";
-import { CharacterDerivativesButton } from "./CharacterDerivativesButton";
+import { CharacterDerivativesField } from "./CharacterDerivativesField";
 import { CharacterVoiceField } from "./CharacterVoiceField";
 import { EditableAssetName } from "./EditableAssetName";
 import { markerOf, toGalleryAsset, type GalleryAssetSource } from "./gallery-model";
@@ -340,18 +340,16 @@ export function AssetDetailEditor({
             </EditorSection>
           )}
 
-          {character && !readOnly && (
+          {character && !(readOnly && Object.keys(character.derivatives ?? {}).length === 0) && (
             <EditorSection title={t("assets:derivatives")}>
-              <div>
-                <CharacterDerivativesButton
-                  projectName={projectName}
-                  characterName={name}
-                  derivatives={character.derivatives ?? {}}
-                  ownerHasSheet={Boolean(character.character_sheet)}
-                  busy={busy}
-                  onReload={() => useProjectsStore.getState().refreshProject(projectName)}
-                />
-              </div>
+              <CharacterDerivativesField
+                projectName={projectName}
+                characterName={name}
+                derivatives={character.derivatives ?? {}}
+                ownerSheet={character.character_sheet}
+                readOnly={readOnly}
+                busy={busy}
+              />
             </EditorSection>
           )}
         </div>
