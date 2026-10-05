@@ -15,10 +15,6 @@ import type { CostEstimateResponse, ProjectData } from "@/types";
 
 import { OverviewCanvas } from "./OverviewCanvas";
 
-vi.mock("@/components/canvas/AdInitCanvas", () => ({
-  AdInitCanvas: () => <div data-testid="ad-init-canvas">ad-init</div>,
-}));
-
 function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
   return {
     title: "Demo",
@@ -488,12 +484,35 @@ describe("OverviewCanvas", () => {
       episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }],
     };
 
-    it("shows the ad init canvas until a brief or a product exists", () => {
-      const view = renderOverview({ projectData: makeProjectData({ ...AD_PROJECT, brief: "", products: {} }) });
-      expect(screen.getByTestId("ad-init-canvas")).toBeInTheDocument();
+    beforeEach(() => {
+      vi.spyOn(API, "getAssetSheetStatus").mockResolvedValue({ assets: [] } as never);
+    });
 
-      view.rerender({ projectData: makeProjectData({ ...AD_PROJECT, brief: "卖点" }) });
-      expect(screen.queryByTestId("ad-init-canvas")).not.toBeInTheDocument();
+    it("takes the first input on the overview: brief and products, with the story setting left to the video page", async () => {
+      renderOverview({ projectData: makeProjectData({ ...AD_PROJECT, brief: "", products: {} }) });
+
+      expect(screen.getByRole("region", { name: "创作灵感" })).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "故事设定" })).not.toBeInTheDocument();
+      const products = screen.getByRole("region", { name: "商品" });
+      expect(within(products).getByText("还没有商品")).toBeInTheDocument();
+
+      fireEvent.click(within(products).getByRole("button", { name: "添加商品" }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("opens a listed product in the detail sheet", async () => {
+      renderOverview({
+        projectData: makeProjectData({
+          ...AD_PROJECT,
+          products: { 冰饮: { description: "柠檬气泡水" } } as unknown as ProjectData["products"],
+        }),
+      });
+      const products = screen.getByRole("region", { name: "商品" });
+      expect(within(products).getByRole("link", { name: "查看全部" })).toHaveAttribute("href", "/products");
+
+      fireEvent.click(within(products).getByRole("button", { name: /冰饮/ }));
+      const sheet = await screen.findByRole("dialog");
+      expect(within(sheet).getByDisplayValue("柠檬气泡水")).toBeInTheDocument();
     });
 
     it("leaves out the episode count and lists merchandise among the assets", () => {
@@ -515,20 +534,12 @@ describe("OverviewCanvas", () => {
       expect(screen.getByRole("link", { name: "商品 0/1" })).toHaveAttribute("href", "/products");
     });
 
-    it("keeps the creative brief on the overview and saves brief with a custom target duration", async () => {
+    it("saves the brief together with a custom target duration", async () => {
       const update = vi.spyOn(API, "updateProject").mockResolvedValue({ success: true, project: {} as ProjectData });
-      renderOverview({
-        projectName: "ad-demo",
-        projectData: makeProjectData({
-          ...AD_PROJECT,
-          brief: "",
-          products: { 冰饮: { description: "柠檬气泡水" } } as unknown as ProjectData["products"],
-        }),
-      });
+      renderOverview({ projectName: "ad-demo", projectData: makeProjectData({ ...AD_PROJECT, brief: "" }) });
       const card = screen.getByRole("region", { name: "创作灵感" });
 
-      fireEvent.click(within(card).getByRole("button", { name: "编辑" }));
-      fireEvent.change(within(card).getByRole("textbox", { name: "创作灵感" }), { target: { value: "夏日解渴" } });
+      fireEvent.change(within(card).getByRole("textbox", { name: "创作灵感" }), { target: { value: " 夏日解渴 " } });
       fireEvent.click(within(card).getByRole("radio", { name: "自定义" }));
       fireEvent.change(within(card).getByRole("spinbutton", { name: "自定义目标总时长（秒）" }), {
         target: { value: "45" },
@@ -536,6 +547,30 @@ describe("OverviewCanvas", () => {
       fireEvent.click(within(card).getByRole("button", { name: "保存" }));
 
       await waitFor(() => expect(update).toHaveBeenCalledWith("ad-demo", { brief: "夏日解渴", target_duration: 45 }));
+    });
+
+    it("sends only the brief when the target duration was left alone", async () => {
+      const update = vi.spyOn(API, "updateProject").mockResolvedValue({ success: true, project: {} as ProjectData });
+      renderOverview({ projectName: "ad-demo", projectData: makeProjectData({ ...AD_PROJECT, brief: "旧灵感" }) });
+      const card = screen.getByRole("region", { name: "创作灵感" });
+
+      fireEvent.change(within(card).getByRole("textbox", { name: "创作灵感" }), { target: { value: "夏日解渴" } });
+      fireEvent.click(within(card).getByRole("button", { name: "保存" }));
+
+      await waitFor(() => expect(update).toHaveBeenCalledWith("ad-demo", { brief: "夏日解渴" }));
+    });
+
+    it("keeps an invalid custom duration unsaved and says why", async () => {
+      const update = vi.spyOn(API, "updateProject");
+      renderOverview({ projectName: "ad-demo", projectData: makeProjectData({ ...AD_PROJECT, brief: "旧灵感" }) });
+      const card = screen.getByRole("region", { name: "创作灵感" });
+
+      fireEvent.click(within(card).getByRole("radio", { name: "自定义" }));
+      fireEvent.click(within(card).getByRole("button", { name: "保存" }));
+
+      // 档位选择器行内的说明之外，提示条也写明没有保存的原因
+      await waitFor(() => expect(within(card).getAllByText(/目标总时长须为正整数秒/)).toHaveLength(2));
+      expect(update).not.toHaveBeenCalled();
     });
   });
 });

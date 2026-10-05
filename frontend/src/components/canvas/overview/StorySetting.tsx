@@ -57,6 +57,10 @@ interface StorySettingProps {
   generating: boolean;
   generateError: StoryGenerateError | null;
   onGenerate: () => void;
+  /** 标题下的一句说明，如广告项目「故事设定」tab 里说明保存后脚本的去向。 */
+  description?: string;
+  /** 不会卸载本编辑单元的应用内跳转（见 `useEditUnit` 的同名参数）。需传稳定引用。 */
+  allowNavigation?: (to: string) => boolean;
 }
 
 /**
@@ -71,6 +75,8 @@ export function StorySetting({
   generating,
   generateError,
   onGenerate,
+  description,
+  allowNavigation,
 }: StorySettingProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const headingId = useId();
@@ -93,7 +99,7 @@ export function StorySetting({
     },
     [projectName],
   );
-  const unit = useEditUnit({ source, save });
+  const unit = useEditUnit({ source, save, allowNavigation });
 
   const hasContent = FIELD_KEYS.some((key) => unit.savedValue[key] !== "");
   const needsConfirm = hasContent || unit.dirty;
@@ -214,6 +220,7 @@ export function StorySetting({
           </Button>
         ) : null}
       </div>
+      {description ? <p className="max-w-[40em] text-sm text-muted-foreground">{description}</p> : null}
 
       {generateError && !generating && !readOnly ? (
         <div role="alert" className="flex flex-col gap-1.5 text-sm text-destructive">

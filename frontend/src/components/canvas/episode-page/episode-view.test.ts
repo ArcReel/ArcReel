@@ -51,8 +51,13 @@ describe("episodeViewTabs", () => {
     ]);
   });
 
-  it("gives ad projects no plan view and demo projects no edit view", () => {
-    expect(episodeViewTabs({ ...SCRIPTED, isAd: true }).map((tab) => tab.view)).toEqual(["board", "edit"]);
+  it("gives ad projects the story setting first and no plan view, and demo projects no edit view", () => {
+    expect(episodeViewTabs({ ...SCRIPTED, isAd: true }).map((tab) => tab.view)).toEqual(["setting", "board", "edit"]);
+    expect(episodeViewTabs({ ...SCRIPTED, isAd: true, hasScript: false, hasDraft: false })).toEqual([
+      { view: "setting", disabled: false },
+      { view: "board", disabled: false },
+    ]);
+    expect(episodeViewTabs(SCRIPTED).map((tab) => tab.view)).not.toContain("setting");
     expect(episodeViewTabs({ ...SCRIPTED, demo: true, hasDraft: false }).map((tab) => tab.view)).toEqual(["board"]);
   });
 });
@@ -93,6 +98,14 @@ describe("staysInEpisodeView", () => {
     expect(staysInEpisodeView("?view=grid", "/episodes/1", { ...SCRIPTED, grid: true })).toBe(false);
     expect(staysInEpisodeView("/episodes/1?view=edit", "/episodes/1", SCRIPTED)).toBe(false);
     expect(staysInEpisodeView("/episodes/2", "/episodes/1", SCRIPTED)).toBe(false);
+  });
+
+  it("treats the ad story setting as its own view", () => {
+    const ad: EpisodeViewFacts = { ...SCRIPTED, isAd: true, hasDraft: false };
+    expect(staysInEpisodeView("/episodes/1?view=setting&unit=2", "/episodes/1?view=setting", ad)).toBe(true);
+    expect(staysInEpisodeView("/episodes/1", "/episodes/1?view=setting", ad)).toBe(false);
+    // 非广告项目没有故事设定 tab，view=setting 按缺省视图显示
+    expect(resolveEpisodeView("setting", SCRIPTED)).toBe("board");
   });
 
   it("resolves a missing or unavailable view to the default view of the episode", () => {

@@ -167,6 +167,15 @@ flowchart LR
 - Merchandise fidelity and reference consistency take priority;
 - Can generate voice-over copy, subtitles, and a Jianying draft, with dubbing completed after export.
 
+#### First Input and Story Setting {#ad-first-input}
+
+Ad/short video projects have no separate setup page. After you create the project, fill in the project overview:
+
+- **Creative brief**: the video you want, the target audience, tone and key selling points, plus the target duration.
+- **Merchandise**: click **Add product**, enter the name and description in the side panel, then upload product photos after the product is created. Without a product, you can still generate the script from the creative brief alone.
+
+Ad/short video projects have no source text. Edit the synopsis, genre, theme and world setting in the **Story setting** tab on the video page; AI script generation draws on them. After you save changes, a script that was already generated is marked outdated.
+
 #### Recommended Workflow {#ad-flow}
 
 ```mermaid
