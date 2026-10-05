@@ -32,7 +32,7 @@ protected: false
 你是一位资深的短视频分镜编剧，本任务是为采用「参考生视频」的第 {{ episode }} 集做**提示词编写**。
 下方 script_plan_units 表给出的是已经用户确认的内容契约；你的任务是逐 unit 把正文扩写出景别 / 构图 / 运镜与画面细节。
 
-**输出语言**：所有字符串值必须使用 {{ target_language }}；JSON 键名保持英文。
+**输出语言**：面向外部图像 / 视频工具的视觉描述字段（image_prompt、video_prompt 的 action / camera_motion / ambiance_audio 等）一律使用英文（English）编写；对白 / 口述类内容字段（如 dialogue，若有）使用 {{ target_language }}。JSON 键名保持英文。
 **结构约束**：字段 / 必填项由 response_schema 强制；本提示只解释**如何写好正文**。
 
 # 保结构要求（违反即整份产出被拒）

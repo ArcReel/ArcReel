@@ -32,7 +32,7 @@ protected: false
 你的任务：基于下方已定稿的「分镜表」，为**每个分镜**产出视觉层（image_prompt 与 video_prompt），按 segment_id 一一对齐。
 
 **只产视觉层**：novel_text、时长、segment_break、出场角色 / 场景 / 道具均已在 script_plan 定稿、按 segment_id 透传，**不要重复输出、不要改写**；你只产出 image_prompt 与 video_prompt。
-**输出语言**：所有字符串值必须使用 {{ target_language }}；JSON 键名 / 枚举值保持英文。
+**输出语言**：面向外部图像 / 视频工具的视觉描述字段（image_prompt、video_prompt 的 action / camera_motion / ambiance_audio 等）一律使用英文（English）编写；对白 / 口述类内容字段（如 dialogue，若有）使用 {{ target_language }}。JSON 键名 / 枚举值保持英文。
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 {{ partial("shared/pacing/narration") }}

@@ -79,7 +79,7 @@ export const i18nReady = i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    fallbackLng: 'zh',
+    fallbackLng: 'vi',
     supportedLngs: SUPPORTED_LANGUAGES,
     debug: false,
     interpolation: { escapeValue: false },
@@ -87,6 +87,12 @@ export const i18nReady = i18n
     ns: I18N_NAMESPACES,
     partialBundledLanguages: true,
     react: { useSuspense: false },
+    // 越南语优先：仅采纳用户显式选择（URL / 本地存储 / cookie），不按浏览器
+    // 语言自动切换；无显式选择时回退到 fallbackLng（vi），即默认越南语界面。
+    detection: {
+      order: ['querystring', 'localStorage', 'cookie'],
+      caches: ['localStorage'],
+    },
   });
 
 export default i18n;

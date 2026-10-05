@@ -118,13 +118,13 @@ export function withAuth(endpoint: string, options: RequestInit = {}): RequestIn
     headers.set("Authorization", `Bearer ${token}`);
   }
   // Add Accept-Language header based on current i18n language
-  headers.set("Accept-Language", i18n.language || "zh");
+  headers.set("Accept-Language", i18n.language || "vi");
   return { ...options, headers };
 }
 
 /** SSE 建连请求头：与 {@link withAuth} 同一套凭证与语言，每次重建前重新取。 */
 export function sseHeaders(): HeadersInit {
-  const headers: Record<string, string> = { "Accept-Language": i18n.language || "zh" };
+  const headers: Record<string, string> = { "Accept-Language": i18n.language || "vi" };
   const token = getToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;

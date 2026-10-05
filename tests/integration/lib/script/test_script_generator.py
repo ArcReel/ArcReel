@@ -253,7 +253,7 @@ class TestScriptGenerator:
         assert prompt.endswith("# 附加指令\n多给人物面部特写")
 
     async def test_narration_prompt_authoring_build_prompt_uses_project_source_language(self, tmp_path):
-        """narration prompt_authoring（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
+        """narration prompt_authoring（视觉层）：视觉描述字段强制英文（供外部图像 / 视频工具）；对白 / 口述内容仍取项目 source_language，非中文项目不得回落中文。"""
         project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
@@ -273,9 +273,11 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
-        # 输出语言锁定为项目 source_language，不回落默认中文
-        assert "所有字符串值必须使用 English" in prompt
-        assert "所有字符串值必须使用 中文" not in prompt
+        # 视觉描述字段强制英文（供外部图像 / 视频工具），与项目语言无关
+        assert "一律使用英文（English）编写" in prompt
+        # 对白 / 口述内容仍取项目 source_language，不回落默认中文
+        assert "使用 English" in prompt
+        assert "使用 中文" not in prompt
 
     async def test_load_script_plan_drama_missing_raises_without_fallback(self, tmp_path):
         """drama 集缺 script_plan_normalized_script.json 时显式报错；不得降级改读 narration 的拆分表。"""
@@ -532,7 +534,7 @@ class TestScriptGenerator:
         assert "少年坠崖生死未卜" not in prompt
 
     async def test_drama_prompt_authoring_build_prompt_uses_project_source_language(self, tmp_path):
-        """prompt_authoring 视觉层 prompt 的输出语言须取项目 source_language，非中文项目不得回落中文。"""
+        """drama prompt_authoring（视觉层）：视觉描述字段强制英文（供外部图像 / 视频工具）；对白 / 口述内容仍取项目 source_language，非中文项目不得回落中文。"""
         project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -550,9 +552,11 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
-        # 输出语言锁定为项目 source_language，不回落默认中文
-        assert "所有字符串值必须使用 English" in prompt
-        assert "所有字符串值必须使用 中文" not in prompt
+        # 视觉描述字段强制英文（供外部图像 / 视频工具），与项目语言无关
+        assert "一律使用英文（English）编写" in prompt
+        # 对白 / 口述内容仍取项目 source_language，不回落默认中文
+        assert "使用 English" in prompt
+        assert "使用 中文" not in prompt
 
     async def test_parse_response_invalid_json_raises(self, tmp_path):
         project_path = tmp_path / "projects" / "demo"

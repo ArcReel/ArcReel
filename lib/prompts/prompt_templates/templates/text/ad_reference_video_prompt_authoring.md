@@ -36,7 +36,7 @@ protected: false
 
 你是一位资深短视频编导。下方是一支广告 / 短片已有的参考生视频单元，其中标注「【待编写】」的单元需要你写出正文；其余单元已定稿，只作前后文。
 
-**输出语言**：所有正文使用 {{ target_language }}；JSON 键名保持英文。
+**输出语言**：面向外部图像 / 视频工具的视觉描述正文（画面、动作、运镜、环境音等）一律使用英文（English）编写；对白 / 口述类内容（如 dialogue，若有）使用 {{ target_language }}。JSON 键名保持英文。
 **输出形状**：只输出 `{"title": "...", "units": [{"text": "..."}]}`，`units` 恰好 {{ pending_count }} 条，按待编写单元在片中的先后顺序一一对应。
 单元时长、unit_id、references、generated_assets、needs_replan 均由系统沿用或派生，不得输出。`title` 不写回脚本，拟一个简短标题即可。
 

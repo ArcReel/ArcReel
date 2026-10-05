@@ -188,7 +188,9 @@ async def test_build_system_prompt_renders_language_rule_for_locale(tmp_path: Pa
     append = options.system_prompt["append"]
 
     assert f"- **回答用户必须使用{language}**：" in append
-    assert f"- **Prompt 使用{language}**：" in append
+    # 视觉 prompt 恒为英文（供外部图像 / 视频工具），与 locale 无关；对白 / 口述仍随 locale
+    assert "- **视觉 Prompt 使用英文（English）**：" in append
+    assert f"对白 / 口述类内容仍使用{language}" in append
     assert [line for line in append.splitlines() if line.startswith("## ")] == [
         "## 语言规范",
         "## 当前项目上下文",
