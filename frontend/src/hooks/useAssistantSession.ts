@@ -206,6 +206,8 @@ export function useAssistantSession(projectName: string | null) {
           const draft = (payload.draft ?? null) as DraftState | null;
           const rev = typeof payload.rev === "number" ? payload.rev : 0;
           store.getState().setDraftSnapshot(draft, rev);
+          // 流先补发存量条目、再发 draft 快照，快照到达即历史回放完毕
+          store.getState().settleHistory();
         },
         delta(payload) {
           if (typeof payload.message_id === "string" && typeof payload.rev === "number") {
@@ -265,6 +267,7 @@ export function useAssistantSession(projectName: string | null) {
   // 复核 aborted，拦截「abort 发生在响应已 resolve 之后」的窗口。
   const loadSession = useCallback(async (sessionId: string, options: { signal: AbortSignal }) => {
     const { signal } = options;
+    store.getState().beginHistory();
     const res = await API.getAssistantSession(projectName!, sessionId, { signal });
     if (signal.aborted) return;
     const raw = res as Record<string, unknown>;
@@ -283,6 +286,7 @@ export function useAssistantSession(projectName: string | null) {
       if (signal.aborted) return;
       store.getState().setEntries(data.entries ?? []);
       store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
+      store.getState().settleHistory();
     }
   }, [projectName, clearPendingQuestion, connectStream, store]);
 
@@ -681,9 +685,9 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, reconcileAfterStaleRewrite, switchSession, store, t, writeSessions],
   );
 
-  // 删除会话
-  const deleteSession = useCallback(async (sessionId: string) => {
-    if (!projectName) return;
+  // 删除会话。返回删除接口是否成功：失败时会话仍在，调用方据此提示并允许重试。
+  const deleteSession = useCallback(async (sessionId: string): Promise<boolean> => {
+    if (!projectName) return false;
     // 删除当前会话即刻接管会话选择权，作废不能等到 DELETE 返回：在途的发送/改写
     // 若在这期间被受理，会把用户装到一个分支上，而删除收尾此时已看不出该切换
     const invalidatedForDelete = store.getState().currentSessionId === sessionId;
@@ -714,6 +718,7 @@ export function useAssistantSession(projectName: string | null) {
           statusRef.current = "idle";
         }
       }
+      return true;
     } catch {
       // 删除没成功，会话还在。进入时那次作废已经把在途发送/改写的收尾摘掉了——
       // 若它其实被服务端受理了，这一轮此刻在本地不可见，输入框里的内容还会被再发
@@ -725,6 +730,7 @@ export function useAssistantSession(projectName: string | null) {
         loadedSessionRef.current = null;
         await switchSession(sessionId);
       }
+      return false;
     } finally {
       if (invalidatedForDelete) {
         deletingCurrentRef.current[deleteKey] -= 1;

@@ -30,6 +30,8 @@ interface MessageRowProps {
   turn: Turn;
   /** 该 turn 含流式草稿：末尾块仍在生成，不给操作行。 */
   streaming?: boolean;
+  /** 该 turn 是查看期间新到达的系统事件，其中的失败卡片播报给读屏。 */
+  announce?: boolean;
   /** 此刻是否给出改写入口（判据见 utils.canEditUserTurn）。 */
   editable?: boolean;
   /** 该条消息是否处于原地编辑态。 */
@@ -45,6 +47,7 @@ interface MessageRowProps {
 export function MessageRow({
   turn,
   streaming = false,
+  announce = false,
   editable = false,
   editing = false,
   submitting = false,
@@ -81,7 +84,7 @@ export function MessageRow({
     case "assistant":
       return <AgentMessage turn={turn} streaming={streaming} />;
     case "system":
-      return <SystemEvent turn={turn} />;
+      return <SystemEvent turn={turn} announce={announce} />;
     default:
       return null;
   }
@@ -203,12 +206,12 @@ function AgentMessage({ turn, streaming }: { turn: Turn; streaming: boolean }) {
   );
 }
 
-function SystemEvent({ turn }: { turn: Turn }) {
+function SystemEvent({ turn, announce }: { turn: Turn; announce: boolean }) {
   const blocks = turn.content ?? [];
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {blocks.map((block, index) => (
-        <ContentBlockRenderer key={block.id ?? index} block={block} index={index} />
+        <ContentBlockRenderer key={block.id ?? index} block={block} index={index} announce={announce} />
       ))}
     </div>
   );

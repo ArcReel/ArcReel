@@ -45,6 +45,8 @@ const COPIED_RESET_MS = 2000;
 
 interface AgentFailureCardProps {
   failure: FailureObservation;
+  /** 失败是查看期间新到达的：以 alert 播报。载入历史会话时已有的失败不播报。 */
+  announce?: boolean;
   /** 只由当前页面内、仍保留原始输入的启动失败提供；历史轮次绝不自动重放。 */
   onRetry?: () => void;
 }
@@ -56,7 +58,7 @@ function display(value: unknown, fallback: string): string {
   return JSON.stringify(value) ?? fallback;
 }
 
-export function AgentFailureCard({ failure, onRetry }: Readonly<AgentFailureCardProps>) {
+export function AgentFailureCard({ failure, announce = false, onRetry }: Readonly<AgentFailureCardProps>) {
   const { t } = useTranslation("dashboard");
   const [copied, setCopied] = useState(false);
   const titleId = useId();
@@ -85,7 +87,7 @@ export function AgentFailureCard({ failure, onRetry }: Readonly<AgentFailureCard
 
   return (
     <section
-      role="alert"
+      role={announce ? "alert" : undefined}
       aria-labelledby={titleId}
       className="flex max-w-[40em] min-w-0 flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5"
     >

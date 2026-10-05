@@ -1618,7 +1618,7 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().sending).toBe(true);
     });
 
-    let deleting!: Promise<void>;
+    let deleting!: Promise<boolean>;
     await act(async () => {
       deleting = result.current.deleteSession("session-1");
       rewriteDeferred.resolve({
@@ -1684,7 +1684,7 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().sending).toBe(true);
     });
 
-    let deletingCurrent!: Promise<void>;
+    let deletingCurrent!: Promise<boolean>;
     await act(async () => {
       deletingCurrent = result.current.deleteSession("session-1");
       // 另一条会话的删除整轮走完，其收尾不涉及当前会话的保护
@@ -1843,7 +1843,7 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().currentSessionId).toBe("project-a-s1");
     });
 
-    let deleting!: Promise<void>;
+    let deleting!: Promise<boolean>;
     act(() => {
       deleting = result.current.deleteSession("project-a-s1");
     });
@@ -2039,6 +2039,29 @@ describe("useAssistantSession", () => {
     // 迟到的受理不得把用户装到一个分支上
     expect(useAssistantStore.getState().currentSessionId).not.toBe("session-2");
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).not.toContain("session-2");
+  });
+
+  it("tells the caller whether the session was deleted", async () => {
+    mockIdleSession([userEntry(0, "原始消息")]);
+    const remove = vi.spyOn(API, "deleteAssistantSession").mockRejectedValueOnce(new Error("delete failed"));
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    let deleted: boolean | undefined;
+    await act(async () => {
+      deleted = await result.current.deleteSession("session-1");
+    });
+    expect(deleted).toBe(false);
+
+    remove.mockResolvedValueOnce({ success: true });
+    await act(async () => {
+      deleted = await result.current.deleteSession("session-1");
+    });
+    expect(deleted).toBe(true);
+    expect(useAssistantStore.getState().sessions).toEqual([]);
   });
 
   it("reloads the current session when deletion fails, so a send accepted meanwhile is not orphaned", async () => {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -995,9 +996,10 @@ class TestUserMessageLink:
 
 
 class _FakeAdapter:
-    def __init__(self, messages, subagent_timelines=None):
+    def __init__(self, messages, subagent_timelines=None, subagent_descriptions=None):
         self._messages = messages
         self._subagent_timelines = subagent_timelines or {}
+        self._subagent_descriptions = subagent_descriptions or {}
         self.read_count = 0
 
     async def read_raw_messages(self, sdk_session_id, project_cwd=None):
@@ -1006,6 +1008,9 @@ class _FakeAdapter:
 
     async def read_subagent_timelines(self, sdk_session_id, project_cwd=None):
         return {k: list(v) for k, v in self._subagent_timelines.items()}
+
+    async def read_subagent_descriptions(self, sdk_session_id, project_cwd, tool_use_ids):
+        return {k: v for k, v in self._subagent_descriptions.items() if k in tool_use_ids}
 
 
 class TestLazyBackfill:
@@ -1294,7 +1299,7 @@ class TestSubagentBackfillMerge:
         return outcomes[0]
 
     async def test_unanchored_subagent_that_answered_is_inferred_completed(self, log_store: EventLogStore):
-        """压缩续接后锚点 tool_use 不在主线：描述取子时间线的首条指令，结论取最后的回答。"""
+        """压缩续接后锚点 tool_use 不在主线：描述取子时间线的首条指令（多行合并为一行），结论取最后的回答。"""
         sub = [
             {"type": "user", "content": "审片：检查第 8 集\n逐个镜头核对时长", "uuid": "s-u1"},
             {
@@ -1321,10 +1326,41 @@ class TestSubagentBackfillMerge:
 
         assert outcome["type"] == "system"
         assert outcome["tool_use_id"] == "tu-ghost"
-        assert outcome["description"] == "审片：检查第 8 集"
+        assert outcome["description"] == "审片：检查第 8 集 逐个镜头核对时长"
         assert outcome["task_status"] == "completed"
         assert outcome["summary"] == "全部 12 个镜头通过"
         assert outcome["timestamp"] == "2026-01-01T00:05:00Z"
+
+    async def test_unanchored_subagent_prefers_the_description_from_the_raw_call(self, log_store: EventLogStore):
+        """原始载荷里还留着压缩前的调用参数时，描述用父代理写下的 description。"""
+        sub = [
+            {"type": "user", "content": "逐个镜头核对第 8 集的时长\n列出超时的镜头", "uuid": "s-u1"},
+            {"type": "assistant", "content": [{"type": "text", "text": "全部通过"}], "uuid": "s-a1"},
+        ]
+        adapter = _FakeAdapter(
+            [{"type": "user", "content": "hi", "uuid": "u1"}],
+            {"tu-ghost": sub},
+            {"tu-ghost": "审片：第 8 集\n（时长）"},
+        )
+        service = EventLogService(log_store, adapter)
+
+        outcome = self._orphan_outcome(await service.list_entries("old-session", None))
+
+        assert outcome["description"] == "审片：第 8 集 （时长）"
+
+    async def test_unanchored_subagent_falls_back_when_reading_descriptions_fails(self, log_store: EventLogStore):
+        sub = [
+            {"type": "user", "content": "调研", "uuid": "s-u1"},
+            {"type": "assistant", "content": [{"type": "text", "text": "完成"}], "uuid": "s-a1"},
+        ]
+        adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "u1"}], {"tu-ghost": sub})
+        adapter.read_subagent_descriptions = AsyncMock(side_effect=RuntimeError("boom"))
+        service = EventLogService(log_store, adapter)
+
+        outcome = self._orphan_outcome(await service.list_entries("old-session", None))
+
+        assert outcome["description"] == "调研"
+        assert outcome["task_status"] == "completed"
 
     async def test_unanchored_subagent_cut_off_mid_tool_call_is_inferred_stopped(self, log_store: EventLogStore):
         sub = [

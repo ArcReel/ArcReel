@@ -54,7 +54,8 @@ function SessionStatusDot({ status }: { status: SessionMeta["status"] }) {
 
 interface SessionHistoryProps {
   onPick: (sessionId: string) => void;
-  onDelete: (sessionId: string) => Promise<void>;
+  /** 删除会话，返回是否删除成功。 */
+  onDelete: (sessionId: string) => Promise<boolean>;
   /** 收起历史视图，回到消息区。 */
   onClose: () => void;
 }
@@ -172,7 +173,7 @@ function DeleteSessionDialog({
   onClose,
 }: {
   session: SessionMeta | null;
-  onDelete: (sessionId: string) => Promise<void>;
+  onDelete: (sessionId: string) => Promise<boolean>;
   onClose: () => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -191,13 +192,14 @@ function DeleteSessionDialog({
     if (!session || deleting) return;
     setDeleting(true);
     setFailed(false);
+    let deleted: boolean;
     try {
-      await onDelete(session.id);
+      deleted = await onDelete(session.id);
     } finally {
       setDeleting(false);
     }
-    // 删除接口失败时会话仍在列表里：留在对话框里说明，用户可以重试
-    if (useAssistantStore.getState().sessions.some((item) => item.id === session.id)) {
+    // 删除失败时会话还在：留在对话框里说明，用户可以重试
+    if (!deleted) {
       setFailed(true);
       return;
     }

@@ -1,7 +1,7 @@
 import { useImperativeHandle, useMemo, type Ref } from "react";
 import { Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ImagePayload } from "@/types";
+import type { ImagePayload, TimelineEntry } from "@/types";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import {
   MessageScroller,
@@ -24,6 +24,10 @@ import { canEditUserTurn } from "./utils";
 // 贴底时随新内容跟随到底；用户上翻即停止跟随，底部出现「跳到最新」。发送消息与
 // 提交回答时由调用方经 MessageFlowHandle.scrollToEnd 显式滚到底，并恢复跟随。
 // 切换会话时由调用方以会话 id 作 key 重新挂载，新会话从底部开始。
+//
+// 失败卡片只为查看期间新到达的失败播报（role="alert"）；打开会话时已有的失败
+// 照常显示但不播报，否则载入一段历史就会连读几张失败卡片。启动失败只在本次
+// 发送时产生，总是新的。
 // ---------------------------------------------------------------------------
 
 export interface MessageFlowHandle {
@@ -61,8 +65,11 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
   const hasPendingQuestion = useAssistantStore((s) => Boolean(s.pendingQuestion));
   const startupFailure = useAssistantStore((s) => s.startupFailure);
+  const entries = useAssistantStore((s) => s.entries);
+  const historySeq = useAssistantStore((s) => s.historySeq);
 
   const items = useMemo(() => buildDisplayItems(turns, draftTurn), [turns, draftTurn]);
+  const arrived = useMemo(() => arrivedFailures(entries, historySeq), [entries, historySeq]);
 
   if (items.length === 0 && !startupFailure) {
     // 加载期间留白，不闪一下空状态
@@ -89,6 +96,7 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
               <MessageRow
                 turn={turn}
                 streaming={streaming}
+                announce={turn.uuid !== undefined && arrived.has(turn.uuid)}
                 editable={canEditUserTurn(turn, { sessionStatus, hasPendingQuestion, isSending: sending })}
                 editing={Boolean(turn.uuid) && turn.uuid === editingTurnUuid}
                 submitting={sending}
@@ -100,7 +108,7 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
           ))}
           {startupFailure && (
             <MessageScrollerItem messageId="startup-failure">
-              <AgentFailureCard failure={startupFailure} onRetry={onRetryStartup} />
+              <AgentFailureCard failure={startupFailure} announce onRetry={onRetryStartup} />
             </MessageScrollerItem>
           )}
         </MessageScrollerContent>
@@ -108,4 +116,15 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
       <MessageScrollerButton />
     </MessageScroller>
   );
+}
+
+/** 查看期间新到达的轮次失败条目的 uuid。条目按 seq 升序，从末尾往回找到历史边界为止。 */
+function arrivedFailures(entries: TimelineEntry[], historySeq: number | null): ReadonlySet<string> {
+  const uuids = new Set<string>();
+  if (historySeq === null) return uuids;
+  for (let i = entries.length - 1; i >= 0 && entries[i].seq > historySeq; i -= 1) {
+    const entry = entries[i];
+    if (entry.type === "system" && entry.subtype === "agent_turn_failure" && entry.uuid) uuids.add(entry.uuid);
+  }
+  return uuids;
 }

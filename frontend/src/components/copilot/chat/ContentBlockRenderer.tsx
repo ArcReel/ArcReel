@@ -37,9 +37,11 @@ interface ContentBlockRendererProps {
   index: number;
   /** 该块正在流式生成（draft turn 的末尾块）。 */
   streaming?: boolean;
+  /** 该块是查看期间新到达的，失败卡片据此播报。 */
+  announce?: boolean;
 }
 
-export function ContentBlockRenderer({ block, index, streaming }: ContentBlockRendererProps) {
+export function ContentBlockRenderer({ block, index, streaming, announce }: ContentBlockRendererProps) {
   if (!block || typeof block !== "object") {
     return null;
   }
@@ -114,7 +116,7 @@ export function ContentBlockRenderer({ block, index, streaming }: ContentBlockRe
       return <QuestionAnswerBlock key={block.id ?? `block-${index}`} block={block} />;
 
     case "agent_failure":
-      return block.failure ? <AgentFailureCard failure={block.failure} /> : null;
+      return block.failure ? <AgentFailureCard failure={block.failure} announce={announce} /> : null;
 
     case "compact_summary":
       return <CompactionMarker key={block.id ?? `block-${index}`} summary={block.text} />;

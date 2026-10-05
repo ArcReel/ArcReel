@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -225,6 +226,32 @@ class SdkTranscriptAdapter:
         )
         return tool_use_id, [self._adapt(msg, payload_by_uuid) for msg in messages]
 
+    async def read_subagent_descriptions(
+        self,
+        sdk_session_id: str | None,
+        project_cwd: Path | str | None,
+        tool_use_ids: Collection[str],
+    ) -> dict[str, str]:
+        """主线原始载荷里子代理调用参数的 ``description``，按 tool_use id 取。
+
+        压缩续接后主线沿 ``parentUuid`` 链只从续接摘要开始，摘要之前发起的
+        子代理调用不在主线里；原始载荷仍保留这些调用，缺锚点的子代理据此拿到
+        父代理写下的描述。找不到时不含该 id。
+        """
+        if not sdk_session_id or self._store is None or not tool_use_ids:
+            return {}
+        wanted = set(tool_use_ids)
+        descriptions: dict[str, str] = {}
+        for entry in await self._load_raw_payloads(sdk_session_id, project_cwd):
+            for block in _content_blocks(entry):
+                if block.get("type") != "tool_use" or block.get("id") not in wanted:
+                    continue
+                tool_input = block.get("input")
+                description = tool_input.get("description") if isinstance(tool_input, dict) else None
+                if isinstance(description, str) and description.strip():
+                    descriptions.setdefault(block["id"], description)
+        return descriptions
+
     async def _load_agent_anchors(
         self,
         sdk_session_id: str,
@@ -312,16 +339,21 @@ class SdkTranscriptAdapter:
         return result
 
 
-def _first_tool_result_use_id(entry: dict[str, Any]) -> str | None:
-    """Extract the first tool_result block's tool_use_id from a raw payload."""
+def _content_blocks(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """原始载荷 ``message.content`` 里的块；字符串正文或缺字段时为空。"""
     message = entry.get("message")
     if not isinstance(message, dict):
-        return None
+        return []
     content = message.get("content")
     if not isinstance(content, list):
-        return None
-    for block in content:
-        if isinstance(block, dict) and block.get("type") == "tool_result":
+        return []
+    return [block for block in content if isinstance(block, dict)]
+
+
+def _first_tool_result_use_id(entry: dict[str, Any]) -> str | None:
+    """Extract the first tool_result block's tool_use_id from a raw payload."""
+    for block in _content_blocks(entry):
+        if block.get("type") == "tool_result":
             tool_use_id = block.get("tool_use_id")
             if isinstance(tool_use_id, str) and tool_use_id:
                 return tool_use_id

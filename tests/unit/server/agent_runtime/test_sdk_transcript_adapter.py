@@ -463,6 +463,43 @@ class TestSubagentTimelines:
         assert await adapter.read_subagent_timelines("") == {}
         assert await adapter.read_subagent_timelines(None) == {}
 
+    async def test_reads_the_description_of_the_requested_subagent_calls(self):
+        """压缩前的子代理调用不在主线里，原始载荷仍有调用参数。"""
+        payloads = [
+            {
+                "type": "assistant",
+                "uuid": "uuid-call",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "派一个子代理"},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "Agent",
+                            "input": {"description": "审片\n第 8 集"},
+                        },
+                        {"type": "tool_use", "id": "toolu_2", "name": "Agent", "input": {"description": "不需要"}},
+                        {"type": "tool_use", "id": "toolu_3", "name": "Agent", "input": {"prompt": "没有描述"}},
+                    ],
+                },
+            },
+            {"type": "user", "uuid": "uuid-text", "message": {"role": "user", "content": "纯文本正文"}},
+        ]
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(return_value=payloads)
+        adapter = SdkTranscriptAdapter(store=fake_store)
+
+        result = await adapter.read_subagent_descriptions(
+            "sdk-session", "/tmp/proj", ["toolu_1", "toolu_3", "toolu_missing"]
+        )
+
+        assert result == {"toolu_1": "审片\n第 8 集"}
+
+    async def test_descriptions_degrade_to_empty_without_store(self):
+        adapter = SdkTranscriptAdapter()
+        assert await adapter.read_subagent_descriptions("sdk-session", "/tmp/proj", ["toolu_1"]) == {}
+
     async def test_list_subagents_error_returns_empty(self):
         fake_store = MagicMock()
         fake_store.load = AsyncMock(return_value=self._main_payloads())

@@ -137,7 +137,8 @@ const FAILURE_API = sessionApi("session-failure", "重新生成 shot_04", FAILUR
 
 const agentPanel = (page: Page) => page.getByRole("complementary", { name: "Agent 面板" });
 const transcript = (page: Page) => page.getByRole("region", { name: "对话记录" });
-const failureCard = (page: Page) => page.getByRole("alert").filter({ hasText: "这一轮没有完成" });
+// 打开会话时已有的失败只显示、不播报，卡片是以标题命名的区域
+const failureCard = (page: Page) => page.getByRole("region", { name: "这一轮没有完成" });
 
 /** 等消息渲染落定：Markdown 渲染器按需加载，离屏项按最终内容排版一次（同 agent-messages.spec.ts）。 */
 async function settleTranscript(page: Page, lastText: string) {
@@ -208,6 +209,7 @@ defineRegionScenarios("Agent 会话投影", [
       await expect(failureCard(page)).not.toContainText("rate_limit");
       await expect(failureCard(page)).not.toContainText("429");
       await expect(failureCard(page).getByRole("link", { name: "Agent 设置" })).toBeVisible();
+      await expect(page.getByRole("alert")).toHaveCount(0);
     },
     screenshot: { name: "agent-projection-failure", target: agentPanel },
   },
