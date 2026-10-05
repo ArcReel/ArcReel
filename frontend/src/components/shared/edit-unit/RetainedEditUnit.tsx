@@ -9,6 +9,21 @@ export const EditUnitRetentionContext = createContext<{
   message?: string;
 } | null>(null);
 
+/**
+ * 编辑单元在 `active`（有未保存修改或保存在途）期间要求所在的 RetainedEditUnit 保留可见内容。
+ * 同一视图里的多个保护者各自调用。返回所在的保留上下文，取其 `message` 判断是否已被外部替换。
+ */
+export function useRetainWhile(active: boolean) {
+  const retention = useContext(EditUnitRetentionContext);
+  const protect = retention?.protect;
+  const key = useId();
+  useLayoutEffect(() => {
+    protect?.(key, active);
+    return () => protect?.(key, false);
+  }, [protect, key, active]);
+  return retention;
+}
+
 /** 外部事件要替换正在编辑的单元时，继续显示当前内容；保存/放弃后再采用真实状态。 */
 export function RetainedEditUnit<T>({
   identity, value, message, children,

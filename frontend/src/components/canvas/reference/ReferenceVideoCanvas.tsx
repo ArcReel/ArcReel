@@ -12,7 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEditUnit, type EditUnit } from "@/components/shared/edit-unit/useEditUnit";
-import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
+import { RetainedEditUnit, useRetainWhile } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { UnsavedChangesBar } from "@/components/shared/edit-unit/UnsavedChangesBar";
 import {
@@ -188,15 +188,18 @@ const FREE_DURATION_MAX = 300;
 
 /**
  * 自由时长输入：失焦或回车时提交一次，中间输入的数字不落盘。
- * 尚未提交的值登记到离开拦截；非法值在提交时回到已保存的时长。
+ * 尚未提交的值登记到离开拦截，并与正文一起参与外部移除保留；非法值在提交时回到已保存的时长。
  */
 function FreeDurationInput({
   unit,
   disabled,
+  externalChangeShown,
   onCommit,
 }: {
   unit: ReferenceVideoUnit;
   disabled: boolean;
+  /** 正文的提示条已在说明外部移除，这里不再重复。 */
+  externalChangeShown: boolean;
   onCommit: (seconds: number) => Promise<boolean>;
 }) {
   const { t } = useTranslation("dashboard");
@@ -227,24 +230,29 @@ function FreeDurationInput({
     }
   }, [draft, dirty, valid, seconds, onCommit]);
 
-  useLeaveGuard({ dirty, saving: committing, save: commit, discard });
+  const discarding = useLeaveGuard({ dirty, saving: committing, save: commit, discard });
+  const retention = useRetainWhile((dirty || committing) && !discarding);
+  const notice = dirty && !externalChangeShown ? retention?.message : undefined;
 
   return (
-    <Input
-      type="number"
-      min={1}
-      max={FREE_DURATION_MAX}
-      step={1}
-      aria-label={t("duration_selector_aria")}
-      value={draft ?? String(unit.duration_seconds)}
-      disabled={disabled}
-      onChange={(e) => setDraft(e.currentTarget.value)}
-      onBlur={() => void commit()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
-      className="h-7 w-20"
-    />
+    <>
+      <Input
+        type="number"
+        min={1}
+        max={FREE_DURATION_MAX}
+        step={1}
+        aria-label={t("duration_selector_aria")}
+        value={draft ?? String(unit.duration_seconds)}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.currentTarget.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className="h-7 w-20"
+      />
+      {notice ? <span role="status" className="text-subtle-foreground">{notice}</span> : null}
+    </>
   );
 }
 
@@ -487,18 +495,26 @@ export function ReferenceVideoCanvas({
     },
     [isUnitRemovalBlocked, t],
   );
+  // 返回是否移除成功：离开拦截据此决定是否丢弃未保存修改
   const handleRemoveUnit = useCallback(async () => {
-    if (!removeUnitId || removingUnit || isUnitRemovalBlocked(removeUnitId)) return;
+    if (!removeUnitId || removingUnit) return false;
+    // 询问未保存修改期间单元可能已被占用，提交时刻再复核
+    if (isUnitRemovalBlocked(removeUnitId)) {
+      useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
+      return false;
+    }
     setRemovingUnit(true);
     try {
       await deleteUnit(projectName, episode, removeUnitId);
       setRemoveUnitId(null);
+      return true;
     } catch (e) {
       toastError(e);
+      return false;
     } finally {
       setRemovingUnit(false);
     }
-  }, [deleteUnit, projectName, episode, removeUnitId, removingUnit, isUnitRemovalBlocked]);
+  }, [deleteUnit, projectName, episode, removeUnitId, removingUnit, isUnitRemovalBlocked, t]);
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
@@ -887,13 +903,14 @@ export function ReferenceVideoCanvas({
       (hasScript && !showPreprocess) ||
       Boolean(error));
 
-  const renderDurationControl = (unit: ReferenceVideoUnit) => {
+  const renderDurationControl = (unit: ReferenceVideoUnit, edit: EditUnit<string>) => {
     if (freeDuration && !selectedDurationEndpointFixed) {
       return (
         <FreeDurationInput
           key={unit.unit_id}
           unit={unit}
           disabled={unitHeaderLocked}
+          externalChangeShown={edit.dirty}
           onCommit={(seconds) => handleDurationChange(unit.unit_id, seconds)}
         />
       );
@@ -979,7 +996,7 @@ export function ReferenceVideoCanvas({
             </span>
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock aria-hidden className="size-3.5" />
-              {renderDurationControl(unit)}
+              {renderDurationControl(unit, edit)}
             </span>
             {selectedTierProblem && (
               <span role="alert" className="text-xs text-subtle-foreground">
@@ -1329,7 +1346,7 @@ export function ReferenceVideoCanvas({
               variant="destructive"
               disabled={removingUnit || (removeUnitId !== null && isUnitRemovalBlocked(removeUnitId))}
               // 离开拦截放在确认移除这一步：先问未保存修改再确认移除，放弃后取消移除就白丢了修改
-              onClick={() => confirmLeave(() => void handleRemoveUnit())}
+              onClick={() => confirmLeave(handleRemoveUnit)}
             >
               {removingUnit ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
               {t("reference_unit_remove_confirm")}

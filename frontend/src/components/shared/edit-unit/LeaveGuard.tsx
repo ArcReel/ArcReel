@@ -44,6 +44,13 @@ export interface LeaveGuardOptions {
   allowNavigation?: (to: string) => boolean;
 }
 
+/**
+ * 被离开拦截包住的动作。同步动作返回 `void`，放行即丢弃修改。会落定的动作（删除、移除这类请求）
+ * 返回 `Promise<boolean>`：成功时才丢弃各编辑单元的修改，失败、被服务端要求再次确认或被占用拦下时
+ * 返回 `false`，修改原样保留。动作自己负责提示失败原因；reject 按失败处理，错误照常抛出。
+ */
+export type LeaveAction = () => void | Promise<boolean>;
+
 export interface ConfirmLeaveOptions {
   /** 第三个按钮的文案，缺省为「保存并离开」；如切换分镜时传「保存并切换」。 */
   saveLabel?: string;
@@ -53,18 +60,33 @@ interface LeaveRequest extends ConfirmLeaveOptions {
   /** 被这次离开影响的编辑单元。 */
   unitIds: string[];
   title?: string;
-  proceed: () => void;
+  proceed: LeaveAction;
+}
+
+interface RequestLeaveOptions extends ConfirmLeaveOptions {
+  to?: string;
+  /** 来自被截住的浏览器前进后退：异步动作在途期间也照常询问。 */
+  fromHistory?: boolean;
 }
 
 interface PendingLeave {
-  proceed: () => void;
-  options: ConfirmLeaveOptions & { to?: string };
+  proceed: LeaveAction;
+  options: RequestLeaveOptions;
+}
+
+interface RegisteredUnit extends LeaveGuardOptions {
+  /** 用户已对一个仍在途的异步动作选择「放弃修改」：动作落定前为 true。 */
+  setDiscarding: (discarding: boolean) => void;
 }
 
 interface LeaveGuardRegistry {
-  register: (id: string, unit: LeaveGuardOptions) => () => void;
-  confirmLeave: (proceed: () => void, options?: ConfirmLeaveOptions) => void;
+  register: (id: string, unit: RegisteredUnit) => () => void;
+  confirmLeave: (proceed: LeaveAction, options?: ConfirmLeaveOptions) => void;
   hasUnsavedChanges: () => boolean;
+}
+
+function isPromise(value: unknown): value is Promise<boolean> {
+  return typeof (value as Promise<boolean> | undefined)?.then === "function";
 }
 
 const LeaveGuardContext = createContext<LeaveGuardRegistry | null>(null);
@@ -73,27 +95,35 @@ const LeaveGuardContext = createContext<LeaveGuardRegistry | null>(null);
  * 把一个编辑单元登记到离开拦截：挂载期间有未保存修改时，应用内路由跳转、`useConfirmLeave`
  * 包住的切换与关闭标签页都会先询问。`useEditUnit` 已自动登记；自行管理表单状态的页面直接调用。
  * 函数型参数需传稳定引用。
+ *
+ * 返回 true 表示用户已选择放弃修改、正等被包住的异步动作落定：修改仍在，成功后才丢弃。
+ * 参与外部移除保留的单元此时不再要求保留，动作本身带来的移除直接生效。
  */
-export function useLeaveGuard({ dirty, saving, save, discard, title, allowNavigation }: LeaveGuardOptions): void {
+export function useLeaveGuard({ dirty, saving, save, discard, title, allowNavigation }: LeaveGuardOptions): boolean {
   const registry = useContext(LeaveGuardContext);
   const id = useId();
+  const [discarding, setDiscarding] = useState(false);
   useEffect(() => {
     if (!registry) return;
-    return registry.register(id, { dirty, saving, save, discard, title, allowNavigation });
+    return registry.register(id, { dirty, saving, save, discard, title, allowNavigation, setDiscarding });
   }, [registry, id, dirty, saving, save, discard, title, allowNavigation]);
+  return discarding;
 }
 
 /**
  * 主从布局内切换选中项（供应商、记忆文件、分镜、资产的上一个与下一个）时使用：
- * 有未保存修改先弹出拦截对话框，用户放行后才执行 `proceed`。`proceed` 需同步完成切换，
+ * 有未保存修改先弹出拦截对话框，用户放行后才执行 `proceed`。切换类的 `proceed` 需同步完成切换，
  * 其中发起的路由跳转不再重复拦截。选中项记在 URL 里、经路由跳转切换的，路由拦截已经覆盖，不必再包。
+ *
+ * 删除、移除这类可能失败的动作返回 `Promise<boolean>`（见 `LeaveAction`）：用户选择放弃修改后，
+ * 修改保留到动作落定，成功才丢弃；动作在途期间它自己发起的路由跳转与 `useConfirmLeave` 不再拦截。
  */
-export function useConfirmLeave(): (proceed: () => void, options?: ConfirmLeaveOptions) => void {
+export function useConfirmLeave(): (proceed: LeaveAction, options?: ConfirmLeaveOptions) => void {
   const registry = useContext(LeaveGuardContext);
   return useCallback(
-    (proceed: () => void, options?: ConfirmLeaveOptions) => {
+    (proceed: LeaveAction, options?: ConfirmLeaveOptions) => {
       if (registry) registry.confirmLeave(proceed, options);
-      else proceed();
+      else void proceed();
     },
     [registry],
   );
@@ -135,9 +165,11 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     hereRef.current = search ? `${path}?${search}` : path;
   }, [path, search]);
-  const unitsRef = useRef(new Map<string, LeaveGuardOptions>());
+  const unitsRef = useRef(new Map<string, RegisteredUnit>());
   // 用户已放行的那次切换在同步执行期间发起的跳转，不再重复拦截
   const passingRef = useRef(false);
+  // 已放行、仍在途的异步动作数：它们落定前自己发起的跳转同样不再拦截。浏览器前进后退照常询问
+  const settlingRef = useRef(0);
   // 用户放行被截住的前进后退后，由 history.back() 引起的那次 popstate 直接交给 wouter
   const releasingPopRef = useRef(false);
   // 等在途保存落定的离开请求；登记变化时重新判断，只保留最近一次
@@ -158,19 +190,50 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
     [leavingUnits],
   );
 
-  const pass = useCallback((proceed: () => void) => {
+  /**
+   * 执行用户放行的动作，并丢弃 `discardIds` 中各单元的修改。同步动作执行完即丢弃；
+   * 异步动作落定且成功后才丢弃，在途期间通知这些单元不再要求外部移除保留，失败时恢复。
+   */
+  const pass = useCallback((proceed: LeaveAction, discardIds: readonly string[] = []) => {
+    const units = () => discardIds.flatMap((id) => unitsRef.current.get(id) ?? []);
+    const affected = units();
+    let result: void | Promise<boolean>;
     passingRef.current = true;
     try {
-      proceed();
+      result = proceed();
+    } catch (err) {
+      for (const unit of affected) unit.discard?.();
+      throw err;
     } finally {
       passingRef.current = false;
     }
+    if (!isPromise(result)) {
+      for (const unit of affected) unit.discard?.();
+      return;
+    }
+    settlingRef.current += 1;
+    for (const unit of affected) unit.setDiscarding(true);
+    const settle = (succeeded: boolean) => {
+      settlingRef.current -= 1;
+      // 取最新登记：动作成功后已卸载的单元不必再丢弃
+      for (const unit of units()) {
+        unit.setDiscarding(false);
+        if (succeeded) unit.discard?.();
+      }
+    };
+    void result.then(
+      (succeeded) => settle(succeeded),
+      (err: unknown) => {
+        settle(false);
+        throw err;
+      },
+    );
   }, []);
 
   const requestLeave = useCallback(
-    (proceed: () => void, options: ConfirmLeaveOptions & { to?: string } = {}) => {
-      if (passingRef.current) {
-        proceed();
+    (proceed: LeaveAction, options: RequestLeaveOptions = {}) => {
+      if (passingRef.current || (settlingRef.current > 0 && !options.fromHistory)) {
+        void proceed();
         return;
       }
       if (leavingUnits(options.to).some(([, unit]) => unit.saving)) {
@@ -179,7 +242,7 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
       }
       const unitIds = dirtyUnitIds(options.to);
       if (unitIds.length === 0) {
-        proceed();
+        void proceed();
         return;
       }
       const title = unitIds.length === 1 ? unitsRef.current.get(unitIds[0])?.title : undefined;
@@ -230,7 +293,10 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
     lastUrlRef.current = currentUrl();
     const onPopState = (event: PopStateEvent) => {
       const target = currentUrl();
-      if (releasingPopRef.current || passingRef.current || dirtyUnitIds(target).length === 0) {
+      // 保存在途的单元即使此刻没有修改也不放行：保存失败或期间又改过时还要询问
+      const unaffected =
+        dirtyUnitIds(target).length === 0 && !leavingUnits(target).some(([, unit]) => unit.saving);
+      if (releasingPopRef.current || passingRef.current || unaffected) {
         releasingPopRef.current = false;
         lastUrlRef.current = target;
         return;
@@ -244,12 +310,12 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
           releasingPopRef.current = true;
           window.history.back();
         },
-        { to: target },
+        { to: target, fromHistory: true },
       );
     };
     window.addEventListener("popstate", onPopState, { capture: true });
     return () => window.removeEventListener("popstate", onPopState, { capture: true });
-  }, [dirtyUnitIds, requestLeave]);
+  }, [dirtyUnitIds, leavingUnits, requestLeave]);
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -261,9 +327,8 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
 
   const discardAll = () => {
     if (!request) return;
-    for (const id of request.unitIds) unitsRef.current.get(id)?.discard?.();
     setOpen(false);
-    pass(request.proceed);
+    pass(request.proceed, request.unitIds);
   };
 
   const saveAll = async () => {

@@ -47,7 +47,8 @@ type PreviewState =
  * 这些分镜在生成时会被拦下，并提供「改为并入…」；没有引用时只写明不可恢复。删除不改写引用，
  * 也不因有引用而禁止。查询请求随关闭或卸载经 AbortSignal 作废；只有查询就绪后才能确认。
  *
- * 离开拦截包住确认动作，不包住打开确认框：取消删除时未保存修改原样保留。
+ * 离开拦截包住确认动作，不包住打开确认框：取消删除时未保存修改原样保留。删除动作返回是否成功，
+ * 请求失败或提交时资产已被占用，离开拦截同样保留修改。
  */
 export function ProjectAssetDeleteDialog({
   open,
@@ -94,9 +95,9 @@ export function ProjectAssetDeleteDialog({
     onDeletingChange(next);
   };
 
-  const executeDelete = async () => {
-    if (busy || deleting) return;
-    if (rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
+  const executeDelete = async (): Promise<boolean> => {
+    if (busy || deleting) return false;
+    if (rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return false;
     updateDeleting(true);
     setError(null);
     try {
@@ -107,8 +108,10 @@ export function ProjectAssetDeleteDialog({
       if (refreshed === "failed") {
         useAppStore.getState().pushToast(t("assets:gallery_delete_refresh_failed"), "warning");
       }
+      return true;
     } catch (err) {
       setError(t("assets:delete_failed", { message: errMsg(err) }));
+      return false;
     } finally {
       updateDeleting(false);
     }
@@ -188,7 +191,7 @@ export function ProjectAssetDeleteDialog({
           <AlertDialogAction
             variant="destructive"
             disabled={deleting || busy || preview.phase !== "ready"}
-            onClick={() => confirmLeave(() => void executeDelete())}
+            onClick={() => confirmLeave(executeDelete)}
           >
             {deleting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
             {t("assets:delete")}

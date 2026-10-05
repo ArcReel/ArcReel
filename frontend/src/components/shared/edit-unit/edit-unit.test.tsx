@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Link, Route, Router, Switch } from "wouter";
+import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 
 import { useAppStore } from "@/stores/app-store";
@@ -279,6 +279,73 @@ describe("离开拦截", () => {
     expect(note()).toHaveValue("备注二的内容");
   });
 
+  describe("包住会落定的异步动作（如删除）", () => {
+    function DeletableNote({ action }: { action: (navigate: (to: string) => void) => Promise<boolean> }) {
+      const confirmLeave = useConfirmLeave();
+      const [, navigate] = useLocation();
+      return (
+        <>
+          <button type="button" onClick={() => confirmLeave(() => action(navigate))}>
+            删除这条备注
+          </button>
+          <NoteEditor source="原始备注" save={vi.fn<SaveNote>()} inline />
+        </>
+      );
+    }
+
+    async function discardForAction(user: ReturnType<typeof userEvent.setup>) {
+      await user.type(note(), "，补充");
+      await user.click(screen.getByRole("button", { name: "删除这条备注" }));
+      await user.click(within(await leaveDialog()).getByRole("button", { name: "放弃修改" }));
+    }
+
+    it("动作失败时修改原样保留", async () => {
+      const user = userEvent.setup();
+      const action = vi.fn(async () => false);
+      renderNotePage(<DeletableNote action={action} />);
+
+      await discardForAction(user);
+
+      await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      expect(note()).toHaveValue("原始备注，补充");
+      expect(screen.getByText("有未保存的修改")).toBeInTheDocument();
+    });
+
+    it("动作成功后才丢弃修改，在途期间修改仍可见", async () => {
+      const user = userEvent.setup();
+      const deleting = createDeferred<boolean>();
+      renderNotePage(<DeletableNote action={() => deleting.promise} />);
+
+      await discardForAction(user);
+
+      expect(note()).toHaveValue("原始备注，补充");
+      await act(async () => deleting.resolve(true));
+      expect(note()).toHaveValue("原始备注");
+    });
+
+    it("动作在途期间自己发起的跳转不再询问", async () => {
+      const user = userEvent.setup();
+      const deleting = createDeferred<void>();
+      const location = renderNotePage(
+        <DeletableNote
+          action={async (navigate) => {
+            await deleting.promise;
+            navigate("/elsewhere");
+            return true;
+          }}
+        />,
+      );
+
+      await discardForAction(user);
+      await act(async () => deleting.resolve());
+
+      expect(await screen.findByText("别处的页面")).toBeInTheDocument();
+      expect(location.history.at(-1)).toBe("/elsewhere");
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+  });
+
   describe("关闭标签页或刷新", () => {
     const unload = () => {
       const event = new Event("beforeunload", { cancelable: true });
@@ -305,7 +372,7 @@ describe("离开拦截", () => {
     });
 
     /** 用浏览器地址渲染，模拟依次访问 visited 中的页面后进入备注页。 */
-    function renderInBrowser(visited = ["/elsewhere"]) {
+    function renderInBrowser(visited = ["/elsewhere"], save: SaveNote = vi.fn<SaveNote>()) {
       window.history.replaceState(null, "", visited[0]);
       for (const path of visited.slice(1)) window.history.pushState(null, "", path);
       window.history.pushState(null, "", "/notes");
@@ -313,7 +380,7 @@ describe("离开拦截", () => {
         <LeaveGuardProvider>
           <Switch>
             <Route path="/notes">
-              <NoteEditor source="原始备注" save={vi.fn<SaveNote>()} />
+              <NoteEditor source="原始备注" save={save} />
             </Route>
             <Route path="/elsewhere">别处的页面</Route>
           </Switch>
@@ -347,6 +414,29 @@ describe("离开拦截", () => {
 
       expect(await screen.findByText("别处的页面")).toBeInTheDocument();
       expect(window.location.pathname).toBe("/elsewhere");
+    });
+
+    it("保存在途时把字段改回原值再后退：不放行，等保存落定后再询问", async () => {
+      const user = userEvent.setup();
+      const saving = createDeferred<string | void>();
+      renderInBrowser(["/elsewhere"], () => saving.promise);
+      await user.type(note(), "，补充");
+      await user.click(screen.getByRole("button", { name: "保存" }));
+      await user.clear(note());
+      await user.type(note(), "原始备注");
+      await goBack();
+      // 被截停时没有可等的界面变化：等 jsdom 在后续任务里派发完 popstate
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+
+      expect(screen.queryByText("别处的页面")).not.toBeInTheDocument();
+      expect(window.location.pathname).toBe("/notes");
+
+      await act(async () => saving.resolve(undefined));
+      await user.click(within(await leaveDialog()).getByRole("button", { name: "继续编辑" }));
+
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+      expect(window.location.pathname).toBe("/notes");
+      expect(note()).toHaveValue("原始备注");
     });
 
     it("放行后退时回到原有的历史记录，再后退不会回到已离开的页面", async () => {
