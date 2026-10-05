@@ -298,4 +298,5 @@ export default {
   "derivative_delete_title": "删除衍生「{{name}}」？",
   "derivative_delete_description": "外观变化描述与衍生图会一起删除，无法恢复。",
   "derivative_delete_description_referenced": "脚本中仍在用 {{token}} 引用它。外观变化描述与衍生图会一起删除，无法恢复。",
+  editor_derivative_removed: "此衍生已被删除或改名。未保存的修改仍保留，保存或放弃后采用当前状态。",
 } satisfies Record<keyof typeof enAssets, string>;

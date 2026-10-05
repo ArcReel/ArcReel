@@ -7,6 +7,8 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.project.project_manager import ProjectManager
 from lib.workflow.workflow_state import WorkflowRequestError, WorkflowStateService
 from server.auth import CurrentUserInfo, get_current_user
@@ -111,3 +113,47 @@ async def test_episode_next_steps_rest_lists_each_episode_and_404s_missing_proje
         (step.episode, step.next_action.type.value) for step in expected
     ]
     assert missing.status_code == 404
+
+
+@pytest.mark.parametrize("field", ["brief", "synopsis", "genre", "theme", "world_setting"])
+async def test_saving_ad_inspiration_or_story_setting_makes_the_script_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    pm = _project(tmp_path)
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            {
+                "brief": "新品发布",
+                "overview": {"synopsis": "开箱", "genre": "广告", "theme": "轻便", "world_setting": "工作室"},
+            }
+        ),
+    )
+    script_path = pm.save_script(
+        "demo", {"episode": 1, "title": "新品", "content_mode": "ad", "shots": []}, "episode_1.json"
+    )
+    original_script = script_path.read_bytes()
+    project_dir = pm.get_project_path("demo")
+    key = ArtifactKey.episode_script(1)
+    assert (
+        ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scripts/episode_1.json").status
+        is ArtifactStatus.CURRENT
+    )
+
+    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+    with TestClient(app) as client:
+        response = (
+            client.patch("/api/v1/projects/demo", json={field: "新的创作灵感"})
+            if field == "brief"
+            else client.patch("/api/v1/projects/demo/overview", json={field: "新的故事设定"})
+        )
+
+    assert response.status_code == 200
+    assert script_path.read_bytes() == original_script
+    assert (
+        ArtifactCurrencyResolver(project_dir).compare(key, artifact_path="scripts/episode_1.json").status
+        is ArtifactStatus.STALE
+    )

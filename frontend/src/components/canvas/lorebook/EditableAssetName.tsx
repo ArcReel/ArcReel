@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { useTrackWrite } from "./useAssetWrites";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 
 interface EditableAssetNameProps {
@@ -58,6 +59,7 @@ export function EditableAssetName({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<AssetRenameResult | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const track = useTrackWrite();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -123,16 +125,18 @@ export function EditableAssetName({
     }
     setRenaming(true);
     try {
-      const result = await API.renameProjectAsset(projectName, assetType, name, trimmed);
-      setPreview(null);
-      setIsEditing(false);
-      onRenamed?.(name, result.new_name);
-      // 重命名已提交，刷新是独立的后续步骤：refreshProject 以结算值报告失败而不 reject，
-      // 不单独提示的话详情会停在旧数据上，看着像改名没生效。cancelled 是项目已切走，静默。
-      const refreshed = await useProjectsStore.getState().refreshProject(projectName);
-      if (refreshed === "failed") {
-        useAppStore.getState().pushToast(t("assets:rename_refresh_failed"), "warning");
-      }
+      await track((async () => {
+        const result = await API.renameProjectAsset(projectName, assetType, name, trimmed);
+        setPreview(null);
+        setIsEditing(false);
+        onRenamed?.(name, result.new_name);
+        // 重命名已提交，刷新是独立的后续步骤：refreshProject 以结算值报告失败而不 reject，
+        // 不单独提示的话详情会停在旧数据上，看着像改名没生效。cancelled 是项目已切走，静默。
+        const refreshed = await useProjectsStore.getState().refreshProject(projectName);
+        if (refreshed === "failed") {
+          useAppStore.getState().pushToast(t("assets:rename_refresh_failed"), "warning");
+        }
+      })());
     } catch (err) {
       useAppStore.getState().pushToast(t("assets:rename_failed", { message: errMsg(err) }), "error");
       // 失败保持确认框关闭、编辑态保留，可以改名后重试

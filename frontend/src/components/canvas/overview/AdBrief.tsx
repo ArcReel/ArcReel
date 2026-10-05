@@ -6,7 +6,7 @@ import { DurationTierPicker } from "@/components/shared/DurationTierPicker";
 import { UnsavedChangesBar } from "@/components/shared/edit-unit/UnsavedChangesBar";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { Textarea } from "@/components/ui/textarea";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 
 interface BriefFields {
   brief: string;
@@ -47,7 +47,7 @@ export function AdBrief({
       if (value.targetDuration !== saved.targetDuration) patch.target_duration = value.targetDuration;
       if (Object.keys(patch).length > 0) {
         await API.updateProject(projectName, patch);
-        await useProjectsStore.getState().refreshProject(projectName);
+        await refreshAfterWrite(projectName, t);
       }
       return { brief: nextBrief, targetDuration: value.targetDuration };
     },

@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
+import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 
 export type AliasAssetType = "character" | "scene" | "prop";
@@ -50,23 +51,27 @@ export function AssetAliasesField({
   const inputRef = useRef<HTMLInputElement>(null);
   const track = useTrackWrite();
   // 撤销在提示里触发，可能晚于下一次刷新：以那一刻的别名为准再加回去
-  const latest = useRef({ aliases, name });
+  const latest = useRef({ aliases, name, busy, saving });
   useEffect(() => {
-    latest.current = { aliases, name };
-  }, [aliases, name]);
+    latest.current = { aliases, name, busy, saving };
+  }, [aliases, name, busy, saving]);
 
-  const save = async (target: string, next: string[]): Promise<boolean> => {
+  /**
+   * 保存整份别名列表。`stale` 表示已保存但没有同步到最新数据（刷新失败已提示，或项目已切走）：
+   * 此时列表仍是旧数据，基于它的后续动作（如撤销）不再可靠。
+   */
+  const save = async (target: string, next: string[]): Promise<"saved" | "stale" | "failed"> => {
+    if (latest.current.busy || latest.current.saving || rejectIfAssetBusy(assetType, projectName, target, t, "assets:gallery_busy_hint")) return "failed";
     setSaving(true);
     try {
-      await track(
-        UPDATE[assetType](projectName, target, { aliases: next }).then(() =>
-          useProjectsStore.getState().refreshProject(projectName),
-        ),
+      const refreshed = await track(
+        UPDATE[assetType](projectName, target, { aliases: next }).then(() => refreshAfterWrite(projectName, t)),
       );
-      return true;
+      // 撤销基于刷新后的列表，只有真正同步了才可靠；cancelled 是项目已切走
+      return refreshed === "success" ? "saved" : "stale";
     } catch (err) {
       useAppStore.getState().pushToast(t("assets:aliases_save_failed", { message: errMsg(err) }), "error");
-      return false;
+      return "failed";
     } finally {
       setSaving(false);
     }
@@ -75,14 +80,14 @@ export function AssetAliasesField({
   const add = async () => {
     const alias = input.trim();
     if (!alias || saving) return;
-    if (await save(name, [...aliases, alias])) {
+    if ((await save(name, [...aliases, alias])) !== "failed") {
       setInput("");
       setAdding(false);
     }
   };
 
   const remove = async (alias: string) => {
-    if (!(await save(name, aliases.filter((item) => item !== alias)))) return;
+    if ((await save(name, aliases.filter((item) => item !== alias))) !== "saved") return;
     useAppStore.getState().pushToast(t("assets:aliases_removed", { alias }), "info", {
       action: {
         label: t("common:undo"),
@@ -135,6 +140,7 @@ export function AssetAliasesField({
           onOpenChange={(next) => {
             // 提交中不响应关闭，请求在途时输入不丢
             if (!next && saving) return;
+            if (next && rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
             setAdding(next);
             if (!next) setInput("");
           }}

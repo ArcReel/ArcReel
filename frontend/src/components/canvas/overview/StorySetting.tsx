@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import type { ProjectOverview } from "@/types";
 import type { OutputTruncation } from "@/utils/output-truncation";
 
@@ -94,10 +94,10 @@ export function StorySetting({
         world_setting: value.world_setting.trim(),
       };
       await API.updateOverview(projectName, trimmed);
-      await useProjectsStore.getState().refreshProject(projectName);
+      await refreshAfterWrite(projectName, t);
       return trimmed;
     },
-    [projectName],
+    [projectName, t],
   );
   const unit = useEditUnit({ source, save, allowNavigation });
 

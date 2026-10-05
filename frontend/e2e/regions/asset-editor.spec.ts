@@ -147,6 +147,28 @@ const LONG_API: ApiOverrides = {
   "GET /api/v1/projects/demo/asset-sheets/status": statusRows("character", [LONG_NAME, "沈砚"]),
 };
 
+// 压力变体：林夕的资产图已过期，重新生成前统计连带影响失败，错误说明很长且带不断行的长串。
+const STALE_IMPACT_FAILED_API: ApiOverrides = {
+  ...BASE,
+  "GET /api/v1/projects/demo/asset-sheets/status": {
+    status: 200,
+    body: {
+      assets: statusRows("character", Object.keys(CHARACTERS)).body.assets.map((row) =>
+        row.name === "林夕" ? { ...row, status: "stale" } : row,
+      ),
+    },
+  },
+  "GET /api/v1/projects/demo/asset-sheets/character/林夕/regeneration-impact": {
+    status: 409,
+    body: {
+      detail: `${Array.from(
+        { length: 24 },
+        (_, i) => `读取第 ${i + 1} 集分镜与视频的引用记录时出错：脚本文件正在被另一个任务写入，请稍后重试。`,
+      ).join("")}trace=${"9f3a6c2e".repeat(16)}`,
+    },
+  },
+};
+
 async function galleryReady(page: Page) {
   await expect(page.getByRole("list", { name: /角色|商品/ }).getByRole("article").first()).toBeVisible();
 }
@@ -205,6 +227,29 @@ defineRegionScenarios("资产详情 Sheet", [
       await expect(sheet.getByRole("button", { name: "保存", exact: true })).toBeInViewport({ ratio: 1 });
     },
     screenshot: { name: "asset-editor-unsaved", target: (page) => page.getByRole("dialog", { name: "林夕" }) },
+  },
+  {
+    name: "重新生成过期资产图：连带影响统计失败的说明很长，只有正文滚动，按钮完整可见",
+    path: CHARACTERS_PATH,
+    api: STALE_IMPACT_FAILED_API,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      await sheet.getByRole("button", { name: "重新生成资产图" }).click();
+      const confirm = page.getByRole("alertdialog", { name: "重新生成这张资产图？" });
+      await confirm.waitFor();
+      await expect(confirm.getByText(/^无法统计连带影响：读取第 1 集/)).toBeVisible();
+      await waitForEntrance(confirm);
+      await expect(confirm.getByRole("button", { name: "取消" })).toBeFocused();
+      await expect(confirm.getByRole("button", { name: "重新生成", exact: true })).toBeInViewport({ ratio: 1 });
+      const body = confirm.getByRole("region", { name: "重新生成这张资产图？" });
+      const overflow = await body.evaluate((el) => ({
+        y: el.scrollHeight > el.clientHeight,
+        x: el.scrollWidth > el.clientWidth,
+      }));
+      expect(overflow.x, "长串没有折行，正文出现横向滚动").toBe(false);
+      if ((page.viewportSize()?.height ?? 0) <= 600) expect(overflow.y, "矮视口下说明应在正文里滚动").toBe(true);
+    },
   },
   {
     name: "有未保存修改时切到下一个：先弹出离开拦截",

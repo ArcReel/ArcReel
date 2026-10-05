@@ -37,8 +37,10 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
+import { normalizeAssetName } from "@/utils/reference-mentions";
 import type { AssetSheetStatusRow, CharacterDerivative, CharacterDerivativeStatus } from "@/types";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
+import { isAssetBusy, rejectIfAssetBusy } from "./assetBusyGuard";
 import { hasUsableDescription } from "./AssetSheetStatusBadge";
 import type { GalleryMarker } from "./gallery-model";
 import { GalleryStatusMarker } from "./GalleryStatusMarker";
@@ -112,12 +114,12 @@ export function CharacterDerivativeRow({
     async (value: string) => {
       await track(
         API.updateCharacterDerivative(projectName, characterName, name, value).then(() =>
-          useProjectsStore.getState().refreshProject(projectName),
+          refreshAfterWrite(projectName, t),
         ),
       );
       onSheetsChanged();
     },
-    [track, projectName, characterName, name, onSheetsChanged],
+    [track, projectName, characterName, name, onSheetsChanged, t],
   );
   const unit = useEditUnit<string>({
     source: derivative.description,
@@ -128,7 +130,12 @@ export function CharacterDerivativeRow({
   // 本条的生成、版本恢复、改名或删除在途，或详情里别处在写：兄弟入口一起禁用
   const rowBusy = busy || generating || restoring || pending;
 
-  const artifactStatus = status?.artifact_status ?? (status?.stale ? "stale" : status?.character_sheet ? "current" : "missing");
+  // 状态读回前按登记的衍生图判定，与画廊卡片的 sheetStateOf 同口径，避免先闪成待生成
+  const artifactStatus = status
+    ? (status.artifact_status ?? (status.stale ? "stale" : status.character_sheet ? "current" : "missing"))
+    : derivative.character_sheet
+      ? "current"
+      : "missing";
   const sheetPath = artifactStatus === "missing" ? "" : (status?.character_sheet ?? derivative.character_sheet ?? "");
   const sheetFp = useProjectsStore((s) => (sheetPath ? s.getAssetFingerprint(sheetPath) : null));
   const sheetUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp) : null;
@@ -159,7 +166,7 @@ export function CharacterDerivativeRow({
 
   const handleGenerate = async () => {
     if (
-      isResourceBusy("character", projectName, characterName) ||
+      isAssetBusy("character", projectName, characterName) ||
       isResourceBusy("character_derivative", projectName, resourceId)
     ) {
       useAppStore.getState().pushToast(t("assets:derivative_busy_hint"), "info");
@@ -197,7 +204,10 @@ export function CharacterDerivativeRow({
     // 衍生图由外观变化生成：改了它，保存后这张图就会过期，服务端此刻的判定还看不到
     const willBeStale = unit.value !== unit.savedValue;
     void unit.saveAndGenerate(handleGenerate, {
-      confirm: () => staleConfirm.confirm({ willBeStale }),
+      confirm: async () => {
+        if (!(await staleConfirm.confirm({ willBeStale }))) return false;
+        return !rejectIfBusy();
+      },
     });
   };
 
@@ -218,6 +228,7 @@ export function CharacterDerivativeRow({
   };
 
   const startRename = () => {
+    if (rejectIfBusy()) return;
     setRenameDraft(name);
     setRenaming(true);
     // 菜单关闭后焦点会回到「更多」，等它落定再移到输入框
@@ -225,7 +236,8 @@ export function CharacterDerivativeRow({
   };
 
   const submitRename = async () => {
-    const next = renameDraft.trim();
+    // 与后端同口径（strip + NFC），行映射登记的是落盘后的真名
+    const next = normalizeAssetName(renameDraft);
     if (!next || next === name) {
       setRenaming(false);
       return;
@@ -233,7 +245,7 @@ export function CharacterDerivativeRow({
     const ok = await run(() =>
       API.renameCharacterDerivative(projectName, characterName, name, next).then(() => {
         onRenamed(name, next);
-        return useProjectsStore.getState().refreshProject(projectName);
+        return refreshAfterWrite(projectName, t);
       }),
     );
     if (ok) setRenaming(false);
@@ -241,9 +253,11 @@ export function CharacterDerivativeRow({
 
   const handleDelete = async () => {
     const ok = await run(() =>
-      API.deleteCharacterDerivative(projectName, characterName, name).then(() =>
-        useProjectsStore.getState().refreshProject(projectName),
-      ),
+      API.deleteCharacterDerivative(projectName, characterName, name).then(() => {
+        // 删除确认已写明外观变化会一起删除：这一行的草稿随之放弃，不作为「外部删除」保留
+        unit.discard();
+        return refreshAfterWrite(projectName, t);
+      }),
     );
     if (ok) setDialog(null);
   };
@@ -306,7 +320,7 @@ export function CharacterDerivativeRow({
                     // Esc 只退出改名，不连带关闭外层 Sheet
                     e.preventDefault();
                     e.stopPropagation();
-                    setRenaming(false);
+                    if (!pending) setRenaming(false);
                   }
                 }}
                 className="h-7 min-w-0 flex-1"
@@ -412,6 +426,8 @@ export function CharacterDerivativeRow({
               title={t("assets:prompt_preview_title", { name: qualified })}
               beforeOpen={unit.save}
               saveFirst={unit.dirty}
+              // 保存在途时不再并发第二次保存
+              disabled={saving}
               load={(signal) =>
                 API.previewAssetPrompt(projectName, "character", characterName, unit.value, {
                   signal,
@@ -446,12 +462,12 @@ export function CharacterDerivativeRow({
             resourceType={CHARACTER_DERIVATIVE_RESOURCE_TYPE}
             resourceId={resourceId}
             onRestore={async () => {
-              await useProjectsStore.getState().refreshProject(projectName);
+              await refreshAfterWrite(projectName, t);
               onSheetsChanged();
             }}
             busy={busy || generating || pending}
             onRestoringChange={setRestoring}
-            checkBusy={() => isResourceBusy("character_derivative", projectName, resourceId)}
+            checkBusy={() => isAssetBusy("character_derivative", projectName, resourceId)}
           />
           <AlertDialog
             open={dialog === "delete"}
@@ -476,7 +492,7 @@ export function CharacterDerivativeRow({
               </AlertDialogBody>
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={pending}>{t("common:cancel")}</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" disabled={pending} onClick={() => void handleDelete()}>
+                <AlertDialogAction variant="destructive" disabled={rowBusy} onClick={() => void handleDelete()}>
                   {pending ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
                   {t("assets:delete")}
                 </AlertDialogAction>

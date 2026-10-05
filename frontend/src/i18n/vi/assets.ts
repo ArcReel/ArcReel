@@ -298,4 +298,5 @@ export default {
   "derivative_delete_title": "Xóa phái sinh \"{{name}}\"?",
   "derivative_delete_description": "Mô tả thay đổi diện mạo và hình phái sinh sẽ bị xóa cùng nhau, không thể khôi phục.",
   "derivative_delete_description_referenced": "Kịch bản vẫn đang tham chiếu nó bằng {{token}}. Mô tả thay đổi diện mạo và hình phái sinh sẽ bị xóa cùng nhau, không thể khôi phục.",
+  editor_derivative_removed: "Phái sinh này đã bị xóa hoặc đổi tên. Các thay đổi chưa lưu vẫn được giữ; lưu hoặc bỏ thay đổi để dùng trạng thái hiện tại.",
 } satisfies Record<keyof typeof enAssets, string>;

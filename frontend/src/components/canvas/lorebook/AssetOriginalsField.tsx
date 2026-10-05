@@ -7,6 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { AssetImageDialog } from "./AssetImageDialog";
 import { useTrackWrite } from "./useAssetWrites";
@@ -60,23 +61,23 @@ export function AssetOriginalsField({
     if (files.length === 0 || busy || uploading) return;
     if (rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
     setUploading(true);
+    let uploaded = 0;
     try {
       await track(
         (async () => {
           for (const file of files) {
             await API.uploadFile(projectName, multiple ? "product_ref" : "character_ref", file, name);
+            uploaded += 1;
           }
         })(),
       );
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
-      // 多张上传中途失败时，前面已上传的也要反映出来
-      await track(
-        useProjectsStore
-          .getState()
-          .refreshProject(projectName, { invalidateKeys: [buildEntityRevisionKey(assetType, name)] }),
-      );
+      // 多张上传中途失败时，前面已上传的也要反映出来；一张都没传上就没有可刷新的写入
+      if (uploaded > 0) {
+        await track(refreshAfterWrite(projectName, t, { invalidateKeys: [buildEntityRevisionKey(assetType, name)] }));
+      }
       setUploading(false);
     }
   };

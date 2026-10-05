@@ -9,6 +9,7 @@ import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useAppStore } from "@/stores/app-store";
 import type { AssetSheetType, WorkspaceFocusTarget } from "@/types";
 import { errMsg } from "@/utils/async";
+import { useAssetBusyNames } from "./assetBusyGuard";
 import { AssetBrowseCard } from "./AssetBrowseCard";
 import { AssetEditorSheet, type AssetEditorTarget } from "./AssetEditorSheet";
 import { AssetImageViewer } from "./AssetImageViewer";
@@ -60,6 +61,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
   libraryPreview,
 }: AssetGalleryProps<T>) {
   const { t } = useTranslation("assets");
+  const occupiedNames = useAssetBusyNames(assetType, projectName);
   const rows = useAssetSheetStatus(projectName);
   const statusByName = useSheetStatusByName(rows, assetType);
   const [filter, setFilter] = useState<GalleryFilter>("all");
@@ -111,7 +113,9 @@ export function AssetGallery<T extends GalleryAssetSource>({
   const viewable = shown
     .map(({ asset }) => asset)
     .filter((asset) => asset.sheetPath !== null && statusByName.get(asset.name)?.status !== "missing");
-  const viewerBusy = new Set(writingNames);
+  // 查看中的资产离开可查看列表时查看器随之关闭，同时结束查看：之后它重新可查看也不再自行弹出
+  if (viewName !== null && !viewable.some((asset) => asset.name === viewName)) setViewName(null);
+  const viewerBusy = new Set([...writingNames, ...occupiedNames]);
   generatingNames?.forEach((name) => viewerBusy.add(name));
   const editFromViewer = (name: string) => {
     setViewName(null);
@@ -172,6 +176,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
                     sheetStatus={row}
                     marker={markerOf(asset, row, generating)}
                     generating={generating}
+                    busy={occupiedNames.has(asset.name)}
                     readOnly={readOnly}
                     libraryPreview={previews?.get(asset.name)}
                     onOpen={openAsset}
@@ -197,6 +202,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
         order={shownNames}
         statusByName={statusByName}
         generatingNames={generatingNames}
+        writingNames={writingNames}
         readOnly={readOnly}
         onGenerate={onGenerate}
       />

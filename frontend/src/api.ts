@@ -1041,11 +1041,13 @@ class API {
     projectName: string,
     assetType: AssetSheetType,
     name: string,
-    derivativeName?: string
+    derivativeName?: string,
+    options?: { signal?: AbortSignal },
   ): Promise<AssetRegenerationImpact> {
     const query = derivativeName ? `?${new URLSearchParams({ derivative_name: derivativeName })}` : "";
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/asset-sheets/${assetType}/${encodeURIComponent(name)}/regeneration-impact${query}`
+      `/projects/${encodeURIComponent(projectName)}/asset-sheets/${assetType}/${encodeURIComponent(name)}/regeneration-impact${query}`,
+      { signal: options?.signal },
     );
   }
 

@@ -23,6 +23,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { CharacterVoiceBinding } from "@/types";
 import { errMsg } from "@/utils/async";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 import { VoiceSampleButton } from "./VoiceSampleButton";
@@ -126,11 +127,7 @@ export function CharacterVoiceField({
   const disabled = busy || uploading || deleting;
 
   const refresh = () =>
-    track(
-      useProjectsStore
-        .getState()
-        .refreshProject(projectName, { invalidateKeys: [buildEntityRevisionKey("character", name)] }),
-    );
+    track(refreshAfterWrite(projectName, t, { invalidateKeys: [buildEntityRevisionKey("character", name)] }));
 
   const upload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -155,7 +152,8 @@ export function CharacterVoiceField({
   };
 
   const executeDelete = async () => {
-    if (busy || rejectIfAssetBusy("character", projectName, name, t, "assets:delete_audio_busy_hint")) {
+    if (disabled) return;
+    if (rejectIfAssetBusy("character", projectName, name, t, "assets:delete_audio_busy_hint")) {
       setConfirmingDelete(false);
       return;
     }
@@ -279,7 +277,7 @@ export function CharacterVoiceField({
           </AlertDialogBody>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>{t("common:cancel")}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" disabled={deleting} onClick={() => void executeDelete()}>
+            <AlertDialogAction variant="destructive" disabled={disabled} onClick={() => void executeDelete()}>
               {deleting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
               {t("common:delete")}
             </AlertDialogAction>

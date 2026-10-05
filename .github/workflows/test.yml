@@ -359,16 +359,16 @@ jobs:
   frontend-e2e:
     # 页面级验收套件（溢出探针 + axe）。镜像版本必须与 frontend/package.json 的 @playwright/test
     # 一致，否则找不到浏览器；升级 @playwright/test 时同步改这里。
-    name: frontend-e2e (${{ matrix.shard }}/2)
+    name: frontend-e2e (${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    # 单 worker 跑完整套截图场景已超过 25 分钟，按用例分两片；每片仍是单 worker，截图渲染条件不变
+    # 单 worker 跑完整套截图场景已超过 25 分钟，按用例分三片；每片仍是单 worker，截图渲染条件不变
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --user 1001 --ipc=host
@@ -393,7 +393,7 @@ jobs:
 
       - name: Run page-level suite
         working-directory: frontend
-        run: pnpm e2e --shard=${{ matrix.shard }}/2
+        run: pnpm e2e --shard=${{ matrix.shard }}/3
 
       - name: Upload Playwright report
         if: failure()

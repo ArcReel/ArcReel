@@ -15,7 +15,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import type { AssetSheetStatusRow, AssetSheetType, Character, Product } from "@/types";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { ASSET_TYPE_ICON } from "./AssetBrowseCard";
+import { rejectIfAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetImageDialog } from "./AssetImageDialog";
 import { AssetOriginalsField } from "./AssetOriginalsField";
@@ -76,6 +78,7 @@ export interface AssetDetailEditorProps {
   sheetStatus: AssetSheetStatusRow | undefined;
   /** 资产图任务占用中。 */
   generating: boolean;
+  writing?: boolean;
   readOnly: boolean;
   onGenerate: (name: string) => unknown;
   /** 改名已提交时调用。 */
@@ -96,6 +99,7 @@ export function AssetDetailEditor({
   asset,
   sheetStatus,
   generating,
+  writing = false,
   readOnly,
   onGenerate,
   onRenamed,
@@ -111,15 +115,16 @@ export function AssetDetailEditor({
     (s) => s.currentProjectData?.character_voice_binding ?? DEFAULT_CHARACTER_VOICE_BINDING,
   );
   const writes = useAssetWrites();
+  const occupied = useAssetBusyNames(assetType, projectName).has(name);
 
   const source = useMemo(() => assetFieldsOf(assetType, asset), [assetType, asset]);
   const save = useCallback(
     async (value: AssetFields, saved: AssetFields) => {
       await updateAssetFields(projectName, assetType, name, assetFieldsPatch(assetType, value, saved));
-      await useProjectsStore.getState().refreshProject(projectName);
+      await refreshAfterWrite(projectName, t);
       return normalizeAssetFields(value);
     },
-    [projectName, assetType, name],
+    [projectName, assetType, name, t],
   );
   const unit = useEditUnit<AssetFields>({
     source,
@@ -129,11 +134,11 @@ export function AssetDetailEditor({
   });
   const { value, setValue } = unit;
   // 区块里的上传、删除在途时，离开先等它们落定
-  useLeaveGuard({ dirty: false, saving: writes.writing, save: unit.save });
+  useLeaveGuard({ dirty: false, saving: writes.writing || writing, save: unit.save });
 
   const saving = unit.status === "saving";
   // 改名会搬动落盘文件，与任何在途写请求交错都会留下旧名孤儿文件，所以把它们都算进占用态
-  const busy = generating || saving || writes.writing;
+  const busy = generating || occupied || saving || writes.writing || writing;
 
   const gallery = toGalleryAsset(assetType, name, asset);
   const sheetFp = useProjectsStore((s) => (gallery.sheetPath ? s.getAssetFingerprint(gallery.sheetPath) : null));
@@ -155,10 +160,16 @@ export function AssetDetailEditor({
   });
 
   const generate = () => {
+    if (busy || rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
     // 资产图只由描述与原图生成：改了描述，保存后这张图就会过期，服务端此刻的判定还看不到
     const willBeStale = value.description !== unit.savedValue.description;
-    void unit.saveAndGenerate(() => onGenerate(name), {
-      confirm: () => staleConfirm.confirm({ willBeStale }),
+    void unit.saveAndGenerate(() => {
+      if (!rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return onGenerate(name);
+    }, {
+      confirm: async () => {
+        if (!(await staleConfirm.confirm({ willBeStale }))) return false;
+        return !rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint");
+      },
     });
   };
 
@@ -238,7 +249,7 @@ export function AssetDetailEditor({
                 <GenerateButton
                   onClick={generate}
                   loading={generating}
-                  disabled={!describable || saving || writes.writing}
+                  disabled={!describable || busy}
                   label={generateLabel}
                   className="w-full"
                 />
@@ -273,6 +284,8 @@ export function AssetDetailEditor({
                   title={t("assets:prompt_preview_title", { name })}
                   beforeOpen={unit.save}
                   saveFirst={unit.dirty}
+                  // 保存在途时再「保存并预览」会并发第二次保存，先后落定可能让旧草稿盖住新草稿
+                  disabled={saving}
                   load={(signal) => API.previewAssetPrompt(projectName, assetType, name, value.description, { signal })}
                 />
               )

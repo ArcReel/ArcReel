@@ -1,4 +1,5 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { waitForEntrance } from "../support/region-helpers.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -171,10 +172,6 @@ async function withPanelWidth(page: Page, width: number, ready: (page: Page) => 
   await expect.poll(async () => (await agentPanel(page).boundingBox())?.width).toBeCloseTo(width, 0);
 }
 
-/** 弹层进场动画结束后再探测，避免 axe 量到半透明的中间态。只等弹层自身：页面上持续运行的指示动画不会结束。 */
-async function settleAnimations(overlay: Locator) {
-  await overlay.evaluate((el) => Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)));
-}
 
 async function openHistory(page: Page) {
   await agentPanel(page).getByRole("button", { name: "会话历史" }).click();
@@ -217,7 +214,7 @@ defineRegionScenarios("Agent 输入区", [
       await todoRow(page).click();
       const list = page.getByRole("region", { name: "待办清单" });
       await expect(list).toContainText("整理改动清单交给你确认");
-      await settleAnimations(list);
+      await waitForEntrance(list);
       await expect(questionnaire(page).getByRole("button", { name: "下一题" })).toBeInViewport();
     },
   },
@@ -256,7 +253,7 @@ defineRegionScenarios("Agent 输入区", [
       await page.getByRole("button", { name: /^删除会话「把第 3 集的旁白/ }).first().click();
       const dialog = page.getByRole("alertdialog");
       await dialog.waitFor();
-      await settleAnimations(dialog);
+      await waitForEntrance(dialog);
       await expect(dialog.getByRole("button", { name: "取消" })).toBeFocused();
     },
   },
@@ -270,7 +267,7 @@ defineRegionScenarios("Agent 输入区", [
       await page.keyboard.type("/");
       const menu = page.getByRole("listbox", { name: "技能命令" });
       await menu.waitFor();
-      await settleAnimations(menu);
+      await waitForEntrance(menu);
       await expect(agentInput(page)).toHaveAttribute("aria-expanded", "true");
     },
     screenshot: { name: "agent-composer-slash", target: agentPanel },

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
@@ -115,6 +115,24 @@ describe("AssetGallery", () => {
     ]);
   });
 
+  it("disables restoring a version once another task occupies the asset", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "scenes", resource_id: "庭院", current_version: 2,
+      versions: [{ version: 1, filename: "v1.png", created_at: "2026-10-01", file_size: 1, is_current: false }],
+    });
+    renderGallery();
+    await user.click(within(await openMenu(user, "庭院")).getByRole("menuitem", { name: "版本历史" }));
+    await user.click(await screen.findByRole("button", { name: "v1" }));
+    expect(screen.getByRole("button", { name: "切换到此版本" })).toBeEnabled();
+
+    act(() => useTasksStore.setState({
+      tasks: [makeTask({ project_name: "demo", task_type: "scene", resource_id: "庭院", status: "running" })],
+    }));
+
+    expect(screen.getByRole("button", { name: "切换到此版本" })).toBeDisabled();
+  });
+
   it("keeps library actions out of product cards", async () => {
     const user = userEvent.setup();
     renderGallery({ assetType: "product", title: "商品", libraryPreview: undefined });
@@ -140,14 +158,15 @@ describe("AssetGallery", () => {
     const user = userEvent.setup();
     renderGallery();
     const menu = await openMenu(user, "庭院");
-    // 菜单打开之后，该场景被 Agent 入队占用；渲染快照里它还是空闲的。
-    useTasksStore.setState({
+    // 菜单打开之后，该场景被 Agent 入队占用，菜单应即时禁用写入入口。
+    act(() => useTasksStore.setState({
       tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
-    });
+    }));
 
-    await user.click(within(menu).getByRole("menuitem", { name: "加入资产库" }));
+    const addToLibrary = within(menu).getByRole("menuitem", { name: "加入资产库" });
+    expect(addToLibrary).toHaveAttribute("aria-disabled", "true");
+    await user.click(addToLibrary);
 
-    expect(useAppStore.getState().toast?.text).toBe("资产图正在生成或修改，请等它结束后再操作");
     expect(screen.queryByRole("dialog", { name: /加入资产库/ })).not.toBeInTheDocument();
   });
 
@@ -287,6 +306,30 @@ describe("AssetGallery", () => {
       expect(screen.getByRole("dialog", { name: "庭院" })).toBeInTheDocument();
     });
 
+    it("stays closed after the viewed asset drops out and later comes back", async () => {
+      const user = userEvent.setup();
+      const { rerender } = renderGallery();
+      await openViewer(user, "庭院");
+
+      const withoutSheet = { ...SCENES, 庭院: { description: "阴森古朴" } };
+      const gallery = (assets: Record<string, Source>) => (
+        <AssetGallery<Source>
+          projectName="demo"
+          assetType="scene"
+          title="场景"
+          assets={assets}
+          readOnly={false}
+          onGenerate={vi.fn()}
+          libraryPreview={libraryPreview}
+        />
+      );
+      rerender(gallery(withoutSheet));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "庭院" })).not.toBeInTheDocument());
+      rerender(gallery(SCENES));
+
+      expect(screen.queryByRole("dialog", { name: "庭院" })).not.toBeInTheDocument();
+    });
+
     it("only previews an earlier version until the restore is confirmed", async () => {
       const user = userEvent.setup();
       const restore = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
@@ -312,6 +355,22 @@ describe("AssetGallery", () => {
       expect(restore).toHaveBeenCalledWith("demo", "scenes", "庭院", 1);
       await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
       expect(onRestoreVersion).toHaveBeenCalled();
+    });
+
+    it("drops the previous image when an earlier version fails to load", async () => {
+      const user = userEvent.setup();
+      renderGallery();
+      const viewer = await openViewer(user, "庭院");
+      const current = within(viewer).getByRole("img", { name: "「庭院」的资产图，第 2 版" });
+      // 大图区域（版本条另有缩略图）
+      const stage = current.closest("span")?.parentElement as HTMLElement;
+      fireEvent.load(current);
+
+      await user.click(await within(viewer).findByRole("button", { name: "第 1 版" }));
+      fireEvent.error(within(viewer).getByRole("img", { name: "「庭院」的资产图，第 1 版" }));
+
+      // 第 1 版读不出来：显示占位，不能让第 2 版的画面冒充第 1 版
+      expect(stage.querySelector("img")).toBeNull();
     });
 
     it("keeps the restore unavailable while the asset image is being generated", async () => {

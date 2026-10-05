@@ -1,4 +1,4 @@
-import { box, clearAgentOverlay } from "../support/region-helpers.ts";
+import { box, clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts";
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
@@ -189,7 +189,9 @@ defineRegionScenarios("参考视频工作台", [
       const moved = page.waitForRequest(
         (request) => request.method() === "POST" && request.url().endsWith(`${UNITS_API}/E1U2/move`),
       );
+      await waitForEntrance(page.locator("body"));
       await handle.focus();
+      await expect(handle).toBeFocused();
       await page.keyboard.press("Space");
       await expect(page.getByText("已拿起「U2」，位于第 2 项，共 14 项。")).toBeAttached();
       await page.keyboard.press("ArrowUp");

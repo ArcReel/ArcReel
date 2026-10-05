@@ -38,6 +38,7 @@ export default {
   'deleted': 'Deleted',
   'config_incomplete': 'Configuration incomplete',
   'refresh': 'Refresh',
+  'write_refresh_failed': 'Done, but the page could not be refreshed. Reload to see the latest state',
   'close': 'Close',
   'jump_to_latest': 'Jump to latest',
   'jump_to_start': 'Jump to start',
