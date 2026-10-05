@@ -3,29 +3,29 @@ import type enOnboarding from '@/i18n/en/onboarding';
 export default {
   // 引导步骤
   'welcome_title': '欢迎使用 [[brand]]',
-  'welcome_body': '[[brand]] 将小说或剧本制作成短视频：Agent（智能体）负责分析原文、编写分集脚本、生成分镜和视频，过程中的每一步都可以人工调整。本引导介绍主要界面和基本流程。',
+  'welcome_body': '[[brand]] 把小说或剧本制作成短视频。制作由 Agent（智能体）执行，每一步都可以人工调整。本引导介绍主要界面和基本流程。',
   'lobby_create_title': '新建项目',
-  'lobby_create_body': '在这里新建项目，设置项目的基本信息、使用的模型和画面风格。',
+  'lobby_create_body': '在这里新建项目，依次设置基础信息、生成设置和画面风格。要打开之前导出的项目，从右侧下拉菜单选择「导入 ZIP」。',
   'lobby_settings_title': '设置',
   'lobby_settings_body': '开始制作前需要完成两项配置。按钮上的红点表示还有必填项未配置。',
   'settings_providers_title': '配置供应商',
-  'settings_providers_body': '图像和视频由这里配置的供应商生成。至少给一个供应商添加密钥，再点「测试」确认可用。',
+  'settings_providers_body': '文本、图片、视频和音频模型都由这里的供应商提供。至少配置一个供应商：填入密钥，并点「测试」确认可用。',
   'settings_agent_title': '配置 [[brand]] Agent',
   'settings_agent_body': '[[brand]] Agent 能完成 [[brand]] 中的全部制作任务。在这里添加一个 Agent 供应商并填入密钥。',
   'lobby_demo_title': '演示项目',
-  'lobby_demo_body': '点击卡片打开演示工作台，查看项目的制作界面。',
+  'lobby_demo_body': '点击卡片打开演示项目，查看制作界面。',
   'workbench_overview_title': '项目概览',
-  'workbench_overview_body': '工作台首页是项目概览。故事设定（梗概、类型、主题、世界观）由 AI 从原文读出，可以直接修改；上方两行是资产图完成度与费用。',
+  'workbench_overview_body': '这里是从原文自动提炼的梗概、类型、主题和世界观，可以直接修改。下方显示资产图的完成情况和费用，每一集的状态在侧栏查看。',
   'workbench_agent_title': 'Agent',
-  'workbench_agent_body': '右侧是 Agent，制作由它执行并汇报进度。新项目进入工作台后先导入小说或剧本，分析完成后发送「开始制作」，它会依次生成项目概述、角色形象图和每一集的分镜与视频。',
+  'workbench_agent_body': '右侧是 Agent 面板。在对话中把任务交给 Agent，它会执行任务并在这里汇报进度。面板可以用顶栏的「Agent」开关收起或展开。',
   'workbench_lorebook_title': '角色、场景与道具',
-  'workbench_lorebook_body': '角色、场景和道具在左侧统一管理，每项资产都可以生成资产图。资产图会作为分镜图生成和参考生视频的参考图，用于保持画面一致。',
-  'workbench_timeline_title': '分镜画布',
-  'workbench_timeline_body': '每一集的分镜按时间线排列，包含画面提示词、分镜图和视频。可以先生成分镜图确认构图，再生成视频，单个分镜支持随时重新生成。',
+  'workbench_lorebook_body': '角色、场景和道具在侧栏的「角色集」「场景库」「道具库」中统一管理。打开卡片可以修改设定、生成资产图。生成分镜图和视频时，资产图会作为参考图，用于保持画面一致。',
+  'workbench_timeline_title': '分镜',
+  'workbench_timeline_body': '每一集有脚本规划、分镜、剪辑三个视图。在分镜视图中，每个分镜包含提示词、分镜图和视频：可以先生成分镜图确认构图，再生成视频。',
   'workbench_export_title': '导出项目',
-  'workbench_export_body': '需要备份或迁移时，从顶栏「导出项目」打包下载整个项目。成片与剪映草稿在各集的剪辑视图中导出。演示项目不能导出，导出按钮不可用。',
+  'workbench_export_body': '从顶栏「导出项目」把整个项目下载为 ZIP，用于备份或迁移。成片和剪映草稿在各集的剪辑视图中导出。演示项目不能导出。',
   'finish_title': '开始你的第一个项目',
-  'finish_body': '新建项目并导入小说或剧本，即可开始制作。本引导可随时在「设置 → 通用」中重新查看。',
+  'finish_body': '新建项目并上传小说或剧本，然后让 Agent 开始制作。本引导可以随时在「设置 → 通用」中重新查看。',
 
   // 引导控件
   'next': '下一步',
@@ -35,23 +35,21 @@ export default {
   'close': '关闭引导',
   'progress': '第 {{current}} 步，共 {{total}} 步',
 
-  // 引导期间展示的演示卡
-  'demo_section_eyebrow': '示例项目',
-  'demo_section_note': '仅在引导期间展示',
+  // 引导期间大厅里的「示例项目」区块
+  'demo_section_title': '示例项目',
+  'demo_section_note': '仅在引导期间显示',
   'demo_project_title': '爱丽丝梦游仙境',
   'demo_project_style': '水彩绘本',
 
-  // 只读演示工作台
-  'demo_banner_title': '演示项目 · 只读',
-  'demo_banner_body': '你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。',
+  // 只读演示工作台：顶栏项目标题旁的徽标与说明
+  'demo_badge': '演示 · 只读',
+  'demo_badge_hint': '你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。',
   'demo_action_unavailable': '演示中不可用',
   'demo_episode_placeholder': '演示内容只到第 {{position}} 集：这一集只有标题，没有脚本和分镜。',
 
-  // 演示工作台 Agent 面板的静态对话：Agent 汇报分析结果 → 用户发起制作 → Agent 汇报推进，
-  // 演的是首次制作的完整时序（Agent 的每条消息都是对上一步动作的回应，不主动发起对话）
-  'demo_chat_agent_analyzed': '小说已分析完成，剧集、角色和场景都已拆解出来。随时可以开始制作。',
+  // 演示工作台 Agent 面板的静态对话：用户发起制作 → Agent 汇报推进；中间的工序行用资产名称拼出
   'demo_chat_user_start': '开始制作',
-  'demo_chat_agent_progress': '好的。项目概述已生成，正在生成角色形象图，之后会逐集生成分镜和视频，进度会在这里同步。',
+  'demo_chat_agent_progress': '角色形象图和场景图已生成。接下来逐集生成分镜图和视频，进度会在这里汇报。',
 
   // 演示项目概述
   'demo_overview_synopsis': '一个闷热的下午，爱丽丝追着一只穿马甲、掏怀表的白兔跳进洞里，落进一个尺寸、礼节和逻辑都不作数的地方。她一路变大变小，跟毛毛虫、疯帽子和红心女王周旋，最后在一场荒唐的审判上把整座纸牌宫廷掀翻。',

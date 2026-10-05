@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -209,6 +209,26 @@ describe("GlobalHeader", () => {
 
     expect(screen.queryByTestId("usage-entry")).not.toBeInTheDocument();
     expect(useAppStore.getState().usagePanelOpen).toBe(false);
+  });
+
+  it("marks the demo project as read-only next to its title, with the explanation on focus", async () => {
+    useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
+    renderHeader();
+
+    const hint = "你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。";
+    const badge = screen.getByText("演示 · 只读");
+    // 说明写进徽标本身，读屏不依赖弹层；徽标可聚焦，聚焦时弹出同一段说明
+    expect(badge).toHaveTextContent(hint);
+    act(() => badge.focus());
+    expect(badge).toHaveFocus();
+    await waitFor(() => expect(screen.getAllByText(hint)).toHaveLength(2));
+  });
+
+  it("shows no read-only badge on a real project", () => {
+    useProjectsStore.setState({ currentProjectName: "real-project" });
+    renderHeader();
+
+    expect(screen.queryByText("演示 · 只读")).not.toBeInTheDocument();
   });
 
   // 项目设置在项目切换器里；齿轮在项目内也只通往全局设置

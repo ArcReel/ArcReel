@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API } from "@/api";
 import { SourceUploadDialog, type SourceUploadResult } from "@/components/canvas/episodes/SourceUploadDialog";
-import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData, ProjectOverview } from "@/types";
@@ -13,8 +12,10 @@ import { AdBrief } from "./AdBrief";
 import { AdProducts } from "./AdProducts";
 import { AssetProgressLine } from "./AssetProgressLine";
 import { CostLine } from "./CostLine";
+import { HandoffTip } from "./HandoffTip";
 import { OverviewHeader } from "./OverviewHeader";
 import { StorySetting, type StoryGenerateError } from "./StorySetting";
+import { useHandoffTipStore } from "./useHandoffTip";
 import { WelcomeCanvas } from "./WelcomeCanvas";
 
 interface OverviewCanvasProps {
@@ -92,22 +93,18 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
     [runGenerate],
   );
 
-  // Agent 交接提示：本次会话内故事设定由空变为有内容时触发一次；只读态与广告项目不触发。
-  // 切项目时 trigger 归零，避免提示按 `<项目>:<trigger>` 去重时把上一个项目的计数当成新事件。
-  const [handoffTrigger, setHandoffTrigger] = useState(0);
+  // 交接提示：本次会话内故事设定由空变为有内容时触发一次；只读态与广告项目不触发。
+  // 按项目记录上一次看到的状态，切项目时不把上一个项目的状态当成这个项目的变化。
   const lastSeenRef = useRef<{ projectName: string; empty: boolean } | null>(null);
   useEffect(() => {
     if (readOnly || isAd) {
       lastSeenRef.current = null;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 切入只读态或广告项目时清零交接提示的 trigger，是有意的状态重置
-      setHandoffTrigger(0);
       return;
     }
     if (!projectData) return;
     const empty = !hasStorySetting(projectData.overview);
     const last = lastSeenRef.current;
-    if (last && last.projectName !== projectName) setHandoffTrigger(0);
-    else if (last?.empty && !empty) setHandoffTrigger((k) => k + 1);
+    if (last?.projectName === projectName && last.empty && !empty) useHandoffTipStore.getState().trigger(projectName);
     lastSeenRef.current = { projectName, empty };
   }, [projectData, projectName, readOnly, isAd]);
 
@@ -165,6 +162,7 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
               onGenerate={() => void runGenerate()}
             />
           )}
+          {!isAd && !readOnly ? <HandoffTip projectName={projectName} /> : null}
         </div>
       )}
       {uploadFiles !== null ? (
@@ -175,7 +173,6 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
           onUploaded={handleUploaded}
         />
       ) : null}
-      {!readOnly ? <AgentHandoffHint triggerKey={handoffTrigger} storageScope={projectName} /> : null}
     </div>
   );
 }

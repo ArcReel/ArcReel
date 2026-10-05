@@ -202,6 +202,8 @@ const REWORKED_FILES = [
   // 共享组件余量：components/shared 与 canvas/shared 下其余的弹层、提示、草稿状态、按钮与图片预览
   "src/components/shared/*.{ts,tsx}",
   "src/components/canvas/shared/*.{ts,tsx}",
+  // 新手引导：步骤与锚点、driver.js 适配层、演示 Agent 面板、大厅「示例项目」区块与顶栏「演示 · 只读」徽标
+  "src/onboarding/**",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

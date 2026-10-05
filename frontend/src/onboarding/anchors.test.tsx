@@ -5,7 +5,7 @@
  * 就是编译期错误。名字漂移由类型拦，元素消失由这些用例拦 —— 两头都不靠人肉巡检。
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -145,6 +145,20 @@ describe("onboarding anchors", () => {
 
     await waitFor(() => expect(API.listProjects).toHaveBeenCalled());
     expect(document.querySelector(anchorSelector(ONBOARDING_ANCHORS.lobbyDemoCard))).toBeNull();
+  });
+
+  it("adds a sample-project section above the empty lobby during the tour and removes only that section afterwards", async () => {
+    useOnboardingStore.setState({ active: true });
+    renderLobby();
+
+    const section = await screen.findByRole("region", { name: "示例项目" });
+    expect(section).toHaveTextContent("仅在引导期间显示");
+    expect(screen.getByText("还没有项目")).toBeInTheDocument();
+
+    act(() => useOnboardingStore.setState({ active: false }));
+
+    expect(screen.queryByRole("region", { name: "示例项目" })).not.toBeInTheDocument();
+    expect(screen.getByText("还没有项目")).toBeInTheDocument();
   });
 
   it("keeps the demo card out of the user's real project list", async () => {

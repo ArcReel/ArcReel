@@ -77,7 +77,7 @@ export function ProjectCard({ project, readOnly, actions }: ProjectCardProps) {
               .filter(Boolean)
               .join(" · ")}
           </p>
-          {readOnly && <span className="sr-only">{t("onboarding:demo_banner_title")}</span>}
+          {readOnly && <span className="sr-only">{t("onboarding:demo_badge")}</span>}
         </div>
       </Link>
 

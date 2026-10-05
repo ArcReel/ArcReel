@@ -6,6 +6,7 @@ import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
 import { Button } from "@/components/ui/button";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import type { AssetSheetType, WorkspaceFocusTarget } from "@/types";
 import { errMsg } from "@/utils/async";
@@ -62,7 +63,9 @@ export function AssetGallery<T extends GalleryAssetSource>({
 }: AssetGalleryProps<T>) {
   const { t } = useTranslation("assets");
   const occupiedNames = useAssetBusyNames(assetType, projectName);
-  const rows = useAssetSheetStatus(projectName);
+  // 演示项目不在服务端，没有资产图状态可取
+  const demo = useDemoWorkbench();
+  const rows = useAssetSheetStatus(projectName, !demo);
   const statusByName = useSheetStatusByName(rows, assetType);
   const [filter, setFilter] = useState<GalleryFilter>("all");
   const [editorTarget, setEditorTarget] = useState<AssetEditorTarget | null>(null);

@@ -9,7 +9,6 @@ import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DemoAssistantPanel } from "@/onboarding/DemoAssistantPanel";
-import { DemoReadOnlyBanner } from "@/onboarding/DemoReadOnlyBanner";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
 import {
@@ -238,7 +237,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
       <GlobalHeader />
-      {demoMode ? <DemoReadOnlyBanner /> : null}
       <ResizablePanelGroup className="min-h-0 flex-1" onLayoutChanged={handleLayoutChanged}>
         <ResizablePanel
           id="workspace-sidebar"

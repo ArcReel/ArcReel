@@ -9,11 +9,13 @@ import { API } from "@/api";
 import { ApiRequestError } from "@/api/errors";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { CostEstimateResponse, ProjectData } from "@/types";
 
 import { OverviewCanvas } from "./OverviewCanvas";
+import { useHandoffTipStore } from "./useHandoffTip";
 
 function makeProjectData(overrides: Partial<ProjectData> = {}): ProjectData {
   return {
@@ -440,40 +442,76 @@ describe("OverviewCanvas", () => {
     });
   });
 
-  describe("agent handoff hint", () => {
-    it("opens the Agent panel once when the story setting goes from empty to filled", () => {
-      useAppStore.setState({ assistantPanelOpen: false });
-      // 提示按「项目:trigger」记入 sessionStorage 去重，用本条用例独有的项目名
+  describe("handoff tip", () => {
+    const TIP = "故事设定已提炼完成。接下来在右侧向 Agent 发送「开始制作」。";
+
+    /** 故事设定在本次会话内由空变为有内容。 */
+    function fillStorySetting(projectName = "demo") {
       const view = renderOverview({
-        projectName: "handoff-fill",
+        projectName,
         projectData: makeProjectData({ overview: undefined, whole_source_files: [{ source_file: "source/a.txt" }] }),
       });
-      view.rerender({ projectName: "handoff-fill", projectData: makeProjectData() });
+      view.rerender({ projectName, projectData: makeProjectData() });
+      return view;
+    }
 
-      expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+    beforeEach(() => {
+      useHandoffTipStore.setState(useHandoffTipStore.getInitialState(), true);
+      useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    });
+
+    it("appears under the story setting once it goes from empty to filled, and stays after leaving the overview", () => {
+      const view = fillStorySetting();
+      expect(screen.getByText(TIP).closest("[role=status]")).not.toBeNull();
+
+      // 切到别的视图再回来（概览卸载后重新挂载），提示还在
+      view.unmount();
+      renderOverview();
+      expect(screen.getByText(TIP).closest("[role=status]")).not.toBeNull();
+    });
+
+    it("goes away for good once dismissed, including after a reload", async () => {
+      const user = userEvent.setup();
+      const view = fillStorySetting();
+      await user.click(screen.getByRole("button", { name: "知道了" }));
+      expect(screen.queryByText(TIP)).not.toBeInTheDocument();
+
+      // 刷新：内存里的待显示状态清空，同一项目的故事设定再次由空变为有内容也不再提示
+      view.unmount();
+      useHandoffTipStore.setState(useHandoffTipStore.getInitialState(), true);
+      fillStorySetting();
+      expect(screen.queryByText(TIP)).not.toBeInTheDocument();
+    });
+
+    it("goes away when the first message is sent to the agent in this project", () => {
+      const view = fillStorySetting();
+
+      act(() => useAssistantStore.setState({ currentProject: "other", sending: true }));
+      expect(screen.getByText(TIP)).toBeInTheDocument();
+
+      act(() => useAssistantStore.setState({ sending: false }));
+      act(() => useAssistantStore.setState({ currentProject: "demo", sending: true }));
+      expect(screen.queryByText(TIP)).not.toBeInTheDocument();
+
+      view.unmount();
+      useHandoffTipStore.setState(useHandoffTipStore.getInitialState(), true);
+      fillStorySetting();
+      expect(screen.queryByText(TIP)).not.toBeInTheDocument();
     });
 
     it("does not fire when switching from an empty project to another project that already has a story setting", () => {
-      useAppStore.setState({ assistantPanelOpen: false });
       const view = renderOverview({ projectName: "project-a", projectData: makeProjectData(EMPTY_PROJECT) });
       view.rerender({ projectName: "project-b", projectData: makeProjectData() });
 
-      expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+      expect(screen.queryByText(TIP)).not.toBeInTheDocument();
     });
 
-    it("does not fire or stay visible on a read-only project", () => {
-      useAppStore.setState({ assistantPanelOpen: false });
-      const view = renderOverview({ projectName: "real", projectData: makeProjectData(EMPTY_PROJECT) });
-      view.rerender({ projectName: "real", projectData: makeProjectData() });
-      expect(screen.getByText("准备就绪")).toBeInTheDocument();
-
-      useAppStore.setState({ assistantPanelOpen: false });
+    it("does not fire on a read-only project", () => {
+      const view = renderOverview({ projectName: "onboarding_demo", projectData: makeProjectData(EMPTY_PROJECT), readOnly: true });
       view.rerender({ projectName: "onboarding_demo", projectData: makeProjectData(), readOnly: true });
-      expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
 
-      // 途经只读演示项目再进入另一个真实项目，不会重放上一个项目的提示
-      view.rerender({ projectName: "project-b", projectData: makeProjectData() });
-      expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+      expect(screen.queryByText(TIP)).not.toBeInTheDocument();
+      expect(useHandoffTipStore.getState().pending.size).toBe(0);
     });
   });
 
