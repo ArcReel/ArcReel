@@ -238,4 +238,103 @@ describe("AssetGallery", () => {
       await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     });
   });
+  describe("image viewer", () => {
+    const version = (n: number, current: boolean) => ({
+      version: n,
+      filename: `庭院_v${n}.png`,
+      created_at: "2026-10-01 12:00",
+      file_size: 1,
+      is_current: current,
+      file_url: `/files/庭院_v${n}.png`,
+    });
+
+    beforeEach(() => {
+      vi.spyOn(API, "getVersions").mockImplementation(async (_project, _type, name) => ({
+        resource_type: "scenes",
+        resource_id: name,
+        current_version: 2,
+        versions: [version(1, false), version(2, true)],
+      }));
+    });
+
+    async function openViewer(user: ReturnType<typeof userEvent.setup>, name: string) {
+      await user.click(within(await openMenu(user, name)).getByRole("menuitem", { name: "查看大图" }));
+      const viewer = await screen.findByRole("dialog", { name });
+      // 菜单关闭时会把焦点还给触发按钮，等查看器接过焦点再操作
+      await waitFor(() => expect(viewer).toContainElement(document.activeElement as HTMLElement));
+      return viewer;
+    }
+
+    it("steps through the filtered assets that have an image", async () => {
+      const user = userEvent.setup();
+      renderGallery();
+
+      let viewer = await openViewer(user, "庭院");
+      expect(within(viewer).getByText("1 / 2")).toBeInTheDocument();
+      // 书房没有资产图，→ 直接跳到卧室
+      await user.keyboard("{ArrowRight}");
+      viewer = await screen.findByRole("dialog", { name: "卧室" });
+      expect(within(viewer).getByText("2 / 2")).toBeInTheDocument();
+      expect(within(viewer).getByRole("button", { name: "下一个" })).toBeDisabled();
+      await user.keyboard("{ArrowLeft}");
+      expect(await screen.findByRole("dialog", { name: "庭院" })).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      await user.click(screen.getByRole("button", { name: /^已过期/ }));
+      viewer = await openViewer(user, "庭院");
+      expect(within(viewer).getByText("1 / 1")).toBeInTheDocument();
+      await user.keyboard("{ArrowRight}");
+      expect(screen.getByRole("dialog", { name: "庭院" })).toBeInTheDocument();
+    });
+
+    it("only previews an earlier version until the restore is confirmed", async () => {
+      const user = userEvent.setup();
+      const restore = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
+      const onRestoreVersion = vi.fn();
+      renderGallery({ onRestoreVersion });
+      const viewer = await openViewer(user, "庭院");
+
+      await user.click(await within(viewer).findByRole("button", { name: "第 1 版" }));
+
+      expect(within(viewer).getByRole("img", { name: "「庭院」的资产图，第 1 版" })).toHaveAttribute("src", "/files/庭院_v1.png");
+      expect(within(viewer).getByText("正在查看旧版本，当前是第 2 版")).toBeInTheDocument();
+      expect(restore).not.toHaveBeenCalled();
+
+      await user.click(within(viewer).getByRole("button", { name: "还原到此版本" }));
+      let confirm = await screen.findByRole("alertdialog", { name: "还原到第 1 版？" });
+      await user.click(within(confirm).getByRole("button", { name: "取消" }));
+      expect(restore).not.toHaveBeenCalled();
+
+      await user.click(within(viewer).getByRole("button", { name: "还原到此版本" }));
+      confirm = await screen.findByRole("alertdialog", { name: "还原到第 1 版？" });
+      await user.click(within(confirm).getByRole("button", { name: "还原" }));
+
+      expect(restore).toHaveBeenCalledWith("demo", "scenes", "庭院", 1);
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+      expect(onRestoreVersion).toHaveBeenCalled();
+    });
+
+    it("keeps the restore unavailable while the asset image is being generated", async () => {
+      const user = userEvent.setup();
+      renderGallery({ generatingNames: new Set(["庭院"]) });
+      const viewer = await openViewer(user, "庭院");
+
+      await user.click(await within(viewer).findByRole("button", { name: "第 1 版" }));
+
+      const restore = within(viewer).getByRole("button", { name: "还原到此版本" });
+      expect(restore).toBeDisabled();
+      expect(restore).toHaveAccessibleDescription("资产图正在生成、上传或修改，完成后才能还原版本。");
+    });
+
+    it("opens the asset detail from the viewer", async () => {
+      const user = userEvent.setup();
+      renderGallery();
+      const viewer = await openViewer(user, "卧室");
+
+      await user.click(within(viewer).getByRole("button", { name: "编辑" }));
+
+      const sheet = await screen.findByRole("dialog", { name: "卧室" });
+      expect(within(sheet).getByRole("textbox", { name: "描述" })).toHaveValue("雕花木床");
+    });
+  });
 });

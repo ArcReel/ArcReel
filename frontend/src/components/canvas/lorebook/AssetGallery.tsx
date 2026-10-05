@@ -3,16 +3,15 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import type { LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
 import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
-import { ImageLightbox } from "@/components/shared/ImageLightbox";
 import { Button } from "@/components/ui/button";
 import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
 import type { AssetSheetType, WorkspaceFocusTarget } from "@/types";
 import { errMsg } from "@/utils/async";
 import { AssetBrowseCard } from "./AssetBrowseCard";
 import { AssetEditorSheet, type AssetEditorTarget } from "./AssetEditorSheet";
+import { AssetImageViewer } from "./AssetImageViewer";
 import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
 import { GalleryEmptyState } from "./GalleryEmptyState";
 import { GalleryToolbar } from "./GalleryToolbar";
@@ -67,7 +66,17 @@ export function AssetGallery<T extends GalleryAssetSource>({
   const [editorTarget, setEditorTarget] = useState<AssetEditorTarget | null>(null);
   const [viewName, setViewName] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
-  const getFingerprint = useProjectsStore((s) => s.getAssetFingerprint);
+  // 卡片上在途的上传、版本恢复与删除：查看器里的还原与它们互斥
+  const [writingNames, setWritingNames] = useState<ReadonlySet<string>>(() => new Set());
+  const handleWritingChange = useCallback((name: string, writing: boolean) => {
+    setWritingNames((current) => {
+      if (current.has(name) === writing) return current;
+      const next = new Set(current);
+      if (writing) next.add(name);
+      else next.delete(name);
+      return next;
+    });
+  }, []);
 
   const items = useMemo(
     () => Object.entries(assets).map(([name, source]) => ({ asset: toGalleryAsset(assetType, name, source), source })),
@@ -98,6 +107,16 @@ export function AssetGallery<T extends GalleryAssetSource>({
   const openAsset = useCallback((name: string) => setEditorTarget({ mode: "edit", name }), []);
   const onAdd = readOnly ? undefined : () => setEditorTarget({ mode: "create" });
   const viewAsset = useCallback((name: string) => setViewName(name), []);
+  // 查看器只在有资产图的资产之间切换，顺序与筛选后的网格一致；判据与卡片的「查看大图」相同
+  const viewable = shown
+    .map(({ asset }) => asset)
+    .filter((asset) => asset.sheetPath !== null && statusByName.get(asset.name)?.status !== "missing");
+  const viewerBusy = new Set(writingNames);
+  generatingNames?.forEach((name) => viewerBusy.add(name));
+  const editFromViewer = (name: string) => {
+    setViewName(null);
+    setEditorTarget({ mode: "edit", name });
+  };
 
   const importable = libraryPreview !== undefined && assetType !== "product";
   const onPickFromLibrary = importable && !readOnly ? () => setPicking(true) : undefined;
@@ -111,11 +130,6 @@ export function AssetGallery<T extends GalleryAssetSource>({
       setPicking(false);
     }
   };
-
-  const viewed = viewName !== null ? items.find(({ asset }) => asset.name === viewName)?.asset : undefined;
-  const viewUrl = viewed?.sheetPath
-    ? API.getFileUrl(projectName, viewed.sheetPath, getFingerprint(viewed.sheetPath))
-    : null;
 
   return (
     <section aria-label={title} className="relative flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
@@ -165,6 +179,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
                     onGenerate={onGenerate}
                     onRestoreVersion={onRestoreVersion}
                     onReload={onReload}
+                    onWritingChange={handleWritingChange}
                   />
                 </li>
               );
@@ -195,9 +210,16 @@ export function AssetGallery<T extends GalleryAssetSource>({
         />
       )}
 
-      {viewUrl && viewed && (
-        <ImageLightbox src={viewUrl} alt={viewed.name} onClose={() => setViewName(null)} />
-      )}
+      <AssetImageViewer
+        projectName={projectName}
+        assets={viewable}
+        name={viewName}
+        onNameChange={setViewName}
+        onEdit={readOnly ? undefined : editFromViewer}
+        busyNames={viewerBusy}
+        readOnly={readOnly}
+        onRestoreVersion={onRestoreVersion}
+      />
     </section>
   );
 }

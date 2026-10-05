@@ -175,6 +175,8 @@ const REWORKED_FILES = [
   "src/components/canvas/lorebook/ProjectAssetDeleteDialog.tsx",
   // 资产详情 Sheet：四类资产共用的详情编辑器与新建表单，及改名、原图、声音、别名、TTS 样本与大图
   "src/components/canvas/lorebook/{AssetDetailEditor,AssetCreateForm,asset-editor-model,useAssetWrites,EditableAssetName,AssetOriginalsField,CharacterVoiceField,AssetAliasesField,VoiceSampleButton,AssetImageDialog}.{ts,tsx}",
+  // 画廊的图片查看器：在有资产图的资产之间切换、查看与还原版本
+  "src/components/canvas/lorebook/AssetImageViewer.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
