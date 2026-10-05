@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeMeta, EpisodesView, ReplanAdoptionImpact, ReplanSummary, SourcePoint } from "@/types";
 import { TruncatedText } from "@/components/shared/TruncatedText";
@@ -125,7 +125,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
       }
       setAdoption(null);
       onChanged();
-      await useProjectsStore.getState().refreshProject(projectName);
+      await refreshAfterWrite(projectName, t);
     } catch (err) {
       fail(err);
     } finally {

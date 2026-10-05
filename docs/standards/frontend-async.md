@@ -48,6 +48,20 @@ paths:
 
 参考实现：`frontend/src/stores/projects-store.ts` 的 `refreshProject`。
 
+## 写入后的刷新
+
+### 写入成功后的刷新经 `refreshAfterWrite`，后续动作只在刷新成功后提供
+
+`refreshProject` 以结算值报告失败而不 reject。写入已提交、随后的刷新失败时，界面停在旧数据上，看着像这次写入没生效，创作者容易重复操作。写入成功后的刷新一律调用 `frontend/src/components/canvas/shared/refreshAfterWrite`：
+
+- 结算为 `failed` 时由它提示 `common:write_refresh_failed`；`cancelled` 是项目已切走，静默。
+- 结算值原样返回。撤销、切到新条目、定位到新建的集、「成功」提示这类依赖新数据的后续动作，只在 `success` 后提供。刷新失败时只留刷新失败的提示，不同时报告成功。
+- 已有专属提示的调用点（分镜保存经 `PartialSaveError`、时间线增删分镜、改名、合并、删除）可以直接消费结算值，自行提示。
+
+加载与同步路径（路由首屏加载、项目事件 SSE）不是写入后的刷新，传 `onError` 或按结算值处理。ESLint 的 `no-restricted-syntax`（`RESTRICT_DISCARDED_REFRESH`）拦截丢弃 `refreshProject` 结算值、又没有传 `onError` 的调用。
+
+参考实现：`frontend/src/components/canvas/episodes/CreateEpisodeDialog.tsx`（刷新成功才定位到新集）。
+
 ## 主动跳过的补偿
 
 ### 跳过的补偿要记账，保护窗口关闭时补做

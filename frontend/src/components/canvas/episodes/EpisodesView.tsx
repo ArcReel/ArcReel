@@ -324,7 +324,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
           onClose={() => setCreateAfter(undefined)}
           onCreated={(episode) => {
             setCreateAfter(undefined);
-            setScrollTarget({ episode });
+            if (episode !== null) setScrollTarget({ episode });
             reload();
           }}
         />

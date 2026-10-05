@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAdScriptEntry } from "@/hooks/useAdScriptEntry";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "./refreshAfterWrite";
 import { errMsg } from "@/utils/async";
 
 interface Props {
@@ -46,7 +46,7 @@ export function StartBlankScriptButton({ projectName, episode, discardsPlan, var
     try {
       await API.startBlankScript(projectName, episode);
       setConfirmOpen(false);
-      await useProjectsStore.getState().refreshProject(projectName);
+      await refreshAfterWrite(projectName, t);
     } catch (err) {
       useAppStore.getState().pushToast(t("blank_script_failed", { message: errMsg(err) }), "error");
     } finally {

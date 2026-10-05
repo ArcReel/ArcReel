@@ -18,7 +18,7 @@ import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
 import { useCostStore } from "@/stores/cost-store";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
-import type { ProjectData } from "@/types";
+import type { EpisodeMeta, ProjectData } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
 import { previewAspect } from "@/utils/preview-aspect";
@@ -45,6 +45,25 @@ export interface EpisodeViewChangeOptions {
 export interface EpisodeCanvasContext {
   view: CanvasView;
   onViewChange: (view: EpisodeView, options?: EpisodeViewChangeOptions) => void;
+}
+
+/** 本集已有中间稿：分段稿或生成好的剧本草稿。 */
+function hasEpisodeDraft(meta: EpisodeMeta | undefined): boolean {
+  return meta?.script_status === "segmented" || meta?.script_status === "generated";
+}
+
+/**
+ * 脚本规划视图呈现集原文：已选集，但正式剧本与中间稿都没有。
+ * 广告/短片恒单集、演示项目没有源文可切，走各自画布。
+ */
+export function showsEpisodeSource(
+  projectData: ProjectData | null,
+  episode: number,
+  script: EpisodeScript | null,
+  demo: boolean,
+): boolean {
+  const meta = projectData?.episodes?.find((entry) => entry.episode === episode);
+  return meta !== undefined && !script && !hasEpisodeDraft(meta) && projectData?.content_mode !== "ad" && !demo;
 }
 
 /**
@@ -88,10 +107,9 @@ function EpisodePageContent({
   const isAd = projectData?.content_mode === "ad";
   const route = normalizeRoute(projectData?.generation_mode);
   const hasScript = Boolean(script);
-  const hasDraft = meta?.script_status === "segmented" || meta?.script_status === "generated";
+  const hasDraft = hasEpisodeDraft(meta);
   const grid = gridStoryboardEnabled(projectData);
-  // 已选集但剧本与中间稿都没有：脚本规划视图呈现集原文。广告/短片恒单集、演示项目没有源文可切，走各自画布。
-  const sourceReview = Boolean(meta) && !hasScript && !hasDraft && !isAd && !demo;
+  const sourceReview = showsEpisodeSource(projectData, episode, script, demo);
   const facts = useMemo<EpisodeViewFacts>(
     () => ({ isAd, route, grid, hasScript, hasDraft, sourceReview, demo }),
     [isAd, route, grid, hasScript, hasDraft, sourceReview, demo],
@@ -248,10 +266,9 @@ function EpisodePageContent({
 export function EpisodePage(props: Parameters<typeof EpisodePageContent>[0]) {
   const { t } = useTranslation("dashboard");
   const meta = props.projectData?.episodes?.find((entry) => entry.episode === props.episode);
-  const source = Boolean(meta) && !props.script && meta?.script_status !== "segmented" && meta?.script_status !== "generated"
-    && props.projectData?.content_mode !== "ad" && !props.demo;
+  const source = showsEpisodeSource(props.projectData, props.episode, props.script, props.demo);
   const identity = `${props.projectName}:${props.episode}:${!meta ? "missing" : source ? "source" : props.script ? "script" : "draft"}`;
-  const message = !meta ? "episode_externally_removed" : props.script || meta.script_status === "generated" || meta.script_status === "segmented" ? "episode_source_replaced" : "episode_script_removed";
+  const message = !meta ? "episode_externally_removed" : props.script || hasEpisodeDraft(meta) ? "episode_source_replaced" : "episode_script_removed";
   return (
     <RetainedEditUnit identity={identity} value={props} message={t(message)}>
       {(shown) => <EpisodePageContent {...shown} />}

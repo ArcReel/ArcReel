@@ -73,7 +73,7 @@ export interface AssetBrowseCardProps {
   /** 「查看大图」。需传稳定引用。 */
   onView: (name: string) => void;
   onGenerate: (name: string) => void;
-  onRestoreVersion?: () => Promise<void> | void;
+  onRestoreVersion?: () => Promise<unknown> | void;
   onReload?: () => Promise<unknown> | void;
   /** 卡片上的上传、版本恢复或删除开始与结束时回报，画廊据此禁用同一资产的其他写入入口。需传稳定引用。 */
   onWritingChange?: (name: string, writing: boolean) => void;

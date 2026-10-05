@@ -6,7 +6,7 @@ interface Props {
   projectName: string;
   products: Record<string, Product>;
   onGenerateProduct: (name: string) => void;
-  onRestoreProductVersion?: () => Promise<void> | void;
+  onRestoreProductVersion?: () => Promise<unknown> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingProductNames?: Set<string>;
   /** 只读展示（引导演示项目）：不渲染新增、生成、上传入口。 */

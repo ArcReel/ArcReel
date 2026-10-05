@@ -17,6 +17,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeMeta } from "@/types";
 import type { EpisodeNextStep, WorkflowStatus } from "@/types/workflow";
@@ -291,8 +292,10 @@ function MigrationBar({ projectName, reason }: { projectName: string; reason: st
     setRunning(true);
     try {
       await API.retryProjectMigration(projectName);
-      await useProjectsStore.getState().refreshProject(projectName);
-      useAppStore.getState().pushToast(t("migration_retry_succeeded"), "success");
+      // 升级已完成；刷新失败时只给刷新失败的提示，不同时报告成功
+      if ((await refreshAfterWrite(projectName, t)) === "success") {
+        useAppStore.getState().pushToast(t("migration_retry_succeeded"), "success");
+      }
     } catch (err) {
       const diagnostic = err instanceof ApiRequestError ? err.diagnostic : null;
       const detail =

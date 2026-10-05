@@ -49,7 +49,7 @@ interface MediaCardProps {
   /** 生成按钮文案，缺省按有无产物写「生成」或「重新生成」；有未保存修改时传「保存并生成」。 */
   generateLabel?: string;
   /** 版本恢复回调；未提供时不显示版本入口（只读展示无版本可回滚） */
-  onRestore?: () => Promise<void> | void;
+  onRestore?: () => Promise<unknown> | void;
   /** 自主上传回调（替换该分镜的分镜图/视频）；未提供时不显示上传入口 */
   onUpload?: (file: File) => Promise<void> | void;
   /** 本卡片的上传请求进行中 */

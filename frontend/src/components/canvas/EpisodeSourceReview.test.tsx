@@ -110,8 +110,26 @@ describe("EpisodeSourceReview", () => {
     fireEvent.change(box, { target: { value: "粘贴进来的本集原文" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo", undefined));
     expect(save).toHaveBeenCalledWith("demo", 4, "粘贴进来的本集原文", undefined, false);
+    expect(screen.getByRole("textbox", { name: "本集原文" })).toHaveValue("粘贴进来的本集原文");
+  });
+
+  it("keeps the saved source and warns when the refresh after saving fails", async () => {
+    vi.spyOn(API, "updateEpisodeSource").mockResolvedValue(written());
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+
+    render(<EpisodeSourceReview projectName="demo" episode={4} episodes={[NO_SOURCE]} />);
+
+    fireEvent.change(await sourceBox(), { target: { value: "粘贴进来的本集原文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+        tone: "warning",
+      }),
+    );
     expect(screen.getByRole("textbox", { name: "本集原文" })).toHaveValue("粘贴进来的本集原文");
   });
 
@@ -220,7 +238,7 @@ describe("EpisodeSourceReview", () => {
     expect(refresh).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "保存并修改类型" }));
 
-    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo", undefined));
     expect(save.mock.calls).toEqual([
       ["demo", 6, "自带的原文", "screenplay", false],
       ["demo", 6, "自带的原文", "screenplay", true],

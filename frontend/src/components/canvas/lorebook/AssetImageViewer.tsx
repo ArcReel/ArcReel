@@ -36,7 +36,7 @@ export interface AssetImageViewerProps {
   /** 资产图被占用的资产：任务在跑，或卡片上有上传、版本恢复、删除在途。 */
   busyNames: ReadonlySet<string>;
   readOnly: boolean;
-  onRestoreVersion?: () => Promise<void> | void;
+  onRestoreVersion?: () => Promise<unknown> | void;
 }
 
 type VersionsState =

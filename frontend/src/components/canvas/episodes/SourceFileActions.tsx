@@ -24,7 +24,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import type { EpisodesViewFile, SourceFileChangeResponse, SourceKind } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_FORMATS_LABEL } from "@/utils/source-files";
@@ -65,7 +65,7 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
     try {
       const reply = await change.run(title, confirmLabel, call);
       if (reply === null) return false;
-      await useProjectsStore.getState().refreshProject(projectName);
+      await refreshAfterWrite(projectName, t);
       return true;
     } catch (err) {
       useAppStore

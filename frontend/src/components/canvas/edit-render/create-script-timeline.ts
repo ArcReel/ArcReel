@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import { API } from "@/api";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
+import type { RefreshProjectResult } from "@/stores/projects-store";
 import type { EditTimelineReadout } from "@/types/edit-timeline";
 
 /** 按脚本新建的剪辑时间线显示名：「完整版」，集内已有同名时依次加序号。 */
@@ -16,12 +17,13 @@ function nextEditTimelineName(base: string, numbered: (n: number) => string, tak
 /**
  * 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切），不经过 Agent；随后刷新项目，
  * 制作进度与剪辑视图据此重新读取。WorkflowPanel「剪辑」行与剪辑视图空状态都走这里。
+ * 刷新失败时已提示，`refreshed` 供调用方决定是否还报告成功。
  */
 export async function createScriptEditTimeline(
   projectName: string,
   episode: number,
   t: TFunction,
-): Promise<EditTimelineReadout> {
+): Promise<{ created: EditTimelineReadout; refreshed: RefreshProjectResult }> {
   const { timelines } = await API.listEditTimelines(projectName, episode);
   const name = nextEditTimelineName(
     t("workflow:edit_timeline_default_name"),
@@ -29,6 +31,5 @@ export async function createScriptEditTimeline(
     timelines.map((timeline) => timeline.name),
   );
   const created = await API.createEditTimeline(projectName, episode, name);
-  await useProjectsStore.getState().refreshProject(projectName);
-  return created;
+  return { created, refreshed: await refreshAfterWrite(projectName, t) };
 }

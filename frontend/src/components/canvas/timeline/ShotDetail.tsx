@@ -109,8 +109,9 @@ interface ShotDetailProps {
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string) => void;
-  onRestoreStoryboard?: () => Promise<void> | void;
-  onRestoreVideo?: () => Promise<void> | void;
+  /** 版本恢复与媒体上传之后刷新项目；resolve 为 false 时刷新没成功（父级已提示），不再报告成功。 */
+  onRestoreStoryboard?: () => Promise<unknown> | void;
+  onRestoreVideo?: () => Promise<unknown> | void;
   generatingStoryboard?: boolean;
   generatingVideo?: boolean;
   generatingNarration?: boolean;
@@ -542,12 +543,9 @@ export function ShotDetail({
     try {
       const result = await API.uploadShotMedia(projectName, scriptFile, segmentId, kind, file);
       useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
-      // 复用版本恢复的刷新管线（refreshProject 等由父级回调承载）
-      if (kind === "storyboard") {
-        await onRestoreStoryboard?.();
-      } else {
-        await onRestoreVideo?.();
-      }
+      // 复用版本恢复的刷新管线（refreshProject 等由父级回调承载）；刷新失败时父级已提示，不同时报告成功
+      const refreshed = kind === "storyboard" ? await onRestoreStoryboard?.() : await onRestoreVideo?.();
+      if (refreshed === false) return;
       useAppStore.getState().pushToast(t("media_upload_success", { id: segmentId }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(t("media_upload_failed", { message: errMsg(err) }), "error");

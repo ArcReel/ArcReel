@@ -53,7 +53,7 @@ export function EditTimelineEmptyState({
     setCreating(true);
     try {
       // 新建的剪辑时间线随即成为选中的标签，不再另弹提示。
-      onCreated(await createScriptEditTimeline(projectName, episode, t));
+      onCreated((await createScriptEditTimeline(projectName, episode, t)).created);
     } catch (err) {
       useAppStore.getState().pushToast(t("edit_timeline_create_failed", { message: errMsg(err) }), "error");
     } finally {

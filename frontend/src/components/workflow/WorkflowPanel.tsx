@@ -24,6 +24,7 @@ import {
 import { AssetSheetBatchDialog } from "@/components/canvas/lorebook/AssetSheetBatchDialog";
 import { StoryboardBatchDialog } from "@/components/canvas/timeline/StoryboardBatchDialog";
 import { createScriptEditTimeline } from "@/components/canvas/edit-render/create-script-timeline";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { promptAuthoringHandoffText } from "@/components/canvas/shared/prompt-authoring-handoff";
 import { DiscardDraftDialog, draftFallbackText, draftFixRequestText, prefillAssistant } from "@/components/shared/DraftStatus";
 import { diagnosticCode } from "@/hooks/useDraftEditor";
@@ -319,14 +320,17 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             });
             break;
           case "create_edit_timeline": {
-            const created = await createScriptEditTimeline(projectName, episodeId, t);
-            pushToast(t("workflow:edit_timeline_created", { name: created.timeline.name }), "success");
+            const { created, refreshed } = await createScriptEditTimeline(projectName, episodeId, t);
+            // 刷新失败时已提示，不同时报告成功
+            if (refreshed === "success") {
+              pushToast(t("workflow:edit_timeline_created", { name: created.timeline.name }), "success");
+            }
             void refreshPlan(projectName, episode);
             break;
           }
           case "start_blank_script":
             await API.startBlankScript(projectName, episodeId);
-            await useProjectsStore.getState().refreshProject(projectName);
+            await refreshAfterWrite(projectName, t);
             void refreshPlan(projectName, episode);
             break;
           case "draft_to_agent": {

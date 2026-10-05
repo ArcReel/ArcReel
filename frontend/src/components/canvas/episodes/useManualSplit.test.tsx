@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
@@ -132,6 +132,35 @@ describe("useManualSplit keyboard", () => {
     });
 
     expect(split).toHaveBeenCalledWith("p", { action: "split", episode: 1, at: 3, source_file: "source/b.txt" }, {});
+  });
+});
+
+describe("useManualSplit after the split is applied", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.replaceChildren();
+  });
+
+  it("warns and does not locate the new episode when the project data fails to refresh", async () => {
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "manualSplit").mockResolvedValue({
+      status: "applied",
+      episode: 3,
+      impact: { restaled: [], retired: [], removed: [], merged_units: 0 },
+    });
+    const onApplied = vi.fn();
+    const hook = renderHook(() => useManualSplit("p", view, onApplied));
+    act(() => hook.result.current.place({ file: 0, offset: 12 }));
+
+    act(() => {
+      fireEvent.keyDown(document.body, { key: "Enter" });
+    });
+
+    await waitFor(() => expect(onApplied).toHaveBeenCalledWith(null));
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+      tone: "warning",
+    });
   });
 });
 

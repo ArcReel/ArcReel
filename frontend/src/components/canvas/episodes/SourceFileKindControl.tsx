@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import type { EpisodeMeta } from "@/types";
 import type { EpisodesViewFile, SourceKind } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
@@ -40,7 +40,7 @@ export function SourceFileKindControl({ projectName, file, episodes }: SourceFil
         return;
       }
       setPending(null);
-      if (result.applied) await useProjectsStore.getState().refreshProject(projectName);
+      if (result.applied) await refreshAfterWrite(projectName, t);
     } catch (err) {
       useAppStore.getState().pushToast(t("source_kind_change_failed", { message: errMsg(err) }), "error");
     } finally {

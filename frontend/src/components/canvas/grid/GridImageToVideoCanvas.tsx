@@ -57,8 +57,8 @@ interface GridImageToVideoCanvasProps extends EpisodeCanvasContext {
     scriptFile: string,
     sceneIds?: string[],
   ) => Promise<void> | void;
-  onRestoreStoryboard?: () => Promise<void> | void;
-  onRestoreVideo?: () => Promise<void> | void;
+  onRestoreStoryboard?: () => Promise<unknown> | void;
+  onRestoreVideo?: () => Promise<unknown> | void;
   /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否成功 */
   onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean>;
   /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */

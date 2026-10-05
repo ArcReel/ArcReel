@@ -318,6 +318,23 @@ describe("EpisodesView", () => {
       );
     });
 
+    it("warns and closes the dialog when the project data fails to refresh after creating an episode", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+      vi.spyOn(API, "createEpisode").mockResolvedValue({ episode: 4 });
+      renderView();
+
+      await chooseEpisodeAction("开端", "在后面新建一集");
+      const dialog = await screen.findByRole("dialog", { name: "新建一集" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "新建" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建一集" })).not.toBeInTheDocument());
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+        tone: "warning",
+      });
+    });
+
     it("offers merging, clearing and replanning only for cut episodes", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
       renderView();
@@ -451,11 +468,35 @@ describe("EpisodesView", () => {
     expect(within(dialog).getByText("第 2 集：转折")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "修改类型" }));
 
-    await waitFor(() => expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo"));
+    await waitFor(() => expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo", undefined));
     expect(change.mock.calls).toEqual([
       ["demo", "上卷.txt", "screenplay", false],
       ["demo", "上卷.txt", "screenplay", true],
     ]);
+  });
+
+  it("warns when the project data fails to refresh after a source kind change", async () => {
+    useProjectsStore.setState({ currentProjectData: { ...PROJECT, content_mode: "drama" } });
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "getEpisodesView").mockResolvedValue({
+      ...VIEW,
+      files: VIEW.files.map((file) => ({ ...file, source_kind: "novel" as const })),
+    });
+    vi.spyOn(API, "setSourceFileKind").mockResolvedValue({
+      success: true,
+      applied: true,
+      needs_confirmation: false,
+      affected_episodes: [],
+    });
+    renderView();
+
+    await userEvent.click(await screen.findByRole("combobox", { name: "上卷.txt 的源文件类型" }));
+    await userEvent.click(await screen.findByRole("option", { name: /^剧本/ }));
+
+    await waitFor(() => expect(useAppStore.getState().toast).toMatchObject({
+      text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+      tone: "warning",
+    }));
   });
 
   it("shows no source kind outside drama projects", async () => {
@@ -653,6 +694,39 @@ describe("EpisodesView", () => {
       await waitFor(() =>
         expect(adopt).toHaveBeenLastCalledWith("demo", "cand-1", { revision: "rev-1", deleteRetired: true }),
       );
+    });
+
+    it("warns when the project data fails to refresh after adopting a plan", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: REPLAN });
+      vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+      const impact = {
+        candidate: "cand-1",
+        episode: 2,
+        old_count: 1,
+        new_count: 2,
+        retired: [2],
+        removed: [],
+        needs_review: [2],
+        uncovered: [],
+        moved: [],
+        revision: "rev-1",
+        text: "服务端成文的后果",
+        delete_text: "服务端成文的丢失清单",
+      };
+      vi.spyOn(API, "adoptEpisodeReplan")
+        .mockResolvedValueOnce({ status: "confirmation_required", impact })
+        .mockResolvedValueOnce({ status: "adopted", episodes: [4, 5], deleted: [] });
+      renderView();
+
+      const panel = await screen.findByRole("region", { name: "新的分集方案" });
+      fireEvent.click(within(panel).getByRole("button", { name: "采纳新方案" }));
+      const dialog = await screen.findByRole("alertdialog", { name: "采纳新的分集方案" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "采纳新方案" }));
+
+      await waitFor(() => expect(useAppStore.getState().toast).toMatchObject({
+        text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+        tone: "warning",
+      }));
     });
   });
 });

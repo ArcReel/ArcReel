@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { API } from "@/api";
 import { useAdScriptStore } from "@/stores/ad-script-store";
+import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -244,7 +245,25 @@ describe("WorkflowPanel 准入与置灰", () => {
     expect(within(next).queryByRole("button", { name: "交给 Agent" })).not.toBeInTheDocument();
     fireEvent.click(within(next).getByRole("button", { name: "从空白开始" }));
     await waitFor(() => expect(start).toHaveBeenCalledWith("proj", 1));
-    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj", undefined));
+  });
+
+  it("从空白开始建出脚本后项目刷新失败时提示", async () => {
+    vi.spyOn(API, "startBlankScript").mockResolvedValue({ success: true, script_file: "episode_1.json" });
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    await renderExpanded(
+      scenario({
+        next: nextAction("start_blank_script"),
+        content: { episode_source: "absent", formal_script: "absent", script_item_count: null },
+        status: {
+          artifacts: { script_plan: { state: "missing" } },
+          operations: { prepare_script_plan: { state: "refused", reason: "episode_source_missing" } },
+        },
+      }),
+    );
+    fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "从空白开始" }));
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith("操作已完成，但页面数据刷新失败，请手动刷新查看最新状态", "warning"));
   });
 });
 
@@ -319,8 +338,21 @@ describe("WorkflowPanel 剪辑", () => {
     fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "新建剪辑时间线" }));
 
     await waitFor(() => expect(create).toHaveBeenCalledWith("proj", 1, "完整版 2"));
-    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj", undefined));
     await waitFor(() => expect(vi.mocked(API.getWorkflowPlan).mock.calls.length).toBeGreaterThan(plans));
+  });
+
+  it("新建剪辑时间线后项目刷新失败时只提示刷新失败，不同时报告新建成功", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({ timelines: [] });
+    vi.spyOn(API, "createEditTimeline").mockResolvedValue(createdTimeline("tl-1", "完整版"));
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    await renderExpanded(scenario({ next: nextAction("create_edit_timeline"), status: videosReady }));
+
+    fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "新建剪辑时间线" }));
+
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith("操作已完成，但页面数据刷新失败，请手动刷新查看最新状态", "warning"));
+    expect(pushToast).not.toHaveBeenCalledWith(expect.anything(), "success");
   });
 
   it("已有剪辑时间线时写条数与最近一条的问题数，成片落后作为提醒，入口常驻在本行", async () => {

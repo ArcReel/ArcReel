@@ -74,7 +74,7 @@ describe("SourceFileActions", () => {
     expect(await screen.findByText("原文没变，只平移位置：第 2 集、第 3 集")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "移动" }));
 
-    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo", undefined));
     expect(screen.queryByText("原文没变，只平移位置：第 2 集、第 3 集")).not.toBeInTheDocument();
     expect(move.mock.calls).toEqual([
       ["demo", "中卷.txt", "up", null],
@@ -119,7 +119,24 @@ describe("SourceFileActions", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", "中卷.txt", null));
-    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo", undefined));
+  });
+
+  it("warns when the project data fails to refresh after the change was applied", async () => {
+    refresh.mockRestore();
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "deleteWholeSourceFile").mockResolvedValue({ status: "applied", impact: NO_IMPACT });
+    render(<SourceFileActions projectName="demo" file={file(false)} index={0} total={1} />);
+
+    openMenuItem("删除文件");
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+        tone: "warning",
+      }),
+    );
   });
 
   it("disables moving past either end of the file list", () => {

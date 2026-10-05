@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import type { SourceKind } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName } from "@/utils/episode-display";
@@ -30,8 +31,8 @@ interface CreateEpisodeDialogProps {
   /** 默认插在哪一集之后（集 ID）；缺省放在播出顺序末尾。 */
   initialAfter?: number | null;
   onClose: () => void;
-  /** 新建成功，项目数据已刷新。 */
-  onCreated: (episode: number) => void;
+  /** 新建成功。收到新集 ID；随后的项目刷新没成功时为 null，新集不在项目数据里，不定位。 */
+  onCreated: (episode: number | null) => void;
 }
 
 /**
@@ -72,7 +73,7 @@ function CreateEpisodeForm({
   initialAfter: number | null;
   busy: boolean;
   setBusy: (busy: boolean) => void;
-  onCreated: (episode: number) => void;
+  onCreated: (episode: number | null) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const formId = useId();
@@ -113,8 +114,8 @@ function CreateEpisodeForm({
         source_text: hasSource ? sourceText : null,
         source_kind: hasSource && withSourceKind ? sourceKind : null,
       });
-      await useProjectsStore.getState().refreshProject(projectName);
-      onCreated(episode);
+      // 刷新没成功时新集不在项目数据里，不定位过去
+      onCreated((await refreshAfterWrite(projectName, t)) === "success" ? episode : null);
     } catch (err) {
       setError(t("dashboard:episode_create_failed", { message: errMsg(err) }));
     } finally {

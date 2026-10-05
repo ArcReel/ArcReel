@@ -4,7 +4,7 @@ import { TriangleAlert } from "lucide-react";
 import { API } from "@/api";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import type { ExternalSourceChange } from "@/types/episodes-view";
 import { errMsg } from "@/utils/async";
 
@@ -41,7 +41,7 @@ export function ExternalChangeNotice({ projectName, changes, onLocate }: Externa
         (revision) => API.acceptExternalSourceChange(projectName, name, revision ?? item.revision),
       );
       if (reply === null) return;
-      await useProjectsStore.getState().refreshProject(projectName);
+      await refreshAfterWrite(projectName, t);
     } catch (err) {
       useAppStore.getState().pushToast(t("source_file_change_failed", { name, message: errMsg(err) }), "error");
     }

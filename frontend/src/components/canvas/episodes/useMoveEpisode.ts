@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { errMsg } from "@/utils/async";
 import { episodeMoveCheck } from "@/utils/episode-order";
 
@@ -25,7 +26,7 @@ export function useMoveEpisode(projectName: string | null) {
       }
       try {
         await API.moveEpisode(projectName, episode, after);
-        await useProjectsStore.getState().refreshProject(projectName);
+        await refreshAfterWrite(projectName, t);
       } catch (err) {
         useAppStore.getState().pushToast(t("episode_move_failed", { message: errMsg(err) }), "error");
       }

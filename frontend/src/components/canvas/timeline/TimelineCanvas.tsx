@@ -61,8 +61,8 @@ interface TimelineCanvasProps extends EpisodeCanvasContext {
   capabilitiesLoading?: boolean;
   /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
-  onRestoreStoryboard?: () => Promise<void> | void;
-  onRestoreVideo?: () => Promise<void> | void;
+  onRestoreStoryboard?: () => Promise<unknown> | void;
+  onRestoreVideo?: () => Promise<unknown> | void;
 }
 
 /**
