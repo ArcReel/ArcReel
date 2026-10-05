@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SheetBody, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { useProjectsStore } from "@/stores/projects-store";
 import type { AssetSheetType } from "@/types";
+import { normalizeAssetName } from "@/utils/reference-mentions";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { createAsset, EMPTY_ASSET_FIELDS, type NewAssetFields } from "./asset-editor-model";
 
 const BLANK: NewAssetFields = { name: "", ...EMPTY_ASSET_FIELDS };
@@ -49,10 +50,12 @@ export function AssetCreateForm({
   const save = useCallback(
     async (fields: NewAssetFields) => {
       await createAsset(projectName, assetType, fields);
-      await useProjectsStore.getState().refreshProject(projectName);
-      onCreated(fields.name.trim());
+      // 刷新失败时已提示；新资产不在数据里，Sheet 随即关闭，不会停在可重复提交的表单
+      await refreshAfterWrite(projectName, t);
+      // 后端按 strip + NFC 落盘，按真名选中新资产
+      onCreated(normalizeAssetName(fields.name));
     },
-    [projectName, assetType, onCreated],
+    [projectName, assetType, onCreated, t],
   );
   const unit = useEditUnit<NewAssetFields>({ source: BLANK, save, leaveTitle: t(`assets:gallery_add.${assetType}`) });
   const { value, setValue } = unit;

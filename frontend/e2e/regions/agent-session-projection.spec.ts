@@ -184,6 +184,17 @@ defineRegionScenarios("Agent 会话投影", [
       await expect(marker).toHaveAttribute("aria-expanded", "true");
       await expect(page.getByRole("heading", { name: "主要请求" })).toBeVisible();
       await marker.scrollIntoViewIfNeeded();
+      // scrollIntoView 是程序滚动，会与原语的初始贴底状态交错；用真实上翻退出跟随，再核对按钮。
+      await transcript(page).hover();
+      const overflow = await transcript(page).evaluate((el) => el.scrollHeight - el.clientHeight > 8);
+      if (overflow) {
+        await page.mouse.wheel(0, 200);
+        await expect.poll(() => transcript(page).evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+        await page.mouse.wheel(0, -2000);
+        await expect.poll(() => transcript(page).evaluate((el) => el.scrollTop)).toBe(0);
+      }
+      await expect(agentPanel(page).locator('[data-slot="message-scroller-button"]')).toHaveAttribute("data-active", String(overflow));
+      await expect(page.getByRole("heading", { name: "主要请求" })).toBeVisible();
     },
     screenshot: { name: "agent-projection-summary", target: agentPanel },
   },

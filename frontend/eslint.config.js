@@ -170,7 +170,7 @@ const REWORKED_FILES = [
   // 资产画廊：浏览卡与网格、工具栏筛选与批量生成、「更多」菜单的对话框、四类画廊页与换版本时的交叉淡入
   "src/components/canvas/lorebook/{AssetGallery,AssetBrowseCard,AssetEditorSheet,GalleryToolbar,GalleryEmptyState,GalleryStatusMarker,gallery-model,AssetSheetBatchControls,AssetSheetBatchDialog,MergeAssetDialog,useStaleRegenerateConfirm,GenerateButton,CharactersPage,ScenesPage,PropsPage,ProductsPage,useAssetSheetStatus}.{ts,tsx}",
   "src/components/canvas/timeline/ImageEditButton.tsx",
-  "src/components/canvas/shared/CrossfadeImage.tsx",
+  "src/components/canvas/shared/{CrossfadeImage,refreshAfterWrite}.{ts,tsx}",
   // 资产画廊：删除项目资产的确认框
   "src/components/canvas/lorebook/ProjectAssetDeleteDialog.tsx",
   // 资产详情 Sheet：四类资产共用的详情编辑器与新建表单，及改名、原图、声音、别名、TTS 样本与大图

@@ -18,8 +18,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
+import { isAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
+import { useTrackWrite } from "./useAssetWrites";
 import { errMsg } from "@/utils/async";
 
 /** 样本文案长度上限（与后端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。
@@ -53,6 +55,8 @@ export function VoiceSampleButton({
   onSaved,
 }: VoiceSampleButtonProps) {
   const { t } = useTranslation("dashboard");
+  const track = useTrackWrite();
+  const occupied = useAssetBusyNames("character", projectName).has(characterName);
   const [open, setOpen] = useState(false);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicesConfigured, setVoicesConfigured] = useState(true);
@@ -125,12 +129,12 @@ export function VoiceSampleButton({
     return () => controller.abort();
   }, [open, projectName]);
 
-  const disabled = busy || !audioConfigured;
+  const disabled = busy || occupied || !audioConfigured;
 
   const openModal = () => {
     if (disabled) return;
     // 打开时复核占用态：渲染快照之外，角色可能刚被 Agent 或其他标签页的任务占用。
-    if (isResourceBusy("character", projectName, characterName)) {
+    if (busy || isAssetBusy("character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
@@ -176,7 +180,7 @@ export function VoiceSampleButton({
     const trimmed = text.trim();
     if (!trimmed || !selectedVoice || generating || confirming) return;
     // 弹窗打开期间占用态可能已变化，提交前从 store 读取最新占用态复核（见 docs/standards/frontend-ui.md）。
-    if (isResourceBusy("character", projectName, characterName)) {
+    if (busy || isAssetBusy("character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
@@ -199,12 +203,15 @@ export function VoiceSampleButton({
 
   const handleConfirm = async () => {
     if (!taskId || !succeeded || confirming) return;
+    if (busy || isAssetBusy("character", projectName, characterName)) {
+      useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
+      return;
+    }
     setConfirming(true);
     try {
-      await API.confirmCharacterVoiceSample(projectName, characterName, taskId);
+      await track(API.confirmCharacterVoiceSample(projectName, characterName, taskId).then(() => onSaved()));
       setOpen(false);
       setTaskId(null);
-      await onSaved();
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
@@ -326,7 +333,7 @@ export function VoiceSampleButton({
             <Button
               variant={succeeded ? "outline" : "default"}
               onClick={() => void handleGenerate()}
-              disabled={locked || !voicesConfigured || !selectedVoice || text.trim().length === 0}
+              disabled={busy || occupied || locked || !voicesConfigured || !selectedVoice || text.trim().length === 0}
             >
               {generating ? (
                 <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
@@ -340,7 +347,7 @@ export function VoiceSampleButton({
                   : t("voice_sample_generate")}
             </Button>
             {succeeded && (
-              <Button onClick={() => void handleConfirm()} disabled={confirming}>
+              <Button onClick={() => void handleConfirm()} disabled={confirming || busy || occupied}>
                 {confirming ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
                 {confirming ? t("voice_sample_confirming") : t("voice_sample_confirm")}
               </Button>

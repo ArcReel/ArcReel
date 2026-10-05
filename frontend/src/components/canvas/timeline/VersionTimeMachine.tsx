@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { useTrackWrite } from "@/components/canvas/lorebook/useAssetWrites";
 import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 
 interface VersionTimeMachineProps {
@@ -76,6 +77,7 @@ export function VersionTimeMachine({
   anchor,
 }: VersionTimeMachineProps) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const track = useTrackWrite();
   const titleId = useId();
   const busyHintId = useId();
   const resourcePath =
@@ -88,21 +90,24 @@ export function VersionTimeMachine({
     resourceType === "character_derivatives" ? `characters/derivatives/${resourceId}.png` :
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
     resourceType === "grids" ? `grids/${resourceId}.png` :
+    resourceType === "products" ? `products/${resourceId}.png` :
     `props/${resourceId}.png`;
   const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const controlled = controlledOpen !== undefined;
   const open = controlled ? controlledOpen : uncontrolledOpen;
-  const setOpen = (next: boolean) => {
-    if (controlled) onOpenChange?.(next);
-    else setUncontrolledOpen(next);
-  };
+
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [currentVersion, setCurrentVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
+  const setOpen = (next: boolean) => {
+    if (!next && restoringVersion !== null) return;
+    if (controlled) onOpenChange?.(next);
+    else setUncontrolledOpen(next);
+  };
 
   const loadVersions = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
@@ -143,14 +148,16 @@ export function VersionTimeMachine({
     setRestoringVersion(version);
     onRestoringChange?.(true);
     try {
-      const result = await API.restoreVersion(projectName, resourceType, resourceId, version);
-      if (result.asset_fingerprints) {
-        useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
-      }
-      await onRestore?.(version);
-      setReload((current) => current + 1);
-      // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示
-      setSelectedVersion(version);
+      await track((async () => {
+        const result = await API.restoreVersion(projectName, resourceType, resourceId, version);
+        if (result.asset_fingerprints) {
+          useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
+        }
+        await onRestore?.(version);
+        setReload((current) => current + 1);
+        // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示
+        setSelectedVersion(version);
+      })());
     } catch (err) {
       useAppStore
         .getState()

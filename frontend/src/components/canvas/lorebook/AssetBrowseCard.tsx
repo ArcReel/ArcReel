@@ -35,10 +35,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { isResourceBusy } from "@/stores/tasks-store";
 import type { AssetSheetType } from "@/types";
 import { errMsg } from "@/utils/async";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { isAssetBusy, rejectIfAssetBusy } from "./assetBusyGuard";
 import { VERSION_RESOURCE, type GalleryAsset, type GalleryMarker } from "./gallery-model";
 import { GalleryStatusMarker } from "./GalleryStatusMarker";
 import { MergeAssetDialog } from "./MergeAssetDialog";
@@ -63,6 +62,8 @@ export interface AssetBrowseCardProps {
   marker: GalleryMarker;
   /** 资产图任务占用中（生成或局部修改）。 */
   generating: boolean;
+  /** 本体或衍生文件被任务占用。 */
+  busy?: boolean;
   /** 只读展示（引导演示项目）：菜单只保留查看大图，没有删除。 */
   readOnly: boolean;
   /** 入库预览的内容；商品不入资产库，不传。 */
@@ -87,6 +88,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   sheetStatus,
   marker,
   generating,
+  busy: externalBusy = false,
   readOnly,
   libraryPreview,
   onOpen,
@@ -114,7 +116,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
 
   // 资产图被生成、局部修改、上传或版本恢复占用，或资产正在删除时，兄弟操作一起禁用。
-  const busy = generating || uploading || restoring || deleting;
+  const busy = externalBusy || generating || uploading || restoring || deleting;
   const writing = uploading || restoring || deleting;
   useEffect(() => {
     if (!writing || !onWritingChange) return;
@@ -130,7 +132,9 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     name,
     status: sheetStatus,
     hasSheet: Boolean(asset.sheetPath),
-    onGenerate: () => onGenerate(name),
+    onGenerate: () => {
+      if (!rejectIfAssetBusy(type, projectName, name, t, "assets:gallery_busy_hint")) onGenerate(name);
+    },
   });
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -285,9 +289,10 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             resourceType={VERSION_RESOURCE[type]}
             resourceId={name}
             onRestore={onRestoreVersion}
-            busy={generating || uploading}
+            // 恢复在途由面板自己管；其余占用（含衍生任务与画廊汇总的外部占用）一并禁用
+            busy={externalBusy || generating || uploading || deleting}
             onRestoringChange={setRestoring}
-            checkBusy={() => isResourceBusy(type, projectName, name)}
+            checkBusy={() => isAssetBusy(type, projectName, name)}
           />
           <ProjectAssetDeleteDialog
             open={dialog === "delete"}
@@ -295,7 +300,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             projectName={projectName}
             assetType={type}
             name={name}
-            busy={generating || uploading || restoring}
+            busy={externalBusy || generating || uploading || restoring}
             onDeletingChange={setDeleting}
             onMergeInstead={mergeable ? () => openGuarded("merge") : undefined}
           />

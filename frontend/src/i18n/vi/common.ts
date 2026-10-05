@@ -39,6 +39,7 @@ export default {
   'deleted': 'Đã xóa',
   'config_incomplete': 'Cấu hình chưa đầy đủ',
   'refresh': 'Làm mới',
+  'write_refresh_failed': 'Đã xong nhưng không làm mới được trang. Hãy tải lại để xem trạng thái mới nhất',
   'close': 'Đóng',
   'jump_to_latest': 'Đến tin mới nhất',
   'jump_to_start': 'Về đầu',

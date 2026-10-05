@@ -25,6 +25,8 @@ export interface AssetEditorSheetProps {
   order?: readonly string[];
   statusByName: ReadonlyMap<string, AssetSheetStatusRow>;
   generatingNames?: ReadonlySet<string>;
+  /** 卡片上本地上传等写入，与详情里的入口互斥。 */
+  writingNames?: ReadonlySet<string>;
   readOnly: boolean;
   onGenerate: (name: string) => unknown;
 }
@@ -45,6 +47,7 @@ export function AssetEditorSheet({
   order,
   statusByName,
   generatingNames,
+  writingNames,
   readOnly,
   onGenerate,
 }: AssetEditorSheetProps) {
@@ -62,6 +65,8 @@ export function AssetEditorSheet({
     setSession({ key: targetKey, id: selfRename || targetKey === null ? session.id : session.id + 1 });
     if (!selfRename && renamed !== null) setRenamed(null);
   }
+  // 新名称已进项目数据：桥接结束，之后旧名下出现的是别的资产
+  if (renamed !== null && session.key === `edit:${renamed.to}` && assets[renamed.to]) setRenamed(null);
 
   const name = target?.mode === "edit" ? target.name : null;
   const live =
@@ -159,6 +164,7 @@ export function AssetEditorSheet({
                   asset={shown.asset}
                   sheetStatus={statusByName.get(shown.name)}
                   generating={generatingNames?.has(shown.name) ?? false}
+                  writing={writingNames?.has(shown.name) ?? false}
                   readOnly={readOnly}
                   onGenerate={onGenerate}
                   onRenamed={handleRenamed}

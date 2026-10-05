@@ -33,7 +33,7 @@ function page(items: Asset[], overrides: Partial<AssetListPage> = {}): AssetList
 class FakeIntersectionObserver {
   static instances: FakeIntersectionObserver[] = [];
   private readonly callback: IntersectionObserverCallback;
-  private connected = true;
+  connected = true;
   constructor(callback: IntersectionObserverCallback) {
     this.callback = callback;
     FakeIntersectionObserver.instances.push(this);
@@ -47,6 +47,15 @@ class FakeIntersectionObserver {
       observer.callback([{ isIntersecting: true } as IntersectionObserverEntry], observer as unknown as IntersectionObserver);
     }
   }
+}
+
+/**
+ * 滚到底触发下一页。findBy 在 DOM 更新后即返回，此时哨兵的 effect 可能还没挂上观察器，
+ * 直接触发会落空；加载中观察器都已断开，所以有已连接的观察器即说明哨兵已就绪。
+ */
+async function reachBottomWhenArmed() {
+  await waitFor(() => expect(FakeIntersectionObserver.instances.some((o) => o.connected)).toBe(true));
+  act(() => FakeIntersectionObserver.reachBottom());
 }
 
 function renderPage(path = "/app/assets") {
@@ -141,7 +150,7 @@ describe("AssetLibraryPage", () => {
     renderPage();
     await screen.findByRole("button", { name: "角色59" });
     database = [makeAsset({ id: "new", name: "新角色" }), ...initial];
-    act(() => FakeIntersectionObserver.reachBottom());
+    await reachBottomWhenArmed();
     expect(await screen.findByRole("button", { name: "角色60" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "角色59" })).toHaveLength(1);
     act(() => FakeIntersectionObserver.reachBottom());
@@ -153,9 +162,13 @@ describe("AssetLibraryPage", () => {
     const created = makeAsset({ id: "new", name: "新角色" });
     let database = initial;
     const pending = createDeferred<void>();
+    const started = createDeferred<void>();
     const listSpy = vi.spyOn(API, "listAssets").mockImplementation(async (params) => {
       const offset = params?.offset ?? 0;
-      if (offset === 60 && database === initial) await pending.promise;
+      if (offset === 60 && database === initial) {
+        started.resolve();
+        await pending.promise;
+      }
       return page(database.slice(offset, offset + 60), { total: database.length });
     });
     vi.spyOn(API, "createAsset").mockImplementation(async () => {
@@ -164,16 +177,18 @@ describe("AssetLibraryPage", () => {
     });
     renderPage();
     await screen.findByText("角色59");
-    act(() => FakeIntersectionObserver.reachBottom());
+    await reachBottomWhenArmed();
+    await act(() => started.promise);
 
     fireEvent.click(screen.getAllByRole("button", { name: "新增资产" })[0]);
     fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "新角色" } });
     fireEvent.click(screen.getByRole("button", { name: "创建" }));
-    await screen.findByText("新角色");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await screen.findByRole("button", { name: "新角色" });
     await act(async () => pending.resolve());
-    act(() => FakeIntersectionObserver.reachBottom());
+    await reachBottomWhenArmed();
     await screen.findByText("角色119");
-    act(() => FakeIntersectionObserver.reachBottom());
+    await reachBottomWhenArmed();
 
     expect(await screen.findByText("角色120")).toBeInTheDocument();
     expect(listSpy.mock.calls.map(([params]) => params?.offset)).toEqual([0, 60, 61, 121]);
@@ -277,7 +292,7 @@ describe("AssetLibraryPage", () => {
     renderPage();
 
     await screen.findByRole("button", { name: "角色59" });
-    act(() => FakeIntersectionObserver.reachBottom());
+    await reachBottomWhenArmed();
 
     expect(await screen.findByRole("button", { name: "角色60" })).toBeInTheDocument();
     expect(listSpy).toHaveBeenLastCalledWith(

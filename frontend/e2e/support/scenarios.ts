@@ -2,6 +2,7 @@
 // 每个场景在全部验收视口上跑溢出探针与 axe。场景以会改变可用高度的状态为主：
 // 打开页面、展开会撑高的面板、打开弹层（弹层先打开再探测）。
 import type { Locator, Page } from "@playwright/test";
+import { waitForEntrance } from "./region-helpers.ts";
 import { RECORDED_ACCESS_TOKEN } from "./recorded.ts";
 import { expect, expectAccessible, expectReachableLayout, test, type ApiOverrides } from "./test.ts";
 
@@ -40,6 +41,8 @@ export function defineRegionScenarios(region: string, scenarios: RegionScenario[
         await scenario.ready(page);
         await scenario.act?.(page);
 
+        // 布局与 axe 都检查最终可见状态，包含弹层遮罩与背景中的有限入场动画。
+        await waitForEntrance(page.locator("body"));
         await expectReachableLayout(page);
         await expectAccessible(page);
 

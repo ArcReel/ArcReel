@@ -39,6 +39,7 @@ export default {
   'deleted': '已删除',
   'config_incomplete': '配置不完整',
   'refresh': '刷新',
+  'write_refresh_failed': '操作已完成，但页面数据刷新失败，请手动刷新查看最新状态',
   'close': '关闭',
   'jump_to_latest': '跳到最新',
   'jump_to_start': '回到开头',

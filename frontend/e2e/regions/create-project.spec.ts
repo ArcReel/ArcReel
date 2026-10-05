@@ -1,4 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
+import { waitForEntrance } from "../support/region-helpers.ts";
 import { loadRecordedResponses } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
@@ -49,13 +50,11 @@ function wizard(page: Page): Locator {
   return page.getByRole("dialog", { name: "新建项目" });
 }
 
-async function settle(locator: Locator) {
-  await locator.evaluate((el) => Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)));
-}
+
 
 async function openWizard(page: Page) {
   await page.getByRole("button", { name: "新建项目" }).first().click();
-  await settle(wizard(page));
+  await waitForEntrance(wizard(page));
 }
 
 async function fillBasics(page: Page, { mode = "旁白/解说", route = "分镜图生视频" } = {}) {
@@ -170,7 +169,7 @@ defineRegionScenarios("新建项目向导", [
       await goNext(page);
       await wizard(page).getByRole("combobox").first().click();
       const listbox = page.getByRole("listbox");
-      await settle(listbox);
+      await waitForEntrance(listbox);
       await expect(listbox).toBeInViewport();
     },
   },
@@ -237,7 +236,7 @@ defineRegionScenarios("新建项目向导", [
       await goNext(page);
       await expect(preview).toBeVisible();
       await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
-      await settle(dialog);
+      await waitForEntrance(dialog);
     },
   },
 ]);

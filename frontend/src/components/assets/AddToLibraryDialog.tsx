@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { isResourceBusy } from "@/stores/tasks-store";
+import { isAssetBusy } from "@/components/canvas/lorebook/assetBusyGuard";
 import { errMsg } from "@/utils/async";
 import type { Asset, AssetType } from "@/types/asset";
 import { ASSET_TYPE_ICON } from "./asset-type-icons";
@@ -129,7 +129,7 @@ function AddToLibraryForm({
     if (!trimmedName || submitting) return;
     // 弹窗打开后资源可能经 SSE、其他标签页或 Agent 进入生成或编辑占用态：提交时复核最新占用态，
     // 避免把占用期间的旧图复制进全局资产库。
-    if (busy || isResourceBusy(resourceType, projectName, resourceId)) {
+    if (busy || isAssetBusy(resourceType, projectName, resourceId)) {
       setError(t("add_to_library_busy_hint"));
       return;
     }

@@ -4,6 +4,7 @@ import { API } from "@/api";
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogBody,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -95,9 +96,7 @@ export function useStaleRegenerateConfirm({
     return new Promise<boolean>((resolve) => {
       pendingRef.current = { resolve, controller };
       setState({ phase: willBeStale || status?.status === "stale" ? "loading" : "checking" });
-      (derivativeName
-        ? API.getAssetRegenerationImpact(projectName, assetType, name, derivativeName)
-        : API.getAssetRegenerationImpact(projectName, assetType, name))
+      API.getAssetRegenerationImpact(projectName, assetType, name, derivativeName, { signal: controller.signal })
         .then((impact) => {
           if (controller.signal.aborted) return;
           if (impact.stale || willBeStale) {
@@ -150,8 +149,11 @@ export function useStaleRegenerateConfirm({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{t("sheet_regenerate_stale_title")}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {/* 影响说明可能带很长的失败原因：放进唯一的滚动区，标题与按钮留在原处 */}
+        <AlertDialogBody tabIndex={0} role="region" aria-label={t("sheet_regenerate_stale_title")}>
+          <AlertDialogDescription className="wrap-break-word">{description}</AlertDialogDescription>
+        </AlertDialogBody>
         <AlertDialogFooter>
           <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
           <AlertDialogAction disabled={state.phase === "loading"} onClick={() => settle(true)}>

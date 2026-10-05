@@ -124,7 +124,7 @@ describe("ModalShell", () => {
   });
 
   it("preserves caller-set initial focus inside dialog (child useEffect runs first)", () => {
-    // 模拟 AssetFormModal：子组件在更深的 useEffect 里把焦点放到表单首个输入框。
+    // 模拟表单组件：子组件在更深的 useEffect 里把焦点放到表单首个输入框。
     // ModalShell 的 useFocusTrap 不应再把焦点抢回第一个可聚焦的关闭按钮。
     function Inner() {
       const inputRef = useRef<HTMLInputElement>(null);

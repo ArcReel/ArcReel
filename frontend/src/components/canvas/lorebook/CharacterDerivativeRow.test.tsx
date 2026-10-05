@@ -65,6 +65,13 @@ describe("CharacterDerivativeRow", () => {
     expect(screen.getByRole("button", { name: "生成衍生图" })).toBeEnabled();
   });
 
+  it("shows the registered derivative image while its status is still loading", () => {
+    renderRow(undefined, { derivative: { description: "换上黑色重甲", character_sheet: SHEET_PATH } });
+
+    expect(screen.getByAltText(IMAGE_ALT)).toHaveAttribute("src", expect.stringContaining(SHEET_PATH));
+    expect(screen.queryByText("待生成")).not.toBeInTheDocument();
+  });
+
   it("enqueues a regeneration addressed by the compound resource id after confirming the impact", async () => {
     vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({ stale: true, storyboards: 2, videos: 1, derivatives: 0 });
     const spy = vi

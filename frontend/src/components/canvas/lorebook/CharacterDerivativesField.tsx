@@ -1,4 +1,4 @@
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Plus } from "lucide-react";
 import { API } from "@/api";
@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import type { CharacterDerivative } from "@/types";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { AssetImageDialog } from "./AssetImageDialog";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { CharacterDerivativeRow } from "./CharacterDerivativeRow";
@@ -45,39 +47,72 @@ export function CharacterDerivativesField({
   const revision = `${JSON.stringify(derivatives)}#${ownerSheet ?? ""}#${ownerFp ?? ""}`;
   const entries = Object.entries(derivatives);
   const { statuses, refresh } = useCharacterDerivativeSheets(projectName, characterName, revision, entries.length > 0);
-  // 改名后新名称沿用原来那一行，行内未保存的外观变化不丢
-  const [rowKeys, setRowKeys] = useState<Record<string, string>>({});
+  // 行标识与衍生名无关：改名后新名称沿用原来那一行，行内未保存的外观变化不丢；
+  // 旧名之后被新衍生复用时另发标识，两行不会撞在一起
+  const [rowKeys, setRowKeys] = useState<{ byName: Record<string, string>; next: number }>({ byName: {}, next: 0 });
+  if (entries.some(([name]) => !(name in rowKeys.byName))) {
+    setRowKeys((prev) => {
+      const byName = { ...prev.byName };
+      let next = prev.next;
+      for (const [name] of entries) if (!(name in byName)) byName[name] = `row-${next++}`;
+      return { byName, next };
+    });
+  }
   // 关闭动画期间标题沿用上一张图
   const [viewing, setViewing] = useState<{ src: string; alt: string; title: string; open: boolean } | null>(null);
 
   const handleRenamed = useCallback((from: string, to: string) => {
-    setRowKeys((prev) => ({ ...prev, [to]: prev[from] ?? from }));
+    setRowKeys((prev) => {
+      const { [from]: key, ...rest } = prev.byName;
+      return key === undefined ? prev : { ...prev, byName: { ...rest, [to]: key } };
+    });
   }, []);
 
-  if (readOnly && entries.length === 0) return null;
+  // 每条衍生独立保留：外部删除或改名只替换无修改的行，其他行继续接收真实数据。
+  const liveRows = new Map(
+    entries.flatMap(([name, derivative]) => {
+      const key = rowKeys.byName[name];
+      return key === undefined ? [] : [[key, { name, derivative }] as const];
+    }),
+  );
+  const [rowOrder, setRowOrder] = useState(() => [...liveRows.keys()]);
+  const addedKeys = [...liveRows.keys()].filter((key) => !rowOrder.includes(key));
+  if (addedKeys.length > 0) setRowOrder([...rowOrder, ...addedKeys]);
+  const removeRow = useCallback((key: string) => setRowOrder((prev) => prev.filter((item) => item !== key)), []);
 
   return (
     <div className="flex flex-col gap-2">
-      {entries.length === 0 ? (
+      {rowOrder.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("assets:derivative_hint")}</p>
       ) : (
         <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
-          {entries.map(([name, derivative]) => (
-            <CharacterDerivativeRow
-              key={rowKeys[name] ?? name}
-              projectName={projectName}
-              characterName={characterName}
-              name={name}
-              derivative={derivative}
-              status={statuses[name]}
-              ownerHasSheet={Boolean(ownerSheet)}
-              readOnly={readOnly}
-              busy={busy}
-              onView={(image) => setViewing({ ...image, open: true })}
-              onRenamed={handleRenamed}
-              onSheetsChanged={refresh}
-            />
-          ))}
+          {rowOrder.map((key) => {
+            const row = liveRows.get(key);
+            return (
+              <RetainedEditUnit
+                key={key}
+                identity={row ? key : `${key}:removed`}
+                value={row ?? null}
+                message={t("assets:editor_derivative_removed")}
+              >
+                {(shown) => shown ? (
+                  <CharacterDerivativeRow
+                    projectName={projectName}
+                    characterName={characterName}
+                    name={shown.name}
+                    derivative={shown.derivative}
+                    status={statuses[shown.name]}
+                    ownerHasSheet={Boolean(ownerSheet)}
+                    readOnly={readOnly}
+                    busy={busy}
+                    onView={(image) => setViewing({ ...image, open: true })}
+                    onRenamed={handleRenamed}
+                    onSheetsChanged={refresh}
+                  />
+                ) : <RemovedRow rowKey={key} onRemoved={removeRow} />}
+              </RetainedEditUnit>
+            );
+          })}
         </ul>
       )}
       {readOnly ? null : (
@@ -91,6 +126,12 @@ export function CharacterDerivativesField({
       />
     </div>
   );
+}
+
+/** 保留结束或原本无修改的移除行从区块登记中清退。 */
+function RemovedRow({ rowKey, onRemoved }: { rowKey: string; onRemoved: (key: string) => void }) {
+  useEffect(() => onRemoved(rowKey), [rowKey, onRemoved]);
+  return null;
 }
 
 function AddDerivative({
@@ -134,7 +175,7 @@ function AddDerivative({
     try {
       await track(
         API.addCharacterDerivative(projectName, characterName, trimmed, description.trim()).then(() =>
-          useProjectsStore.getState().refreshProject(projectName),
+          refreshAfterWrite(projectName, t),
         ),
       );
       onAdded();
@@ -153,6 +194,8 @@ function AddDerivative({
       onOpenChange={(next) => {
         // 提交中不响应关闭，请求在途时输入不丢
         if (!next && submitting) return;
+        // 打开时复核占用：渲染之后到点击之间，本体可能刚被别处占用
+        if (next && rejectIfAssetBusy("character", projectName, characterName, t, "assets:derivative_busy_hint")) return;
         setOpen(next);
         if (!next) reset();
       }}

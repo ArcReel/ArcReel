@@ -1159,11 +1159,9 @@ class TestAssetDeletionPreview:
 
     @staticmethod
     def _snapshot(project_dir: Path) -> dict[str, bytes]:
-        """项目目录下全部数据文件的内容；取锁留下的空 ``.lock`` 文件不是数据，不计入。"""
+        """项目目录下全部文件的字节，包括已有锁文件。"""
         return {
-            str(path.relative_to(project_dir)): path.read_bytes()
-            for path in project_dir.rglob("*")
-            if path.is_file() and path.suffix != ".lock"
+            str(path.relative_to(project_dir)): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()
         }
 
     def test_preview_lists_references_by_episode_without_writing(self, pm_with_assets: ProjectManager) -> None:
@@ -1180,11 +1178,15 @@ class TestAssetDeletionPreview:
 
         preview = pm_with_assets.preview_asset_deletion("demo", "characters", "角色A")
 
-        assert self._snapshot(project_dir) == before
+        after = self._snapshot(project_dir)
+        added = after.keys() - before.keys()
+        assert all(Path(path).suffix == ".lock" and after[path] == b"" for path in added)
+        assert {path: content for path, content in after.items() if path not in added} == before
         assert preview.name == "角色A"
         assert [(item.episode, item.references) for item in preview.episodes] == [(1, 2), (2, 1), (3, 2)]
         renamed = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
         assert preview.references == renamed.references == 5
+        assert self._snapshot(project_dir) == after
 
     def test_unreferenced_asset_previews_empty(self, pm_with_assets: ProjectManager) -> None:
         pm_with_assets.save_script("demo", _reference_script(1), "episode_1.json")

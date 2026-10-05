@@ -1,8 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { createDeferred } from "@/test/deferred";
+import { makeTask } from "@/test/factories";
 import { API } from "@/api";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
@@ -185,6 +187,83 @@ describe("角色详情的衍生区块", () => {
     expect(within(renamed.closest("li") as HTMLElement).getByRole("textbox", { name: "「铠甲」的外观变化" })).toHaveValue(
       "换上黑色重甲，披红斗篷",
     );
+
+    // 旧名随后被新衍生复用：两行各自显示，不因沿用的行标识撞在一起
+    derivativesOf("林夕").战斗装 = { description: "换回便装" };
+    await act(() => useProjectsStore.getState().refreshProject("demo"));
+    expect(within(rowOf(sheet, "战斗装")).getByRole("textbox", { name: "「战斗装」的外观变化" })).toHaveValue("换回便装");
+    expect(within(rowOf(sheet, "铠甲")).getByRole("textbox", { name: "「铠甲」的外观变化" })).toHaveValue(
+      "换上黑色重甲，披红斗篷",
+    );
+  });
+
+  it("follows the stored NFC name when the new derivative name was typed decomposed", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "renameCharacterDerivative").mockImplementation((_p, _c, from, to) => {
+      // 后端按 strip + NFC 规范化后落盘
+      const table = derivativesOf("林夕");
+      table[to.trim().normalize("NFC")] = table[from];
+      delete table[from];
+      return Promise.resolve({ success: true } as never);
+    });
+    const sheet = await openCharacter(user);
+    await user.type(within(rowOf(sheet, "战斗装")).getByRole("textbox", { name: "「战斗装」的外观变化" }), "，披红斗篷");
+
+    await user.click(within(rowOf(sheet, "战斗装")).getByRole("button", { name: "「战斗装」的更多操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "重命名衍生" }));
+    const input = await within(sheet).findByRole("textbox", { name: "「战斗装」的新名称" });
+    await user.clear(input);
+    await user.type(input, "Gia\u0301p{Enter}");
+
+    const renamed = await within(sheet).findByRole("heading", { name: "Giáp" });
+    expect(within(renamed.closest("li") as HTMLElement).getByRole("textbox", { name: "「Giáp」的外观变化" })).toHaveValue(
+      "换上黑色重甲，披红斗篷",
+    );
+    expect(within(sheet).queryByText("此衍生已被删除或改名。未保存的修改仍保留，保存或放弃后采用当前状态。")).not.toBeInTheDocument();
+  });
+
+  it.each(["delete", "rename"] as const)("retains an unsaved row after an external %s until it is discarded", async (change) => {
+    const user = userEvent.setup();
+    const sheet = await openCharacter(user);
+    await user.type(within(rowOf(sheet, "战斗装")).getByRole("textbox", { name: "「战斗装」的外观变化" }), "，披红斗篷");
+    const table = derivativesOf("林夕");
+    if (change === "rename") table.铠甲 = table.战斗装;
+    delete table.战斗装;
+    await act(() => useProjectsStore.getState().refreshProject("demo"));
+
+    const held = rowOf(sheet, "战斗装");
+    expect(within(held).getByRole("textbox", { name: "「战斗装」的外观变化" })).toHaveValue("换上黑色重甲，披红斗篷");
+    expect(within(held).getByText("此衍生已被删除或改名。未保存的修改仍保留，保存或放弃后采用当前状态。")).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    vi.mocked(API.updateCharacterDerivative).mockRejectedValueOnce(new Error("衍生不存在"));
+    await user.click(within(held).getByRole("button", { name: "保存" }));
+    expect(await within(held).findByRole("alert")).toHaveTextContent("衍生不存在");
+    expect(within(held).getByRole("textbox")).toHaveValue("换上黑色重甲，披红斗篷");
+
+    await user.click(within(held).getByRole("button", { name: "放弃修改" }));
+    await waitFor(() => expect(within(sheet).queryByRole("heading", { name: "战斗装" })).not.toBeInTheDocument());
+    expect(within(sheet).queryAllByRole("heading", { name: "铠甲" })).toHaveLength(change === "rename" ? 1 : 0);
+  });
+
+  it("protects the character and keeps the version panel open during a derivative restore", async () => {
+    const user = userEvent.setup();
+    const pending = createDeferred<{ success: boolean }>();
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "character_derivatives", resource_id: "林夕/战斗装", current_version: 2,
+      versions: [{ version: 1, filename: "v1.png", created_at: "2026-10-01", file_size: 1, is_current: false }],
+    });
+    vi.spyOn(API, "restoreVersion").mockReturnValue(pending.promise);
+    const sheet = await openCharacter(user);
+    await user.click(within(rowOf(sheet, "战斗装")).getByRole("button", { name: "「战斗装」的更多操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "版本历史" }));
+    await user.click(await screen.findByRole("button", { name: "v1" }));
+    await user.click(screen.getByRole("button", { name: "切换到此版本" }));
+    expect(within(sheet).getByRole("button", { name: "重命名", hidden: true })).toBeDisabled();
+    await user.keyboard("{Escape}{Escape}");
+    expect(screen.getByText("历史版本")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "林夕" })).toBeInTheDocument();
+    await act(() => pending.resolve({ success: true }));
+    expect(within(sheet).getByRole("button", { name: "重命名" })).toBeEnabled();
   });
 
   it("adds a derivative from the section header without a success toast", async () => {
@@ -221,6 +300,48 @@ describe("角色详情的衍生区块", () => {
 
     await waitFor(() => expect(within(sheet).queryByRole("heading", { name: "战斗装" })).not.toBeInTheDocument());
     expect(API.deleteCharacterDerivative).toHaveBeenCalledWith("demo", "林夕", "战斗装");
+  });
+
+  it("disables the confirmed deletion while the character becomes busy after the confirmation opens", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "deleteCharacterDerivative").mockImplementation((_p, _c, name) => {
+      delete derivativesOf("林夕")[name];
+      return Promise.resolve({ success: true } as never);
+    });
+    const sheet = await openCharacter(user);
+
+    await user.click(within(rowOf(sheet, "战斗装")).getByRole("button", { name: "「战斗装」的更多操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "删除" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "删除衍生「战斗装」？" });
+    // 打开确认框之后，角色被 Agent 入队占用
+    act(() =>
+      useTasksStore.setState({
+        tasks: [makeTask({ project_name: "demo", task_type: "character", media_type: "image", resource_id: "林夕", status: "running" })],
+      }),
+    );
+    expect(within(confirm).getByRole("button", { name: "删除" })).toBeDisabled();
+
+    act(() => useTasksStore.setState({ tasks: [] }));
+    await user.click(within(confirm).getByRole("button", { name: "删除" }));
+    await waitFor(() => expect(API.deleteCharacterDerivative).toHaveBeenCalledWith("demo", "林夕", "战斗装"));
+  });
+
+  it("drops the row's unsaved appearance change together with the derivative it deletes", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "deleteCharacterDerivative").mockImplementation((_p, _c, name) => {
+      delete derivativesOf("林夕")[name];
+      return Promise.resolve({ success: true } as never);
+    });
+    const sheet = await openCharacter(user);
+    await user.type(within(rowOf(sheet, "战斗装")).getByRole("textbox", { name: "「战斗装」的外观变化" }), "，披红斗篷");
+
+    await user.click(within(rowOf(sheet, "战斗装")).getByRole("button", { name: "「战斗装」的更多操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "删除" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "删除衍生「战斗装」？" });
+    await user.click(within(confirm).getByRole("button", { name: "删除" }));
+
+    await waitFor(() => expect(within(sheet).queryByRole("heading", { name: "战斗装" })).not.toBeInTheDocument());
+    expect(within(sheet).queryByText("此衍生已被删除或改名。未保存的修改仍保留，保存或放弃后采用当前状态。")).not.toBeInTheDocument();
   });
 
   it("closes only the image view on Escape, keeping the sheet open", async () => {

@@ -560,6 +560,23 @@ describe("OverviewCanvas", () => {
       await waitFor(() => expect(update).toHaveBeenCalledWith("ad-demo", { brief: "夏日解渴" }));
     });
 
+    it("warns that the brief was saved when refreshing the project afterwards fails", async () => {
+      vi.spyOn(API, "updateProject").mockResolvedValue({ success: true, project: {} as ProjectData });
+      vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+      renderOverview({ projectName: "ad-demo", projectData: makeProjectData({ ...AD_PROJECT, brief: "旧灵感" }) });
+      const card = screen.getByRole("region", { name: "创作灵感" });
+
+      fireEvent.change(within(card).getByRole("textbox", { name: "创作灵感" }), { target: { value: "夏日解渴" } });
+      fireEvent.click(within(card).getByRole("button", { name: "保存" }));
+
+      await waitFor(() =>
+        expect(useAppStore.getState().toast).toMatchObject({
+          text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+          tone: "warning",
+        }),
+      );
+    });
+
     it("keeps an invalid custom duration unsaved and says why", async () => {
       const update = vi.spyOn(API, "updateProject");
       renderOverview({ projectName: "ad-demo", projectData: makeProjectData({ ...AD_PROJECT, brief: "旧灵感" }) });

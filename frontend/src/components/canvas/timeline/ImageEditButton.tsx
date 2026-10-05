@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Wand2 } from "lucide-react";
+import { isAssetBusy } from "@/components/canvas/lorebook/assetBusyGuard";
 import { enqueueImageEdit } from "@/actions/generation";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +18,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import {
-  isResourceBusy,
   selectHasActiveTaskForScriptFile,
   useTasksStore,
   type ImageEditResourceKind,
@@ -93,7 +93,7 @@ export function ImageEditDialog({
     // 再用 getState() 新鲜读复核：弹窗停留期间响应式 busy prop 的更新依赖父组件
     // 重渲染，存在感知延迟；这里直接读 store 当前值，与 resourceType/resourceId
     // 命中同一占用槽（taskResourceKind 对 image_edit 按 resource_type 归槽）。
-    if (isResourceBusy(resourceType, projectName, resourceId)) {
+    if (isAssetBusy(resourceType, projectName, resourceId)) {
       useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
       return;
     }

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,8 +7,10 @@ import { memoryLocation } from "wouter/memory-location";
 import { API, type AssetRenameResult } from "@/api";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
+import { createDeferred } from "@/test/deferred";
 import { makeTask } from "@/test/factories";
 import type { AssetSheetStatusRow, AssetSheetType, ProjectData } from "@/types";
 import { AssetGallery } from "./AssetGallery";
@@ -114,7 +116,89 @@ describe("资产详情 Sheet", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    useConfigStatusStore.setState({ availableMediaTypes: [] });
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+  });
+
+  it("disables sheet mutations while a card upload is still writing", async () => {
+    const user = userEvent.setup();
+    const pending = createDeferred<{ success: boolean }>();
+    vi.spyOn(API, "uploadFile").mockReturnValue(pending.promise);
+    renderGallery();
+    const card = screen.getByRole("article", { name: "林夕" });
+    const file = new File(["image"], "sheet.png", { type: "image/png" });
+    fireEvent.change(within(card).getByLabelText("上传资产图", { selector: "input" }), { target: { files: [file] } });
+
+    const sheet = await openAsset(user, "林夕");
+    expect(within(sheet).getByRole("button", { name: "重命名" })).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "重新生成资产图" })).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "上传原图", hidden: true })).toBeDisabled();
+    await act(() => pending.resolve({ success: true }));
+    expect(within(sheet).getByRole("button", { name: "重命名" })).toBeEnabled();
+  });
+
+  it("keeps sibling writes disabled while the rename is in flight", async () => {
+    const user = userEvent.setup();
+    const pending = createDeferred<AssetRenameResult>();
+    const result: AssetRenameResult = { success: true, dry_run: false, old_name: "林夕", new_name: "林汐", episodes: 0, references: 0, files: 1 };
+    vi.spyOn(API, "renameProjectAsset").mockResolvedValueOnce({ ...result, dry_run: true }).mockReturnValueOnce(pending.promise);
+    renderGallery();
+    const sheet = await openAsset(user, "林夕");
+    await user.click(within(sheet).getByRole("button", { name: "重命名" }));
+    const input = within(sheet).getByRole("textbox", { name: "重命名" });
+    await user.clear(input);
+    await user.type(input, "林汐{Enter}");
+    const confirm = await screen.findByRole("alertdialog", { name: "重命名「林夕」？" });
+    await user.click(within(confirm).getByRole("button", { name: "重命名" }));
+
+    expect(within(sheet).getByRole("button", { name: "重新生成资产图", hidden: true })).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "上传原图", hidden: true })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("alertdialog", { name: "重命名「林夕」？" })).toBeInTheDocument();
+    await act(() => pending.resolve(result));
+    expect(await screen.findByRole("dialog", { name: "林汐" })).toBeInTheDocument();
+  });
+
+  it("protects the character's mutations while a derivative task is occupying its files", async () => {
+    const user = userEvent.setup();
+    renderGallery();
+    const sheet = await openAsset(user, "林夕");
+    act(() => useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "character_derivative", resource_id: "林夕/战斗装", status: "running" })] }));
+    expect(within(sheet).getByRole("button", { name: "重命名" })).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "重新生成资产图" })).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "上传原图", hidden: true })).toBeDisabled();
+  });
+
+  it("rechecks occupancy before confirming a TTS sample and shares the confirmation write with the sheet", async () => {
+    const user = userEvent.setup();
+    const pending = createDeferred<{ success: boolean; path: string; url: string }>();
+    useConfigStatusStore.setState({ availableMediaTypes: ["audio"] });
+    vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({ configured: true, provider_id: "dashscope", model: "tts", voices: [{ id: "Cherry", label: "芊悦" }] });
+    vi.spyOn(API, "generateCharacterVoiceSample").mockResolvedValue({ success: true, task_id: "sample-1", deduped: false, message: "" });
+    const confirmSample = vi.spyOn(API, "confirmCharacterVoiceSample").mockReturnValue(pending.promise);
+    renderGallery();
+    const sheet = await openAsset(user, "林夕");
+    await user.click(within(sheet).getByRole("button", { name: "可选：参考音频" }));
+    await user.click(within(sheet).getByRole("button", { name: "用 TTS 生成参考音频" }));
+    const dialog = await screen.findByRole("dialog", { name: "生成语音参考样本" });
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦"));
+    await user.click(within(dialog).getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(API.generateCharacterVoiceSample).toHaveBeenCalled());
+    const succeeded = makeTask({ task_id: "sample-1", project_name: "demo", task_type: "voice_sample", resource_id: "林夕", status: "succeeded", result: { file_path: "audio/sample.wav" } });
+    act(() => useTasksStore.getState().setTasks([succeeded]));
+    const confirm = await within(dialog).findByRole("button", { name: "确认并保存" });
+    const running = makeTask({ project_name: "demo", task_type: "character", resource_id: "林夕", status: "running" });
+    act(() => useTasksStore.getState().setTasks([succeeded, running]));
+    expect(confirm).toBeDisabled();
+    await user.click(confirm);
+    expect(confirmSample).not.toHaveBeenCalled();
+    act(() => useTasksStore.getState().setTasks([succeeded]));
+    await user.click(confirm);
+    expect(within(sheet).getByRole("button", { name: "重命名", hidden: true })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "生成语音参考样本" })).toBeInTheDocument();
+    await act(() => pending.resolve({ success: true, path: "characters/refs_audio/林夕.wav", url: "/audio.wav" }));
+    expect(within(sheet).getByRole("button", { name: "重命名" })).toBeEnabled();
   });
 
   it("asks before switching to the next asset with unsaved changes, then saves and switches", async () => {
@@ -177,6 +261,79 @@ describe("资产详情 Sheet", () => {
     expect(API.updateCharacter).toHaveBeenCalledWith("demo", "林夕", { description: "白衣少女，佩剑" });
     expect(vi.mocked(API.updateCharacter).mock.invocationCallOrder[0]).toBeLessThan(
       onGenerate.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("rechecks generation occupancy after the description finishes saving", async () => {
+    const user = userEvent.setup();
+    const saving = createDeferred<{ success: boolean }>();
+    vi.mocked(API.updateCharacter).mockReturnValue(saving.promise);
+    vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({ stale: false, storyboards: 0, videos: 0, derivatives: 0 });
+    const { onGenerate } = renderGallery();
+    const sheet = await openAsset(user, "林夕");
+    await user.type(within(sheet).getByRole("textbox", { name: "描述" }), "，佩剑");
+    await user.click(within(sheet).getByRole("button", { name: "保存并生成" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "重新生成这张资产图？" });
+    await user.click(await within(confirm).findByRole("button", { name: "重新生成" }));
+    await waitFor(() => expect(API.updateCharacter).toHaveBeenCalled());
+    act(() => useTasksStore.getState().setTasks([
+      makeTask({ project_name: "demo", task_type: "character", resource_id: "林夕", status: "running" }),
+    ]));
+    await act(() => saving.resolve({ success: true }));
+    expect(await within(sheet).findByText("已保存")).toBeInTheDocument();
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(useAppStore.getState().toast?.text).toBe("资产图正在生成或修改，请等它结束后再操作");
+  });
+
+  it("aborts the impact check when the confirmation is cancelled before it answers", async () => {
+    const user = userEvent.setup();
+    let signal: AbortSignal | undefined;
+    vi.spyOn(API, "getAssetRegenerationImpact").mockImplementation((_project, _type, _name, _derivative, options) => {
+      signal = options?.signal;
+      return new Promise(() => {});
+    });
+    renderGallery();
+    const sheet = await openAsset(user, "林夕");
+    await user.type(within(sheet).getByRole("textbox", { name: "描述" }), "，佩剑");
+
+    await user.click(within(sheet).getByRole("button", { name: "保存并生成" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "重新生成这张资产图？" });
+    expect(signal?.aborted).toBe(false);
+    await user.click(within(confirm).getByRole("button", { name: "取消" }));
+
+    expect(signal?.aborted).toBe(true);
+    expect(API.updateCharacter).not.toHaveBeenCalled();
+  });
+
+  it("keeps save-and-preview unavailable while a save is still in flight", async () => {
+    const user = userEvent.setup();
+    const saving = createDeferred<{ success: boolean }>();
+    vi.mocked(API.updateCharacter).mockReturnValue(saving.promise);
+    renderGallery();
+    const sheet = await openAsset(user, "林夕");
+    await user.type(within(sheet).getByRole("textbox", { name: "描述" }), "，佩剑");
+
+    await user.click(within(sheet).getByRole("button", { name: "保存" }));
+    await user.type(within(sheet).getByRole("textbox", { name: "描述" }), "，披风");
+
+    expect(within(sheet).getByRole("button", { name: "保存并预览" })).toBeDisabled();
+    await act(() => saving.resolve({ success: true }));
+  });
+
+  it("warns that the fields were saved when refreshing the project afterwards fails", async () => {
+    const user = userEvent.setup();
+    renderGallery();
+    const sheet = await openAsset(user, "林夕");
+    await user.type(within(sheet).getByRole("textbox", { name: "描述" }), "，佩剑");
+    vi.mocked(API.getProject).mockRejectedValue(new Error("网络错误"));
+
+    await user.click(within(sheet).getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+        tone: "warning",
+      }),
     );
   });
 
@@ -270,6 +427,41 @@ describe("资产详情 Sheet", () => {
     expect(within(sheet).getByRole("textbox", { name: "描述" })).toHaveValue("青衣少年");
   });
 
+  it("says the asset was created when refreshing the project afterwards fails", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
+    vi.mocked(API.getProject).mockRejectedValue(new Error("网络错误"));
+    renderGallery();
+
+    await user.click(screen.getByRole("button", { name: "添加角色" }));
+    const form = await screen.findByRole("dialog", { name: "添加角色" });
+    await user.type(within(form).getByRole("textbox", { name: "名称" }), "阿青");
+    await user.click(within(form).getByRole("button", { name: "创建" }));
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+        tone: "warning",
+      }),
+    );
+  });
+
+  it("opens the created asset under its stored NFC name when the name was typed decomposed", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "addCharacter").mockImplementation((_p, name, description, voiceStyle) => {
+      server.characters[name.trim().normalize("NFC")] = { description, voice_style: voiceStyle };
+      return Promise.resolve({ success: true });
+    });
+    renderGallery();
+
+    await user.click(screen.getByRole("button", { name: "添加角色" }));
+    const form = await screen.findByRole("dialog", { name: "添加角色" });
+    await user.type(within(form).getByRole("textbox", { name: "名称" }), "Gia\u0301p");
+    await user.click(within(form).getByRole("button", { name: "创建" }));
+
+    expect(await screen.findByRole("dialog", { name: "Giáp" })).toBeInTheDocument();
+  });
+
   it("keeps the create form open and explains why when creating fails", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "addProjectProduct").mockRejectedValue(new Error("商品「保温杯」已存在"));
@@ -337,6 +529,44 @@ describe("资产详情 Sheet", () => {
     expect(useAppStore.getState().toast).toBeNull();
   });
 
+  it("closes the renamed asset once it is removed, instead of falling back to a new asset under the old name", async () => {
+    const user = userEvent.setup();
+    const result = (dryRun: boolean): AssetRenameResult => ({
+      success: true,
+      dry_run: dryRun,
+      old_name: "林夕",
+      new_name: "林汐",
+      episodes: 0,
+      references: 0,
+      files: 1,
+    });
+    vi.spyOn(API, "renameProjectAsset")
+      .mockResolvedValueOnce(result(true))
+      .mockImplementationOnce(() => {
+        const { 林夕: renamed, ...rest } = server.characters;
+        server.characters = { ...rest, 林汐: renamed };
+        return Promise.resolve(result(false));
+      });
+    renderGallery();
+    const sheet = await openAsset(user, "林夕");
+    await user.click(within(sheet).getByRole("button", { name: "重命名" }));
+    const input = within(sheet).getByRole("textbox", { name: "重命名" });
+    await user.clear(input);
+    await user.type(input, "林汐{Enter}");
+    const confirm = await screen.findByRole("alertdialog", { name: "重命名「林夕」？" });
+    await user.click(within(confirm).getByRole("button", { name: "重命名" }));
+    await screen.findByRole("dialog", { name: "林汐" });
+    await waitFor(() => expect(useProjectsStore.getState().currentProjectData?.characters).toHaveProperty("林汐"));
+
+    // 之后 Agent 删除了林汐，又新建了一个同名旧名「林夕」：与正在查看的林汐无关
+    const { 林汐: _removed, ...rest } = server.characters;
+    server.characters = { ...rest, 林夕: { description: "新来的说书人" } };
+    act(() => useProjectsStore.setState({ currentProjectData: structuredClone(server) }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "林汐" })).not.toBeInTheDocument());
+    expect(screen.queryByDisplayValue("新来的说书人")).not.toBeInTheDocument();
+  });
+
   it("cancels only the rename when Escape is pressed in the name input", async () => {
     const user = userEvent.setup();
     renderGallery();
@@ -366,6 +596,31 @@ describe("资产详情 Sheet", () => {
     expect(within(sheet).queryByText("未保存的修改")).not.toBeInTheDocument();
   });
 
+  it("warns that the upload went through when refreshing the project afterwards fails", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true });
+    renderGallery();
+    const sheet = await openAsset(user, "苏白");
+    vi.mocked(API.getProject).mockRejectedValue(new Error("网络错误"));
+
+    await user.upload(within(sheet).getByLabelText("上传原图"), new File(["png"], "ref.png", { type: "image/png" }));
+
+    await waitFor(() => expect(useAppStore.getState().toast).toMatchObject({ text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态", tone: "warning" }));
+  });
+
+  it("reports the upload error without refreshing when no image went through", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "uploadFile").mockRejectedValue(new Error("文件过大"));
+    renderGallery();
+    const sheet = await openAsset(user, "苏白");
+    vi.mocked(API.getProject).mockClear();
+
+    await user.upload(within(sheet).getByLabelText("上传原图"), new File(["png"], "ref.png", { type: "image/png" }));
+
+    await waitFor(() => expect(useAppStore.getState().toast).toMatchObject({ text: "文件过大", tone: "error" }));
+    expect(API.getProject).not.toHaveBeenCalled();
+  });
+
   it("collapses reference audio while the project binds voices by prompt", async () => {
     const user = userEvent.setup();
     renderGallery();
@@ -377,7 +632,7 @@ describe("资产详情 Sheet", () => {
     expect(within(sheet).getByText(/参考音频不会生效/)).toBeInTheDocument();
   });
 
-  it("confirms before deleting reference audio and rejects the deletion once the character became busy", async () => {
+  it("confirms before deleting reference audio and disables the deletion once the character became busy", async () => {
     const user = userEvent.setup();
     server = makeProject({ character_voice_binding: "reference_audio" });
     server.characters.林夕.reference_audio = "characters/refs_audio/林夕.wav";
@@ -387,20 +642,17 @@ describe("资产详情 Sheet", () => {
     const sheet = await openAsset(user, "林夕");
 
     await user.click(within(sheet).getByRole("button", { name: "删除音频样本" }));
-    let confirm = await screen.findByRole("alertdialog", { name: "删除参考音频？" });
+    const confirm = await screen.findByRole("alertdialog", { name: "删除参考音频？" });
     // 打开确认框之后，角色被 Agent 入队占用
     act(() =>
       useTasksStore.setState({
         tasks: [makeTask({ project_name: "demo", task_type: "character", media_type: "image", resource_id: "林夕", status: "running" })],
       }),
     );
-    await user.click(within(confirm).getByRole("button", { name: "删除" }));
-    expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法删除音频样本");
+    expect(within(confirm).getByRole("button", { name: "删除" })).toBeDisabled();
     expect(remove).not.toHaveBeenCalled();
 
     act(() => useTasksStore.setState({ tasks: [] }));
-    await user.click(within(sheet).getByRole("button", { name: "删除音频样本" }));
-    confirm = await screen.findByRole("alertdialog", { name: "删除参考音频？" });
     await user.click(within(confirm).getByRole("button", { name: "删除" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", "林夕"));
   });
