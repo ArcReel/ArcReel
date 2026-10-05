@@ -3,6 +3,7 @@
  *
  * | 取值 | 视图 | 何时出现 |
  * | --- | --- | --- |
+ * | `setting` | 故事设定（广告项目的梗概、类型、主题与世界观） | 只在广告项目出现，排第一 |
  * | `plan` | 脚本规划（内容确认页；剧本未生成时是集原文确认） | 非广告项目，有脚本规划中间稿、集原文待确认，或参考生视频项目 |
  * | `grid` | 多宫格分镜图 | 分镜图生视频且开启宫格；集原文待确认时不可选 |
  * | `board` | 分镜（参考生视频项目称「视频单元」） | 恒有；有脚本规划却还没有正式剧本时不可选 |
@@ -14,10 +15,10 @@
 import { EPISODE_VIEW_EDIT, EPISODE_VIEW_PARAM } from "@/app-routes";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
-export const EPISODE_VIEWS = ["plan", "grid", "board", EPISODE_VIEW_EDIT] as const;
+export const EPISODE_VIEWS = ["setting", "plan", "grid", "board", EPISODE_VIEW_EDIT] as const;
 export type EpisodeView = (typeof EPISODE_VIEWS)[number];
-/** 画布承担的视图；剪辑视图替换整个画布。 */
-export type CanvasView = Exclude<EpisodeView, "edit">;
+/** 画布承担的视图；故事设定与剪辑视图替换整个画布。 */
+export type CanvasView = Exclude<EpisodeView, "setting" | "edit">;
 
 /** 决定集页有哪些视图的事实，由路由层按项目与这一集算出。 */
 export interface EpisodeViewFacts {
@@ -49,6 +50,7 @@ function planAvailable(facts: EpisodeViewFacts): boolean {
 export function episodeViewTabs(facts: EpisodeViewFacts): EpisodeViewTab[] {
   const plan = planAvailable(facts);
   const tabs: EpisodeViewTab[] = [];
+  if (facts.isAd) tabs.push({ view: "setting", disabled: false });
   if (plan) tabs.push({ view: "plan", disabled: false });
   if (facts.grid) tabs.push({ view: "grid", disabled: facts.sourceReview });
   // 参考生视频的单元列表在中间稿阶段就可查看；分镜图生视频要等正式剧本。没有脚本规划时分镜是唯一视图。

@@ -35,6 +35,7 @@ import { EpisodeHead } from "./EpisodeHead";
 import { EpisodeHeaderActions, EpisodeHeaderSlotProvider } from "./EpisodeHeaderActions";
 import { EpisodePageHeader, episodeViewTabId } from "./EpisodePageHeader";
 import { EpisodeViewFactsProvider } from "./EpisodeViewScope";
+import { StorySettingView } from "./StorySettingView";
 
 export interface EpisodeViewChangeOptions {
   /** 替换当前历史记录而不是新增一条：程序触发的切换（如跳到某个单元）用它，后退不必多退一步。 */
@@ -51,7 +52,7 @@ export interface EpisodeCanvasContext {
  *
  * 视图记在地址的 `?view=` 上（见 `episode-view.ts`）。脚本规划、多宫格分镜图与分镜三个视图由同一个画布承担，
  * 切换时画布不卸载；画布里的编辑单元只挂在某一个视图下，经 `EpisodeViewFactsProvider` 判断哪些跳转会卸载自己。
- * 剪辑视图替换整个画布。剧本还没生成时脚本规划视图是集原文确认。
+ * 故事设定（只在广告项目出现）与剪辑视图替换整个画布。剧本还没生成时脚本规划视图是集原文确认。
  */
 function EpisodePageContent({
   projectName,
@@ -168,6 +169,12 @@ function EpisodePageContent({
           <EditTimelineEmptyState projectName={projectName} episode={episode} onCreated={reload} />
         )}
       />
+    );
+  } else if (view === "setting") {
+    body = (
+      <EpisodeViewFactsProvider value={facts}>
+        <StorySettingView projectName={projectName} overview={projectData?.overview} readOnly={demo} />
+      </EpisodeViewFactsProvider>
     );
   } else if (demo && !script) {
     body = <DemoEpisodePlaceholder />;

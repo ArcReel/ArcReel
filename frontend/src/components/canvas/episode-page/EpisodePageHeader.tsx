@@ -58,6 +58,7 @@ export function EpisodePageHeader({
 }) {
   const { t } = useTranslation("dashboard");
   const label: Record<EpisodeView, string> = {
+    setting: t("episode_view_setting"),
     plan: t("episode_view_plan"),
     grid: t("episode_view_grid"),
     board: boardLabel,

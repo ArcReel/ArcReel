@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API } from "@/api";
-import { AdBriefCard } from "@/components/canvas/AdBriefCard";
-import { AdInitCanvas } from "@/components/canvas/AdInitCanvas";
 import { SourceUploadDialog, type SourceUploadResult } from "@/components/canvas/episodes/SourceUploadDialog";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 import { useCostStore } from "@/stores/cost-store";
@@ -11,6 +9,8 @@ import type { ProjectData, ProjectOverview } from "@/types";
 import { errMsg } from "@/utils/async";
 import { outputTruncationOfError } from "@/utils/output-truncation";
 
+import { AdBrief } from "./AdBrief";
+import { AdProducts } from "./AdProducts";
 import { AssetProgressLine } from "./AssetProgressLine";
 import { CostLine } from "./CostLine";
 import { OverviewHeader } from "./OverviewHeader";
@@ -31,6 +31,7 @@ function hasStorySetting(overview: ProjectOverview | undefined): boolean {
 /**
  * 项目概览：单列限宽的设定页（页头、资产完成度、费用、故事设定）；空项目显示欢迎页。
  * 从欢迎页上传整本原文后立即切到概览，故事设定区显示骨架，生成完成后就地填入。
+ * 广告项目没有初始化页：概览常驻「创作灵感」与「商品」区承担首次录入，故事设定在视频页的「故事设定」tab。
  */
 export function OverviewCanvas({ projectName, projectData, readOnly = false }: OverviewCanvasProps) {
   const isAd = projectData?.content_mode === "ad";
@@ -119,13 +120,6 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
   const emptyProject =
     !isAd && !hasStorySetting(projectData.overview) && (projectData.episodes?.length ?? 0) === 0 && !hasWholeSource;
   const showWelcome = !readOnly && !generating && (emptyProject || uploadFiles !== null);
-  // 广告项目在没有商品与创作灵感时进入初始化页
-  const showAdInit =
-    isAd && !readOnly && Object.keys(projectData.products ?? {}).length === 0 && !(projectData.brief ?? "").trim();
-
-  const refreshProject = async () => {
-    await useProjectsStore.getState().refreshProject(projectName);
-  };
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto p-6 [scrollbar-gutter:stable] @3xl/canvas:p-8">
@@ -143,30 +137,33 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
               <CostLine projectName={projectName} readOnly={readOnly} />
             </div>
           </div>
-          {showAdInit ? (
-            <AdInitCanvas projectName={projectName} onDone={refreshProject} />
-          ) : (
+          {isAd ? (
             <>
-              {isAd ? (
-                <AdBriefCard
-                  projectName={projectName}
-                  brief={projectData.brief ?? ""}
-                  targetDuration={projectData.target_duration}
-                  readOnly={readOnly}
-                  onSaved={refreshProject}
-                />
-              ) : null}
-              <StorySetting
+              <AdBrief
                 key={projectName}
                 projectName={projectName}
-                overview={projectData.overview}
+                brief={projectData.brief}
+                targetDuration={projectData.target_duration}
                 readOnly={readOnly}
-                canGenerate={hasWholeSource || hasStorySetting(projectData.overview)}
-                generating={generating}
-                generateError={generateError?.projectName === projectName ? generateError.error : null}
-                onGenerate={() => void runGenerate()}
+              />
+              <AdProducts
+                key={`${projectName}:products`}
+                projectName={projectName}
+                products={projectData.products}
+                readOnly={readOnly}
               />
             </>
+          ) : (
+            <StorySetting
+              key={projectName}
+              projectName={projectName}
+              overview={projectData.overview}
+              readOnly={readOnly}
+              canGenerate={hasWholeSource || hasStorySetting(projectData.overview)}
+              generating={generating}
+              generateError={generateError?.projectName === projectName ? generateError.error : null}
+              onGenerate={() => void runGenerate()}
+            />
           )}
         </div>
       )}
