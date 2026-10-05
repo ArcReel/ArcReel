@@ -46,7 +46,7 @@ function DialogContent({
   showCloseButton = true,
   ...props
 }: DialogPrimitive.Popup.Props & {
-  size?: "sm" | "default" | "lg" | "xl" | "wizard"
+  size?: "sm" | "default" | "lg" | "xl" | "wizard" | "viewer"
   showCloseButton?: boolean
 }) {
   const { t } = useTranslation("common")
@@ -54,12 +54,13 @@ function DialogContent({
     <DialogPortal>
       <DialogOverlay />
       {/* 原语负责限高：Header / Body / Footer 纵向排布，只有 DialogBody 滚动，标题与底部操作始终可见。
-          宽度按 size 分档，不让调用处用视口断点覆盖。多步向导（wizard）固定高度，切换步骤时外框与底部按钮不移动。 */}
+          宽度按 size 分档，不让调用处用视口断点覆盖。多步向导（wizard）固定高度，切换步骤时外框与底部按钮不移动。
+          图片查看器（viewer）占满视口四周各留 1rem 的区域，大图按可用空间缩放。 */}
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         data-size={size}
         className={cn(
-          "fixed top-1/2 left-1/2 z-overlay flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-popover text-sm text-popover-foreground shadow-overlay ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:max-w-lg data-[size=lg]:max-w-2xl data-[size=sm]:max-w-sm data-[size=xl]:max-w-4xl data-[size=wizard]:h-[min(760px,calc(100dvh-48px))] data-[size=wizard]:max-w-180 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-overlay flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-popover text-sm text-popover-foreground shadow-overlay ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:max-w-lg data-[size=lg]:max-w-2xl data-[size=sm]:max-w-sm data-[size=xl]:max-w-4xl data-[size=wizard]:h-[min(760px,calc(100dvh-48px))] data-[size=wizard]:max-w-180 data-[size=viewer]:h-[calc(100dvh-2rem)] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

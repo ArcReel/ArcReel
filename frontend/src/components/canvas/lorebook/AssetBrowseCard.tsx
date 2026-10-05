@@ -1,4 +1,4 @@
-import { memo, useId, useRef, useState } from "react";
+import { memo, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Combine,
@@ -74,6 +74,8 @@ export interface AssetBrowseCardProps {
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => Promise<void> | void;
   onReload?: () => Promise<unknown> | void;
+  /** 卡片上的上传、版本恢复或删除开始与结束时回报，画廊据此禁用同一资产的其他写入入口。需传稳定引用。 */
+  onWritingChange?: (name: string, writing: boolean) => void;
 }
 
 /**
@@ -92,6 +94,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   onGenerate,
   onRestoreVersion,
   onReload,
+  onWritingChange,
 }: AssetBrowseCardProps) {
   const { t } = useTranslation(["assets", "dashboard"]);
   const titleId = useId();
@@ -112,6 +115,12 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
 
   // 资产图被生成、局部修改、上传或版本恢复占用，或资产正在删除时，兄弟操作一起禁用。
   const busy = generating || uploading || restoring || deleting;
+  const writing = uploading || restoring || deleting;
+  useEffect(() => {
+    if (!writing || !onWritingChange) return;
+    onWritingChange(name, true);
+    return () => onWritingChange(name, false);
+  }, [writing, name, onWritingChange]);
   // 合并只开放带别名、与资产库互通的类型；商品不传入库预览。
   const mergeable = libraryPreview !== undefined && type !== "product";
   const describable = asset.description.trim().length > 0;

@@ -108,6 +108,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 
 - 宽度用 `size` 选择：Dialog 有 `sm`、`default`、`lg`、`xl`，AlertDialog 有 `sm`、`default`、`lg`。调用处不写 `max-w-*`。
 - 多步向导用 Dialog 的 `size="wizard"`：宽 720px，高度固定为 `min(760px, 100dvh - 48px)`，各步骤同高，切换步骤时外框与底部按钮不移动。各步骤共用一个 `DialogBody`，进入新步骤时把它的 `scrollTop` 置 0。
+- 图片查看器用 Dialog 的 `size="viewer"`：占满视口、四周各留 1rem，Header 放名称与操作，`DialogBody` 放按可用空间缩放的大图，Footer 放缩略图条。
 - Body 里没有可聚焦元素、内容又可能超高（如很长的文件列表）时，给 Body 加 `tabIndex={0}`、`role="region"` 与 `aria-label`，键盘才能滚动它。`AlertDialogBody` 自带画在内侧的聚焦环。
 - Body 自带内边距。内部的纵向间距写在 Body 里的一层 `flex flex-col gap-*` 包裹元素上，不写在 Body 上；后者会被 `@shadcn/lint` 的 `no-restyle` 报告。
 - 每个弹层都要有 Title。没有可见标题时，给 Title 加 `sr-only`。

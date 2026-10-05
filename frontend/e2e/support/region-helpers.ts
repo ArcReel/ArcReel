@@ -13,9 +13,10 @@ export async function box(locator: Locator) {
   return rect;
 }
 
-/** 只等有限入场动画，不等任务指示器的循环动画。 */
+/** 只等有限入场动画，不等任务指示器的循环动画，也不等 scroll-fade 这类随滚动推进、永不结束的动画。 */
 export async function waitForEntrance(target: Locator) {
   await target.evaluate((el) => Promise.allSettled(el.getAnimations({ subtree: true })
+    .filter((animation) => animation.timeline instanceof DocumentTimeline)
     .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
     .map((animation) => animation.finished)));
 }

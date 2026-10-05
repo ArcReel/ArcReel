@@ -199,6 +199,49 @@ async function openDeleteDialog(page: Page): Promise<Locator> {
   return dialog;
 }
 
+function versionsOf(name: string, count: number) {
+  return {
+    status: 200,
+    body: {
+      resource_type: "characters",
+      resource_id: name,
+      current_version: count,
+      versions: Array.from({ length: count }, (_, i) => ({
+        version: i + 1,
+        filename: `${name}_v${i + 1}.png`,
+        created_at: "2026-02-01 21:30",
+        file_size: 1024,
+        is_current: i + 1 === count,
+        file_url: sheetSvg((i + 1) * 37),
+        source: "generate",
+      })),
+    },
+  };
+}
+
+// 图片查看器：林夕、沈砚、周掌柜有资产图，阿岚与小满没有。
+const VIEWER_API: ApiOverrides = {
+  ...BASE,
+  "GET /api/v1/projects/demo/versions/characters/沈砚": versionsOf("沈砚", 2),
+  "GET /api/v1/projects/demo/versions/characters/周掌柜": versionsOf("周掌柜", 1),
+};
+// 压力变体：名字很长、有 60 个版本。
+const VIEWER_MANY_API: ApiOverrides = {
+  ...BASE,
+  "GET /api/v1/projects/demo": projectWith({ [LONG_NAME]: { description: LONG_DESCRIPTION, character_sheet: sheetSvg(200) }, ...CHARACTERS }),
+  "GET /api/v1/projects/demo/asset-sheets/status": { status: 200, body: { assets: [] } },
+  [`GET /api/v1/projects/demo/versions/characters/${LONG_NAME}`]: versionsOf(LONG_NAME, 60),
+};
+
+async function openViewer(page: Page, name: string): Promise<Locator> {
+  const menu = await openMenu(page, name);
+  await menu.getByRole("menuitem", { name: "查看大图" }).click();
+  const viewer = page.getByRole("dialog", { name, exact: true });
+  await viewer.waitFor();
+  await waitForEntrance(viewer);
+  return viewer;
+}
+
 function grid(page: Page) {
   return page.getByRole("list", { name: "角色" });
 }
@@ -365,6 +408,69 @@ defineRegionScenarios("资产画廊", [
       await expect(list.getByRole("listitem")).toHaveCount(30);
       await expect(dialog.getByRole("button", { name: "删除" })).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "改为并入…" })).toBeInViewport({ ratio: 1 });
+    },
+  },
+  {
+    name: "查看大图：←/→ 只在有资产图的资产之间切换",
+    path: PATH,
+    api: VIEWER_API,
+    ready: galleryReady,
+    act: async (page) => {
+      let viewer = await openViewer(page, "林夕");
+      await expect(viewer.getByText("1 / 3")).toBeVisible();
+      await expect(viewer.getByText("第 3 版", { exact: true })).toBeVisible();
+      await expect(viewer.getByRole("list", { name: "历史版本" }).getByRole("button")).toHaveCount(3);
+      await page.keyboard.press("ArrowRight");
+      viewer = page.getByRole("dialog", { name: "沈砚", exact: true });
+      await expect(viewer.getByText("2 / 3")).toBeVisible();
+      // 阿岚没有资产图，跳过
+      await page.keyboard.press("ArrowRight");
+      viewer = page.getByRole("dialog", { name: "周掌柜", exact: true });
+      await expect(viewer.getByText("3 / 3")).toBeVisible();
+      await page.keyboard.press("ArrowLeft");
+      await page.keyboard.press("ArrowLeft");
+      viewer = page.getByRole("dialog", { name: "林夕", exact: true });
+      await expect(viewer.getByText("1 / 3")).toBeVisible();
+      await expect(viewer.getByRole("img", { name: "「林夕」的资产图，第 3 版" })).toBeVisible();
+      await expect(viewer.getByRole("button", { name: "编辑" })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "asset-viewer", target: (page) => page.getByRole("dialog", { name: "林夕", exact: true }) },
+  },
+  {
+    name: "查看大图：点旧版本只查看，还原要单独确认",
+    path: PATH,
+    api: VIEWER_API,
+    ready: galleryReady,
+    act: async (page) => {
+      const viewer = await openViewer(page, "林夕");
+      await viewer.getByRole("button", { name: "第 1 版", exact: true }).click();
+      await expect(viewer.getByText("正在查看旧版本，当前是第 3 版")).toBeVisible();
+      await viewer.getByRole("button", { name: "还原到此版本" }).click();
+      const confirm = page.getByRole("alertdialog", { name: "还原到第 1 版？" });
+      await confirm.waitFor();
+      await waitForEntrance(confirm);
+      await expect(confirm.getByRole("button", { name: "还原" })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "asset-viewer-restore", target: (page) => page.getByRole("alertdialog") },
+  },
+  {
+    name: "查看大图：名字很长、版本很多时版本条横向滚动，操作留在视野里",
+    path: PATH,
+    api: VIEWER_MANY_API,
+    ready: async (page) => {
+      await expect(cards(page).first()).toBeVisible();
+    },
+    act: async (page) => {
+      const viewer = await openViewer(page, LONG_NAME);
+      const strip = viewer.getByRole("list", { name: "历史版本" });
+      await expect(strip.getByRole("button")).toHaveCount(60);
+      const first = strip.getByRole("button", { name: "第 1 版", exact: true });
+      await first.scrollIntoViewIfNeeded();
+      await first.click();
+      await expect(viewer.getByRole("button", { name: "还原到此版本" })).toBeInViewport({ ratio: 1 });
+      await expect(viewer.getByRole("button", { name: "编辑" })).toBeInViewport({ ratio: 1 });
+      await expect(viewer.getByRole("button", { name: "关闭" })).toBeInViewport({ ratio: 1 });
+      await expect(viewer.getByRole("button", { name: "下一个" })).toBeInViewport({ ratio: 1 });
     },
   },
 ]);
