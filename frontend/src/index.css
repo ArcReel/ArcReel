@@ -474,7 +474,7 @@ body {
 
 /* === Modal / Glass panel chrome — 收拢弹窗 chrome 的重复样式 === */
 
-/* 玻璃面板 — GlassModal / GlassPopover 的内容容器样式 */
+/* 玻璃面板 — GlassModal 的内容容器样式 */
 .arc-glass-panel {
     background: linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96));
     border: 1px solid var(--border);

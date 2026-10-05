@@ -1,9 +1,21 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Mic, Pause, Play } from "lucide-react";
+import { Loader2, Mic, Pause, Play } from "lucide-react";
 import { enqueueCharacterVoiceSample } from "@/actions/generation";
 import { API } from "@/api";
-import { GlassModal } from "@/components/legacy/GlassModal";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
@@ -24,14 +36,14 @@ interface VoiceOption {
 interface VoiceSampleButtonProps {
   projectName: string;
   characterName: string;
-  /** 角色卡上其它生成/编辑任务占用中：禁用入口 */
+  /** 详情编辑器里其它生成/写入占用中：禁用入口 */
   busy?: boolean;
   /** 确认保存成功后触发，供调用方重新加载角色资产 */
   onSaved: () => Promise<unknown> | void;
 }
 
 /**
- * 角色卡「声音」分组的 TTS 试听样本入口：选音色 → 编辑默认文案 → 生成 → 试听 → 确认落资产。
+ * 角色详情「声音」区块的 TTS 试听样本入口：选音色 → 编辑默认文案 → 生成 → 试听 → 确认落资产。
  * 取消/关闭弹窗不落资产——只有点击「确认并保存」才把已生成样本提升为角色 reference_audio。
  */
 export function VoiceSampleButton({
@@ -52,12 +64,10 @@ export function VoiceSampleButton({
   const [confirming, setConfirming] = useState(false);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement>(null);
-  const titleId = useId();
-  const descId = useId();
   const voiceFieldId = useId();
   const textFieldId = useId();
 
-  // audio 供应商可用性走全局 config-status-store（路由启动时已拉取一次），不为每张角色卡
+  // audio 供应商可用性走全局 config-status-store（路由启动时已拉取一次），不为每个角色
   // 预取音色列表——入口在未配置时即禁用，符合「audio_backend 未配置该入口不可用」的口径。
   const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
 
@@ -119,6 +129,11 @@ export function VoiceSampleButton({
 
   const openModal = () => {
     if (disabled) return;
+    // 打开时复核占用态：渲染快照之外，角色可能刚被 Agent 或其他标签页的任务占用。
+    if (isResourceBusy("character", projectName, characterName)) {
+      useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
+      return;
+    }
     setText(t("voice_sample_text_default"));
     setSelectedVoice("");
     setTaskId(null);
@@ -187,7 +202,6 @@ export function VoiceSampleButton({
     setConfirming(true);
     try {
       await API.confirmCharacterVoiceSample(projectName, characterName, taskId);
-      useAppStore.getState().pushToast(t("voice_sample_confirm_success_toast"), "success");
       setOpen(false);
       setTaskId(null);
       await onSaved();
@@ -198,217 +212,142 @@ export function VoiceSampleButton({
     }
   };
 
+  const selectItems = voicesLoading
+    ? [{ value: null, label: t("voice_sample_voice_loading") }]
+    : voices.length === 0
+      ? [{ value: null, label: t("voice_sample_no_voices") }]
+      : [{ value: null, label: t("voice_sample_voice_placeholder") }, ...voices.map((v) => ({ value: v.id, label: v.label }))];
+  const locked = generating || confirming;
+
   return (
     <>
-      <button
-        type="button"
-        onClick={openModal}
-        disabled={disabled}
-        title={audioConfigured ? t("voice_sample_action") : t("voice_sample_not_configured_hint")}
-        aria-label={audioConfigured ? t("voice_sample_action") : t("voice_sample_not_configured_hint")}
-        className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
-        style={{ color: "var(--muted-foreground)" }}
-      >
-        <Mic className="h-3 w-3" aria-hidden="true" />
-      </button>
+      <span className="flex flex-col items-start gap-1">
+        <Button variant="outline" size="sm" onClick={openModal} disabled={disabled}>
+          <Mic aria-hidden data-icon="inline-start" />
+          {t("voice_sample_action")}
+        </Button>
+        {audioConfigured ? null : (
+          <span className="text-xs text-muted-foreground">{t("voice_sample_not_configured_hint")}</span>
+        )}
+      </span>
 
-      <GlassModal
+      <Dialog
         open={open}
-        onClose={close}
-        labelledBy={titleId}
-        describedBy={descId}
-        closeOnBackdrop={!generating && !confirming}
-        closeOnEscape={!generating && !confirming}
+        onOpenChange={(next) => {
+          if (!next) close();
+        }}
       >
-        <div className="p-5">
-          <h2
-            id={titleId}
-            className="display-serif text-[17px] font-semibold tracking-tight"
-            style={{ color: "var(--foreground)" }}
-          >
-            {t("voice_sample_modal_title")}
-          </h2>
-          <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
-            {t("voice_sample_modal_desc", { name: characterName })}
-          </p>
-
-          {!voicesLoading && !voicesConfigured ? (
-            <p
-              className="mt-4 rounded-lg px-3 py-2 text-[12.5px]"
-              style={{ background: "oklch(0.22 0.012 265 / 0.5)", color: "var(--muted-foreground)" }}
-            >
-              {t("voice_sample_not_configured_hint")}
-            </p>
-          ) : (
-            <>
-              <label
-                htmlFor={voiceFieldId}
-                className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em]"
-                style={{ color: "var(--muted-foreground)" }}
-              >
-                {t("voice_sample_voice_label")}
-              </label>
-              <select
-                id={voiceFieldId}
-                value={selectedVoice}
-                onChange={(e) => handleVoiceChange(e.target.value)}
-                disabled={voicesLoading || voices.length === 0 || generating || confirming}
-                className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-[border-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-60"
-                style={{
-                  background: "oklch(0.20 0.011 265 / 0.6)",
-                  border: "1px solid var(--border)",
-                  color: "var(--foreground)",
-                }}
-              >
-                {voicesLoading ? (
-                  <option value="">{t("voice_sample_voice_loading")}</option>
-                ) : voices.length === 0 ? (
-                  <option value="">{t("voice_sample_no_voices")}</option>
-                ) : (
-                  <>
-                    <option value="" disabled>
-                      {t("voice_sample_voice_placeholder")}
-                    </option>
-                    {voices.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.label}
-                      </option>
-                    ))}
-                  </>
-                )}
-              </select>
-
-              <label
-                htmlFor={textFieldId}
-                className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em]"
-                style={{ color: "var(--muted-foreground)" }}
-              >
-                {t("voice_sample_text_label")}
-              </label>
-              <textarea
-                id={textFieldId}
-                value={text}
-                onChange={(e) => handleTextChange(e.target.value)}
-                maxLength={VOICE_SAMPLE_TEXT_MAX_LENGTH}
-                rows={3}
-                disabled={generating || confirming}
-                className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-60"
-                style={{
-                  background: "oklch(0.20 0.011 265 / 0.6)",
-                  border: "1px solid var(--border)",
-                  color: "var(--foreground)",
-                }}
-              />
-              <p className="mt-1 text-[10.5px]" style={{ color: "var(--muted-foreground)" }}>
-                {t("voice_sample_text_hint")}
-              </p>
-
-              {failed && (
-                <p className="mt-3 text-[12px]" style={{ color: "var(--destructive, #e5484d)" }}>
-                  {task?.error_message ?? t("voice_sample_task_failed")}
-                </p>
-              )}
-
-              {previewUrl && (
-                <div
-                  className="mt-3 flex items-center gap-2 rounded-lg px-2.5 py-1.5"
-                  style={{
-                    background: "oklch(0.20 0.011 265 / 0.6)",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  {/* eslint-disable-next-line jsx-a11y/media-has-caption -- TTS 试听样本，无对白内容，无字幕源 */}
-                  <audio
-                    ref={previewAudioRef}
-                    src={previewUrl}
-                    className="hidden"
-                    onPlay={() => setIsPreviewPlaying(true)}
-                    onPause={() => setIsPreviewPlaying(false)}
-                    onEnded={() => setIsPreviewPlaying(false)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const audioEl = previewAudioRef.current;
-                      if (!audioEl) return;
-                      if (isPreviewPlaying) audioEl.pause();
-                      else void audioEl.play();
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>{t("voice_sample_modal_title")}</DialogTitle>
+            <DialogDescription>{t("voice_sample_modal_desc", { name: characterName })}</DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            {!voicesLoading && !voicesConfigured ? (
+              <p className="text-sm text-muted-foreground">{t("voice_sample_not_configured_hint")}</p>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={voiceFieldId}>{t("voice_sample_voice_label")}</Label>
+                  <Select
+                    items={selectItems}
+                    value={selectedVoice || null}
+                    onValueChange={(next) => {
+                      if (next !== null) handleVoiceChange(next);
                     }}
-                    aria-label={isPreviewPlaying ? t("pause_audio_sample") : t("play_audio_sample")}
-                    className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors"
-                    style={{
-                      background: "color-mix(in oklab, var(--primary) 12%, transparent)",
-                      border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-                      color: "var(--primary)",
-                    }}
+                    disabled={voicesLoading || voices.length === 0 || locked}
                   >
-                    {isPreviewPlaying ? (
-                      <Pause className="h-3.5 w-3.5" />
-                    ) : (
-                      <Play className="h-3.5 w-3.5 translate-x-px" />
-                    )}
-                  </button>
-                  <span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-                    {t("voice_sample_preview_label")}
-                  </span>
+                    <SelectTrigger id={voiceFieldId} className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {voices.map((v) => (
+                        <SelectItem key={v.id} value={v.id}>
+                          {v.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-            </>
-          )}
 
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={close}
-              disabled={generating || confirming}
-              className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ color: "var(--subtle-foreground)" }}
-            >
-              {t("common:cancel")}
-            </button>
-            {succeeded && (
-              <button
-                type="button"
-                onClick={() => void handleConfirm()}
-                disabled={confirming}
-                className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                style={{
-                  color: "var(--foreground)",
-                  background: "oklch(1 0 0 / 0.08)",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                {confirming ? t("voice_sample_confirming") : t("voice_sample_confirm")}
-              </button>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={textFieldId}>{t("voice_sample_text_label")}</Label>
+                  <Textarea
+                    id={textFieldId}
+                    value={text}
+                    onChange={(e) => handleTextChange(e.target.value)}
+                    maxLength={VOICE_SAMPLE_TEXT_MAX_LENGTH}
+                    rows={3}
+                    disabled={locked}
+                  />
+                  <p className="text-xs text-muted-foreground">{t("voice_sample_text_hint")}</p>
+                </div>
+
+                {failed && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {task?.error_message ?? t("voice_sample_task_failed")}
+                  </p>
+                )}
+
+                {previewUrl && (
+                  <div className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5">
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption -- TTS 试听样本，无对白内容，无字幕源 */}
+                    <audio
+                      ref={previewAudioRef}
+                      src={previewUrl}
+                      className="hidden"
+                      onPlay={() => setIsPreviewPlaying(true)}
+                      onPause={() => setIsPreviewPlaying(false)}
+                      onEnded={() => setIsPreviewPlaying(false)}
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={() => {
+                        const audioEl = previewAudioRef.current;
+                        if (!audioEl) return;
+                        if (isPreviewPlaying) audioEl.pause();
+                        else void audioEl.play();
+                      }}
+                      aria-label={isPreviewPlaying ? t("pause_audio_sample") : t("play_audio_sample")}
+                    >
+                      {isPreviewPlaying ? <Pause aria-hidden /> : <Play aria-hidden />}
+                    </Button>
+                    <span className="text-sm text-muted-foreground">{t("voice_sample_preview_label")}</span>
+                  </div>
+                )}
+              </div>
             )}
-            <button
-              type="button"
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={close} disabled={locked}>
+              {t("common:cancel")}
+            </Button>
+            <Button
+              variant={succeeded ? "outline" : "default"}
               onClick={() => void handleGenerate()}
-              disabled={
-                generating ||
-                confirming ||
-                !voicesConfigured ||
-                !selectedVoice ||
-                text.trim().length === 0
-              }
-              className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                color: "oklch(0.14 0 0)",
-                background: "var(--primary)",
-                boxShadow:
-                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
-              }}
+              disabled={locked || !voicesConfigured || !selectedVoice || text.trim().length === 0}
             >
-              <Mic className="h-3.5 w-3.5" aria-hidden="true" />
+              {generating ? (
+                <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <Mic aria-hidden data-icon="inline-start" />
+              )}
               {generating
                 ? t("voice_sample_generating")
                 : succeeded || failed
                   ? t("voice_sample_regenerate")
                   : t("voice_sample_generate")}
-            </button>
-          </div>
-        </div>
-      </GlassModal>
+            </Button>
+            {succeeded && (
+              <Button onClick={() => void handleConfirm()} disabled={confirming}>
+                {confirming ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+                {confirming ? t("voice_sample_confirming") : t("voice_sample_confirm")}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

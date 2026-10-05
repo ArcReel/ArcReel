@@ -1,12 +1,16 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { X } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import { API } from "@/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { useTrackWrite } from "./useAssetWrites";
 
-type AliasAssetType = "character" | "scene" | "prop";
+export type AliasAssetType = "character" | "scene" | "prop";
 
 interface AssetAliasesFieldProps {
   projectName: string;
@@ -15,6 +19,8 @@ interface AssetAliasesFieldProps {
   aliases: string[];
   /** 只读展示（引导演示项目）：只列出别名，不渲染增删入口。 */
   readOnly?: boolean;
+  /** 详情里其它写入占用中：增删入口一起禁用。 */
+  busy?: boolean;
 }
 
 const UPDATE: Record<AliasAssetType, (project: string, name: string, updates: Record<string, unknown>) => Promise<unknown>> = {
@@ -24,25 +30,42 @@ const UPDATE: Record<AliasAssetType, (project: string, name: string, updates: Re
 };
 
 /**
- * 资产卡片上的别名：增删即保存。别名只供 AI 规划时认人参考，不参与引用；后端按名称判等去空白、
- * 去重并去掉与资产同名的一项。
+ * 资产详情里的别名：增删是立即执行的动作，不进入未保存修改。添加经「添加别名」弹层里的表单
+ * 显式提交，删除后的提示里可以撤销。别名只供 AI 规划时认人参考，不参与引用；后端按名称判等
+ * 去空白、去重并去掉与资产同名的一项。
  */
-export function AssetAliasesField({ projectName, name, assetType, aliases, readOnly = false }: AssetAliasesFieldProps) {
-  const { t } = useTranslation("assets");
+export function AssetAliasesField({
+  projectName,
+  name,
+  assetType,
+  aliases,
+  readOnly = false,
+  busy = false,
+}: AssetAliasesFieldProps) {
+  const { t } = useTranslation(["assets", "common"]);
   const [input, setInput] = useState("");
+  const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const inputId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const track = useTrackWrite();
+  // 撤销在提示里触发，可能晚于下一次刷新：以那一刻的别名为准再加回去
+  const latest = useRef({ aliases, name });
+  useEffect(() => {
+    latest.current = { aliases, name };
+  }, [aliases, name]);
 
-  if (readOnly && aliases.length === 0) return null;
-
-  const save = async (next: string[]): Promise<boolean> => {
+  const save = async (target: string, next: string[]): Promise<boolean> => {
     setSaving(true);
     try {
-      await UPDATE[assetType](projectName, name, { aliases: next });
-      await useProjectsStore.getState().refreshProject(projectName);
+      await track(
+        UPDATE[assetType](projectName, target, { aliases: next }).then(() =>
+          useProjectsStore.getState().refreshProject(projectName),
+        ),
+      );
       return true;
     } catch (err) {
-      useAppStore.getState().pushToast(t("aliases_save_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("assets:aliases_save_failed", { message: errMsg(err) }), "error");
       return false;
     } finally {
       setSaving(false);
@@ -52,57 +75,104 @@ export function AssetAliasesField({ projectName, name, assetType, aliases, readO
   const add = async () => {
     const alias = input.trim();
     if (!alias || saving) return;
-    if (await save([...aliases, alias])) setInput("");
+    if (await save(name, [...aliases, alias])) {
+      setInput("");
+      setAdding(false);
+    }
   };
 
-  return (
-    <div className="mb-3">
-      <label
-        htmlFor={inputId}
-        className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-        style={{ color: "var(--muted-foreground)" }}
-      >
-        {t("aliases_label")}
-      </label>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+  const remove = async (alias: string) => {
+    if (!(await save(name, aliases.filter((item) => item !== alias)))) return;
+    useAppStore.getState().pushToast(t("assets:aliases_removed", { alias }), "info", {
+      action: {
+        label: t("common:undo"),
+        onClick: () => {
+          const { aliases: current, name: target } = latest.current;
+          if (!current.includes(alias)) void save(target, [...current, alias]);
+        },
+      },
+    });
+  };
+
+  // 只读且没有别名时由调用方整块不渲染
+  if (readOnly) {
+    return (
+      <ul className="flex flex-wrap gap-1.5">
         {aliases.map((alias) => (
-          <span
-            key={alias}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[12px] text-subtle-foreground"
-          >
+          <li key={alias} className="rounded-md border border-border px-2 py-0.5 text-sm">
             {alias}
-            {!readOnly && (
-              <button
-                type="button"
-                onClick={() => void save(aliases.filter((item) => item !== alias))}
-                disabled={saving}
-                aria-label={t("aliases_remove", { alias })}
-                className="focus-ring rounded-sm text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </span>
+          </li>
         ))}
-        {!readOnly && (
-          <input
-            id={inputId}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      </ul>
+    );
+  }
+
+  const locked = saving || busy;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {aliases.length > 0 && (
+          <ul className="contents">
+            {aliases.map((alias) => (
+              <li key={alias} className="inline-flex h-7 items-center gap-0.5 rounded-md border border-border pr-0.5 pl-2 text-sm">
+                {alias}
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => void remove(alias)}
+                  disabled={locked}
+                  aria-label={t("assets:aliases_remove", { alias })}
+                >
+                  <X aria-hidden />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Popover
+          open={adding}
+          onOpenChange={(next) => {
+            // 提交中不响应关闭，请求在途时输入不丢
+            if (!next && saving) return;
+            setAdding(next);
+            if (!next) setInput("");
+          }}
+        >
+          <PopoverTrigger render={<Button variant="outline" size="sm" disabled={locked} />}>
+            <Plus aria-hidden data-icon="inline-start" />
+            {t("assets:aliases_add")}
+          </PopoverTrigger>
+          <PopoverContent align="start" initialFocus={inputRef}>
+            <form
+              className="flex flex-col gap-2"
+              onSubmit={(e) => {
                 e.preventDefault();
                 void add();
-              }
-            }}
-            disabled={saving}
-            placeholder={t("aliases_placeholder")}
-            className="focus-ring min-w-[8rem] flex-1 rounded-md border border-border bg-transparent px-2 py-0.5 text-[12px] text-subtle-foreground outline-none disabled:opacity-60"
-          />
-        )}
+              }}
+            >
+              <label htmlFor={inputId} className="text-sm font-medium">
+                {t("assets:aliases_label")}
+              </label>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  ref={inputRef}
+                  id={inputId}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  disabled={saving}
+                  className="min-w-0 flex-1"
+                />
+                <Button type="submit" size="sm" disabled={saving || input.trim().length === 0}>
+                  {saving ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+                  {t("common:add")}
+                </Button>
+              </div>
+            </form>
+          </PopoverContent>
+        </Popover>
       </div>
-      {!readOnly && <p className="mt-1 text-[11px] text-muted-foreground">{t("aliases_hint")}</p>}
+      <p className="text-xs text-muted-foreground">{t("assets:aliases_hint")}</p>
     </div>
   );
 }

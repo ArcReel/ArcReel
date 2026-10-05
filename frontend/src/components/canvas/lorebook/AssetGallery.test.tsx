@@ -43,9 +43,7 @@ function renderGallery(overrides: Partial<Parameters<typeof AssetGallery<Source>
       assets={SCENES}
       readOnly={false}
       onGenerate={vi.fn()}
-      onAdd={vi.fn()}
       libraryPreview={libraryPreview}
-      renderEditor={(name) => <p>编辑 {name}</p>}
       {...overrides}
     />,
   );
@@ -96,7 +94,7 @@ describe("AssetGallery", () => {
     await user.click(screen.getByRole("button", { name: "书房" }));
 
     const sheet = await screen.findByRole("dialog", { name: "书房" });
-    expect(within(sheet).getByText("编辑 书房")).toBeInTheDocument();
+    expect(within(sheet).getByRole("textbox", { name: "描述" })).toHaveValue("堆满古籍");
   });
 
   it("collects the secondary actions in the card menu", async () => {

@@ -168,11 +168,13 @@ const REWORKED_FILES = [
   "src/components/canvas/shared/{ScriptPlanStart,ScriptPlanDialog,ScriptPlanButton,StartBlankScriptButton,PlanDurationSelect}.tsx",
   "src/components/shared/SourceTextReadonly.tsx",
   // 资产画廊：浏览卡与网格、工具栏筛选与批量生成、「更多」菜单的对话框、四类画廊页与换版本时的交叉淡入
-  "src/components/canvas/lorebook/{AssetGallery,AssetBrowseCard,AssetEditorSheet,GalleryToolbar,GalleryEmptyState,GalleryStatusMarker,gallery-model,AssetSheetBatchControls,AssetSheetBatchDialog,MergeAssetDialog,useStaleRegenerateConfirm,GenerateButton,CharactersPage,ScenesPage,PropsPage,ProductsPage,ProductCreateDialog,useAssetSheetStatus}.{ts,tsx}",
+  "src/components/canvas/lorebook/{AssetGallery,AssetBrowseCard,AssetEditorSheet,GalleryToolbar,GalleryEmptyState,GalleryStatusMarker,gallery-model,AssetSheetBatchControls,AssetSheetBatchDialog,MergeAssetDialog,useStaleRegenerateConfirm,GenerateButton,CharactersPage,ScenesPage,PropsPage,ProductsPage,useAssetSheetStatus}.{ts,tsx}",
   "src/components/canvas/timeline/ImageEditButton.tsx",
   "src/components/canvas/shared/CrossfadeImage.tsx",
   // 资产画廊：删除项目资产的确认框
   "src/components/canvas/lorebook/ProjectAssetDeleteDialog.tsx",
+  // 资产详情 Sheet：四类资产共用的详情编辑器与新建表单，及改名、原图、声音、别名、TTS 样本与大图
+  "src/components/canvas/lorebook/{AssetDetailEditor,AssetCreateForm,asset-editor-model,useAssetWrites,EditableAssetName,AssetOriginalsField,CharacterVoiceField,AssetAliasesField,VoiceSampleButton,AssetImageDialog}.{ts,tsx}",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

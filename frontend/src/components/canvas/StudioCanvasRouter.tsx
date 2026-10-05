@@ -38,17 +38,11 @@ import {
   enqueueStoryboard,
   enqueueVideo,
 } from "@/actions/generation";
-import { buildEntityRevisionKey } from "@/utils/project-changes";
 import {
   durationOutOfRangeReason,
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
-import type {
-  Scene,
-  Prop,
-  Product,
-} from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
 /** 集级路由 path，与渲染该集的 `<Route>` 共用一份。 */
@@ -343,54 +337,7 @@ export function StudioCanvasRouter() {
     handleGenerateVideo,
   ]);
 
-  // ---- Character CRUD callbacks ----
-  const handleSaveCharacter = useCallback(async (
-    name: string,
-    payload: {
-      description: string;
-      voiceStyle: string;
-      referenceFile?: File | null;
-      audioFile?: File | null;
-    },
-  ) => {
-    if (!currentProjectName) return;
-    const invalidateKeys = payload.referenceFile || payload.audioFile
-      ? [buildEntityRevisionKey("character", name)]
-      : [];
-    try {
-      await API.updateCharacter(currentProjectName, name, {
-        description: payload.description,
-        voice_style: payload.voiceStyle,
-      });
-
-      if (payload.referenceFile) {
-        await API.uploadFile(
-          currentProjectName,
-          "character_ref",
-          payload.referenceFile,
-          name,
-        );
-      }
-
-      if (payload.audioFile) {
-        await API.uploadFile(
-          currentProjectName,
-          "character_audio_ref",
-          payload.audioFile,
-          name,
-        );
-      }
-
-      useAppStore.getState().pushToast(tRef.current("character_updated_toast", { name }), "success");
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("update_character_failed", { message: errMsg(err) }), "error");
-    } finally {
-      // 三步写操作顺序执行，任一步失败时前面已持久化的变更（描述/参考图）也要反映到本地
-      // store，否则用户会误以为整个保存失败而重复提交
-      await refreshProject(invalidateKeys);
-    }
-  }, [currentProjectName, refreshProject]);
-
+  // ---- Asset sheet generation callbacks ----
   const handleGenerateCharacter = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
@@ -399,43 +346,6 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName]);
-
-  const handleAddCharacterSubmit = useCallback(async (
-    name: string,
-    description: string,
-    voiceStyle: string,
-    referenceFile?: File | null,
-  ) => {
-    if (!currentProjectName) return;
-    try {
-      await API.addCharacter(currentProjectName, name, description, voiceStyle);
-
-      if (referenceFile) {
-        await API.uploadFile(currentProjectName, "character_ref", referenceFile, name);
-      }
-
-      await refreshProject(
-        referenceFile
-          ? [buildEntityRevisionKey("character", name)]
-          : [],
-      );
-      useAppStore.getState().pushToast(tRef.current("character_added_toast", { name }), "success");
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("add_failed", { message: errMsg(err) }), "error");
-      throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
-    }
-  }, [currentProjectName, refreshProject]);
-
-  // ---- Scene CRUD callbacks ----
-  const handleUpdateScene = useCallback(async (name: string, updates: Partial<Scene>) => {
-    if (!currentProjectName) return;
-    try {
-      await API.updateProjectScene(currentProjectName, name, updates);
-      await refreshProject();
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("update_scene_failed", { message: errMsg(err) }), "error");
-    }
-  }, [currentProjectName, refreshProject]);
 
   const handleGenerateScene = useCallback(async (name: string) => {
     if (!currentProjectName) return;
@@ -446,29 +356,6 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName]);
 
-  const handleAddSceneSubmit = useCallback(async (name: string, description: string) => {
-    if (!currentProjectName) return;
-    try {
-      await API.addProjectScene(currentProjectName, name, description);
-      await refreshProject();
-      useAppStore.getState().pushToast(tRef.current("scene_added_toast", { name }), "success");
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("add_failed", { message: errMsg(err) }), "error");
-      throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
-    }
-  }, [currentProjectName, refreshProject]);
-
-  // ---- Prop CRUD callbacks ----
-  const handleUpdateProp = useCallback(async (name: string, updates: Partial<Prop>) => {
-    if (!currentProjectName) return;
-    try {
-      await API.updateProjectProp(currentProjectName, name, updates);
-      await refreshProject();
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("update_prop_failed", { message: errMsg(err) }), "error");
-    }
-  }, [currentProjectName, refreshProject]);
-
   const handleGenerateProp = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
@@ -478,29 +365,6 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName]);
 
-  const handleAddPropSubmit = useCallback(async (name: string, description: string) => {
-    if (!currentProjectName) return;
-    try {
-      await API.addProjectProp(currentProjectName, name, description);
-      await refreshProject();
-      useAppStore.getState().pushToast(tRef.current("prop_added_toast", { name }), "success");
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("add_failed", { message: errMsg(err) }), "error");
-      throw err; // AssetFormModal onSubmit 消费：失败时阻止 setAdding(false) 关闭对话框
-    }
-  }, [currentProjectName, refreshProject]);
-
-  // ---- Product CRUD callbacks ----
-  const handleUpdateProduct = useCallback(async (name: string, updates: Partial<Product>) => {
-    if (!currentProjectName) return;
-    try {
-      await API.updateProjectProduct(currentProjectName, name, updates);
-      await refreshProject();
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("update_product_failed", { message: errMsg(err) }), "error");
-    }
-  }, [currentProjectName, refreshProject]);
-
   const handleGenerateProduct = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
@@ -509,18 +373,6 @@ export function StudioCanvasRouter() {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName]);
-
-  const handleAddProductSubmit = useCallback(async (name: string, description: string, brand: string) => {
-    if (!currentProjectName) return;
-    try {
-      await API.addProjectProduct(currentProjectName, name, description, brand || undefined);
-      await refreshProject();
-      useAppStore.getState().pushToast(tRef.current("product_added_toast", { name }), "success");
-    } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("add_failed", { message: errMsg(err) }), "error");
-      throw err; // ProductFormModal onSubmit 消费：失败时阻止关闭对话框
-    }
-  }, [currentProjectName, refreshProject]);
 
   const handleGenerateGrid = useCallback(async (episode: number, scriptFile: string, sceneIds?: string[]) => {
     if (!currentProjectName) return;
@@ -538,21 +390,12 @@ export function StudioCanvasRouter() {
   const handleGenerateCharacterVoid = useCallback((...args: Parameters<typeof handleGenerateCharacter>) => {
     void handleGenerateCharacter(...args).catch(console.error);
   }, [handleGenerateCharacter]);
-  const handleUpdateSceneVoid = useCallback((...args: Parameters<typeof handleUpdateScene>) => {
-    void handleUpdateScene(...args).catch(console.error);
-  }, [handleUpdateScene]);
   const handleGenerateSceneVoid = useCallback((...args: Parameters<typeof handleGenerateScene>) => {
     void handleGenerateScene(...args).catch(console.error);
   }, [handleGenerateScene]);
-  const handleUpdatePropVoid = useCallback((...args: Parameters<typeof handleUpdateProp>) => {
-    void handleUpdateProp(...args).catch(console.error);
-  }, [handleUpdateProp]);
   const handleGeneratePropVoid = useCallback((...args: Parameters<typeof handleGenerateProp>) => {
     void handleGenerateProp(...args).catch(console.error);
   }, [handleGenerateProp]);
-  const handleUpdateProductVoid = useCallback((...args: Parameters<typeof handleUpdateProduct>) => {
-    void handleUpdateProduct(...args).catch(console.error);
-  }, [handleUpdateProduct]);
   const handleGenerateProductVoid = useCallback((...args: Parameters<typeof handleGenerateProduct>) => {
     void handleGenerateProduct(...args).catch(console.error);
   }, [handleGenerateProduct]);
@@ -593,13 +436,10 @@ export function StudioCanvasRouter() {
           projectName={currentProjectName}
           characters={currentProjectData?.characters ?? {}}
           readOnly={demoMode}
-          onSaveCharacter={handleSaveCharacter}
           onGenerateCharacter={handleGenerateCharacterVoid}
-          onAddCharacter={handleAddCharacterSubmit}
           onRestoreCharacterVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
           generatingCharacterNames={generatingCharacterNames}
-          voiceBinding={currentProjectData?.character_voice_binding}
         />
       </Route>
 
@@ -609,9 +449,7 @@ export function StudioCanvasRouter() {
           projectName={currentProjectName}
           scenes={currentProjectData?.scenes ?? {}}
           readOnly={demoMode}
-          onUpdateScene={handleUpdateSceneVoid}
           onGenerateScene={handleGenerateSceneVoid}
-          onAddScene={handleAddSceneSubmit}
           onRestoreSceneVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
           generatingSceneNames={generatingSceneNames}
@@ -624,9 +462,7 @@ export function StudioCanvasRouter() {
           projectName={currentProjectName}
           props={currentProjectData?.props ?? {}}
           readOnly={demoMode}
-          onUpdateProp={handleUpdatePropVoid}
           onGenerateProp={handleGeneratePropVoid}
-          onAddProp={handleAddPropSubmit}
           onRestorePropVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
           generatingPropNames={generatingPropNames}
@@ -639,9 +475,7 @@ export function StudioCanvasRouter() {
           projectName={currentProjectName}
           products={currentProjectData?.products ?? {}}
           readOnly={demoMode}
-          onUpdateProduct={handleUpdateProductVoid}
           onGenerateProduct={handleGenerateProductVoid}
-          onAddProduct={handleAddProductSubmit}
           onRestoreProductVersion={handleRestoreAsset}
           onRefreshProject={refreshProject}
           generatingProductNames={generatingProductNames}

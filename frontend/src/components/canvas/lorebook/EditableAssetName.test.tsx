@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API, type AssetRenameResult } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -19,6 +20,9 @@ function renameResult(overrides: Partial<AssetRenameResult> = {}): AssetRenameRe
   };
 }
 
+// 编辑时标题由调用方视觉隐藏，这里直接移出无障碍树
+const title = (hidden: boolean) => <h2 hidden={hidden}>李白</h2>;
+
 describe("EditableAssetName", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
@@ -30,7 +34,7 @@ describe("EditableAssetName", () => {
   });
 
   it("renders a plain heading without rename affordance when readOnly", () => {
-    render(<EditableAssetName projectName="demo" name="李白" assetType="character" readOnly />);
+    render(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} readOnly />);
     expect(screen.getByRole("heading", { name: "李白" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "重命名" })).not.toBeInTheDocument();
   });
@@ -41,12 +45,15 @@ describe("EditableAssetName", () => {
       .mockResolvedValueOnce(renameResult())
       .mockResolvedValueOnce(renameResult({ dry_run: false }));
 
-    render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
+    const onRenamed = vi.fn();
+    render(
+      <EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} onRenamed={onRenamed} />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "重命名" }));
     const input = screen.getByRole("textbox", { name: "重命名" });
     fireEvent.change(input, { target: { value: "  青莲  " } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    await userEvent.type(input, "{Enter}");
 
     // dry-run 预览先行，确认框展示影响数字
     await waitFor(() =>
@@ -64,6 +71,9 @@ describe("EditableAssetName", () => {
     await waitFor(() =>
       expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo"),
     );
+    // 调用方据此把选中项改到新名称上；改名是立即执行的动作，成功不弹提示
+    expect(onRenamed).toHaveBeenCalledWith("李白", "青莲");
+    expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("warns instead of reporting failure when only the post-rename refresh fails", async () => {
@@ -73,12 +83,12 @@ describe("EditableAssetName", () => {
     // refreshProject 以结算值报告失败而不 reject，重命名本身已经成功
     vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("failed");
 
-    render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
+    render(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
 
     fireEvent.click(screen.getByRole("button", { name: "重命名" }));
     const input = screen.getByRole("textbox", { name: "重命名" });
     fireEvent.change(input, { target: { value: "青莲" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    await userEvent.type(input, "{Enter}");
 
     const dialogButtons = await screen.findAllByRole("button", { name: "重命名" });
     fireEvent.click(dialogButtons[dialogButtons.length - 1]);
@@ -90,7 +100,7 @@ describe("EditableAssetName", () => {
 
   it("cancels on Escape without calling the API", () => {
     const renameSpy = vi.spyOn(API, "renameProjectAsset");
-    render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
+    render(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
 
     fireEvent.click(screen.getByRole("button", { name: "重命名" }));
     const input = screen.getByRole("textbox", { name: "重命名" });
@@ -103,10 +113,10 @@ describe("EditableAssetName", () => {
 
   it("exits edit mode without preview when the name is unchanged", async () => {
     const renameSpy = vi.spyOn(API, "renameProjectAsset");
-    render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
+    render(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
 
     fireEvent.click(screen.getByRole("button", { name: "重命名" }));
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "重命名" }), { key: "Enter" });
+    await userEvent.type(screen.getByRole("textbox", { name: "重命名" }), "{Enter}");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "李白" })).toBeInTheDocument());
     expect(renameSpy).not.toHaveBeenCalled();
@@ -115,16 +125,16 @@ describe("EditableAssetName", () => {
   it("rejects submission when the card starts its own write while the input is open", async () => {
     const renameSpy = vi.spyOn(API, "renameProjectAsset");
     const { rerender } = render(
-      <EditableAssetName projectName="demo" name="李白" assetType="character" busy={false} />,
+      <EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} busy={false} />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "重命名" }));
     const input = screen.getByRole("textbox", { name: "重命名" });
     fireEvent.change(input, { target: { value: "青莲" } });
 
-    // 打开输入框后卡片自身起了一次写请求（上传立绘等），该占用只体现在本地 state 上
-    rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" busy />);
-    fireEvent.keyDown(input, { key: "Enter" });
+    // 打开输入框后详情里起了一次写请求（上传原图等），该占用只体现在本地 state 上
+    rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} busy />);
+    await userEvent.type(input, "{Enter}");
 
     await waitFor(() =>
       expect(useAppStore.getState().toast).toMatchObject({
@@ -146,11 +156,11 @@ describe("EditableAssetName", () => {
       }),
     );
 
-    render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
+    render(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
 
     fireEvent.click(screen.getByRole("button", { name: "重命名" }));
     fireEvent.change(screen.getByRole("textbox", { name: "重命名" }), { target: { value: "青莲" } });
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "重命名" }), { key: "Enter" });
+    await userEvent.type(screen.getByRole("textbox", { name: "重命名" }), "{Enter}");
     const dialogButtons = await screen.findAllByRole("button", { name: "重命名" });
     fireEvent.click(dialogButtons[dialogButtons.length - 1]);
 
@@ -164,12 +174,12 @@ describe("EditableAssetName", () => {
 
   it("toasts and stays editable when the preview request fails", async () => {
     vi.spyOn(API, "renameProjectAsset").mockRejectedValue(new Error("同名冲突"));
-    render(<EditableAssetName projectName="demo" name="李白" assetType="character" />);
+    render(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
 
     fireEvent.click(screen.getByRole("button", { name: "重命名" }));
     const input = screen.getByRole("textbox", { name: "重命名" });
     fireEvent.change(input, { target: { value: "青莲" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    await userEvent.type(input, "{Enter}");
 
     await waitFor(() =>
       expect(useAppStore.getState().toast?.text).toContain("同名冲突"),

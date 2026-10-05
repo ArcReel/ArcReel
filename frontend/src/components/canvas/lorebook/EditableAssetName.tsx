@@ -1,8 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Loader2, Pencil, X } from "lucide-react";
 import { API, type AssetRenameResult, type ProjectAssetType } from "@/api";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
@@ -12,29 +24,33 @@ interface EditableAssetNameProps {
   projectName: string;
   name: string;
   assetType: ProjectAssetType;
+  /**
+   * 名称标题。编辑时 `hidden` 为 true，标题仍需渲染（视觉隐藏），所在弹层的无障碍名称不随之消失。
+   */
+  renderTitle: (hidden: boolean) => ReactNode;
   /** 只读展示（引导演示项目）：不渲染重命名入口。 */
   readOnly?: boolean;
-  /** 与卡片兄弟控件共享的禁用态（生成中 / 上传中）。 */
+  /** 与详情里兄弟控件共享的占用态（生成中、上传中、保存中）。 */
   busy?: boolean;
+  /** 改名已提交、刷新项目数据之前调用，供调用方把选中项改到新名称上。 */
+  onRenamed?: (from: string, to: string) => void;
 }
 
-const ICON_BTN_CLS =
-  "focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.06)] disabled:cursor-not-allowed disabled:opacity-40";
-
 /**
- * 资产卡片名称的行内重命名：hover 出铅笔 → 名称变行内输入框（Enter 提交 / Esc 取消）→
- * 点钩先取影响预览（dry-run）再弹二次确认框，确认后执行级联重命名。
+ * 资产名称的就地重命名：点铅笔 → 名称变输入框（Enter 提交，Esc 取消）→ 先取影响预览（dry-run）
+ * 再弹确认框，确认后执行级联重命名。改名是立即执行的动作，不进入未保存修改，成功不弹提示。
  *
  * 重命名会级联改写全部剧集剧本引用与关联文件，属占用感知型操作：进入编辑与确认提交时
- * 均经 `rejectIfAssetBusy` 复核占用态。成功后经 `refreshProject` 单一漏斗刷新（改名后
- * 卡片按新 key 重建，本组件不持有跨改名状态）。
+ * 均经 `rejectIfAssetBusy` 复核占用态。成功后经 `refreshProject` 单一漏斗刷新。
  */
 export function EditableAssetName({
   projectName,
   name,
   assetType,
+  renderTitle,
   readOnly = false,
   busy = false,
+  onRenamed,
 }: EditableAssetNameProps) {
   const { t } = useTranslation(["assets", "common"]);
   const [isEditing, setIsEditing] = useState(false);
@@ -45,33 +61,22 @@ export function EditableAssetName({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (isEditing) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
+    if (!isEditing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
   }, [isEditing]);
 
   const trimmed = draft.trim();
   const submitting = previewLoading || renaming;
   const canSubmit = trimmed.length > 0 && !submitting;
 
-  const heading = (
-    <h3
-      className="display-serif min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight"
-      style={{ color: "var(--foreground)" }}
-    >
-      {name}
-    </h3>
-  );
-
-  if (readOnly) return heading;
+  if (readOnly) return renderTitle(false);
 
   /**
-   * 占用复核并作三路取：`rejectIfAssetBusy` 只看任务队列，而卡片自身在途的写请求（上传、
-   * 保存）与本组件自己那次尚未刷新完的改名都是本地 state、不进队列，队列口径看不见，必须
-   * 把 `busy` 与 `renaming` 并进同一道闸——否则渲染时刻禁用了按钮，提交时刻却放行同一份占用。
-   * `renaming` 直到 `refreshProject` 结算才落下：那之前 `name` 仍是旧值，放行会拿过期的
-   * 基准名再提交一次，把刚改成的新名又改回去。
+   * 占用复核并作三路取：`rejectIfAssetBusy` 只看任务队列，而详情里在途的写请求（上传、保存）与
+   * 本组件自己那次尚未刷新完的改名都是本地 state、不进队列，必须把 `busy` 与 `renaming` 并进
+   * 同一道闸。`renaming` 直到 `refreshProject` 结算才落下：那之前项目数据仍是旧名，放行会拿
+   * 过期的基准名再提交一次。
    */
   const rejectIfBusy = () => {
     if (busy || renaming) {
@@ -119,18 +124,18 @@ export function EditableAssetName({
     setRenaming(true);
     try {
       const result = await API.renameProjectAsset(projectName, assetType, name, trimmed);
-      useAppStore.getState().pushToast(t("assets:rename_success", { name: result.new_name }), "success");
       setPreview(null);
       setIsEditing(false);
+      onRenamed?.(name, result.new_name);
       // 重命名已提交，刷新是独立的后续步骤：refreshProject 以结算值报告失败而不 reject，
-      // 不单独提示的话卡片会停在旧名上，看着像改名没生效。cancelled 是项目已切走，静默。
+      // 不单独提示的话详情会停在旧数据上，看着像改名没生效。cancelled 是项目已切走，静默。
       const refreshed = await useProjectsStore.getState().refreshProject(projectName);
       if (refreshed === "failed") {
         useAppStore.getState().pushToast(t("assets:rename_refresh_failed"), "warning");
       }
     } catch (err) {
       useAppStore.getState().pushToast(t("assets:rename_failed", { message: errMsg(err) }), "error");
-      // 失败保持确认框关闭、编辑态保留，用户可改名后重试
+      // 失败保持确认框关闭、编辑态保留，可以改名后重试
       setPreview(null);
     } finally {
       setRenaming(false);
@@ -139,97 +144,89 @@ export function EditableAssetName({
 
   if (!isEditing) {
     return (
-      <div className="group flex min-w-0 flex-1 items-center gap-1">
-        {heading}
-        <button
-          type="button"
+      <div className="flex min-w-0 items-center gap-1">
+        {renderTitle(false)}
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={enterEdit}
           disabled={busy || renaming}
-          title={t("assets:rename_asset")}
           aria-label={t("assets:rename_asset")}
-          className={`${ICON_BTN_CLS} text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100`}
         >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
+          <Pencil aria-hidden />
+        </Button>
       </div>
     );
   }
 
-  const impactDescription = preview ? (
-    <div className="space-y-1.5">
-      <p>
-        {preview.references > 0 || preview.files > 0
-          ? t("assets:rename_impact", {
-              episodes: preview.episodes,
-              references: preview.references,
-              files: preview.files,
-            })
-          : t("assets:rename_impact_none")}
-      </p>
-      <p className="tabular-nums" style={{ color: "var(--subtle-foreground)" }}>
-        {name} → {trimmed}
-      </p>
-    </div>
-  ) : null;
-
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1.5">
-      <input
-        ref={inputRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          // 输入法组合输入中（如中文拼音）按 Enter 是在确认候选词，不应触发提交
-          if (e.nativeEvent.isComposing) return;
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void requestPreview();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            cancelEdit();
-          }
+    <div className="flex min-w-0 items-center gap-1">
+      {renderTitle(true)}
+      <form
+        className="flex min-w-0 flex-1 items-center gap-1"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void requestPreview();
         }}
-        disabled={submitting}
-        aria-label={t("assets:rename_asset")}
-        className="display-serif focus-ring min-w-0 flex-1 rounded-sm border-b bg-transparent text-[16px] font-semibold tracking-tight outline-none"
-        style={{ color: "var(--foreground)", borderColor: "color-mix(in oklab, var(--primary) 22%, transparent)" }}
-      />
-      <button
-        type="button"
-        onClick={() => void requestPreview()}
-        disabled={!canSubmit}
-        title={t("common:save")}
-        aria-label={t("common:save")}
-        className={ICON_BTN_CLS}
-        style={{ color: "var(--primary)" }}
       >
-        {previewLoading ? (
-          <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
-        ) : (
-          <Check className="h-4 w-4" />
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={cancelEdit}
-        disabled={submitting}
-        title={t("common:cancel")}
-        aria-label={t("common:cancel")}
-        className={ICON_BTN_CLS}
-        style={{ color: "var(--muted-foreground)" }}
-      >
-        <X className="h-4 w-4" />
-      </button>
-      <ConfirmDialog
+        <Input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Escape" || e.nativeEvent.isComposing) return;
+            // 只退出改名，不让 Esc 继续冒泡关掉所在的 Sheet
+            e.preventDefault();
+            e.stopPropagation();
+            cancelEdit();
+          }}
+          disabled={submitting}
+          aria-label={t("assets:rename_asset")}
+          className="min-w-0 flex-1"
+        />
+        <Button type="submit" variant="ghost" size="icon-sm" disabled={!canSubmit} aria-label={t("common:save")}>
+          {previewLoading ? <Loader2 aria-hidden className="animate-spin" /> : <Check aria-hidden />}
+        </Button>
+        <Button variant="ghost" size="icon-sm" onClick={cancelEdit} disabled={submitting} aria-label={t("common:cancel")}>
+          <X aria-hidden />
+        </Button>
+      </form>
+      <AlertDialog
         open={preview !== null}
-        title={t("assets:rename_confirm_title", { name })}
-        description={impactDescription}
-        confirmLabel={t("assets:rename_asset")}
-        loadingLabel={t("assets:renaming")}
-        loading={renaming}
-        onConfirm={executeRename}
-        onCancel={() => setPreview(null)}
-      />
+        onOpenChange={(next) => {
+          // 提交中不响应 Esc，请求在途时确认框不先关掉
+          if (!next && !renaming) setPreview(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("assets:rename_confirm_title", { name })}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogBody>
+            <div className="flex flex-col gap-1.5">
+              <AlertDialogDescription>
+                {preview && (preview.references > 0 || preview.files > 0)
+                  ? t("assets:rename_impact", {
+                      episodes: preview.episodes,
+                      references: preview.references,
+                      files: preview.files,
+                    })
+                  : t("assets:rename_impact_none")}
+              </AlertDialogDescription>
+              <p className="text-sm text-subtle-foreground">
+                {name} → {trimmed}
+              </p>
+            </div>
+          </AlertDialogBody>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={renaming}>{t("common:cancel")}</AlertDialogCancel>
+            <AlertDialogAction disabled={renaming} onClick={() => void executeRename()}>
+              {renaming ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+              {renaming ? t("assets:renaming") : t("assets:rename_asset")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

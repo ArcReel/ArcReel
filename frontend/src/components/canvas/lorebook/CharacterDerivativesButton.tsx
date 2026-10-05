@@ -3,9 +3,19 @@ import { useTranslation } from "react-i18next";
 import { Check, Layers, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { API } from "@/api";
 import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
 import { CopyButton } from "@/components/shared/CopyButton";
-import { GlassPopover } from "@/components/legacy/GlassPopover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
@@ -43,7 +53,7 @@ function derivativeToken(characterName: string, derivativeName: string): string 
 }
 
 /**
- * 角色卡上的「衍生」入口：带数量的图标按钮 + 浮层，浮层内登记与管理该角色的衍生
+ * 资产详情里的「衍生」入口：带数量的图标按钮 + 浮层，浮层内登记与管理该角色的衍生
  * （新增、改描述、改名、删除），并展示可复制的 `@[角色/衍生]` 记号；每条衍生下由
  * {@link CharacterDerivativeSheet} 接上它的资产图与图上的各项操作。
  *
@@ -60,7 +70,6 @@ export function CharacterDerivativesButton({
   onReload,
 }: CharacterDerivativesButtonProps) {
   const { t } = useTranslation("assets");
-  const anchorRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -168,16 +177,14 @@ export function CharacterDerivativesButton({
     if (ok) dropDraft(name);
   };
 
+  // 浮层与删除确认用 Base UI 原语：放进资产详情 Sheet 这类模态弹层时，它们与 Sheet 同属一棵
+  // 浮层树，点击与焦点不会被当作 Sheet 之外。
   return (
-    <>
-      <button
-        ref={anchorRef}
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
+    <Popover open={expanded} onOpenChange={setOpen}>
+      <PopoverTrigger
         disabled={busy}
         title={t("assets:derivatives")}
         aria-label={t("assets:derivatives_with_count", { n: count })}
-        aria-expanded={expanded}
         className={`${ICON_BTN_CLS} relative`}
         style={{ color: count > 0 ? "var(--primary)" : "var(--muted-foreground)" }}
       >
@@ -191,15 +198,13 @@ export function CharacterDerivativesButton({
             {count}
           </span>
         )}
-      </button>
+      </PopoverTrigger>
 
-      <GlassPopover
-        open={expanded}
-        onClose={() => setOpen(false)}
-        anchorRef={anchorRef}
-        width="w-80"
-        maxHeight={420}
-        className="flex flex-col overflow-y-auto p-3"
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        aria-label={t("assets:derivatives")}
+        className="max-h-[min(420px,var(--available-height))] w-80 gap-0 p-3"
       >
         <p className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--muted-foreground)" }}>
           DERIVATIVES
@@ -229,7 +234,12 @@ export function CharacterDerivativesButton({
                       onChange={(e) => setRenameDraft(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") void handleRename(name);
-                        if (e.key === "Escape") setRenaming(null);
+                        if (e.key === "Escape") {
+                          // Esc 只退出改名，不连带收起浮层与外层 Sheet
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setRenaming(null);
+                        }
                       }}
                     />
                     <button
@@ -278,7 +288,9 @@ export function CharacterDerivativesButton({
                       className={ROW_BTN_CLS}
                       disabled={pending}
                       aria-label={t("assets:derivative_delete", { name })}
-                      onClick={() => setDeleteTarget(name)}
+                      onClick={() => {
+                        if (!rejectIfBusy()) setDeleteTarget(name);
+                      }}
                       style={{ color: "var(--muted-foreground)" }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -389,24 +401,39 @@ export function CharacterDerivativesButton({
             {t("assets:derivative_add")}
           </button>
         </div>
-      </GlassPopover>
 
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        tone="danger"
-        title={t("assets:derivative_delete_confirm")}
-        description={
-          deleteTarget !== null ? (
-            <span className="font-mono">{derivativeToken(characterName, deleteTarget)}</span>
-          ) : null
-        }
-        confirmLabel={t("assets:delete")}
-        loading={pending}
-        onConfirm={() => {
-          if (deleteTarget !== null) void handleDelete(deleteTarget);
-        }}
-        onCancel={() => setDeleteTarget(null)}
-      />
-    </>
+        {/* 放在浮层子树里：确认框打开时浮层不会被当作外部点击收起 */}
+        <AlertDialog
+          open={deleteTarget !== null}
+          onOpenChange={(next) => {
+            if (!next && !pending) setDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("assets:derivative_delete_confirm")}</AlertDialogTitle>
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <AlertDialogDescription className="font-mono">
+                {deleteTarget !== null ? derivativeToken(characterName, deleteTarget) : null}
+              </AlertDialogDescription>
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={pending}>{t("assets:cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={pending}
+                onClick={() => {
+                  if (deleteTarget !== null) void handleDelete(deleteTarget);
+                }}
+              >
+                {pending ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+                {t("assets:delete")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </PopoverContent>
+    </Popover>
   );
 }
