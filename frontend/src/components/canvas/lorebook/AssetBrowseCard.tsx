@@ -15,6 +15,7 @@ import {
   ShoppingBag,
   Sparkles,
   Tags,
+  Trash2,
   User,
 } from "lucide-react";
 import { API } from "@/api";
@@ -41,6 +42,7 @@ import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { VERSION_RESOURCE, type GalleryAsset, type GalleryMarker } from "./gallery-model";
 import { GalleryStatusMarker } from "./GalleryStatusMarker";
 import { MergeAssetDialog } from "./MergeAssetDialog";
+import { ProjectAssetDeleteDialog } from "./ProjectAssetDeleteDialog";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 import type { AssetSheetStatusRow } from "@/types";
 
@@ -51,7 +53,7 @@ export const ASSET_TYPE_ICON: Record<AssetSheetType, typeof User> = {
   product: ShoppingBag,
 };
 
-type DialogKey = "image-edit" | "versions" | "library" | "merge";
+type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete";
 
 export interface AssetBrowseCardProps {
   projectName: string;
@@ -61,7 +63,7 @@ export interface AssetBrowseCardProps {
   marker: GalleryMarker;
   /** 资产图任务占用中（生成或局部修改）。 */
   generating: boolean;
-  /** 只读展示（引导演示项目）：菜单只保留查看大图。 */
+  /** 只读展示（引导演示项目）：菜单只保留查看大图，没有删除。 */
   readOnly: boolean;
   /** 入库预览的内容；商品不入资产库，不传。 */
   libraryPreview?: LibraryImportPreview;
@@ -98,6 +100,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   const [dialog, setDialog] = useState<DialogKey | null>(null);
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const { type, name } = asset;
   const Icon = ASSET_TYPE_ICON[type];
@@ -107,8 +110,10 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     asset.sheetPath && sheetStatus?.status !== "missing" ? API.getFileUrl(projectName, asset.sheetPath, sheetFp) : null;
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
 
-  // 资产图被生成、局部修改、上传或版本恢复占用时，改写同一张图的兄弟操作一起禁用。
-  const busy = generating || uploading || restoring;
+  // 资产图被生成、局部修改、上传或版本恢复占用，或资产正在删除时，兄弟操作一起禁用。
+  const busy = generating || uploading || restoring || deleting;
+  // 合并只开放带别名、与资产库互通的类型；商品不传入库预览。
+  const mergeable = libraryPreview !== undefined && type !== "product";
   const describable = asset.description.trim().length > 0;
   const staleConfirm = useStaleRegenerateConfirm({
     projectName,
@@ -223,6 +228,17 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                   </DropdownMenuGroup>
                 </>
               )}
+              {!readOnly && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem variant="destructive" disabled={busy} onClick={() => openGuarded("delete")}>
+                      <Trash2 aria-hidden />
+                      {t("assets:delete")}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -263,6 +279,16 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             busy={generating || uploading}
             onRestoringChange={setRestoring}
             checkBusy={() => isResourceBusy(type, projectName, name)}
+          />
+          <ProjectAssetDeleteDialog
+            open={dialog === "delete"}
+            onOpenChange={closeDialog}
+            projectName={projectName}
+            assetType={type}
+            name={name}
+            busy={generating || uploading || restoring}
+            onDeletingChange={setDeleting}
+            onMergeInstead={mergeable ? () => openGuarded("merge") : undefined}
           />
           {libraryPreview && type !== "product" && (
             <>

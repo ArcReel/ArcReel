@@ -1,7 +1,7 @@
 """资产级联重命名端到端测试：真实 ProjectManager 走 扫描 → 校验 → 落盘 全路径。
 
 覆盖四类资产、各 content_mode 骨架的引用改写（引用数组 / speaker / mention）、script_plan 草稿、
-关联文件与版本历史迁移、NFC/NFD 冲突拒绝与 dry-run 预览一致性。speaker 与 mention 不在
+关联文件与版本历史迁移、NFC/NFD 冲突拒绝与 dry-run 预览一致性，以及复用同一套扫描的删除前引用预览。speaker 与 mention 不在
 DataValidator 引用扫描范围内，须直接断言改写结果，不能只看校验无新增 error。
 """
 
@@ -1152,3 +1152,47 @@ class TestDerivativeReferenceCascade:
         pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜行衣")
 
         assert json.loads(draft_path.read_text())["units"][0]["text"] == "@[角色A/夜行衣] 推门"
+
+
+class TestAssetDeletionPreview:
+    """删除资产的 dry_run：只读扫描，引用数与重命名同一套扫描，按集列出。"""
+
+    @staticmethod
+    def _snapshot(project_dir: Path) -> dict[str, bytes]:
+        """项目目录下全部数据文件的内容；取锁留下的空 ``.lock`` 文件不是数据，不计入。"""
+        return {
+            str(path.relative_to(project_dir)): path.read_bytes()
+            for path in project_dir.rglob("*")
+            if path.is_file() and path.suffix != ".lock"
+        }
+
+    def test_preview_lists_references_by_episode_without_writing(self, pm_with_assets: ProjectManager) -> None:
+        TestDerivativeReferenceCascade._register(pm_with_assets, "劲装")
+        pm_with_assets.save_script("demo", _drama_script(), "episode_1.json")
+        reference_script = _reference_script(3)
+        reference_script["video_units"][0]["text"] = "@[角色A] 回头，@[角色A/劲装] 推门"
+        pm_with_assets.save_script("demo", reference_script, "episode_3.json")
+        draft_path = _project_dir(pm_with_assets) / "drafts" / "episode_2" / "script_plan_reference_units.json"
+        draft_path.parent.mkdir(parents=True)
+        atomic_write_json(draft_path, {"units": [{"unit_id": "E2U1", "text": "@[角色A] 在河边"}]})
+        project_dir = _project_dir(pm_with_assets)
+        before = self._snapshot(project_dir)
+
+        preview = pm_with_assets.preview_asset_deletion("demo", "characters", "角色A")
+
+        assert self._snapshot(project_dir) == before
+        assert preview.name == "角色A"
+        assert [(item.episode, item.references) for item in preview.episodes] == [(1, 2), (2, 1), (3, 2)]
+        renamed = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
+        assert preview.references == renamed.references == 5
+
+    def test_unreferenced_asset_previews_empty(self, pm_with_assets: ProjectManager) -> None:
+        pm_with_assets.save_script("demo", _reference_script(1), "episode_1.json")
+
+        preview = pm_with_assets.preview_asset_deletion("demo", "props", "道具A")
+
+        assert (preview.references, preview.episodes) == (0, ())
+
+    def test_missing_asset_raises_key_error(self, pm_with_assets: ProjectManager) -> None:
+        with pytest.raises(KeyError):
+            pm_with_assets.preview_asset_deletion("demo", "characters", "不存在")

@@ -17,8 +17,10 @@ import secrets
 import shutil
 import time
 import unicodedata
+from collections import Counter
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping, Sequence
 from contextlib import ExitStack, asynccontextmanager, contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeGuard, cast
@@ -71,6 +73,8 @@ from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_shape, is_str
 from lib.infra.validation_messages import ValidationResult, default_translate
 from lib.project.asset_rename import (
+    AssetDeletionPreview,
+    AssetEpisodeReferences,
     AssetRenameConflictError,
     AssetRenameNotFoundError,
     AssetRenameReport,
@@ -303,6 +307,26 @@ def _rename_agnostic_errors(
         )
         folded[(message.key, params)] = message.render(default_translate)
     return folded
+
+
+#: 删除预览借重命名扫描计数时的改写目标：任何资产名都不会与它判等，命中的引用一律计入。
+_DELETION_SCAN_TARGET = "\x00"
+
+
+@dataclass
+class _AssetReferenceScan:
+    """一次资产引用扫描的结果：改写后的剧本与草稿，以及按集归属的引用处数。"""
+
+    #: ``(剧本文件名, 改写后载荷, 改写前载荷)``
+    scripts: list[tuple[str, dict, dict]] = field(default_factory=list)
+    #: ``(草稿路径, 改写后载荷, 改写前指纹)``
+    drafts: list[tuple[Path, dict, str]] = field(default_factory=list)
+    #: 集目录名（``episode_N``）→ 引用处数；剧本取文件 stem，草稿取所在目录名。
+    episode_references: Counter[str] = field(default_factory=Counter)
+
+    @property
+    def references(self) -> int:
+        return self.episode_references.total()
 
 
 class ProjectManager:
@@ -2839,6 +2863,44 @@ class ProjectManager:
 
         return self.update_project(project_name, _mutate, on_commit=_forget_claim)
 
+    def preview_asset_deletion(self, project_name: str, table: str, name: str) -> AssetDeletionPreview:
+        """删除资产前的引用预览（只读）：剧本与草稿里有多少处引用会在删除后悬空。
+
+        删除本身不改写这些引用（见 :meth:`delete_asset`），悬空引用要到生成时才被拦下；预览是提前
+        告诉用户的唯一机会。扫描借用重命名的同一套改写，引用数与重命名预览一致，衍生引用
+        （``角色/衍生``）随本体一并计入。
+
+        Raises:
+            FileNotFoundError: 项目不存在。
+            KeyError: 资产不存在。
+        """
+        asset_type = self._resolve_asset_type(table)
+        spec = ASSET_SPECS[asset_type]
+        if not self.project_exists(project_name):
+            raise FileNotFoundError(f"项目不存在: {project_name}")
+        with self._asset_cascade_locks(project_name) as (script_files, draft_files):
+            bucket = self._read_project_raw_unlocked(project_name).get(spec.bucket_key)
+            key = resolve_asset_key(bucket, name)
+            if key is None:
+                raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+            scan = self._scan_asset_references(
+                project_name, script_files, draft_files, asset_type, key, _DELETION_SCAN_TARGET
+            )
+        by_episode: Counter[int] = Counter()
+        for episode_dir, count in scan.episode_references.items():
+            episode = self.filename_episode(episode_dir)
+            if episode is not None:
+                by_episode[episode] += count
+        return AssetDeletionPreview(
+            table=table,
+            name=key,
+            references=scan.references,
+            episodes=tuple(
+                AssetEpisodeReferences(episode=episode, references=count)
+                for episode, count in sorted(by_episode.items())
+            ),
+        )
+
     # bucket_key（characters/scenes/props/products）→ 资产类型，从静态 ASSET_SPECS 派生一次。
     _BUCKET_TO_ASSET_TYPE: ClassVar[dict[str, str]] = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
 
@@ -2901,6 +2963,38 @@ class ProjectManager:
         if manifest_path.exists() or manifest_path.is_symlink():
             return ProjectArtifactManifestAdapter(project_dir)
         return None
+
+    def _scan_asset_references(
+        self,
+        project_name: str,
+        script_files: Sequence[str],
+        draft_files: Sequence[Path],
+        asset_type: str,
+        old_name: str,
+        new_name: str,
+    ) -> _AssetReferenceScan:
+        """在 ``_asset_cascade_locks`` 内把剧本与草稿里指向 *old_name* 的引用改写为 *new_name*（只改内存载荷）。
+
+        重命名的预览与执行、删除前的引用预览共用这一次扫描，三者的引用数因此一致。
+        """
+        scan = _AssetReferenceScan()
+        for filename in script_files:
+            script, _migrated = self._read_script_unlocked(project_name, filename)
+            before = copy.deepcopy(script)
+            changes = rewrite_payload_references(script, asset_type, old_name, new_name)
+            if changes:
+                scan.scripts.append((filename, script, before))
+                scan.episode_references[Path(filename).stem] += changes
+        for path in draft_files:
+            payload = load_json_or_none(path)
+            if not isinstance(payload, dict):
+                continue
+            fingerprint = canonical_json_digest(payload)
+            changes = rewrite_payload_references(payload, asset_type, old_name, new_name)
+            if changes:
+                scan.drafts.append((path, payload, fingerprint))
+                scan.episode_references[path.parent.name] += changes
+        return scan
 
     def _carry_script_plan_confirmations(
         self, project_dir: Path, project: dict, changed_drafts: Sequence[tuple[Path, dict, str]]
@@ -3041,28 +3135,9 @@ class ProjectManager:
             )
 
             # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
-            references = 0
-            changed_scripts: list[tuple[str, dict, dict]] = []
-            for filename in script_files:
-                script, _migrated = self._read_script_unlocked(project_name, filename)
-                before = copy.deepcopy(script)
-                changes = rewrite_payload_references(script, asset_type, old_key, new_clean)
-                if changes:
-                    changed_scripts.append((filename, script, before))
-                    references += changes
-            changed_drafts: list[tuple[Path, dict, str]] = []
-            for path in draft_files:
-                payload = load_json_or_none(path)
-                if not isinstance(payload, dict):
-                    continue
-                fingerprint = canonical_json_digest(payload)
-                changes = rewrite_payload_references(payload, asset_type, old_key, new_clean)
-                if changes:
-                    changed_drafts.append((path, payload, fingerprint))
-                    references += changes
-            episode_ids = {Path(filename).stem for filename, _s, _b in changed_scripts} | {
-                path.parent.name for path, _p, _f in changed_drafts
-            }
+            scan = self._scan_asset_references(project_name, script_files, draft_files, asset_type, old_key, new_clean)
+            changed_scripts = scan.scripts
+            changed_drafts = scan.drafts
 
             moves = plan_asset_file_renames(project_dir, spec, old_key, new_clean)
             version_manager = VersionManager(project_dir)
@@ -3112,8 +3187,8 @@ class ProjectManager:
                 table=table,
                 old_name=old_key,
                 new_name=new_clean,
-                episodes=len(episode_ids),
-                references=references,
+                episodes=len(scan.episode_references),
+                references=scan.references,
                 files=len(moves) + version_files + derivatives.files,
                 dry_run=dry_run,
             )

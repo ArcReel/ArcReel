@@ -3,9 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
-import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
+import type { AssetSheetStatusRow, AssetSheetType, ProjectData } from "@/types";
 import { AssetGallery } from "./AssetGallery";
 
 interface Source {
@@ -112,6 +113,7 @@ describe("AssetGallery", () => {
       "版本历史",
       "加入资产库",
       "并入…",
+      "删除",
     ]);
   });
 
@@ -164,5 +166,78 @@ describe("AssetGallery", () => {
 
     await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法上传资产图"));
     expect(uploadFile).not.toHaveBeenCalled();
+  });
+
+  describe("deleting an asset", () => {
+    beforeEach(() => {
+      const project = {
+        title: "demo",
+        scenes: SCENES,
+        episodes: [
+          { episode: 1, title: "开端" },
+          { episode: 2, title: "夜访" },
+        ],
+      } as unknown as ProjectData;
+      useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: project });
+      vi.spyOn(API, "getProject").mockResolvedValue({ project, scripts: {} } as never);
+    });
+
+    afterEach(() => {
+      useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    });
+
+    it("lists the episodes that still reference the asset and offers merging instead", async () => {
+      const user = userEvent.setup();
+      const preview = vi.spyOn(API, "previewProjectAssetDeletion").mockResolvedValue({
+        success: true,
+        dry_run: true,
+        name: "庭院",
+        references: 5,
+        episodes: [
+          { episode: 1, references: 3 },
+          { episode: 2, references: 2 },
+        ],
+      });
+      const remove = vi.spyOn(API, "deleteProjectAsset");
+      renderGallery();
+
+      await user.click(within(await openMenu(user, "庭院")).getByRole("menuitem", { name: "删除" }));
+
+      const dialog = await screen.findByRole("alertdialog", { name: "删除场景「庭院」？" });
+      expect(
+        await within(dialog).findByText("被「开端」等 2 集共 5 处引用，删除后这些分镜在生成时会被拦下，资产也无法恢复。"),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText("夜访")).toBeInTheDocument();
+      expect(preview).toHaveBeenCalledWith("demo", "scene", "庭院", { signal: expect.any(AbortSignal) });
+
+      await user.click(within(dialog).getByRole("button", { name: "改为并入…" }));
+
+      expect(await screen.findByRole("alertdialog", { name: "把「庭院」并入另一个资产" })).toBeInTheDocument();
+      expect(screen.queryByRole("alertdialog", { name: "删除场景「庭院」？" })).not.toBeInTheDocument();
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it("only warns that deletion is irreversible when nothing references the asset", async () => {
+      const user = userEvent.setup();
+      vi.spyOn(API, "previewProjectAssetDeletion").mockResolvedValue({
+        success: true,
+        dry_run: true,
+        name: "书房",
+        references: 0,
+        episodes: [],
+      });
+      const remove = vi.spyOn(API, "deleteProjectAsset").mockResolvedValue({ success: true });
+      renderGallery();
+
+      await user.click(within(await openMenu(user, "书房")).getByRole("menuitem", { name: "删除" }));
+      const dialog = await screen.findByRole("alertdialog", { name: "删除场景「书房」？" });
+      expect(await within(dialog).findByText("删除后无法恢复。")).toBeInTheDocument();
+      expect(within(dialog).queryByRole("button", { name: "改为并入…" })).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "删除" }));
+
+      expect(remove).toHaveBeenCalledWith("demo", "scene", "书房");
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    });
   });
 });

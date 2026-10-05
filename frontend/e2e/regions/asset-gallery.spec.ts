@@ -53,11 +53,21 @@ function statusRows(names: string[], stale: Set<string>, missing: Set<string>) {
   };
 }
 
-function projectWith(characters: Record<string, Character>) {
+function projectWith(characters: Record<string, Character>, episodeTitles?: string[]) {
   const recorded = loadRecordedResponses().get(recordedKey("GET", "/api/v1/projects/demo"));
   if (!recorded) throw new Error("没有录制 GET /api/v1/projects/demo");
   const body = structuredClone(recorded.body) as { project: Record<string, unknown> };
   body.project.characters = characters;
+  if (episodeTitles) {
+    // 以录制的第 1 集为模板，按标题铺出多集。
+    const [template] = body.project.episodes as Record<string, unknown>[];
+    body.project.episodes = episodeTitles.map((title, i) => ({
+      ...template,
+      episode: i + 1,
+      title,
+      script_file: `scripts/episode_${i + 1}.json`,
+    }));
+  }
   return { status: recorded.status, body };
 }
 
@@ -142,6 +152,52 @@ const MANY_API: ApiOverrides = {
   "GET /api/v1/projects/demo/asset-sheets/status": { status: 200, body: { assets: [] } },
   "GET /api/v1/tasks?page_size=200&project_name=demo": { status: 200, body: { items: [], total: 0, page: 1, page_size: 200 } },
 };
+
+// 删除前的引用预览（dry_run）：林夕被前三集引用。
+const DELETE_PREVIEW_KEY = "DELETE /api/v1/projects/demo/characters/林夕?dry_run=true";
+const DELETE_API: ApiOverrides = {
+  ...BASE,
+  "GET /api/v1/projects/demo": projectWith(CHARACTERS, ["茶馆开张", "夜访账房", "说书先生"]),
+  [DELETE_PREVIEW_KEY]: {
+    status: 200,
+    body: {
+      success: true,
+      dry_run: true,
+      name: "林夕",
+      references: 9,
+      episodes: [
+        { episode: 1, references: 4 },
+        { episode: 2, references: 3 },
+        { episode: 3, references: 2 },
+      ],
+    },
+  },
+};
+// 压力变体：被 30 集引用，集标题很长。
+const MANY_EPISODES = Array.from({ length: 30 }, (_, i) => `${LONG_NAME}的第 ${i + 1} 段故事`);
+const DELETE_MANY_API: ApiOverrides = {
+  ...BASE,
+  "GET /api/v1/projects/demo": projectWith(CHARACTERS, MANY_EPISODES),
+  [DELETE_PREVIEW_KEY]: {
+    status: 200,
+    body: {
+      success: true,
+      dry_run: true,
+      name: "林夕",
+      references: 30 * 12,
+      episodes: MANY_EPISODES.map((_, i) => ({ episode: i + 1, references: 12 })),
+    },
+  },
+};
+
+async function openDeleteDialog(page: Page): Promise<Locator> {
+  const menu = await openMenu(page, "林夕");
+  await menu.getByRole("menuitem", { name: "删除" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "删除角色「林夕」？" });
+  await dialog.waitFor();
+  await waitForEntrance(dialog);
+  return dialog;
+}
 
 function grid(page: Page) {
   return page.getByRole("list", { name: "角色" });
@@ -283,6 +339,32 @@ defineRegionScenarios("资产画廊", [
       await sheet.waitFor();
       await waitForEntrance(sheet);
       await expect(sheet.getByRole("button", { name: "关闭" })).toBeInViewport({ ratio: 1 });
+    },
+  },
+  {
+    name: "删除有引用的资产：确认框写明被哪些集引用，并可改为并入",
+    path: PATH,
+    api: DELETE_API,
+    ready: galleryReady,
+    act: async (page) => {
+      const dialog = await openDeleteDialog(page);
+      await expect(dialog.getByText(/^被「茶馆开张」等 3 集共 9 处引用/)).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "改为并入…" })).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "删除" })).toBeEnabled();
+    },
+    screenshot: { name: "asset-gallery-delete", target: (page) => page.getByRole("alertdialog") },
+  },
+  {
+    name: "删除被很多集引用的资产：只有影响清单滚动，按钮留在视野里",
+    path: PATH,
+    api: DELETE_MANY_API,
+    ready: galleryReady,
+    act: async (page) => {
+      const dialog = await openDeleteDialog(page);
+      const list = dialog.getByRole("region", { name: "删除角色「林夕」？" });
+      await expect(list.getByRole("listitem")).toHaveCount(30);
+      await expect(dialog.getByRole("button", { name: "删除" })).toBeInViewport({ ratio: 1 });
+      await expect(dialog.getByRole("button", { name: "改为并入…" })).toBeInViewport({ ratio: 1 });
     },
   },
 ]);

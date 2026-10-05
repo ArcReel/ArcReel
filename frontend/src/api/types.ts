@@ -57,6 +57,16 @@ export interface AssetMergeResult {
   episodes: AssetMergeEpisodeImpact[];
 }
 
+/** 删除资产前的引用预览（`DELETE …?dry_run=true`）：与重命名同一套扫描，按集号升序列出。 */
+export interface AssetDeletionPreview {
+  success: boolean;
+  dry_run: true;
+  name: string;
+  /** 全部引用处数；个别引用归不到某一集时，会多于各集之和。 */
+  references: number;
+  episodes: { episode: number; references: number }[];
+}
+
 /** Login response from POST /auth/token (mirrors backend TokenResponse). */
 export interface LoginResponse {
   access_token: string;

@@ -4,7 +4,8 @@
 与 script_plan 草稿里的名称引用（引用数组 / speaker / ``@[名称]`` mention）、按名命名的关联文件
 （不变式「文件 stem = 资产名」）须一次改齐。本模块承载其中**无副作用**的部分——引用改写
 （就地改 dict、返回改写数）与文件迁移规划（返回 (src, dst) 列表）——供 ProjectManager 的
-编排入口在锁内先扫描（dry-run 预览与执行共用同一套扫描）再落盘。
+编排入口在锁内先扫描（dry-run 预览与执行共用同一套扫描）再落盘。删除资产前的引用预览
+（:class:`AssetDeletionPreview`）复用同一套扫描。
 
 名字引用判等一律走比对坐标系（strip + NFC，见
 :func:`lib.project.asset_types.asset_name_comparison_key`）：正文与引用数组可能带两端空白或以 NFD
@@ -75,6 +76,28 @@ class AssetRenameReport:
     references: int
     files: int
     dry_run: bool
+
+
+@dataclass(frozen=True)
+class AssetEpisodeReferences:
+    """一集里指向某资产的引用处数。"""
+
+    episode: int
+    references: int
+
+
+@dataclass(frozen=True)
+class AssetDeletionPreview:
+    """删除资产前的引用预览：与重命名同一套扫描，删除后这些引用会悬空。
+
+    ``references`` 是全部引用处数，与同一资产的重命名预览一致；``episodes`` 按集号升序列出
+    其中能归到某一集的部分。
+    """
+
+    table: str
+    name: str
+    references: int
+    episodes: tuple[AssetEpisodeReferences, ...]
 
 
 #: 各资产类型在剧本/草稿骨架里的「名称列表」引用字段。列表内只有 str 元素才是名称引用——

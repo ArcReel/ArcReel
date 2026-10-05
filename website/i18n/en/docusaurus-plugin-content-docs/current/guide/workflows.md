@@ -348,6 +348,15 @@ For characters, you can also choose **Derivative**: the merged character becomes
 
 The merged asset's description, sheet and version history, voice settings, reference image, and reference audio are not kept, and a merge can't be undone. Before you confirm, the dialog lists, per episode, how many references will be rewritten and how many storyboard images and videos will become stale. It also shows the merged asset's description so you can copy what you need into the kept asset.
 
+#### Delete assets {#delete-assets}
+
+Open the menu on an asset card and choose **Delete**. Before you confirm, the dialog checks references in every episode's script plan, final script, drafts, and prompt text:
+
+- If the asset is referenced, the dialog says which episodes reference it and how many times. Deleting doesn't rewrite those references, so shots that reference the asset will be blocked at generation. To keep the references, choose **Merge instead…** to [merge it into another asset of the same type](#merge-assets). Products can't be merged, so they don't have this button.
+- If nothing references the asset, the dialog only warns that deletion can't be undone.
+
+Deleting a character also deletes its derivatives. Deletion can't be undone.
+
 ### Stage 4: Small Sample {#stage-sample-clips}
 
 Start by producing:
