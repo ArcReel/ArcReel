@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
 import { LeaveGuardProvider, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
+import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeCost, EpisodeMeta } from "@/types";
@@ -43,6 +44,7 @@ describe("EpisodeHead", () => {
   beforeEach(() => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useCostStore.setState(useCostStore.getInitialState(), true);
+    useAppStore.setState(useAppStore.getInitialState(), true);
   });
 
   it("names an untitled episode by its position and lists its facts", () => {
@@ -134,5 +136,77 @@ describe("EpisodeHead", () => {
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", 1, "r1"));
     expect(discard).toHaveBeenCalledTimes(1);
+  });
+
+  describe("确认删除并放弃修改后", () => {
+    const IMPACT = { episode: 1, recoverable: true, revision: "r1", text: "将删除本集剧本" };
+
+    function renderWithDirtyUnit(discard: () => void) {
+      function DirtyUnit() {
+        useLeaveGuard({ dirty: true, save: async () => true, discard });
+        return null;
+      }
+      render(
+        <LeaveGuardProvider>
+          <DirtyUnit />
+          <EpisodeHead projectName="demo" episode={1} meta={FIRST} route="storyboard" canEditTitle={false}
+            onSaveTitle={vi.fn()} canDelete />
+        </LeaveGuardProvider>,
+      );
+    }
+
+    async function confirmAndDiscard() {
+      fireEvent.click(screen.getByRole("button", { name: "这一集的更多操作" }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
+      fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "删除" }));
+      fireEvent.click(within(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).getByRole("button", { name: "放弃修改" }));
+    }
+
+    it("删除请求失败时未保存修改原样保留", async () => {
+      vi.spyOn(API, "deleteEpisode").mockImplementation(async (_project, _episode, revision) => {
+        if (revision) throw new Error("网络中断");
+        return { status: "confirmation_required", impact: IMPACT };
+      });
+      const discard = vi.fn();
+      renderWithDirtyUnit(discard);
+
+      await confirmAndDiscard();
+
+      await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("删除失败：网络中断"));
+      expect(discard).not.toHaveBeenCalled();
+    });
+
+    it("服务端因清单变化要求再次确认时未保存修改原样保留", async () => {
+      vi.spyOn(API, "deleteEpisode").mockImplementation(async (_project, _episode, revision) => ({
+        status: "confirmation_required",
+        impact: revision ? { ...IMPACT, revision: "r2", text: "将删除本集剧本与 3 段视频" } : IMPACT,
+      }));
+      const discard = vi.fn();
+      renderWithDirtyUnit(discard);
+
+      await confirmAndDiscard();
+
+      expect(await screen.findByText("将删除本集剧本与 3 段视频")).toBeInTheDocument();
+      expect(discard).not.toHaveBeenCalled();
+    });
+
+    it("删除成功但项目数据刷新失败时提示手动刷新", async () => {
+      vi.spyOn(API, "deleteEpisode").mockImplementation(async (_project, episode, revision) =>
+        revision
+          ? { status: "deleted", impact: { episode, recoverable: true, revision } }
+          : { status: "confirmation_required", impact: IMPACT },
+      );
+      vi.spyOn(API, "getProject").mockRejectedValue(new Error("服务不可用"));
+      useProjectsStore.setState({ currentProjectName: "demo", hasLoadedAnyProject: true });
+      const discard = vi.fn();
+      renderWithDirtyUnit(discard);
+
+      await confirmAndDiscard();
+
+      await waitFor(() =>
+        expect(useAppStore.getState().toast?.text).toBe("操作已完成，但页面数据刷新失败，请手动刷新查看最新状态"),
+      );
+      expect(discard).toHaveBeenCalledTimes(1);
+    });
   });
 });

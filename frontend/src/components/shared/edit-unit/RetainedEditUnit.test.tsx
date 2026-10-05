@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Link, Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { LeaveGuardProvider } from "./LeaveGuard";
+import { createDeferred } from "@/test/deferred";
+import { LeaveGuardProvider, useConfirmLeave } from "./LeaveGuard";
 import { RetainedEditUnit } from "./RetainedEditUnit";
 import { UnsavedChangesBar } from "./UnsavedChangesBar";
 import { useEditUnit } from "./useEditUnit";
@@ -52,5 +53,52 @@ describe("RetainedEditUnit 主动离开", () => {
     rerender(page("replaced", "外部的新内容"));
 
     expect(screen.getByRole("status")).toHaveTextContent("原文");
+  });
+
+  describe("放弃修改后等待落定的删除", () => {
+    function RemoveButton({ action }: { action: () => Promise<boolean> }) {
+      const confirmLeave = useConfirmLeave();
+      return <button type="button" onClick={() => confirmLeave(action)}>删除正文</button>;
+    }
+    const page = (identity: string, source: string, action: () => Promise<boolean>) => (
+      <LeaveGuardProvider>
+        <RemoveButton action={action} />
+        <RetainedEditUnit identity={identity} value={source} message="外部替换了正文">
+          {(shown) => <Editor key={shown} source={shown} />}
+        </RetainedEditUnit>
+      </LeaveGuardProvider>
+    );
+    const discardForRemoval = async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: "正文" }), { target: { value: "未保存正文" } });
+      fireEvent.click(screen.getByRole("button", { name: "删除正文" }));
+      fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
+    };
+
+    it("删除在途时单元被移除：这是删除本身的结果，直接采用真实状态，不当作外部移除保留", async () => {
+      const deleting = createDeferred<boolean>();
+      const action = () => deleting.promise;
+      const { rerender } = render(page("notes", "原文", action));
+      await discardForRemoval();
+
+      rerender(page("next", "下一条正文", action));
+
+      expect(screen.getByRole("textbox", { name: "正文" })).toHaveValue("下一条正文");
+      expect(screen.queryByText("外部替换了正文")).not.toBeInTheDocument();
+      await act(async () => deleting.resolve(true));
+      expect(screen.getByRole("textbox", { name: "正文" })).toHaveValue("下一条正文");
+    });
+
+    it("删除失败后修改恢复保护，之后的外部移除照常保留", async () => {
+      const action = vi.fn(async () => false);
+      const { rerender } = render(page("notes", "原文", action));
+      await discardForRemoval();
+      await act(async () => {});
+      expect(action).toHaveBeenCalledTimes(1);
+
+      rerender(page("next", "下一条正文", action));
+
+      expect(screen.getByRole("textbox", { name: "正文" })).toHaveValue("未保存正文");
+      expect(screen.getByText("外部替换了正文")).toBeInTheDocument();
+    });
   });
 });

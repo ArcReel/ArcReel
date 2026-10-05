@@ -1,8 +1,8 @@
-import { useCallback, useContext, useEffect, useId, useLayoutEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 
 import { errMsg } from "@/utils/async";
 
-import { EditUnitRetentionContext } from "./RetainedEditUnit";
+import { EditUnitRetentionContext, useRetainWhile } from "./RetainedEditUnit";
 
 import { useLeaveGuard } from "./LeaveGuard";
 
@@ -139,12 +139,6 @@ export function useEditUnit<T>({
   const { value, saved, status, error } = current;
   const dirty = !isEqual(value, saved);
   const retention = useContext(EditUnitRetentionContext);
-  const protect = retention?.protect;
-  const unitKey = useId();
-  useLayoutEffect(() => {
-    protect?.(unitKey, dirty || status === "saving");
-    return () => protect?.(unitKey, false);
-  }, [protect, unitKey, dirty, status]);
 
   useEffect(() => {
     if (status !== "saved") return;
@@ -214,7 +208,9 @@ export function useEditUnit<T>({
   );
 
   // 外部替换后，可见单元已与真实视图分离，旧视图的放行规则不能继续用于主动跳转。
-  useLeaveGuard({ dirty, saving: status === "saving", save, discard, title: leaveTitle, allowNavigation: retention?.message ? undefined : allowNavigation });
+  const discarding = useLeaveGuard({ dirty, saving: status === "saving", save, discard, title: leaveTitle, allowNavigation: retention?.message ? undefined : allowNavigation });
+  // 放弃修改后等待落定的删除自己移除了本单元，不当作外部移除保留
+  useRetainWhile((dirty || status === "saving") && !discarding);
 
   return {
     value,

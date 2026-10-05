@@ -267,6 +267,57 @@ describe("ReferenceVideoCanvas", () => {
     expect(deleteSpy).not.toHaveBeenCalled();
   });
 
+  describe("确认移除并放弃正文修改后", () => {
+    const UNITS = [mkUnit("E1U1", "server text"), mkUnit("E1U2", "next unit")];
+    const removeButton = /^(Remove unit|移除单元)$/;
+
+    async function editThenConfirmRemoval() {
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+      fireEvent.change(await screen.findByRole("combobox"), { target: { value: "unsaved edit" } });
+      fireEvent.click(screen.getByRole("button", { name: removeButton }));
+      fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: removeButton }));
+      return screen.findByRole("alertdialog", { name: /有未保存的修改/ });
+    }
+
+    it("移除请求失败时正文修改原样保留", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: UNITS, unit_capabilities: {} });
+      const deleteSpy = vi.spyOn(API, "deleteReferenceVideoUnit").mockRejectedValue(new Error("网络中断"));
+
+      fireEvent.click(within(await editThenConfirmRemoval()).getByRole("button", { name: "放弃修改" }));
+
+      await waitFor(() => expect(useAppStore.getState().toast?.text).toContain("网络中断"));
+      expect(deleteSpy).toHaveBeenCalledTimes(1);
+      // 移除对话框留在原处，背后的编辑器不在可访问树里，按值查询
+      expect(screen.getByDisplayValue("unsaved edit")).toBeInTheDocument();
+    });
+
+    it("询问未保存修改期间单元变为占用：提示占用，不移除，修改保留", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: UNITS, unit_capabilities: {} });
+      const deleteSpy = vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+      const leaveDialog = await editThenConfirmRemoval();
+
+      act(() => {
+        useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      });
+      fireEvent.click(within(leaveDialog).getByRole("button", { name: "放弃修改" }));
+
+      await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("该视频单元正在生成，请稍后再试"));
+      expect(deleteSpy).not.toHaveBeenCalled();
+      expect(screen.getByDisplayValue("unsaved edit")).toBeInTheDocument();
+    });
+
+    it("移除成功后不把被移除的单元当作外部删除保留", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: UNITS, unit_capabilities: {} });
+      vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+
+      fireEvent.click(within(await editThenConfirmRemoval()).getByRole("button", { name: "放弃修改" }));
+
+      await waitFor(() => expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument());
+      expect(screen.queryByText(/这个视频单元已被删除/)).not.toBeInTheDocument();
+      expect(screen.queryByDisplayValue("unsaved edit")).not.toBeInTheDocument();
+    });
+  });
+
   it("blocks removing a unit while its narration audio is being generated", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
     useTasksStore.setState({ tasks: [{ ...runningTask("E1U1"), task_type: "tts" }] as never });
@@ -737,6 +788,21 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2"));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(patchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("外部删除当前视频单元时保留尚未提交的自由时长，并说明单元已被删除", async () => {
+    const units = [mkUnit("E1U1"), { ...mkUnit("E1U2"), duration_seconds: 8 }];
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units, unit_capabilities: {} });
+
+    render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} freeDuration />);
+    const input = await screen.findByRole("spinbutton", { name: /Duration|时长/ });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "12" } });
+    act(() => useReferenceVideoStore.setState((state) => ({ unitsByEpisode: { ...state.unitsByEpisode, [referenceVideoCacheKey("proj", 1)]: [units[1]] } })));
+
+    expect(screen.getByRole("spinbutton", { name: /Duration|时长/ })).toHaveValue(12);
+    expect(screen.getByText(/这个视频单元已被删除/)).toHaveAttribute("role", "status");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("lets an explicit same-value duration confirm a duration-only replan marker", async () => {
