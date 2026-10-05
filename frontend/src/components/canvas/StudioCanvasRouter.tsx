@@ -405,7 +405,7 @@ export function StudioCanvasRouter() {
   // 「空项目」页面；`projectDetailLoading` 才是详情是否已到达的信号。
   if (!currentProjectName || projectDetailLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-gray-500">
+      <div className="flex h-full items-center justify-center text-muted-foreground">
         {t("loading_placeholder")}
       </div>
     );

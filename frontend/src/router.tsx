@@ -91,9 +91,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       <div
         role="status"
         aria-live="polite"
-        className="flex h-screen items-center justify-center gap-2 bg-background text-[13px] text-muted-foreground"
+        className="flex h-dvh items-center justify-center gap-2 bg-background text-sm text-muted-foreground"
       >
-        <Loader2 aria-hidden className="h-4 w-4 motion-safe:animate-spin" />
+        <Loader2 aria-hidden className="size-4 animate-spin" />
         <span>{t("loading")}</span>
       </div>
     );

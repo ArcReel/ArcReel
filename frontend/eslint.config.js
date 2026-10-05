@@ -179,6 +179,11 @@ const REWORKED_FILES = [
   "src/components/canvas/lorebook/AssetImageViewer.tsx",
   // 角色详情的衍生区块：逐条衍生的行内编辑与衍生图状态
   "src/components/canvas/lorebook/{CharacterDerivativesField,CharacterDerivativeRow,useCharacterDerivativeSheets}.{ts,tsx}",
+  // 余量迁移：顶栏状态条、尾帧选图器、供应商图标与画布、路由的加载态
+  "src/components/layout/ProjectStatusBar.tsx",
+  "src/components/canvas/timeline/EndFramePicker.tsx",
+  "src/components/{agent/PresetIcon,canvas/StudioCanvasRouter}.tsx",
+  "src/router.tsx",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [
