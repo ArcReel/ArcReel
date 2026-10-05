@@ -42,6 +42,7 @@ from lib.infra.content_digest import canonical_json_digest
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
+from lib.project.project_activity import record_project_activity
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.script.draft_quarantine import (
     DRAFT_OWNER_AGENT,
@@ -323,6 +324,7 @@ def formal_script_plan_write_transaction(
     episode: int,
     *paths: Path,
     basis: ArtifactBasis | None = None,
+    record_activity: bool = True,
 ) -> Generator[None]:
     """Commit formal script_plan files and their active Manifest claim as one unit.
 
@@ -330,6 +332,10 @@ def formal_script_plan_write_transaction(
     drama, narration, or reference-video script_plan enters this context so a
     successful write refreshes the same typed claim, while registration
     failure restores every supplied formal file byte-for-byte.
+
+    A committed write moves the project's last activity forward: script_plan
+    files are JSON, whose modification time does not count as activity.  Pass
+    ``record_activity=False`` for a write that leaves the content unchanged.
     """
 
     with project_metadata_lock(project_path), formal_write_transaction(*paths):
@@ -354,6 +360,8 @@ def formal_script_plan_write_transaction(
                 artifact_path=paths[0].relative_to(project_path).as_posix(),
                 basis=basis,
             )
+    if record_activity:
+        record_project_activity(project_path)
 
 
 def delete_script_plan_file(project_path: Path, episode: int, path: Path) -> bool:
@@ -403,7 +411,7 @@ def write_formal_script_plan_locked(
     changed = previous != content
     quarantine = None if dependent_quarantine is None else quarantine_path(project_path, episode, dependent_quarantine)
     paths = (path,) if quarantine is None else (path, quarantine)
-    with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis):
+    with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
         atomic_write_json(path, content)
         if changed and clear_dependent_quarantine and dependent_quarantine is not None:
             clear_quarantine(project_path, episode, dependent_quarantine)

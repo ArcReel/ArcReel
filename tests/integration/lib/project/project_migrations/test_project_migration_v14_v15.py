@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,7 @@ from lib.script.script_review import (
 from lib.speech.narration_delivery import POST_PRODUCTION
 from lib.speech.speech_presentation import presentation_artifact_paths
 from lib.workflow.workflow_state import WorkflowStateService
+from server.services.project.project_activity import project_last_activity_at
 from tests.legacy_project_shapes import (
     ScriptPlanVariantName,
     advance_project_schema,
@@ -125,6 +128,31 @@ def test_whole_chain_leaves_every_episode_ready_for_the_next_step(
     report = load_migration_report(project_dir)
     assert report is not None
     assert report.registered["episode-script"] == 3
+
+
+def _project_activity(project_dir: Path) -> datetime | None:
+    project = _read_json(project_dir / "project.json")
+    scripts = [_read_json(path) for path in sorted((project_dir / "scripts").glob("*.json"))]
+    return project_last_activity_at(project_dir, project, scripts)
+
+
+@pytest.mark.parametrize("variant", _VARIANTS)
+def test_materializing_confirmed_episodes_leaves_the_project_activity_unchanged(
+    tmp_path: Path, variant: ScriptPlanVariantName
+) -> None:
+    # 转出的正式脚本记下的是创作者确认脚本规划的时间，不是迁移运行的时间。
+    project_dir = write_legacy_script_plan_project(tmp_path / "projects", variant=variant, schema_version=7)
+    stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC).timestamp()
+    for path in project_dir.rglob("*"):
+        if path.is_file():
+            os.utime(path, (stale, stale))
+    before = _project_activity(project_dir)
+
+    migrate_project_dir(project_dir)
+
+    assert _project_activity(project_dir) == before
+    materialized = _read_json(project_dir / "scripts" / "episode_2.json")
+    assert materialized["metadata"]["updated_at"] == "2026-01-01T00:00:00Z"
 
 
 def test_rerunning_the_script_plan_of_a_grandfathered_episode_only_asks_for_confirmation(tmp_path: Path) -> None:

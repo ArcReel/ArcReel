@@ -9,10 +9,12 @@ agent_toolset/test_draft_tools.py``、``tests/integration/lib/script/test_script
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
@@ -364,3 +366,39 @@ class TestCollectViolations:
     def test_single_violation_flattens_to_itself(self):
         single = _violation("a")
         assert violation_items(single) == [single]
+
+
+class TestProjectActivity:
+    """草稿的写入与清除推进项目的最近活动时间：草稿 JSON 的修改时间不计入活动。"""
+
+    STALE = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+
+    def _stale_ledger(self, project_path: Path) -> None:
+        (project_path / ACTIVITY_FILENAME).write_text(self.STALE.isoformat(), encoding="utf-8")
+
+    def _assert_moved_forward(self, project_path: Path) -> None:
+        recorded = recorded_project_activity(project_path)
+        assert recorded is not None
+        assert recorded > self.STALE
+
+    def test_write_moves_activity_forward(self, tmp_path: Path):
+        self._stale_ledger(tmp_path)
+
+        write_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN, content={"units": []}, violations=[])
+
+        self._assert_moved_forward(tmp_path)
+
+    def test_clear_moves_activity_forward(self, tmp_path: Path):
+        write_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN, content={"units": []}, violations=[])
+        self._stale_ledger(tmp_path)
+
+        clear_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+
+        self._assert_moved_forward(tmp_path)
+
+    def test_clearing_an_absent_draft_records_nothing(self, tmp_path: Path):
+        self._stale_ledger(tmp_path)
+
+        clear_quarantine(tmp_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+
+        assert recorded_project_activity(tmp_path) == self.STALE

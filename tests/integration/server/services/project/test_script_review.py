@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -19,6 +20,7 @@ from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.json_io import atomic_write_json
+from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.project.resource_paths import resource_relative_path
@@ -1892,6 +1894,37 @@ class TestScriptPlanWriteStore:
         from lib.artifacts.artifact_manifest import ArtifactKey
 
         assert registered == [ArtifactKey.episode_script_plan(1)]
+
+    def test_content_change_moves_project_activity_forward(self, tmp_path: Path):
+        # 脚本规划是 JSON，修改时间不计入活动，由写盘出口记账；内容未变的写入不算活动。
+        project_path = self._project_path(tmp_path)
+        stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+        (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
+
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
+        recorded = recorded_project_activity(project_path)
+        assert recorded is not None
+        assert recorded > stale
+
+        (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
+        assert recorded_project_activity(project_path) == stale
+
+    def test_deleting_the_script_plan_moves_project_activity_forward(self, tmp_path: Path):
+        project_path = self._project_path(tmp_path)
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
+        stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+        (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
+
+        path = script_review.official_reference_script_plan_path(project_path, 1)
+        assert script_review.delete_script_plan_file(project_path, 1, path) is True
+
+        recorded = recorded_project_activity(project_path)
+        assert recorded is not None
+        assert recorded > stale
 
 
 # ---------------------------------------------------------------------------

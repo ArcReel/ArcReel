@@ -23,7 +23,7 @@
 | 宫格联合图、切格分镜与参考视频的依据（清单登记与选中版本记录冻结的依据）不含风格描述 | ≤ 0.30（schema ≤ 13） | 描述非空时依据含 `style_description` | schema < 14 的项目按不记描述的口径规划（`project_basis_style_description`），v13→v14 之前的激活与来源补写不受影响；v13→v14 只改写改写前时新的登记及其选中版本记录 |
 | 集绑定 `script_file` 指向非规范文件名（SSE 索引同步登记了带 `episode` 整数的任意 `scripts/*.json`） | schema ≤ 14 | 逐字等于 `scripts/episode_N.json` | v14→v15 判据是字面相等、不做归一，裸名 `episode_N.json`、`./` 前缀与反斜杠写法一并拒绝：拒绝整个项目并点名集号与绑定，一个字节都不改；运维把剧本挪到规范路径、改绑后重跑 |
 | 剧本条目带 `script_plan_entry_revision`，剧本 `metadata` 带 `script_plan_revision` | schema ≤ 14 | 无指纹字段 | v14→v15 删除 |
-| 脚本规划已确认，绑定的正式脚本不在盘上 | schema ≤ 14 | 确认即转出正式脚本 | v14→v15 整份转出、全部待编写；转不出的进迁移报告 |
+| 脚本规划已确认，绑定的正式脚本不在盘上 | schema ≤ 14 | 确认即转出正式脚本 | v14→v15 整份转出、全部待编写，剧本的创建与更新时间取确认时间（读不出时不写，避免迁移推进项目最近活动时间）；转不出的进迁移报告 |
 | 正式脚本分镜视觉层两侧皆空，没有待编写标记 | schema ≤ 14 | `pending_authoring: true` | v14→v15 盖标记（参考生视频单元不按此判） |
 | drama 正式分镜缺 `scene_description` | schema ≤ 14 | 从脚本规划透传 | v14→v15 按分镜 id 从脚本规划回填 |
 | 参考生视频正式单元缺 `source_text` | schema ≤ 14 | 从脚本规划投影 | v14→v15 按单元 id 补录，取不到留空 |
@@ -52,3 +52,4 @@
 - 改写清单的迁移用 `activate_artifact_target_state(bump_schema=True, target_schema_version=...)`，先做只读预检再落盘。
 - 整份激活会把在场产物一律登记为时新。改的只是某个依据输入、既有产物本不该因此过期时，改前改后各规划一次目标态，只把「改前正是时新、且目标登记变了」的条目改写过去（先例：v13→v14 的风格值归一），本就过期的条目不被伪造成时新。
 - 「投影不出来」不等于「不存在」，也不等于「整项目失败」：依据从当前项目状态投影不出的目标不登记，进报告，读时报 missing。
+- 迁移不推进项目的最近活动时间：`project.json` 与剧本的 `metadata.updated_at` 保留原值，新写出的剧本不以迁移运行的时刻作为 `updated_at`；不调用 `lib.project.project_activity.record_project_activity`，也不经过调用它的业务写入出口（草稿、正式脚本规划写盘事务、剪辑时间线存储、项目记忆）。

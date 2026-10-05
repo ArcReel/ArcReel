@@ -49,6 +49,7 @@ from lib.episode.episode_paths import (
 )
 from lib.infra.content_digest import prefixed_canonical_json_digest
 from lib.infra.json_io import atomic_write_json, load_json_or_none
+from lib.project.project_activity import record_project_activity
 from lib.script.draft_violation import DraftViolation, render_violation_report
 
 #: 草稿的产出来源。``content`` 与该来源那一步的模型输出 schema 同形：参考生视频 script_plan 是
@@ -282,6 +283,7 @@ def write_quarantine(
             meta=meta,
         ),
     )
+    record_project_activity(project_path)
     return path
 
 
@@ -332,7 +334,11 @@ def quarantine_exists(project_path: Path, episode: int, kind: str) -> bool:
 
 def clear_quarantine(project_path: Path, episode: int, kind: str) -> None:
     """晋升成功后清除草稿。缺失时静默——晋升可能来自一次直接重跑，本就没有草稿要清。"""
-    quarantine_path(project_path, episode, kind).unlink(missing_ok=True)
+    try:
+        quarantine_path(project_path, episode, kind).unlink()
+    except FileNotFoundError:
+        return
+    record_project_activity(project_path)
 
 
 def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, episode: int) -> str:

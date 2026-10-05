@@ -25,9 +25,11 @@ from typing import Any
 import yaml
 
 from lib.agent.agent_memory_index import INDEX_FILENAME, memory_index_stats
+from lib.agent.agent_memory_paths import project_memory_dir
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
+from lib.project.project_activity import record_project_activity
 
 #: 单个记忆文件的正文上限。超限拒绝写入，让创作者拆分而不是让 Agent 每轮都读进一个大文件。
 MAX_FILE_BYTES = 256 * 1024
@@ -96,9 +98,18 @@ def _optional_text(value: object) -> str | None:
 
 @dataclass(frozen=True)
 class AgentMemoryStore:
-    """一个记忆目录的读写门面。``directory`` 由 ``lib.agent.agent_memory_paths`` 派生。"""
+    """一个记忆目录的读写门面。``directory`` 由 ``lib.agent.agent_memory_paths`` 派生。
+
+    ``project_dir`` 只在项目记忆上给出：写、删与清空成功后推进该项目的最近活动时间。
+    """
 
     directory: Path
+    project_dir: Path | None = None
+
+    @classmethod
+    def for_project(cls, project_dir: Path) -> AgentMemoryStore:
+        """项目记忆的读写门面。"""
+        return cls(project_memory_dir(project_dir), project_dir=project_dir)
 
     def overview(self) -> dict[str, Any]:
         """列表响应：目录路径、索引统计与全部可见记忆条目。
@@ -155,6 +166,7 @@ class AgentMemoryStore:
         if len(content) > MAX_FILE_BYTES:
             raise BadRequestError("memory_file_too_large", filename=filename, limit_kib=MAX_FILE_BYTES // 1024)
         atomic_write_bytes(path, content)
+        self._record_activity()
 
     def delete(self, filename: str) -> None:
         """删除单个记忆文件；索引 ``MEMORY.md`` 同样可删。"""
@@ -165,6 +177,7 @@ class AgentMemoryStore:
             path.unlink()
         except FileNotFoundError as exc:
             raise NotFoundError("memory_file_not_found", filename=filename) from exc
+        self._record_activity()
 
     def clear(self) -> None:
         """清空整个记忆目录后重建空目录，不生成空索引。
@@ -174,6 +187,11 @@ class AgentMemoryStore:
         """
         shutil.rmtree(self.directory, ignore_errors=True)
         self.directory.mkdir(parents=True, exist_ok=True)
+        self._record_activity()
+
+    def _record_activity(self) -> None:
+        if self.project_dir is not None:
+            record_project_activity(self.project_dir)
 
     def _visible_paths(self) -> list[Path]:
         """目录内按名称排序的可见记忆文件：顶层、合法文件名、未逃出目录的真实文件。

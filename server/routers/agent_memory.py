@@ -18,7 +18,6 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
-from lib.agent.agent_memory_paths import project_memory_dir
 from lib.agent.agent_memory_store import AgentMemoryStore
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.project.project_manager import get_project_manager
@@ -44,7 +43,7 @@ def _project_store(project_name: str) -> AgentMemoryStore:
         raise BadRequestError("invalid_project_name", name=project_name) from exc
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    return AgentMemoryStore(project_memory_dir(project_dir))
+    return AgentMemoryStore.for_project(project_dir)
 
 
 async def _run(build_store: Callable[[], AgentMemoryStore], action: Callable[[AgentMemoryStore], Any]) -> Any:

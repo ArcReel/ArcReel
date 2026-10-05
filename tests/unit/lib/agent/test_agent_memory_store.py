@@ -1,5 +1,6 @@
 """Tests for lib.agent.agent_memory_store."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from lib.agent.agent_memory_store import (
     parse_memory_frontmatter,
 )
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 
 
 @pytest.fixture
@@ -272,3 +274,46 @@ class TestClear:
     def test_clear_creates_a_missing_directory(self, store):
         store.clear()
         assert store.directory.is_dir()
+
+
+class TestProjectActivity:
+    """项目记忆的增删与清空推进项目的最近活动时间；删掉最新的记忆文件后不回退。"""
+
+    STALE = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+
+    @pytest.fixture
+    def project_store(self, tmp_path):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        project_store.write("notes.md", b"body")
+        (tmp_path / ACTIVITY_FILENAME).write_text(self.STALE.isoformat(), encoding="utf-8")
+        return project_store
+
+    @pytest.mark.parametrize(
+        "action",
+        [
+            lambda store: store.write("other.md", b"body"),
+            lambda store: store.delete("notes.md"),
+            lambda store: store.clear(),
+        ],
+        ids=["write", "delete", "clear"],
+    )
+    def test_project_memory_changes_move_activity_forward(self, tmp_path, project_store, action):
+        action(project_store)
+
+        recorded = recorded_project_activity(tmp_path)
+        assert recorded is not None
+        assert recorded > self.STALE
+
+    def test_rejected_delete_records_nothing(self, tmp_path, project_store):
+        with pytest.raises(NotFoundError):
+            project_store.delete("missing.md")
+
+        assert recorded_project_activity(tmp_path) == self.STALE
+
+    def test_user_memory_has_no_project_to_record(self, tmp_path, store):
+        store.write("notes.md", b"body")
+        store.delete("notes.md")
+        store.clear()
+
+        assert not (tmp_path / ACTIVITY_FILENAME).exists()
+        assert not (store.directory / ACTIVITY_FILENAME).exists()

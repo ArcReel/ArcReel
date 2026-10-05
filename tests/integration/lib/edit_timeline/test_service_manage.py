@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -15,6 +17,7 @@ from lib.edit_timeline import EditTimelineError, EditTimelineService, RevisionAu
 from lib.edit_timeline.operations import TimelineOperationAdapter
 from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_cut_key
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
+from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.project.project_manager import ProjectManager
 
 pytestmark = pytest.mark.usefixtures("three_clips")
@@ -322,3 +325,34 @@ async def test_deleted_ids_are_not_reused_by_new_timelines(service: EditTimeline
     second = await _create(service)
 
     assert second != first
+
+
+_STALE_ACTIVITY = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+
+_TIMELINE_WRITES: dict[str, Callable[[EditTimelineService, str], Awaitable[object]]] = {
+    "create": lambda service, _timeline_id: _create(service, name="新版"),
+    "edit": lambda service, timeline_id: _edit(service, timeline_id, 2, {"op": "delete", "clip": "c3"}),
+    "copy": lambda service, timeline_id: service.copy("demo", timeline_id, name="副本", author=CREATOR),
+    "rename": lambda service, timeline_id: service.rename("demo", timeline_id, name="改名"),
+    "restore": lambda service, timeline_id: service.restore("demo", timeline_id, revision=1, author=CREATOR),
+    "delete": lambda service, timeline_id: service.delete("demo", timeline_id),
+}
+
+
+@pytest.mark.parametrize("write", _TIMELINE_WRITES.values(), ids=_TIMELINE_WRITES.keys())
+async def test_every_timeline_write_moves_project_activity_forward(
+    service: EditTimelineService,
+    pm: ProjectManager,
+    write: Callable[[EditTimelineService, str], Awaitable[object]],
+) -> None:
+    # 剪辑时间线是 JSON，修改时间不计入活动；删除后文件也不在了，只能靠写入出口记账。
+    timeline_id = await _create(service)
+    await _edit(service, timeline_id, 1, {"op": "set_volume", "clip": "c2", "volume": 0.6})
+    project_path = pm.get_project_path("demo")
+    (project_path / ACTIVITY_FILENAME).write_text(_STALE_ACTIVITY.isoformat(), encoding="utf-8")
+
+    await write(service, timeline_id)
+
+    recorded = recorded_project_activity(project_path)
+    assert recorded is not None
+    assert recorded > _STALE_ACTIVITY
