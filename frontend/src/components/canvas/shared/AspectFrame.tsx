@@ -1,3 +1,5 @@
+import { cn } from "cn";
+
 // ---------------------------------------------------------------------------
 // Ratio → Tailwind class mapping
 // ---------------------------------------------------------------------------
@@ -24,8 +26,7 @@ export function AspectFrame({ ratio, children, className }: AspectFrameProps) {
 
   return (
     <div
-      className={`overflow-hidden rounded-lg ${ratioClass} ${className ?? ""}`}
-      style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
+      className={cn("overflow-hidden rounded-lg bg-background/50", ratioClass, className)}
     >
       {children}
     </div>

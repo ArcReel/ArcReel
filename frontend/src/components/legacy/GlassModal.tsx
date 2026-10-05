@@ -31,7 +31,7 @@ type GlassModalA11yProps =
 export type GlassModalProps = GlassModalBaseProps & GlassModalA11yProps;
 
 // 玻璃面板 Modal — Layer 2 玻璃皮肤，消费 ModalShell primitive，
-// 在内部加 PANEL_BG + 顶部 hairline + 圆角。所有 v3 弹窗（含 ConfirmDialog / ConflictDialog）
+// 在内部加 PANEL_BG + 顶部 hairline + 圆角。所有 v3 弹窗（含 ConflictDialog）
 // 都迁到这里。
 export function GlassModal(props: GlassModalProps) {
   const {

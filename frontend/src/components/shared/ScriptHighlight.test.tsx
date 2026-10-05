@@ -15,10 +15,10 @@ describe("ScriptHighlight", () => {
     const container = renderScript("@张三 在 @酒馆 举起 @长剑，@王五 旁观。");
     const classFor = (name: string) =>
       [...container.querySelectorAll("span")].find((el) => el.textContent === `@${name}`)?.className ?? "";
-    expect(classFor("张三")).toContain("sky");
-    expect(classFor("酒馆")).toContain("emerald");
-    expect(classFor("长剑")).toContain("amber");
-    expect(classFor("王五")).toContain("red");
+    // 三类资产各一种配色，未登记的提及另用一种
+    const classes = ["张三", "酒馆", "长剑", "王五"].map(classFor);
+    expect(classes.every(Boolean)).toBe(true);
+    expect(new Set(classes).size).toBe(4);
   });
 
   it("renders a lone dialogue mark as speaker + spoken text, not raw syntax", () => {

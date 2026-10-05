@@ -340,7 +340,7 @@ describe("OverviewCanvas", () => {
     await user.click(screen.getByRole("button", { name: "从原文生成" }));
 
     const alert = await screen.findByRole("alert");
-    expect(within(alert).getByRole("button", { name: "去登记最大输出长度" })).toBeInTheDocument();
+    expect(within(alert).getByRole("link", { name: "去登记最大输出长度" })).toBeInTheDocument();
     // 失败后字段回来，可以手写或再试一次
     expect(screen.getByRole("textbox", { name: "梗概" })).toBeInTheDocument();
   });

@@ -1,9 +1,13 @@
+import { useId } from "react";
 import { ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { NewAssetDecision, NewAssetType, PlanNewAsset, ProjectData } from "@/types";
 import { useProjectsStore } from "@/stores/projects-store";
-import { SectionShell } from "@/components/shared/SectionShell";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeAssetName } from "@/utils/reference-mentions";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
@@ -74,14 +78,11 @@ const GROUP_LABEL_KEY: Record<Group, string> = {
 
 /** 行左侧细边按处理方式着色：一眼分出会新建资产、归并、衍生与不登记的项。 */
 const DECISION_EDGE: Record<NewAssetDecision, string> = {
-  register: "var(--primary)",
-  merge: "var(--muted-foreground)",
-  derivative: "var(--primary)",
-  skip: "var(--border)",
+  register: "border-l-primary",
+  merge: "border-l-muted-foreground",
+  derivative: "border-l-primary",
+  skip: "border-l-border",
 };
-
-const FIELD_CLS =
-  "w-full rounded-sm border border-border bg-card/40 px-2 py-1 text-[12px] text-subtle-foreground disabled:cursor-not-allowed disabled:opacity-60";
 
 function groupOf(item: PlanNewAsset): Group {
   return item.type === "character" && item.decision === "derivative" ? "derivative" : item.type;
@@ -135,18 +136,33 @@ function TargetSelect({
 }) {
   const { t } = useTranslation("dashboard");
   const choices = value && !options.includes(value) ? [value, ...options] : options;
+  const items = [
+    { value: "", label: t("new_asset_target_placeholder") },
+    ...choices.map((name) => ({ value: name, label: name })),
+  ];
   return (
-    <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-      {label}
-      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className={FIELD_CLS}>
-        <option value="">{t("new_asset_target_placeholder")}</option>
-        {choices.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="flex flex-col items-start gap-1 text-xs text-muted-foreground">
+      <span>{label}</span>
+      <Select
+        items={items}
+        value={value}
+        onValueChange={(next) => {
+          if (next !== null) onChange(next);
+        }}
+        disabled={disabled}
+      >
+        <SelectTrigger size="sm" aria-label={label}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false} align="start">
+          {items.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 
@@ -163,18 +179,12 @@ function TextField({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const id = useId();
   return (
-    <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-      {label}
-      <input
-        type="text"
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className={FIELD_CLS}
-      />
-    </label>
+    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+      <label htmlFor={id}>{label}</label>
+      <Input id={id} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} disabled={disabled} />
+    </div>
   );
 }
 
@@ -190,9 +200,9 @@ function DescriptionField({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
       <span>{label}</span>
-      <Textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} aria-label={label} className="text-muted-foreground" />
+      <Textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} aria-label={label} />
     </div>
   );
 }
@@ -235,32 +245,40 @@ function NewAssetRow({
     ]),
   ];
   const decisions = item.type === "character" ? DECISIONS : DECISIONS.filter((d) => d !== "derivative");
+  const decisionItems = decisions.map((decision) => ({ value: decision, label: t(`new_asset_decision_${decision}`) }));
 
   return (
     <li
-      className="flex flex-col gap-2 rounded-md border border-l-2 border-border/50 px-3 py-2.5"
-      style={{ borderLeftColor: DECISION_EDGE[autoTarget != null ? "merge" : item.decision] }}
+      className={`flex flex-col gap-2 rounded-md border border-l-2 border-border/50 px-3 py-2.5 ${
+        DECISION_EDGE[autoTarget != null ? "merge" : item.decision]
+      }`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[12.5px] font-medium text-foreground">{item.name}</span>
-        <span className="flex-1 text-[12px] text-muted-foreground">{summaryText(t, item, autoTarget)}</span>
+        <span className="text-sm font-medium text-foreground">{item.name}</span>
+        <span className="flex-1 text-xs text-muted-foreground">{summaryText(t, item, autoTarget)}</span>
         {!readOnly && (
-          <select
+          <Select
+            items={decisionItems}
             value={item.decision}
-            onChange={(e) => onPatch({ decision: e.target.value as NewAssetDecision })}
+            onValueChange={(next) => {
+              if (next !== null) onPatch({ decision: next });
+            }}
             disabled={disabled}
-            aria-label={t("new_asset_decision_label", { name: item.name })}
-            className="rounded-sm border border-border bg-card/40 px-1 py-0.5 text-[11px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {decisions.map((decision) => (
-              <option key={decision} value={decision}>
-                {t(`new_asset_decision_${decision}`)}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm" aria-label={t("new_asset_decision_label", { name: item.name })}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false} align="end">
+              {decisionItems.map((decision) => (
+                <SelectItem key={decision.value} value={decision.value}>
+                  {decision.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </div>
-      {item.reason && <p className="text-[11.5px] text-muted-foreground">{t("new_asset_reason", { reason: item.reason })}</p>}
+      {item.reason && <p className="text-xs text-muted-foreground">{t("new_asset_reason", { reason: item.reason })}</p>}
 
       {!readOnly && item.decision === "register" && autoTarget == null && (
         <div className="grid gap-2">
@@ -314,22 +332,24 @@ function NewAssetRow({
       )}
 
       {appearances.length > 0 && (
-        <details className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] text-muted-foreground">
-            <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
+        <Collapsible>
+          <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="-ml-2" />}>
+            <ChevronDown aria-hidden data-icon="inline-start" className="transition-transform group-aria-expanded/button:rotate-180" />
             {t("new_asset_appearances", { count: appearances.length })}
-          </summary>
-          <ul className="mt-1.5 flex flex-col gap-1">
-            {appearances.map((entry) => (
-              <li key={entry.id} className="flex items-start gap-2 text-[11.5px] leading-relaxed">
-                <span className="shrink-0 rounded-sm bg-card/70 px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">
-                  {itemIdWithinEpisode(entry.id)}
-                </span>
-                <span className="text-muted-foreground">{entry.snippet}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {appearances.map((entry) => (
+                <li key={entry.id} className="flex items-start gap-2 text-xs leading-relaxed">
+                  <span className="shrink-0 rounded-sm bg-muted px-1.5 py-px text-muted-foreground tabular-nums">
+                    {itemIdWithinEpisode(entry.id)}
+                  </span>
+                  <span className="text-muted-foreground">{entry.snippet}</span>
+                </li>
+              ))}
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </li>
   );
@@ -341,6 +361,7 @@ function NewAssetRow({
  */
 export function NewAssetsSection({ items, entries, readOnly, disabled, onChange }: NewAssetsSectionProps) {
   const { t } = useTranslation("dashboard");
+  const titleId = useId();
   const project = useProjectsStore((s) => s.currentProjectData);
   if (items.length === 0) return null;
 
@@ -351,40 +372,46 @@ export function NewAssetsSection({ items, entries, readOnly, disabled, onChange 
     onChange(items.map((item, i) => (i === index ? { ...item, ...patch } : item)));
 
   return (
-    <SectionShell
-      kicker="New assets"
-      title={t("new_assets_title")}
-      description={t(readOnly ? "new_assets_readonly_description" : "new_assets_description")}
-    >
-      {autoMergedCount > 0 && (
-        <p className="mb-3 text-[12px] text-muted-foreground">{t("new_assets_auto_merged_notice", { count: autoMergedCount })}</p>
-      )}
-      <div className="flex flex-col gap-4">
-        {GROUPS.map((group) => {
-          const indexed = items.map((item, index) => ({ item, index })).filter(({ item }) => groupOf(item) === group);
-          if (indexed.length === 0) return null;
-          return (
-            <section key={group} aria-label={t(GROUP_LABEL_KEY[group])} className="flex flex-col gap-2">
-              <h4 className="font-mono text-[10px] tracking-[0.08em] text-muted-foreground">{t(GROUP_LABEL_KEY[group])}</h4>
-              <ul className="flex flex-col gap-2">
-                {indexed.map(({ item, index }) => (
-                  <NewAssetRow
-                    key={`${item.type}-${item.name}-${String(index)}`}
-                    item={item}
-                    items={items}
-                    index={index}
-                    project={project}
-                    entries={entries}
-                    readOnly={readOnly}
-                    disabled={disabled}
-                    onPatch={(patch) => patchItem(index, patch)}
-                  />
-                ))}
-              </ul>
-            </section>
-          );
-        })}
+    <section aria-labelledby={titleId} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h3 id={titleId} className="text-sm font-medium text-foreground">
+          {t("new_assets_title")}
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          {t(readOnly ? "new_assets_readonly_description" : "new_assets_description")}
+        </p>
       </div>
-    </SectionShell>
+      <div className="rounded-lg border border-border bg-card p-4">
+        {autoMergedCount > 0 && (
+          <p className="mb-3 text-xs text-muted-foreground">{t("new_assets_auto_merged_notice", { count: autoMergedCount })}</p>
+        )}
+        <div className="flex flex-col gap-4">
+          {GROUPS.map((group) => {
+            const indexed = items.map((item, index) => ({ item, index })).filter(({ item }) => groupOf(item) === group);
+            if (indexed.length === 0) return null;
+            return (
+              <section key={group} aria-label={t(GROUP_LABEL_KEY[group])} className="flex flex-col gap-2">
+                <h4 className="text-xs font-medium text-muted-foreground">{t(GROUP_LABEL_KEY[group])}</h4>
+                <ul className="flex flex-col gap-2">
+                  {indexed.map(({ item, index }) => (
+                    <NewAssetRow
+                      key={`${item.type}-${item.name}-${String(index)}`}
+                      item={item}
+                      items={items}
+                      index={index}
+                      project={project}
+                      entries={entries}
+                      readOnly={readOnly}
+                      disabled={disabled}
+                      onPatch={(patch) => patchItem(index, patch)}
+                    />
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }

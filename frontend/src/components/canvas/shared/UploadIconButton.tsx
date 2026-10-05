@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Loader2, Upload } from "lucide-react";
+import { TooltipIconButton } from "@/components/canvas/timeline/TooltipIconButton";
 
 /** 与后端 upload_finalize.py 的扩展名白名单保持一致 */
 export const UPLOAD_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp";
@@ -7,7 +8,7 @@ export const UPLOAD_VIDEO_ACCEPT = ".mp4,.mov,.m4v";
 
 interface UploadIconButtonProps {
   accept: string;
-  /** 同时作为 title 与 aria-label */
+  /** 按钮的无障碍名称，悬停或聚焦时显示在提示里 */
   label: string;
   /** 上传请求进行中：显示 spinner 并禁用 */
   busy?: boolean;
@@ -15,7 +16,7 @@ interface UploadIconButtonProps {
   onSelect: (file: File) => void;
 }
 
-/** 卡片头部的图标式上传入口：隐藏 file input + 7x7 图标按钮。 */
+/** 卡片头部的图标式上传入口：隐藏的文件输入框加一个图标按钮，与旁边的「局部修改」「版本」同样式。 */
 export function UploadIconButton({ accept, label, busy, disabled, onSelect }: UploadIconButtonProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -33,21 +34,9 @@ export function UploadIconButton({ accept, label, busy, disabled, onSelect }: Up
           if (f) onSelect(f);
         }}
       />
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={busy || disabled}
-        title={label}
-        aria-label={label}
-        className="focus-ring inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-50"
-        style={{ color: "var(--muted-foreground)" }}
-      >
-        {busy ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-        ) : (
-          <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-        )}
-      </button>
+      <TooltipIconButton label={label} disabled={busy || disabled} onClick={() => fileInputRef.current?.click()}>
+        {busy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Upload aria-hidden="true" />}
+      </TooltipIconButton>
     </>
   );
 }

@@ -6,8 +6,8 @@
  * - MentionPicker group headers + option accents
  * - ReferencePanel pill borders/fills
  *
- * Kept aligned (by intent) with AssetSidebar/AssetLibraryPage visual grouping:
- * character = blue, scene = emerald, prop = amber.
+ * Colors come from the asset-kind tokens in index.css (`--asset-*`); unresolved
+ * references use `destructive`.
  */
 
 /**
@@ -20,46 +20,46 @@
 export type MentionKind = "product" | "character" | "scene" | "prop" | "unknown";
 
 export interface AssetColorPalette {
-  /** Text color class (tailwind) */
+  /** Text color class */
   textClass: string;
-  /** Background tint class (tailwind, low alpha) */
+  /** Background tint class (low alpha) */
   bgClass: string;
-  /** Border class (tailwind) */
+  /** Border class */
   borderClass: string;
-  /** Solid dot color (tailwind bg-*), contrasts against bgClass for inline indicators */
+  /** Solid dot color, contrasts against bgClass for inline indicators */
   dotClass: string;
 }
 
 export const ASSET_COLORS: Record<MentionKind, AssetColorPalette> = {
   product: {
-    textClass: "text-violet-300",
-    bgClass: "bg-violet-500/15",
-    borderClass: "border-violet-500/40",
-    dotClass: "bg-violet-300",
+    textClass: "text-asset-product",
+    bgClass: "bg-asset-product/15",
+    borderClass: "border-asset-product/40",
+    dotClass: "bg-asset-product",
   },
   character: {
-    textClass: "text-sky-300",
-    bgClass: "bg-sky-500/15",
-    borderClass: "border-sky-500/40",
-    dotClass: "bg-sky-300",
+    textClass: "text-asset-character",
+    bgClass: "bg-asset-character/15",
+    borderClass: "border-asset-character/40",
+    dotClass: "bg-asset-character",
   },
   scene: {
-    textClass: "text-emerald-300",
-    bgClass: "bg-emerald-500/15",
-    borderClass: "border-emerald-500/40",
-    dotClass: "bg-emerald-300",
+    textClass: "text-asset-scene",
+    bgClass: "bg-asset-scene/15",
+    borderClass: "border-asset-scene/40",
+    dotClass: "bg-asset-scene",
   },
   prop: {
-    textClass: "text-amber-300",
-    bgClass: "bg-amber-500/15",
-    borderClass: "border-amber-500/40",
-    dotClass: "bg-amber-300",
+    textClass: "text-asset-prop",
+    bgClass: "bg-asset-prop/15",
+    borderClass: "border-asset-prop/40",
+    dotClass: "bg-asset-prop",
   },
   unknown: {
-    textClass: "text-red-300",
-    bgClass: "bg-red-500/15",
-    borderClass: "border-red-500/40",
-    dotClass: "bg-red-300",
+    textClass: "text-destructive",
+    bgClass: "bg-destructive/15",
+    borderClass: "border-destructive/40",
+    dotClass: "bg-destructive",
   },
 };
 

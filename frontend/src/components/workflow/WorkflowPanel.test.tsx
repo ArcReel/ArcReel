@@ -465,7 +465,7 @@ describe("WorkflowPanel 草稿", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "丢弃草稿" }));
-    const dialog = await screen.findByRole("dialog", { name: "丢弃这份草稿？" });
+    const dialog = await screen.findByRole("alertdialog", { name: "丢弃这份草稿？" });
     expect(within(dialog).getByText(/本集回到未规划状态/)).toBeInTheDocument();
     expect(discard).not.toHaveBeenCalled();
 

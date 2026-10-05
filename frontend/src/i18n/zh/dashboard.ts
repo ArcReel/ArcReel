@@ -3266,4 +3266,6 @@ export default {
   'ad_brief_placeholder': '描述你想要的视频：目标人群、风格调性、重点卖点、行动号召……',
   'ad_products_view_all': '查看全部',
   'ad_products_empty_hint': '添加商品图和卖点，AI 生成脚本时会围绕商品来写。没有商品时，也可以只凭创作灵感生成。',
+  // 共享组件：缩略图的查看大图
+  'image_fullscreen_preview': '查看「{{name}}」的大图',
 } satisfies Record<keyof typeof enDashboard, string>;

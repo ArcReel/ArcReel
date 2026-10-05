@@ -1,5 +1,6 @@
 import { Fragment, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import { assetColor } from "@/components/canvas/reference/asset-colors";
 import {
   toScriptLines,
@@ -40,7 +41,7 @@ function SpeechToken({ token }: { token: Extract<Token, { kind: "speech" }> }) {
   // 那一行对得上，改写会让「这段被认成台词了吗」难以核对。
   return (
     <span
-      className={`rounded-sm bg-[oklch(1_0_0_/_0.06)] ${token.speaker ? palette.textClass : "text-foreground"}`}
+      className={`rounded-sm bg-foreground/5 ${token.speaker ? palette.textClass : "text-foreground"}`}
       title={token.speaker || t("script_highlight_voiceover")}
     >
       {token.text}
@@ -72,7 +73,7 @@ function LineRow({ line, index }: { line: ScriptLine; index: number }) {
     const palette = assetColor(line.speakerKind);
     return (
       <div
-        className={`flex items-baseline gap-2 border-l-2 py-0.5 pl-2.5 ${palette.borderClass} bg-[oklch(1_0_0_/_0.03)]`}
+        className={`flex items-baseline gap-2 border-l-2 py-0.5 pl-2.5 ${palette.borderClass} bg-foreground/3`}
       >
         <span
           translate="no"
@@ -87,8 +88,8 @@ function LineRow({ line, index }: { line: ScriptLine; index: number }) {
 
   if (line.kind === "voiceover") {
     return (
-      <div className="flex items-baseline gap-2 border-l-2 border-border bg-[oklch(1_0_0_/_0.03)] py-0.5 pl-2.5">
-        <span className="shrink-0 rounded-sm bg-[oklch(1_0_0_/_0.06)] px-1 text-muted-foreground">
+      <div className="flex items-baseline gap-2 border-l-2 border-border bg-foreground/3 py-0.5 pl-2.5">
+        <span className="shrink-0 rounded-sm bg-foreground/5 px-1 text-muted-foreground">
           {t("script_highlight_voiceover")}
         </span>
         <span className="min-w-0 flex-1 break-words text-foreground">{line.text}</span>
@@ -107,7 +108,7 @@ export function ScriptHighlight({ text, lookup, className, renderAfterLine }: Sc
   const lines = useMemo(() => toScriptLines(text, lookup), [text, lookup]);
 
   return (
-    <div className={`font-mono text-[12.5px] leading-6 ${className ?? ""}`}>
+    <div className={cn("font-mono text-xs leading-6", className)}>
       {lines.map((line, i) => (
         <Fragment key={i}>
           <LineRow line={line} index={i} />

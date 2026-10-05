@@ -961,13 +961,13 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
         ],
       }),
     });
-    const { container } = render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    await screen.findByRole("button", { name: "U01 · 1" });
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    const firstLink = await screen.findByRole("button", { name: "U01 · 1" });
 
     // 两个按钮之间的可见文本要有分隔符，不能粘连成 "U01 · 1U02 · 1"——按钮各自的可访问名
     // 本身不受这个 bug 影响（那是每个元素独立算的），只有渲染出的原始文本会粘连，所以这里
     // 直接断言状态条的 textContent。
-    const statusBar = container.querySelector("span.text-\\[11px\\].text-muted-foreground");
+    const statusBar = firstLink.parentElement?.parentElement;
     expect(statusBar?.textContent).toMatch(/U01 · 1.+U02 · 1/);
     expect(statusBar?.textContent).not.toContain("1U02");
   });
