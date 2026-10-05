@@ -377,7 +377,7 @@ describe("ReferenceVideoCanvas", () => {
     // 只看解析预览面板内的高亮，避开单元列表卡片里的同名文本
     const panel = await screen.findByRole("tabpanel");
     const mention = (await within(panel).findAllByText(/__proto__/)).find((el) =>
-      el.className.includes("sky"),
+      el.className.includes("asset-character"),
     );
     expect(mention).toBeDefined();
   });

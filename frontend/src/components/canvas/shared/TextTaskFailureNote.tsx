@@ -4,6 +4,7 @@ import { AlertTriangle, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
+import { Button } from "@/components/ui/button";
 import { isAdScriptTask } from "@/hooks/useAdScriptEntry";
 import { useTasksStore } from "@/stores/tasks-store";
 import { outputTruncationOf } from "@/utils/output-truncation";
@@ -45,21 +46,21 @@ export function TextTaskFailureNote({
   return (
     <div
       role="alert"
-      className="mx-4 mt-2 flex items-start gap-2.5 rounded-xl border border-red-500/35 px-4 py-2.5 text-[12.5px]"
+      className="mx-4 mt-2 flex items-start gap-2.5 rounded-xl border border-destructive/35 px-4 py-2.5 text-sm"
     >
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" aria-hidden />
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <p className="m-0 text-red-300">{t(adScript ? "ad_script_failed" : FAILURE_KEYS[failure.kind], { reason })}</p>
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+      <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
+        <p className="m-0 text-destructive">{t(adScript ? "ad_script_failed" : FAILURE_KEYS[failure.kind], { reason })}</p>
         {truncation ? <OutputTruncationHint truncation={truncation} /> : null}
       </div>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-xs"
         aria-label={t("common:close")}
         onClick={() => setDismissedTaskId(failure.task.task_id)}
-        className="focus-ring shrink-0 rounded-sm p-0.5 text-muted-foreground hover:text-subtle-foreground"
       >
-        <X className="h-3.5 w-3.5" aria-hidden />
-      </button>
+        <X aria-hidden />
+      </Button>
     </div>
   );
 }

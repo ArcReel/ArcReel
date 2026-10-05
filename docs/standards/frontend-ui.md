@@ -39,7 +39,7 @@ paths:
 
 `frontend/src/components/ui/` 只存放用 shadcn CLI 安装的原语（`components.json` 的 `style` 为 `base-nova`，底层是 Base UI）。只要组件知道业务类型、调用 API 或读写 store，就放进使用它的业务目录；多个区域共用的放进 `components/shared/`。knip 对 `src/components/ui/*.tsx` 的未使用导出豁免，就是按「这里全是成套导出的原语」设计的；业务组件混进来后，它真正未使用的导出也会被一起放过。
 
-`components/legacy/` 存放等待替换的自研旧原语（`GlassModal`、`ConfirmDialog`、`FloatingPopover`、旧按钮等），干净交付时连同测试一起删除。已重做区域不再引用 `components/legacy/`；其他位置新写弹层、菜单、按钮时直接使用 `components/ui/` 的原语。
+`components/legacy/` 存放等待替换的自研旧原语（`GlassModal`、`FloatingPopover`、旧按钮等），干净交付时连同测试一起删除。已重做区域不再引用 `components/legacy/`；其他位置新写弹层、菜单、按钮时直接使用 `components/ui/` 的原语。
 
 ### 原语按需安装：首次用到的改动执行 `pnpm exec shadcn add`，不使用 `--overwrite`
 
@@ -94,7 +94,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 
 ### 颜色只用 `index.css` 的语义 token，深浅用透明度修饰表达
 
-颜色 token 沿用 shadcn 命名（`primary`、`destructive`、`border`、`input`、`muted-foreground` 等），另有状态色 `good`、`warn`、文字中间档 `subtle-foreground` 和每集的身份色 `episode`。`episode` 的色相按集 ID 取：在元素上用内联样式写入 `--episode-hue`（取值用 `components/canvas/episodes/episodes-view-model.ts` 的 `episodeHue`），元素及其子孙用 `bg-episode`、`text-episode`、`border-episode` 取这一集的颜色。剪辑视图轨道上的视频单元色 `unit-clip`、`unit-narration` 用同样的写法，色相变量是 `--unit-hue`（取值用 `components/canvas/edit/timeline-view.ts` 的 `unitHue`）。浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅另设变体 token；变体 token 会让同一语义出现多个近似色，旧色板中的变体色已按这一原则删除。危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。内联样式和 CSS 引用 `:root` 中的原始变量（`var(--primary)`），需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
+颜色 token 沿用 shadcn 命名（`primary`、`destructive`、`border`、`input`、`muted-foreground` 等），另有状态色 `good`、`warn`、文字中间档 `subtle-foreground` 和每集的身份色 `episode`。`episode` 的色相按集 ID 取：在元素上用内联样式写入 `--episode-hue`（取值用 `components/canvas/episodes/episodes-view-model.ts` 的 `episodeHue`），元素及其子孙用 `bg-episode`、`text-episode`、`border-episode` 取这一集的颜色。剪辑视图轨道上的视频单元色 `unit-clip`、`unit-narration` 用同样的写法，色相变量是 `--unit-hue`（取值用 `components/canvas/edit/timeline-view.ts` 的 `unitHue`）。剧本里的 @ 提及与说话人按资产类型着色，用 `asset-product`、`asset-character`、`asset-scene`、`asset-prop`，解析不到的提及用 `destructive`；配色经 `components/canvas/reference/asset-colors.ts` 的 `assetColor` 取用。浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅另设变体 token；变体 token 会让同一语义出现多个近似色，旧色板中的变体色已按这一原则删除。危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。内联样式和 CSS 引用 `:root` 中的原始变量（`var(--primary)`），需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
 
 文字只分三档：`foreground`、`subtle-foreground`、`muted-foreground`。正文不在 `muted-foreground` 上再叠加透明度或 `opacity`：它在页面底色上的对比度是 5.7:1，再降低就达不到 WCAG AA 要求的 4.5:1。
 

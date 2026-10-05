@@ -48,7 +48,7 @@ describe("TextTaskFailureNote", () => {
     const location = renderNote();
 
     expect(screen.getByRole("alert")).toHaveTextContent(`${lead}：${TRUNCATED}`);
-    fireEvent.click(screen.getByRole("button", { name: "去登记最大输出长度" }));
+    fireEvent.click(screen.getByRole("link", { name: "去登记最大输出长度" }));
 
     expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
   });
@@ -58,7 +58,7 @@ describe("TextTaskFailureNote", () => {
     renderNote();
 
     expect(screen.getByText(/请在设置中换一个文本模型后再试/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "去登记最大输出长度" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "去登记最大输出长度" })).not.toBeInTheDocument();
   });
 
   it("shows only the latest text task of this episode, until it is dismissed", () => {

@@ -3267,4 +3267,6 @@ export default {
   'ad_brief_placeholder': 'Describe the video you want: audience, tone, key selling points, call to action...',
   'ad_products_view_all': 'View all',
   'ad_products_empty_hint': 'Add product photos and selling points, and AI script generation will build around the product. Without a product, you can still generate from the creative brief alone.',
+  // 共享组件：缩略图的查看大图
+  'image_fullscreen_preview': 'View full-size image of {{name}}',
 };

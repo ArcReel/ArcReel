@@ -413,7 +413,7 @@ describe("EpisodesView", () => {
       const { location } = renderView();
 
       const popover = await openPlanning("AI 规划剩余内容");
-      fireEvent.click(popover.getByRole("button", { name: "去登记最大输出长度" }));
+      fireEvent.click(popover.getByRole("link", { name: "去登记最大输出长度" }));
 
       expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
     });
@@ -427,7 +427,7 @@ describe("EpisodesView", () => {
 
       const popover = await openPlanning("AI 规划剩余内容");
       expect(popover.getByText(/请在设置中换一个文本模型后再试/)).toBeInTheDocument();
-      expect(popover.queryByRole("button", { name: "去登记最大输出长度" })).not.toBeInTheDocument();
+      expect(popover.queryByRole("link", { name: "去登记最大输出长度" })).not.toBeInTheDocument();
     });
   });
 
@@ -604,7 +604,7 @@ describe("EpisodesView", () => {
 
       const panel = await screen.findByRole("region", { name: "新的分集方案" });
       expect(within(panel).getByRole("status")).toHaveTextContent("AI 生成出错");
-      fireEvent.click(within(panel).getByRole("button", { name: "去登记最大输出长度" }));
+      fireEvent.click(within(panel).getByRole("link", { name: "去登记最大输出长度" }));
 
       expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
     });

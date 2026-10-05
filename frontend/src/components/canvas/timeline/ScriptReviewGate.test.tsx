@@ -689,7 +689,7 @@ describe("ScriptReviewGate", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "丢弃这份修改" }));
     // 确认框写明丢弃后回到哪份内容。
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("正式脚本规划");
     fireEvent.click(within(dialog).getByRole("button", { name: "丢弃这份修改" }));
 
@@ -719,7 +719,7 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByDisplayValue("我的本地编辑")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "丢弃草稿" }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "丢弃草稿" }));
 
     await waitFor(() => expect(discard).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1"));
@@ -927,9 +927,12 @@ describe("ScriptReviewGate new assets", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(stateWithNewAssets([newAsset({})]));
     const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(stateWithNewAssets([]));
 
+    const user = userEvent.setup();
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
-    fireEvent.change(await screen.findByLabelText("「将军」的处理方式"), { target: { value: "merge" } });
-    fireEvent.change(screen.getByLabelText("归到"), { target: { value: "裴与" } });
+    await user.click(await screen.findByRole("combobox", { name: "「将军」的处理方式" }));
+    await user.click(await screen.findByRole("option", { name: "归到已有资产" }));
+    await user.click(await screen.findByRole("combobox", { name: "归到" }));
+    await user.click(await screen.findByRole("option", { name: "裴与" }));
 
     expect(screen.getByText("归到「裴与」，「将军」记为别名")).toBeInTheDocument();
     fireEvent.click(await screen.findByText("修复后保存"));
@@ -960,7 +963,7 @@ describe("ScriptReviewGate new assets", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
     expect(await screen.findByText("登记为新资产「将军」")).toBeInTheDocument();
-    expect(screen.queryByLabelText("「将军」的处理方式")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "「将军」的处理方式" })).not.toBeInTheDocument();
   });
 });
 

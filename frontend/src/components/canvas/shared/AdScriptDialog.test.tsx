@@ -70,7 +70,7 @@ describe("没有正式脚本时的广告空状态", () => {
 
     const entry = screen.getByRole("button", { name: "AI 生成脚本" });
     expect(entry).toBeDisabled();
-    expect(entry).toHaveAttribute("title", "请先填写创作灵感或添加商品");
+    expect(entry).toHaveAccessibleDescription("请先填写创作灵感或添加商品");
     expect(screen.getByText(/请先填写创作灵感或添加商品/, { selector: "p" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "去填写" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("button", { name: "从空白开始" })).toBeEnabled();

@@ -184,6 +184,9 @@ const REWORKED_FILES = [
   "src/components/canvas/timeline/EndFramePicker.tsx",
   "src/components/{agent/PresetIcon,canvas/StudioCanvasRouter}.tsx",
   "src/router.tsx",
+  // 共享组件余量：components/shared 与 canvas/shared 下其余的弹层、提示、草稿状态、按钮与图片预览
+  "src/components/shared/*.{ts,tsx}",
+  "src/components/canvas/shared/*.{ts,tsx}",
 ];
 // 业务组件中确需按视口断点切换的文件（如外壳切换标准档与紧凑档、弹层宽度），逐个登记。
 const VIEWPORT_BREAKPOINT_ALLOWLIST = [

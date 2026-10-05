@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -34,17 +34,13 @@ describe("MediaCard upload", () => {
   });
 
   it("disables upload button while generating", () => {
-    const { container } = renderCard({ onUpload: vi.fn(), generating: true });
-    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
-    const button = input?.nextElementSibling as HTMLButtonElement;
-    expect(button).toBeDisabled();
+    renderCard({ onUpload: vi.fn(), generating: true });
+    expect(screen.getByRole("button", { name: "上传分镜图" })).toBeDisabled();
   });
 
   it("disables upload button when a sibling upload is in flight (uploadDisabled)", () => {
-    const { container } = renderCard({ onUpload: vi.fn(), uploadDisabled: true });
-    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
-    const button = input?.nextElementSibling as HTMLButtonElement;
-    expect(button).toBeDisabled();
+    renderCard({ onUpload: vi.fn(), uploadDisabled: true });
+    expect(screen.getByRole("button", { name: "上传分镜图" })).toBeDisabled();
   });
 
   it("accepts video formats for the video card", () => {

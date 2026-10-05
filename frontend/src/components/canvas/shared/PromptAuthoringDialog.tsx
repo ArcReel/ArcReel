@@ -1,12 +1,33 @@
-import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Sparkles } from "lucide-react";
+import { Bot, Loader2, Sparkles } from "lucide-react";
 import { API, ApiRequestError } from "@/api";
 import { enqueuePromptAuthoring, promptAuthoringResourceId } from "@/actions/generation";
-import { ConfirmDialog } from "@/components/legacy/ConfirmDialog";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import {
@@ -27,13 +48,6 @@ function readPromptOverwrite(err: unknown): PromptOverwrite | null {
   const diagnostic = err.diagnostic as { prompt_overwrite?: PromptOverwrite } | undefined;
   return diagnostic?.prompt_overwrite ?? null;
 }
-
-const FIELD_STYLE: CSSProperties = {
-  background: "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
-  border: "1px solid var(--border)",
-  color: "var(--foreground)",
-  boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
-};
 
 interface HostProps {
   projectName: string;
@@ -91,8 +105,8 @@ export function PromptAuthoringDialog({
 }: DialogProps) {
   const { t } = useTranslation("dashboard");
   const episodeLedger = useEpisodeLedger();
-  const titleId = useId();
-  const descId = useId();
+  const scopeLabelId = useId();
+  const rewriteId = useId();
   const fieldId = useId();
   const pendingCount = entries.filter((entry) => entry.pending).length;
   const currentEntryId =
@@ -198,161 +212,146 @@ export function PromptAuthoringDialog({
 
   return (
     <>
-      <GlassModal
+      <Dialog
         open={overwrite === null}
-        onClose={() => {
-          if (!submitting) onClose();
+        onOpenChange={(next) => {
+          if (!next && !submitting) onClose();
         }}
-        labelledBy={titleId}
-        describedBy={descId}
-        widthClassName="w-full max-w-lg"
-        closeOnBackdrop={!submitting}
-        closeOnEscape={!submitting}
       >
-        <div className="p-5">
-          <h2
-            id={titleId}
-            className="display-serif text-[17px] font-semibold tracking-tight"
-            style={{ color: "var(--foreground)" }}
-          >
-            {t("prompt_authoring_title")}
-          </h2>
-          <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--muted-foreground)" }}>
-            {t("prompt_authoring_desc")}
-          </p>
-
-          <fieldset className="mt-4">
-            <legend className="text-[12px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
-              {t("prompt_authoring_scope_label")}
-            </legend>
-            <div className="mt-1.5 flex flex-wrap gap-1.5" role="radiogroup">
-              {scopes.map((option) => (
-                <label
-                  key={option.value}
-                  className={`inline-flex focus-within:ring-1 focus-within:ring-ring cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] ${
-                    option.disabled ? "cursor-not-allowed opacity-45" : ""
-                  }`}
-                  style={{
-                    border: `1px solid ${scope === option.value ? "color-mix(in oklab, var(--primary) 22%, transparent)" : "var(--border)"}`,
-                    background: scope === option.value ? "color-mix(in oklab, var(--primary) 12%, transparent)" : "transparent",
-                    color: scope === option.value ? "var(--foreground)" : "var(--subtle-foreground)",
-                  }}
+        <DialogContent showCloseButton={!submitting}>
+          <DialogHeader>
+            <DialogTitle>{t("prompt_authoring_title")}</DialogTitle>
+            <DialogDescription>{t("prompt_authoring_desc")}</DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <span id={scopeLabelId} className="text-sm font-medium">
+                  {t("prompt_authoring_scope_label")}
+                </span>
+                <RadioGroup
+                  aria-labelledby={scopeLabelId}
+                  value={scope}
+                  onValueChange={(next) => setScope(next as PromptAuthoringScope)}
+                  disabled={submitting}
                 >
-                  <input
-                    type="radio"
-                    name={`${titleId}-scope`}
-                    value={option.value}
-                    checked={scope === option.value}
-                    disabled={option.disabled || submitting}
-                    onChange={() => setScope(option.value)}
-                    className="sr-only"
-                  />
-                  {option.label}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          {scope === "custom" && (
-            <ul
-              className="mt-2 max-h-48 space-y-0.5 overflow-y-auto rounded-lg p-1.5"
-              style={{ border: "1px solid var(--border)" }}
-              aria-label={t("prompt_authoring_scope_custom")}
-            >
-              {entries.map((entry) => (
-                <li key={entry.id}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1 text-[12px] hover:bg-[oklch(1_0_0_/_0.04)]">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(entry.id)}
-                      disabled={submitting}
-                      onChange={() => toggle(entry.id)}
-                    />
-                    <span className="font-mono" style={{ color: "var(--foreground)" }}>
-                      {entry.id}
-                    </span>
-                    <span className="ml-auto text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-                      {entry.pending
-                        ? t("prompt_authoring_entry_pending")
-                        : entry.hasContent
-                          ? t("prompt_authoring_entry_has_prompt")
-                          : t("prompt_authoring_entry_empty")}
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <label className="mt-4 flex cursor-pointer items-start gap-2 text-[12.5px]" style={{ color: "var(--subtle-foreground)" }}>
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={rewrite}
-              disabled={submitting}
-              onChange={(event) => setRewrite(event.target.checked)}
-            />
-            <span>
-              {t("prompt_authoring_rewrite_toggle")}
-              <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--muted-foreground)" }}>
-                {t(
-                  rewrite
-                    ? unitMode
-                      ? "prompt_authoring_rewrite_hint_units"
-                      : "prompt_authoring_rewrite_hint"
-                    : unitMode
-                      ? "prompt_authoring_fill_hint_units"
-                      : "prompt_authoring_fill_hint",
+                  {scopes.map((option) => (
+                    <Label key={option.value}>
+                      <RadioGroupItem value={option.value} disabled={option.disabled} />
+                      {option.label}
+                    </Label>
+                  ))}
+                </RadioGroup>
+                {scope === "custom" && (
+                  <ul
+                    className="relative flex max-h-48 flex-col gap-0.5 overflow-y-auto rounded-lg border border-border p-1.5"
+                    aria-label={t("prompt_authoring_scope_custom")}
+                  >
+                    {entries.map((entry) => (
+                      <li key={entry.id} className="rounded-sm px-1.5 py-1 hover:bg-muted/50">
+                        <Label className="w-full">
+                          <Checkbox
+                            checked={selected.includes(entry.id)}
+                            disabled={submitting}
+                            onCheckedChange={() => toggle(entry.id)}
+                          />
+                          <span className="font-mono text-foreground">{entry.id}</span>
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {entry.pending
+                              ? t("prompt_authoring_entry_pending")
+                              : entry.hasContent
+                                ? t("prompt_authoring_entry_has_prompt")
+                                : t("prompt_authoring_entry_empty")}
+                          </span>
+                        </Label>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </span>
-            </span>
-          </label>
+              </div>
 
-          <label htmlFor={fieldId} className="mt-4 block text-[12px] font-medium" style={{ color: "var(--subtle-foreground)" }}>
-            {t("prompt_authoring_instructions_label")}
-          </label>
-          <textarea
-            id={fieldId}
-            value={instructions}
-            onChange={(event) => setInstructions(event.target.value)}
-            rows={3}
-            maxLength={4000}
-            placeholder={t("prompt_authoring_instructions_placeholder")}
-            className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none"
-            style={FIELD_STYLE}
-          />
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id={rewriteId}
+                  className="mt-0.5"
+                  checked={rewrite}
+                  disabled={submitting}
+                  onCheckedChange={(checked) => setRewrite(checked)}
+                  aria-describedby={`${rewriteId}-hint`}
+                />
+                <div className="flex flex-col gap-0.5">
+                  <Label htmlFor={rewriteId}>{t("prompt_authoring_rewrite_toggle")}</Label>
+                  <p id={`${rewriteId}-hint`} className="text-xs text-muted-foreground">
+                    {t(
+                      rewrite
+                        ? unitMode
+                          ? "prompt_authoring_rewrite_hint_units"
+                          : "prompt_authoring_rewrite_hint"
+                        : unitMode
+                          ? "prompt_authoring_fill_hint_units"
+                          : "prompt_authoring_fill_hint",
+                    )}
+                  </p>
+                </div>
+              </div>
 
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <SecondaryButton
-              size="sm"
-              onClick={() => void submit(null)}
-              disabled={submitting || scopeEmpty}
-              leadingIcon={<Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
-            >
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={fieldId}>{t("prompt_authoring_instructions_label")}</Label>
+                <Textarea
+                  id={fieldId}
+                  value={instructions}
+                  onChange={(event) => setInstructions(event.target.value)}
+                  maxLength={4000}
+                  placeholder={t("prompt_authoring_instructions_placeholder")}
+                  disabled={submitting}
+                />
+              </div>
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => void submit(null)} disabled={submitting || scopeEmpty}>
+              <Sparkles aria-hidden data-icon="inline-start" />
               {rewrite ? t("prompt_authoring_ai_rewrite") : t("prompt_authoring_ai_write")}
-            </SecondaryButton>
-            <PrimaryButton
-              size="sm"
-              onClick={() => void handOff()}
-              disabled={submitting || scopeEmpty}
-              leadingIcon={<Bot className="h-3.5 w-3.5" aria-hidden="true" />}
-            >
+            </Button>
+            <Button onClick={() => void handOff()} disabled={submitting || scopeEmpty}>
+              <Bot aria-hidden data-icon="inline-start" />
               {t("prompt_authoring_hand_to_agent")}
-            </PrimaryButton>
-          </div>
-        </div>
-      </GlassModal>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <ConfirmDialog
+      <AlertDialog
         open={overwrite !== null}
-        tone="danger"
-        title={t("prompt_authoring_overwrite_title")}
-        description={<p className="whitespace-pre-line">{overwrite ? itemIdsInEpisodeText(overwrite.text) : null}</p>}
-        confirmLabel={t("prompt_authoring_ai_rewrite")}
-        loading={submitting}
-        onConfirm={() => void submit(overwrite?.revision ?? null)}
-        onCancel={() => setOverwrite(null)}
-      />
+        onOpenChange={(next) => {
+          // 提交中不响应 Esc，避免请求还在途时对话框先消失
+          if (!next && !submitting) setOverwrite(null);
+        }}
+      >
+        <AlertDialogContent size="lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("prompt_authoring_overwrite_title")}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogBody>
+            <AlertDialogDescription>
+              <span className="whitespace-pre-line wrap-break-word">
+                {overwrite ? itemIdsInEpisodeText(overwrite.text) : null}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogBody>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submitting}>{t("common:cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={submitting}
+              onClick={() => void submit(overwrite?.revision ?? null)}
+            >
+              {submitting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+              {t("prompt_authoring_ai_rewrite")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

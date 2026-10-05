@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
@@ -354,7 +356,7 @@ export function PresentationPlayer({
       <div
         className={`flex h-full w-full flex-col items-center justify-center gap-2 bg-black/40 p-4 text-center ${className}`}
       >
-        <p role="alert" className="text-xs text-amber-200">
+        <p role="alert" className="text-xs text-warn">
           {error || t("presentation_unavailable")}
         </p>
         {loadState.supportsVariants && (
@@ -431,27 +433,25 @@ export function PresentationPlayer({
       )}
 
       <div className="absolute inset-x-2 top-2 flex flex-wrap items-center gap-1.5">
-        <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold text-white/85">
+        <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white/85">
           {t(`presentation_selection_${presentation.selection}`)}
         </span>
         {presentation.provenance === "unavailable" && (
-          <span className="rounded-sm bg-amber-950/85 px-1.5 py-0.5 text-[9px] font-semibold text-amber-200">
+          <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-xs font-medium text-warn">
             {t("presentation_provenance_unavailable")}
           </span>
         )}
         {presentation.currency && (
           <span
-            className={`rounded-sm px-1.5 py-0.5 text-[9px] font-semibold ${
-              presentation.currency === "current"
-                ? "bg-emerald-950/80 text-emerald-200"
-                : "bg-amber-950/85 text-amber-200"
+            className={`rounded-sm bg-black/70 px-1.5 py-0.5 text-xs font-medium ${
+              presentation.currency === "current" ? "text-good" : "text-warn"
             }`}
           >
             {t(`presentation_currency_${presentation.currency}`)}
           </span>
         )}
         {presentation.timing === "mechanical" && (
-          <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-[9px] text-white/70">
+          <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-xs text-white/70">
             {t("presentation_mechanical_timing")}
           </span>
         )}
@@ -464,20 +464,15 @@ export function PresentationPlayer({
             onChoose={chooseVariant}
           />
         )}
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="icon-xs"
           onClick={() => void downloadBundle()}
           disabled={downloading}
           aria-label={t("presentation_download")}
-          title={t("presentation_download")}
-          className="focus-ring grid h-6 w-6 place-items-center rounded-md bg-black/70 text-white/80 hover:text-white disabled:opacity-50"
         >
-          {downloading ? (
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-          ) : (
-            <Download className="h-3 w-3" aria-hidden />
-          )}
-        </button>
+          {downloading ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
+        </Button>
       </div>
     </div>
   );
@@ -495,7 +490,7 @@ function VariantControls({
   onChoose: (variant: PresentationVariant) => void;
 }) {
   return (
-    <div className="flex rounded-md bg-black/70 p-0.5">
+    <div className="flex rounded-md bg-black/70 p-0.5 text-white">
       <VariantButton
         active={variant === "post_production"}
         label={postProductionLabel}
@@ -512,15 +507,8 @@ function VariantControls({
 
 function VariantButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`rounded-sm px-1.5 py-0.5 text-[9px] font-medium ${
-        active ? "bg-white/20 text-white" : "text-white/55 hover:text-white"
-      }`}
-    >
+    <Toggle size="sm" pressed={active} onPressedChange={() => onClick()}>
       {label}
-    </button>
+    </Toggle>
   );
 }

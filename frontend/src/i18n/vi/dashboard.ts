@@ -3267,4 +3267,6 @@ export default {
   'ad_brief_placeholder': 'Mô tả video bạn muốn: đối tượng, phong cách, điểm bán hàng chính, lời kêu gọi hành động...',
   'ad_products_view_all': 'Xem tất cả',
   'ad_products_empty_hint': 'Thêm ảnh sản phẩm và điểm bán hàng để AI xây dựng kịch bản quanh sản phẩm. Không có sản phẩm, bạn vẫn có thể tạo kịch bản chỉ từ ý tưởng sáng tạo.',
+  // 共享组件：缩略图的查看大图
+  'image_fullscreen_preview': 'Xem ảnh lớn của {{name}}',
 } satisfies Record<keyof typeof enDashboard, string>;

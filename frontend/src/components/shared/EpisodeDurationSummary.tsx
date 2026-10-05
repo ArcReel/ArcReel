@@ -1,3 +1,4 @@
+import { cn } from "cn";
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -31,13 +32,9 @@ export function EpisodeDurationSummary({
 
   return (
     <p
-      className={
-        "flex items-center gap-1.5 text-[11.5px] " +
-        (exceeded ? "text-amber-200" : "text-muted-foreground") +
-        (className ? ` ${className}` : "")
-      }
+      className={cn("flex items-center gap-1.5 text-xs", exceeded ? "text-warn" : "text-muted-foreground", className)}
     >
-      {exceeded && <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0 text-amber-400" />}
+      {exceeded && <AlertTriangle aria-hidden className="size-3.5 shrink-0 text-warn" />}
       {exceeded
         ? t("episode_duration_over_target", { total: totalSeconds, target: targetSeconds, over })
         : t("episode_duration_vs_target", { total: totalSeconds, target: targetSeconds })}

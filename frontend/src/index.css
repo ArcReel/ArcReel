@@ -61,6 +61,13 @@
     --media-text: oklch(0.62 0.12 160);
     --media-audio: oklch(0.66 0.13 70);
 
+    /* 资产类型色：剧本里的 @ 提及、说话人与提及候选按类型着色，明度够高，在卡片底色上作文字也达到 4.5:1；
+       解析不到的提及用 destructive */
+    --asset-product: oklch(0.81 0.11 294);
+    --asset-character: oklch(0.83 0.11 230);
+    --asset-scene: oklch(0.85 0.14 165);
+    --asset-prop: oklch(0.88 0.15 92);
+
     /* sidebar 取页面底色渐变的第二色 */
     --sidebar: oklch(0.148 0.009 260);
     --sidebar-foreground: var(--foreground);
@@ -155,6 +162,10 @@
     --color-media-video: var(--media-video);
     --color-media-text: var(--media-text);
     --color-media-audio: var(--media-audio);
+    --color-asset-product: var(--asset-product);
+    --color-asset-character: var(--asset-character);
+    --color-asset-scene: var(--asset-scene);
+    --color-asset-prop: var(--asset-prop);
     --color-sidebar: var(--sidebar);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar-primary: var(--sidebar-primary);
