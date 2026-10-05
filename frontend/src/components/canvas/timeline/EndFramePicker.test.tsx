@@ -1,4 +1,5 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -146,7 +147,7 @@ describe("EndFramePicker 项目内通道", () => {
 describe("EndFramePicker 上传通道", () => {
   it("选定文件后交回父级（与项目内通道同一落点）", async () => {
     const onPickUpload = vi.fn();
-    // GlassModal 走 portal，file input 不在 render 的 container 子树内
+    // Dialog 走 portal，file input 不在 render 的 container 子树内
     const { baseElement, findByText } = renderPicker({ onPickUpload });
     await findByText("本集分镜图");
 
@@ -175,6 +176,30 @@ describe("EndFramePicker 上传通道", () => {
     expect(getByRole("button", { name: /上传/ })).toBeDisabled();
     expect(getByRole("button", { name: "设为尾帧" })).toBeDisabled();
     expect(getByRole("button", { name: "取消" })).toBeEnabled();
+  });
+
+  it("提交在途时忽略 Esc 关闭，落定后可以关掉", async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    const { findByText, rerender } = renderPicker({ onClose, submitting: true });
+    await findByText("本集分镜图");
+
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+
+    rerender(
+      <EndFramePicker
+        projectName={PROJECT}
+        scriptFile={SCRIPT}
+        contentMode="narration"
+        aspectRatio="9:16"
+        onClose={onClose}
+        onPickProjectImage={vi.fn()}
+        onPickUpload={vi.fn()}
+      />,
+    );
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("宫格接口失败不阻断其余分组", async () => {

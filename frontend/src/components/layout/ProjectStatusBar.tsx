@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { AlertTriangle, Bot, ChevronDown, Loader2 } from "lucide-react";
@@ -8,8 +8,9 @@ import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/genera
 import { ApiRequestError } from "@/api/errors";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import { prefillAssistant } from "@/components/shared/DraftStatus";
-import { Popover } from "@/components/legacy/FloatingPopover";
-import { GHOST_BTN_CLS } from "@/components/shared/darkroom-tokens";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StepActButton } from "@/components/workflow/StepActButton";
 import type { StepAct } from "@/components/workflow/step-list";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -20,6 +21,7 @@ import { isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/ta
 import type { EpisodeMeta } from "@/types";
 import type { EpisodeNextStep, WorkflowStatus } from "@/types/workflow";
 import { errMsg } from "@/utils/async";
+import { cn } from "cn";
 import { episodeDisplayName } from "@/utils/episode-display";
 import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
 import {
@@ -35,19 +37,14 @@ import {
 const STATUS_REFRESH_DEBOUNCE_MS = 250;
 
 /** 平的状态面：不内凹、不含凸起亮片，避免读成分段开关。 */
-const FLAT = {
-  background: "linear-gradient(180deg, oklch(0.25 0.012 265 / 0.9), oklch(0.22 0.011 265 / 0.9))",
-  border: "1px solid var(--border)",
-  boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.3)",
-};
-const FLAT_WARM = {
-  background: "color-mix(in oklab, var(--warn) 10%, transparent)",
-  border: "1px solid color-mix(in oklab, var(--warn) 30%, transparent)",
-  boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
-};
-const SHELL = "inline-flex h-[28px] items-center overflow-hidden rounded-full";
+const SHELL = "inline-flex h-7 items-center overflow-hidden rounded-full border";
+const SHELL_FLAT = cn(SHELL, "border-border bg-card");
+const SHELL_WARM = cn(SHELL, "border-warn/30 bg-warn/10");
+/** 状态条上的一段：原生按钮，交给 PopoverTrigger 的 render 渲染。 */
+const SEGMENT =
+  "focus-ring inline-flex h-full items-center gap-1.5 whitespace-nowrap px-3 text-xs transition-colors duration-fast enabled:hover:bg-foreground/5 disabled:cursor-default";
 
-type Open = "episodes" | "next" | "migration" | null;
+type Open = "episodes" | "next" | null;
 
 /** 当前所在集页的集 ID；不在集页时为 null。 */
 function useCurrentEpisodeId(): number | null {
@@ -83,42 +80,8 @@ function useProjectWorkflowStatus(projectName: string, enabled: boolean): Workfl
   return enabled ? status : null;
 }
 
-function Segment({
-  children,
-  onClick,
-  expanded,
-  label,
-  segmentRef,
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  expanded?: boolean;
-  label?: string;
-  segmentRef?: React.Ref<HTMLButtonElement>;
-}) {
-  return (
-    <button
-      ref={segmentRef}
-      type="button"
-      onClick={onClick}
-      disabled={!onClick}
-      aria-expanded={onClick ? expanded : undefined}
-      aria-label={label}
-      className="focus-ring inline-flex h-full items-center gap-1.5 whitespace-nowrap px-3 text-xs enabled:hover:bg-[oklch(1_0_0_/_0.04)] disabled:cursor-default"
-    >
-      {children}
-    </button>
-  );
-}
-
 function Divider({ warm }: { warm?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className="h-3.5 w-px"
-      style={{ background: warm ? "color-mix(in oklab, var(--warn) 30%, transparent)" : "var(--border)" }}
-    />
-  );
+  return <span aria-hidden className={cn("h-3.5 w-px", warm ? "bg-warn/30" : "bg-border")} />;
 }
 
 /** 15px 进度环，与数字徽标同尺寸。 */
@@ -128,7 +91,7 @@ function Ring({ done, total }: { done: number; total: number }) {
   const f = total ? Math.min(done / total, 1) : 0;
   return (
     <svg width="15" height="15" viewBox="0 0 15 15" aria-hidden>
-      <circle cx="7.5" cy="7.5" r={r} fill="none" stroke="oklch(0.32 0.012 265)" strokeWidth="2.2" />
+      <circle cx="7.5" cy="7.5" r={r} fill="none" className="stroke-border" strokeWidth="2.2" />
       <circle
         cx="7.5"
         cy="7.5"
@@ -144,11 +107,11 @@ function Ring({ done, total }: { done: number; total: number }) {
   );
 }
 
-function episodeDotColor(episode: EpisodeMeta): string {
-  if (episode.status === "completed") return "var(--good)";
-  if (episodeNeedsUpdate(episode)) return "var(--warn)";
-  if (episode.status === "in_production") return "var(--primary)";
-  return "var(--muted-foreground)";
+function episodeDotClass(episode: EpisodeMeta): string {
+  if (episode.status === "completed") return "bg-good";
+  if (episodeNeedsUpdate(episode)) return "bg-warn";
+  if (episode.status === "in_production") return "bg-primary";
+  return "bg-muted-foreground";
 }
 
 function GuideButtonView({
@@ -211,25 +174,15 @@ function NextPanel({
     rememberInstruction(projectName, value);
   };
   return (
-    <div className="space-y-2">
-      <p className="m-0 text-[12.5px] leading-[1.55]" style={{ color: "var(--subtle-foreground)" }}>
-        {guide.detail}
-      </p>
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-subtle-foreground">{guide.detail}</p>
       {guide.instruction && (
-        <label className="block">
-          <span className="mb-0.5 block text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-            {t("guide_instruction_label")}
-          </span>
-          <input
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-subtle-foreground">{t("guide_instruction_label")}</span>
+          <Input
             value={instruction}
             onChange={(e) => updateInstruction(e.target.value)}
             placeholder={t("guide_instruction_placeholder")}
-            className="focus-ring w-full rounded-md px-2 py-1 text-[12px]"
-            style={{
-              background: "var(--muted)",
-              border: "1px solid var(--border)",
-              color: "var(--foreground)",
-            }}
           />
         </label>
       )}
@@ -245,7 +198,7 @@ function NextPanel({
           />
         ))}
         {guide.alternatives.length > 0 && (
-          <span className="inline-flex flex-wrap items-center gap-1.5 text-[12px]" style={{ color: "var(--muted-foreground)" }}>
+          <span className="inline-flex flex-wrap items-center gap-1.5 text-xs text-subtle-foreground">
             {t("guide_or")}
             {guide.alternatives.map((button) => (
               <GuideButtonView
@@ -299,26 +252,24 @@ function EpisodeList({
   };
 
   return (
-    <ol className="m-0 max-h-[360px] list-none space-y-0.5 overflow-y-auto p-0">
+    <ol className="relative flex max-h-90 flex-col gap-0.5 overflow-y-auto">
       {episodes.map((episode, index) => (
         <li key={episode.episode}>
           <button
             type="button"
             onClick={() => onNavigate(`/episodes/${episode.episode}`)}
             aria-current={current === episode.episode ? "page" : undefined}
-            className="focus-ring flex w-full items-center gap-2 rounded-sm px-1.5 py-1 text-left text-[12px] hover:bg-[oklch(1_0_0_/_0.05)]"
-            style={current === episode.episode ? { background: "color-mix(in oklab, var(--primary) 12%, transparent)" } : undefined}
+            className={cn(
+              "focus-ring flex w-full items-center gap-2 rounded-sm px-1.5 py-1 text-left text-xs transition-colors duration-fast",
+              current === episode.episode ? "bg-primary/10" : "hover:bg-foreground/5",
+            )}
           >
-            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: episodeDotColor(episode) }} />
-            <span className="w-12 shrink-0 tabular-nums" style={{ color: "var(--muted-foreground)" }}>
+            <span aria-hidden className={cn("size-2 shrink-0 rounded-full", episodeDotClass(episode))} />
+            <span className="w-12 shrink-0 text-subtle-foreground tabular-nums">
               {t("common:episode_position_name", { position: index + 1 })}
             </span>
-            <span className="min-w-0 flex-1 truncate" style={{ color: "var(--foreground)" }}>
-              {episodeDisplayName(episodes, episode.episode, t)}
-            </span>
-            <span className="shrink-0 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-              {rowNote(episode)}
-            </span>
+            <span className="min-w-0 flex-1 truncate text-foreground">{episodeDisplayName(episodes, episode.episode, t)}</span>
+            <span className="shrink-0 text-subtle-foreground">{rowNote(episode)}</span>
           </button>
         </li>
       ))}
@@ -361,55 +312,43 @@ function MigrationBar({ projectName, reason }: { projectName: string; reason: st
   const shownReason = lastReason ?? reason;
   const title = failures > 0 ? t("migration_retry_failed_title", { count: failures }) : t("migration_bar_title");
   return (
-    <div ref={anchorRef} className="relative">
-      <div className={SHELL} style={FLAT_WARM}>
-        {/* 窄屏只留图标与「重试」，标题收进无障碍名称与弹层。 */}
-        <Segment onClick={() => setOpen((value) => !value)} expanded={open} label={title}>
-          <AlertTriangle aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--warn)" }} />
-          <span aria-hidden className="hidden md:inline" style={{ color: "var(--foreground)" }}>
+    <div ref={anchorRef} className={SHELL_WARM}>
+      <Popover open={open} onOpenChange={setOpen}>
+        {/* 顶栏窄时只留图标与「重试」，标题收进无障碍名称与弹层。 */}
+        <PopoverTrigger render={<button type="button" className={SEGMENT} aria-label={title} />}>
+          <AlertTriangle aria-hidden className="size-3.5 text-warn" />
+          <span aria-hidden className="hidden text-foreground @3xl/header:inline">
             {title}
           </span>
-          <ChevronDown aria-hidden className="h-3 w-3" style={{ color: "var(--muted-foreground)" }} />
-        </Segment>
-        <Divider warm />
-        <div className="px-1.5">
-          <button
-            type="button"
-            onClick={() => void retry()}
-            disabled={running}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11.5px] font-medium disabled:cursor-wait"
-            style={{ background: "var(--foreground)", color: "oklch(0.15 0 0)" }}
-          >
-            {running && <Loader2 aria-hidden className="h-3 w-3 motion-safe:animate-spin" />}
-            {running ? t("migration_retry_running") : t("migration_retry")}
-          </button>
-        </div>
-      </div>
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} align="center" width="w-[min(440px,calc(100vw-24px))]">
-        <div className="space-y-2 p-3" role="alert">
-          <p className="m-0 text-[12px] font-semibold leading-[1.55]" style={{ color: "var(--foreground)" }}>
-            {failures > 0 ? t("migration_retry_failed_heading") : t("migration_repair_title")}
-          </p>
-          <p className="m-0 text-[12px] leading-[1.55]" style={{ color: "var(--subtle-foreground)" }}>
-            {failures > 0 ? t("migration_retry_failed_body") : t("migration_repair_body")}
-          </p>
-          {shownReason ? (
-            <p className="m-0 break-words font-mono text-[11.5px] leading-[1.5]" style={{ color: "var(--muted-foreground)" }}>
-              {shownReason}
+          <ChevronDown aria-hidden className="size-3 text-muted-foreground" />
+        </PopoverTrigger>
+        <PopoverContent anchor={anchorRef} className="w-110">
+          <div className="flex flex-col gap-2" role="alert">
+            <p className="text-xs font-semibold text-foreground">
+              {failures > 0 ? t("migration_retry_failed_heading") : t("migration_repair_title")}
             </p>
-          ) : null}
-          {failures > 0 && (
-            <button
-              type="button"
-              onClick={() => prefillAssistant(t("migration_repair_prefill"))}
-              className={GHOST_BTN_CLS}
-            >
-              <Bot aria-hidden className="h-3.5 w-3.5" />
-              {t("migration_hand_to_agent")}
-            </button>
-          )}
-        </div>
+            <p className="text-xs text-subtle-foreground">
+              {failures > 0 ? t("migration_retry_failed_body") : t("migration_repair_body")}
+            </p>
+            {shownReason ? <p className="font-mono text-xs break-words text-subtle-foreground">{shownReason}</p> : null}
+            {failures > 0 && (
+              <div className="flex">
+                <Button variant="outline" size="sm" onClick={() => prefillAssistant(t("migration_repair_prefill"))}>
+                  <Bot aria-hidden data-icon="inline-start" />
+                  {t("migration_hand_to_agent")}
+                </Button>
+              </div>
+            )}
+          </div>
+        </PopoverContent>
       </Popover>
+      <Divider warm />
+      <div className="px-1.5">
+        <Button size="xs" onClick={() => void retry()} disabled={running}>
+          {running && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+          {running ? t("migration_retry_running") : t("migration_retry")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -425,8 +364,6 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
   const project = useProjectsStore((s) => s.currentProjectData);
   const currentEpisode = useCurrentEpisodeId();
   const [open, setOpen] = useState<Open>(null);
-  const episodesRef = useRef<HTMLButtonElement>(null);
-  const nextRef = useRef<HTMLButtonElement>(null);
 
   const summary = project?.status;
   const needsRepair = summary?.needs_repair === true;
@@ -442,7 +379,8 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
   if (!project || !summary) return null;
   if (needsRepair) return <MigrationBar projectName={projectName} reason={summary.repair_reason} />;
 
-  const toggle = (key: Exclude<Open, null>) => setOpen((value) => (value === key ? null : key));
+  const openChange = (key: Exclude<Open, null>) => (next: boolean) =>
+    setOpen((value) => (next ? key : value === key ? null : value));
   const navigate = (to: string) => {
     setOpen(null);
     setLocation(to);
@@ -465,79 +403,54 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
   const allComplete = guide === null && !isAd && workflowStatus?.content?.project_complete === true;
 
   return (
-    <div className="relative">
-      <div className={SHELL} style={FLAT}>
-        <Segment
-          segmentRef={episodesRef}
-          onClick={total > 0 && !isAd ? () => toggle("episodes") : undefined}
-          expanded={open === "episodes"}
+    <div className={SHELL_FLAT}>
+      <Popover open={open === "episodes"} onOpenChange={openChange("episodes")}>
+        <PopoverTrigger
+          render={<button type="button" className={SEGMENT} />}
+          disabled={total === 0 || isAd}
         >
           <Ring done={done} total={total} />
-          <span className="num" style={{ color: "var(--subtle-foreground)" }}>
-            {progressText}
-          </span>
+          <span className="num text-subtle-foreground">{progressText}</span>
           {staleEpisodes > 0 && (
-            <span
-              className="inline-flex items-center gap-1 text-[11px]"
-              style={{ color: "var(--warn)" }}
-              title={t("guide_stale_episodes", { count: staleEpisodes })}
-            >
-              <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--warn)" }} />
+            <span className="inline-flex items-center gap-1 text-warn" title={t("guide_stale_episodes", { count: staleEpisodes })}>
+              <span aria-hidden className="size-1.5 rounded-full bg-warn" />
               <span className="num" aria-label={t("guide_stale_episodes", { count: staleEpisodes })}>
                 {staleEpisodes}
               </span>
             </span>
           )}
-        </Segment>
-        {guide && !yieldToPanel && (
-          <>
-            <Divider />
-            <Segment segmentRef={nextRef} onClick={() => toggle("next")} expanded={open === "next"}>
-              <span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-                {t("guide_next_label")}
-              </span>
-              <span className="font-medium" style={{ color: "var(--foreground)" }}>
-                {guide.title}
-              </span>
-              <ChevronDown aria-hidden className="h-3 w-3" style={{ color: "var(--muted-foreground)" }} />
-            </Segment>
-          </>
-        )}
-        {allComplete && (
-          <>
-            <Divider />
-            <span className="px-3 text-[11px]" style={{ color: "var(--good)" }}>
-              {t("guide_all_complete")}
-            </span>
-          </>
-        )}
-        {yieldToPanel && (
-          <>
-            <Divider />
-            <span className="px-3 text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-              {t("guide_next_in_panel")}
-            </span>
-          </>
-        )}
-      </div>
-      <Popover
-        open={open === "episodes"}
-        onClose={() => setOpen(null)}
-        anchorRef={episodesRef}
-        align="center"
-        width="w-[380px]"
-      >
-        <div className="p-2">
+        </PopoverTrigger>
+        <PopoverContent className="w-95">
           <EpisodeList projectName={projectName} episodes={episodes} current={currentEpisode} onNavigate={navigate} />
-        </div>
+        </PopoverContent>
       </Popover>
-      <Popover open={open === "next" && guide !== null} onClose={() => setOpen(null)} anchorRef={nextRef} align="center" width="w-[440px]">
-        {guide && (
-          <div className="p-3">
-            <NextPanel guide={guide} projectName={projectName} onNavigate={navigate} />
-          </div>
-        )}
-      </Popover>
+      {guide && !yieldToPanel && (
+        <>
+          <Divider />
+          <Popover open={open === "next"} onOpenChange={openChange("next")}>
+            <PopoverTrigger render={<button type="button" className={SEGMENT} />}>
+              <span className="text-muted-foreground">{t("guide_next_label")}</span>
+              <span className="font-medium text-foreground">{guide.title}</span>
+              <ChevronDown aria-hidden className="size-3 text-muted-foreground" />
+            </PopoverTrigger>
+            <PopoverContent className="w-110">
+              <NextPanel guide={guide} projectName={projectName} onNavigate={navigate} />
+            </PopoverContent>
+          </Popover>
+        </>
+      )}
+      {allComplete && (
+        <>
+          <Divider />
+          <span className="px-3 text-xs text-good">{t("guide_all_complete")}</span>
+        </>
+      )}
+      {yieldToPanel && (
+        <>
+          <Divider />
+          <span className="px-3 text-xs text-muted-foreground">{t("guide_next_in_panel")}</span>
+        </>
+      )}
     </div>
   );
 }

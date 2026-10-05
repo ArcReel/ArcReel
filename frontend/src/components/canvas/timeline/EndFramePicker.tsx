@@ -1,13 +1,20 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, ImagePlus, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Loader2, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { AspectFrame } from "@/components/canvas/shared/AspectFrame";
-import { GlassModal } from "@/components/legacy/GlassModal";
-import { ModalCloseButton } from "@/components/legacy/ModalCloseButton";
-import { PrimaryButton } from "@/components/legacy/PrimaryButton";
-import { SecondaryButton } from "@/components/legacy/SecondaryButton";
 import { UPLOAD_IMAGE_ACCEPT } from "@/components/canvas/shared/UploadIconButton";
+import { TruncatedText } from "@/components/shared/TruncatedText";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "cn";
 import { useProjectsStore } from "@/stores/projects-store";
 import { getScriptItems, getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
 import { stripScriptsPrefix } from "@/utils/task-target";
@@ -61,7 +68,6 @@ export function EndFramePicker({
 }: EndFramePickerProps) {
   const writeDisabled = submitting || disabled;
   const { t } = useTranslation("dashboard");
-  const titleId = useId();
   const [selected, setSelected] = useState<PickableImage | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -121,131 +127,79 @@ export function EndFramePicker({
   }, [script, contentMode, gridImages, t]);
 
   return (
-    <GlassModal
+    <Dialog
       open
-      onClose={onClose}
-      labelledBy={titleId}
-      widthClassName="w-[720px] max-w-[96vw]"
-      panelClassName="flex max-h-[85vh] flex-col"
+      onOpenChange={(open) => {
+        // 设置请求在途时忽略关闭：结果回来前关掉，成功与失败都无处落脚。
+        if (!open && !submitting) onClose();
+      }}
     >
-      {/* Header */}
-      <div
-        className="flex items-center gap-3 px-5 py-4"
-        style={{ borderBottom: "1px solid color-mix(in oklab, var(--border) 50%, transparent)" }}
-      >
-        <span
-          aria-hidden
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
-          style={{
-            background:
-              "linear-gradient(135deg, color-mix(in oklab, var(--primary) 12%, transparent), oklch(0.76 0.09 295 / 0.05))",
-            border: "1px solid color-mix(in oklab, var(--primary) 22%, transparent)",
-            color: "var(--primary)",
-            boxShadow: "0 8px 18px -8px color-mix(in oklab, var(--primary) 35%, transparent)",
-          }}
-        >
-          <ImagePlus className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3
-            id={titleId}
-            className="display-serif truncate text-[15px] font-semibold tracking-tight"
-            style={{ color: "var(--foreground)" }}
-          >
-            {t("end_frame_picker_title")}
-          </h3>
-          <div
-            className="num text-[10px] uppercase"
-            style={{ color: "var(--muted-foreground)", letterSpacing: "1.0px" }}
-          >
-            {t("end_frame_picker_eyebrow")}
+      <DialogContent size="lg" showCloseButton={false}>
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <DialogTitle className="min-w-0 flex-1">{t("end_frame_picker_title")}</DialogTitle>
+            <input
+              ref={fileRef}
+              type="file"
+              accept={UPLOAD_IMAGE_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) onPickUpload(f);
+              }}
+            />
+            <Button variant="outline" size="sm" disabled={writeDisabled} onClick={() => fileRef.current?.click()}>
+              <Upload aria-hidden data-icon="inline-start" />
+              {t("end_frame_picker_upload")}
+            </Button>
           </div>
-        </div>
+        </DialogHeader>
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept={UPLOAD_IMAGE_ACCEPT}
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) onPickUpload(f);
-          }}
-        />
-        <SecondaryButton
-          size="sm"
-          disabled={writeDisabled}
-          onClick={() => fileRef.current?.click()}
-        >
-          <Upload className="h-3.5 w-3.5" aria-hidden />
-          <span>{t("end_frame_picker_upload")}</span>
-        </SecondaryButton>
-        <ModalCloseButton onClick={onClose} ariaLabel={t("end_frame_picker_close")} />
-      </div>
-
-      {/* Grouped grid */}
-      <div className="flex-1 overflow-y-auto overscroll-contain p-4">
-        {groups.length === 0 ? (
-          <p className="px-1 py-6 text-center text-[12px]" style={{ color: "var(--muted-foreground)" }}>
-            {t("end_frame_picker_empty")}
-          </p>
-        ) : (
-          groups.map((grp) => (
-            <div key={grp.title} className="mb-4 last:mb-0">
-              <h4
-                className="num mb-2 text-[10px] font-bold uppercase"
-                style={{ color: "var(--muted-foreground)", letterSpacing: "1.2px" }}
-              >
-                {grp.title}
-                <span className="ml-1.5" style={{ color: "var(--muted-foreground)" }}>
-                  {grp.images.length}
-                </span>
-              </h4>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                {grp.images.map((img) => (
-                  <PickerCell
-                    key={img.path}
-                    projectName={projectName}
-                    image={img}
-                    aspectRatio={aspectRatio}
-                    selected={selected?.path === img.path}
-                    onToggle={() =>
-                      setSelected((prev) => (prev?.path === img.path ? null : img))
-                    }
-                  />
-                ))}
-              </div>
+        <DialogBody>
+          {groups.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">{t("end_frame_picker_empty")}</p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {groups.map((grp) => (
+                <section key={grp.title} className="flex flex-col gap-2">
+                  <h3 className="text-sm font-medium text-foreground">
+                    {grp.title}
+                    <span className="num ml-1.5 font-normal text-muted-foreground">{grp.images.length}</span>
+                  </h3>
+                  <ul className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-2">
+                    {grp.images.map((img) => (
+                      <li key={img.path} className="flex min-w-0">
+                        <PickerCell
+                          projectName={projectName}
+                          image={img}
+                          aspectRatio={aspectRatio}
+                          selected={selected?.path === img.path}
+                          onToggle={() => setSelected((prev) => (prev?.path === img.path ? null : img))}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
             </div>
-          ))
-        )}
-      </div>
+          )}
+        </DialogBody>
 
-      {/* Footer */}
-      <div
-        className="flex items-center gap-2 px-5 py-3"
-        style={{
-          borderTop: "1px solid color-mix(in oklab, var(--border) 50%, transparent)",
-          background: "oklch(0.17 0.010 250 / 0.5)",
-        }}
-      >
-        <span className="flex-1 truncate text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-          {selected
-            ? t("end_frame_picker_selected", { label: selected.label })
-            : t("end_frame_picker_hint")}
-        </span>
-        <SecondaryButton size="sm" onClick={onClose} disabled={submitting}>
-          {t("end_frame_picker_cancel")}
-        </SecondaryButton>
-        <PrimaryButton
-          size="sm"
-          disabled={!selected || writeDisabled}
-          onClick={() => selected && onPickProjectImage(selected.path)}
-        >
-          {submitting ? t("end_frame_picker_submitting") : t("end_frame_picker_confirm")}
-        </PrimaryButton>
-      </div>
-    </GlassModal>
+        <DialogFooter>
+          <span className="mr-auto min-w-0 truncate text-sm text-muted-foreground">
+            {selected ? t("end_frame_picker_selected", { label: selected.label }) : t("end_frame_picker_hint")}
+          </span>
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            {t("end_frame_picker_cancel")}
+          </Button>
+          <Button disabled={!selected || writeDisabled} onClick={() => selected && onPickProjectImage(selected.path)}>
+            {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+            {submitting ? t("end_frame_picker_submitting") : t("end_frame_picker_confirm")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -264,43 +218,30 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
       type="button"
       aria-pressed={selected}
       onClick={onToggle}
-      title={image.label}
-      className="focus-ring relative overflow-hidden rounded-lg text-left transition-transform hover:-translate-y-px"
-      style={{
-        border: selected
-          ? "1px solid color-mix(in oklab, var(--primary) 22%, transparent)"
-          : "1px solid var(--border)",
-        boxShadow: selected
-          ? "0 6px 18px -6px color-mix(in oklab, var(--primary) 35%, transparent)"
-          : "inset 0 1px 0 oklch(1 0 0 / 0.03)",
-      }}
+      className={cn(
+        "focus-ring relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card text-left transition-colors duration-fast",
+        selected ? "border-primary" : "border-border hover:border-input",
+      )}
     >
       <AspectFrame ratio={aspectRatio}>
         <img
           src={API.getFileUrl(projectName, image.path, fp)}
-          alt={image.label}
+          alt=""
           loading="lazy"
           className="h-full w-full object-cover"
         />
       </AspectFrame>
-      <div
-        className="truncate px-1.5 py-1 text-[10.5px] font-medium"
-        style={{ color: "var(--subtle-foreground)", background: "oklch(0.16 0.010 265 / 0.85)" }}
-      >
-        {image.label}
-      </div>
+      <TruncatedText
+        text={image.label}
+        focusable={false}
+        className="px-1.5 py-1 text-xs font-medium text-subtle-foreground"
+      />
       {selected && (
         <span
           aria-hidden
-          className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
-          style={{
-            color: "oklch(0.14 0 0)",
-            background: "var(--primary)",
-            boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)",
-          }}
+          className="absolute top-1.5 right-1.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground"
         >
-          <Check className="h-3 w-3" strokeWidth={3} />
+          <Check className="size-3" strokeWidth={3} />
         </span>
       )}
     </button>

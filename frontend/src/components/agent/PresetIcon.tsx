@@ -1,4 +1,4 @@
-import { type ComponentType, useEffect, useState } from "react";
+import { type ComponentType, type CSSProperties, useEffect, useState } from "react";
 
 interface IconProps {
   size?: number;
@@ -104,8 +104,8 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
   return (
     <span
       data-testid="preset-icon-monogram"
-      className={`inline-flex items-center justify-center rounded-md bg-card text-[11px] font-bold text-muted-foreground ${className ?? ""}`}
-      style={{ width: size, height: size }}
+      className={`inline-flex size-(--icon-size) items-center justify-center rounded-md bg-card text-xs leading-none font-bold text-muted-foreground ${className ?? ""}`}
+      style={{ "--icon-size": `${size}px` } as CSSProperties}
     >
       {letter}
     </span>
