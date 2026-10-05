@@ -35,7 +35,7 @@ export interface AssetGalleryProps<T extends GalleryAssetSource> {
   /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传等改写入口。 */
   readOnly: boolean;
   onGenerate: (name: string) => void;
-  onRestoreVersion?: () => Promise<void> | void;
+  onRestoreVersion?: () => Promise<unknown> | void;
   onReload?: () => Promise<unknown> | void;
   /**
    * 入库预览的内容。传入即表示这类资产与全局资产库互通：卡片可加入资产库、并入同类资产，

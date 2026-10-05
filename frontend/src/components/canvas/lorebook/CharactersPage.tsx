@@ -7,7 +7,7 @@ interface Props {
   projectName: string;
   characters: Record<string, Character>;
   onGenerateCharacter: (name: string) => void;
-  onRestoreCharacterVersion?: () => Promise<void> | void;
+  onRestoreCharacterVersion?: () => Promise<unknown> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingCharacterNames?: Set<string>;
   /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传入口。 */

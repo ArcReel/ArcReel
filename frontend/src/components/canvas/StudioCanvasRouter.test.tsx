@@ -203,16 +203,21 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
   ),
 }));
 
-// 画廊替身为每个资产渲染一个生成按钮，路由测试经它触发资产图生成回调。
+// 画廊替身为每个资产渲染一个生成按钮，路由测试经它触发资产图生成回调；
+// 版本恢复与重新加载按钮把回调的结算值写到 data-result 上。
 vi.mock("./lorebook/AssetGallery", () => ({
   AssetGallery: ({
     assetType,
     assets,
     onGenerate,
+    onRestoreVersion,
+    onReload,
   }: {
     assetType: string;
     assets: Record<string, unknown>;
     onGenerate: (name: string) => void;
+    onRestoreVersion?: () => Promise<unknown> | void;
+    onReload?: () => Promise<unknown> | void;
   }) => (
     <div data-testid={`${assetType}-gallery`} data-names={Object.keys(assets).join(",")}>
       {Object.keys(assets).map((name) => (
@@ -220,9 +225,27 @@ vi.mock("./lorebook/AssetGallery", () => ({
           generate-{assetType}
         </button>
       ))}
+      <button
+        onClick={(e) => {
+          const el = e.currentTarget;
+          void Promise.resolve(onRestoreVersion?.()).then((result) => el.setAttribute("data-result", String(result)));
+        }}
+      >
+        restore-{assetType}
+      </button>
+      <button
+        onClick={(e) => {
+          const el = e.currentTarget;
+          void Promise.resolve(onReload?.()).then((result) => el.setAttribute("data-result", String(result)));
+        }}
+      >
+        reload-{assetType}
+      </button>
     </div>
   ),
 }));
+
+const REFRESH_FAILED = "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态";
 
 /** 服务端 video-capabilities 应答：时长收窄结果由服务端按项目分辨率与生成模式算好回传。 */
 function fakeVideoCapabilities(allowed: number[], raw: number[] = allowed) {
@@ -1165,6 +1188,23 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
+  it("warns when the local refresh fails after a successful move", async () => {
+    const script = makeAdScript() as AdEpisodeScript;
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentScripts: { "episode_1.json": script },
+    });
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+    vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("move-shot-later"));
+    await waitFor(() => expect(screen.getByText("move-shot-later")).toHaveAttribute("data-move-result", "false"));
+    expect(useAppStore.getState().toast).toMatchObject({ text: REFRESH_FAILED, tone: "warning" });
+  });
+
   it.each([
     ["insert-shot", "insertScriptItem"],
     ["remove-shot", "removeScriptItem"],
@@ -1422,6 +1462,43 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "编辑分集标题" })).not.toBeInTheDocument());
     expect(useAppStore.getState().toast).toBeNull();
   });
+
+  it("leaves the edit state and warns when the refresh after saving the title fails", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+    vi.spyOn(API, "updateEpisode").mockResolvedValue({ success: true });
+
+    renderAt("/episodes/1");
+
+    await renameEpisode("新标题");
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({ text: REFRESH_FAILED, tone: "warning" }),
+    );
+    // 标题已保存，不停在编辑态引人重复提交
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "编辑分集标题" })).not.toBeInTheDocument());
+  });
+
+  it.each(["restore-character", "reload-character"])(
+    "%s warns and reports not-synced when the refresh after the write fails",
+    async (button) => {
+      useProjectsStore.setState({
+        currentProjectName: "demo",
+        currentProjectData: makeProjectData(),
+        currentScripts: { "episode_1.json": makeScript() },
+      });
+      vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+
+      renderAt("/characters");
+
+      fireEvent.click(screen.getByText(button));
+      await waitFor(() => expect(screen.getByText(button)).toHaveAttribute("data-result", "false"));
+      expect(useAppStore.getState().toast).toMatchObject({ text: REFRESH_FAILED, tone: "warning" });
+    },
+  );
 
   it("drops an unsaved title draft when switching to another episode", async () => {
     useProjectsStore.setState({

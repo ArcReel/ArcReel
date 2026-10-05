@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import type { EpisodeMeta } from "@/types";
 import type { SourceKind } from "@/types/episodes-view";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
@@ -223,7 +224,7 @@ function SourceEditor({
         }
       }
       onSaved(value.text);
-      void useProjectsStore.getState().refreshProject(projectName);
+      void refreshAfterWrite(projectName, t);
       return value;
     },
     [projectName, episode, onSaved, t],

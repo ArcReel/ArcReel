@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { errMsg } from "@/utils/async";
 import { formatNameList } from "@/utils/list-format";
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_FORMATS_LABEL, isSupportedSourceFile } from "@/utils/source-files";
@@ -227,7 +228,7 @@ export function SourceUploadDialog({
         break;
       }
     }
-    await useProjectsStore.getState().refreshProject(projectName);
+    await refreshAfterWrite(projectName, t);
     if (signal?.aborted) return;
     setProgress(null);
     if (cancelled) {

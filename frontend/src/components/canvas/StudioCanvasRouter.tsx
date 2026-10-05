@@ -10,6 +10,7 @@ import {
 } from "@/app-routes";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useAppStore } from "@/stores/app-store";
@@ -117,7 +118,8 @@ export function StudioCanvasRouter() {
   // 刷新项目数据；返回本地 store 是否已同步成功，供调用方决定是否推进依赖新顺序的 UI 状态。
   // 在途合并 + 失败留旧收敛于 projects-store 的 refreshProject，此处仅表达意图。
   // "cancelled"（项目切换取消域轮换等）与 "failed" 在这里都不算已同步，统一按 false
-  // 处理——本地调用方只用这个值决定是否推进 UI 状态，不弹错误提示，故无需再细分。
+  // 处理。这里不提示：只留给自带专属提示的调用方（分镜保存经 PartialSaveError、结构编辑），
+  // 其余写入后的刷新走下面的 refreshAfterAction。
   const refreshProject = useCallback(
     (invalidateKeys: string[] = []): Promise<boolean> =>
       currentProjectName
@@ -126,6 +128,14 @@ export function StudioCanvasRouter() {
             .refreshProject(currentProjectName, { invalidateKeys })
             .then((result) => result === "success")
         : Promise.resolve(false),
+    [currentProjectName],
+  );
+
+  // 写入成功后的刷新：失败时提示（见 refreshAfterWrite），resolve 为本地 store 是否已同步，
+  // 调用方据此决定是否推进依赖新数据的后续动作（选中态跟随、报告成功）。
+  const refreshAfterAction = useCallback(
+    async (): Promise<boolean> =>
+      currentProjectName ? (await refreshAfterWrite(currentProjectName, tRef.current)) === "success" : false,
     [currentProjectName],
   );
 
@@ -165,12 +175,12 @@ export function StudioCanvasRouter() {
       await API.moveScriptItem(currentProjectName, resolvedFile, shotId, afterId);
       // 仅在本地 store 已写回新顺序时报告成功：刷新失败时 segments 仍是旧序，
       // 此时让选中态跟随新位置会静默切到别的分镜。
-      return await refreshProject();
+      return await refreshAfterAction();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("reorder_shot_failed", { message: errMsg(err) }), "error");
       return false;
     }
-  }, [currentProjectName, currentScripts, refreshProject]);
+  }, [currentProjectName, currentScripts, refreshAfterAction]);
 
   // 时间线新增 / 移除分镜：服务端按当前剧本 revision 执行，这里不取快照。
   // 写入一经提交即报告成功：随后的本地刷新失败时只提示重新加载，不让调用方保持可重试，
@@ -218,12 +228,13 @@ export function StudioCanvasRouter() {
     if (!currentProjectName) return;
     try {
       await API.updateEpisode(currentProjectName, episode, { title });
-      await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("episode_title_update_failed", { message: errMsg(err) }), "error");
       throw err; // 让 EditableEpisodeTitle 保持编辑态，不误清空
     }
-  }, [currentProjectName, refreshProject]);
+    // 标题已保存：刷新失败只提示，不让标题停在编辑态引人重复提交
+    await refreshAfterAction();
+  }, [currentProjectName, refreshAfterAction]);
 
   // 生成回调在调用时读 store 里的最新剧本，不用渲染时的闭包：「保存并生成」在同一次点击里先保存、
   // 刷新剧本再生成，此刻调用的仍是点击前那次渲染的回调，闭包里是保存前的提示词。
@@ -383,9 +394,8 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName]);
 
-  const handleRestoreAsset = useCallback(async () => {
-    await refreshProject();
-  }, [refreshProject]);
+  // 版本恢复与媒体上传之后的刷新；resolve 为是否已同步，调用方据此决定是否报告成功。
+  const handleRestoreAsset = refreshAfterAction;
 
   const handleGenerateCharacterVoid = useCallback((...args: Parameters<typeof handleGenerateCharacter>) => {
     void handleGenerateCharacter(...args).catch(console.error);
@@ -438,7 +448,7 @@ export function StudioCanvasRouter() {
           readOnly={demoMode}
           onGenerateCharacter={handleGenerateCharacterVoid}
           onRestoreCharacterVersion={handleRestoreAsset}
-          onRefreshProject={refreshProject}
+          onRefreshProject={refreshAfterAction}
           generatingCharacterNames={generatingCharacterNames}
         />
       </Route>
@@ -451,7 +461,7 @@ export function StudioCanvasRouter() {
           readOnly={demoMode}
           onGenerateScene={handleGenerateSceneVoid}
           onRestoreSceneVersion={handleRestoreAsset}
-          onRefreshProject={refreshProject}
+          onRefreshProject={refreshAfterAction}
           generatingSceneNames={generatingSceneNames}
         />
       </Route>
@@ -464,7 +474,7 @@ export function StudioCanvasRouter() {
           readOnly={demoMode}
           onGenerateProp={handleGeneratePropVoid}
           onRestorePropVersion={handleRestoreAsset}
-          onRefreshProject={refreshProject}
+          onRefreshProject={refreshAfterAction}
           generatingPropNames={generatingPropNames}
         />
       </Route>
@@ -477,7 +487,7 @@ export function StudioCanvasRouter() {
           readOnly={demoMode}
           onGenerateProduct={handleGenerateProductVoid}
           onRestoreProductVersion={handleRestoreAsset}
-          onRefreshProject={refreshProject}
+          onRefreshProject={refreshAfterAction}
           generatingProductNames={generatingProductNames}
         />
       </Route>

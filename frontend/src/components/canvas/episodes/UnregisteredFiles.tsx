@@ -21,7 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import type { EpisodeMeta, UnregisteredSourceFile } from "@/types";
 import { errMsg } from "@/utils/async";
 import { episodePosition } from "@/utils/episode-display";
@@ -117,7 +117,7 @@ function UnregisteredFileList({
     try {
       await action();
       setDeleting(null);
-      await useProjectsStore.getState().refreshProject(projectName);
+      await refreshAfterWrite(projectName, t);
       onChanged();
     } catch (err) {
       setDeleting(null);

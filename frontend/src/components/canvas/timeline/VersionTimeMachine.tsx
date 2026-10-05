@@ -18,7 +18,7 @@ interface VersionTimeMachineProps {
   projectName: string;
   resourceType: "storyboards" | "videos" | "audio" | "characters" | "character_derivatives" | "scenes" | "props" | "products" | "reference_videos" | "grids";
   resourceId: string;
-  onRestore?: (version: number) => void | Promise<void>;
+  onRestore?: (version: number) => void | Promise<unknown>;
   /** Icon-only trigger button: hides label and chevron for narrow card headers. */
   iconOnly?: boolean;
   /** Allow preview/download history without exposing the restore mutation. */

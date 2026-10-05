@@ -40,8 +40,8 @@ interface ShotSplitViewProps {
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string) => void;
-  onRestoreStoryboard?: () => Promise<void> | void;
-  onRestoreVideo?: () => Promise<void> | void;
+  onRestoreStoryboard?: () => Promise<unknown> | void;
+  onRestoreVideo?: () => Promise<unknown> | void;
   generatingStoryboard?: (segmentId: string) => boolean;
   generatingVideo?: (segmentId: string) => boolean;
   generatingNarration?: (segmentId: string) => boolean;

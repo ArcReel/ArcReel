@@ -70,9 +70,10 @@ describe("projects-store refreshProject", () => {
 
   it("成功后按 invalidateKeys 失效实体版本", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue(makeResult("Demo"));
-    await useProjectsStore
+    const result = await useProjectsStore
       .getState()
       .refreshProject("demo", { invalidateKeys: ["segment:S1", "character:hero"] });
+    expect(result).toBe("success");
     const app = useAppStore.getState();
     expect(app.getEntityRevision("segment:S1")).toBe(1);
     expect(app.getEntityRevision("character:hero")).toBe(1);

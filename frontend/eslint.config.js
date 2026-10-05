@@ -65,6 +65,21 @@ const RESTRICT_MODULE_MOCK = {
     "禁止整模块 mock：API 打桩用 vi.spyOn(API, method)；i18n 用全局 setup 已加载的真实中文资源（整体 mock 后翻译缺失无法被发现）。",
 };
 
+// projects-store 的 refreshProject 以结算值报告失败而不 reject，丢弃返回值就没人提示刷新失败：
+// 写入已生效，界面却停在旧数据上。写入后的刷新经 canvas/shared/refreshAfterWrite；
+// 加载与同步路径传 onError，或消费结算值。
+const REFRESH_PROJECT_CALL =
+  "CallExpression[callee.property.name='refreshProject']:not(:has(Property[key.name='onError']))";
+const RESTRICT_DISCARDED_REFRESH = {
+  selector: [
+    `ExpressionStatement > ${REFRESH_PROJECT_CALL}`,
+    `ExpressionStatement > AwaitExpression > ${REFRESH_PROJECT_CALL}`,
+    `UnaryExpression[operator='void'] > ${REFRESH_PROJECT_CALL}`,
+  ].join(", "),
+  message:
+    "不要丢弃 refreshProject 的结算值：写入后的刷新改用 canvas/shared/refreshAfterWrite，加载与同步路径传 onError 或按结算值处理。",
+};
+
 // ---------------------------------------------------------------------------
 // 已重做区域：@shadcn/lint 与滚动、响应式守卫只对这里列出的 glob 生效。
 // 每个区域重做的 ticket 把自己的目录加进来；交付结束时整体替换为 "src/**"。
@@ -246,7 +261,7 @@ const SHADCN_RULES = {
 // flat config 的 files 不接受空数组，列表为空时不生成任何配置块。
 const reworkedAreaConfigs = () => {
   if (REWORKED_FILES.length === 0) return [];
-  const apiRules = [RESTRICT_ENQUEUE, RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK];
+  const apiRules = [RESTRICT_ENQUEUE, RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK, RESTRICT_DISCARDED_REFRESH];
   const ignores = [...TEST_FILES, "src/actions/**", "src/hooks/useModelCapabilities.ts"];
   // files 中的嵌套数组表示「同时匹配」：取已重做区域与给定范围的交集。
   const intersect = (scopes) => REWORKED_FILES.flatMap((glob) => scopes.map((scope) => [glob, scope]));
@@ -409,31 +424,38 @@ export default tseslint.config(
   // - 模型能力只能经 src/hooks/useModelCapabilities 消费——各能力维度的真相源、失效时机与
   //   「未知不谎报不支持」的降级规则都收在那里，组件直调会让目录侧与服务端侧重新分叉。
   // - 测试不得整模块 mock `@/api`（含其 `@/api/*` 子模块）与 `react-i18next`，该条对全部文件生效、无豁免。
+  // - 不得丢弃 refreshProject 的结算值（RESTRICT_DISCARDED_REFRESH），该条同样对全部文件生效、无豁免。
   // src/api.test.ts 豁免前两条：它测试的是 API 层本体的端点路径与请求体。
   {
     files: ["src/**/*.{ts,tsx}"],
     ignores: ["src/api.test.ts"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK],
+      "no-restricted-syntax": [
+        "error",
+        RESTRICT_ENQUEUE,
+        RESTRICT_CAPABILITIES,
+        RESTRICT_MODULE_MOCK,
+        RESTRICT_DISCARDED_REFRESH,
+      ],
     },
   },
   {
     files: ["src/api.test.ts"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_MODULE_MOCK],
+      "no-restricted-syntax": ["error", RESTRICT_MODULE_MOCK, RESTRICT_DISCARDED_REFRESH],
     },
   },
   // 各自的实现方只豁免自己那条，另两条仍受约束（见文件头对 flat config 替换语义的说明）。
   {
     files: ["src/actions/**/*.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK],
+      "no-restricted-syntax": ["error", RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK, RESTRICT_DISCARDED_REFRESH],
     },
   },
   {
     files: ["src/hooks/useModelCapabilities.ts"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_MODULE_MOCK],
+      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_MODULE_MOCK, RESTRICT_DISCARDED_REFRESH],
     },
   },
 

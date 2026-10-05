@@ -103,6 +103,21 @@ describe("UnregisteredFilesBanner", () => {
     expect(remove).toHaveBeenCalledWith("demo", "旧稿.txt");
   });
 
+  it("warns when the project data fails to refresh after a file was handled", async () => {
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "adoptSourceFile").mockResolvedValue({ success: true, target: "whole_source" });
+    const { onChanged } = renderBanner();
+    const dialog = openDialog();
+
+    fireEvent.click(within(dialog.getByRole("listitem", { name: "旧稿.txt" })).getByRole("button", { name: "加入整本源文" }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+      tone: "warning",
+    });
+  });
+
   it("reports a failed action in the dialog without refreshing", async () => {
     vi.spyOn(API, "adoptSourceFile").mockRejectedValue(new Error("文件已被登记"));
     const { onChanged } = renderBanner();
