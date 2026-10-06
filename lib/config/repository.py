@@ -63,11 +63,6 @@ class ProviderConfigRepository:
                 out[row.key] = {"is_set": True, "value": row.value}
         return out
 
-    async def get_configured_keys(self, provider: str) -> list[str]:
-        stmt = select(ProviderConfig.key).where(ProviderConfig.provider == provider)
-        result = await self.session.execute(stmt)
-        return list(result.scalars())
-
     async def get_all_configs_bulk(self) -> dict[str, dict[str, str]]:
         """Fetch all config key-value pairs for ALL providers in a single query."""
         stmt = select(ProviderConfig)

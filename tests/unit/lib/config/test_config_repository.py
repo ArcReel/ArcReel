@@ -39,13 +39,6 @@ async def test_get_secrets_masked(db_session: AsyncSession):
     assert masked["base_url"]["value"] == "https://example.com"
 
 
-async def test_get_configured_keys(db_session: AsyncSession):
-    repo = ProviderConfigRepository(db_session)
-    await repo.set("ark", "api_key", "ark-test", is_secret=True)
-    keys = await repo.get_configured_keys("ark")
-    assert keys == ["api_key"]
-
-
 # --- SystemSettingRepository ---
 
 

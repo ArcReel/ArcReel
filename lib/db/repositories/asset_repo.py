@@ -13,8 +13,12 @@ from lib.db.repositories.base import BaseRepository
 
 
 def _match_name[S: Select](stmt: S, q: str | None) -> S:
-    """列表与计数共用的搜索条件：名称包含 ``q``。"""
-    return stmt.where(Asset.name.contains(q)) if q else stmt
+    """列表与计数共用的搜索条件：名称按字面包含 ``q``，不区分 ASCII 大小写。
+
+    ``icontains`` 在 PostgreSQL 上编译为 ILIKE、在 SQLite 上比较两侧的 lower()，
+    使两种数据库的大小写口径一致；``autoescape`` 让 ``%``、``_`` 按字面字符匹配。
+    """
+    return stmt.where(Asset.name.icontains(q, autoescape=True)) if q else stmt
 
 
 class AssetRepository(BaseRepository):

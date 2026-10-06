@@ -1,6 +1,7 @@
 # 图表库选型：设置页趋势图与顶栏迷你图
 
 > 状态：调研完成，结论供地图 [#2286](https://github.com/ArcReel/ArcReel/issues/2286) 汇总。
+> 现状：本文推荐 visx，最终落地的是备选 Recharts——前端随 shadcn/ui 重构采用其 Chart 组件（`frontend/src/components/ui/chart.tsx`，基于 Recharts），使用记录趋势图由它绘制。下文保留调研时的结论。
 > 关联：[#2393](https://github.com/ArcReel/ArcReel/issues/2393)（本票）、[#2290](https://github.com/ArcReel/ArcReel/issues/2290)（设置页使用记录原型，手绘 SVG 趋势图）。
 > 数据日期：2026-09-07。版本、发布日期、许可证来自 npm registry（`npm view`）；仓库活跃度来自 GitHub REST / Search API（`gh api`）；整包体积来自 bundlephobia API；tree-shaken 体积来自本机 Vite 8.2.2 + rolldown 实测（见 §3.2）；API 事实来自各库官方文档（Context7）与安装到 `node_modules` 的源码 / 类型定义。
 

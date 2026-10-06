@@ -153,6 +153,29 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     await waitFor(() => expect(within(sidebar()).getByRole("link", { name: "风格" })).toBeInTheDocument());
   });
 
+  it("只改风格时 PATCH 只含风格字段，不覆盖别处保存的模型与基础设置", async () => {
+    const updateSpy = mockProject({
+      style_template_id: "live_premium_drama",
+      aspect_ratio: "16:9",
+      video_backend: "gemini/veo-3",
+      default_text_backend: "gemini/g25",
+      video_generate_audio: false,
+      speech_rate_units_per_second: 4.5,
+      model_settings: { "gemini/veo-3": { resolution: "1080p" } },
+    });
+    renderAt("/app/projects/demo/settings?tab=style");
+
+    fireEvent.click(await screen.findByRole("button", { name: "更换" }));
+    const dialog = await screen.findByRole("dialog", { name: "更换风格" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /张艺谋/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "使用此风格" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({ style_template_id: "live_zhang_yimou" });
+  });
+
   it("有未保存修改时切到 Agent 组的分页会拦截，放弃修改后再切过去", async () => {
     const updateSpy = mockProject({});
     const { location } = renderAt("/app/projects/demo/settings");
@@ -332,28 +355,17 @@ describe("ProjectSettingsPage – 模型分页的覆盖来源", () => {
     expect(imageTrigger).toHaveTextContent(/nano-banana/);
   });
 
-  it("读取细分项覆盖并各自写回对应的键", async () => {
-    const updateSpy = mockProject({ video_provider_i2v: "gemini/veo-3" });
+  it("读取细分项覆盖，恢复全局时只写回被清除的细分项", async () => {
+    const updateSpy = mockProject({ video_provider_i2v: "gemini/veo-3", default_text_backend: "gemini/g25" });
     renderAt("/app/projects/demo/settings?tab=models");
 
     const i2v = await screen.findByRole("combobox", { name: /^图生视频$/ });
     expect(i2v).toHaveTextContent(/veo-3/);
-    fireEvent.click(within(sidebar()).getByRole("link", { name: /^基础/ }));
-    fireEvent.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
+    fireEvent.click(screen.getByRole("button", { name: "视频模型：恢复全局" }));
     fireEvent.click(saveButton());
 
-    await waitFor(() => {
-      expect(updateSpy).toHaveBeenCalledWith(
-        "demo",
-        expect.objectContaining({
-          video_provider_i2v: "gemini/veo-3",
-          video_provider_r2v: null,
-          default_image_backend: null,
-          image_provider_t2i: null,
-          image_provider_i2i: null,
-        }),
-      );
-    });
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({ video_provider_i2v: null });
   });
 });
 
@@ -437,13 +449,17 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     fireEvent.click(within(sidebar()).getByRole("link", { name: /^基础/ }));
     fireEvent.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
     fireEvent.click(saveButton());
-    await waitFor(() => expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({
-      model_settings: {
-        "gemini/veo-3": { resolution: sharedModel ? "720p" : "1080p" },
-        "ark/seedance": { resolution: sharedModel ? "1080p" : "720p" },
-        "gemini/nano-banana": { resolution: null },
-      },
-    })));
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    // 共用模型时两次修改抵消，分辨率表与已保存的一致，不回写
+    expect(updateSpy.mock.calls[0][1].model_settings).toEqual(
+      sharedModel
+        ? undefined
+        : {
+            "gemini/veo-3": { resolution: "1080p" },
+            "ark/seedance": { resolution: "720p" },
+            "gemini/nano-banana": { resolution: null },
+          },
+    );
   });
 
   it("loads existing model_settings resolution into video/image pickers", async () => {
@@ -479,21 +495,36 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
         "openai/gpt-image": { resolution: "720p" },
       },
     });
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      ...RESOLUTION_PROVIDERS,
+      {
+        id: "openai", display_name: "OpenAI", description: "", status: "ready", media_types: ["image"],
+        capabilities: [], credential_count: 0,
+        models: { "gpt-image": {
+          display_name: "GPT Image", media_type: "image", capabilities: [], default: true,
+          supported_durations: [], resolutions: ["720p", "1080p"],
+          audio_track: "always_off", reference_route_audio_track: "always_off", voice_consistency: "none",
+        } },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
 
-    renderAt("/app/projects/demo/settings");
-    fireEvent.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
+    // 图片分辨率在视频分辨率之后；读到的是文生图执行模型的 720p
+    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "分辨率" })).toHaveLength(2));
+    const imageResolution = screen.getAllByRole("combobox", { name: "分辨率" })[1];
+    expect(imageResolution).toHaveTextContent("720p");
+    await user.click(imageResolution);
+    await user.click(await screen.findByRole("option", { name: "1080p" }));
     fireEvent.click(saveButton());
 
-    await waitFor(() => {
-      expect(updateSpy).toHaveBeenCalledWith(
-        "demo",
-        expect.objectContaining({
-          model_settings: expect.objectContaining({
-            // 读到的是文生图执行模型的 720p，写回的也是同一个 key
-            "openai/gpt-image": expect.objectContaining({ resolution: "720p" }),
-          }),
-        }),
-      );
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: expect.objectContaining({
+        // 写回的也是文生图执行模型的 key，项目默认层模型的设置原样保留
+        "openai/gpt-image": { resolution: "1080p" },
+        "gemini/nano-banana": { resolution: "1080p" },
+      }),
     });
   });
 });
