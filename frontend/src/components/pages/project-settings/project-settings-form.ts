@@ -2,7 +2,7 @@ import type { ProjectSettingsTab } from "@/app-routes";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import type { NarrationDeliveryValue } from "@/components/shared/NarrationDeliveryFields";
-import type { CharacterVoiceBinding, NarrationDelivery, ProjectData } from "@/types";
+import type { CharacterVoiceBinding, ModelSettingEntry, NarrationDelivery, ProjectData } from "@/types";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 
@@ -198,26 +198,16 @@ export function gridToggleVisible(facts: ProjectFacts): boolean {
   return facts.generationRoute === "storyboard" && facts.contentMode !== "ad";
 }
 
-/**
- * 生成项目 PATCH 的请求体。风格选了模版或被清除时一并写入；选了新参考图时不在这里，
- * 由随后的参考图上传写入（上传同时清掉模版）。
- */
-export function buildProjectPatch(
+type ProjectPatch = Partial<ProjectData> & { clear_style_image?: boolean };
+
+/** 表单值对应的全部 PATCH 键；风格键只在与已保存风格不同时出现。 */
+function fullProjectPatch(
   value: ProjectSettingsForm,
   saved: ProjectSettingsForm,
   facts: ProjectFacts,
   globals: GlobalModelDefaults,
-): Partial<ProjectData> & { clear_style_image?: boolean } {
+): ProjectPatch {
   const { models, narration } = value;
-  // 音色与后端 .strip() 对齐，保存时去首尾空白
-  const trimmedVoice = narration.narrationVoice.trim();
-  // 旁白配置只写改动过的字段：旧项目可能留着裸供应商的音频后端，原样回写会被快照校验拒绝
-  const narrationPatch = {
-    ...(narration.delivery !== saved.narration.delivery ? { narration_delivery: narration.delivery } : {}),
-    ...(narration.audioBackend !== saved.narration.audioBackend ? { audio_backend: narration.audioBackend || null } : {}),
-    ...(trimmedVoice !== saved.narration.narrationVoice ? { narration_voice: trimmedVoice || null } : {}),
-    ...(narration.narrationSpeed !== saved.narration.narrationSpeed ? { narration_speed: narration.narrationSpeed } : {}),
-  };
 
   // resolution 的 key 用执行模型，与读侧一致
   const executingImage = executingImageModel(models, globals);
@@ -243,7 +233,11 @@ export function buildProjectPatch(
     image_provider_t2i: models.imageBackendT2I || null,
     image_provider_i2i: models.imageBackendI2I || null,
     video_generate_audio: models.generateAudio,
-    ...narrationPatch,
+    narration_delivery: narration.delivery,
+    audio_backend: narration.audioBackend || null,
+    // 音色与后端 .strip() 对齐，保存时去首尾空白
+    narration_voice: narration.narrationVoice.trim() || null,
+    narration_speed: narration.narrationSpeed,
     // 绑定方式只在参考生视频路线上有效，其余路线该键与项目无关，不写
     ...(facts.generationRoute === "reference_video" ? { character_voice_binding: value.voiceBinding } : {}),
     // null 即清除项目级覆盖、回退语言默认
@@ -264,6 +258,35 @@ export function buildProjectPatch(
     model_settings: modelSettings,
     ...stylePatch,
   };
+}
+
+function sameModelSettings(a: Record<string, ModelSettingEntry>, b: Record<string, ModelSettingEntry>): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => key in b && a[key].resolution === b[key].resolution);
+}
+
+/**
+ * 生成项目 PATCH 的请求体：只含与已保存内容不同的键，`model_settings` 整体比较、有变化时整表写入。
+ * 未改动的键不回写，避免覆盖别处刚保存的设置；旧项目可能留着裸供应商的音频后端，原样回写也会被快照校验拒绝。
+ * 风格选了模版或被清除时一并写入；选了新参考图时不在这里，由随后的参考图上传写入（上传同时清掉模版）。
+ */
+export function buildProjectPatch(
+  value: ProjectSettingsForm,
+  saved: ProjectSettingsForm,
+  facts: ProjectFacts,
+  globals: GlobalModelDefaults,
+): ProjectPatch {
+  const next = fullProjectPatch(value, saved, facts, globals);
+  const base = fullProjectPatch(saved, saved, facts, globals);
+  const patch: ProjectPatch = {};
+  for (const key of Object.keys(next) as (keyof ProjectPatch)[]) {
+    const same =
+      key === "model_settings"
+        ? sameModelSettings(next.model_settings ?? {}, base.model_settings ?? {})
+        : next[key] === base[key];
+    if (!same) Object.assign(patch, { [key]: next[key] });
+  }
+  return patch;
 }
 
 /** 是否有待上传的新参考图。 */

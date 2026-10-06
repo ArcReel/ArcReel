@@ -337,7 +337,7 @@ The model discovery protocol only determines which type of model-listing interfa
 
 If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
 
-When a provider submits jobs as JSON and then polls JSON results by task ID, you can click "New" in the "Endpoints" section and write a declarative definition yourself.
+When a provider submits jobs as JSON and then polls JSON results by task ID, you can click "New endpoint" in the "Endpoints" section and write a declarative definition yourself.
 
 Declarative definitions work for both video and image providers: a definition with `"media_type": "image"` is an image definition, and a definition without it is a video definition. After you attach an image definition to an image model of a custom provider, it can generate storyboard images and asset images. An image definition that declares image-to-image can also edit images.
 
