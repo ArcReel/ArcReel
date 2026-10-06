@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { flushStream, stubSseFetch } from "@/test/fakeSseFetch";
 import { openSseStream, SseStreamError, type SseMessage } from "./sse-stream";
 
@@ -191,6 +192,33 @@ describe("openSseStream", () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(fake.connections).toHaveLength(1);
+  });
+
+  it("reports rejections, interruptions and server closes in the current language", async () => {
+    await i18n.changeLanguage("en");
+    try {
+      const rejected = vi.fn();
+      stubSseFetch(403);
+      openSseStream({ url: "/api/v1/stream", onMessage: () => {}, onError: rejected });
+      await flushStream();
+      expect((rejected.mock.calls[0][0] as SseStreamError).message).toBe("Event stream rejected: HTTP 403");
+
+      const fake = stubSseFetch();
+      const failures = vi.fn();
+      const handle = openSseStream({ url: "/api/v1/stream", onMessage: () => {}, onError: failures });
+      await flushStream();
+      fake.latest.fail();
+      await flushStream();
+      expect((failures.mock.calls[0][0] as SseStreamError).message).toBe("Event stream interrupted");
+      await vi.advanceTimersByTimeAsync(1000);
+      await flushStream();
+      fake.latest.end();
+      await flushStream();
+      expect((failures.mock.calls[1][0] as SseStreamError).message).toBe("Event stream ended");
+      handle.close();
+    } finally {
+      await i18n.changeLanguage("zh");
+    }
   });
 
   it("retries after a transport failure", async () => {

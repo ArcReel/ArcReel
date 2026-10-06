@@ -48,7 +48,7 @@ export async function throwIfNotOk(response: Response, fallbackMsg: string): Pro
 export function handleUnauthorized(response: Response): void {
   if (response.status !== 401) return;
   redirectToLogin();
-  throw new Error("认证已过期，请重新登录");
+  throw new Error(i18n.t("errors:session_expired"));
 }
 
 function redirectToLogin(): void {
@@ -139,7 +139,7 @@ export function parseSseJson(data: string, label: string): Record<string, unknow
       ? (parsed as Record<string, unknown>)
       : null;
   } catch (err) {
-    console.error(`解析${label} SSE 数据失败:`, err, data);
+    console.error(`Failed to parse ${label} SSE data:`, err, data);
     return null;
   }
 }
@@ -191,7 +191,7 @@ export async function requestJson<T = unknown>(
     if (isSpeechAdmission(error.detail)) {
       throw new SpeechAdmissionError(error.detail);
     }
-    throw new ApiRequestError(messageFromDetail(error.detail, "请求失败"), error.diagnostic, response.status);
+    throw new ApiRequestError(messageFromDetail(error.detail, i18n.t("errors:request_failed")), error.diagnostic, response.status);
   }
 
   if (response.status === 204) {

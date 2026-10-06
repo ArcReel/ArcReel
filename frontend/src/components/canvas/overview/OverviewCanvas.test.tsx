@@ -11,6 +11,7 @@ import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useOverviewGenerateStore } from "@/stores/overview-generate-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { CostEstimateResponse, ProjectData } from "@/types";
 
@@ -86,6 +87,7 @@ describe("OverviewCanvas", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useCostStore.setState(useCostStore.getInitialState(), true);
+    useOverviewGenerateStore.setState(useOverviewGenerateStore.getInitialState(), true);
     vi.restoreAllMocks();
     vi.spyOn(API, "getProject").mockResolvedValue({ project: makeProjectData(), scripts: {} });
   });
@@ -307,7 +309,7 @@ describe("OverviewCanvas", () => {
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改并重新生成" }),
     );
 
-    expect(generate).toHaveBeenCalledWith("demo", expect.anything());
+    expect(generate).toHaveBeenCalledWith("demo");
     expect(screen.getByRole("status")).toHaveTextContent("正在读取原文…");
   });
 
@@ -324,6 +326,34 @@ describe("OverviewCanvas", () => {
 
     expect(generate).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps reading the source after leaving the overview mid-generation and fills in the result on return", async () => {
+    const user = userEvent.setup();
+    let finishGenerate!: () => void;
+    vi.spyOn(API, "generateOverview").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishGenerate = () => resolve({ success: true, overview: {} as never });
+        }),
+    );
+    const source = { whole_source_files: [{ source_file: "source/novel.txt" }] };
+    useProjectsStore.getState().setCurrentProject("demo", makeProjectData({ ...EMPTY_PROJECT, ...source }));
+    vi.spyOn(API, "getProject").mockResolvedValue({ project: makeProjectData(source), scripts: {} });
+    const first = render(withRouter(<StoreOverview />));
+
+    await user.click(screen.getByRole("button", { name: "从原文生成" }));
+    expect(screen.getByRole("status")).toHaveTextContent("正在读取原文…");
+    first.unmount();
+
+    // 离开期间服务端仍在生成：回到概览时接着显示读取中
+    render(withRouter(<StoreOverview />));
+    expect(screen.getByRole("status")).toHaveTextContent("正在读取原文…");
+
+    await act(async () => finishGenerate());
+
+    await waitFor(() => expect(screen.queryByText("正在读取原文…")).not.toBeInTheDocument());
+    expect(screen.getByRole("textbox", { name: "梗概" })).toHaveValue("summary");
   });
 
   it("shows the way out when generating fails because the model output was truncated", async () => {

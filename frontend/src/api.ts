@@ -167,6 +167,7 @@ import type {
   TestConnectionResponse,
   UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
+import i18n from "@/i18n";
 import { openSseStream, type SseStreamHandle } from "@/utils/sse-stream";
 import {
   API_BASE,
@@ -490,7 +491,7 @@ class API {
     updates: Partial<ProjectData> & { clear_style_image?: boolean }
   ): Promise<{ success: boolean; project: ProjectData }> {
     if ("content_mode" in updates) {
-      throw new Error("项目创建后不支持修改 content_mode");
+      throw new Error(i18n.t("errors:content_mode_immutable"));
     }
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "PATCH",
@@ -532,7 +533,7 @@ class API {
   ): Promise<string> {
     const url = `${agentMemoryBase(scope)}/files/${encodeURIComponent(filename)}`;
     const response = await fetch(`${API_BASE}${url}`, withAuth(url, { signal: options.signal }));
-    await throwIfNotOk(response, "获取记忆文件失败");
+    await throwIfNotOk(response, i18n.t("errors:memory_file_load_failed"));
     return response.text();
   }
 
@@ -551,7 +552,7 @@ class API {
         body: content,
       })
     );
-    await throwIfNotOk(response, "保存记忆文件失败");
+    await throwIfNotOk(response, i18n.t("errors:memory_file_save_failed"));
     return response.json() as Promise<{ name: string }>;
   }
 
@@ -819,9 +820,8 @@ class API {
       const payload = await response
         .json()
         .catch(() => ({ detail: response.statusText, errors: [], warnings: [] })) as ImportErrorPayload;
-      const error = new Error(
-        typeof payload.detail === "string" ? payload.detail : "导入失败"
-      ) as Error & {
+      const detail = typeof payload.detail === "string" ? payload.detail : i18n.t("errors:import_failed");
+      const error = new Error(detail) as Error & {
         status?: number;
         detail?: string;
         errors?: string[];
@@ -830,7 +830,7 @@ class API {
         diagnostics?: ImportFailureDiagnostics;
       };
       error.status = response.status;
-      error.detail = typeof payload.detail === "string" ? payload.detail : "导入失败";
+      error.detail = detail;
       error.errors = Array.isArray(payload.errors) ? payload.errors : [];
       error.warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
       if (typeof payload.conflict_project_name === "string") {
@@ -1715,7 +1715,7 @@ class API {
       // 若 detail 缺字段则视为协议异常，抛通用错误（带文件名标识）而非手搓 fallback —
       // 避免前端"猜"一个可能与后端命名规则不一致的 suggested_name 误导用户
       if (!detail?.existing || !detail?.suggested_name) {
-        throw new Error(`上传 "${file.name}" 失败：服务端返回 409 但 detail 字段不完整`);
+        throw new Error(i18n.t("errors:upload_conflict_incomplete", { filename: file.name }));
       }
       throw new ConflictError(
         detail.existing,
@@ -1724,7 +1724,7 @@ class API {
       );
     }
 
-    await throwIfNotOk(response, "上传失败");
+    await throwIfNotOk(response, i18n.t("errors:upload_failed"));
     return (await response.json()) as {
       success: boolean;
       path?: string;
@@ -1746,7 +1746,7 @@ class API {
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch(`${API_BASE}${url}`, withAuth(url, { method: "POST", body: formData }));
-    await throwIfNotOk(response, "上传失败");
+    await throwIfNotOk(response, i18n.t("errors:upload_failed"));
     return (await response.json()) as T;
   }
 
@@ -1914,7 +1914,7 @@ class API {
       `${API_BASE}${url}`,
       withAuth(url, { signal: options.signal })
     );
-    await throwIfNotOk(response, "获取文件内容失败");
+    await throwIfNotOk(response, i18n.t("errors:file_content_load_failed"));
     return response.text();
   }
 
@@ -2117,7 +2117,7 @@ class API {
     if (options.revision) formData.append("revision", options.revision);
     const url = `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/replace`;
     const response = await fetch(`${API_BASE}${url}`, withAuth(url, { method: "POST", body: formData }));
-    await throwIfNotOk(response, "替换文件失败");
+    await throwIfNotOk(response, i18n.t("errors:file_replace_failed"));
     return (await response.json()) as SourceFileChangeResponse;
   }
 
@@ -2172,7 +2172,7 @@ class API {
         method: "DELETE",
       })
     );
-    await throwIfNotOk(response, "删除文件失败");
+    await throwIfNotOk(response, i18n.t("errors:file_delete_failed"));
     return response.json() as Promise<SuccessResponse>;
   }
 
@@ -2204,7 +2204,7 @@ class API {
       `${API_BASE}${url}`,
       withAuth(url)
     );
-    await throwIfNotOk(response, "获取草稿内容失败");
+    await throwIfNotOk(response, i18n.t("errors:stage_file_load_failed"));
     return response.text();
   }
 
@@ -2226,7 +2226,7 @@ class API {
         body: content,
       })
     );
-    await throwIfNotOk(response, "保存草稿失败");
+    await throwIfNotOk(response, i18n.t("errors:stage_file_save_failed"));
     return response.json() as Promise<SuccessResponse>;
   }
 
@@ -2250,14 +2250,12 @@ class API {
    * 使用 AI 生成项目概述
    */
   static async generateOverview(
-    projectName: string,
-    options: { signal?: AbortSignal } = {}
+    projectName: string
   ): Promise<{ success: boolean; overview: ProjectOverview }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate-overview`,
       {
         method: "POST",
-        signal: options.signal,
       }
     );
   }
@@ -2672,7 +2670,7 @@ class API {
       url,
       headers: sseHeaders,
       onMessage(message) {
-        const payload = parseSseJson(message.data, "项目事件");
+        const payload = parseSseJson(message.data, "project event");
         if (!payload) return;
         switch (message.event) {
           case "snapshot":
@@ -2764,7 +2762,7 @@ class API {
       })
     );
 
-    await throwIfNotOk(response, "上传失败");
+    await throwIfNotOk(response, i18n.t("errors:upload_failed"));
 
     return response.json() as Promise<{ success: boolean; style_image: string; style_description: string; url: string }>;
   }
@@ -2907,7 +2905,7 @@ class API {
       url: this.getAssistantEntriesStreamUrl(options.projectName, options.sessionId, options.after ?? -1),
       headers: sseHeaders,
       onMessage(message) {
-        const payload = parseSseJson(message.data, "会话");
+        const payload = parseSseJson(message.data, "session");
         if (payload) options.onEvent(message.event, payload);
       },
       onError: sseErrorHandler(options.onError),
@@ -3096,7 +3094,7 @@ class API {
       `${API_BASE}${url}`,
       withAuth(url, { method: "POST", body: formData }),
     );
-    await throwIfNotOk(response, "上传凭证失败");
+    await throwIfNotOk(response, i18n.t("errors:credential_upload_failed"));
     return response.json() as Promise<ProviderCredential>;
   }
 
@@ -3293,7 +3291,7 @@ class API {
   ): Promise<Blob> {
     const url = `/market/sources/${sourceId}/entries/${encodeURIComponent(slug)}/icon?v=${encodeURIComponent(version)}`;
     const response = await fetch(`${API_BASE}${url}`, withAuth(url, { signal: options.signal }));
-    await throwIfNotOk(response, "获取条目图标失败");
+    await throwIfNotOk(response, i18n.t("errors:market_icon_load_failed"));
     return response.blob();
   }
 
@@ -3655,7 +3653,7 @@ class API {
       const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {
         detail?: string;
       };
-      throw new Error(typeof error.detail === "string" ? error.detail : "请求失败");
+      throw new Error(typeof error.detail === "string" ? error.detail : i18n.t("errors:request_failed"));
     }
     return response.json() as Promise<{ asset: Asset }>;
   }
@@ -3678,7 +3676,7 @@ class API {
       const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {
         detail?: string;
       };
-      throw new Error(typeof error.detail === "string" ? error.detail : "请求失败");
+      throw new Error(typeof error.detail === "string" ? error.detail : i18n.t("errors:request_failed"));
     }
     return response.json() as Promise<{ asset: Asset }>;
   }

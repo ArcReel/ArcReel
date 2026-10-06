@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
+import { clearAgentOverlay } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -18,6 +19,7 @@ function recorded<T>(file: string): T {
 
 interface RecordedProject {
   project: { title: string; episodes: Record<string, unknown>[] } & Record<string, unknown>;
+  scripts: Record<string, Record<string, unknown>>;
 }
 interface RecordedProjects {
   projects: ({ name: string; title: string } & Record<string, unknown>)[];
@@ -82,6 +84,98 @@ const EXPORT_FAILS: ApiOverrides = {
     },
   },
 };
+
+// Agent 改了一个角色、新增了一个分镜：两条变更都带定位目标，进入工作区通知，各带「查看」。
+const NOTICE_CHARACTERS = Array.from({ length: 24 }, (_, i) => `巡夜人 ${i + 1}`);
+const NOTICE_CHARACTER = NOTICE_CHARACTERS.at(-1)!;
+const NOTICE_SHOT = "E1S05";
+const projectChange = (change: Record<string, unknown>) => ({ label: String(change.entity_id), important: true, ...change });
+const NOTICE_EVENTS = [
+  "event: snapshot",
+  `data: ${JSON.stringify({ project_name: "demo", fingerprint: "fp-1", generated_at: "2026-01-01T08:00:00Z" })}`,
+  "",
+  "event: changes",
+  `data: ${JSON.stringify({
+    project_name: "demo",
+    batch_id: "batch-1",
+    fingerprint: "fp-2",
+    generated_at: "2026-01-01T08:00:01Z",
+    source: "agent",
+    changes: [
+      projectChange({
+        entity_type: "drama_scene",
+        action: "created",
+        entity_id: NOTICE_SHOT,
+        label_key: "skeleton_scenes",
+        label_params: { id: NOTICE_SHOT },
+        script_file: "scripts/episode_1.json",
+        episode: 1,
+        focus: { pane: "episode", episode: 1, anchor_type: "segment", anchor_id: NOTICE_SHOT },
+      }),
+      projectChange({
+        entity_type: "character",
+        action: "updated",
+        entity_id: NOTICE_CHARACTER,
+        label_key: "named_entity_character",
+        label_params: { id: NOTICE_CHARACTER },
+        focus: { pane: "characters", anchor_type: "character", anchor_id: NOTICE_CHARACTER },
+      }),
+    ],
+  })}`,
+  "",
+  "",
+].join("\n");
+const NOTICE_TARGETS: ApiOverrides = {
+  ...EVENT_STREAM,
+  "GET /api/v1/projects/demo": {
+    status: 200,
+    body: {
+      ...recordedProject,
+      project: {
+        ...recordedProject.project,
+        content_mode: "drama",
+        characters: Object.fromEntries(NOTICE_CHARACTERS.map((name) => [name, { description: `${name}的设定` }])),
+      },
+      scripts: {
+        "episode_1.json": {
+          ...recordedProject.scripts["episode_1.json"],
+          content_mode: "drama",
+          segments: undefined,
+          scenes: Array.from({ length: 8 }, (_, i) => ({
+            scene_id: `E1S0${i + 1}`,
+            duration_seconds: 4,
+            segment_break: i === 0,
+            characters_in_scene: [],
+            scenes: [],
+            props: [],
+            image_prompt: `第 ${i + 1} 镜的画面`,
+            video_prompt: `第 ${i + 1} 镜的运镜`,
+            utterances: [],
+            source_text: "",
+          })),
+        },
+      },
+    },
+  },
+};
+
+/**
+ * 事件流只推送一次这一批变更，之后的重连一律按不可重试的 404 拒绝：真实服务端按 Last-Event-ID 续传，
+ * 静态替身每次重连都会从头重放，通知会重复。替身在页面加载后才挂上，所以挂好后重新加载页面。
+ */
+async function deliverNoticeEventsOnce(page: Page) {
+  let delivered = false;
+  await page.route("**/api/v1/projects/demo/events/stream", async (route) => {
+    if (delivered) {
+      await route.fulfill({ status: 404, json: { detail: "只推送一次" } });
+      return;
+    }
+    delivered = true;
+    await route.fulfill({ status: 200, body: NOTICE_EVENTS, contentType: "text/event-stream" });
+  });
+  await page.reload();
+  await shellReady(page);
+}
 
 const agentPanel = (page: Page) => page.getByRole("complementary", { name: "Agent 面板" });
 const switcher = (page: Page) => page.getByRole("button", { name: /^切换项目/ });
@@ -172,6 +266,37 @@ defineRegionScenarios("工作区顶栏", [
       await settled(popover(page));
     },
     screenshot: { name: "workspace-header-notifications", target: popover },
+  },
+  {
+    name: "点通知的「查看」跳到对应的分镜与资产",
+    path: CHARACTERS_PATH,
+    api: NOTICE_TARGETS,
+    ready: shellReady,
+    act: async (page) => {
+      await deliverNoticeEventsOnce(page);
+      // 每条变更各记一条完成提示与一条带定位目标的通知，只有后者有「查看」
+      await expect(bell(page)).toHaveAccessibleName("工作区通知，未读 4 条");
+      await clearAgentOverlay(page);
+      const panel = page.getByRole("dialog", { name: "工作区通知" });
+      const view = (text: string) =>
+        panel.getByRole("listitem").filter({ hasText: text }).getByRole("button", { name: "查看" });
+
+      await bell(page).click();
+      await view(`分镜「第一集 · S05」`).click();
+      await expect(page).toHaveURL(/\/app\/projects\/demo\/episodes\/1$/);
+      await expect(page.getByRole("navigation", { name: "分镜列表" }).getByRole("button", { name: /^S05/ })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+
+      await clearAgentOverlay(page);
+      await bell(page).click();
+      await view(`角色「${NOTICE_CHARACTER}」`).click();
+      await expect(page).toHaveURL(new RegExp(`${CHARACTERS_PATH}$`));
+      const card = page.locator(`[id="character-${NOTICE_CHARACTER}"]`);
+      await expect(card).toBeInViewport();
+      await expect(card).toHaveClass(/workspace-focus-flash/);
+    },
   },
   {
     name: "项目内不存在的路径在画布里显示空状态，外壳保留",

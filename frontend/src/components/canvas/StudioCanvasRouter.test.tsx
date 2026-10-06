@@ -1320,7 +1320,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("workflow-regenerate-video"));
     await waitFor(() => {
       expect(useAppStore.getState().toast?.tone).toBe("error");
-      expect(useAppStore.getState().toast?.text).toBe("生成视频失败: provider down");
+      expect(useAppStore.getState().toast?.text).toBe("生成视频失败：provider down");
     });
     expect(API.generateVideo).toHaveBeenCalledWith("demo", "SEG-1", "video prompt", "episode_1.json", 4);
   });

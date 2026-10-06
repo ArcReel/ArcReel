@@ -135,6 +135,18 @@ describe("StreamMarkdown 横向滚动区", () => {
   });
 });
 
+describe("StreamMarkdown 工具条", () => {
+  it("代码块与表格工具条按钮的名称跟随界面语言", async () => {
+    await renderLoaded("```ts\nconst answer = 42;\n```\n\n| 列 A | 列 B |\n| --- | --- |\n| 1 | 2 |\n");
+
+    expect(await screen.findByRole("button", { name: "复制代码" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下载文件" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制表格" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下载表格" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /copy|download/i })).not.toBeInTheDocument();
+  });
+});
+
 describe("StreamMarkdown 渲染惰性", () => {
   it.each(Object.entries(PAYLOADS))("%s 渲染为惰性内容", async (_name, payload) => {
     await renderLoaded(`前文\n\n${payload}\n\n后文`);
@@ -151,7 +163,7 @@ describe("StreamMarkdown 渲染惰性", () => {
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
       // 前段中不完整链接渲染为占位链接按钮，点击后既不打开确认框也不打开窗口。
       for (const el of container.querySelectorAll('a, button, [data-streamdown="link"]')) fireEvent.click(el);
-      expect(screen.queryByRole("button", { name: "Open link" }), `cut=${cut} 前段确认框`).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "打开链接" }), `cut=${cut} 前段确认框`).not.toBeInTheDocument();
       expect(open, `cut=${cut} 前段打开窗口`).not.toHaveBeenCalled();
       rerender(<StreamMarkdown content={payload} />);
       expect(collectActiveContent(container), `cut=${cut} 全文`).toEqual([]);
@@ -174,7 +186,7 @@ describe("StreamMarkdown 渲染惰性", () => {
     const { container } = await renderLoaded("[站点](https://example.com/a)");
     fireEvent.click(container.querySelector('[data-streamdown="link"]')!);
     expect(open).not.toHaveBeenCalled();
-    fireEvent.click(await screen.findByRole("button", { name: "Open link" }));
+    fireEvent.click(await screen.findByRole("button", { name: "打开链接" }));
     expect(open).toHaveBeenCalledWith("https://example.com/a", "_blank", "noreferrer");
   });
 });
@@ -197,7 +209,7 @@ describe("StreamMarkdown 应用内链接", () => {
     fireEvent.click(link!);
     expect(window.location.pathname + window.location.search).toBe(href);
     expect(open).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Open link" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "打开链接" })).not.toBeInTheDocument();
   });
 
   it("不以斜杠开头的站内写法，链接地址规范成从站点根开始，新开标签页也落到同一处", async () => {
