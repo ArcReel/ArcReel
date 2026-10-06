@@ -61,6 +61,8 @@ export default {
   "merging": "正在合并…",
   "merge_failed": "合并失败：{{message}}",
   "merge_busy_hint": "资产正在生成中，请等生成结束后再合并",
+  "merge_target_writing_hint": "「{{name}}」正在上传资产图、恢复版本或删除，完成后才能合并",
+  "merge_target_generating_hint": "「{{name}}」正在生成，生成结束后才能合并",
   "merge_refresh_failed": "合并已完成，但页面数据刷新失败，请手动刷新查看最新状态",
   "field.name": "名称",
   "field.description": "描述",

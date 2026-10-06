@@ -17,6 +17,8 @@ paths:
 
 占用态不只来自队列任务：卡片自身发出的在途写请求（保存中、上传中、改名中）由组件本地 state 承载，`isResourceBusy` 读不到它们，本地 state 同样参与这三项检查。
 
+确认框打开后占用发生变化时，一键破坏性确认（删除、合并、改名的确认按钮）实时禁用；输入表单保持可编辑，由提交时的复核说明原因。
+
 ### 新增入队类 API 方法时，把方法名登记进 `frontend/eslint.config.js` 的 `RESTRICT_ENQUEUE`
 
 生成类入队统一经 `frontend/src/actions/` 的动作函数，由它们封装 API 调用、乐观标记占用与去重提示；组件直接调用入队类 API 会漏掉占用标记，用户可以对同一资源重复入队。ESLint 的 `no-restricted-syntax` 只按 `RESTRICT_ENQUEUE` 中登记的方法名拦截直接调用，未登记的新方法不受拦截。
@@ -122,7 +124,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 ### 全局提示统一用 `useAppStore` 的 `pushToast`
 
-提示由 `ToastOverlay` 转交 `components/ui/toast` 的 Base UI 队列显示，位置在顶部居中，同时最多显示 3 条，5 秒后自动消失，指针悬停或键盘聚焦时暂停计时。错误提示由读屏立即播报。不要另建提示组件，也不要直接调用 `components/ui/toast` 的 `toast.add`。提示、工作区通知与持久告警的分流规则见 `frontend/src/stores/app-store.ts` 中 `pushToast` 的说明。
+提示由 `ToastOverlay` 转交 `components/ui/toast` 的 Base UI 队列显示。`ToastOverlay` 订阅 store 的每次写入，同一批次里连发的几条按到达顺序都会显示。位置在顶部居中，同时最多显示 3 条，5 秒后自动消失，指针悬停或键盘聚焦时暂停计时。错误提示由读屏立即播报。不要另建提示组件，也不要直接调用 `components/ui/toast` 的 `toast.add`。提示、工作区通知与持久告警的分流规则见 `frontend/src/stores/app-store.ts` 中 `pushToast` 的说明。
 
 ### Sheet、Popover、DropdownMenu 的本仓库用法
 
@@ -212,7 +214,7 @@ Markdown 正文（`StreamMarkdown`）里的代码块与表格放不下时横向�
 消息区下方自上而下是待办进度行、错误提示与输入框（`AgentComposer`）。改动输入区时遵守三条：
 
 - **提问不另开弹层。** Agent 提问时 `AgentQuestionnaire` 占用输入框的位置，输入框隐藏但保持挂载，预填的输入不会丢失。问卷高度上限是面板高度的 70%（`70cqh`），头部与按钮固定，只有题目区滚动；待办清单展开后继续压缩题目区，不把按钮挤出面板。
-- **附件与命令留在输入框里。** 上下文与图片附件放在 `InputGroup` 的顶部插槽，斜杠命令菜单是锚定在输入框上的 `Popover` + `Command`，焦点留在输入框，用 `aria-activedescendant` 指向当前项。
+- **附件与命令留在输入框里。** 图片附件放在 `InputGroup` 的顶部插槽，斜杠命令菜单是锚定在输入框上的 `Popover` + `Command`，焦点留在输入框，用 `aria-activedescendant` 指向当前项。
 - **会话历史替换消息区。** 顶栏「会话历史」开关打开后，会话列表占用消息区的位置；发送消息、提交回答、切换或新建会话都会收起它。删除会话经 `AlertDialog` 确认。
 
 ### 滚动只发生在外壳指定的容器里，文档本身不滚动

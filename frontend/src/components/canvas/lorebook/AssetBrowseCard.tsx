@@ -77,6 +77,8 @@ export interface AssetBrowseCardProps {
   onReload?: () => Promise<unknown> | void;
   /** 卡片上的上传、版本恢复或删除开始与结束时回报，画廊据此禁用同一资产的其他写入入口。需传稳定引用。 */
   onWritingChange?: (name: string, writing: boolean) => void;
+  /** 画廊里所有卡片在途的本地写入，供合并对话框判断保留方是否被占用。 */
+  writingNames?: ReadonlySet<string>;
 }
 
 /**
@@ -97,6 +99,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   onRestoreVersion,
   onReload,
   onWritingChange,
+  writingNames,
 }: AssetBrowseCardProps) {
   const { t } = useTranslation(["assets", "dashboard"]);
   const titleId = useId();
@@ -323,6 +326,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                 name={name}
                 description={asset.description}
                 busy={busy}
+                writingNames={writingNames}
               />
             </>
           )}

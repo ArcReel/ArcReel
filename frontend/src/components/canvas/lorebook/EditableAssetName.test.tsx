@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API, type AssetRenameResult } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
+import { makeTask } from "@/test/factories";
 import { EditableAssetName } from "./EditableAssetName";
 
 function renameResult(overrides: Partial<AssetRenameResult> = {}): AssetRenameResult {
@@ -143,6 +144,34 @@ describe("EditableAssetName", () => {
       }),
     );
     expect(renameSpy).not.toHaveBeenCalled();
+  });
+
+  it("disables the confirm button once the asset becomes busy after the dialog opens", async () => {
+    const renameSpy = vi.spyOn(API, "renameProjectAsset").mockResolvedValueOnce(renameResult());
+    const { rerender } = render(
+      <EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重命名" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "重命名" }), { target: { value: "青莲" } });
+    await userEvent.type(screen.getByRole("textbox", { name: "重命名" }), "{Enter}");
+    const confirmButton = () => within(screen.getByRole("alertdialog")).getByRole("button", { name: "重命名" });
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+
+    // 确认框打开后详情里起了一次本地写入
+    rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} busy />);
+    expect(confirmButton()).toBeDisabled();
+
+    // 本地写入结束后队列里又有了该资产的任务
+    rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
+    expect(confirmButton()).toBeEnabled();
+    act(() => {
+      useTasksStore.setState({
+        tasks: [makeTask({ project_name: "demo", task_type: "character", resource_id: "李白", status: "running" })],
+      });
+    });
+    expect(confirmButton()).toBeDisabled();
+    expect(renameSpy).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the rename entry closed until the post-rename refresh settles", async () => {

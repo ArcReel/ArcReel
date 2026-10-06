@@ -123,7 +123,8 @@ export function EndFrameRow({
     onSubmittingChange?.(value);
   };
 
-  const runWrite = async (action: () => Promise<unknown>, successKey: string) => {
+  // 设置与清除尾帧是即时动作，成功不弹提示
+  const runWrite = async (action: () => Promise<unknown>) => {
     if (rejectIfDisabled()) return;
     updateSubmitting(true);
     try {
@@ -137,7 +138,6 @@ export function EndFrameRow({
       updateSubmitting(false);
     }
     setPickerOpen(false);
-    useAppStore.getState().pushToast(t(successKey, { id: segmentId }), "success");
     // 快照路径固定、换图原地覆盖，须重取项目数据拿新的资产指纹才能 cache-bust。
     // refreshProject 内部吞掉请求错误、以返回值表达结果（从不 reject）：写入已经成功，
     // 刷新失败要单独提示，不能把它误报成尾帧写入失败；刷新被项目切换取消则不代表出错，
@@ -149,22 +149,13 @@ export function EndFrameRow({
   };
 
   const handlePickProjectImage = (sourcePath: string) =>
-    void runWrite(
-      () => API.selectEndFrame(projectName, segmentId, scriptFile, sourcePath),
-      "end_frame_set_success",
-    );
+    void runWrite(() => API.selectEndFrame(projectName, segmentId, scriptFile, sourcePath));
 
   const handlePickUpload = (file: File) =>
-    void runWrite(
-      () => API.uploadEndFrame(projectName, segmentId, scriptFile, file),
-      "end_frame_set_success",
-    );
+    void runWrite(() => API.uploadEndFrame(projectName, segmentId, scriptFile, file));
 
   const handleClear = () =>
-    void runWrite(
-      () => API.clearEndFrame(projectName, segmentId, scriptFile),
-      "end_frame_clear_success",
-    );
+    void runWrite(() => API.clearEndFrame(projectName, segmentId, scriptFile));
 
   const previewUrl = endFramePath ? API.getFileUrl(projectName, endFramePath, fp) : null;
 

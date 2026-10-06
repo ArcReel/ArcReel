@@ -185,6 +185,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
                     onRestoreVersion={onRestoreVersion}
                     onReload={onReload}
                     onWritingChange={handleWritingChange}
+                    writingNames={writingNames}
                   />
                 </li>
               );

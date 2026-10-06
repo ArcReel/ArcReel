@@ -21,7 +21,7 @@ interface ShotShortcutsOptions {
   /** 回调需传稳定引用（useCallback）。 */
   onPrev: () => void;
   onNext: () => void;
-  /** ⌘S / Ctrl+S；不传时不拦截浏览器的保存快捷键。 */
+  /** ⌘S / Ctrl+S；传入时整页拦下浏览器的保存快捷键，不传时不拦截。 */
   onSave?: () => void;
   /** 切换分镜暂不可用（改序、增删在途）。 */
   navDisabled: boolean;
@@ -29,7 +29,8 @@ interface ShotShortcutsOptions {
 
 /**
  * 分镜视图的快捷键：J / K 切到下一个与上一个分镜，焦点在输入框里时不响应；⌘S（Windows 为 Ctrl+S）保存当前分镜，
- * 在输入框里也可用。弹层渲染在容器之外，打开时不响应；输入法组合输入中的按键与带其他修饰键的组合都放行。
+ * 在输入框里也可用。弹层渲染在容器之外，打开时不响应，只拦下 ⌘S 的浏览器默认行为；输入法组合输入中的按键与
+ * 带其他修饰键的组合都放行。
  */
 export function useShotShortcuts({ rootRef, onPrev, onNext, onSave, navDisabled }: ShotShortcutsOptions): void {
   useEffect(() => {
@@ -38,15 +39,16 @@ export function useShotShortcuts({ rootRef, onPrev, onNext, onSave, navDisabled 
       const target = event.target;
       if (!(target instanceof Element)) return;
       const inScope = target === document.body || Boolean(rootRef.current?.contains(target));
-      if (!inScope) return;
       const key = event.key.toLowerCase();
 
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && key === "s") {
         if (!onSave) return;
+        // 焦点在弹层或 Agent 面板里时不保存分镜，但浏览器的「保存网页」同样拦下
         event.preventDefault();
-        onSave();
+        if (inScope) onSave();
         return;
       }
+      if (!inScope) return;
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (key !== "j" && key !== "k") return;
       if (isTypingTarget(target) || navDisabled) return;

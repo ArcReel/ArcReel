@@ -61,6 +61,8 @@ export default {
   "merging": "Đang gộp…",
   "merge_failed": "Gộp thất bại: {{message}}",
   "merge_busy_hint": "Tài nguyên đang được tạo. Hãy gộp sau khi quá trình tạo kết thúc",
+  "merge_target_writing_hint": "\"{{name}}\" đang tải ảnh tài nguyên lên, khôi phục phiên bản hoặc bị xóa. Có thể gộp sau khi hoàn tất",
+  "merge_target_generating_hint": "\"{{name}}\" đang được tạo. Có thể gộp sau khi quá trình tạo kết thúc",
   "merge_refresh_failed": "Đã gộp xong nhưng không làm mới được dữ liệu trang. Hãy làm mới thủ công để xem trạng thái mới nhất",
   "field.name": "Tên",
   "field.description": "Mô tả",

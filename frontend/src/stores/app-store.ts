@@ -14,16 +14,11 @@ interface ToastAction {
   onClick: () => void;
 }
 
-interface Toast {
+export interface Toast {
   id: string;
   text: string;
   tone: "info" | "success" | "error" | "warning";
   action?: ToastAction;
-}
-
-interface FocusedContext {
-  type: "character" | "scene" | "prop" | "segment";
-  id: string;
 }
 
 const PLAYBACK_START_TTL_MS = 8000;
@@ -76,10 +71,6 @@ function persistAssistantPanelOpen(open: boolean): void {
 }
 
 interface AppState {
-  // Context focus (design doc "Context-Aware" feature)
-  focusedContext: FocusedContext | null;
-  setFocusedContext: (ctx: FocusedContext | null) => void;
-
   // Scroll targeting (Agent-triggered)
   scrollTarget: WorkspaceFocusTarget | null;
   triggerScrollTo: (target: WorkspaceFocusTargetInput) => void;
@@ -90,7 +81,7 @@ interface AppState {
   assistantToolActivitySuppressed: boolean;
   setAssistantToolActivitySuppressed: (suppressed: boolean) => void;
 
-  // Toast：最近一次发出的提示，由 ToastOverlay 转交提示队列显示
+  // Toast：最近一次发出的提示；ToastOverlay 订阅每次写入，同一批次连发的几条都会显示
   toast: Toast | null;
   pushToast: (text: string, tone?: Toast["tone"], options?: { action?: ToastAction }) => void;
   pushNotification: (
@@ -177,9 +168,6 @@ function buildWorkspaceNotification(
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  focusedContext: null,
-  setFocusedContext: (ctx) => set({ focusedContext: ctx }),
-
   scrollTarget: null,
   triggerScrollTo: (target) =>
     set({

@@ -493,7 +493,7 @@ export async function enqueueScriptPlan(
   );
   const taskIds = memberTaskIds(res.batch);
   const deduped = res.batch.members.some((member) => member.deduped === true);
-  notifyEnqueued(deduped, i18n.t("dashboard:script_plan_queued"), "info");
+  notifyEnqueued(deduped, null);
   return { taskIds, deduped };
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
-import { ArrowUp, Film, MapPin, Paperclip, Puzzle, Square, User, X } from "lucide-react";
+import { ArrowUp, Paperclip, Square, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import {
@@ -7,7 +7,6 @@ import {
   AttachmentAction,
   AttachmentActions,
   AttachmentContent,
-  AttachmentDescription,
   AttachmentGroup,
   AttachmentMedia,
   AttachmentTitle,
@@ -17,12 +16,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
 import { MAX_ATTACHED_IMAGES, useImageAttachments, type AttachedImage } from "@/hooks/useImageAttachments";
-import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { voidCall } from "@/utils/async";
 import { SlashCommandMenu, useSlashCommands } from "./SlashCommandMenu";
-
-const CONTEXT_ICONS = { character: User, scene: MapPin, prop: Puzzle, segment: Film } as const;
 
 export interface AgentComposerHandle {
   /** 把输入框里的内容再发一次（启动失败后的「重试」）。 */
@@ -56,14 +52,11 @@ function findSlashToken(value: string, cursor: number): { pos: number; filter: s
 
 // ---------------------------------------------------------------------------
 // AgentComposer — Agent 面板底部的输入框。
-// 上下文与图片附件在输入框顶行，可逐个移除；输入「/」时技能菜单浮在输入框上方。
+// 图片附件在输入框顶行，可逐个移除；输入「/」时技能菜单浮在输入框上方。
 // ---------------------------------------------------------------------------
 
 export function AgentComposer({ ref, disabled, running, placeholder, hidden, onSend, onInterrupt }: AgentComposerProps) {
   const { t } = useTranslation("dashboard");
-  const focusedContext = useAppStore((s) => s.focusedContext);
-  const setFocusedContext = useAppStore((s) => s.setFocusedContext);
-
   const groupRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -206,8 +199,7 @@ export function AgentComposer({ ref, disabled, running, placeholder, hidden, onS
     if (files.length > 0) addFiles(files);
   };
 
-  const ContextIcon = focusedContext ? CONTEXT_ICONS[focusedContext.type] : null;
-  const hasAttachments = Boolean(focusedContext) || images.length > 0;
+  const hasAttachments = images.length > 0;
 
   return (
     <div hidden={hidden} className="shrink-0 border-t border-border p-3">
@@ -227,22 +219,6 @@ export function AgentComposer({ ref, disabled, running, placeholder, hidden, onS
           {hasAttachments && (
             <InputGroupAddon align="block-start">
               <AttachmentGroup className="w-full">
-                {focusedContext && ContextIcon && (
-                  <Attachment size="xs">
-                    <AttachmentMedia>
-                      <ContextIcon aria-hidden />
-                    </AttachmentMedia>
-                    <AttachmentContent>
-                      <AttachmentTitle>{focusedContext.id}</AttachmentTitle>
-                      <AttachmentDescription>{t(`context_label_${focusedContext.type}`)}</AttachmentDescription>
-                    </AttachmentContent>
-                    <AttachmentActions>
-                      <AttachmentAction aria-label={t("context_clear")} onClick={() => setFocusedContext(null)}>
-                        <X aria-hidden />
-                      </AttachmentAction>
-                    </AttachmentActions>
-                  </Attachment>
-                )}
                 {images.map((image, index) => (
                   <Attachment key={image.id} size="xs">
                     <AttachmentMedia variant="image">
