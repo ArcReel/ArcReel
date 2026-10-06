@@ -55,7 +55,7 @@ function ScriptPlanDialog({ request, savedInstructions, onClose }: DialogProps) 
   const { t } = useTranslation(["dashboard", "common"]);
   const fieldId = useId();
   const { projectName, episode, replaces } = request;
-  const regenerate = replaces !== "none" && replaces !== "formal_script";
+  const regenerate = replaces !== "formal_script";
   // 未确认的规划与待修复草稿没有版本历史，整份替换即丢失，对话框本身就是替换前的确认。
   const lossText =
     replaces === "pending_plan"

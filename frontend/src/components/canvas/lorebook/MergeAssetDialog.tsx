@@ -23,7 +23,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName, type EpisodeLedger } from "@/utils/episode-display";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { rejectIfAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 
 interface MergeAssetDialogProps {
   open: boolean;
@@ -34,6 +34,8 @@ interface MergeAssetDialogProps {
   description: string;
   /** 与卡片兄弟控件共享的禁用态（生成中 / 上传中）。 */
   busy?: boolean;
+  /** 画廊各卡片在途的本地写入（上传、版本恢复、删除），任务队列里读不到，保留方命中时不能合并。 */
+  writingNames?: ReadonlySet<string>;
 }
 
 type PreviewState =
@@ -67,6 +69,7 @@ export function MergeAssetDialog({
   name,
   description,
   busy = false,
+  writingNames,
 }: MergeAssetDialogProps) {
   const { t } = useTranslation(["assets", "common"]);
   const project = useProjectsStore((s) => s.currentProjectData);
@@ -93,12 +96,27 @@ export function MergeAssetDialog({
     }
   }
 
+  const occupiedNames = useAssetBusyNames(assetType, projectName);
+  // 合并是一键执行的破坏性确认：保留方在对话框打开后被占用时实时禁用，并说明原因
+  const targetBusyReason = !target
+    ? null
+    : writingNames?.has(target)
+      ? t("assets:merge_target_writing_hint", { name: target })
+      : occupiedNames.has(target)
+        ? t("assets:merge_target_generating_hint", { name: target })
+        : null;
+
   const candidates = sameTypeNames(project, assetType).filter((candidate) => candidate !== name);
   const episodes: EpisodeLedger = project?.episodes ?? [];
 
   const rejectIfBusy = (names: string[]) => {
     if (busy || merging) {
       useAppStore.getState().pushToast(t("assets:merge_busy_hint"), "info");
+      return true;
+    }
+    const writing = names.find((asset) => writingNames?.has(asset));
+    if (writing !== undefined) {
+      useAppStore.getState().pushToast(t("assets:merge_target_writing_hint", { name: writing }), "info");
       return true;
     }
     return names.some((asset) => rejectIfAssetBusy(assetType, projectName, asset, t, "assets:merge_busy_hint"));
@@ -297,6 +315,8 @@ export function MergeAssetDialog({
 
             {impact}
 
+            {targetBusyReason && <p className="text-warn">{targetBusyReason}</p>}
+
             {error && (
               <p role="alert" className="text-destructive">
                 {error}
@@ -308,7 +328,7 @@ export function MergeAssetDialog({
           <AlertDialogCancel disabled={merging}>{t("common:cancel")}</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={merging || preview.phase !== "ready"}
+            disabled={merging || busy || targetBusyReason !== null || preview.phase !== "ready"}
             onClick={() => void executeMerge()}
           >
             {merging && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}

@@ -75,6 +75,7 @@ function renderRow(props: Partial<Parameters<typeof EndFrameRow>[0]> = {}) {
 const refreshProject = vi.fn().mockResolvedValue("success" satisfies RefreshProjectResult);
 
 beforeEach(() => {
+  useAppStore.setState({ toast: null });
   vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(true));
   vi.spyOn(API, "listGrids").mockResolvedValue([]);
   useProjectsStore.setState({
@@ -152,6 +153,11 @@ describe("EndFrameRow 能力警告", () => {
     await waitFor(() => {
       expect(clear).toHaveBeenCalledWith(PROJECT, SHOT, SCRIPT);
     });
+    await waitFor(() => {
+      expect(refreshProject).toHaveBeenCalledWith(PROJECT);
+    });
+    // 清除尾帧是即时动作，成功不弹提示
+    expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("模型不支持不禁用写入控件", async () => {
@@ -331,6 +337,8 @@ describe("EndFrameRow 占用态", () => {
     await waitFor(() => {
       expect(refreshProject).toHaveBeenCalledWith(PROJECT);
     });
+    // 设置尾帧是即时动作，成功不弹提示
+    expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("写入成功但刷新项目失败：提示刷新失败而非写入失败", async () => {
@@ -367,9 +375,7 @@ describe("EndFrameRow 占用态", () => {
     await waitFor(() => {
       expect(refreshProject).toHaveBeenCalledWith(PROJECT);
     });
-    // 写入成功的提示保留，不被追加或覆盖为刷新失败提示。
-    expect(useAppStore.getState().toast?.text).not.toMatch(/页面数据刷新失败/);
-    expect(useAppStore.getState().toast?.tone).toBe("success");
+    expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("提交在途状态经 onSubmittingChange 回传父级", async () => {

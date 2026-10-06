@@ -17,6 +17,20 @@ describe("ToastOverlay", () => {
     expect(screen.getByText("已导出")).toBeInTheDocument();
   });
 
+  it("shows every toast pushed within the same batch, including those with undo", async () => {
+    const undo = vi.fn();
+    render(<ToastOverlay />);
+    act(() => {
+      useAppStore.getState().pushToast("已删除分镜", "info", { action: { label: "撤销", onClick: undo } });
+      useAppStore.getState().pushNotification("视频生成失败", "error");
+    });
+
+    expect(await screen.findByText("已删除分镜")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "撤销" })).toBeInTheDocument();
+    // 错误提示另有一份供读屏立即播报的副本
+    expect(screen.getAllByText("视频生成失败").length).toBeGreaterThan(0);
+  });
+
   it("runs the undo action and dismisses the toast", async () => {
     const undo = vi.fn();
     render(<ToastOverlay />);

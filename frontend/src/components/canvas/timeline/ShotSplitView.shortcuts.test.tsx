@@ -79,6 +79,24 @@ describe("ShotSplitView 切换拦截与快捷键", () => {
     await waitFor(() => expect(onUpdatePrompt).toHaveBeenLastCalledWith("E1S01", { image_prompt: "雨停后的街道" }));
   });
 
+  it("焦点在弹层里时 ⌘S 不保存分镜，但仍拦下浏览器的保存网页", () => {
+    const onUpdatePrompt = renderView();
+    fireEvent.change(screen.getByDisplayValue("雨夜街道"), { target: { value: "雨后的街道" } });
+    // 弹层经 Portal 渲染在分镜视图之外
+    const overlay = document.createElement("div");
+    const field = document.createElement("input");
+    overlay.append(field);
+    document.body.append(overlay);
+
+    try {
+      expect(fireEvent.keyDown(field, { key: "s", metaKey: true })).toBe(false);
+      expect(fireEvent.keyDown(field, { key: "s", ctrlKey: true })).toBe(false);
+      expect(onUpdatePrompt).not.toHaveBeenCalled();
+    } finally {
+      overlay.remove();
+    }
+  });
+
   it("外部删除当前分镜时保留可见修改，放弃后才显示真实列表里的分镜", async () => {
     const save = vi.fn().mockRejectedValue(new Error("分镜已不存在"));
     const view = (items: typeof segments) => <LeaveGuardProvider><ShotSplitView segments={items} contentMode="narration" aspectRatio="9:16" projectName="demo" scriptFile="episode_1.json" onUpdatePrompt={save} /></LeaveGuardProvider>;

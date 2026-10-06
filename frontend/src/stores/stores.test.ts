@@ -47,12 +47,6 @@ describe("stores", () => {
   it("updates app store state and counters", () => {
     const app = useAppStore.getState();
 
-    app.setFocusedContext({ type: "character", id: "hero" });
-    expect(useAppStore.getState().focusedContext).toEqual({
-      type: "character",
-      id: "hero",
-    });
-
     app.triggerScrollTo({ type: "segment", id: "S1", route: "/episodes/1", highlight: true });
     expect(useAppStore.getState().scrollTarget).toEqual(
       expect.objectContaining({

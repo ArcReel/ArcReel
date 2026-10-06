@@ -19,7 +19,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { useTrackWrite } from "./useAssetWrites";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { rejectIfAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 
 interface EditableAssetNameProps {
   projectName: string;
@@ -61,6 +61,8 @@ export function EditableAssetName({
   const [renaming, setRenaming] = useState(false);
   const track = useTrackWrite();
   const inputRef = useRef<HTMLInputElement>(null);
+  // 确认是一键执行的级联改写：确认框打开后占用发生变化时实时禁用，提交时仍由 rejectIfBusy 复核
+  const queueBusy = useAssetBusyNames(assetType, projectName).has(name);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -224,7 +226,7 @@ export function EditableAssetName({
           </AlertDialogBody>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={renaming}>{t("common:cancel")}</AlertDialogCancel>
-            <AlertDialogAction disabled={renaming} onClick={() => void executeRename()}>
+            <AlertDialogAction disabled={renaming || busy || queueBusy} onClick={() => void executeRename()}>
               {renaming ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
               {renaming ? t("assets:renaming") : t("assets:rename_asset")}
             </AlertDialogAction>

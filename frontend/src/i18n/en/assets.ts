@@ -59,6 +59,8 @@ export default {
   "merging": "Merging…",
   "merge_failed": "Merge failed: {{message}}",
   "merge_busy_hint": "This asset is being generated. Merge it after generation finishes",
+  "merge_target_writing_hint": "\"{{name}}\" is uploading a sheet, restoring a version, or being deleted. You can merge after it finishes",
+  "merge_target_generating_hint": "\"{{name}}\" is being generated. You can merge after generation finishes",
   "merge_refresh_failed": "The merge is done, but the page data failed to refresh. Refresh manually to see the latest state",
   "field.name": "Name",
   "field.description": "Description",

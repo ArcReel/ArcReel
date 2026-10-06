@@ -27,6 +27,7 @@ import {
   enqueueReferenceVideoBatch,
   enqueueReferenceVideoUnit,
   enqueueScene,
+  enqueueScriptPlan,
   enqueueStoryboard,
   enqueueStoryboardBatch,
   enqueueVideo,
@@ -391,6 +392,30 @@ describe("enqueueGridRegenerate", () => {
     await expect(enqueueGridRegenerate("demo", "grid-1", "episode_1.json")).rejects.toThrow("boom");
 
     expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
+  });
+});
+
+describe("enqueueScriptPlan", () => {
+  it("成功时静默（即时动作成功不弹提示），仍打标并返回任务", async () => {
+    vi.spyOn(API, "planScript").mockResolvedValue({
+      batch: { batch_id: "b1", members: [{ unit_id: "episode-1", task_id: "t1" }] },
+    });
+
+    const res = await enqueueScriptPlan("demo", 1, { instructions: null });
+
+    expect(res).toEqual({ taskIds: ["t1"], deduped: false });
+    expect(useAppStore.getState().toast).toBeNull();
+    expect(occupied("demo", "text_script_plan", "episode-1")).toBe(true);
+  });
+
+  it("deduped=true 时仍弹统一去重提示", async () => {
+    vi.spyOn(API, "planScript").mockResolvedValue({
+      batch: { batch_id: "b1", members: [{ unit_id: "episode-1", task_id: "t1", deduped: true }] },
+    });
+
+    await enqueueScriptPlan("demo", 1, {});
+
+    expect(useAppStore.getState().toast?.text).toBe(i18n.t("dashboard:enqueue_deduped_toast"));
   });
 });
 

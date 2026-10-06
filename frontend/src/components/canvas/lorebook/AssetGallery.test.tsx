@@ -336,6 +336,63 @@ describe("AssetGallery", () => {
       });
     });
   });
+  describe("merging an asset", () => {
+    beforeEach(() => {
+      const project = { title: "demo", scenes: SCENES, episodes: [] } as unknown as ProjectData;
+      useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: project });
+      vi.spyOn(API, "getProject").mockResolvedValue({ project, scripts: {} } as never);
+    });
+
+    afterEach(() => {
+      useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    });
+
+    it("blocks merging into an asset whose card has a write in flight and says why", async () => {
+      const user = userEvent.setup();
+      let finishUpload: (value: never) => void = () => {};
+      vi.spyOn(API, "uploadFile").mockReturnValue(new Promise((resolve) => (finishUpload = resolve)));
+      const merge = vi.spyOn(API, "mergeProjectAsset").mockResolvedValue({
+        success: true,
+        dry_run: true,
+        source: "庭院",
+        target: "书房",
+        as_derivative: false,
+        aliases_added: [],
+        derivative_created: null,
+        derivatives_moved: [],
+        derivatives_folded: [],
+        references: 0,
+        episodes: [],
+      });
+      renderGallery();
+
+      // 保留方「书房」的卡片上正在上传资产图
+      const target = screen.getByRole("article", { name: "书房" });
+      const file = new File(["sheet"], "scene.png", { type: "image/png" });
+      fireEvent.change(within(target).getByLabelText("上传资产图", { selector: "input" }), { target: { files: [file] } });
+
+      await user.click(within(await openMenu(user, "庭院")).getByRole("menuitem", { name: "并入…" }));
+      const dialog = await screen.findByRole("alertdialog", { name: "把「庭院」并入另一个资产" });
+      await user.click(within(dialog).getByRole("combobox", { name: "保留方" }));
+      await user.click(await screen.findByRole("option", { name: "书房" }));
+
+      await waitFor(() => expect(merge).toHaveBeenCalledWith("demo", "scene", "庭院", "书房", expect.objectContaining({ dryRun: true })));
+      const confirm = within(dialog).getByRole("button", { name: "并入" });
+      expect(await within(dialog).findByText("「书房」正在上传资产图、恢复版本或删除，完成后才能合并")).toBeInTheDocument();
+      expect(confirm).toBeDisabled();
+
+      await act(async () => finishUpload({ path: "x" } as never));
+      await waitFor(() => expect(confirm).toBeEnabled());
+
+      act(() => useTasksStore.setState({
+        tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "书房", status: "running" })],
+      }));
+      expect(confirm).toBeDisabled();
+      expect(within(dialog).getByText("「书房」正在生成，生成结束后才能合并")).toBeInTheDocument();
+      expect(merge).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("image viewer", () => {
     const version = (n: number, current: boolean) => ({
       version: n,

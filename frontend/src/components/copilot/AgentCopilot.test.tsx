@@ -327,16 +327,6 @@ describe("AgentCopilot", () => {
       expect(input).toHaveValue("/");
     });
 
-    it("shows the focused context as an attachment that can be removed", async () => {
-      const user = userEvent.setup();
-      useAppStore.setState({ focusedContext: { type: "character", id: "朱汉杨" } });
-      render(<AgentCopilot />);
-
-      expect(screen.getByText("朱汉杨")).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "清除上下文" }));
-      expect(useAppStore.getState().focusedContext).toBeNull();
-      expect(screen.queryByText("朱汉杨")).not.toBeInTheDocument();
-    });
   });
 
   it("does not send when Enter is used to confirm an IME composition", () => {

@@ -26,7 +26,7 @@ export function ScriptPlanButton({ projectName, episode, replaces, className, di
   const open = useScriptPlanStore((s) => s.open);
   const { busy, refusedReason } = useScriptPlanEntry(projectName, episode);
   const reason = busy ? t("script_plan_busy") : (refusedReason ?? disabledReason ?? null);
-  const firstPlan = replaces === "none" || replaces === "formal_script";
+  const firstPlan = replaces === "formal_script";
   const Icon = busy ? Loader2 : firstPlan ? Sparkles : RotateCcw;
   return (
     // 置灰时保留聚焦而不用原生 disabled，读屏才读得到置灰原因；按钮自带的禁用淡化不生效，由外层淡化
