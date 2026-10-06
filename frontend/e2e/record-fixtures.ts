@@ -99,6 +99,12 @@ const RECORDINGS: Recording[] = [
   },
   // 全局设置「调用端点」：自定义端点列表（录制环境为空，多条目由场景替换）与各端点的分享提交（决定是否提供分享入口）；官方服务开关见上。
   { file: "custom-endpoints", method: "GET", path: "/api/v1/custom-endpoints" },
+  // 内置端点详情的只读定义。
+  {
+    file: "custom-providers-endpoint-newapi-video-definition",
+    method: "GET",
+    path: "/api/v1/custom-providers/endpoints/newapi-video/definition",
+  },
   { file: "market-submissions", method: "GET", path: "/api/v1/market/submissions" },
   // 全局设置「市场」：市场源（录制环境只有内置的官方源，从未刷新）与条目快照（为空）；刷新、聚合与条目详情访问外网，由场景替换。
   { file: "market-sources", method: "GET", path: "/api/v1/market/sources" },

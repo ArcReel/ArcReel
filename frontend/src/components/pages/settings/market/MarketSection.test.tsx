@@ -114,9 +114,9 @@ const SYSTEM_CONFIG = {
   options: {},
 } as unknown as GetSystemConfigResponse;
 
-function renderMarket(tab?: "shared" | "settings") {
+function renderMarket(tab?: "shared" | "settings", extra = "") {
   const location = memoryLocation({
-    path: `/app/settings?section=market${tab ? `&tab=${tab}` : ""}`,
+    path: `/app/settings?section=market${tab ? `&tab=${tab}` : ""}${extra}`,
     record: true,
   });
   render(
@@ -276,6 +276,30 @@ describe("MarketSection", () => {
 
       await userEvent.click(all);
       expect(cardNames()).toHaveLength(4);
+    });
+
+    it("presets the media filter from the address and leaves the address alone when it changes", async () => {
+      vi.mocked(API.listMarketEntries).mockResolvedValue({
+        entries: [...ENTRIES, makeEntry({ slug: "pixel", name: "Pixel Image", media_type: "image" })],
+        app_version: "0.30.0",
+      });
+      const location = renderMarket(undefined, "&media=image");
+      await screen.findAllByRole("article");
+      const group = screen.getByRole("group", { name: "媒体类型" });
+      const [all, image] = within(group).getAllByRole("button");
+      expect(image).toHaveAttribute("aria-pressed", "true");
+      expect(cardNames()).toEqual(["Pixel Image"]);
+
+      await userEvent.click(all);
+      expect(cardNames()).toHaveLength(4);
+      expect(location.history?.at(-1)).toBe("/app/settings?section=market&media=image");
+    });
+
+    it("ignores a media type the market has no filter for", async () => {
+      renderMarket(undefined, "&media=audio");
+      await screen.findAllByRole("article");
+      const [all] = within(screen.getByRole("group", { name: "媒体类型" })).getAllByRole("button");
+      expect(all).toHaveAttribute("aria-pressed", "true");
     });
 
     it("filters by installation records, opens an installed endpoint and opens details from the card", async () => {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { MarketMediaType } from "@/app-routes";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -30,6 +31,7 @@ function matchesQuery(entry: MarketEntry, query: string): boolean {
  * 条目类型目前只有调用端点，不显示类型筛选。刷新失败的源在筛选行之上列出原因与快照时间。
  */
 export function MarketBrowseTab({
+  initialMedia,
   sources,
   entries,
   aggregates,
@@ -37,6 +39,8 @@ export function MarketBrowseTab({
   onOpen,
   onOpenEndpoint,
 }: {
+  /** 媒体类型筛选的初始值，来自地址的 `media` 参数；null 表示「全部」。 */
+  initialMedia: MarketMediaType | null;
   sources: MarketSourceInfo[];
   /** null 表示还在加载。 */
   entries: MarketEntry[] | null;
@@ -49,7 +53,7 @@ export function MarketBrowseTab({
   const [query, setQuery] = useState("");
   const [hiddenSourceIds, setHiddenSourceIds] = useState<ReadonlySet<number>>(new Set());
   const [onlyInstalled, setOnlyInstalled] = useState(false);
-  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>(initialMedia ?? "all");
 
   const enabled = sources.filter((source) => source.is_enabled);
   const failing = enabled.filter((source) => source.status !== "ok" && source.status !== "never_fetched");

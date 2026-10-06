@@ -40,6 +40,7 @@ function renderDialog(
       definition={null}
       validation={result}
       busy={false}
+      saving={false}
       pending={false}
       mediaType="video"
       onSource={vi.fn()}
@@ -70,6 +71,31 @@ describe("EndpointImportDialog", () => {
     expect(onCreateCopy).toHaveBeenCalledOnce();
     await userEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps cancel out of reach while the import is being saved, but not while it is still being inferred", () => {
+    const { rerender } = render(<></>);
+    const props: ComponentProps<typeof EndpointImportDialog> = {
+      open: true,
+      fileName: "demo.json",
+      definition: newEndpointDefinition("Demo"),
+      validation: validation(),
+      busy: true,
+      saving: true,
+      pending: false,
+      mediaType: "video",
+      onSource: vi.fn(),
+      onMediaTypeChange: vi.fn(),
+      onCreateCopy: vi.fn(),
+      onOverwrite: vi.fn(),
+      onBindNodes: vi.fn(),
+      onCancel: vi.fn(),
+    };
+    rerender(<EndpointImportDialog {...props} />);
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+
+    rerender(<EndpointImportDialog {...props} saving={false} />);
+    expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
   });
 
   it("tells the user which ArcReel version the definition needs when the app is older", () => {

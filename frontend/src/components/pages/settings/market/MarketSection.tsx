@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { endpointSettingsPath, marketSettingsPath, type MarketTab } from "@/app-routes";
+import { endpointSettingsPath, marketSettingsPath, parseMarketMedia, type MarketTab } from "@/app-routes";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
@@ -53,7 +53,8 @@ function entriesKey(sources: MarketSourceInfo[]): string {
 const NO_AGGREGATES: ReadonlyMap<string, MarketEntryAggregate> = new Map();
 
 /**
- * 市场分区：顶部 Tabs 分「浏览」「我的分享」「设置」，当前 Tab 记在地址的 `tab` 参数里。
+ * 市场分区：顶部 Tabs 分「浏览」「我的分享」「设置」，当前 Tab 记在地址的 `tab` 参数里；
+ * 地址带 `media` 时「浏览」按该媒体类型预设筛选。
  * 打开时先渲染缓存的源列表与条目，再在后台刷新距上次成功刷新超过 1 小时的启用源；源有变化时重新拉取条目。
  * 官方服务开启时另拉官方市场源条目的安装量与评分和我的分享，首次进入显示一次说明；
  * 关闭或读不到状态时「浏览」不展示任何官方服务元素，开关本身常驻在「设置」。
@@ -63,8 +64,10 @@ export function MarketSection() {
   const pushToast = useAppStore((s) => s.pushToast);
   const [, navigate] = useLocation();
   const search = useSearch();
-  const tabParam = new URLSearchParams(search).get("tab");
+  const params = new URLSearchParams(search);
+  const tabParam = params.get("tab");
   const tab = TABS.find((item) => item === tabParam) ?? "browse";
+  const mediaParam = parseMarketMedia(params.get("media"));
   const [sources, setSources] = useState<MarketSourceInfo[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [entries, setEntries] = useState<MarketEntry[] | null>(null);
@@ -255,6 +258,9 @@ export function MarketSection() {
         </div>
         <TabsContent value="browse" className="mt-2">
           <MarketBrowseTab
+            // 地址只在从别处跳入时带 media，换一个入口就按新的预设重新开始；页面内改筛选不回写地址
+            key={mediaParam ?? "all"}
+            initialMedia={mediaParam}
             sources={sources}
             entries={entries}
             aggregates={shownAggregates}

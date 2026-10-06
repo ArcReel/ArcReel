@@ -251,6 +251,21 @@ defineRegionScenarios("市场", [
     },
   },
   {
+    name: "从供应商或端点带着媒体类型跳入：筛选已预设为「图片」，地址不随筛选改动",
+    path: `${MARKET_PATH}&media=image`,
+    api: MANY,
+    ready: browseReady,
+    act: async (page) => {
+      const media = page.getByRole("group", { name: "媒体类型" });
+      await expect(media.getByRole("button", { name: "图片" })).toHaveAttribute("aria-pressed", "true");
+      const imageCount = ENTRIES.filter((item) => item.media_type === "image").length;
+      await expect(page.getByRole("article")).toHaveCount(imageCount);
+      await media.getByRole("button", { name: "全部" }).click();
+      await expect(page.getByRole("article")).toHaveCount(ENTRIES.length);
+      expect(new URL(page.url()).search).toBe("?section=market&media=image");
+    },
+  },
+  {
     name: "我的分享：分享多、名称长，过期的状态标出原因",
     path: SHARED_PATH,
     api: MANY,

@@ -41,6 +41,7 @@ export function EndpointImportDialog({
   definition,
   validation,
   busy,
+  saving,
   pending,
   mediaType,
   onSource,
@@ -55,7 +56,10 @@ export function EndpointImportDialog({
   fileName: string;
   definition: AnyEndpointDefinition | null;
   validation: EndpointValidateResponse | null;
+  /** 推断或落盘请求在途。 */
   busy: boolean;
+  /** 落盘请求在途：已经发出就收不回，期间不能取消。 */
+  saving: boolean;
   /** 交出去的那份载荷正在校验。 */
   pending: boolean;
   /** 交出一份载荷：上传的文件带文件名，粘贴的不带。 */
@@ -114,7 +118,7 @@ export function EndpointImportDialog({
     <Dialog
       open={open}
       onOpenChange={(next: boolean) => {
-        // 落盘请求在途时不响应 Esc 与遮罩点击；「取消」按钮仍可用，它会作废在途的识别与推断
+        // 请求在途时不响应 Esc 与遮罩点击；识别与推断在途时「取消」仍可用，它会作废在途的请求
         if (!next && !busy) onCancel();
       }}
     >
@@ -285,7 +289,7 @@ export function EndpointImportDialog({
         </DialogBody>
         <DialogFooter>
           {hasErrors && <p className="mr-auto self-center text-sm text-warn">{t("ce_import_blocked")}</p>}
-          <Button variant="outline" onClick={onCancel}>
+          <Button variant="outline" onClick={onCancel} disabled={saving}>
             {t("common:cancel")}
           </Button>
           <Button

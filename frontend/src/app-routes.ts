@@ -33,9 +33,24 @@ export function settingsSectionPath(section: SettingsSection, params: Record<str
 /** 市场分区的 Tab；「浏览」是默认 Tab，地址里不写。 */
 export type MarketTab = "browse" | "shared" | "settings";
 
-/** 全局设置「市场」分区某个 Tab 的地址（`tab=`）。 */
-export function marketSettingsPath(tab: MarketTab = "browse"): string {
-  return settingsSectionPath("market", tab === "browse" ? {} : { tab });
+/** 市场「浏览」Tab 可按媒体类型筛选的取值，即地址参数 `media` 的取值。 */
+export const MARKET_MEDIA_TYPES = ["image", "video"] as const;
+export type MarketMediaType = (typeof MARKET_MEDIA_TYPES)[number];
+
+/** 地址参数 `media` 解析出的媒体类型；缺省或无法识别时为 null。 */
+export function parseMarketMedia(value: string | null | undefined): MarketMediaType | null {
+  return MARKET_MEDIA_TYPES.find((media) => media === value) ?? null;
+}
+
+/**
+ * 全局设置「市场」分区某个 Tab 的地址（`tab=`）。
+ * 传 `media` 时写成 `media=<媒体类型>`，「浏览」打开时按它预设媒体类型筛选；市场没有的媒体类型（文本、音频）不写。
+ */
+export function marketSettingsPath(tab: MarketTab = "browse", options: { media?: string | null } = {}): string {
+  const params: Record<string, string> = tab === "browse" ? {} : { tab };
+  const media = parseMarketMedia(options.media);
+  if (media) params.media = media;
+  return settingsSectionPath("market", params);
 }
 
 /**

@@ -396,7 +396,7 @@ function ModelFields({ row, protocol, providerId, onUpdate, onRemove }: ModelFie
               {t("cp_open_endpoint")}
             </Link>
           )}
-          <Link href={marketSettingsPath()} className={buttonVariants({ variant: "link", size: "sm" })}>
+          <Link href={marketSettingsPath("browse", { media })} className={buttonVariants({ variant: "link", size: "sm" })}>
             <Store aria-hidden data-icon="inline-start" />
             {t("cp_endpoint_from_market")}
           </Link>
