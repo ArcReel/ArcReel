@@ -133,3 +133,77 @@ test("报告文档自身的滚动高度，用于断言文档不滚动", async ({
   expect(fits.documentScrollHeight).toBe(fits.viewportHeight);
   expect(scrolls.documentScrollHeight).toBeGreaterThan(scrolls.viewportHeight);
 });
+
+test.describe("横向滚动", () => {
+  test("报告文档自身的滚动宽度，用于断言文档不横向滚动", async ({ page }) => {
+    const fits = await render(page, `<div style="height:20px"></div>`);
+    const scrolls = await render(page, `<div style="width:2000px;height:20px"></div>`);
+
+    expect(fits.documentScrollWidth).toBe(fits.viewportWidth);
+    expect(scrolls.documentScrollWidth).toBeGreaterThan(scrolls.viewportWidth);
+  });
+
+  for (const slot of ["dialog-body", "alert-dialog-body", "sheet-body"]) {
+    test(`弹层正文（${slot}）被不折行的内容撑出横向滚动时报告，并指出越界的后代`, async ({ page }) => {
+      const report = await render(
+        page,
+        `<div role="dialog" style="width:400px;height:300px;display:flex;flex-direction:column">
+          <div data-slot="${slot}" style="min-height:0;flex:1;overflow-y:auto;padding:16px">
+            <p style="margin:0">吊销失败：<code id="reason" style="white-space:nowrap">${"x".repeat(200)}</code></p>
+          </div>
+        </div>`,
+      );
+
+      // 只写了 overflow-y:auto，overflow-x 也被算成 auto：内容没有被裁切，裁切检查报不出来
+      expect(report.clipped).toEqual([]);
+      expect(report.strayScrollX).toEqual([
+        expect.objectContaining({ path: `body > div > div[data-slot="${slot}"]`, culprit: expect.stringContaining("code#reason") }),
+      ]);
+    });
+  }
+
+  test("页面上只写了纵向滚动的栏被撑出横向滚动时同样报告", async ({ page }) => {
+    const report = await render(
+      page,
+      `<section id="pane" style="width:500px;height:300px;overflow-y:auto">
+        <div style="width:700px;height:20px"></div>
+      </section>`,
+    );
+
+    expect(report.strayScrollX).toEqual([expect.objectContaining({ path: "body > section#pane" })]);
+  });
+
+  test("内容折行、或宽内容在声明了横向滚动的子区域里时不报告", async ({ page }) => {
+    const report = await render(
+      page,
+      `<div data-slot="dialog-body" style="width:400px;overflow-y:auto">
+        <p style="margin:0;overflow-wrap:anywhere">${"x".repeat(200)}</p>
+        <pre style="overflow-x:auto;margin:0">${"代码".repeat(200)}</pre>
+      </div>`,
+    );
+
+    expect(report.strayScrollX).toEqual([]);
+  });
+
+  test("用 overflow-x-auto 类或行内样式声明横向滚动的区域不报告", async ({ page }) => {
+    const report = await render(
+      page,
+      `<div class="relative overflow-x-auto scroll-fade-x" style="width:300px;overflow-y:auto"><div style="width:900px;height:20px"></div></div>
+      <div class="md:overflow-auto" style="width:300px;overflow-y:auto"><div style="width:900px;height:20px"></div></div>
+      <div style="width:300px;overflow-x:auto"><div style="width:900px;height:20px"></div></div>`,
+    );
+
+    expect(report.strayScrollX).toEqual([]);
+  });
+
+  test("data-overflow-ok 写明原因时豁免", async ({ page }) => {
+    const report = await render(
+      page,
+      `<div data-overflow-ok="对照表需要横向滚动" style="width:300px;overflow-y:auto">
+        <div style="width:900px;height:20px"></div>
+      </div>`,
+    );
+
+    expect(report.strayScrollX).toEqual([]);
+  });
+});

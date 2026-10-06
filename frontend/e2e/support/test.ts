@@ -68,12 +68,19 @@ export const test = base.extend<{ api: ApiStub }>({
 
 export { expect };
 
-/** 文档本身不滚动，且没有被 overflow 裁切、用户够不到的内容。 */
+/** 文档本身不滚动，没有被 overflow 裁切、用户够不到的内容，也没有未声明的横向滚动。 */
 export async function expectReachableLayout(page: Page) {
   const report = await page.evaluate(inspectLayout);
   expect
     .soft(report.documentScrollHeight, "文档本身发生了滚动：外壳根节点或绝对定位元素撑高了文档")
     .toBe(report.viewportHeight);
+  expect.soft(report.documentScrollWidth, "文档本身发生了横向滚动：有元素宽于视口").toBe(report.viewportWidth);
+  expect
+    .soft(
+      report.strayScrollX,
+      "纵向滚动区（含弹层正文）被宽内容撑出了横向滚动：内容应折行或限宽，确需横向滚动的区域写 overflow-x-auto",
+    )
+    .toEqual([]);
   expect(report.clipped, "有内容被 overflow 裁切且无法滚动到达").toEqual([]);
 }
 

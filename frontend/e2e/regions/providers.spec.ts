@@ -227,8 +227,6 @@ defineRegionScenarios("供应商", [
       const dialog = page.getByRole("dialog", { name: "添加密钥" });
       await expect(dialog).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "添加密钥" })).toBeInViewport({ ratio: 1 });
-      // 等进场过渡结束再探测：淡入途中的半透明文字会被 axe 判为对比度不足
-      await dialog.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
     },
     screenshot: { name: "providers-add-key-dialog", target: (page) => page.getByRole("dialog") },
   },
@@ -280,7 +278,6 @@ defineRegionScenarios("供应商", [
       const listbox = page.getByRole("listbox");
       await expect(listbox.getByRole("option", { name: /OpenAI 图片/ }).first()).toBeVisible();
       await expect(listbox).toBeInViewport();
-      await listbox.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
     },
     // 下拉渲染在弹层里，截详情栏连同盖在上面的下拉一起看
     screenshot: { name: "providers-custom-endpoint-select", target: (page) => page.getByRole("main") },
@@ -296,7 +293,6 @@ defineRegionScenarios("供应商", [
       const dialog = page.getByRole("alertdialog");
       await expect(dialog).toContainText("9 个模型");
       await expect(dialog.getByRole("button", { name: "删除供应商" })).toBeInViewport({ ratio: 1 });
-      await dialog.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
     },
     screenshot: { name: "providers-custom-delete-dialog", target: (page) => page.getByRole("alertdialog") },
   },

@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -29,11 +29,6 @@ const MANY_AGENT_PROVIDERS: ApiOverrides = {
     },
   },
 };
-
-// 弹层淡入结束前文字还是半透明，axe 会误报对比度不足。
-async function settled(locator: Locator) {
-  await locator.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
-}
 
 async function sectionReady(page: Page) {
   await page.getByRole("heading", { name: "Agent 供应商" }).waitFor();
@@ -84,7 +79,6 @@ defineRegionScenarios("全局设置 · ArcReel Agent", [
       await expect(last).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "测试连接" })).toBeInViewport({ ratio: 1 });
-      await settled(dialog);
     },
     screenshot: { name: "settings-arcreel-agent-dialog", target: (page) => page.getByRole("dialog") },
   },
@@ -101,7 +95,6 @@ defineRegionScenarios("全局设置 · ArcReel Agent", [
       const dialog = page.getByRole("alertdialog", { name: "删除 Agent 供应商" });
       await expect(dialog).toContainText("自建 Anthropic 兼容网关 2");
       await expect(dialog.getByRole("button", { name: "取消" })).toBeFocused();
-      await settled(dialog);
     },
   },
 ]);

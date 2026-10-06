@@ -257,7 +257,7 @@ function RevokeTokenDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{t("dashboard:access_token_revoke_title", { name: shown?.name ?? "" })}</AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={t("dashboard:access_token_revoke_title", { name: shown?.name ?? "" })}>
           <div className="flex flex-col gap-3">
             <AlertDialogDescription>{t("dashboard:access_token_revoke_desc")}</AlertDialogDescription>
             {error && (

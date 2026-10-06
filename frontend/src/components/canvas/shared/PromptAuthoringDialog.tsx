@@ -332,7 +332,7 @@ export function PromptAuthoringDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>{t("prompt_authoring_overwrite_title")}</AlertDialogTitle>
           </AlertDialogHeader>
-          <AlertDialogBody>
+          <AlertDialogBody tabIndex={0} role="region" aria-label={t("prompt_authoring_overwrite_title")}>
             <AlertDialogDescription>
               <span className="whitespace-pre-line wrap-break-word">
                 {overwrite ? itemIdsInEpisodeText(overwrite.text) : null}

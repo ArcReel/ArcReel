@@ -480,7 +480,7 @@ export function CharacterDerivativeRow({
               <AlertDialogHeader>
                 <AlertDialogTitle>{t("assets:derivative_delete_title", { name })}</AlertDialogTitle>
               </AlertDialogHeader>
-              <AlertDialogBody>
+              <AlertDialogBody tabIndex={0} role="region" aria-label={t("assets:derivative_delete_title", { name })}>
                 <AlertDialogDescription>
                   {t(
                     derivative.referenced

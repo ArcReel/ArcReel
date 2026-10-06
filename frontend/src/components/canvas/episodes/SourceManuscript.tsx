@@ -316,9 +316,16 @@ function BoundaryButton({
   return (
     <div data-no-caret className="-mt-3 mb-3 flex items-center gap-2">
       <span aria-hidden className={cn("h-px flex-1", active ? "bg-primary" : "bg-input")} />
-      <Button variant={active ? "secondary" : "outline"} size="xs" onClick={onClick} aria-pressed={active}>
+      {/* 两集名称都很长时按钮随原文列收窄，文字截断，全文在悬停提示与可访问名称里 */}
+      <Button
+        variant={active ? "secondary" : "outline"}
+        size="xs"
+        className="max-w-full min-w-0 shrink"
+        onClick={onClick}
+        aria-pressed={active}
+      >
         <MoveHorizontal aria-hidden data-icon="inline-start" />
-        {active ? activeLabel : label}
+        <TruncatedText text={active ? activeLabel : label} focusable={false} />
       </Button>
       <span aria-hidden className={cn("h-px flex-1", active ? "bg-primary" : "bg-input")} />
     </div>

@@ -430,7 +430,7 @@ export function MarketInstallDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>{t("market_uninstall_title", { name: header.name })}</AlertDialogTitle>
           </AlertDialogHeader>
-          <AlertDialogBody>
+          <AlertDialogBody tabIndex={0} role="region" aria-label={t("market_uninstall_title", { name: header.name })}>
             <AlertDialogDescription>{t("market_uninstall_desc")}</AlertDialogDescription>
           </AlertDialogBody>
           <AlertDialogFooter>

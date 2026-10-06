@@ -255,10 +255,6 @@ async function box(locator: Locator) {
   return rect;
 }
 
-async function waitForAnimations(locator: Locator) {
-  await locator.evaluate((el) => Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)));
-}
-
 /** 紧凑档的 Agent 面板盖在画布右侧：点画布右侧的控件之前先收起它。 */
 async function revealCanvasRight(page: Page) {
   if (viewport(page).width >= STANDARD_TIER_MIN_WIDTH) return;
@@ -340,7 +336,6 @@ defineRegionScenarios("分集视图", [
       await outline(page).locator('[data-outline-episode="3"]').getByRole("button", { name: /的操作$/ }).click();
       const menu = page.getByRole("menu");
       await expect(menu.getByRole("menuitem", { name: "从这一集开始重新规划" })).toBeVisible();
-      await waitForAnimations(menu);
     },
     screenshot: { name: "episodes-episode-menu", target: (page) => page.getByRole("menu") },
   },
@@ -354,7 +349,6 @@ defineRegionScenarios("分集视图", [
       await page.getByRole("button", { name: "AI 规划剩余内容" }).click();
       const popover = page.getByRole("dialog");
       await expect(popover.getByRole("button", { name: "交给 Agent" })).toBeVisible();
-      await waitForAnimations(popover);
     },
     screenshot: { name: "episodes-plan-popover", target: (page) => page.getByRole("dialog") },
   },
@@ -368,7 +362,6 @@ defineRegionScenarios("分集视图", [
       await page.getByRole("button", { name: "选择上传方式" }).click();
       const menu = page.getByRole("menu");
       await expect(menu.getByRole("menuitem", { name: /^逐集原文/ })).toBeVisible();
-      await waitForAnimations(menu);
     },
   },
   {
@@ -381,7 +374,6 @@ defineRegionScenarios("分集视图", [
       await page.getByRole("button", { name: "新建一集", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "新建一集" });
       await expect(dialog.getByLabel("标题")).toBeVisible();
-      await waitForAnimations(dialog);
     },
   },
   {
@@ -395,7 +387,6 @@ defineRegionScenarios("分集视图", [
       await page.getByRole("button", { name: "处理", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "处理还没用上的文件" });
       await expect(dialog.getByRole("listitem")).toHaveCount(4);
-      await waitForAnimations(dialog);
     },
     screenshot: { name: "episodes-unregistered", target: (page) => page.getByRole("dialog") },
   },

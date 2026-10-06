@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
+import { waitForEntrance } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -46,8 +47,7 @@ async function episodeReady(page: Page) {
 async function openExportDialog(page: Page) {
   await page.getByRole("button", { name: "导出项目归档" }).click();
   const dialog = exportDialog(page);
-  // 等进场动画结束再探测，axe 才不会读到半透明的中间态。
-  await dialog.evaluate((el) => Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)));
+  await waitForEntrance(dialog);
   return dialog;
 }
 

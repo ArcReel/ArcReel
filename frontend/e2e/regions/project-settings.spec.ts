@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { loadRecordedResponses } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
+import { waitForEntrance } from "../support/region-helpers.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 项目设置：侧栏分页（项目 / Agent 两组）、外壳底行的保存栏、风格对话框、模型分页的覆盖来源、
@@ -94,11 +95,6 @@ const CUSTOMIZED_PROFILE: ApiOverrides = {
   },
 };
 
-async function waitForAnimations(page: Page) {
-  // 弹层淡入、保存按钮切换启用色时的过渡中间色会被 axe 判为对比度不足，等动画结束再探测。
-  await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
-}
-
 const sidebar = (page: Page) => page.getByRole("navigation", { name: "项目设置" });
 
 async function tabReady(page: Page, title: string) {
@@ -117,7 +113,6 @@ defineRegionScenarios("项目设置", [
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(page.getByRole("button", { name: "保存" })).toBeInViewport({ ratio: 1 });
       await expect(page.getByRole("button", { name: "保存" })).toBeEnabled();
-      await waitForAnimations(page);
     },
     screenshot: { name: "project-settings-basics", target: (page) => page.getByRole("main") },
   },
@@ -131,7 +126,6 @@ defineRegionScenarios("项目设置", [
       await expect(group.getByRole("radio", { name: "自定义" })).toBeChecked();
       await page.getByRole("spinbutton", { name: /目标总时长/ }).fill("0");
       await page.getByRole("main").evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
-      await waitForAnimations(page);
     },
   },
   {
@@ -143,7 +137,7 @@ defineRegionScenarios("项目设置", [
       await page.getByRole("button", { name: "更换" }).click();
       const dialog = page.getByRole("dialog", { name: "更换风格" });
       await dialog.waitFor();
-      await waitForAnimations(page);
+      await waitForEntrance(dialog);
       const body = dialog.locator('[data-slot="dialog-body"]');
       await body.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(dialog.getByRole("button", { name: "使用此风格" })).toBeInViewport({ ratio: 1 });
@@ -164,7 +158,6 @@ defineRegionScenarios("项目设置", [
       await page.getByText(/本项目覆盖了 3 项全局默认/).waitFor();
       await page.getByRole("main").evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(page.getByRole("button", { name: "保存" })).toBeInViewport({ ratio: 1 });
-      await waitForAnimations(page);
     },
     screenshot: { name: "project-settings-models", target: (page) => page.getByRole("main") },
   },
@@ -176,7 +169,6 @@ defineRegionScenarios("项目设置", [
     act: async (page) => {
       await page.getByRole("combobox", { name: "默认视频模型" }).click();
       await page.getByRole("listbox").waitFor();
-      await waitForAnimations(page);
     },
   },
   {
@@ -221,7 +213,6 @@ defineRegionScenarios("项目设置", [
     act: async (page) => {
       await page.getByRole("button", { name: "重置为内置配置" }).click();
       await page.getByRole("alertdialog", { name: "重置 Agent 配置？" }).waitFor();
-      await waitForAnimations(page);
     },
     screenshot: { name: "project-settings-agent-reset", target: (page) => page.getByRole("alertdialog") },
   },
@@ -233,7 +224,6 @@ defineRegionScenarios("项目设置", [
     act: async (page) => {
       await page.getByRole("button", { name: "图片模型：恢复全局" }).click();
       await expect(sidebar(page).getByRole("link", { name: /^模型.*有未保存的修改/ })).toBeVisible();
-      await waitForAnimations(page);
     },
     screenshot: { name: "project-settings-sidebar", target: (page) => sidebar(page) },
   },

@@ -208,7 +208,7 @@ export function EditableAssetName({
           <AlertDialogHeader>
             <AlertDialogTitle>{t("assets:rename_confirm_title", { name })}</AlertDialogTitle>
           </AlertDialogHeader>
-          <AlertDialogBody>
+          <AlertDialogBody tabIndex={0} role="region" aria-label={t("assets:rename_confirm_title", { name })}>
             <div className="flex flex-col gap-1.5">
               <AlertDialogDescription>
                 {preview && (preview.references > 0 || preview.files > 0)

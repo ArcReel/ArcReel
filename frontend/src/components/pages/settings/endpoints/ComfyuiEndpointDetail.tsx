@@ -436,7 +436,14 @@ export function ComfyuiEndpointDetail({
           </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">{t("ce_cf_auth_label")}</span>
-            <pre className="relative overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs text-subtle-foreground">
+            {/* 凭据模版不折行，长的会横向滚动；预览是只读文本，区域自身可聚焦，键盘才能滚动 */}
+            <pre
+              role="region"
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动
+              tabIndex={0}
+              aria-label={t("ce_cf_auth_label")}
+              className="relative overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs text-subtle-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
               {authPreview(definition)}
             </pre>
             <p className="text-xs text-muted-foreground">

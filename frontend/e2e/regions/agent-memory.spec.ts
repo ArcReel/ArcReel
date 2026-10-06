@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
+import { waitForEntrance } from "../support/region-helpers.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 记忆编辑器：全局设置「Agent 记忆」（全出血档，二级栏列文件、详情栏是编辑器，两栏各自滚动）
@@ -43,11 +44,6 @@ function manyFiles(base: string, dir: string): ApiOverrides {
 
 const USER_FILES = manyFiles(USER_MEMORY, "/home/creator/.arcreel/data/users/default/memory");
 const PROJECT_FILES = manyFiles(PROJECT_MEMORY, "/home/creator/.arcreel/data/projects/demo/.arcreel/memory");
-
-/** 等弹层进出场与按钮配色过渡结束：axe 会把过渡中间色判为对比度不足。过渡被取消时 finished 以 AbortError 拒绝。 */
-async function settle(page: Page) {
-  await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
-}
 
 const editor = (page: Page) => page.getByRole("textbox", { name: "MEMORY.md" });
 
@@ -110,7 +106,6 @@ defineRegionScenarios("Agent 记忆", [
       await editIndex(page);
       await expect(page.getByRole("button", { name: "保存" })).toBeInViewport({ ratio: 1 });
       await expect(page.getByRole("button", { name: "放弃修改" })).toBeInViewport({ ratio: 1 });
-      await settle(page);
     },
     screenshot: { name: "agent-memory-unsaved", target: (page) => page.getByRole("main") },
   },
@@ -124,7 +119,6 @@ defineRegionScenarios("Agent 记忆", [
     act: async (page) => {
       await page.getByRole("button", { name: "更多操作" }).click();
       await expect(page.getByRole("menuitem", { name: "清空全部记忆" })).toBeInViewport({ ratio: 1 });
-      await settle(page);
     },
   },
   {
@@ -138,7 +132,6 @@ defineRegionScenarios("Agent 记忆", [
       await page.getByRole("button", { name: "删除" }).click();
       const dialog = page.getByRole("alertdialog", { name: "删除 MEMORY.md？" });
       await dialog.waitFor();
-      await settle(page);
       await expect(dialog.getByRole("button", { name: "删除" })).toBeInViewport({ ratio: 1 });
     },
     screenshot: { name: "agent-memory-delete-dialog", target: (page) => page.getByRole("alertdialog") },
@@ -160,7 +153,6 @@ defineRegionScenarios("Agent 记忆", [
       await body.press("End");
       await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
       await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
-      await settle(page);
     },
   },
 ]);
@@ -178,7 +170,7 @@ defineRegionScenarios("项目记忆", [
       await expect(page.getByRole("button", { name: "保存" })).toBeVisible();
       // 记忆文件自己保存，外壳底行不出现项目设置的保存栏
       await expect(page.getByRole("button", { name: "保存" })).toHaveCount(1);
-      await settle(page);
+      await waitForEntrance(page.locator("body"));
       await page.getByRole("main").evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(page.getByRole("link", { name: "新建记忆文件" })).toBeInViewport({ ratio: 1 });
     },

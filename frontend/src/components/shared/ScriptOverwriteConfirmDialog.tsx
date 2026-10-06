@@ -57,7 +57,7 @@ export function ScriptOverwriteConfirmDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{title ?? t("review_overwrite_title")}</AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={title ?? t("review_overwrite_title")}>
           <AlertDialogDescription>
             <span className="whitespace-pre-line wrap-break-word">{itemIdsInEpisodeText(overwrite.text)}</span>
           </AlertDialogDescription>

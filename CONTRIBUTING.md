@@ -66,7 +66,7 @@ pnpm check-consistency
 
 ### 前端页面级测试
 
-`frontend/e2e/` 是 Playwright 页面级套件。它在 1024×600 到 2560×1440 的五个视口上打开各页面区域，检查文档本身不滚动、没有被裁切又无法滚动到达的内容，并用 axe 按 WCAG 2.2 AA 检查可访问性。CI 的 `frontend-e2e` job 在官方 Playwright 镜像里运行。本地用 run-server 远程模式在同一镜像里渲染，结果与 CI 一致：
+`frontend/e2e/` 是 Playwright 页面级套件。它在 1024×600 到 2560×1440 的五个视口上打开各页面区域，检查文档本身不滚动、没有被裁切又无法滚动到达的内容、纵向滚动区（含弹层正文）没有被撑出横向滚动，并用 axe 按 WCAG 2.2 AA 检查可访问性。CI 的 `frontend-e2e` job 在官方 Playwright 镜像里运行。本地用 run-server 远程模式在同一镜像里渲染，结果与 CI 一致：
 
 ```bash
 cd frontend
@@ -76,8 +76,10 @@ pnpm e2e:remote   # 终端二：构建前端，连接容器里的浏览器运行
 
 没有 Docker 时，先运行 `pnpm exec playwright install chromium`，再运行 `pnpm e2e`。这种方式在本机渲染，字体与布局可能和 CI 不同，结果以容器内为准。
 
+同一台机器上并行运行多份套件时，用环境变量错开端口与产物目录，不设置时取括号内的默认值：`E2E_PORT` 是预览服务端口（4173），`E2E_OUTPUT_DIR` 是失败截图与 trace 的目录（`frontend/test-results`），`E2E_SERVER_PORT` 是 run-server 映射到本机的端口（3000），`pnpm e2e:server` 与 `pnpm e2e:remote` 读同一个变量。`CI=1` 时生成的 HTML 报告用 Playwright 自带的 `PLAYWRIGHT_HTML_OUTPUT_DIR` 改目录。截图基线按默认端口生成，换端口后页面上显示本机地址的截图不参与比对。
+
 - **新增场景**：在 `frontend/e2e/regions/` 下用 `defineRegionScenarios` 登记，写明打开的路由、就绪条件和要探测的状态。场景以会改变可用高度的状态为主，例如展开面板、打开弹层。
-- **豁免**：装饰性的裁切层用 `data-overflow-ok="原因"` 豁免，属性值必须写明原因。
+- **豁免**：装饰性的裁切层用 `data-overflow-ok="原因"` 豁免，属性值必须写明原因。确需横向滚动的区域（时间线轨道、代码块、标签带）写 `overflow-x-auto`，探针按这个类名识别，不需要另加豁免。
 - **接口数据替身**：`frontend/e2e/fixtures/recorded/` 由 `pnpm e2e:record` 对真实后端录制。脚本需要 `uv`，会在临时数据目录里启动后端并创建演示项目。后端改动接口形状的 PR 同时重录，形状变化体现为替身文件的 diff。长文本、多条目等压力变体写在场景的 `api` 字段里。
 - **页面截图**：场景登记 `screenshot` 后，设置 `E2E_SCREENSHOTS=1` 运行才会比对。截图目前只作评审材料，不是 CI 闸门。
 

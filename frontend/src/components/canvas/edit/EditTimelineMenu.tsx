@@ -223,7 +223,7 @@ function DeleteDialog({ open, projectName, timeline, onClose, onDeleted }: Dialo
         <AlertDialogHeader>
           <AlertDialogTitle>{t("edit_view_delete_title", { name: timeline.name })}</AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={t("edit_view_delete_title", { name: timeline.name })}>
           <div className="flex flex-col gap-3">
             <AlertDialogDescription>{t("edit_view_delete_description")}</AlertDialogDescription>
             {error && (

@@ -69,11 +69,6 @@ async function manyReady(page: Page) {
   await expect(projectList(page).getByRole("listitem")).toHaveCount(PROJECTS.length);
 }
 
-async function waitForAnimations(page: Page) {
-  // 弹层淡入时的半透明文字会被 axe 判为对比度不足，等动画结束再探测。
-  await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
-}
-
 defineRegionScenarios("项目大厅", [
   {
     name: "打开大厅：问候区、筛选工具栏与项目卡",
@@ -141,7 +136,6 @@ defineRegionScenarios("项目大厅", [
     act: async (page) => {
       await page.getByRole("button", { name: "更多新建方式" }).click();
       await expect(page.getByRole("menuitem", { name: "导入 ZIP…" })).toBeInViewport({ ratio: 1 });
-      await waitForAnimations(page);
     },
   },
   {
@@ -152,7 +146,6 @@ defineRegionScenarios("项目大厅", [
     act: async (page) => {
       await firstCardActions(page).click();
       await expect(page.getByRole("menuitem", { name: "删除" })).toBeInViewport({ ratio: 1 });
-      await waitForAnimations(page);
     },
     screenshot: { name: "lobby-card-menu", target: (page) => projectList(page).getByRole("listitem").first() },
   },
@@ -167,7 +160,6 @@ defineRegionScenarios("项目大厅", [
       const dialog = page.getByRole("dialog", { name: "重命名项目" });
       await expect(dialog.getByRole("textbox", { name: "项目标题" })).toHaveValue(`${LONG_TITLE} 第 1 部`);
       await expect(dialog.getByRole("button", { name: "保存" })).toBeInViewport({ ratio: 1 });
-      await waitForAnimations(page);
     },
     screenshot: { name: "lobby-rename-dialog", target: (page) => page.getByRole("dialog") },
   },
@@ -181,7 +173,6 @@ defineRegionScenarios("项目大厅", [
       await page.getByRole("menuitem", { name: "删除" }).click();
       const confirm = page.getByRole("alertdialog");
       await expect(confirm.getByRole("button", { name: "删除项目" })).toBeInViewport({ ratio: 1 });
-      await waitForAnimations(page);
     },
   },
   {
@@ -194,7 +185,6 @@ defineRegionScenarios("项目大厅", [
       await page.getByRole("menuitem", { name: "导出" }).click();
       const dialog = page.getByRole("dialog", { name: "选择导出范围" });
       await expect(dialog.getByRole("button", { name: "导出" })).toBeInViewport({ ratio: 1 });
-      await waitForAnimations(page);
     },
   },
   {
@@ -215,7 +205,6 @@ defineRegionScenarios("项目大厅", [
       await body.press("End");
       await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
       await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
-      await waitForAnimations(page);
     },
   },
 ]);

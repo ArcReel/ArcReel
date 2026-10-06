@@ -70,7 +70,9 @@ function renderPage(path = "/app/assets") {
   return location;
 }
 
-describe("AssetLibraryPage", () => {
+// 每条用例要渲染一到两页（60–121 张）卡片，jsdom 里单次渲染就要数百毫秒到数秒，
+// 机器负载高时默认 5 秒的上限不够；真正卡住的用例仍会在 15 秒时失败。
+describe("AssetLibraryPage", { timeout: 15_000 }, () => {
   beforeEach(() => {
     FakeIntersectionObserver.instances = [];
     vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
@@ -180,11 +182,14 @@ describe("AssetLibraryPage", () => {
     await reachBottomWhenArmed();
     await act(() => started.promise);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "新增资产" })[0]);
-    fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "新角色" } });
-    fireEvent.click(screen.getByRole("button", { name: "创建" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await screen.findByRole("button", { name: "新角色" });
+    // 页面上已有 60 张卡片：按角色在整页查询每次都要遍历全部节点，高负载下单条查询就要一两秒，
+    // 对话框内的查询限定在对话框里，整页只按文本查。
+    fireEvent.click(screen.getAllByText("新增资产")[0]);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "新角色" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建" }));
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    await screen.findByText("新角色");
     await act(async () => pending.resolve());
     await reachBottomWhenArmed();
     await screen.findByText("角色119");

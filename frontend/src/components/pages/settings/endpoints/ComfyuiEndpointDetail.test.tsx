@@ -545,6 +545,11 @@ describe("ComfyuiEndpointDetail", () => {
     expect(await screen.findByText(/query:/)).toBeInTheDocument();
     expect(screen.getByText(/token: \{\{ api_key \}\}/)).toBeInTheDocument();
     expect(screen.queryByText(/Authorization/)).not.toBeInTheDocument();
+    // 凭据模版不折行，预览会横向滚动：区域自身可聚焦，键盘才能滚动
+    const preview = screen.getByRole("region", { name: "凭据注入（auth 节）" });
+    expect(preview).toHaveTextContent("token: {{ api_key }}");
+    preview.focus();
+    expect(preview).toHaveFocus();
   });
 
   it("falls back to the template when the definition declares no credentials at all", async () => {

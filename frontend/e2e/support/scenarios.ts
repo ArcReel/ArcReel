@@ -2,6 +2,7 @@
 // 每个场景在全部验收视口上跑溢出探针与 axe。场景以会改变可用高度的状态为主：
 // 打开页面、展开会撑高的面板、打开弹层（弹层先打开再探测）。
 import type { Locator, Page } from "@playwright/test";
+import { isDefaultOrigin } from "./origin.ts";
 import { waitForEntrance } from "./region-helpers.ts";
 import { RECORDED_ACCESS_TOKEN } from "./recorded.ts";
 import { expect, expectAccessible, expectReachableLayout, test, type ApiOverrides } from "./test.ts";
@@ -25,7 +26,12 @@ export interface RegionScenario {
    * 区域截图。设置 E2E_SCREENSHOTS=1 时才比对，目前只作评审材料、不是闸门；
    * 只为重做完成的区域登记，优先截区域而非整页。
    */
-  screenshot?: { name: string; target?: (page: Page) => Locator };
+  screenshot?: {
+    name: string;
+    target?: (page: Page) => Locator;
+    /** 截图里有 `window.location.origin` 拼出的地址：基线按默认端口生成，换端口运行时这张不比对。 */
+    showsOrigin?: boolean;
+  };
 }
 
 export function defineRegionScenarios(region: string, scenarios: RegionScenario[]) {
@@ -48,6 +54,10 @@ export function defineRegionScenarios(region: string, scenarios: RegionScenario[
 
         const { screenshot } = scenario;
         if (screenshot && process.env.E2E_SCREENSHOTS && SCREENSHOT_PROJECTS.has(testInfo.project.name)) {
+          if (screenshot.showsOrigin && !isDefaultOrigin(page.url())) {
+            testInfo.annotations.push({ type: "screenshot", description: `${screenshot.name}：非默认端口，不比对` });
+            return;
+          }
           // toHaveScreenshot 自带等待 document.fonts.ready 与连续两帧一致。
           await expect(screenshot.target?.(page) ?? page).toHaveScreenshot(`${screenshot.name}.png`);
         }

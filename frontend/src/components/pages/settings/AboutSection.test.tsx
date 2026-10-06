@@ -31,8 +31,8 @@ describe("AboutSection diagnostics download", () => {
 
     // 先用真实定时器渲染完成，避免 findByRole/waitFor 的内部轮询与 fake timers 相互卡死
     render(<AboutSection />);
-    await waitFor(() => expect(API.getSystemVersion).toHaveBeenCalled());
-    const button = screen.getByRole("button", { name: "下载诊断日志" });
+    // 接口被调用时版本信息还在加载，按钮要等加载结束才渲染
+    const button = await screen.findByRole("button", { name: "下载诊断日志" });
 
     // 切换到 fake timers 后再点击：click() 是同步调度，异步延续只在微任务
     // 中运行，可精确区分「微任务已跑完」与「宏任务（setTimeout）已触发」两个时间点
@@ -109,7 +109,8 @@ describe("AboutSection release notes", () => {
 
     await user.click(toggle);
 
-    expect(await screen.findByText(/faster exports/)).toBeInTheDocument();
+    // 正文由按需加载的 Streamdown 渲染：加载前的纯文本回退节点可能随后被替换，等渲染后的列表项。
+    expect(await screen.findByRole("listitem")).toHaveTextContent("faster exports");
     expect(await screen.findByRole("link", { name: /打开 GitHub Release/ })).toHaveAttribute(
       "href",
       "https://github.com/example/ArcReel/releases/tag/v1.1.0",

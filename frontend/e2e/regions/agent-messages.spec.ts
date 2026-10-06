@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { RECORDED_ACCESS_TOKEN } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
@@ -164,11 +164,6 @@ async function withPanelWidth(page: Page, width: number) {
   await expect.poll(async () => (await agentPanel(page).boundingBox())?.width).toBeCloseTo(width, 0);
 }
 
-/** 弹层进场动画结束后再探测，避免 axe 量到半透明的中间态。只等弹层自身：页面上持续运行的指示动画不会结束。 */
-async function settleAnimations(dialog: Locator) {
-  await dialog.evaluate((el) => Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)));
-}
-
 defineRegionScenarios("Agent 消息区", [
   {
     name: "打开长会话时停在最新一条，不显示「跳到最新」",
@@ -255,7 +250,6 @@ defineRegionScenarios("Agent 消息区", [
       await thumbnail.click();
       const dialog = page.getByRole("dialog", { name: "图片附件 1" });
       await dialog.waitFor();
-      await settleAnimations(dialog);
     },
   },
 ]);

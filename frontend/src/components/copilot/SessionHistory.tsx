@@ -223,7 +223,7 @@ function DeleteSessionDialog({
         </AlertDialogHeader>
         {failed && (
           // 失败说明放进唯一的滚动区：窗口很矮时不会被头尾夹住裁掉
-          <AlertDialogBody>
+          <AlertDialogBody tabIndex={0} role="region" aria-label={t("dashboard:delete_session_title", { title })}>
             <p role="alert" className="text-destructive">
               {t("dashboard:delete_session_failed")}
             </p>
