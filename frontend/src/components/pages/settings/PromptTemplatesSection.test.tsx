@@ -105,6 +105,10 @@ describe("PromptTemplatesSection", () => {
     expect(screen.getByText("外观描述")).toBeInTheDocument();
     expect(screen.getByTitle("外观描述")).toHaveTextContent("description");
     expect(screen.getByRole("heading", { name: "模版正文" })).toBeInTheDocument();
+    // 正文会横向滚动：代码块自身可聚焦，键盘才能滚动
+    const source = screen.getByRole("region", { name: "模版正文" });
+    source.focus();
+    expect(source).toHaveFocus();
     expect(screen.queryByText("引用的片段")).not.toBeInTheDocument();
     expect(screen.queryByText("角色设定图，三视图")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: '{{ variant("asset/sheet/title", asset_type) }}' }));
@@ -132,6 +136,9 @@ describe("PromptTemplatesSection", () => {
     expect(screen.getByText("shot_type")).toBeVisible();
     expect(screen.getByText("Long Shot")).toBeVisible();
     expect(screen.getByText("镜头类型")).toBeVisible();
+    const table = screen.getByRole("region", { name: "输出结构" });
+    table.focus();
+    expect(table).toHaveFocus();
   });
 
   it("shows an error state for the list and recovers on retry", async () => {
@@ -189,7 +196,10 @@ describe("PromptTemplatesSection", () => {
     expect(getPartial).toHaveBeenCalledWith("shared/avoid", expect.anything());
     expect(await screen.findByRole("heading", { level: 2, name: "shared/avoid" })).toBeInTheDocument();
     expect(screen.getByText("锁定")).toBeVisible();
-    expect(screen.getByText("Avoid: 水印")).toBeVisible();
+    const partialSource = screen.getByRole("region", { name: "片段正文" });
+    expect(partialSource).toHaveTextContent("Avoid: 水印");
+    partialSource.focus();
+    expect(partialSource).toHaveFocus();
     const usages = screen.getByRole("heading", { name: "引用它的模版" }).closest("section")!;
     expect(await within(usages).findByRole("button", { name: /资产图标/ })).toBeInTheDocument();
 

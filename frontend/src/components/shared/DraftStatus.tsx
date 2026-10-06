@@ -397,7 +397,7 @@ export function DiscardDraftDialog({ open, agentOwned, fallbackText, loading, on
         <AlertDialogHeader>
           <AlertDialogTitle>{agentOwned ? t("draft_agent_discard_title") : t("draft_discard_title")}</AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={agentOwned ? t("draft_agent_discard_title") : t("draft_discard_title")}>
           <AlertDialogDescription>{fallbackText}</AlertDialogDescription>
         </AlertDialogBody>
         <AlertDialogFooter>

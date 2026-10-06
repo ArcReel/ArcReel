@@ -272,7 +272,7 @@ export function CharacterVoiceField({
           <AlertDialogHeader>
             <AlertDialogTitle>{t("assets:reference_audio_delete_title")}</AlertDialogTitle>
           </AlertDialogHeader>
-          <AlertDialogBody>
+          <AlertDialogBody tabIndex={0} role="region" aria-label={t("assets:reference_audio_delete_title")}>
             <AlertDialogDescription>{t("assets:reference_audio_delete_description", { name })}</AlertDialogDescription>
           </AlertDialogBody>
           <AlertDialogFooter>

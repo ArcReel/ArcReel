@@ -203,13 +203,6 @@ async function settingsReady(page: Page) {
   await page.getByRole("textbox", { name: "代理前缀" }).waitFor();
 }
 
-async function animationsSettled(page: Page, role: "dialog" | "alertdialog" | "menu") {
-  // 等进场过渡结束再探测：淡入途中的半透明文字会被 axe 判为对比度不足
-  await page
-    .getByRole(role)
-    .evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
-}
-
 defineRegionScenarios("市场", [
   {
     name: "首次进入：官方服务说明在 Tab 之上，没有条目时说明原因",
@@ -334,7 +327,6 @@ defineRegionScenarios("市场", [
       await page.getByRole("button", { name: `「${LONG_SOURCE} 8」的更多操作` }).click();
       const menu = page.getByRole("menu");
       await expect(menu.getByRole("menuitem", { name: "删除" })).toBeInViewport({ ratio: 1 });
-      await animationsSettled(page, "menu");
     },
   },
   {
@@ -347,7 +339,6 @@ defineRegionScenarios("市场", [
       await page.getByRole("menuitem", { name: "删除" }).click();
       const confirm = page.getByRole("alertdialog");
       await expect(confirm.getByRole("button", { name: "删除" })).toBeInViewport({ ratio: 1 });
-      await animationsSettled(page, "alertdialog");
     },
   },
   {
@@ -360,7 +351,6 @@ defineRegionScenarios("市场", [
       await page.getByRole("menuitem", { name: "重命名" }).click();
       const dialog = page.getByRole("dialog", { name: "重命名市场源" });
       await expect(dialog.getByRole("textbox", { name: "显示名称" })).toHaveValue(`${LONG_SOURCE} 2`);
-      await animationsSettled(page, "dialog");
     },
   },
   {
@@ -374,7 +364,6 @@ defineRegionScenarios("市场", [
       const install = dialog.getByRole("button", { name: "确认安装" });
       await expect(install).toBeEnabled();
       await expect(install).toBeInViewport({ ratio: 1 });
-      await animationsSettled(page, "dialog");
     },
     screenshot: { name: "market-install-dialog", target: (page) => page.getByRole("dialog") },
   },

@@ -20,8 +20,11 @@ const PARTIAL_PATTERN =
 
 /** 展示模版语法与片段原文，不执行 Jinja 或填充项目数据。 */
 export function PromptTemplateSource(props: SourceProps) {
+  const { t } = useTranslation("dashboard");
   return (
-    <div className={SOURCE_BLOCK_CLS}>
+    // 正文里不一定有片段按钮：代码块自身可聚焦，键盘才能横向滚动折不开的长串
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动
+    <div tabIndex={0} role="region" aria-label={t("prompt_templates_source")} className={SOURCE_BLOCK_CLS}>
       <SourceContent {...props} />
     </div>
   );

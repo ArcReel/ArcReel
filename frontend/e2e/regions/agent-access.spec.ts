@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -48,6 +48,15 @@ const CREATED_TOKEN: ApiOverrides = {
   },
 };
 
+// 吊销失败的原因很长：说明在只读的对话框正文里折行，超出可用高度后由正文滚动。
+const REVOKE_FAILED: ApiOverrides = {
+  ...MANY_TOKENS,
+  "DELETE /api/v1/api-keys/2": {
+    status: 503,
+    body: { detail: `令牌存储暂时不可用：${"上游数据库连接池已耗尽，吊销请求进入重试队列后仍未完成。".repeat(60)}` },
+  },
+};
+
 async function settingsReady(page: Page) {
   await page.getByRole("navigation", { name: "设置" }).getByRole("link", { name: "关于" }).waitFor();
 }
@@ -55,11 +64,6 @@ async function settingsReady(page: Page) {
 async function externalAgentReady(page: Page) {
   await settingsReady(page);
   await page.getByRole("heading", { name: "外部 Agent 接入", level: 2 }).waitFor();
-}
-
-/** 等弹层的进场过渡结束再探测：淡入途中的半透明文字会被 axe 判为对比度不足。 */
-async function settled(locator: Locator) {
-  await locator.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
 }
 
 async function openCreateDialog(page: Page) {
@@ -77,7 +81,7 @@ defineRegionScenarios("外部 Agent 接入与访问令牌", [
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(page.getByRole("button", { name: "复制提示词" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "external-agent", target: (page) => page.getByRole("main") },
+    screenshot: { name: "external-agent", target: (page) => page.getByRole("main"), showsOrigin: true },
   },
   {
     name: "第三步打开创建访问令牌对话框，表单与按钮留在视口内",
@@ -86,7 +90,6 @@ defineRegionScenarios("外部 Agent 接入与访问令牌", [
     act: async (page) => {
       await openCreateDialog(page);
       const dialog = page.getByRole("dialog", { name: "创建访问令牌" });
-      await settled(dialog);
       await expect(dialog).toBeInViewport({ ratio: 1 });
       // 打开时焦点落在名称输入框，回车即可提交
       await expect(dialog.getByRole("textbox", { name: "名称" })).toBeFocused();
@@ -105,7 +108,6 @@ defineRegionScenarios("外部 Agent 接入与访问令牌", [
       await dialog.getByRole("textbox", { name: "名称" }).press("Enter");
       const created = page.getByRole("dialog", { name: "访问令牌已创建" });
       await expect(created.getByRole("button", { name: "复制访问令牌" })).toBeVisible();
-      await settled(created);
       await expect(created).toBeInViewport({ ratio: 1 });
     },
     screenshot: { name: "access-token-created", target: (page) => page.getByRole("dialog") },
@@ -146,9 +148,29 @@ defineRegionScenarios("外部 Agent 接入与访问令牌", [
     act: async (page) => {
       await page.getByRole("button", { name: /吊销「.*流水线 1（/ }).click();
       const confirm = page.getByRole("alertdialog");
-      await settled(confirm);
       await expect(confirm).toBeInViewport({ ratio: 1 });
       await expect(confirm.getByRole("button", { name: "取消" })).toBeFocused();
+    },
+  },
+  {
+    name: "吊销失败的原因很长时，对话框正文可用键盘聚焦并滚动，按钮留在视口内",
+    path: ACCESS_TOKENS,
+    api: REVOKE_FAILED,
+    ready: async (page) => {
+      await settingsReady(page);
+      await page.getByRole("table", { name: "访问令牌列表" }).waitFor();
+    },
+    act: async (page) => {
+      await page.getByRole("button", { name: /吊销「.*流水线 2（/ }).click();
+      const confirm = page.getByRole("alertdialog");
+      await confirm.getByRole("button", { name: "吊销", exact: true }).click();
+      await expect(confirm.getByRole("alert")).toContainText("吊销失败");
+      const body = confirm.getByRole("region", { name: /吊销访问令牌/ });
+      await body.focus();
+      await expect(body).toBeFocused();
+      await page.keyboard.press("End");
+      await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      await expect(confirm.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
     },
   },
   {

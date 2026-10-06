@@ -1,4 +1,4 @@
-// 溢出探针：找出「内容溢出但用户够不到」的元素。
+// 溢出探针：找出「内容溢出但用户够不到」的元素，以及没有声明却出现的横向滚动。
 // inspectLayout 经 page.evaluate 序列化到浏览器里执行，函数体必须自包含：
 // 不引用模块级变量，辅助函数全部写在函数内部。
 
@@ -12,10 +12,27 @@ export interface ClippedOverflow {
   culprit: string | null;
 }
 
+export interface StrayScrollX {
+  /** 出现横向滚动、却没有声明横向滚动的元素的选择器路径。 */
+  path: string;
+  client: { width: number };
+  scroll: { width: number };
+  /** 越出右缘的最深后代，用于定位真正撑宽内容的元素。 */
+  culprit: string | null;
+}
+
 export interface LayoutReport {
+  viewportWidth: number;
   viewportHeight: number;
+  documentScrollWidth: number;
   documentScrollHeight: number;
   clipped: ClippedOverflow[];
+  /**
+   * 只写了纵向滚动（如 `overflow-y-auto`，弹层正文都是这样）的元素，浏览器把它的 overflow-x 也算成 auto：
+   * 宽内容不会被裁切，而是让它横向滚动，clipped 查不到。这类横向滚动是缺陷，内容应当折行或限宽；
+   * 确需横向滚动的区域（时间线轨道、代码块、标签带）写 `overflow-x-auto` 声明。
+   */
+  strayScrollX: StrayScrollX[];
 }
 
 export function inspectLayout(): LayoutReport {
@@ -24,12 +41,17 @@ export function inspectLayout(): LayoutReport {
   const CLIPPING = new Set(["hidden", "clip"]);
   // 豁免必须写明原因：空值不算豁免。
   const EXEMPT = '[data-overflow-ok]:not([data-overflow-ok=""])';
+  const SCROLLING = new Set(["auto", "scroll"]);
+  // 声明横向滚动的工具类，含响应式与状态前缀。
+  const SCROLL_X_CLASS = /^(?:[\w-]+:)*overflow-(?:x-)?(?:auto|scroll)$/;
 
   function describe(el: Element): string {
     let label = el.tagName.toLowerCase();
     if (el.id) label += `#${el.id}`;
-    const testId = el.getAttribute("data-testid");
-    if (testId) label += `[data-testid="${testId}"]`;
+    for (const attribute of ["data-testid", "data-slot"]) {
+      const value = el.getAttribute(attribute);
+      if (value) label += `[${attribute}="${value}"]`;
+    }
     const classes = Array.from(el.classList).slice(0, 3);
     if (classes.length > 0) label += `.${classes.join(".")}`;
     return label;
@@ -68,11 +90,31 @@ export function inspectLayout(): LayoutReport {
     return deepest ? pathOf(deepest) : null;
   }
 
+  function declaresScrollX(el: Element): boolean {
+    if (el instanceof HTMLElement && SCROLLING.has(el.style.overflowX)) return true;
+    return Array.from(el.classList).some((name) => SCROLL_X_CLASS.test(name));
+  }
+
   const clipped: ClippedOverflow[] = [];
+  const strayScrollX: StrayScrollX[] = [];
   for (const el of [document.documentElement, ...Array.from(document.body.querySelectorAll("*"))]) {
     if (el.closest(EXEMPT)) continue;
     if (!isVisible(el)) continue;
     const style = getComputedStyle(el);
+    if (
+      el !== document.documentElement &&
+      SCROLLING.has(style.overflowX) &&
+      el.scrollWidth - el.clientWidth > TOLERANCE &&
+      !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) &&
+      !declaresScrollX(el)
+    ) {
+      strayScrollX.push({
+        path: pathOf(el),
+        client: { width: el.clientWidth },
+        scroll: { width: el.scrollWidth },
+        culprit: findCulprit(el, true, false),
+      });
+    }
     const clipX = CLIPPING.has(style.overflowX);
     const clipY = CLIPPING.has(style.overflowY);
     if (!clipX && !clipY) continue;
@@ -96,8 +138,11 @@ export function inspectLayout(): LayoutReport {
   }
 
   return {
+    viewportWidth: document.documentElement.clientWidth,
     viewportHeight: window.innerHeight,
+    documentScrollWidth: document.documentElement.scrollWidth,
     documentScrollHeight: document.documentElement.scrollHeight,
     clipped,
+    strayScrollX,
   };
 }

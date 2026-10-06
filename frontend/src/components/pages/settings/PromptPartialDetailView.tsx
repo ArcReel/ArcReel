@@ -110,7 +110,10 @@ function PartialBody({
 
       <DetailSection title={t("prompt_templates_partial_source")}>
         {partial.source.trim() ? (
-          <div className={SOURCE_BLOCK_CLS}>{partial.source}</div>
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动
+          <div tabIndex={0} role="region" aria-label={t("prompt_templates_partial_source")} className={SOURCE_BLOCK_CLS}>
+            {partial.source}
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground italic">{t("prompt_templates_partial_blank")}</p>
         )}

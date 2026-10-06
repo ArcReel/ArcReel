@@ -363,7 +363,7 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
           <AlertDialogHeader>
             <AlertDialogTitle>{request?.title ?? t("unsaved_changes")}</AlertDialogTitle>
           </AlertDialogHeader>
-          <AlertDialogBody>
+          <AlertDialogBody tabIndex={0} role="region" aria-label={request?.title ?? t("unsaved_changes")}>
             <AlertDialogDescription>{t("leave_dialog_description")}</AlertDialogDescription>
           </AlertDialogBody>
           <AlertDialogFooter>

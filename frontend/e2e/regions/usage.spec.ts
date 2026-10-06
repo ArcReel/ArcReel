@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { FIXED_NOW } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
@@ -160,11 +160,6 @@ const STRESS: ApiOverrides = {
   [DETAIL_KEY]: { status: 200, body: DETAIL },
 };
 
-/** 等弹层的进场过渡结束再探测：淡入途中的半透明文字会被 axe 判为对比度不足。 */
-async function settled(locator: Locator) {
-  await locator.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
-}
-
 // 工作台顶栏的使用记录弹层：本项目 KPI、进行中与最近结束的调用。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const POPOVER_STRESS: ApiOverrides = {
@@ -238,7 +233,6 @@ defineRegionScenarios("使用记录", [
     // 弹窗打开后页面其余部分对辅助技术不可见，只等弹窗内容。
     ready: async (page) => {
       await page.getByRole("dialog").getByText("第 30 段", { exact: false }).waitFor();
-      await settled(page.getByRole("dialog"));
     },
     act: async (page) => {
       const dialog = page.getByRole("dialog");
@@ -255,7 +249,6 @@ defineRegionScenarios("使用记录", [
     act: async (page) => {
       await page.getByRole("combobox", { name: "项目" }).click();
       const listbox = page.getByRole("listbox");
-      await settled(listbox);
       await expect(listbox).toBeInViewport();
       await expect(listbox.getByRole("option", { name: `${LONG_TITLE} 0` })).toBeVisible();
     },
@@ -271,7 +264,6 @@ defineRegionScenarios("使用记录", [
       await page.getByRole("button", { name: /^使用记录 · 参考费用/ }).click();
       const popover = page.getByRole("dialog", { name: "使用记录" });
       await popover.getByText("S09", { exact: true }).first().waitFor();
-      await settled(popover);
       await expect(popover).toBeInViewport({ ratio: 1 });
       await expect(popover.getByRole("link", { name: "查看全部记录" })).toBeInViewport();
     },

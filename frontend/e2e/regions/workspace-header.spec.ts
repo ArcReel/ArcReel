@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { clearAgentOverlay } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
@@ -187,13 +187,6 @@ async function shellReady(page: Page) {
   await switcher(page).waitFor();
 }
 
-/** 弹层进场动画结束后再探测。 */
-async function settled(locator: Locator) {
-  await locator.evaluate((element) =>
-    Promise.allSettled(element.getAnimations({ subtree: true }).map((animation) => animation.finished)),
-  );
-}
-
 /** 紧凑档侧栏自动收为图标栏，先展开才能看到集列表。 */
 async function expandSidebar(page: Page) {
   const expand = page.getByRole("button", { name: "展开侧栏" });
@@ -230,7 +223,6 @@ defineRegionScenarios("工作区顶栏", [
       await search.fill("第 7 号");
       await expect(page.getByRole("option", { name: /第 7 号项目/ })).toBeVisible();
       await search.fill("");
-      await settled(popover(page));
     },
     screenshot: { name: "workspace-header-switcher", target: popover },
   },
@@ -242,7 +234,6 @@ defineRegionScenarios("工作区顶栏", [
     act: async (page) => {
       await bell(page).click();
       await expect(page.getByText("当前没有通知")).toBeInViewport({ ratio: 1 });
-      await settled(popover(page));
     },
   },
   {
@@ -263,7 +254,6 @@ defineRegionScenarios("工作区顶栏", [
       await last.scrollIntoViewIfNeeded();
       await expect(last).toBeInViewport();
       await expect(panel.getByRole("heading", { name: "工作区通知" })).toBeInViewport({ ratio: 1 });
-      await settled(popover(page));
     },
     screenshot: { name: "workspace-header-notifications", target: popover },
   },

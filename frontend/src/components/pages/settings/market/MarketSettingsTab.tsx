@@ -281,7 +281,7 @@ function OfficialServiceSettings({
           <AlertDialogHeader>
             <AlertDialogTitle>{t("official_service_reset_title")}</AlertDialogTitle>
           </AlertDialogHeader>
-          <AlertDialogBody>
+          <AlertDialogBody tabIndex={0} role="region" aria-label={t("official_service_reset_title")}>
             <AlertDialogDescription>{t("official_service_reset_desc")}</AlertDialogDescription>
           </AlertDialogBody>
           <AlertDialogFooter>

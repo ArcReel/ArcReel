@@ -667,7 +667,7 @@ export function CustomProviderForm({
             <AlertDialogHeader>
               <AlertDialogTitle>{t("cp_delete_provider_title", { name: existing.display_name })}</AlertDialogTitle>
             </AlertDialogHeader>
-            <AlertDialogBody>
+            <AlertDialogBody tabIndex={0} role="region" aria-label={t("cp_delete_provider_title", { name: existing.display_name })}>
               <div className="flex flex-col gap-2">
                 <AlertDialogDescription>
                   {t("cp_delete_provider_description", { count: existing.models.length })}

@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { loadRecordedResponses, recordedKey } from "../support/recorded.ts";
-import { clearAgentOverlay } from "../support/region-helpers.ts";
+import { clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -66,14 +66,6 @@ const RICH_ASSET = asset(1, {
 });
 const RICH_DETAIL: ApiOverrides = { [FIRST_PAGE]: listPage([RICH_ASSET], 1) };
 
-/**
- * 等弹层的进场过渡结束再探测：淡入途中的半透明文字会被 axe 判为对比度不足。
- * 过渡被重渲染取消时 `finished` 会以 AbortError 拒绝，取消也算结束。
- */
-async function settled(locator: Locator) {
-  await locator.evaluate((el) => Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)));
-}
-
 async function libraryReady(page: Page) {
   await page.getByRole("tab", { name: /角色/ }).waitFor();
   await page.getByRole("list").first().waitFor();
@@ -83,7 +75,7 @@ async function openDetail(page: Page, name: string): Promise<Locator> {
   await page.getByRole("button", { name, exact: true }).click();
   const sheet = page.getByRole("dialog", { name });
   await sheet.waitFor();
-  await settled(sheet);
+  await waitForEntrance(sheet);
   return sheet;
 }
 
@@ -183,7 +175,6 @@ defineRegionScenarios("资产库", [
       await page.getByRole("menuitem", { name: "应用到项目…" }).click();
       const dialog = page.getByRole("dialog", { name: "把「林夕」应用到项目" });
       await dialog.waitFor();
-      await settled(dialog);
       await expect(dialog.getByRole("button", { name: "应用", exact: true })).toBeInViewport({ ratio: 1 });
     },
     screenshot: { name: "asset-library-apply", target: (page) => page.getByRole("dialog") },
@@ -198,7 +189,6 @@ defineRegionScenarios("资产库", [
       await page.getByRole("button", { name: "从资产库选择" }).first().click();
       const dialog = page.getByRole("dialog", { name: "从资产库选择角色" });
       await dialog.waitFor();
-      await settled(dialog);
       await expect(dialog.getByText("匹配 75 个角色")).toBeVisible();
       const last = dialog.getByRole("button", { name: new RegExp(`${LONG_NAME} 75`) });
       await dialog.getByRole("button", { name: new RegExp(`${LONG_NAME} 60`) }).scrollIntoViewIfNeeded();
@@ -223,7 +213,6 @@ defineRegionScenarios("资产库", [
       await page.getByRole("menuitem", { name: "加入资产库" }).click();
       const dialog = page.getByRole("dialog", { name: "加入资产库：林夕" });
       await dialog.waitFor();
-      await settled(dialog);
       await expect(dialog.getByRole("button", { name: "覆盖已有" })).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByText("2 个衍生")).toBeVisible();
     },
@@ -247,7 +236,6 @@ defineRegionScenarios("资产库", [
       await body.press("End");
       await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
       await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
-      await settled(dialog);
     },
   },
 ]);

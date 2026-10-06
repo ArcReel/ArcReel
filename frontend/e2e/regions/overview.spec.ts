@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
+import { waitForEntrance } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -119,11 +120,6 @@ const SOURCE_ONLY_PROJECT: ApiOverrides = {
 
 const storySetting = (page: Page) => page.getByRole("region", { name: "故事设定" });
 
-/** 等弹层进出场与配色过渡结束：axe 会把过渡中间色判为对比度不足。过渡被取消时 finished 以 AbortError 拒绝。 */
-async function settle(page: Page) {
-  await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
-}
-
 /** 紧凑档的 Agent 面板默认展开并盖住画布右侧，先收起，内容列与画布右侧的操作才完整可见。 */
 async function collapseAgentPanel(page: Page) {
   const toggle = page.getByRole("button", { name: "Agent", exact: true });
@@ -175,7 +171,6 @@ defineRegionScenarios("项目概览", [
       const world = storySetting(page).getByRole("textbox", { name: "世界观" });
       await world.scrollIntoViewIfNeeded();
       await expect(world).toBeInViewport();
-      await settle(page);
     },
   },
   {
@@ -188,7 +183,6 @@ defineRegionScenarios("项目概览", [
       await page.getByRole("button", { name: "明细" }).click();
       const popover = page.getByRole("dialog", { name: "费用明细" });
       await popover.waitFor();
-      await settle(page);
       await expect(popover.getByRole("link", { name: "查看使用记录" })).toBeInViewport();
     },
     screenshot: { name: "overview-cost-details", target: (page) => page.getByRole("dialog", { name: "费用明细" }) },
@@ -224,7 +218,7 @@ defineRegionScenarios("项目概览", [
       await collapseAgentPanel(page);
       await storySetting(page).getByRole("textbox", { name: "类型" }).fill("历史战争");
       const save = storySetting(page).getByRole("button", { name: "保存" });
-      await settle(page);
+      await waitForEntrance(page.locator("body"));
       await save.scrollIntoViewIfNeeded();
       await expect(save).toBeInViewport({ ratio: 1 });
     },
@@ -240,7 +234,6 @@ defineRegionScenarios("项目概览", [
       await storySetting(page).getByRole("button", { name: "放弃修改并重新生成" }).click();
       const dialog = page.getByRole("alertdialog", { name: "从原文重新生成故事设定？" });
       await dialog.waitFor();
-      await settle(page);
       await expect(dialog.getByRole("button", { name: "放弃修改并重新生成" })).toBeInViewport({ ratio: 1 });
     },
   },

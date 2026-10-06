@@ -7,8 +7,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 
 /**
  * 分镜详情的栏位：页头在上，中间是「编辑栏 + 媒体栏」两栏，各自滚动，未保存提示条在最下方。
- * 不做拖拽调宽，按分镜详情自身的宽度切换：窄于 860px 时编辑栏占满、媒体栏 300px；
- * 否则编辑栏 360–560px，多出的宽度全部给媒体栏。
+ * 不做拖拽调宽，按分镜详情自身的宽度切换：窄于 480px 时（如演示工作台在紧凑档里，Agent 面板
+ * 不覆盖画布）上下排成一栏、整体滚动；480–860px 编辑栏占满、媒体栏 300px；
+ * 再宽时编辑栏 360–560px，多出的宽度全部给媒体栏。
  */
 export function ShotDetailLayout({
   header,
@@ -26,11 +27,11 @@ export function ShotDetailLayout({
     <div className="flex min-h-0 min-w-0 flex-col">
       {header}
       <div className="@container/shot-detail flex min-h-0 flex-1 flex-col">
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] grid-rows-[minmax(0,1fr)] @min-[860px]/shot-detail:grid-cols-[minmax(360px,560px)_minmax(0,1fr)]">
-          <div className="relative min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
+        <div className="relative grid min-h-0 flex-1 auto-rows-max grid-cols-[minmax(0,1fr)] content-start overflow-y-auto @min-[480px]/shot-detail:grid-cols-[minmax(0,1fr)_300px] @min-[480px]/shot-detail:grid-rows-[minmax(0,1fr)] @min-[480px]/shot-detail:content-stretch @min-[480px]/shot-detail:overflow-visible @min-[860px]/shot-detail:grid-cols-[minmax(360px,560px)_minmax(0,1fr)]">
+          <div className="relative min-h-0 @min-[480px]/shot-detail:overflow-y-auto @min-[480px]/shot-detail:[scrollbar-gutter:stable]">
             <div className="flex flex-col gap-5 px-5 pt-4 pb-8">{main}</div>
           </div>
-          <div className="@container/shot-media relative min-h-0 overflow-y-auto border-l border-border/50 px-4 pt-4 pb-8">
+          <div className="@container/shot-media relative min-h-0 border-t border-border/50 px-4 pt-4 pb-8 @min-[480px]/shot-detail:overflow-y-auto @min-[480px]/shot-detail:border-t-0 @min-[480px]/shot-detail:border-l">
             {media}
           </div>
         </div>

@@ -140,6 +140,11 @@ function sourceOrder(): string[] {
     .map((handle) => handle.getAttribute("aria-label")?.replace(/^调整「(.+)」的顺序$/, "$1") ?? "");
 }
 
+/** 「设置」Tab 先渲染空的市场源区，列表数据随后到达：等到行出现再同步查询行内控件。 */
+async function sourcesLoaded() {
+  await screen.findByRole("button", { name: "调整「ArcReel Market」的顺序" });
+}
+
 function sourceRow(name: string): HTMLElement {
   const row = screen.getByRole("button", { name: `调整「${name}」的顺序` }).closest("li");
   if (!row) throw new Error(`row ${name} not found`);
@@ -463,7 +468,7 @@ describe("MarketSection", () => {
   describe("market sources", () => {
     it("lists sources in order with status, last refresh, error and official marking", async () => {
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       expect(sourceOrder()).toEqual(["ArcReel Market", "团队市场", "停用的源"]);
       const official = sourceRow("ArcReel Market");
@@ -484,7 +489,7 @@ describe("MarketSection", () => {
     it("keeps the official source undeletable and links its homepage from the menu", async () => {
       const open = vi.spyOn(window, "open").mockReturnValue(null);
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await userEvent.click(screen.getByRole("button", { name: "「ArcReel Market」的更多操作" }));
       const remove = await screen.findByRole("menuitem", { name: "删除" });
@@ -530,7 +535,7 @@ describe("MarketSection", () => {
         .spyOn(API, "updateMarketSource")
         .mockImplementation(async (id, patch) => ({ ...TEAM, id, ...patch }));
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await renameSource("团队市场", "同事的源");
       expect(update).toHaveBeenCalledWith(2, { display_name: "同事的源" });
@@ -547,7 +552,7 @@ describe("MarketSection", () => {
         "display_name" in patch ? rename.promise : toggle.promise,
       );
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await renameSource("团队市场", "同事的源");
       await userEvent.click(enableSwitch("同事的源"));
@@ -564,7 +569,7 @@ describe("MarketSection", () => {
       const on = createDeferred<MarketSourceInfo>();
       const update = vi.spyOn(API, "updateMarketSource").mockReturnValueOnce(off.promise).mockReturnValueOnce(on.promise);
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await userEvent.click(enableSwitch("团队市场"));
       await userEvent.click(enableSwitch("团队市场"));
@@ -584,7 +589,7 @@ describe("MarketSection", () => {
       const on = createDeferred<MarketSourceInfo>();
       vi.spyOn(API, "updateMarketSource").mockReturnValueOnce(off.promise).mockReturnValueOnce(on.promise);
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
       await userEvent.click(enableSwitch("团队市场"));
       await userEvent.click(screen.getByRole("tab", { name: "浏览" }));
       await userEvent.click(screen.getByRole("tab", { name: "设置" }));
@@ -601,7 +606,7 @@ describe("MarketSection", () => {
       const on = createDeferred<MarketSourceInfo>();
       vi.spyOn(API, "updateMarketSource").mockReturnValueOnce(off.promise).mockReturnValueOnce(on.promise);
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await userEvent.click(enableSwitch("团队市场"));
       await userEvent.click(enableSwitch("团队市场"));
@@ -620,7 +625,7 @@ describe("MarketSection", () => {
         "display_name" in patch ? rename.promise : toggle.promise,
       );
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await renameSource("团队市场", "同事的源");
       await userEvent.click(enableSwitch("同事的源"));
@@ -635,7 +640,7 @@ describe("MarketSection", () => {
     it("does not save a blank or unchanged display name", async () => {
       const update = vi.spyOn(API, "updateMarketSource");
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("团队市场", "重命名");
       const dialog = await screen.findByRole("dialog", { name: "重命名市场源" });
@@ -650,7 +655,7 @@ describe("MarketSection", () => {
     it("deletes a custom source only after confirming", async () => {
       const remove = vi.spyOn(API, "deleteMarketSource").mockResolvedValue(undefined);
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("团队市场", "删除");
       let confirm = await screen.findByRole("alertdialog", { name: "删除市场源「团队市场」？" });
@@ -668,7 +673,7 @@ describe("MarketSection", () => {
     it("keeps the source and explains why deleting failed", async () => {
       vi.spyOn(API, "deleteMarketSource").mockRejectedValue(new Error("busy"));
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("团队市场", "删除");
       const confirm = await screen.findByRole("alertdialog");
@@ -686,7 +691,7 @@ describe("MarketSection", () => {
 
     it("starts the rename dialog from the current name again after cancelling an edit", async () => {
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("团队市场", "重命名");
       const dialog = await screen.findByRole("dialog", { name: "重命名市场源" });
@@ -704,7 +709,7 @@ describe("MarketSection", () => {
       vi.spyOn(API, "refreshMarketSource").mockReturnValue(refresh.promise);
       vi.spyOn(API, "updateMarketSource").mockImplementation(async (id, patch) => ({ ...TEAM, id, ...patch }));
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("团队市场", "刷新");
       expect(API.refreshMarketSource).toHaveBeenCalledWith(2);
@@ -719,7 +724,7 @@ describe("MarketSection", () => {
 
     it("refreshes all enabled sources without a success toast", async () => {
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
       vi.mocked(API.refreshMarketSources).mockResolvedValue({
         sources: [{ ...OFFICIAL }, { ...TEAM, status: "ok", last_error: null }],
       });
@@ -734,7 +739,7 @@ describe("MarketSection", () => {
     it("moves a source up from its menu and saves the new order immediately", async () => {
       const reorder = vi.spyOn(API, "reorderMarketSources").mockResolvedValue({ sources: [TEAM, OFFICIAL, DISABLED] });
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("团队市场", "上移");
 
@@ -745,7 +750,7 @@ describe("MarketSection", () => {
     it("restores the order when saving it fails", async () => {
       vi.spyOn(API, "reorderMarketSources").mockRejectedValue(new Error("boom"));
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("ArcReel Market", "下移");
 
@@ -759,7 +764,7 @@ describe("MarketSection", () => {
       const second = createDeferred<{ sources: MarketSourceInfo[] }>();
       vi.spyOn(API, "reorderMarketSources").mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("团队市场", "上移");
       await waitFor(() => expect(sourceOrder()).toEqual(["团队市场", "ArcReel Market", "停用的源"]));
@@ -785,7 +790,7 @@ describe("MarketSection", () => {
       vi.spyOn(API, "reorderMarketSources").mockReturnValue(reorder.promise);
       vi.spyOn(API, "updateMarketSource").mockImplementation(async (id, patch) => ({ ...TEAM, id, ...patch }));
       renderMarket("settings");
-      await screen.findByRole("region", { name: "市场源" });
+      await sourcesLoaded();
 
       await chooseSourceAction("团队市场", "上移");
       await userEvent.click(enableSwitch("团队市场"));

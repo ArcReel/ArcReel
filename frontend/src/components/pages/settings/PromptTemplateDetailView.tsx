@@ -155,7 +155,14 @@ function DetailBody({
             <p className="text-sm text-muted-foreground">{t("prompt_templates_output_schema_desc")}</p>
           </div>
           <CollapsibleContent className="mt-3">
-            <div className="relative overflow-x-auto rounded-lg border border-border bg-card px-4 pb-4">
+            {/* 字段路径很长时表格横向滚动，里面没有可聚焦的元素，区域自身可聚焦，键盘才能滚动 */}
+            <div
+              role="region"
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动
+              tabIndex={0}
+              aria-label={t("prompt_templates_output_schema")}
+              className="relative overflow-x-auto rounded-lg border border-border bg-card px-4 pb-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
               <table className="mt-3 w-full border-collapse text-left text-xs">
                 <thead>
                   <tr className="text-muted-foreground">

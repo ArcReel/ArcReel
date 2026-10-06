@@ -453,7 +453,7 @@ function DeleteSourceDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{t("market_source_delete_title", { name: shown?.display_name ?? "" })}</AlertDialogTitle>
         </AlertDialogHeader>
-        <AlertDialogBody>
+        <AlertDialogBody tabIndex={0} role="region" aria-label={t("market_source_delete_title", { name: shown?.display_name ?? "" })}>
           <div className="flex flex-col gap-3">
             <AlertDialogDescription>{t("market_source_delete_desc")}</AlertDialogDescription>
             {error && (

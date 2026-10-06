@@ -410,6 +410,18 @@ export default tseslint.config(
     },
   },
 
+  // 页面级场景不手写动画等待：Promise.all 等 finished 遇到被取消的过渡会拒绝，等全局动画会被循环动画卡住。
+  // 公共入口已在探测前等待入场，场景中途需要等弹层时用 support/region-helpers 的 waitForEntrance。
+  {
+    files: ["e2e/regions/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", {
+        selector: "MemberExpression[property.name='getAnimations']",
+        message: "页面级场景不手写动画等待：用 e2e/support/region-helpers.ts 的 waitForEntrance，或交给 defineRegionScenarios 探测前的统一等待。",
+      }],
+    },
+  },
+
   // 测试文件：关闭 typed linting
   {
     files: ["**/*.test.{ts,tsx}"],
