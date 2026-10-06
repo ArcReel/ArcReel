@@ -659,6 +659,7 @@ export function EndpointDetail({
               {editorMode === "json" ? (
                 <div className="flex flex-col gap-1.5">
                   <Textarea
+                    mono
                     value={jsonText}
                     readOnly={readOnly}
                     spellCheck={false}

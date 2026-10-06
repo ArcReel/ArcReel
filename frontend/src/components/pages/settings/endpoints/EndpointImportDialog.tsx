@@ -165,6 +165,7 @@ export function EndpointImportDialog({
                 <span className="text-xs text-muted-foreground">{t("ce_import_or_paste")}</span>
               </div>
               <Textarea
+                mono
                 className="min-h-28"
                 aria-label={t("ce_import_paste_label")}
                 placeholder={t("ce_import_paste_placeholder")}

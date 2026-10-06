@@ -290,6 +290,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
             </TestField>
             <TestField label={t("credential_secret_label")} htmlFor={ids.apiKey}>
               <Input
+                mono
                 id={ids.apiKey}
                 type="password"
                 autoComplete="off"

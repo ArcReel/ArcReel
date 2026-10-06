@@ -313,4 +313,11 @@ describe("ComfyuiEndpointTestSection", () => {
     expect(screen.getByRole("button", { name: "真实提交一次" })).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent("先把节点绑定补齐");
   });
+
+  it("sets the key in monospace and leaves the URL proportional", () => {
+    renderSection();
+
+    expect(screen.getByLabelText("密钥")).toHaveClass("font-mono");
+    expect(screen.getByLabelText("接口地址").closest(".font-mono")).toBeNull();
+  });
 });

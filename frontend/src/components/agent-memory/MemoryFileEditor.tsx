@@ -228,6 +228,8 @@ function LoadedMemoryEditor({
 
   const editor = (
     <Textarea
+      // 记忆是 Markdown 原文，按代码类输入用等宽字体
+      mono
       value={unit.value}
       aria-label={filename}
       spellCheck={false}
@@ -239,8 +241,7 @@ function LoadedMemoryEditor({
   const body = (
     // 宽窗口下编辑框限宽，Markdown 原文的行不会横跨整栏
     <div className={cn("flex flex-col gap-3", layout === "pane" && "h-full min-h-72 max-w-252 px-6 py-4")}>
-      {/* 记忆是 Markdown 原文，等宽显示；Textarea 继承外层字体 */}
-      <div className="flex min-h-0 flex-1 flex-col font-mono">{editor}</div>
+      <div className="flex min-h-0 flex-1 flex-col">{editor}</div>
       <UnsavedChangesBar unit={unit} className="shrink-0" />
     </div>
   );

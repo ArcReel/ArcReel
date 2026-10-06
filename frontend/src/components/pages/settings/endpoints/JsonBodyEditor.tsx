@@ -24,8 +24,9 @@ export function JsonBodyEditor({
   const [invalid, setInvalid] = useState(false);
 
   return (
-    <div className="font-mono">
+    <div>
       <Textarea
+        mono
         value={text}
         readOnly={readOnly}
         aria-label={ariaLabel}
@@ -44,7 +45,7 @@ export function JsonBodyEditor({
         }}
       />
       {invalid && (
-        <span role="alert" className="mt-1.5 block font-sans text-xs text-warn">
+        <span role="alert" className="mt-1.5 block text-xs text-warn">
           {t("ce_json_parse_error")}
         </span>
       )}

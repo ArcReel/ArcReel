@@ -209,6 +209,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
               />
               <TestField label={t("ce_check_response_body")} htmlFor={ids.response}>
                 <Textarea
+                  mono
                   id={ids.response}
                   value={responseText}
                   spellCheck={false}
@@ -246,6 +247,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
           <div className="flex flex-wrap items-end gap-3">
             <TestField label={t("ce_test_model")} htmlFor={ids.previewModel} className="w-56">
               <Input
+                mono
                 id={ids.previewModel}
                 type="text"
                 autoComplete="off"
@@ -309,6 +311,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                   </TestField>
                   <TestField label={t("credential_secret_label")} htmlFor={ids.apiKey}>
                     <Input
+                      mono
                       id={ids.apiKey}
                       type="password"
                       autoComplete="off"
@@ -321,6 +324,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
               )}
               <TestField label={t("ce_test_model")} htmlFor={ids.trialModel}>
                 <Input
+                  mono
                   id={ids.trialModel}
                   type="text"
                   autoComplete="off"

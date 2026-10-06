@@ -79,6 +79,22 @@ Dependabot 只升级 npm 包，不会重新生成 `components/ui/*.tsx`。`@base
 
 画布里直接编辑的正文字段（如故事设定）用 `Textarea` 与 `Input` 的 `variant="plain"`：静止时没有边框与底色，悬停或聚焦时显出边框。长页面里的正文字段写 `max-h-none`，随内容撑高，由页面滚动，不在框内再嵌套滚动。
 
+### 代码类输入框用 `Input` 与 `Textarea` 的 `mono`，不手写等宽字体
+
+`mono` 只管字体，`variant` 只管外观，两者可以同时使用。`InputGroupInput` 与 `InputGroupTextarea` 透传 `mono`。不要在输入框或它的外层元素上写 `font-mono`：外层的字体经继承进入输入框，`@shadcn/lint` 查不到，规范也就无从核对。
+
+适用 `mono` 的输入框：
+
+- JSON、代码与请求体编辑区：端点的 JSON 视图、请求体模板、导入时粘贴的定义、测试时粘贴的响应、Agent 记忆的 Markdown 原文。
+- 模型 ID。
+- 令牌：API Key、密钥这类凭据输入框。
+- 请求路径与模板：端点的请求、查询、取件地址模板，请求头名称与内容，变量名，取值路径，状态值。
+
+保持比例字体的输入框：
+
+- 接口地址（URL），如供应商与端点的默认接口地址、代理地址。不需要拼写检查的值写 `spellCheck={false}`，不用换字体来表达。
+- 名称、版本、提示词等正文。登录密码不是令牌，同样保持比例字体。
+
 ### 带候选的文本输入：只能选候选项用 Combobox，允许填写候选之外的值用 Base UI Autocomplete
 
 Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；模型 ID 这类网关列表常常不全、必须允许自由填写的字段，用 `@base-ui/react/autocomplete`。shadcn 的 base-nova registry 没有 Autocomplete，参考 `components/agent/ModelIdField` 的写法：输入框用 `components/ui/input-group`，弹层表面沿用 `bg-popover`、`shadow-overlay` 与 `z-overlay`。

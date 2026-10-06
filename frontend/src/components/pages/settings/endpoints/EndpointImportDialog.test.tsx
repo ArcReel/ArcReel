@@ -311,4 +311,10 @@ describe("EndpointImportDialog", () => {
     expect(onSource).toHaveBeenLastCalledWith("first-edited", "");
     expect(screen.getByRole("button", { name: "去绑定节点" })).toBeEnabled();
   });
+
+  it("sets the pasted definition in monospace", () => {
+    renderDialog(validation());
+
+    expect(screen.getByLabelText("粘贴端点定义或 workflow")).toHaveClass("font-mono");
+  });
 });

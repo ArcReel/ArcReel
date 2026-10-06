@@ -30,7 +30,7 @@ export function ModelIdField({ id, value, onChange, options, placeholder, disabl
           aria-describedby={rest["aria-describedby"]}
           autoComplete="off"
           spellCheck={false}
-          render={<InputGroupInput />}
+          render={<InputGroupInput mono />}
         />
         <InputGroupAddon align="inline-end">
           {value && (

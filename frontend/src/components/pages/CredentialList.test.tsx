@@ -259,4 +259,13 @@ describe("pages/CredentialList credential groups (api_key OR access_key+secret_k
     expect(await within(dialog).findByText("请至少完整填写一组鉴权字段")).toBeInTheDocument();
     expect(createSpy).not.toHaveBeenCalled();
   });
+
+  it("sets the key in monospace and leaves the Base URL proportional", async () => {
+    vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
+    renderList({ supportsBaseUrl: true });
+    const dialog = await openAddDialog();
+
+    expect(within(dialog).getByLabelText("密钥")).toHaveClass("font-mono");
+    expect(within(dialog).getByLabelText(BASE_URL_LABEL).closest(".font-mono")).toBeNull();
+  });
 });

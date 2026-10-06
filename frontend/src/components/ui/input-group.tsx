@@ -116,10 +116,11 @@ function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   )
 }
 
+// 相对生成代码的改动：透传 Input 的 mono（等宽字体）。
 function InputGroupInput({
   className,
   ...props
-}: React.ComponentProps<"input">) {
+}: React.ComponentProps<"input"> & { mono?: boolean }) {
   return (
     <Input
       data-slot="input-group-control"
@@ -132,10 +133,11 @@ function InputGroupInput({
   )
 }
 
+// 相对生成代码的改动：透传 Textarea 的 mono（等宽字体）。
 function InputGroupTextarea({
   className,
   ...props
-}: React.ComponentProps<"textarea">) {
+}: React.ComponentProps<"textarea"> & { mono?: boolean }) {
   return (
     <Textarea
       data-slot="input-group-control"

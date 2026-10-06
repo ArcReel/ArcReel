@@ -269,4 +269,13 @@ describe("CustomProviderForm", () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
     expect(API.deleteCustomProvider).toHaveBeenCalledWith(3);
   });
+
+  it("sets the key and model IDs in monospace, and leaves the base URL proportional", () => {
+    renderForm();
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    expect(screen.getByLabelText("密钥")).toHaveClass("font-mono");
+    expect(screen.getByRole("textbox", { name: "模型 ID" })).toHaveClass("font-mono");
+    expect(screen.getByLabelText("接口地址").closest(".font-mono")).toBeNull();
+  });
 });

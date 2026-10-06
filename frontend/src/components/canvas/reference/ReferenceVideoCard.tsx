@@ -349,7 +349,7 @@ export function ReferenceVideoCard({
           aria-hidden
           // 着色镜像层：只显示与输入框同步滚动的那一段，溢出部分由输入框自己滚动到达。
           data-overflow-ok="与输入框同步滚动的着色镜像层"
-          className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 font-mono text-sm leading-6"
+          className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 text-sm leading-6"
         >
           {pickerOpen
             ? renderHighlightedTokens(tokens, atStart, setAnchorEl, voiceoverLabel)
@@ -375,7 +375,7 @@ export function ReferenceVideoCard({
           placeholder={t("reference_editor_placeholder")}
           aria-label={t("reference_editor_aria_name")}
           spellCheck={false}
-          className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 font-mono text-sm leading-6 text-transparent caret-foreground placeholder:text-muted-foreground focus:outline-none"
+          className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 text-sm leading-6 text-transparent caret-foreground placeholder:text-muted-foreground focus:outline-none"
         />
 
         {pickerOpen && anchorEl && (
