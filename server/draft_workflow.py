@@ -1461,8 +1461,7 @@ class DraftWorkflow:
                     "revision_conflict",
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",
                 )
-            discarded = path.exists()
-            path.unlink(missing_ok=True)
+            discarded = clear_quarantine(self.ctx.project_path, episode, resolved)
         return {"episode": episode, "doc_type": doc_type, "discarded": discarded}
 
 

@@ -619,6 +619,28 @@ async def test_patch_draft_moves_project_activity_forward(fake_ctx: ToolHarness)
     assert recorded > stale
 
 
+async def test_discard_draft_moves_project_activity_forward(fake_ctx: ToolHarness) -> None:
+    # 丢弃删掉草稿文件后不留修改时间，由删除出口记账。
+    rv_source(fake_ctx)
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+    opened = draft_of(await open_for_edit(fake_ctx))
+    stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+    (fake_ctx.project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
+
+    discarded = draft_of(
+        await run_declared_tool(
+            "discard_draft",
+            fake_ctx,
+            {"episode_id": 1, "doc_type": "reference_script_plan", "base_revision": opened["revision"]},
+        )
+    )
+
+    assert discarded["discarded"] is True
+    recorded = recorded_project_activity(fake_ctx.project_path)
+    assert recorded is not None
+    assert recorded > stale
+
+
 async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(fake_ctx: ToolHarness) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])

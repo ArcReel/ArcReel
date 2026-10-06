@@ -13,6 +13,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
+from lib.project.project_activity import recorded_project_activity
 
 
 @pytest.mark.parametrize("failure", ["acceptance", "replacement", "record"])
@@ -37,6 +38,7 @@ async def test_failed_replacement_never_claims_new_content_as_current(
     first = await commit_rendered_artifact(
         tmp_path, key=key, artifact_path=path, basis=original, render=render, accept=accept
     )
+    assert recorded_project_activity(tmp_path) is not None
     payload = b"new"
     replace = os.replace
 

@@ -1,6 +1,6 @@
 """AssetRepository 的名称搜索：方言敏感，PostgreSQL 与 SQLite 上同一套判据。
 
-搜索词按字面子串匹配、不区分 ASCII 大小写；``%``、``_`` 与转义字符不作通配符。
+搜索词按字面子串匹配、不区分普通 Unicode 字母大小写；``%``、``_`` 与转义字符不作通配符。
 """
 
 from __future__ import annotations
@@ -9,7 +9,20 @@ import pytest
 
 from lib.db.repositories.asset_repo import AssetRepository
 
-NAMES = ["Alice", "ALICE 战斗装", "alicia", "100% 纯度", "1000 纯度", "a_b", "axb", "路径/备份", "路径备份"]
+NAMES = [
+    "Alice",
+    "ALICE 战斗装",
+    "alicia",
+    "100% 纯度",
+    "1000 纯度",
+    "a_b",
+    "axb",
+    "路径/备份",
+    "路径备份",
+    "CAFÉ",
+    "Élodie",
+    "МОСКВА",
+]
 
 
 @pytest.fixture
@@ -29,6 +42,9 @@ async def _names(repo: AssetRepository, q: str) -> set[str]:
 @pytest.mark.parametrize(
     ("q", "expected"),
     [
+        ("café", {"CAFÉ"}),
+        ("élodie", {"Élodie"}),
+        ("москва", {"МОСКВА"}),
         ("alice", {"Alice", "ALICE 战斗装"}),
         ("ALIC", {"Alice", "ALICE 战斗装", "alicia"}),
         ("%", {"100% 纯度"}),
@@ -46,5 +62,8 @@ async def test_list_matches_name_case_insensitively_and_literally(
 
 @pytest.mark.asyncio
 async def test_count_by_type_uses_the_same_match_as_list(seeded_repo: AssetRepository):
+    assert await seeded_repo.count_by_type(q="café") == {"character": 1}
+    assert await seeded_repo.count_by_type(q="élodie") == {"character": 1}
+    assert await seeded_repo.count_by_type(q="москва") == {"character": 1}
     assert await seeded_repo.count_by_type(q="ALICE") == {"character": 2}
     assert await seeded_repo.count_by_type(q="_") == {"character": 1}

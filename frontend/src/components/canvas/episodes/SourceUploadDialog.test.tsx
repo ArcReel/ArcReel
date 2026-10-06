@@ -81,8 +81,8 @@ describe("SourceUploadDialog", () => {
   it("warns when the project data fails to refresh after the upload", async () => {
     vi.mocked(useProjectsStore.getState().refreshProject).mockRestore();
     vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
-    vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "source/x.txt", filename: "x.txt" });
-    const { onClose } = renderDialog({ initialFiles: [txt("x.txt")] });
+    vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "source/x (1).txt", filename: "x (1).txt" });
+    const { onClose, onUploaded } = renderDialog({ initialFiles: [txt("x.txt")] });
 
     fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
 
@@ -91,6 +91,7 @@ describe("SourceUploadDialog", () => {
       text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
       tone: "warning",
     });
+    expect(onUploaded).not.toHaveBeenCalled();
   });
 
   it("names files the server saved under a different name in the completion toast", async () => {

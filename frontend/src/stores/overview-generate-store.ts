@@ -8,7 +8,7 @@ import { useProjectsStore } from "./projects-store";
 
 /**
  * 从原文生成故事设定没有就地填入的原因：`generate` 是生成请求失败，输出被截断时附带出路；
- * `refresh` 是生成已落盘，之后取回项目数据失败。
+ * `refresh` 是生成已落盘，之后取回项目数据失败，该项目的数据之后重新加载成功即清除。
  */
 export type StoryGenerateError =
   | { kind: "generate"; message: string; truncation: OutputTruncation | null }
@@ -54,3 +54,12 @@ export const useOverviewGenerateStore = create<OverviewGenerateState>((set, get)
     }));
   },
 }));
+
+// 「生成已落盘、取回失败」只在页面还停在旧数据时成立：该项目的数据之后重新加载成功（如切走再回来），
+// 已带上生成结果，提示随之清除。生成失败的提示与数据无关，保留到再次生成。
+useProjectsStore.subscribe((state, prev) => {
+  const projectName = state.currentProjectName;
+  if (!projectName || !state.currentProjectData || state.currentProjectData === prev.currentProjectData) return;
+  if (useOverviewGenerateStore.getState().errors[projectName]?.kind !== "refresh") return;
+  useOverviewGenerateStore.setState((s) => ({ errors: without(s.errors, projectName) }));
+});

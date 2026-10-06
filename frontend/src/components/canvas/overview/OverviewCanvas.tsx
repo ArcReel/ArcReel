@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { SourceUploadDialog, type SourceUploadResult } from "@/components/canvas/episodes/SourceUploadDialog";
 import { useCostStore } from "@/stores/cost-store";
@@ -63,19 +63,13 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
   );
 
   // 交接提示：本次会话内故事设定由空变为有内容时触发一次；只读态与广告项目不触发。
-  // 按项目记录上一次看到的状态，切项目时不把上一个项目的状态当成这个项目的变化。
-  const lastSeenRef = useRef<{ projectName: string; empty: boolean } | null>(null);
+  // 上一次看到的状态按项目记在 store 里：切项目时不把上一个项目的状态当成这个项目的变化，
+  // 离开概览期间后台生成填入的故事设定，回来时也算一次变化。
+  const observeStorySetting = useHandoffTipStore((s) => s.observe);
   useEffect(() => {
-    if (readOnly || isAd) {
-      lastSeenRef.current = null;
-      return;
-    }
-    if (!projectData) return;
-    const empty = !hasStorySetting(projectData.overview);
-    const last = lastSeenRef.current;
-    if (last?.projectName === projectName && last.empty && !empty) useHandoffTipStore.getState().trigger(projectName);
-    lastSeenRef.current = { projectName, empty };
-  }, [projectData, projectName, readOnly, isAd]);
+    if (readOnly || isAd || !projectData) return;
+    observeStorySetting(projectName, !hasStorySetting(projectData.overview));
+  }, [projectData, projectName, readOnly, isAd, observeStorySetting]);
 
   if (!projectData) {
     // 项目数据加载期间保留空容器，避免「居中提示 → 顶端内容」的位置跳动

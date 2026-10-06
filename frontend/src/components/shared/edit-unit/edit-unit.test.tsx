@@ -16,6 +16,7 @@ import { PartialSaveError, useEditUnit, type SaveAndGenerateOptions } from "./us
 type SaveNote = (value: string) => Promise<string | void>;
 
 interface NoteEditorProps {
+  label?: string;
   source: string;
   save: SaveNote;
   inline?: boolean;
@@ -23,12 +24,12 @@ interface NoteEditorProps {
   confirm?: SaveAndGenerateOptions["confirm"];
 }
 
-function NoteEditor({ source, save, inline = false, generate, confirm }: NoteEditorProps) {
+function NoteEditor({ label = "备注", source, save, inline = false, generate, confirm }: NoteEditorProps) {
   const unit = useEditUnit({ source, save });
   return (
     <>
       <label>
-        备注
+        {label}
         <textarea value={unit.value} onChange={(event) => unit.setValue(event.target.value)} />
       </label>
       {inline ? <UnsavedChangesBar unit={unit} /> : <SaveBar unit={unit} />}
@@ -344,6 +345,27 @@ describe("离开拦截", () => {
       expect(location.history.at(-1)).toBe("/elsewhere");
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
+
+    it("动作在途期间，其他编辑单元的新修改照常询问", async () => {
+      const user = userEvent.setup();
+      const deleting = createDeferred<boolean>();
+      const location = renderNotePage(
+        <>
+          <DeletableNote action={() => deleting.promise} />
+          <NoteEditor label="另一条备注" source="另一条" save={vi.fn<SaveNote>()} inline />
+        </>,
+      );
+
+      await discardForAction(user);
+      await user.type(screen.getByRole("textbox", { name: "另一条备注" }), "，新改动");
+      await user.click(screen.getByRole("link", { name: "去别处" }));
+
+      await user.click(within(await leaveDialog()).getByRole("button", { name: "继续编辑" }));
+      expect(location.history.at(-1)).toBe("/notes");
+      await act(async () => deleting.resolve(true));
+      expect(note()).toHaveValue("原始备注");
+      expect(screen.getByRole("textbox", { name: "另一条备注" })).toHaveValue("另一条，新改动");
+    });
   });
 
   describe("关闭标签页或刷新", () => {
@@ -419,14 +441,19 @@ describe("离开拦截", () => {
     it("保存在途时把字段改回原值再后退：不放行，等保存落定后再询问", async () => {
       const user = userEvent.setup();
       const saving = createDeferred<string | void>();
+      // 先于 guard 登记捕获监听器：被拦截的 popstate 会 stopImmediatePropagation。
+      const popped = createDeferred<void>();
+      window.addEventListener("popstate", () => popped.resolve(), { capture: true, once: true });
       renderInBrowser(["/elsewhere"], () => saving.promise);
       await user.type(note(), "，补充");
       await user.click(screen.getByRole("button", { name: "保存" }));
       await user.clear(note());
       await user.type(note(), "原始备注");
-      await goBack();
-      // 被截停时没有可等的界面变化：等 jsdom 在后续任务里派发完 popstate
-      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+      // 捕获实际派发的历史事件，避免负断言在导航发生前提前通过。
+      await act(async () => {
+        window.history.back();
+        await popped.promise;
+      });
 
       expect(screen.queryByText("别处的页面")).not.toBeInTheDocument();
       expect(window.location.pathname).toBe("/notes");

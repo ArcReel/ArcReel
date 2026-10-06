@@ -4,8 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifacts.version_manager import VersionManager, _get_versions_file_lock
+from lib.artifacts.version_manager import (
+    InstalledVersionCommit,
+    StagedVersionCommit,
+    VersionManager,
+    _get_versions_file_lock,
+)
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.project.project_activity import ACTIVITY_FILENAME, record_project_activity, recorded_project_activity
 
 
 class TestVersionManager:
@@ -558,3 +564,108 @@ class TestVersionManager:
         history = vm.get_versions("videos", "E1S01")
         assert history["current_version"] == user_selection
         assert (project / history["versions"][-1]["file"]).read_bytes() == b"late-paid"
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "add",
+        "staged",
+        "installed",
+        "batch",
+        "paid",
+        "reject",
+        "reject_batch",
+        "failed_reject_batch",
+        "restore",
+        "metadata",
+        "rename",
+        "purge",
+        "failed_restore",
+    ],
+)
+def test_version_changes_advance_activity_only_after_commit(tmp_path, operation):
+    vm = VersionManager(tmp_path)
+    current = tmp_path / "characters" / "Alice.png"
+    current.parent.mkdir()
+    current.write_bytes(b"old")
+    vm.add_version("characters", "Alice", "old", source_file=current)
+    current.write_bytes(b"new")
+    vm.add_version("characters", "Alice", "new", source_file=current)
+    (tmp_path / ACTIVITY_FILENAME).write_text("2026-03-01T08:00:00+00:00", encoding="utf-8")
+    before = recorded_project_activity(tmp_path)
+
+    def fail_restore(_record):
+        raise RuntimeError("registration failed")
+
+    if operation == "add":
+        vm.add_version("characters", "Alice", "third", source_file=current)
+    elif operation in {"staged", "batch", "paid"}:
+        staged = tmp_path / ".candidate.png"
+        staged.write_bytes(b"third")
+        if operation == "staged":
+            vm.commit_staged_version("characters", "Alice", "third", staged_file=staged, current_file=current)
+        elif operation == "batch":
+            vm.commit_staged_versions((StagedVersionCommit("characters", "Alice", "third", staged, current, {}),))
+        else:
+            vm.commit_staged_paid_version(
+                "characters", "Alice", "third", staged_file=staged, current_file=current, select_current=False
+            )
+    elif operation == "installed":
+        vm.commit_installed_versions((InstalledVersionCommit("characters", "Alice", "third", current, {}),))
+    elif operation == "reject":
+        assert vm.reject_current_version("characters", "Alice", rejected_version=2, current_file=current)
+    elif operation in {"reject_batch", "failed_reject_batch"}:
+
+        def fail_reject(_identities):
+            raise RuntimeError("registration failed")
+
+        if operation == "failed_reject_batch":
+            with pytest.raises(RuntimeError, match="registration failed"):
+                vm.reject_current_versions({("characters", "Alice"): (2, current)}, on_reject=fail_reject)
+        else:
+            assert vm.reject_current_versions({("characters", "Alice"): (2, current)})
+    elif operation == "restore":
+        vm.restore_version("characters", "Alice", 1, current)
+    elif operation == "metadata":
+        assert vm.update_version_metadata("characters", "Alice", 1, prompt="corrected")
+    elif operation == "rename":
+        vm.rename_resource("characters", "Alice", "Bob")
+    elif operation == "purge":
+        vm.purge_resource("characters", "Alice")
+    else:
+        with pytest.raises(RuntimeError, match="registration failed"):
+            vm.restore_version("characters", "Alice", 1, current, on_restore=fail_restore)
+
+    after = recorded_project_activity(tmp_path)
+    assert before is not None
+    assert after is not None
+    if operation in {"failed_restore", "failed_reject_batch"}:
+        assert after == before
+    else:
+        assert after > before
+
+
+def test_failed_batch_rejection_keeps_activity_recorded_by_other_writers(tmp_path):
+    # 账本是项目全局的，草稿、记忆等写入方不经过版本管理的锁：批量拒绝回滚时不能抹掉它们同期的记账。
+    vm = VersionManager(tmp_path)
+    current = tmp_path / "characters" / "Alice.png"
+    current.parent.mkdir()
+    current.write_bytes(b"old")
+    vm.add_version("characters", "Alice", "old", source_file=current)
+    current.write_bytes(b"new")
+    vm.add_version("characters", "Alice", "new", source_file=current)
+    (tmp_path / ACTIVITY_FILENAME).write_text("2026-03-01T08:00:00+00:00", encoding="utf-8")
+    before = recorded_project_activity(tmp_path)
+
+    def other_writer_then_fail(_identities):
+        record_project_activity(tmp_path)
+        raise RuntimeError("registration failed")
+
+    with pytest.raises(RuntimeError, match="registration failed"):
+        vm.reject_current_versions({("characters", "Alice"): (2, current)}, on_reject=other_writer_then_fail)
+
+    after = recorded_project_activity(tmp_path)
+    assert before is not None
+    assert after is not None
+    assert after > before

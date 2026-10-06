@@ -20,7 +20,7 @@ from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.json_io import atomic_write_json
-from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
+from lib.project.project_activity import ACTIVITY_FILENAME, record_project_activity, recorded_project_activity
 from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.project.resource_paths import resource_relative_path
@@ -1911,6 +1911,57 @@ class TestScriptPlanWriteStore:
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
         assert recorded_project_activity(project_path) == stale
+
+    def test_failed_commit_leaves_project_activity_unchanged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        # 内容变化会作废下游草稿，清草稿的出口在事务内记账；登记失败回滚时账本一并回到原值。
+        project_path = self._project_path(tmp_path)
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
+        write_quarantine(
+            project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
+        )
+        stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+        (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
+
+        def _fail(*_args: object) -> None:
+            raise RuntimeError("registration failed")
+
+        monkeypatch.setattr("lib.artifacts.artifact_activation.register_current_artifact_if_provable", _fail)
+        with (
+            script_review.script_plan_write_lock(project_path, 1),
+            pytest.raises(RuntimeError, match="registration failed"),
+        ):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]})
+
+        assert quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
+        assert recorded_project_activity(project_path) == stale
+
+    def test_failed_commit_keeps_activity_recorded_by_other_writers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # 账本是项目全局的，草稿、记忆等写入方不经过正式文件的锁：回滚时不能抹掉它们同期的记账。
+        project_path = self._project_path(tmp_path)
+        with script_review.script_plan_write_lock(project_path, 1):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
+        stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
+        (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
+
+        def _other_writer_then_fail(*_args: object) -> None:
+            record_project_activity(project_path)
+            raise RuntimeError("registration failed")
+
+        monkeypatch.setattr(
+            "lib.artifacts.artifact_activation.register_current_artifact_if_provable", _other_writer_then_fail
+        )
+        with (
+            script_review.script_plan_write_lock(project_path, 1),
+            pytest.raises(RuntimeError, match="registration failed"),
+        ):
+            script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]})
+
+        recorded = recorded_project_activity(project_path)
+        assert recorded is not None
+        assert recorded > stale
 
     def test_deleting_the_script_plan_moves_project_activity_forward(self, tmp_path: Path):
         project_path = self._project_path(tmp_path)

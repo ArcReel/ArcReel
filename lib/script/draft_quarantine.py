@@ -332,13 +332,19 @@ def quarantine_exists(project_path: Path, episode: int, kind: str) -> bool:
     return quarantine_path(project_path, episode, kind).exists()
 
 
-def clear_quarantine(project_path: Path, episode: int, kind: str) -> None:
-    """晋升成功后清除草稿。缺失时静默——晋升可能来自一次直接重跑，本就没有草稿要清。"""
+def clear_quarantine(project_path: Path, episode: int, kind: str, *, record_activity: bool = True) -> bool:
+    """清除草稿（晋升成功或用户丢弃），返回是否真的删掉了文件；删掉时推进项目活动。
+
+    缺失时静默——晋升可能来自一次直接重跑，本就没有草稿要清。在外层写事务内清除时传
+    ``record_activity=False``，由外层提交后记账：账本是项目全局的，不随事务回滚。
+    """
     try:
         quarantine_path(project_path, episode, kind).unlink()
     except FileNotFoundError:
-        return
-    record_project_activity(project_path)
+        return False
+    if record_activity:
+        record_project_activity(project_path)
+    return True
 
 
 def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, episode: int) -> str:

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { ContentBlock } from "@/types";
+import { useArrivedFailures } from "./arrived-failures";
 import { ContentBlockRenderer } from "./ContentBlockRenderer";
 import { TextBlock } from "./TextBlock";
 import { WorkRow, useSessionDone } from "./WorkRow";
@@ -35,7 +36,15 @@ export function SubagentCard({ block }: { block: ContentBlock }) {
   const sessionDone = useSessionDone();
   const status = deriveStatus(block, sessionDone);
 
-  const subBlocks = (block.sub_turns ?? []).flatMap((turn) => (Array.isArray(turn.content) ? turn.content : []));
+  const arrived = useArrivedFailures();
+  const subTurns = block.sub_turns ?? [];
+  const subBlocks = subTurns.flatMap((turn) => (Array.isArray(turn.content) ? turn.content : []));
+  // 查看期间新到达的子时间线失败播报；展开卡片看到的既有失败不播报
+  const announced = new Set(
+    subTurns.flatMap((turn) =>
+      turn.uuid !== undefined && arrived.has(turn.uuid) && Array.isArray(turn.content) ? turn.content : [],
+    ),
+  );
   // 合成卡片（压缩续接后缺锚点的子智能体）没有 result，结论在 task_info.summary
   const conclusion = (typeof block.result === "string" ? block.result : (block.task_info?.summary ?? "")).trim();
   const tokens = status === "running" ? block.task_info?.usage?.total_tokens : undefined;
@@ -47,7 +56,7 @@ export function SubagentCard({ block }: { block: ContentBlock }) {
     <WorkRow icon={SUBAGENT_ICON} name={t("subagent_card_label")} summary={summary} status={status}>
       {(subBlocks.length > 0 || conclusion) && (
         <>
-          {subBlocks.length > 0 && <SubTimeline blocks={subBlocks} />}
+          {subBlocks.length > 0 && <SubTimeline blocks={subBlocks} announced={announced} />}
           {conclusion && (
             <div className="flex min-w-0 flex-col gap-0.5">
               <p className="text-xs text-muted-foreground">{t("work_subagent_conclusion")}</p>
@@ -63,20 +72,25 @@ export function SubagentCard({ block }: { block: ContentBlock }) {
 }
 
 /** 子时间线：内部消息的正文与工序依次排列，连续的工序排成紧凑的一列。 */
-function SubTimeline({ blocks }: { blocks: ContentBlock[] }) {
+function SubTimeline({ blocks, announced }: { blocks: ContentBlock[]; announced: ReadonlySet<ContentBlock> }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5 text-xs text-subtle-foreground">
       {segmentWorkBlocks(blocks).map(({ work, items }) =>
         work ? (
           <div key={items[0].index} className="flex min-w-0 flex-col">
             {items.map(({ block, index }) => (
-              <ContentBlockRenderer key={block.id ?? index} block={block} index={index} />
+              <ContentBlockRenderer key={block.id ?? index} block={block} index={index} announce={announced.has(block)} />
             ))}
           </div>
         ) : items[0].block.type === "text" ? (
           <TextBlock key={items[0].block.id ?? items[0].index} text={items[0].block.text} size="compact" />
         ) : (
-          <ContentBlockRenderer key={items[0].block.id ?? items[0].index} block={items[0].block} index={items[0].index} />
+          <ContentBlockRenderer
+            key={items[0].block.id ?? items[0].index}
+            block={items[0].block}
+            index={items[0].index}
+            announce={announced.has(items[0].block)}
+          />
         ),
       )}
     </div>

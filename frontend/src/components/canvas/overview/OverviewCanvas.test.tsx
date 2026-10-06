@@ -393,6 +393,23 @@ describe("OverviewCanvas", () => {
     expect(alert).not.toHaveTextContent("生成失败");
   });
 
+  it("drops the refresh warning once the project data loads again", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "generateOverview").mockResolvedValue({ success: true, overview: {} as never });
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    useProjectsStore
+      .getState()
+      .setCurrentProject("demo", makeProjectData({ ...EMPTY_PROJECT, whole_source_files: [{ source_file: "source/novel.txt" }] }));
+    render(withRouter(<StoreOverview />));
+
+    await user.click(screen.getByRole("button", { name: "从原文生成" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("页面数据刷新失败");
+
+    // 之后重新加载成功（如切走再回来），数据已带上生成结果，提示不再挂着
+    act(() => useProjectsStore.getState().setCurrentProject("demo", makeProjectData()));
+    expect(screen.queryByText(/页面数据刷新失败/)).not.toBeInTheDocument();
+  });
+
   it("shows the read-only story setting as text without edit or generate entries", () => {
     renderOverview({ projectName: "onboarding_demo", readOnly: true });
 
@@ -526,6 +543,34 @@ describe("OverviewCanvas", () => {
       view.unmount();
       useHandoffTipStore.setState(useHandoffTipStore.getInitialState(), true);
       fillStorySetting();
+      expect(screen.queryByText(TIP)).not.toBeInTheDocument();
+    });
+
+    it("appears when the story setting was filled while the overview was away", () => {
+      // 生成在后台继续：离开概览时还是空的，回来时已有内容
+      const view = renderOverview({
+        projectData: makeProjectData({ overview: undefined, whole_source_files: [{ source_file: "source/a.txt" }] }),
+      });
+      view.unmount();
+      renderOverview();
+
+      expect(screen.getByText(TIP).closest("[role=status]")).not.toBeNull();
+    });
+
+    it("goes away when a message is sent to the agent from another view of this project", () => {
+      const view = fillStorySetting();
+      view.unmount();
+
+      act(() => useAssistantStore.setState({ currentProject: "demo", sending: true }));
+      renderOverview();
+
+      expect(screen.queryByText(TIP)).not.toBeInTheDocument();
+    });
+
+    it("does not appear once a message was sent to the agent in this project before the story setting filled in", () => {
+      act(() => useAssistantStore.setState({ currentProject: "demo", sending: true }));
+      fillStorySetting();
+
       expect(screen.queryByText(TIP)).not.toBeInTheDocument();
     });
 

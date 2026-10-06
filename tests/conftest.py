@@ -96,6 +96,7 @@ atexit.register(_remove_owned_test_home_dir)
 
 import lib.generation.generation_queue as generation_queue_module
 from lib.db.base import Base
+from lib.db.engine import register_sqlite_functions
 from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
@@ -392,13 +393,16 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
     else:
         engine = create_async_engine(f"sqlite+aiosqlite:///{file_path}", poolclass=pool.NullPool)
 
-        @event.listens_for(engine.sync_engine, "connect")
-        def _set_sqlite_pragma(dbapi_conn, _record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA busy_timeout=30000")
-            cursor.execute("PRAGMA foreign_keys=OFF")
-            cursor.close()
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _record):
+        register_sqlite_functions(dbapi_conn)
+        if file_path is None:
+            return
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        cursor.close()
 
     async with engine.begin() as conn:
         _register_models()

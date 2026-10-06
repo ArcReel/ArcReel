@@ -3,8 +3,8 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { clearAgentOverlay } from "../support/region-helpers.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
-import { expect, type ApiOverrides } from "../support/test.ts";
+import { RECORDED_ACCESS_TOKEN, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { expect, test, type ApiOverrides } from "../support/test.ts";
 
 // 首次使用引导：driver.js 气泡、大厅「示例项目」区块、只读演示工作台（Agent 面板、顶栏徽标），
 // 以及真实项目故事设定区底部的一次性就地提示。引导只在服务端报告未看过时自动启动。
@@ -197,3 +197,39 @@ defineRegionScenarios("新手引导", [
     screenshot: { name: "overview-handoff-tip", target: (page) => page.getByRole("status").filter({ hasText: "故事设定已提炼完成" }) },
   },
 ]);
+
+
+test("已有新建项目向导时启动引导：焦点只归气泡，结束后归还对话框", async ({ page, api }) => {
+  api.override({ "POST /api/v1/onboarding/seen": { status: 200, body: { success: true } } });
+  let releaseStatus!: () => void;
+  const released = new Promise<void>((resolve) => { releaseStatus = resolve; });
+  await page.route("**/api/v1/onboarding/status", async (route) => {
+    await released;
+    await route.fulfill({ json: { seen: false } });
+  });
+  await page.addInitScript((token) => localStorage.setItem("arcreel_auth_token", token), RECORDED_ACCESS_TOKEN);
+  await page.goto(LOBBY_PATH);
+  await page.getByRole("button", { name: "新建项目" }).first().click();
+  const wizard = page.locator("[data-slot=dialog-content]").filter({ has: page.getByRole("heading", { name: "新建项目" }) });
+  const name = wizard.getByRole("textbox").first();
+  await name.focus();
+  releaseStatus();
+  await tourReady(page);
+
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press("Tab");
+    await expect.poll(() => page.evaluate(() =>
+      Boolean(document.activeElement?.closest(".driver-popover")),
+    )).toBe(true);
+  }
+  await tour(page).locator(".driver-popover-next-btn").focus();
+  await page.keyboard.press("Enter");
+  await expect(tourTitle(page)).not.toHaveText("欢迎使用 ArcReel");
+  await expect(wizard).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(tour(page)).toHaveCount(0);
+  await expect(name).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(wizard).toHaveCount(0);
+});
