@@ -168,6 +168,19 @@ defineRegionScenarios("调用端点", [
     screenshot: { name: "endpoints-detail", target: (page) => page.getByRole("main") },
   },
   {
+    name: "内置端点详情：页头并排「复制为我的端点」与主按钮「新建供应商并使用」，都在视口内",
+    path: `${ENDPOINTS_PATH}&endpoint=newapi-video`,
+    ready: async (page) => {
+      await page.getByRole("heading", { name: "NewAPI Video" }).waitFor();
+      await page.getByRole("region", { name: "使用这个端点的模型" }).waitFor();
+    },
+    act: async (page) => {
+      await expect(page.getByRole("button", { name: "复制为我的端点" })).toBeInViewport({ ratio: 1 });
+      await expect(page.getByRole("button", { name: "新建供应商并使用" })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "endpoints-builtin-detail", target: (page) => page.getByRole("main") },
+  },
+  {
     name: "自定义端点多且名称长：二级栏滚动到底，「新建端点」在视口内",
     path: `${ENDPOINTS_PATH}&endpoint=ce-1`,
     api: MANY_ENDPOINTS,

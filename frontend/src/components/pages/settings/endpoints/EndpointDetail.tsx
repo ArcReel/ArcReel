@@ -40,7 +40,12 @@ import type {
 import { MarketInstallBadges } from "../market/MarketInstallBadges";
 import { MarketSubmissionBadge } from "../market/MarketSubmissionBadge";
 import { MARKET_CONTRIBUTING_URL } from "../market/market-links";
-import { isRenderableDefinition, slugFromName, type EndpointFormSection } from "./endpoint-definition-draft";
+import {
+  definitionMediaType,
+  isRenderableDefinition,
+  slugFromName,
+  type EndpointFormSection,
+} from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
 import { EndpointHeader, type EndpointBackTarget } from "./EndpointHeader";
 import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceList";
@@ -479,25 +484,24 @@ export function EndpointDetail({
       </>
     );
   } else if (selection.mode === "builtin") {
+    // 内置端点只读，常见去向是拿它新建供应商；复制为我的端点是次要操作
     primary = (
-      <Button variant="outline" onClick={() => void handleCopyAsMine()} disabled={copying || !draft}>
-        {copying ? (
-          <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
-        ) : (
-          <Copy aria-hidden data-icon="inline-start" />
-        )}
-        {t("ce_copy_as_mine")}
-      </Button>
-    );
-    menu = draft && endpointKey && (
       <>
-        <DropdownMenuItem onClick={() => onCreateProvider(draft, endpointKey)}>
-          <Plus aria-hidden />
+        <Button variant="outline" onClick={() => void handleCopyAsMine()} disabled={copying || !draft}>
+          {copying ? (
+            <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <Copy aria-hidden data-icon="inline-start" />
+          )}
+          {t("ce_copy_as_mine")}
+        </Button>
+        <Button onClick={() => draft && endpointKey && onCreateProvider(draft, endpointKey)} disabled={!draft || !endpointKey}>
+          <Plus aria-hidden data-icon="inline-start" />
           {t("ce_create_provider")}
-        </DropdownMenuItem>
-        {exportItem}
+        </Button>
       </>
     );
+    menu = exportItem;
   }
 
   const updateButton = installation?.state === "update_available" && (
@@ -558,7 +562,10 @@ export function EndpointDetail({
             <Alert>
               <AlertDescription>
                 {t("ce_new_desc")}{" "}
-                <Link href={marketSettingsPath()} className={buttonVariants({ variant: "link", size: "sm" })}>
+                <Link
+                  href={marketSettingsPath("browse", { media: draft ? definitionMediaType(draft) : null })}
+                  className={buttonVariants({ variant: "link", size: "sm" })}
+                >
                   <Store aria-hidden data-icon="inline-start" />
                   {t("ce_get_from_market")}
                 </Link>

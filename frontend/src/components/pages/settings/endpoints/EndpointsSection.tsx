@@ -88,7 +88,8 @@ export function EndpointsSection() {
   const [importFileName, setImportFileName] = useState("");
   const [importDefinition, setImportDefinition] = useState<AnyEndpointDefinition | null>(null);
   const [importValidation, setImportValidation] = useState<EndpointValidateResponse | null>(null);
-  const [importBusy, setImportBusy] = useState(false);
+  // 导入弹窗在途的请求：推断节点绑定（取消即作废）或落盘（已发出就收不回，期间不能取消）。
+  const [importBusy, setImportBusy] = useState<"infer" | "save" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importPending, setImportPending] = useState(false);
   // 粘进来的原始载荷：换媒体类型时要拿它重跑一次校验，包装结果随之更新。
@@ -370,7 +371,7 @@ export function EndpointsSection() {
     // 推断期间用户可以取消弹窗，也可以再交一份载荷；两者都递增这个号，回来发现号变了就整份丢弃
     // ——迟到的那一份会把一个已经被放弃的 workflow 装进详情并跳过去。
     const run = importRunRef.current;
-    setImportBusy(true);
+    setImportBusy("infer");
     try {
       const base = reimportBase
         ? reimportedDefinition(
@@ -395,14 +396,14 @@ export function EndpointsSection() {
     } catch (e) {
       if (importRunRef.current === run) pushToast(errMsg(e, t("ce_import_failed")), "error");
     } finally {
-      if (importRunRef.current === run) setImportBusy(false);
+      if (importRunRef.current === run) setImportBusy(null);
     }
   }, [importDefinition, importValidation, importFileName, reimportBase, select, pushToast, t]);
 
   /** 关掉导入弹窗：在途的识别与推断一并作废，回来的那一份不再装进详情。 */
   const closeImport = useCallback(() => {
     importRunRef.current += 1;
-    setImportBusy(false);
+    setImportBusy(null);
     setImportPending(false);
     setImportOpen(false);
   }, []);
@@ -431,26 +432,26 @@ export function EndpointsSection() {
 
   const handleImportCreate = useCallback(async () => {
     if (!importDefinition) return;
-    setImportBusy(true);
+    setImportBusy("save");
     try {
       await finishImport(await API.createCustomEndpoint(importDefinition));
     } catch (e) {
       pushToast(errMsg(e, t("ce_import_failed")), "error");
     } finally {
-      setImportBusy(false);
+      setImportBusy(null);
     }
   }, [importDefinition, finishImport, pushToast, t]);
 
   const handleImportOverwrite = useCallback(
     async (id: number) => {
       if (!importDefinition) return;
-      setImportBusy(true);
+      setImportBusy("save");
       try {
         await finishImport(await API.updateCustomEndpoint(id, importDefinition));
       } catch (e) {
         pushToast(errMsg(e, t("ce_import_failed")), "error");
       } finally {
-        setImportBusy(false);
+        setImportBusy(null);
       }
     },
     [importDefinition, finishImport, pushToast, t],
@@ -601,7 +602,8 @@ export function EndpointsSection() {
         fileName={importFileName}
         definition={importDefinition}
         validation={importValidation}
-        busy={importBusy}
+        busy={importBusy !== null}
+        saving={importBusy === "save"}
         pending={importPending}
         mediaType={importMediaType}
         onSource={(text, name) => void takeImportSource(text, name)}

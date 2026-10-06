@@ -482,6 +482,26 @@ describe("EndpointsSection", () => {
     await waitFor(() => expect(create).toHaveBeenCalledWith(definition));
   });
 
+  it("keeps the import dialog from being cancelled while the definition is being saved", async () => {
+    const definition = makeDefinition({ meta: { name: "Pasted API", author: "me", version: "1.0.0" } });
+    let finish: (value: CustomEndpointInfo) => void = () => {};
+    vi.spyOn(API, "createCustomEndpoint").mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderSection();
+    await screen.findByRole("navigation");
+
+    await pasteSource(JSON.stringify(definition));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "导入" }));
+
+    expect(within(dialog).getByRole("button", { name: "取消" })).toBeDisabled();
+    await act(async () => finish(MINE));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
   it("offers a copy of a built-in declarative endpoint instead of editing it", async () => {
     vi.spyOn(API, "getBuiltinEndpointDefinition").mockResolvedValue(
       makeDefinition({ meta: { name: "NewAPI Video", author: "ArcReel", version: "1.0.0" } }),
@@ -495,6 +515,18 @@ describe("EndpointsSection", () => {
     expect(screen.getByRole("textbox", { name: "JSON" })).toHaveAttribute("readonly");
     await userEvent.click(screen.getByRole("button", { name: "复制为我的端点" }));
     await waitFor(() => expect(create).toHaveBeenCalledOnce());
+  });
+
+  it("puts creating a provider and copying a built-in endpoint side by side in its header", async () => {
+    vi.spyOn(API, "getBuiltinEndpointDefinition").mockResolvedValue(
+      makeDefinition({ meta: { name: "NewAPI Video", author: "ArcReel", version: "1.0.0" } }),
+    );
+    const { location } = renderSection("section=endpoints&endpoint=newapi-video");
+
+    await screen.findByDisplayValue("NewAPI Video");
+    expect(screen.getByRole("button", { name: "复制为我的端点" })).toBeEnabled();
+    await userEvent.click(await screen.findByRole("button", { name: "新建供应商并使用" }));
+    expect(location.history.at(-1)).toMatch(/^\/app\/settings\?section=providers&custom=new&endpoint=newapi-video/);
   });
 
   it("keeps focus in a key field while its name is being typed", async () => {
@@ -989,7 +1021,15 @@ describe("EndpointsSection", () => {
     it("links from the new-endpoint page to the market section", async () => {
       const { location } = renderSection("section=endpoints&endpoint=new");
       await userEvent.click(await screen.findByRole("link", { name: "从市场获取" }));
-      expect(location.history.at(-1)).toBe("/app/settings?section=market");
+      expect(location.history.at(-1)).toBe("/app/settings?section=market&media=video");
+    });
+
+    it("carries the media type of the template in use to the market", async () => {
+      const { location } = renderSection("section=endpoints&endpoint=new");
+      await userEvent.click(await screen.findByRole("combobox", { name: "示例模板" }));
+      await userEvent.click(await screen.findByRole("option", { name: "图片：提交 + 轮询" }));
+      await userEvent.click(await screen.findByRole("link", { name: "从市场获取" }));
+      expect(location.history.at(-1)).toBe("/app/settings?section=market&media=image");
     });
 
     it("shows both status axes and the source of an installed endpoint without an update action", async () => {
