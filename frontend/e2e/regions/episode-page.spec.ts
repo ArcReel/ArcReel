@@ -271,6 +271,8 @@ defineRegionScenarios("集页页头", [
       expect(after.y).toBeCloseTo(before.y, 0);
       expect(after.height).toBeCloseTo(before.height, 0);
       const { width, height } = viewport(page);
+      expect(popover.width).toBeLessThanOrEqual(560);
+      expect(popover.height).toBeLessThanOrEqual(640);
       expect(popover.x).toBeGreaterThanOrEqual(0);
       expect(popover.y + popover.height).toBeLessThanOrEqual(height);
       expect(popover.x + popover.width).toBeLessThanOrEqual(width);
@@ -297,6 +299,8 @@ defineRegionScenarios("集页页头", [
       await expect(popover.getByText(LONG_MESSAGE)).toHaveCount(1);
       // 弹层不超出视口
       const rect = await box(popover);
+      expect(rect.width).toBeLessThanOrEqual(560);
+      expect(rect.height).toBeLessThanOrEqual(640);
       expect(rect.y + rect.height).toBeLessThanOrEqual(viewport(page).height);
     },
     screenshot: { name: "episode-page-progress-content", target: progressPopover },

@@ -34,6 +34,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import atomic_write_json
+from lib.project.project_activity import record_project_activity
 
 RENDERS_DIRNAME = "renders"
 """本地渲染产物的项目根目录：可随时重新渲染，项目归档不包含它。"""
@@ -114,6 +115,7 @@ def _replace_and_register(
             {"version": record.version, "rendered_at": record.rendered_at, "basis_digest": record.basis_digest},
         )
         manifest.register(key, artifact_path=artifact_path, basis=basis)
+        record_project_activity(project_dir)
     return record
 
 

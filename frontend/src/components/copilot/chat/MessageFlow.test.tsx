@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
@@ -89,5 +89,35 @@ describe("MessageFlow 失败卡片的播报", () => {
     act(() => stream.emit("entry", failureEntry(3)));
     expect(screen.getByRole("alert")).toHaveAccessibleName("这一轮没有完成");
     expect(screen.getAllByRole("region", { name: "这一轮没有完成" })).toHaveLength(1);
+  });
+
+  it("展开的子智能体里新到达的失败同样播报", async () => {
+    mockSession("running");
+    render(<Panel />);
+    await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
+    const stream = FakeSseStream.instances[0];
+
+    act(() => {
+      stream.emit("entry", userEntry(0));
+      stream.emit("entry", {
+        seq: 1,
+        type: "assistant",
+        content: [{ type: "tool_use", id: "toolu-sub", name: "Agent", input: { description: "核对分镜", prompt: "核对" } }],
+        uuid: "a-1",
+      });
+      stream.emit("entry", {
+        seq: 2,
+        type: "assistant",
+        content: [{ type: "text", text: "逐镜核对中" }],
+        uuid: "s-2",
+        parent_tool_use_id: "toolu-sub",
+      });
+      stream.emit("draft", { draft: null, rev: 0 });
+    });
+    fireEvent.click(screen.getByRole("button", { name: /核对分镜/ }));
+    expect(screen.getByText("逐镜核对中")).toBeInTheDocument();
+
+    act(() => stream.emit("entry", { ...failureEntry(3), parent_tool_use_id: "toolu-sub" }));
+    expect(screen.getByRole("alert")).toHaveAccessibleName("这一轮没有完成");
   });
 });

@@ -65,7 +65,7 @@ interface LeaveRequest extends ConfirmLeaveOptions {
 
 interface RequestLeaveOptions extends ConfirmLeaveOptions {
   to?: string;
-  /** 来自被截住的浏览器前进后退：异步动作在途期间也照常询问。 */
+  /** 来自被截住的浏览器前进后退：异步动作在途期间，已放弃的修改也照常询问。 */
   fromHistory?: boolean;
 }
 
@@ -116,7 +116,8 @@ export function useLeaveGuard({ dirty, saving, save, discard, title, allowNaviga
  * 其中发起的路由跳转不再重复拦截。选中项记在 URL 里、经路由跳转切换的，路由拦截已经覆盖，不必再包。
  *
  * 删除、移除这类可能失败的动作返回 `Promise<boolean>`（见 `LeaveAction`）：用户选择放弃修改后，
- * 修改保留到动作落定，成功才丢弃；动作在途期间它自己发起的路由跳转与 `useConfirmLeave` 不再拦截。
+ * 修改保留到动作落定，成功才丢弃；动作在途期间，这些已放弃的修改不再拦截它自己发起的路由跳转与
+ * `useConfirmLeave`，其他编辑单元的新修改照常询问。
  */
 export function useConfirmLeave(): (proceed: LeaveAction, options?: ConfirmLeaveOptions) => void {
   const registry = useContext(LeaveGuardContext);
@@ -168,8 +169,9 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
   const unitsRef = useRef(new Map<string, RegisteredUnit>());
   // 用户已放行的那次切换在同步执行期间发起的跳转，不再重复拦截
   const passingRef = useRef(false);
-  // 已放行、仍在途的异步动作数：它们落定前自己发起的跳转同样不再拦截。浏览器前进后退照常询问
-  const settlingRef = useRef(0);
+  // 已放行、仍在途的异步动作涉及的编辑单元及其动作数：落定前这些单元的修改已获准丢弃，
+  // 不再拦截动作自己发起的跳转；其他单元照常询问。浏览器前进后退照常询问
+  const settlingRef = useRef(new Map<string, number>());
   // 用户放行被截住的前进后退后，由 history.back() 引起的那次 popstate 直接交给 wouter
   const releasingPopRef = useRef(false);
   // 等在途保存落定的离开请求；登记变化时重新判断，只保留最近一次
@@ -211,10 +213,15 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
       for (const unit of affected) unit.discard?.();
       return;
     }
-    settlingRef.current += 1;
+    const settling = settlingRef.current;
+    for (const id of discardIds) settling.set(id, (settling.get(id) ?? 0) + 1);
     for (const unit of affected) unit.setDiscarding(true);
     const settle = (succeeded: boolean) => {
-      settlingRef.current -= 1;
+      for (const id of discardIds) {
+        const count = (settling.get(id) ?? 1) - 1;
+        if (count > 0) settling.set(id, count);
+        else settling.delete(id);
+      }
       // 取最新登记：动作成功后已卸载的单元不必再丢弃
       for (const unit of units()) {
         unit.setDiscarding(false);
@@ -232,15 +239,16 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
 
   const requestLeave = useCallback(
     (proceed: LeaveAction, options: RequestLeaveOptions = {}) => {
-      if (passingRef.current || (settlingRef.current > 0 && !options.fromHistory)) {
+      if (passingRef.current) {
         void proceed();
         return;
       }
-      if (leavingUnits(options.to).some(([, unit]) => unit.saving)) {
+      const units = leavingUnits(options.to).filter(([id]) => options.fromHistory || !settlingRef.current.has(id));
+      if (units.some(([, unit]) => unit.saving)) {
         pendingLeaveRef.current = { proceed, options };
         return;
       }
-      const unitIds = dirtyUnitIds(options.to);
+      const unitIds = units.flatMap(([id, unit]) => (unit.dirty ? [id] : []));
       if (unitIds.length === 0) {
         void proceed();
         return;
@@ -249,7 +257,7 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
       setRequest({ unitIds, title, proceed, saveLabel: options.saveLabel });
       setOpen(true);
     },
-    [leavingUnits, dirtyUnitIds],
+    [leavingUnits],
   );
 
   const registry = useMemo<LeaveGuardRegistry>(() => {

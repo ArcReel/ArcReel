@@ -68,14 +68,15 @@ defineRegionScenarios("自动撑高输入框", [
     act: async (page) => {
       await openNarrationDialog(page);
       const field = narrationField(page);
-      await field.fill(NINE_LINES);
+      // 两行在原宽度下尚未到高度上限，收窄后的新增折行必须使高度增加。
+      await field.fill(NINE_LINES.split("\n").slice(0, 2).join("\n"));
       const before = await field.evaluate((el) => el.getBoundingClientRect().height);
       // 模拟面板变窄：把输入框所在列收到一半宽，折行变多。
       await field.evaluate((el) => {
         const column = el.parentElement;
         if (column) column.style.width = `${column.clientWidth / 2}px`;
       });
-      await expect.poll(() => field.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(before);
+      await expect.poll(() => field.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(before + 1);
       await expectAllLinesReachable(field);
     },
   },

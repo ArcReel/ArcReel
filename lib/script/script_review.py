@@ -336,6 +336,9 @@ def formal_script_plan_write_transaction(
     A committed write moves the project's last activity forward: script_plan
     files are JSON, whose modification time does not count as activity.  Pass
     ``record_activity=False`` for a write that leaves the content unchanged.
+    Exits called inside the context pass their own activity recording up to
+    this commit: the ledger is project-global and stays out of the rollback
+    set, so other writers' records survive a failed commit.
     """
 
     with project_metadata_lock(project_path), formal_write_transaction(*paths):
@@ -414,7 +417,8 @@ def write_formal_script_plan_locked(
     with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
         atomic_write_json(path, content)
         if changed and clear_dependent_quarantine and dependent_quarantine is not None:
-            clear_quarantine(project_path, episode, dependent_quarantine)
+            # 内容变了才清，提交后由事务按内容变化记账
+            clear_quarantine(project_path, episode, dependent_quarantine, record_activity=False)
     return changed
 
 

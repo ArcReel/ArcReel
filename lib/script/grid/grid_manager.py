@@ -12,6 +12,7 @@ import portalocker
 from lib.artifacts.formal_write import formal_write_transaction, project_metadata_lock
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import safe_join
+from lib.project.project_activity import record_project_activity
 from lib.script.grid.models import GridGeneration
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class GridManager:
         path = self._path(grid.id)
         with self._record_lock(path):
             atomic_write_json(path, grid.to_dict())
+        record_project_activity(self._project_dir)
 
     def get(self, grid_id: str) -> GridGeneration | None:
         """Read and return a GridGeneration by id, or None if not found."""
@@ -85,7 +87,8 @@ class GridManager:
             atomic_write_json(path, grid.to_dict())
             if on_commit is not None:
                 on_commit()
-            return grid
+        record_project_activity(self._project_dir)
+        return grid
 
     def update_formal(
         self,
@@ -152,7 +155,8 @@ class GridManager:
                         self._project_dir,
                         {ArtifactKey.episode_grid(grid.episode, grid.id): None},
                     )
-            return True
+        record_project_activity(self._project_dir)
+        return True
 
     def list_all(self) -> list[GridGeneration]:
         """Return all grids sorted by created_at ascending."""

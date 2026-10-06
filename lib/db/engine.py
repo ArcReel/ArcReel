@@ -74,6 +74,16 @@ def is_sqlite_backend() -> bool:
     return get_database_url().startswith("sqlite")
 
 
+def register_sqlite_functions(dbapi_conn) -> None:
+    """SQLite 内置 lower 只折叠 ASCII；搜索普通 Unicode 字母与 PostgreSQL 一致。
+
+    不模拟 PostgreSQL locale 的特殊折叠（如希腊尾 sigma、土耳其 İ）。
+    """
+    dbapi_conn.create_function(
+        "lower", 1, lambda value: str(value).lower() if value is not None else None, deterministic=True
+    )
+
+
 def _create_engine():
     url = get_database_url()
     _is_sqlite = url.startswith("sqlite")
@@ -97,6 +107,7 @@ def _create_engine():
 
         @event.listens_for(engine.sync_engine, "connect")
         def _set_sqlite_pragma(dbapi_conn, connection_record):
+            register_sqlite_functions(dbapi_conn)
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA busy_timeout=30000")

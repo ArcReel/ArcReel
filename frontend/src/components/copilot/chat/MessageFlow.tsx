@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/message-scroller";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { AgentFailureCard } from "./AgentFailureCard";
+import { ArrivedFailuresContext } from "./arrived-failures";
 import { buildDisplayItems } from "./display-items";
 import { MessageRow } from "./MessageRow";
 import { canEditUserTurn } from "./utils";
@@ -26,8 +27,9 @@ import { canEditUserTurn } from "./utils";
 // 切换会话时由调用方以会话 id 作 key 重新挂载，新会话从底部开始。
 //
 // 失败卡片只为查看期间新到达的失败播报（role="alert"）；打开会话时已有的失败
-// 照常显示但不播报，否则载入一段历史就会连读几张失败卡片。启动失败只在本次
-// 发送时产生，总是新的。
+// 照常显示但不播报，否则载入一段历史就会连读几张失败卡片。新到达的集合经
+// context 传给子智能体卡片，展开着的子时间线里新到达的失败同样播报。启动失败
+// 只在本次发送时产生，总是新的。
 // ---------------------------------------------------------------------------
 
 export interface MessageFlowHandle {
@@ -91,21 +93,23 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
     <MessageScroller className="min-h-0 flex-1">
       <MessageScrollerViewport aria-label={t("chat_transcript_label")}>
         <MessageScrollerContent>
-          {items.map(({ key, turn, streaming }) => (
-            <MessageScrollerItem key={key} messageId={key}>
-              <MessageRow
-                turn={turn}
-                streaming={streaming}
-                announce={turn.uuid !== undefined && arrived.has(turn.uuid)}
-                editable={canEditUserTurn(turn, { sessionStatus, hasPendingQuestion, isSending: sending })}
-                editing={Boolean(turn.uuid) && turn.uuid === editingTurnUuid}
-                submitting={sending}
-                onStartEdit={setEditingTurnUuid}
-                onCancelEdit={() => setEditingTurnUuid(null)}
-                onSubmitEdit={onSubmitEdit}
-              />
-            </MessageScrollerItem>
-          ))}
+          <ArrivedFailuresContext.Provider value={arrived}>
+            {items.map(({ key, turn, streaming }) => (
+              <MessageScrollerItem key={key} messageId={key}>
+                <MessageRow
+                  turn={turn}
+                  streaming={streaming}
+                  announce={turn.uuid !== undefined && arrived.has(turn.uuid)}
+                  editable={canEditUserTurn(turn, { sessionStatus, hasPendingQuestion, isSending: sending })}
+                  editing={Boolean(turn.uuid) && turn.uuid === editingTurnUuid}
+                  submitting={sending}
+                  onStartEdit={setEditingTurnUuid}
+                  onCancelEdit={() => setEditingTurnUuid(null)}
+                  onSubmitEdit={onSubmitEdit}
+                />
+              </MessageScrollerItem>
+            ))}
+          </ArrivedFailuresContext.Provider>
           {startupFailure && (
             <MessageScrollerItem messageId="startup-failure">
               <AgentFailureCard failure={startupFailure} announce onRetry={onRetryStartup} />

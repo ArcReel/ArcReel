@@ -176,6 +176,19 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     expect(updateSpy.mock.calls[0][1]).toEqual({ style_template_id: "live_zhang_yimou" });
   });
 
+  it("project.json 里写坏的分辨率表项按未设置读入，不妨碍保存其他修改", async () => {
+    const updateSpy = mockProject({
+      model_settings: { "legacy/broken": null, "legacy/text": "1080p", "gemini/veo-3": { resolution: "1080p" } },
+    });
+    renderAt("/app/projects/demo/settings");
+
+    fireEvent.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({ aspect_ratio: "16:9" });
+  });
+
   it("有未保存修改时切到 Agent 组的分页会拦截，放弃修改后再切过去", async () => {
     const updateSpy = mockProject({});
     const { location } = renderAt("/app/projects/demo/settings");

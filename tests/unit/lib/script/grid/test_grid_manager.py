@@ -12,6 +12,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
+from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
 
@@ -301,3 +302,37 @@ class TestCleanupSuperseded:
         deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3", "S4"})
         assert deleted == 3
         assert len(gm.list_all()) == 1
+
+
+@pytest.mark.parametrize("operation", ["save", "update", "delete", "missing_delete", "failed_update"])
+def test_grid_changes_advance_activity_only_after_commit(tmp_path, operation):
+    gm = GridManager(tmp_path)
+    grid = _make_grid()
+    gm.save(grid)
+    stamp = "2026-03-01T08:00:00+00:00"
+    (tmp_path / ACTIVITY_FILENAME).write_text(stamp, encoding="utf-8")
+    before = recorded_project_activity(tmp_path)
+
+    def fail_commit():
+        raise RuntimeError("registration failed")
+
+    if operation == "save":
+        grid.status = "completed"
+        gm.save(grid)
+    elif operation == "update":
+        gm.update(grid.id, lambda current: setattr(current, "status", "completed"))
+    elif operation == "delete":
+        assert gm.delete(grid.id)
+    elif operation == "missing_delete":
+        assert not gm.delete("grid_000000000000")
+    else:
+        with pytest.raises(RuntimeError, match="registration failed"):
+            gm.update(grid.id, lambda current: setattr(current, "status", "completed"), on_commit=fail_commit)
+
+    after = recorded_project_activity(tmp_path)
+    assert before is not None
+    assert after is not None
+    if operation in {"missing_delete", "failed_update"}:
+        assert after == before
+    else:
+        assert after > before

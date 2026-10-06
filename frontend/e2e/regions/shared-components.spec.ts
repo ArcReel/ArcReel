@@ -388,4 +388,30 @@ defineRegionScenarios("共享组件：集页对话框与提示", [
     },
     screenshot: { name: "shared-ad-script-dialog", target: adScriptDialog },
   },
+  {
+    name: "交给 Agent 预填多行附加指令后输入框自动撑高",
+    path: EPISODE_PATH,
+    api: AD_PROJECT,
+    ready: async (page) => {
+      await page.getByRole("button", { name: "重新生成脚本" }).first().waitFor();
+    },
+    act: async (page) => {
+      const composer = page.getByRole("combobox", { name: "Agent 输入" });
+      const emptyHeight = await composer.evaluate((el) => el.clientHeight);
+      await clearAgentOverlay(page);
+      await page.getByRole("button", { name: "重新生成脚本" }).first().click();
+      const dialog = adScriptDialog(page);
+      const instruction = "每集保留一个悬念。\n优先使用已经登场的角色。\n不要重复上一集内容。";
+      await dialog.getByRole("textbox").fill(instruction);
+      await dialog.getByRole("button", { name: "交给 Agent" }).click();
+      await expect(composer).toHaveValue(new RegExp(instruction));
+      await expect.poll(() => composer.evaluate((el) => el.clientHeight)).toBeGreaterThan(emptyHeight);
+      const sizing = await composer.evaluate((el) => ({
+        content: el.scrollHeight, visible: el.clientHeight, overflow: getComputedStyle(el).overflowY,
+      }));
+      if (sizing.content > sizing.visible + 1) {
+        expect(["auto", "scroll"]).toContain(sizing.overflow);
+      }
+    },
+  },
 ]);

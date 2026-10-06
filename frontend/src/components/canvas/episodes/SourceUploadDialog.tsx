@@ -228,20 +228,20 @@ export function SourceUploadDialog({
         break;
       }
     }
-    await refreshAfterWrite(projectName, t);
+    const refreshed = await refreshAfterWrite(projectName, t);
     if (signal?.aborted) return;
     setProgress(null);
     if (cancelled) {
       // 取消了一次插入确认：已上传的保留，取消的与之后的文件仍在列表里
-      if (result.wholeSourceFiles.length > 0) onUploaded?.(result);
+      if (refreshed === "success" && result.wholeSourceFiles.length > 0) onUploaded?.(result);
       return;
     }
     if (failure) {
       useAppStore.getState().pushToast(t("dashboard:source_upload_failed_partway", failure), "error");
-      if (result.wholeSourceFiles.length > 0 || result.episodes.length > 0) onUploaded?.(result);
+      if (refreshed === "success" && (result.wholeSourceFiles.length > 0 || result.episodes.length > 0)) onUploaded?.(result);
       return;
     }
-    if (renamed.length > 0) {
+    if (refreshed === "success" && renamed.length > 0) {
       useAppStore.getState().pushToast(
         t("dashboard:source_upload_whole_done_renamed", {
           count: result.wholeSourceFiles.length,
@@ -250,7 +250,7 @@ export function SourceUploadDialog({
         "info",
       );
     }
-    onUploaded?.(result);
+    if (refreshed === "success") onUploaded?.(result);
     onClose();
   };
 
