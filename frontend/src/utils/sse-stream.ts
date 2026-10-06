@@ -1,5 +1,7 @@
 import { createParser } from "eventsource-parser";
 
+import i18n from "@/i18n";
+
 /**
  * 以 `fetch` 消费 `text/event-stream` 的流式客户端。
  *
@@ -163,7 +165,7 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
       response = await fetch(options.url, { headers: buildHeaders(), signal });
     } catch (error) {
       if (closed || isAbortError(error)) return;
-      fail(new SseStreamError("事件流连接失败", { retryable: true, cause: error }));
+      fail(new SseStreamError(i18n.t("errors:event_stream_connect_failed"), { retryable: true, cause: error }));
       return;
     }
     if (closed) return;
@@ -172,7 +174,7 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
       // 每次留一条未消费的流会把连接占住直到 GC。
       void response.body?.cancel().catch(() => {});
       const retryable = !NON_RETRYABLE_STATUSES.has(response.status);
-      fail(new SseStreamError(`事件流被拒绝: HTTP ${response.status}`, { status: response.status, retryable }));
+      fail(new SseStreamError(i18n.t("errors:event_stream_rejected", { status: response.status }), { status: response.status, retryable }));
       return;
     }
 
@@ -181,12 +183,12 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
       await consume(response.body, signal);
     } catch (error) {
       if (closed || isAbortError(error)) return;
-      fail(new SseStreamError("事件流中断", { retryable: true, cause: error }));
+      fail(new SseStreamError(i18n.t("errors:event_stream_interrupted"), { retryable: true, cause: error }));
       return;
     }
     if (closed) return;
     // 服务端正常关流：与 EventSource 一致，视为断线并按退避重建。
-    fail(new SseStreamError("事件流已结束", { retryable: true }));
+    fail(new SseStreamError(i18n.t("errors:event_stream_ended"), { retryable: true }));
   };
 
   visibilityHost?.addEventListener("visibilitychange", handleVisibilityChange);

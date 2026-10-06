@@ -432,7 +432,7 @@ describe("CreateProjectModal", () => {
     render(<CreateProjectModal />);
     fillBasics();
     fireEvent.click(await walkToStyle());
-    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("创建项目失败: boom"));
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("创建项目失败：boom"));
     expect(navigateMock).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "创建项目" })).toBeEnabled();
   });

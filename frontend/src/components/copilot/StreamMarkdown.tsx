@@ -209,6 +209,39 @@ export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProp
     [streamdown, codeLabel, tableLabel],
   );
 
+  // 工具条按钮与外链确认框的文字（含无障碍名称）。格式名 SVG、CSV 等不翻译，沿用 Streamdown 默认值。
+  const translations = useMemo(
+    () => ({
+      close: t("chat_md_close"),
+      copied: t("chat_md_copied"),
+      copyCode: t("chat_md_copy_code"),
+      copyLink: t("chat_md_copy_link"),
+      copyTable: t("chat_md_copy_table"),
+      copyTableAsCsv: t("chat_md_copy_table_as", { format: "CSV" }),
+      copyTableAsMarkdown: t("chat_md_copy_table_as", { format: "Markdown" }),
+      copyTableAsTsv: t("chat_md_copy_table_as", { format: "TSV" }),
+      downloadDiagram: t("chat_md_download_diagram"),
+      downloadDiagramAsMmd: t("chat_md_download_diagram_as", { format: "MMD" }),
+      downloadDiagramAsPng: t("chat_md_download_diagram_as", { format: "PNG" }),
+      downloadDiagramAsSvg: t("chat_md_download_diagram_as", { format: "SVG" }),
+      downloadFile: t("chat_md_download_file"),
+      downloadImage: t("chat_md_download_image"),
+      downloadTable: t("chat_md_download_table"),
+      downloadTableAsCsv: t("chat_md_download_table_as", { format: "CSV" }),
+      downloadTableAsMarkdown: t("chat_md_download_table_as", { format: "Markdown" }),
+      exitFullscreen: t("chat_md_exit_fullscreen"),
+      viewFullscreen: t("chat_md_view_fullscreen"),
+      externalLinkWarning: t("chat_md_external_link_warning"),
+      openExternalLink: t("chat_md_open_external_link"),
+      openLink: t("chat_md_open_link"),
+      imageNotAvailable: t("chat_md_image_not_available"),
+      resetView: t("chat_md_reset_view"),
+      zoomIn: t("chat_md_zoom_in"),
+      zoomOut: t("chat_md_zoom_out"),
+    }),
+    [t],
+  );
+
   useEffect(() => {
     let mounted = true;
 
@@ -237,6 +270,7 @@ export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProp
         rehypePlugins={rehypePlugins}
         allowedTags={ALLOWED_TAGS}
         components={COMPONENTS}
+        translations={translations}
       >
         {String(content || "")}
       </streamdown.Component>

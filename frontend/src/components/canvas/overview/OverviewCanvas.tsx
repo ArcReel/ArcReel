@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { API } from "@/api";
 import { SourceUploadDialog, type SourceUploadResult } from "@/components/canvas/episodes/SourceUploadDialog";
 import { useCostStore } from "@/stores/cost-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { useOverviewGenerateStore } from "@/stores/overview-generate-store";
 import type { ProjectData, ProjectOverview } from "@/types";
-import { errMsg } from "@/utils/async";
-import { outputTruncationOfError } from "@/utils/output-truncation";
 
 import { AdBrief } from "./AdBrief";
 import { AdProducts } from "./AdProducts";
@@ -14,7 +11,7 @@ import { AssetProgressLine } from "./AssetProgressLine";
 import { CostLine } from "./CostLine";
 import { HandoffTip } from "./HandoffTip";
 import { OverviewHeader } from "./OverviewHeader";
-import { StorySetting, type StoryGenerateError } from "./StorySetting";
+import { StorySetting } from "./StorySetting";
 import { useHandoffTipStore } from "./useHandoffTip";
 import { WelcomeCanvas } from "./WelcomeCanvas";
 
@@ -50,45 +47,17 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
   const [upload, setUpload] = useState<{ projectName: string; files: File[] } | null>(null);
   const uploadFiles = upload?.projectName === projectName ? upload.files : null;
 
-  // 从原文生成故事设定：首次上传后自动开始，或由「从原文生成」触发。按项目记录，切项目时作废。
-  const [generatingFor, setGeneratingFor] = useState<string | null>(null);
-  const [generateError, setGenerateError] = useState<{ projectName: string; error: StoryGenerateError } | null>(null);
-  const generating = generatingFor === projectName;
-  const generateControllerRef = useRef<AbortController | null>(null);
-  useEffect(() => () => generateControllerRef.current?.abort(), [projectName]);
-
-  const runGenerate = useCallback(async () => {
-    generateControllerRef.current?.abort();
-    const controller = new AbortController();
-    generateControllerRef.current = controller;
-    setGeneratingFor(projectName);
-    setGenerateError(null);
-    try {
-      await API.generateOverview(projectName, { signal: controller.signal });
-      if (controller.signal.aborted) return;
-      // refreshProject 以结算值报告失败而不 reject：生成已落盘却停在旧内容上，会引人再生成一次
-      const refreshed = await useProjectsStore.getState().refreshProject(projectName);
-      if (refreshed === "failed" && !controller.signal.aborted) {
-        setGenerateError({ projectName, error: { kind: "refresh" } });
-      }
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      setGenerateError({
-        projectName,
-        error: { kind: "generate", message: errMsg(err), truncation: outputTruncationOfError(err) },
-      });
-    } finally {
-      if (generateControllerRef.current === controller) {
-        generateControllerRef.current = null;
-        setGeneratingFor(null);
-      }
-    }
-  }, [projectName]);
+  // 从原文生成故事设定：首次上传后自动开始，或由「从原文生成」触发。状态在 store 里按项目记录，
+  // 生成途中离开概览再回来仍显示读取中，完成后就地填入。
+  const generating = useOverviewGenerateStore((s) => Boolean(s.generating[projectName]));
+  const generateError = useOverviewGenerateStore((s) => s.errors[projectName] ?? null);
+  const generate = useOverviewGenerateStore((s) => s.generate);
+  const runGenerate = useCallback(() => void generate(projectName), [generate, projectName]);
 
   const handleUploaded = useCallback(
     (result: SourceUploadResult) => {
       // 第一次放进整本源文时就地读取原文；只登记了逐集原文时不生成
-      if (result.wholeSourceFiles.length > 0) void runGenerate();
+      if (result.wholeSourceFiles.length > 0) runGenerate();
     },
     [runGenerate],
   );
@@ -158,8 +127,8 @@ export function OverviewCanvas({ projectName, projectData, readOnly = false }: O
               readOnly={readOnly}
               canGenerate={hasWholeSource || hasStorySetting(projectData.overview)}
               generating={generating}
-              generateError={generateError?.projectName === projectName ? generateError.error : null}
-              onGenerate={() => void runGenerate()}
+              generateError={generateError}
+              onGenerate={runGenerate}
             />
           )}
           {!isAd && !readOnly ? <HandoffTip projectName={projectName} /> : null}

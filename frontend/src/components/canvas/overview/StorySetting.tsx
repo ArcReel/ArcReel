@@ -22,8 +22,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
+import type { StoryGenerateError } from "@/stores/overview-generate-store";
 import type { ProjectOverview } from "@/types";
-import type { OutputTruncation } from "@/utils/output-truncation";
 
 type SettingFields = Pick<ProjectOverview, "synopsis" | "genre" | "theme" | "world_setting">;
 type FieldKey = keyof SettingFields;
@@ -38,14 +38,6 @@ function fieldsOf(overview: ProjectOverview | undefined): SettingFields {
     world_setting: overview?.world_setting ?? "",
   };
 }
-
-/**
- * 从原文生成故事设定没有就地填入的原因：`generate` 是生成请求失败，输出被截断时附带出路；
- * `refresh` 是生成已落盘，之后取回项目数据失败。
- */
-export type StoryGenerateError =
-  | { kind: "generate"; message: string; truncation: OutputTruncation | null }
-  | { kind: "refresh" };
 
 interface StorySettingProps {
   projectName: string;
