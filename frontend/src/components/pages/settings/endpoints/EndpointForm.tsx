@@ -154,7 +154,6 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             label={t("ce_meta_version")}
             value={definition.meta.version}
             readOnly={readOnly}
-            mono
             onChange={(version) => patch({ meta: { ...definition.meta, version } })}
           />
         </div>
@@ -163,7 +162,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             label={t("ce_meta_base_url")}
             value={definition.meta.hints?.base_url ?? ""}
             readOnly={readOnly}
-            mono
+            spellCheck={false}
             placeholder="https://api.example.com"
             hint={t("ce_meta_base_url_hint")}
             onChange={(base_url) =>
@@ -198,9 +197,10 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                 // 键即行名，正在被编辑；用它做 key 会让每敲一个字符就重建输入框、丢掉焦点。
                 // renameKey 保序，行的位置在重命名中不变，因此下标是这里稳定的行标识。
                 <div key={index} className="grid grid-cols-[180px_1fr_32px] items-center gap-3">
-                  <div className="min-w-0 font-mono">
+                  <div className="min-w-0">
                     <Input
                       type="text"
+                      mono
                       value={name}
                       readOnly={readOnly}
                       aria-label={t("ce_auth_header_name")}
@@ -271,9 +271,10 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
           </div>
           {Object.entries(inputs).map(([name, spec], index) => (
             <div key={index} className="grid grid-cols-[1fr_180px_150px_110px_32px] items-center gap-3">
-              <div className="min-w-0 font-mono">
+              <div className="min-w-0">
                 <Input
                   type="text"
+                  mono
                   value={name}
                   readOnly={readOnly}
                   aria-label={t("ce_input_variable")}
@@ -507,9 +508,10 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
           </div>
           {Object.entries(statusMap).map(([from, to], index) => (
             <div key={index} className="grid grid-cols-[1fr_16px_180px_32px] items-center gap-3">
-              <div className="min-w-0 font-mono">
+              <div className="min-w-0">
                 <Input
                   type="text"
+                  mono
                   value={from}
                   readOnly={readOnly}
                   aria-label={t("ce_status_provider_value")}

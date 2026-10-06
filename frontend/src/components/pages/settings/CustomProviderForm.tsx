@@ -529,6 +529,7 @@ export function CustomProviderForm({
             {!value.noApiKey && (
               <InputGroup>
                 <InputGroupInput
+                  mono
                   id={keyId}
                   type={showApiKey ? "text" : "password"}
                   autoComplete="off"

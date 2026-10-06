@@ -353,6 +353,7 @@ function ModelFields({ row, protocol, providerId, onUpdate, onRemove }: ModelFie
     <div className="flex flex-col gap-3">
       <FieldRow label={t("model_id_label")} htmlFor={`${idPrefix}-id`}>
         <Input
+          mono
           id={`${idPrefix}-id`}
           value={row.model_id}
           autoComplete="off"

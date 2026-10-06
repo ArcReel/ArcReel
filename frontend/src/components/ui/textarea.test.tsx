@@ -73,3 +73,19 @@ describe("Textarea 自动撑高", () => {
     expect(screen.getByRole("textbox", { name: "正文" })).not.toHaveStyle({ height: "180px" });
   });
 });
+
+describe("Textarea 等宽字体", () => {
+  it("mono 换成等宽字体，可与 variant=\"plain\" 同时使用", () => {
+    render(<Textarea aria-label="请求体" mono variant="plain" value="{}" onChange={() => {}} />);
+
+    const field = screen.getByRole("textbox", { name: "请求体" });
+    expect(field).toHaveClass("font-mono");
+    expect(field).toHaveClass("border-transparent");
+  });
+
+  it("默认保持比例字体", () => {
+    render(<Textarea aria-label="正文" value="" onChange={() => {}} />);
+
+    expect(screen.getByRole("textbox", { name: "正文" })).not.toHaveClass("font-mono");
+  });
+});

@@ -309,4 +309,11 @@ describe("AgentMemorySection", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByRole("textbox", { name: "MEMORY.md" })).toBeInTheDocument();
   });
+
+  it("记忆原文用等宽字体编辑", async () => {
+    vi.spyOn(API, "getAgentMemory").mockResolvedValue(overview());
+    renderSection();
+
+    expect(await screen.findByRole("textbox", { name: "MEMORY.md" })).toHaveClass("font-mono");
+  });
 });

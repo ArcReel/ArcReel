@@ -519,6 +519,7 @@ function CredentialDialog({
                           {secretInputLabel(t, field, secretFields.length)}
                         </label>
                         <Input
+                          mono
                           id={`${idPrefix}-${field.key}`}
                           type="password"
                           autoComplete="off"

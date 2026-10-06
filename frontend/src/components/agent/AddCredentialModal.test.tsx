@@ -689,4 +689,20 @@ describe("AddCredentialModal 模型下拉回退", () => {
     });
     expect(screen.getByRole("option", { name: "doubao-seed-evolving" })).toBeInTheDocument();
   });
+
+  it("sets the key and the model ID in monospace, and leaves the proxy URL proportional", () => {
+    render(
+      <AddCredentialModal
+        open
+        presets={presets}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("密钥")).toHaveClass("font-mono");
+    expect(document.getElementById("cred-model")).toHaveClass("font-mono");
+    expect(screen.getByLabelText(/代理地址/).closest(".font-mono")).toBeNull();
+  });
 });

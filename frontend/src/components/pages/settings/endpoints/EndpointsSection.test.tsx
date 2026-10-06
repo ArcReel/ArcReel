@@ -332,6 +332,14 @@ describe("EndpointsSection", () => {
     expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=1");
   });
 
+  it("edits the JSON view in monospace", async () => {
+    renderSection("section=endpoints&endpoint=ce-7");
+    await screen.findByDisplayValue("Example Video API");
+    await userEvent.click(screen.getByRole("button", { name: "JSON" }));
+
+    expect(screen.getByRole("textbox", { name: "JSON" })).toHaveClass("font-mono");
+  });
+
   it.each(["{", '{"meta": {}}'])("keeps invalid JSON edits in the leave guard and discards the raw text: %s", async (text) => {
     const update = vi.spyOn(API, "updateCustomEndpoint");
     const { location } = renderSection("section=endpoints&endpoint=ce-7", { guarded: true });

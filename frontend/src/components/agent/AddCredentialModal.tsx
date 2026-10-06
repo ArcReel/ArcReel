@@ -433,6 +433,7 @@ export function AddCredentialModal({
               }
             >
               <Input
+                mono
                 id="cred-key"
                 type="password"
                 value={form.apiKey}

@@ -203,4 +203,13 @@ describe("EndpointTestSection", () => {
       "blob:trial-artifact",
     );
   });
+
+  it("sets model IDs, the key and the pasted response in monospace, and leaves the URL proportional", () => {
+    render(<EndpointTestSection definition={DEFINITION} providers={[]} />);
+
+    for (const model of screen.getAllByLabelText("模型")) expect(model).toHaveClass("font-mono");
+    expect(screen.getByLabelText("密钥")).toHaveClass("font-mono");
+    expect(screen.getByLabelText("响应内容")).toHaveClass("font-mono");
+    expect(screen.getByLabelText("接口地址").closest(".font-mono")).toBeNull();
+  });
 });

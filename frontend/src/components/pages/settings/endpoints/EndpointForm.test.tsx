@@ -53,4 +53,23 @@ describe("EndpointForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "添加素材" }));
     expect(onChange.mock.calls[2][0].inputs).toEqual({ "": { source: "reference_images", encoding: "data_uri" } });
   });
+
+  it("sets request paths, headers, value paths and the body in monospace, and leaves the base URL proportional", () => {
+    render(<EndpointForm definition={IMAGE_DEFINITION} onChange={vi.fn()} readOnly={false} />);
+
+    const mono = [
+      screen.getByLabelText(/^请求地址/),
+      screen.getByLabelText(/^查询地址/),
+      screen.getByLabelText("请求头名称"),
+      screen.getByLabelText("请求头内容"),
+      screen.getByLabelText("任务 ID 1"),
+      screen.getByLabelText("请求体（JSON）"),
+      screen.getByLabelText("端点状态值"),
+    ];
+    for (const field of mono) expect(field).toHaveClass("font-mono");
+    // 标签里连带着说明文字，按开头匹配。
+    for (const label of [/^默认接口地址/, /^版本/, /^名称/]) {
+      expect(screen.getByLabelText(label).closest(".font-mono")).toBeNull();
+    }
+  });
 });

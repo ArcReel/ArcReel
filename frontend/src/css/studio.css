@@ -1,17 +1,6 @@
 /* studio.css — 工作台专用样式 */
 @reference "../index.css";
 
-/* Prompt 编辑器 */
-.prompt-editor {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  background: oklch(0.20 0.011 265 / 0.6);
-  border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
-  color: var(--foreground);
-}
-
 /* 强调色 */
 .accent-gradient {
   background: var(--primary);

@@ -152,7 +152,10 @@ interface TextFieldProps {
   value: string;
   onChange?: (next: string) => void;
   readOnly?: boolean;
+  /** 等宽字体，用于请求路径、请求头与变量名；同时关掉拼写检查。 */
   mono?: boolean;
+  /** 不换等宽字体但也不该拼写检查的值（如接口地址）。 */
+  spellCheck?: boolean;
   hint?: string;
   placeholder?: string;
   insertable?: boolean;
@@ -165,6 +168,7 @@ export function TextField({
   onChange,
   readOnly,
   mono,
+  spellCheck = mono ? false : undefined,
   hint,
   placeholder,
   insertable,
@@ -174,16 +178,16 @@ export function TextField({
   return (
     <label className="block">
       {label && <span className={LABEL_CLS}>{label}</span>}
-      {/* 等宽字体经继承进入输入框：Input 自己不接受字体 class */}
-      <span className={mono ? "block font-mono" : "block"}>
+      <span className="block">
         <Input
           type="text"
+          mono={mono}
           value={value}
           readOnly={readOnly}
           placeholder={placeholder}
           aria-label={label ? undefined : ariaLabel}
           autoComplete="off"
-          spellCheck={mono ? false : undefined}
+          spellCheck={spellCheck}
           onChange={onChange ? (e) => onChange(e.target.value) : undefined}
           {...bound}
         />
@@ -322,9 +326,10 @@ export function PathsEditor({
             <span aria-hidden className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
               {index + 1}
             </span>
-            <span className="min-w-0 flex-1 font-mono">
+            <span className="min-w-0 flex-1">
               <Input
                 type="text"
+                mono
                 value={pathItemText(item)}
                 readOnly={readOnly || !isPlainPath(item)}
                 aria-label={`${label} ${index + 1}`}

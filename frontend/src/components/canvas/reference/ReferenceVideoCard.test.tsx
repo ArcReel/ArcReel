@@ -381,4 +381,12 @@ describe("ReferenceVideoCard final prompt preview", () => {
     expect(await within(dialog).findByText("重新渲染的文本")).toBeInTheDocument();
     expect(within(dialog).getByText("本次请求不携带参考图")).toBeInTheDocument();
   });
+
+  // 提示词是正文，与着色镜像层一起用比例字体；两层字体一致，光标才对得上着色。
+  it("keeps the prompt editor and its overlay in the proportional font", () => {
+    const { container } = render(<ControlledCard unit={mkUnit({ text: "张三推开了门。" })} />);
+
+    expect(screen.getByRole("combobox")).not.toHaveClass("font-mono");
+    expect(container.querySelector("pre")).not.toHaveClass("font-mono");
+  });
 });
