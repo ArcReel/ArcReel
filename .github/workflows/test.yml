@@ -357,8 +357,8 @@ jobs:
           fail_ci_if_error: false
 
   frontend-e2e:
-    # 页面级验收套件（溢出探针 + axe）。镜像版本必须与 frontend/package.json 的 @playwright/test
-    # 一致，否则找不到浏览器；升级 @playwright/test 时同步改这里。
+    # 页面级验收套件（溢出探针 + axe + 区域截图比对）。镜像版本必须与 frontend/package.json 的
+    # @playwright/test 一致，否则找不到浏览器；升级 @playwright/test 时同步改这里。
     name: frontend-e2e (${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -393,6 +393,9 @@ jobs:
 
       - name: Run page-level suite
         working-directory: frontend
+        # 截图基线在同一镜像里生成，比对出差异或缺少基线时该片失败
+        env:
+          E2E_SCREENSHOTS: "1"
         run: pnpm e2e --shard=${{ matrix.shard }}/3
 
       - name: Upload Playwright report

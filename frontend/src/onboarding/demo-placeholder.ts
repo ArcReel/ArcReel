@@ -10,8 +10,6 @@
  * object-cover 裁切，只有居中的构图能在各比例下都完整。
  */
 
-import { hashHue } from "@/components/shared/darkroom-tokens";
-
 export type DemoPlaceholderMotif = "character" | "scene" | "prop" | "storyboard";
 
 /** 取景标记：四角 L 形，四类母题共用的签名元素。 */
@@ -45,6 +43,15 @@ const MOTIFS: Record<DemoPlaceholderMotif, string> = {
     '<path d="M30 70 L70 30" fill="none" stroke="var(--pl-line)" stroke-width="1.2"/>' +
     '<circle cx="57" cy="43" r="4.5" fill="none" stroke="var(--pl-line)" stroke-width="1.6"/>',
 };
+
+/** 由资源名派生稳定色相（0–359）：同名同 salt 恒得同色，换名字才换色。 */
+function hashHue(name: string, salt: number): number {
+  let hash = salt;
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return hash % 360;
+}
 
 /**
  * 按 seed 现算一张占位图，返回可直接放进 `<img src>` 的 data URI。

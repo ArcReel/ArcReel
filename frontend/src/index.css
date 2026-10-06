@@ -19,8 +19,7 @@
    - 文字三档：foreground（正文）> subtle-foreground（次要）> muted-foreground（弱化）；
      muted-foreground 在页面底色上的对比度为 5.7:1，正文不再叠加透明度降低它。
    - 内联样式与 CSS 直接引用这里的变量（var(--primary)），需要透明度时用
-     color-mix(in oklab, var(--primary) 15%, transparent)。
-   旧 token 名到这里的映射见 scripts/token-codemod.ts。 */
+     color-mix(in oklab, var(--primary) 15%, transparent)。 */
 :root {
     --radius: 0.625rem;
 
@@ -226,7 +225,7 @@ body {
 /* 减少动态效果（WCAG 2.3.3）：去掉位移、缩放、旋转，只保留透明度与颜色变化。
    - tw-animate-css 的进出场（弹层的 animate-in / animate-out）把位移与缩放写在变量里，这里归零，淡入淡出照常。
    - 过渡只保留透明度与颜色属性，位移与缩放类过渡直接跳到终态（Base UI 的 data-starting-style 写法、按钮按下下沉）。
-   - 其余 keyframes 动画多带位移或缩放（呼吸点、进度扫光、交接卡片），直接跳到终态并停止循环；
+   - 其余 keyframes 动画（呼吸点、加载转圈、定位高亮）直接跳到终态并停止循环；
      渐隐遮罩 scroll-fade-* 是跟随滚动位置的动画，不是动效，不受影响。 */
 @media (prefers-reduced-motion: reduce) {
     *,
@@ -263,6 +262,41 @@ body {
 /* 衬线 display 大标题 */
 .display-serif {
     font-family: var(--font-display);
+}
+
+/* 定位高亮：从通知、制作进度等入口跳到某个分镜或资产时，落点依次闪过品牌紫、琥珀与绿三圈描边，
+   由 hooks/useScrollTarget 增删这个类。减少动态效果时由上方全局规则停在终态（无高亮）。 */
+@keyframes workspace-focus-flash {
+    0%, 32%, 66%, 100% {
+        box-shadow: 0 0 0 0 transparent;
+        background-color: transparent;
+    }
+    12% {
+        box-shadow:
+            0 0 0 1px oklch(0.88 0.05 295 / 0.78),
+            0 0 0 10px color-mix(in oklab, var(--primary) 12%, transparent),
+            0 18px 36px oklch(0 0 0 / 0.38);
+        background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+    }
+    46% {
+        box-shadow:
+            0 0 0 1px color-mix(in oklab, var(--warn) 68%, transparent),
+            0 0 0 9px color-mix(in oklab, var(--warn) 12%, transparent),
+            0 16px 34px oklch(0 0 0 / 0.34);
+        background-color: color-mix(in oklab, var(--warn) 8%, transparent);
+    }
+    82% {
+        box-shadow:
+            0 0 0 1px color-mix(in oklab, var(--good) 72%, transparent),
+            0 0 0 8px color-mix(in oklab, var(--good) 12%, transparent),
+            0 14px 28px oklch(0 0 0 / 0.28);
+        background-color: color-mix(in oklab, var(--good) 8%, transparent);
+    }
+}
+
+.workspace-focus-flash {
+    animation: workspace-focus-flash 2.4s ease-in-out forwards;
+    will-change: box-shadow, background-color;
 }
 
 /* 滚动条：唯一一套样式，静止时可见，可见宽度 6px。
@@ -324,18 +358,6 @@ body {
 @utility offscreen-skip {
     content-visibility: auto;
     contain-intrinsic-size: auto 600px;
-}
-
-/* 条件呈现的从属条滑入 — 表达「随上方选择展开」的从属关系 */
-@keyframes arc-slide-in {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: none; }
-}
-
-@utility arc-slide-in {
-    @media (prefers-reduced-motion: no-preference) {
-        animation: arc-slide-in 0.25s ease-out;
-    }
 }
 
 /* Markdown 正文（StreamMarkdown）。颜色只引用语义 token。代码块与表格由 Streamdown 外包一层
@@ -480,43 +502,5 @@ body {
     & img {
         max-width: 100%;
         border-radius: 0.375rem;
-    }
-}
-
-/* === Modal / Glass panel chrome — 收拢弹窗 chrome 的重复样式 === */
-
-/* 玻璃面板 — GlassModal 的内容容器样式 */
-.arc-glass-panel {
-    background: linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96));
-    border: 1px solid var(--border);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow:
-        0 24px 60px -12px oklch(0 0 0 / 0.6),
-        inset 0 1px 0 oklch(1 0 0 / 0.05);
-}
-
-/* 顶部 hairline 渐变线（accent 默认 / warm 用 data-tone="warm"） */
-.arc-glass-hairline {
-    pointer-events: none;
-    position: absolute;
-    inset-inline: 0;
-    top: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 22%, transparent), transparent);
-}
-.arc-glass-hairline[data-tone="warm"] {
-    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--warn) 50%, transparent), transparent);
-}
-
-/* 旧按钮类：外观等同 Button 的 default（主按钮）与 outline（次按钮）变体，只留给还没改用 Button 的调用处，
-   干净交付时随调用处一起删除。放进 components 层，调用处的工具类照常覆盖。 */
-@layer components {
-    .arc-btn-primary {
-        @apply border border-transparent bg-primary text-primary-foreground transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 enabled:hover:bg-primary/80 disabled:pointer-events-none disabled:opacity-50;
-    }
-
-    .arc-btn-secondary {
-        @apply border border-input bg-input/30 text-foreground transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 enabled:hover:bg-input/50 disabled:pointer-events-none disabled:opacity-50;
     }
 }

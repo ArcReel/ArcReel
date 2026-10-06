@@ -28,13 +28,33 @@ const templateFixture = (className: string) =>
 
 // 覆盖每个带 no-restricted-syntax 的配置块：flat config 对同名规则整体替换选项，漏列一块就会静默失守。
 const SOURCE_FILES = [
-  "src/lint-fixture/Fixture.tsx", // 未登记 REWORKED_FILES 的源码
-  "src/components/canvas/grid/Fixture.tsx", // 已重做区域
+  "src/lint-fixture/Fixture.tsx", // 任意源码
   "src/components/ui/fixture.tsx", // 原语目录
   "src/components/shared/page-shell/PageShell.tsx", // 视口断点白名单
   "src/actions/fixture.tsx", // 入队动作层
   "src/hooks/useModelCapabilities.ts", // 模型能力真相源
 ];
+
+const LAYOUT_GUARDS = {
+  viewportHeight: { code: literalFixture("min-h-0 h-screen"), message: "禁止视口高度" },
+  fixedOverlay: { code: literalFixture("fixed inset-0 bg-scrim"), message: "禁止手写 fixed inset-0 浮层" },
+  scrollHeight: {
+    code: "export const height = (el: HTMLElement) => el.scrollHeight;\n",
+    message: "禁止读写 scrollHeight",
+  },
+  breakpoint: { code: literalFixture("flex md:grid"), message: "业务组件禁用视口断点前缀" },
+};
+type LayoutGuard = keyof typeof LAYOUT_GUARDS;
+const ALL_LAYOUT_GUARDS = Object.keys(LAYOUT_GUARDS) as LayoutGuard[];
+
+// 布局守卫对全部源码生效：原语放过 fixed inset-0、scrollHeight 与视口断点，白名单放过视口断点。
+const LAYOUT_ENFORCED: Record<string, LayoutGuard[]> = {
+  "src/lint-fixture/Fixture.tsx": ALL_LAYOUT_GUARDS,
+  "src/components/ui/fixture.tsx": ["viewportHeight"],
+  "src/components/shared/page-shell/PageShell.tsx": ["viewportHeight", "fixedOverlay", "scrollHeight"],
+  "src/actions/fixture.tsx": ALL_LAYOUT_GUARDS,
+  "src/hooks/useModelCapabilities.ts": ALL_LAYOUT_GUARDS,
+};
 
 const VIOLATIONS: Array<[keyof typeof GUARD_MESSAGE, string]> = [
   ["motion", "size-4 motion-safe:animate-spin"],
@@ -71,7 +91,7 @@ describe("类名守卫", () => {
 
   describe.each(SOURCE_FILES)("%s", (filePath) => {
     it.each(VIOLATIONS)("报出 %s 违规：%s", async (guard, className) => {
-      // 用 toContainEqual：任意值变体（[&::-webkit-scrollbar]:）在已重做区域还会被视口断点守卫报出。
+      // 用 toContainEqual：任意值变体（[&::-webkit-scrollbar]:）还会被视口断点守卫报出。
       expect(await guardReports(literalFixture(className), filePath)).toContainEqual(
         expect.stringContaining(GUARD_MESSAGE[guard]),
       );
@@ -94,9 +114,29 @@ describe("类名守卫", () => {
     });
   });
 
+  describe.each(SOURCE_FILES)("%s 的布局守卫与 @shadcn/lint", (filePath) => {
+    it.each(ALL_LAYOUT_GUARDS)("%s 按所在配置块生效或放宽", async (guard) => {
+      const { code, message } = LAYOUT_GUARDS[guard];
+      const reported = (await guardReports(code, filePath)).some((m) => m.includes(message));
+      expect(reported).toBe(LAYOUT_ENFORCED[filePath].includes(guard));
+    });
+
+    it("报出原始调色板", async () => {
+      const code = `import { cn } from "cn";\nexport const cls = cn("bg-red-500");\n`;
+      const [result] = await eslint.lintText(code, { filePath });
+      expect(result.messages.map((m) => m.ruleId)).toContain("shadcn/no-raw-colors");
+    });
+  });
+
+  it("测试文件不受布局守卫与 @shadcn/lint 约束", async () => {
+    const code = `import { cn } from "cn";\nit("x", () => { expect(cn("bg-red-500 h-screen fixed inset-0 md:grid")).toBeTruthy(); });\n`;
+    const [result] = await eslint.lintText(code, { filePath: "src/lint-fixture/Fixture.test.tsx" });
+    expect(result.messages.filter((m) => m.ruleId === "no-restricted-syntax" || m.ruleId?.startsWith("shadcn/"))).toEqual([]);
+  });
+
   it("测试文件不受类名守卫约束", async () => {
     const code = `it("x", () => { expect(el).toHaveClass("overflow-y-auto motion-safe:animate-spin"); });\n`;
-    expect(await guardReports(code, "src/components/canvas/grid/Fixture.test.tsx")).toEqual([]);
+    expect(await guardReports(code, "src/lint-fixture/Fixture.test.tsx")).toEqual([]);
   });
 
   it("补过 relative 的滚动容器零报告", async () => {

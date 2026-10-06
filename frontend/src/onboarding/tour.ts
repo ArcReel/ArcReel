@@ -98,8 +98,8 @@ function prefersReducedMotion(): boolean {
  * 底层工作台的控件。这里显式给 body 的既有子节点打 `inert`，把它们从无障碍树摘除，
  * 引导退出时复原。
  *
- * 不止 `#app-root`（挂载点见 main.tsx）：`ModalShell`/`CreateProjectModal` 等对话框
- * 用 `createPortal` 直接挂到 `document.body`，是 `#app-root` 的兄弟节点而非子孙，只
+ * 不止 `#app-root`（挂载点见 main.tsx）：Dialog、Sheet 等弹层经 Portal
+ * 直接挂到 `document.body`，是 `#app-root` 的兄弟节点而非子孙，只
  * 打 `#app-root` 的 inert 罩不住"引导启动时已有弹窗开着"这种情形。这里改为在调用
  * 时刻快照 body 的直接子节点、逐个打 inert。
  *
@@ -298,7 +298,8 @@ export function startTour(
   let exited = false;
   let disposing = false;
   const ariaSnapshots = new Map<Element, (string | null)[]>();
-  // 高亮框是否已停在当前锚点上。转场途中 driver 自己逐帧移动高亮框，这时不重新对齐。
+  // 高亮框是否已停在当前锚点上。转场途中 driver 自己逐帧移动高亮框，这时不重新对齐，
+  // 途中的页面变化留到落定时一并对齐（见 onHighlighted）。
   let highlightSettled = false;
 
   const driveSteps: DriveStep[] = steps.map((step) => ({
@@ -358,10 +359,13 @@ export function startTour(
       if (element) snapshotAria(ariaSnapshots, element);
       highlightSettled = false;
     },
-    // driver 此时已给当前元素写上、给上一个元素删掉那组 aria 属性，两者都还原
+    // driver 此时已给当前元素写上、给上一个元素删掉那组 aria 属性，两者都还原。
+    // 气泡在转场开始时（有动画时在半程）按锚点当时的位置摆好，落定时 driver 只重算高亮框：
+    // 锚点在这之间被推开（问候区晚于「示例项目」区块渲染），气泡会压在锚点上，所以落定后再对齐一次。
     onHighlighted: () => {
       restoreAria(ariaSnapshots);
       highlightSettled = true;
+      instance.refresh();
     },
     // 退出全部收口到这里，而不是 driver 的 onDestroyed。后者只在 driver 内部把高亮元素
     // 写进 state 之后才会触发，而那次写入排在 requestAnimationFrame 里 —— 同步 destroy

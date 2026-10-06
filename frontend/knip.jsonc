@@ -1,8 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
-  // 一次性迁移脚本由人工按需运行，没有 package.json 入口
-  "entry": ["scripts/*.ts"],
-  "project": ["src/**/*.{ts,tsx,css}", "e2e/**/*.ts", "scripts/**/*.ts", "*.{ts,js}"],
+  "project": ["src/**/*.{ts,tsx,css}", "e2e/**/*.ts", "*.{ts,js}"],
   "ignoreBinaries": ["uv"],
   "ignoreExportsUsedInFile": true,
   // shadcn 原语模块按成套 API 导出子组件（如 TooltipTrigger、DialogFooter），暂无调用方也要保留，

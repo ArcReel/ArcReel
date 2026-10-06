@@ -3,7 +3,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 弹层、提示与菜单原语：借集页顶栏「导出项目归档」的诊断对话框与下载提示，以及侧栏「添加一集」菜单验证。
-// 大厅页尚未重做（文档本身滚动），整页探针会报出与弹层无关的问题，因此都放在集页上。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const EVENT_STREAM: ApiOverrides = {

@@ -8,9 +8,9 @@ import i18n, { i18nReady } from "@/i18n";
 await i18nReady;
 await i18n.changeLanguage("zh");
 
-// jsdom 默认不实现 ResizeObserver；@floating-ui/react 的 autoUpdate 会调它来
-// 跟踪 reference / floating 元素尺寸变化。用空 stub 即可，测试只断言可见性、
-// 交互与结构，不验位置像素。
+// jsdom 默认不实现 ResizeObserver；Base UI 弹层定位（经 floating-ui 的 autoUpdate）、
+// Tabs 指示条与 TruncatedText 的截断检测都会调它跟踪尺寸变化。用空 stub 即可，
+// 测试只断言可见性、交互与结构，不验位置像素。
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
     constructor(_cb: ResizeObserverCallback) {}

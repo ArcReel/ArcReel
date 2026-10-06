@@ -163,6 +163,41 @@ describe("startTour", () => {
     vi.unstubAllGlobals();
   });
 
+  it("re-places the popover when the anchor is pushed down before the highlight settles", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList);
+    const handle = startTour(
+      [
+        { anchor: null, title: "欢迎", body: "开场" },
+        { anchor: ONBOARDING_ANCHORS.lobbyDemoCard, title: "演示卡", body: "长这样" },
+      ],
+      LABELS,
+      { onExit: vi.fn() },
+    );
+    const stage = () => document.querySelector(".driver-overlay path")?.getAttribute("d") ?? "";
+    // 遮罩在第一步挂上，之后的步骤不再插入它
+    await vi.waitFor(() => expect(stage()).not.toBe(""));
+    click(".driver-popover-next-btn");
+
+    const target = document.createElement("div");
+    target.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyDemoCard);
+    let top = 100;
+    vi.spyOn(target, "getBoundingClientRect").mockImplementation(() => new DOMRect(40, top, 300, 200));
+    // 锚点挂载后 driver 立即按当时的位置摆好气泡，下一帧才落定高亮框；问候区恰好在这之间渲染
+    document.body.appendChild(target);
+    await Promise.resolve();
+    expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("演示卡");
+    top = 166;
+    document.body.prepend(document.createElement("h1"));
+
+    await vi.waitFor(() => expect(stage()).toContain(",158 h"));
+    // 气泡在锚点下方，driver 写的是到视口底边的距离：视口高 -（锚点下沿 + stagePadding 8 + 默认间距 10）
+    await vi.waitFor(() => expect(popover()).toHaveStyle({ bottom: `${window.innerHeight - (166 + 200 + 18)}px` }));
+
+    handle.dispose();
+    target.remove();
+    vi.unstubAllGlobals();
+  });
+
   it("falls back to a centered popover when the anchor is missing, and warns", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const handle = startTour(
@@ -359,8 +394,8 @@ describe("startTour", () => {
 
   describe("peripheral isolation", () => {
     // driver.js 只挡 pointer-events + Tab 键，屏幕阅读器的虚拟光标仍能读到底层界面；
-    // body 的既有子节点（#app-root，以及 ModalShell/CreateProjectModal 这类直接
-    // createPortal 到 body、与 #app-root 是兄弟关系的对话框）打 inert 摘出无障碍树，
+    // body 的既有子节点（#app-root，以及 Dialog、Sheet 这类经 Portal 挂到 body、
+    // 与 #app-root 是兄弟关系的弹层）打 inert 摘出无障碍树，
     // 才是真正的「全程只读」。
     function withAppRoot(): HTMLElement {
       const appRoot = document.createElement("div");
@@ -412,7 +447,7 @@ describe("startTour", () => {
 
     it("also inerts a dialog already portaled to body when the tour starts, and clears it on dispose", () => {
       const appRoot = withAppRoot();
-      // 模拟 ModalShell/CreateProjectModal 用 createPortal 挂到 body 的对话框——
+      // 模拟经 Portal 挂到 body 的对话框——
       // 是 #app-root 的兄弟节点，不在其子树内。
       const modal = document.createElement("div");
       document.body.appendChild(modal);

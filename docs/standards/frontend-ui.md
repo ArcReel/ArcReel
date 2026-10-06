@@ -41,7 +41,7 @@ paths:
 
 `frontend/src/components/ui/` 只存放用 shadcn CLI 安装的原语（`components.json` 的 `style` 为 `base-nova`，底层是 Base UI）。只要组件知道业务类型、调用 API 或读写 store，就放进使用它的业务目录；多个区域共用的放进 `components/shared/`。knip 对 `src/components/ui/*.tsx` 的未使用导出豁免，就是按「这里全是成套导出的原语」设计的；业务组件混进来后，它真正未使用的导出也会被一起放过。
 
-`components/legacy/` 存放等待替换的自研旧原语（`GlassModal`、`FloatingPopover`、旧按钮等），干净交付时连同测试一起删除。已重做区域不再引用 `components/legacy/`；其他位置新写弹层、菜单、按钮时直接使用 `components/ui/` 的原语。
+弹层、菜单与按钮一律使用 `components/ui/` 的原语，不另写焦点陷阱、Esc 关闭或层级工具：焦点与关闭行为由 Base UI 负责，层级用 z-index token（见「层级只用 z-index token」）。
 
 ### 原语按需安装：首次用到的改动执行 `pnpm exec shadcn add`，不使用 `--overwrite`
 
@@ -99,9 +99,15 @@ Dependabot 只升级 npm 包，不会重新生成 `components/ui/*.tsx`。`@base
 
 Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；模型 ID 这类网关列表常常不全、必须允许自由填写的字段，用 `@base-ui/react/autocomplete`。shadcn 的 base-nova registry 没有 Autocomplete，参考 `components/agent/ModelIdField` 的写法：输入框用 `components/ui/input-group`，弹层表面沿用 `bg-popover`、`shadow-overlay` 与 `z-overlay`。
 
-### 区域重做完成后，把目录登记进 `eslint.config.js` 的 `REWORKED_FILES`
+### 样式与布局守卫对全部源码生效，放宽在 `eslint.config.js` 中逐条登记
 
-`@shadcn/lint` 的样式规则与滚动、响应式守卫（禁止视口高度、原语之外的 `fixed inset-0` 与读写 `scrollHeight`、业务组件的视口断点前缀）只对 `REWORKED_FILES` 中的 glob 生效。重做某个区域的改动把该区域的目录加进列表，并让这些文件零报告；交付结束时，列表替换为 `src/**`。`motion-safe:` 与 `motion-reduce:` 前缀、未定位的滚动容器、滚动条样式这三条类名守卫（`SOURCE_CLASS_GUARDS`）不受这份列表限制，对全部源码生效，只豁免测试文件。
+`frontend/src/` 下除测试文件以外的源码都受以下 ESLint 规则约束：
+
+- `@shadcn/lint` 的样式规则。
+- 滚动与响应式守卫：禁止视口高度、原语之外的 `fixed inset-0` 与读写 `scrollHeight`、业务组件的视口断点前缀。
+- 类名守卫（`SOURCE_CLASS_GUARDS`）：`motion-safe:` 与 `motion-reduce:` 前缀、未定位的滚动容器、滚动条样式。
+
+`components/ui/` 的原语关闭 `no-restyle`、`no-arbitrary-values`、`require-static-classes` 三条样式规则，并放过 `fixed inset-0`、`scrollHeight` 与视口断点。flat config 对同一文件匹配到的 `no-restricted-syntax` 整体替换选项，豁免块因此用 `restrictSyntax(要放过的约束)` 列出其余全部约束，不另起只写一条约束的配置块，否则先声明的约束会被静默摘掉。改动这些配置块后运行 `src/lint-class-guards.test.ts`，它按配置块逐一核对各条约束仍然生效。
 
 需要放宽时，在 PR 描述中逐条列出，由审查判断：
 
@@ -115,8 +121,6 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 颜色 token 沿用 shadcn 命名（`primary`、`destructive`、`border`、`input`、`muted-foreground` 等），另有状态色 `good`、`warn`、文字中间档 `subtle-foreground` 和每集的身份色 `episode`。`episode` 的色相按集 ID 取：在元素上用内联样式写入 `--episode-hue`（取值用 `components/canvas/episodes/episodes-view-model.ts` 的 `episodeHue`），元素及其子孙用 `bg-episode`、`text-episode`、`border-episode` 取这一集的颜色。剪辑视图轨道上的视频单元色 `unit-clip`、`unit-narration` 用同样的写法，色相变量是 `--unit-hue`（取值用 `components/canvas/edit/timeline-view.ts` 的 `unitHue`）。剧本里的 @ 提及与说话人按资产类型着色，用 `asset-product`、`asset-character`、`asset-scene`、`asset-prop`，解析不到的提及用 `destructive`；配色经 `components/canvas/reference/asset-colors.ts` 的 `assetColor` 取用。浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅另设变体 token；变体 token 会让同一语义出现多个近似色，旧色板中的变体色已按这一原则删除。危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。内联样式和 CSS 引用 `:root` 中的原始变量（`var(--primary)`），需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
 
 文字只分三档：`foreground`、`subtle-foreground`、`muted-foreground`。正文不在 `muted-foreground` 上再叠加透明度或 `opacity`：它在页面底色上的对比度是 5.7:1，再降低就达不到 WCAG AA 要求的 4.5:1。
-
-旧 token 名已由 `frontend/scripts/token-codemod.ts` 一次改完。合并仍在使用旧 token 名的分支后，对这些文件重跑脚本，用法见脚本头部注释。
 
 ## 弹层与提示
 
@@ -169,7 +173,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 尺寸用 `size`：`xs`、`sm`、`default`、`lg`，只有图标时用 `icon`、`icon-xs`、`icon-sm`、`icon-lg`。按钮内的图标加 `data-icon="inline-start"` 或 `data-icon="inline-end"`，不写尺寸 class。`Button` 没有 loading 属性；加载时禁用按钮，并把前置图标换成带 `animate-spin` 的 `Loader2`。
 
-`components/legacy/` 的 `PrimaryButton`、`SecondaryButton`、`ModalCloseButton`，以及 `.arc-btn-primary` 与 `.arc-btn-secondary`，已改为与 `Button` 外观一致的过渡封装，只供未重做的区域使用，新代码不再引用。
+整行条目（列表行、集目录行）、缩略图触发器与拖放区不是操作按钮，用原生 `<button>` 配 `focus-ring`：换成 `Button` 要在调用处改写它的样式，`no-restyle` 不允许。外观像按钮的导航入口用 `Link` 套 `buttonVariants`，不用 `Button` 调用 `navigate`：读屏按链接播报，也能在新标签页打开。
 
 ## 图表
 

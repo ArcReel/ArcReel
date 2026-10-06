@@ -23,8 +23,14 @@ export interface RegionScenario {
   /** 把页面带到要探测的状态，例如展开面板、打开弹层。 */
   act?: (page: Page) => Promise<void>;
   /**
-   * 区域截图。设置 E2E_SCREENSHOTS=1 时才比对，目前只作评审材料、不是闸门；
-   * 只为重做完成的区域登记，优先截区域而非整页。
+   * 场景本身很重（如渲染 500 条列表再整页跑 axe）时设为 true，超时放宽为三倍：
+   * 本机多 worker 并行时这类场景会超过默认的 30 秒。
+   */
+  slow?: boolean;
+  /**
+   * 区域截图，是回归闸门：CI 的 frontend-e2e 设置 E2E_SCREENSHOTS=1，比对出差异或缺少基线即失败。
+   * 基线在官方 Playwright 镜像里渲染（pnpm e2e:remote），宿主机的字体渲染与之不同，
+   * 所以只在连容器运行时设置该变量。优先截区域而非整页。
    */
   screenshot?: {
     name: string;
@@ -38,6 +44,7 @@ export function defineRegionScenarios(region: string, scenarios: RegionScenario[
   test.describe(region, () => {
     for (const scenario of scenarios) {
       test(scenario.name, async ({ page, api }, testInfo) => {
+        test.slow(Boolean(scenario.slow));
         if (scenario.api) api.override(scenario.api);
         if ((scenario.auth ?? "signed-in") === "signed-in") {
           await page.addInitScript((token) => localStorage.setItem("arcreel_auth_token", token), RECORDED_ACCESS_TOKEN);
