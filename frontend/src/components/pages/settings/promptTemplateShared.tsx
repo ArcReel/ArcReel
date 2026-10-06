@@ -11,7 +11,7 @@ export type Load<T> =
 
 /** 模版正文、片段正文共用的代码块外观：保留换行，长行折行而不横向撑开内容列。 */
 export const SOURCE_BLOCK_CLS =
-  "overflow-x-auto rounded-md border border-border bg-muted/40 px-3.5 py-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-subtle-foreground";
+  "relative overflow-x-auto rounded-md border border-border bg-muted/40 px-3.5 py-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-subtle-foreground";
 
 /** 取值、枚举等短代码片段。 */
 export const CHIP_CLS =

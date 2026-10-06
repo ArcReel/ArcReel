@@ -436,7 +436,7 @@ export function ComfyuiEndpointDetail({
           </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">{t("ce_cf_auth_label")}</span>
-            <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs text-subtle-foreground">
+            <pre className="relative overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs text-subtle-foreground">
               {authPreview(definition)}
             </pre>
             <p className="text-xs text-muted-foreground">

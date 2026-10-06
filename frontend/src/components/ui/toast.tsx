@@ -53,8 +53,9 @@ function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
     <ToastPrimitive.Content
       data-slot="toast-content"
       // 纵向列表里每条提示都完整显示，去掉卡组的 behind / expanded 透明度切换
+      // 补 relative：滚动容器须是定位元素，绝对定位的子元素才不会撑出文档滚动
       className={cn(
-        "flex min-w-0 flex-1 items-start gap-3 overflow-y-auto p-3.5",
+        "relative flex min-w-0 flex-1 items-start gap-3 overflow-y-auto p-3.5",
         className
       )}
       {...props}
