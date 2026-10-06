@@ -1,7 +1,3 @@
-// main.tsx — New entry point using wouter + StudioLayout
-// Replaces main.js as the application entry point.
-// The old main.js is kept as a reference during the migration.
-
 import { createRoot } from "react-dom/client";
 import { AppRoutes } from "./router";
 import { useAuthStore } from "@/stores/auth-store";
@@ -16,9 +12,6 @@ import "@fontsource/instrument-serif/400-italic.css";
 import "driver.js/dist/driver.css";
 
 import "./index.css";
-import "./css/styles.css";
-import "./css/app.css";
-import "./css/studio.css";
 // driver 默认皮肤之后加载，覆盖生效
 import "./css/onboarding.css";
 

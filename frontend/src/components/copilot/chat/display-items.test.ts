@@ -51,6 +51,15 @@ describe("buildDisplayItems", () => {
     expect(items[1].turn.content.filter((block) => block.type === "text")).toEqual([text("第一段"), text("第二段")]);
   });
 
+  it("drops signed thinking from replies that have visible content, so no empty step group renders", () => {
+    const items = buildDisplayItems(
+      [user("u-1", "你好"), assistant("a-1", [signedThinking, text("第一段")]), assistant("a-2", [signedThinking, text("第二段")])],
+      null,
+    );
+
+    expect(items[1].turn.content).toEqual([text("第一段"), text("第二段")]);
+  });
+
   it("keeps a reply that has only signed thinking out of the list entirely", () => {
     const items = buildDisplayItems([user("u-1", "你好"), assistant("a-1", [signedThinking])], null);
 

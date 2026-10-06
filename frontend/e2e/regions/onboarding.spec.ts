@@ -45,6 +45,22 @@ async function expectHighlightOnAnchor(page: Page) {
     .toBeLessThan(1);
 }
 
+/** 气泡摆在高亮锚点旁边，不压住锚点：两者的矩形不相交。 */
+async function expectPopoverBesideAnchor(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const popover = document.querySelector(".driver-popover")?.getBoundingClientRect();
+        const anchor = document.querySelector(".driver-active-element")?.getBoundingClientRect();
+        if (!popover || !anchor) return NaN;
+        const width = Math.min(popover.right, anchor.right) - Math.max(popover.left, anchor.left);
+        const height = Math.min(popover.bottom, anchor.bottom) - Math.max(popover.top, anchor.top);
+        return Math.max(0, width) * Math.max(0, height);
+      }),
+    )
+    .toBe(0);
+}
+
 async function advance(page: Page, steps: number) {
   for (let i = 0; i < steps; i++) await next(page);
 }
@@ -93,8 +109,9 @@ defineRegionScenarios("新手引导", [
       await expect(tourTitle(page)).toHaveText("演示项目");
       await expect(page.getByRole("region", { name: "示例项目" })).toBeVisible();
       await expect(page.getByText("还没有项目")).toBeVisible();
-      // 从设置页回到大厅时问候区晚于这个区块渲染，高亮框要跟着区块下移
+      // 从设置页回到大厅时问候区晚于这个区块渲染，高亮框与气泡都要跟着区块下移
       await expectHighlightOnAnchor(page);
+      await expectPopoverBesideAnchor(page);
       await expect(tour(page)).toBeInViewport({ ratio: 1 });
     },
     screenshot: { name: "onboarding-demo-section" },

@@ -6,7 +6,7 @@ import { composeAllTurns } from "./utils";
 //
 // 投影按 SDK 消息切分，一次回复常被拆成多条 assistant turn，其中不少只含签名的空思考块；
 // 流式草稿也是单独的一条。显示层把两条用户消息之间连续的 assistant turn 合成一轮，
-// 工序与复制都以整轮为单位，并跳过没有可见内容的 turn，不为它们渲染空项与多余间距。
+// 工序与复制都以整轮为单位，并跳过没有可见内容的 turn 与块，不为它们渲染空项与多余间距。
 // ---------------------------------------------------------------------------
 
 export interface DisplayItem {
@@ -20,9 +20,13 @@ export interface DisplayItem {
 
 export function buildDisplayItems(turns: Turn[], draftTurn: Turn | null): DisplayItem[] {
   const items: DisplayItem[] = [];
-  composeAllTurns(turns, draftTurn).forEach((turn, index) => {
-    const streaming = turn === draftTurn;
-    if (!streaming && !hasVisibleContent(turn)) return;
+  composeAllTurns(turns, draftTurn).forEach((composed, index) => {
+    const streaming = composed === draftTurn;
+    if (!streaming && !hasVisibleContent(composed)) return;
+    // 已落库的回复去掉看不见的块：签名空思考块留在里面会自成一段空工序，多出一道段距
+    const turn = composed.type === "assistant" && !streaming
+      ? { ...composed, content: composed.content.filter(isVisibleBlock) }
+      : composed;
 
     const previous = items.at(-1);
     if (turn.type === "assistant" && previous?.turn.type === "assistant") {

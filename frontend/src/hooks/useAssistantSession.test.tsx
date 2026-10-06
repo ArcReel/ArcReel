@@ -880,7 +880,7 @@ describe("useAssistantSession", () => {
 
   it("no-ops switchSession when projectName is null (stale session list with no project selected)", async () => {
     // 面板为长生命周期单例，切项目为 null 后 sessions 列表不清空（见初始化
-    // effect 的前置 guard）；SessionSelector 据此仍可能渲染出旧项目的会话项。
+    // effect 的前置 guard）；SessionHistory 据此仍可能渲染出旧项目的会话项。
     // 点击它们不得以 null projectName 发起请求。
     const getSessionSpy = vi.spyOn(API, "getAssistantSession");
     const listEntriesSpy = vi.spyOn(API, "listAssistantEntries");

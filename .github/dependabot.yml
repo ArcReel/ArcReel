@@ -179,7 +179,6 @@ updates:
       ui-libs:
         patterns:
           - "lucide-react"
-          - "@floating-ui/*"
           - "@lobehub/*"
           - "@dnd-kit/*"
           - "cmdk"

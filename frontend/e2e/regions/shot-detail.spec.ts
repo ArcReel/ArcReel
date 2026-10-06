@@ -2,7 +2,7 @@ import { box, viewport, waitForEntrance, clearAgentOverlay } from "../support/re
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
-import { expect, type ApiOverrides } from "../support/test.ts";
+import { expect, test, type ApiOverrides } from "../support/test.ts";
 
 // 集页「分镜」视图：左侧分镜列表，右侧分镜详情（中栏引用、提示词、台词、对应原文，媒体栏分镜图与视频）。
 const BOARD_PATH = "/app/projects/demo/episodes/1";
@@ -377,6 +377,7 @@ defineRegionScenarios("分镜详情", [
       "POST /api/v1/projects/demo/script-items/E1S500/move": { status: 200, body: { success: true } },
     },
     ready: boardReady,
+    slow: true,
     act: async (page) => {
       const list = shotList(page);
       await expect(list.getByRole("button", { name: /^调整 S/ })).toHaveCount(500);
@@ -393,9 +394,14 @@ defineRegionScenarios("分镜详情", [
         }
         return intervals;
       });
-      // 单 worker 官方容器：30 帧滚动不应出现半秒主线程停顿或累计超过 2 秒。
-      expect(Math.max(...frames), `500 镜滚动帧间隔：${JSON.stringify(frames)}`).toBeLessThan(500);
-      expect(frames.reduce((sum, value) => sum + value, 0)).toBeLessThan(2000);
+      // 帧耗时只在单 worker 运行时断言（CI 的 frontend-e2e 每片单 worker）：30 帧滚动不应出现半秒主线程停顿
+      // 或累计超过 2 秒。多 worker 并行时 CPU 争用会拉长帧间隔，量到的不是页面自身的耗时，只跑后面的排序部分。
+      if (test.info().config.workers === 1) {
+        expect(Math.max(...frames), `500 镜滚动帧间隔：${JSON.stringify(frames)}`).toBeLessThan(500);
+        expect(frames.reduce((sum, value) => sum + value, 0)).toBeLessThan(2000);
+      } else {
+        test.info().annotations.push({ type: "skip-frame-budget", description: `多 worker 并行，未断言帧耗时：${JSON.stringify(frames)}` });
+      }
       const handle = list.getByRole("button", { name: "调整 S500 的顺序" });
       await handle.scrollIntoViewIfNeeded();
       await handle.focus();
