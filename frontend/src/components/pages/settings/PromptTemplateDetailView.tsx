@@ -155,7 +155,7 @@ function DetailBody({
             <p className="text-sm text-muted-foreground">{t("prompt_templates_output_schema_desc")}</p>
           </div>
           <CollapsibleContent className="mt-3">
-            <div className="overflow-x-auto rounded-lg border border-border bg-card px-4 pb-4">
+            <div className="relative overflow-x-auto rounded-lg border border-border bg-card px-4 pb-4">
               <table className="mt-3 w-full border-collapse text-left text-xs">
                 <thead>
                   <tr className="text-muted-foreground">

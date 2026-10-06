@@ -81,7 +81,7 @@ const RESTRICT_DISCARDED_REFRESH = {
 };
 
 // ---------------------------------------------------------------------------
-// 已重做区域：@shadcn/lint 与滚动、响应式守卫只对这里列出的 glob 生效。
+// 已重做区域：@shadcn/lint 与滚动、响应式守卫只对这里列出的 glob 生效（SOURCE_CLASS_GUARDS 对全部源码生效，不在此列）。
 // 每个区域重做的 ticket 把自己的目录加进来；交付结束时整体替换为 "src/**"。
 const REWORKED_FILES = [
   // 自动撑高输入框
@@ -247,6 +247,41 @@ const RESTRICT_VIEWPORT_BREAKPOINT = classGuards(
   "业务组件禁用视口断点前缀（sm: / md: / lg: / xl: / 2xl:）：外壳内一律用容器查询（@container 与 @md: 等），确需按视口切换的文件登记进 VIEWPORT_BREAKPOINT_ALLOWLIST。",
 );
 
+// 以下三条类名守卫对全部源码生效（不限于 REWORKED_FILES）；测试文件豁免，它们在断言里引用类名而不渲染。
+// 减少动态效果由 index.css 的全局规则统一处理。
+const RESTRICT_MOTION_VARIANT = classGuards(
+  String.raw`/(^|[\s:])motion-(safe|reduce):/`,
+  "禁用 motion-safe: / motion-reduce: 前缀：减少动态效果由 index.css 的全局规则统一处理，组件直接写动效类。",
+);
+
+// 滚动容器须是定位元素，且定位类与 overflow 类写在同一个字符串里（守卫按单个字符串判断）。
+const SCROLL_CLASS = String.raw`/(^|[\s:])overflow-(x-|y-)?(auto|scroll)(?![\w-])/`;
+const POSITIONED_CLASS = String.raw`/(^|[\s:])(relative|absolute|fixed|sticky)(?![\w-])/`;
+const UNPOSITIONED_SCROLL_MESSAGE =
+  "滚动容器（overflow-auto、overflow-*-auto、overflow-*-scroll）须是定位元素：在同一个字符串里写 relative（已是 absolute、fixed、sticky 的除外），否则绝对定位的子元素会撑出文档滚动。";
+const RESTRICT_UNPOSITIONED_SCROLL = [
+  {
+    selector: `Literal[value=${SCROLL_CLASS}]:not([value=${POSITIONED_CLASS}])`,
+    message: UNPOSITIONED_SCROLL_MESSAGE,
+  },
+  {
+    selector: `TemplateElement[value.raw=${SCROLL_CLASS}]:not([value.raw=${POSITIONED_CLASS}])`,
+    message: UNPOSITIONED_SCROLL_MESSAGE,
+  },
+];
+
+// 滚动条样式只在 index.css 定义；scrollbar-gutter 预留槽位，不改样式，不在此列。
+const RESTRICT_SCROLLBAR_STYLE = classGuards(
+  String.raw`/(^|[\s:\[])(no-scrollbar|scrollbar-(?!gutter)[\w-]+)|::-webkit-scrollbar/`,
+  "禁止在组件里写滚动条样式（scrollbar-none、no-scrollbar、[scrollbar-width:*]、::-webkit-scrollbar 等）：滚动条始终可见，样式只在 index.css 定义。",
+);
+
+const SOURCE_CLASS_GUARDS = [
+  ...RESTRICT_MOTION_VARIANT,
+  ...RESTRICT_UNPOSITIONED_SCROLL,
+  ...RESTRICT_SCROLLBAR_STYLE,
+];
+
 // @shadcn/lint 规则：components/ui 内的原语自身负责样式，关闭 restyle、任意值与静态 class 三条。
 const SHADCN_RULES = {
   "shadcn/no-restyle": ["error", { allow: ["layout"] }],
@@ -281,6 +316,7 @@ const reworkedAreaConfigs = () => {
           ...RESTRICT_FIXED_OVERLAY,
           RESTRICT_SCROLL_HEIGHT,
           ...RESTRICT_VIEWPORT_BREAKPOINT,
+          ...SOURCE_CLASS_GUARDS,
         ],
       },
     },
@@ -291,7 +327,7 @@ const reworkedAreaConfigs = () => {
         "shadcn/no-restyle": "off",
         "shadcn/no-arbitrary-values": "off",
         "shadcn/require-static-classes": "off",
-        "no-restricted-syntax": ["error", ...apiRules, ...RESTRICT_VIEWPORT_HEIGHT],
+        "no-restricted-syntax": ["error", ...apiRules, ...RESTRICT_VIEWPORT_HEIGHT, ...SOURCE_CLASS_GUARDS],
       },
     },
   ];
@@ -306,6 +342,7 @@ const reworkedAreaConfigs = () => {
           ...RESTRICT_VIEWPORT_HEIGHT,
           ...RESTRICT_FIXED_OVERLAY,
           RESTRICT_SCROLL_HEIGHT,
+          ...SOURCE_CLASS_GUARDS,
         ],
       },
     });
@@ -428,8 +465,23 @@ export default tseslint.config(
   // - 测试不得整模块 mock `@/api`（含其 `@/api/*` 子模块）与 `react-i18next`，该条对全部文件生效、无豁免。
   // - 不得丢弃 refreshProject 的结算值（RESTRICT_DISCARDED_REFRESH），该条同样对全部文件生效、无豁免。
   // src/api.test.ts 豁免前两条：它测试的是 API 层本体的端点路径与请求体。
+  // 源码另受 SOURCE_CLASS_GUARDS 约束，测试文件不受（理由见其定义处）。
   {
     files: ["src/**/*.{ts,tsx}"],
+    ignores: TEST_FILES,
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        RESTRICT_ENQUEUE,
+        RESTRICT_CAPABILITIES,
+        RESTRICT_MODULE_MOCK,
+        RESTRICT_DISCARDED_REFRESH,
+        ...SOURCE_CLASS_GUARDS,
+      ],
+    },
+  },
+  {
+    files: TEST_FILES,
     ignores: ["src/api.test.ts"],
     rules: {
       "no-restricted-syntax": [
@@ -451,13 +503,13 @@ export default tseslint.config(
   {
     files: ["src/actions/**/*.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK, RESTRICT_DISCARDED_REFRESH],
+      "no-restricted-syntax": ["error", RESTRICT_CAPABILITIES, RESTRICT_MODULE_MOCK, RESTRICT_DISCARDED_REFRESH, ...SOURCE_CLASS_GUARDS],
     },
   },
   {
     files: ["src/hooks/useModelCapabilities.ts"],
     rules: {
-      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_MODULE_MOCK, RESTRICT_DISCARDED_REFRESH],
+      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_MODULE_MOCK, RESTRICT_DISCARDED_REFRESH, ...SOURCE_CLASS_GUARDS],
     },
   },
 

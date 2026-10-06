@@ -85,7 +85,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 
 ### 区域重做完成后，把目录登记进 `eslint.config.js` 的 `REWORKED_FILES`
 
-`@shadcn/lint` 的样式规则与滚动、响应式守卫（禁止视口高度、原语之外的 `fixed inset-0` 与读写 `scrollHeight`、业务组件的视口断点前缀）只对 `REWORKED_FILES` 中的 glob 生效。重做某个区域的改动把该区域的目录加进列表，并让这些文件零报告；交付结束时，列表替换为 `src/**`。
+`@shadcn/lint` 的样式规则与滚动、响应式守卫（禁止视口高度、原语之外的 `fixed inset-0` 与读写 `scrollHeight`、业务组件的视口断点前缀）只对 `REWORKED_FILES` 中的 glob 生效。重做某个区域的改动把该区域的目录加进列表，并让这些文件零报告；交付结束时，列表替换为 `src/**`。`motion-safe:` 与 `motion-reduce:` 前缀、未定位的滚动容器、滚动条样式这三条类名守卫（`SOURCE_CLASS_GUARDS`）不受这份列表限制，对全部源码生效，只豁免测试文件。
 
 需要放宽时，在 PR 描述中逐条列出，由审查判断：
 
@@ -169,7 +169,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 ### 减少动态效果由 `index.css` 的全局规则统一处理，组件不单独适配
 
-开启「减少动态效果」时，全局规则把 tw-animate-css 的位移、缩放、旋转与模糊归零，过渡只保留透明度与颜色属性，其他 keyframes 动画（包括 `animate-spin`、`animate-breath`）直接停在终态。组件不需要再写 `motion-safe:` 或 `motion-reduce:`。新增带位移或缩放的动效时，在减少动态效果下确认它只剩淡入淡出。
+开启「减少动态效果」时，全局规则把 tw-animate-css 的位移、缩放、旋转与模糊归零，过渡只保留透明度与颜色属性，其他 keyframes 动画（包括 `animate-spin`、`animate-breath`）直接停在终态。组件不写 `motion-safe:` 或 `motion-reduce:`，由 lint 守卫。新增带位移或缩放的动效时，在减少动态效果下确认它只剩淡入淡出。
 
 ## 页面外壳与滚动
 
@@ -221,7 +221,7 @@ Markdown 正文（`StreamMarkdown`）里的代码块与表格放不下时横向�
 
 外壳根节点是 `relative h-dvh overflow-hidden`，滚动只发生在侧栏、外壳主体（限宽与铺满档）和全出血区段的各栏。e2e 区域场景在全部验收视口上运行溢出探针，文档出现滚动，或内容被裁切且滚动不到，场景就会失败。新写或改动滚动区域时遵守四条：
 
-- **滚动容器是定位元素。** 写 `overflow-y-auto` 的元素同时写 `relative`。`sr-only` 等绝对定位的子元素以最近的定位祖先为包含块；滚动容器不是定位元素时，这些子元素会按自己在滚动内容里的位置撑高外层，造成文档滚动。
+- **滚动容器是定位元素。** 写 `overflow-y-auto` 的元素同时写 `relative`。`sr-only` 等绝对定位的子元素以最近的定位祖先为包含块；滚动容器不是定位元素时，这些子元素会按自己在滚动内容里的位置撑高外层，造成文档滚动。由 lint 守卫：类名字符串里有 `overflow-auto`、`overflow-scroll` 及其 `-x-`、`-y-` 形式时，同一个字符串里必须有 `relative`（已是 `absolute`、`fixed`、`sticky` 的除外）。守卫按单个字符串判断，定位类不要拆到 `cn()` 的另一个参数里。
 - **高度沿 flex 链传下来。** 从外壳到滚动容器之间的每一层 flex 子项写 `min-h-0`（横向是 `min-w-0`），否则 flex 子项的最小高度等于内容高度，滚动容器不会出现滚动，而是被内容撑开。
 - **不用视口高度定高。** 不写 `h-screen`、`max-h-screen`、`vh` 单位，也不用 `sticky` 加 `max-h-screen` 模拟独立滚动的栏。全出血区段的根节点写 `flex min-h-0 flex-1`，各栏写 `overflow-y-auto`。
 - **主体滚动区预留滚动条槽位。** 外壳主体已写 `[scrollbar-gutter:stable]`，内容变长出现滚动条时不会横向跳动；全出血区段内会随内容出现滚动条的主栏同样写上。
@@ -269,7 +269,7 @@ Markdown 正文（`StreamMarkdown`）里的代码块与表格放不下时横向�
 
 ### 滚动条始终可见，样式只在 `index.css` 中定义
 
-滚动条宽 10px，可见滑块 6px，不自动隐藏。组件不写 `scrollbar-*` 或 `::-webkit-scrollbar` 样式：Chromium 121 起，元素一旦设置 `scrollbar-width` 或 `scrollbar-color` 就忽略 `::-webkit-scrollbar`，局部改写会让该元素退回浏览器默认样式。标准属性只通过 `@supports not selector(::-webkit-scrollbar)` 提供给 Firefox。
+滚动条宽 10px，可见滑块 6px，不自动隐藏。组件不写 `scrollbar-*` 或 `::-webkit-scrollbar` 样式：Chromium 121 起，元素一旦设置 `scrollbar-width` 或 `scrollbar-color` 就忽略 `::-webkit-scrollbar`，局部改写会让该元素退回浏览器默认样式。由 lint 守卫，`[scrollbar-gutter:stable]` 只预留槽位、不改样式，不在此列。标准属性只通过 `@supports not selector(::-webkit-scrollbar)` 提供给 Firefox。
 
 ## 编辑单元与保存
 
