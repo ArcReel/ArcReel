@@ -23,7 +23,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 from starlette.datastructures import MutableHeaders
 from starlette.types import Message, Receive, Scope, Send
 
@@ -51,7 +51,7 @@ from server.auth import ensure_auth_password, get_current_user, warn_if_auth_dis
 from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok, require_valid_project_name
 from server.error_handlers import register_error_handlers
-from server.remote_mcp import remote_mcp_host
+from server.remote_mcp import mount_remote_mcp, remote_mcp_host
 from server.routers import (
     ad_script,
     agent_config,
@@ -764,12 +764,7 @@ app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管
 app.include_router(edit_timelines.self_auth_router, prefix="/api/v1", tags=["剪辑时间线"])
 
 
-@app.api_route("/mcp", methods=["DELETE", "GET", "HEAD", "POST"], include_in_schema=False)
-async def redirect_remote_mcp() -> RedirectResponse:
-    return RedirectResponse("/mcp/", status_code=307)
-
-
-app.mount("/mcp", remote_mcp_host)
+mount_remote_mcp(app, remote_mcp_host)
 
 
 def create_generation_worker() -> GenerationWorker:

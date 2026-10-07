@@ -175,7 +175,6 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 | `DATABASE_URL` | SQLite 默认路径 | 生产 Compose 自动设置 PostgreSQL URL |
 | `ARCREEL_DATA_DIR` | `projects` | 数据根；项目、默认 SQLite 数据库、日志和 Vertex 凭据都在其下 |
 | `CORS_ORIGINS` | 通配 | 设为白名单时，浏览器型 MCP 客户端的 Origin 也须列入 |
-| `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | 可选；仅 OAuth 发现型 MCP 客户端需要 |
 | `ARCREEL_OFFICIAL_SERVICE_URL` | 内置官方服务地址 | 市场安装量、评分与分享提交所用的官方服务；设为空即整体关闭，市场回到只读取市场源的形态 |
 
 注意：
@@ -191,7 +190,9 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 
 服务端不校验请求的 `Host` 头，端点边界由每请求强制的 API Key 承担；域名归属交给部署形态，请在反向代理上限定 `server_name`（Nginx）或等价规则，只把预期域名的请求转发给 ArcReel。
 
-`CORS_ORIGINS` 保持默认通配时，浏览器型 MCP 客户端同样无需配置；一旦收紧为白名单，就要把该客户端的 Origin 也列进去——这一个白名单同时约束应用 API 与 MCP 端点，不存在第二份 MCP 专用清单。`MCP_PUBLIC_URL` 只用于填写 OAuth 受保护资源元数据（RFC 9728）与 401 challenge，供做发现流程的客户端读取；以 Bearer 直连的 Claude Code、codex 等客户端不会用到，可以不设。
+`CORS_ORIGINS` 保持默认通配时，浏览器型 MCP 客户端同样无需配置；一旦收紧为白名单，就要把该客户端的 Origin 也列进去——这一个白名单同时约束应用 API 与 MCP 端点，不存在第二份 MCP 专用清单。
+
+远程 MCP 不提供 OAuth 授权，也不发布 OAuth 受保护资源元数据（RFC 9728）；只支持 OAuth 自动发现、无法自行填写 Bearer 凭证的客户端无法接入。
 
 ArcReel 的沙箱要求父进程环境中不保留供应商密钥。以下凭据环境变量存在非空值时，服务会拒绝启动并提示迁移到 WebUI 设置页：
 

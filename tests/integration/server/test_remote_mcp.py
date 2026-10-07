@@ -31,7 +31,7 @@ from server.agent_toolset.script_authoring import GENERATE_EPISODE_SCRIPT
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
-from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
+from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server, mount_remote_mcp
 from server.tool_runtime import Services, TextGenerationResult
 from tests.factories import install_current_video, make_test_clip, make_video_request_facts, register_project_sources
 from tests.fakes import refuse_resume_execution
@@ -152,7 +152,7 @@ def remote_batch_server(remote_projects: ProjectManager, db_factory):
 
 def _mounted(server) -> FastAPI:
     app = FastAPI()
-    app.mount("/mcp", server.streamable_http_app())
+    mount_remote_mcp(app, server.streamable_http_app())
     return app
 
 
@@ -202,6 +202,41 @@ async def test_remote_mcp_always_rejects_anonymous(remote_server, monkeypatch, a
     response = await _post_initialize(_mounted(remote_server))
 
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("path", ["/mcp", "/mcp/"])
+async def test_remote_mcp_serves_endpoint_without_redirect(remote_server, path: str) -> None:
+    """规范端点 ``/mcp`` 与兼容入口 ``/mcp/`` 都直接处理：不跟随 POST 重定向的客户端也能接入。"""
+    app = _mounted(remote_server)
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client,
+    ):
+        response = await client.post(
+            path,
+            headers={"Accept": "application/json, text/event-stream", "Authorization": "Bearer arc-valid"},
+            json=_INITIALIZE_REQUEST,
+        )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "metadata_path", ["/.well-known/oauth-protected-resource/mcp", "/mcp/.well-known/oauth-protected-resource"]
+)
+async def test_remote_mcp_does_not_advertise_oauth_discovery(remote_server, metadata_path: str) -> None:
+    """只认静态 arc- API Key、没有授权服务器：401 是普通 Bearer challenge，也不提供受保护资源元数据。"""
+    app = _mounted(remote_server)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client:
+        challenge = await client.post(
+            "/mcp", headers={"Accept": "application/json, text/event-stream"}, json=_INITIALIZE_REQUEST
+        )
+        metadata = await client.get(metadata_path)
+
+    assert challenge.status_code == 401
+    assert challenge.headers["www-authenticate"].startswith("Bearer ")
+    assert "resource_metadata" not in challenge.headers["www-authenticate"]
+    assert metadata.status_code == 404
 
 
 _INITIALIZE_REQUEST = {
@@ -262,7 +297,7 @@ async def test_remote_mcp_mount_inherits_app_cors_allowlist(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.mount("/mcp", host)
+    mount_remote_mcp(app, host)
 
     async with (
         host.run(),
@@ -1026,7 +1061,7 @@ async def test_remote_mcp_host_initializes_first_request_and_can_restart() -> No
 
     host = RemoteMCPHost(lambda: build_remote_mcp_server(token_verifier=ArcApiKeyVerifier(verify_api_key)))
     app = FastAPI()
-    app.mount("/mcp", host)
+    mount_remote_mcp(app, host)
 
     for _ in range(2):
         async with host.run():
