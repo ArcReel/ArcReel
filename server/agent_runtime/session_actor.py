@@ -12,9 +12,15 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from server.agent_runtime.message_serialization import is_main_turn_activity
+
 
 class _ActorClosed(Exception):
     """Sentinel: actor 已退出（正常或异常），队列中剩余命令以此标记为 error。"""
+
+
+class MessageStreamClosed(Exception):
+    """SDK 消息流已终止（CLI 退出），会话不再可用。"""
 
 
 @dataclass
@@ -154,17 +160,20 @@ class SessionActor:
         active_query: SessionCommand | None = None
         # 有轮次在途时送来的 query：暂存到本轮 result 后再送入 SDK
         pending_query: SessionCommand | None = None
-        # 无 query 在途时收到过消息：CLI 自主开启的一轮尚未见到 result
+        # 无 query 在途时收到过主线程帧：CLI 自主开启的一轮尚未见到 result
         unsolicited_open = False
         try:
             while True:
                 if cmd_task is None:
                     cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
                 msg_task = pump.arm()
-                waiters: set[asyncio.Task[Any]] = {cmd_task} if msg_task is None else {cmd_task, msg_task}
-                done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+                if msg_task is None:
+                    # 退出 actor 让会话层收到退出通知、按终态收尾；留着等命令的话，
+                    # 后续 query 会送进已经没有 CLI 的 client，轮次永远等不到 result。
+                    raise MessageStreamClosed("SDK message stream closed")
+                done, _ = await asyncio.wait({cmd_task, msg_task}, return_when=asyncio.FIRST_COMPLETED)
 
-                if msg_task is not None and msg_task in done:
+                if msg_task in done:
                     item = pump.take()
                     if item is _TURN_END:
                         unsolicited_open = False
@@ -175,7 +184,9 @@ class SessionActor:
                             active_query, pending_query = pending_query, None
                             await self._send_query(client, active_query)
                     else:
-                        if active_query is None:
+                        # 只认主线程帧：result 之后的 system 帧、后台子智能体的消息
+                        # 之后不会再有 result 来收尾，据此开轮会把后续 query 永远暂存
+                        if active_query is None and is_main_turn_activity(item):
                             unsolicited_open = True
                         self._on_message(item)
 

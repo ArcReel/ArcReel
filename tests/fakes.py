@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
 
 _NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
+# close_stream 注入的流终止标记：读到它之后每次 receive_response 都立即结束
+_STREAM_EOF = object()
 
 #: 带真实文件头的产物替身字节。取件路径按文件头判容器（见
 #: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
@@ -228,11 +230,12 @@ class FakeSDKClient:
         self._block_forever = block_forever
         self._interrupt_message = interrupt_message
         self._connect_error = connect_error
-        self._pending_messages: asyncio.Queue[dict | None] = asyncio.Queue()
+        self._pending_messages: asyncio.Queue[Any] = asyncio.Queue()
         self.method_tasks: dict[str, list[asyncio.Task]] = {}
         self.sent_queries: list = []
         self.interrupted = False
         self.disconnected = False
+        self._stream_closed = False
 
     def _record(self, method: str) -> None:
         self.method_tasks.setdefault(method, []).append(asyncio.current_task())
@@ -266,8 +269,11 @@ class FakeSDKClient:
 
     async def receive_response(self):
         self._record("receive_response")
-        while True:
+        while not self._stream_closed:
             msg = await self._pending_messages.get()
+            if msg is _STREAM_EOF:
+                self._stream_closed = True
+                return
             if msg is None:
                 return
             yield msg
@@ -277,6 +283,10 @@ class FakeSDKClient:
     def push_message(self, msg: dict) -> None:
         """测试辅助：运行中往消息流注入一条消息。"""
         self._pending_messages.put_nowait(msg)
+
+    def close_stream(self) -> None:
+        """测试辅助：模拟 CLI 退出，已注入的消息读完后消息流终止，此后每次读取都立即结束。"""
+        self._pending_messages.put_nowait(_STREAM_EOF)
 
     # 向后兼容：保留原方法签名（旧测试仍使用 `await client.connect()` / `await client.disconnect()`）
     async def connect(self) -> None:

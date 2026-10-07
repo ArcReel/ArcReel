@@ -266,6 +266,29 @@ class TestEnsureCapacity:
             await mgr.close_session("s_old")
             await mgr.close_session("s_new")
 
+    async def test_skips_idle_session_whose_autonomous_turn_is_not_settled(self, tmp_path):
+        """自主轮次已读出、inbox 还没切 running：status 仍是 idle，也不能断开它。"""
+        mgr = _make_manager(tmp_path)
+        busy, busy_client = _make_managed("s_busy", status="idle")
+        await _start(busy)
+        busy.last_activity = time.monotonic() - 100
+        busy.note_turn_frame_read({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        quiet, quiet_client = _make_managed("s_quiet", status="idle")
+        await _start(quiet)
+        quiet.last_activity = time.monotonic()
+        mgr.sessions["s_busy"] = busy
+        mgr.sessions["s_quiet"] = quiet
+
+        try:
+            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
+                await mgr._ensure_capacity()
+
+            assert busy_client.disconnected is False
+            assert quiet_client.disconnected is True
+        finally:
+            await mgr.close_session("s_busy")
+            await mgr.close_session("s_quiet")
+
     async def test_evicts_completed_session_when_no_idle(self, tmp_path):
         """无 idle 会话时，应淘汰 completed/error/interrupted 状态的会话。"""
         mgr = _make_manager(tmp_path)
@@ -473,6 +496,25 @@ class TestBackgroundWork:
             assert client.disconnected is False
         finally:
             await mgr.close_session("s1")
+
+    async def test_cli_exit_releases_background_agent_protection(self, tmp_path):
+        """CLI 退出时后台子智能体随之终止，终态帧不会再来：会话不能永久占着名额。"""
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        actor_task = managed.actor.task
+        assert actor_task is not None
+        actor_task.add_done_callback(mgr._make_actor_done_callback(managed))
+        mgr.sessions["s1"] = managed
+        managed.resolved_sdk_id = "s1"
+        managed._inbox.put_nowait(_task_started())
+
+        client.close_stream()
+        await asyncio.wait_for(mgr._process_inbox(managed), timeout=1.0)
+
+        with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+            await mgr._cleanup_idle("s1")
+        assert "s1" not in mgr.sessions
 
     async def test_capacity_evicts_unprotected_session_before_older_protected_one(self, tmp_path):
         mgr = _make_manager(tmp_path)

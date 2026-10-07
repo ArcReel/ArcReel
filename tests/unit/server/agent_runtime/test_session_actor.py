@@ -10,6 +10,7 @@ import asyncio
 import pytest
 
 from server.agent_runtime.session_actor import (
+    MessageStreamClosed,
     SessionActor,
     SessionCommand,
     _ActorClosed,
@@ -663,6 +664,46 @@ async def test_interrupt_reaches_client_during_unsolicited_turn():
         assert client.interrupted
     finally:
         await _disconnect(actor)
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        {"type": "system", "subtype": "session_state_changed", "state": "idle", "id": "trailing"},
+        {"type": "assistant", "parent_tool_use_id": "toolu_subagent", "id": "trailing"},
+    ],
+    ids=["trailing-system-frame", "background-subagent-message"],
+)
+async def test_non_turn_frames_while_idle_do_not_hold_the_next_query(frame):
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    try:
+        client.push_message(frame)
+        await recorder.wait_for("trailing")
+
+        q2 = SessionCommand(type="query", prompt="turn 2")
+        await actor.enqueue(q2)
+        await asyncio.wait_for(q2.sent.wait(), timeout=1.0)
+        assert client.sent_queries == ["turn 1", "turn 2"]
+    finally:
+        await _disconnect(actor)
+
+
+async def test_actor_exits_when_message_stream_closes():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+
+    client.close_stream()
+
+    task = actor.task
+    assert task is not None
+    with pytest.raises(MessageStreamClosed):
+        await asyncio.wait_for(task, timeout=1.0)
+    q = SessionCommand(type="query", prompt="after exit")
+    await actor.enqueue(q)
+    assert q.done.is_set()
+    assert q.error is not None
+    assert client.sent_queries == ["turn 1"]
 
 
 async def test_disconnect_interrupts_unsolicited_turn():

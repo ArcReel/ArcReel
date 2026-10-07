@@ -1291,23 +1291,13 @@ async def test_send_query_raises_on_cmd_error():
     from server.agent_runtime.session_actor import SessionActor
     from server.agent_runtime.session_manager import ManagedSession
 
-    class _Explode:
-        async def __aenter__(self):
-            return self
+    client = FakeSDKClient()
 
-        async def __aexit__(self, *e):
-            return False
+    async def _explode(prompt, session_id: str = "default"):
+        raise RuntimeError("boom")
 
-        async def query(self, *a, **k):
-            raise RuntimeError("boom")
-
-        async def interrupt(self):
-            pass
-
-        def receive_response(self):
-            return empty_sdk_response_stream()
-
-    actor = SessionActor(client_factory=lambda: _Explode(), on_message=lambda m: None)
+    client.query = _explode
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
     managed = ManagedSession(session_id="t", actor=actor, status="idle", project_name="p")
     await actor.start()
     with pytest.raises(RuntimeError, match="boom"):

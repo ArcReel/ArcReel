@@ -34,6 +34,7 @@ from server.agent_runtime.failure_observation import (
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
     PendingUserEcho,
+    is_main_turn_activity,
     match_user_echo,
     message_to_dict,
     utc_now_iso,
@@ -259,11 +260,22 @@ class ManagedSession:
         if was_open and not self._inbox_turn_open:
             self.unsettled_turns -= 1
 
-    def reset_turn_tracking(self) -> None:
-        """消息流或 inbox 已终止：没收尾的轮次不会再有 result。"""
+    def turn_in_flight(self) -> bool:
+        """有轮次在途：已切 running，或已在消息流上开始、inbox 尚未收尾。
+
+        此时受理新消息会与这一轮交错，断开 CLI 会中止它。
+        """
+        return self.status == "running" or self.unsettled_turns > 0
+
+    def forget_stream_state(self) -> None:
+        """CLI 已退出或 inbox 停止处理：没收尾的轮次与后台子智能体都等不到收尾帧了。
+
+        账本不清空的话，会话会一直受驱逐保护，死掉的 CLI 永久占着并发名额。
+        """
         self.unsettled_turns = 0
         self._read_turn_open = False
         self._inbox_turn_open = False
+        self.background_tasks.clear()
 
     def track_background_task(self, msg: dict[str, Any]) -> bool:
         """按任务生命周期帧维护在途账本；返回本帧是否清空了账本。
@@ -389,20 +401,11 @@ def _entry_uuid(entry: dict[str, Any] | None) -> str | None:
     return str(uuid) if uuid else None
 
 
-def _is_main_turn_activity(msg: dict[str, Any]) -> bool:
-    """主线程正在产出一轮回复，与 SDK 判定「轮次进行中」的口径一致。
-
-    子代理消息、任务进度与 result 之后的 system 帧都不算：拿它们判定会把
-    已结束的会话错切回 running，又没有 result 来收尾。
-    """
-    return msg.get("type") in ("assistant", "stream_event") and msg.get("parent_tool_use_id") is None
-
-
 def _turn_open_after(turn_open: bool, msg: dict[str, Any]) -> bool:
     """轮次边界：主线程首帧开启一轮，result 收尾。没有主线程帧就结束的轮次不计。"""
     if msg.get("type") == "result":
         return False
-    return turn_open or _is_main_turn_activity(msg)
+    return turn_open or is_main_turn_activity(msg)
 
 
 class SessionManager:
@@ -896,6 +899,7 @@ class SessionManager:
             while True:
                 msg_dict = await managed._inbox.get()
                 if isinstance(msg_dict, _ActorExitNotice):
+                    managed.forget_stream_state()
                     if msg_dict.error is not None:
                         if managed.resolved_sdk_id is not None:
                             await self._mark_session_terminal(managed, "error", "session actor failed")
@@ -927,7 +931,7 @@ class SessionManager:
                         )
                 # 在 inbox 串行序上判定：上一轮的 _finalize_turn 已跑完，
                 # 不会把刚切回的 running 覆盖成 idle。
-                if managed.status != "running" and _is_main_turn_activity(msg_dict):
+                if managed.status != "running" and is_main_turn_activity(msg_dict):
                     await self._begin_autonomous_turn(managed)
                 if managed.track_background_task(msg_dict) and managed.status != "running":
                     # 最后一个后台子智能体结束：受保护期间到点的清理计时从此刻重来
@@ -954,6 +958,8 @@ class SessionManager:
                         )
                         with contextlib.suppress(Exception):
                             await self._mark_session_terminal(managed, "error", "finalize failed")
+                        # inbox 就此停止，之后的帧不再处理：轮次与任务账本都不会再被收尾
+                        managed.forget_stream_state()
                         return None
                 managed.settle_turn_frame(msg_dict)
         except asyncio.CancelledError:
@@ -971,13 +977,12 @@ class SessionManager:
             raise
         except Exception:
             logger.exception("_process_inbox 异常 session_id=%s", managed.session_id)
+            managed.forget_stream_state()
             try:
                 await self._mark_session_terminal(managed, "error", "session error")
             except Exception:
                 logger.debug("_mark_session_terminal cleanup failed", exc_info=True)
             raise
-        finally:
-            managed.reset_turn_tracking()
 
     async def get_or_connect(
         self,
@@ -1135,9 +1140,9 @@ class SessionManager:
             managed._cleanup_task.cancel()
             managed._cleanup_task = None
 
-        # unsettled_turns：CLI 自主开启的一轮已读出、inbox 还没收尾。此时受理，这一轮的
-        # _finalize_turn 会把本条消息的回显登记当认领失败清掉（日志重复落库），并覆写它的状态。
-        if managed.status == "running" or managed.unsettled_turns:
+        # 不只看 status：CLI 自主开启的一轮读出后、inbox 收尾前受理，这一轮的 _finalize_turn
+        # 会把本条消息的回显登记当认领失败清掉（日志重复落库），并覆写它的状态。
+        if managed.turn_in_flight():
             raise SessionBusyError("会话正在处理中，请等待当前回复完成后再发送新消息")
 
         log_entry: dict[str, Any] | None = None
@@ -1441,8 +1446,8 @@ class SessionManager:
         managed = self.sessions.get(session_id)
         if managed is None:
             return
-        if managed.holds_background_work():
-            # 断开 CLI 会连带杀掉后台子智能体。账本清空时 _process_inbox 重新计时。
+        if managed.holds_background_work() or managed.turn_in_flight():
+            # 断开 CLI 会连带杀掉后台子智能体、中止在途轮次。账本清空、轮次收尾时重新计时。
             return
         if managed.status in ("idle", "interrupted", "error", "completed"):
             # Clear our own reference first so _evict_one's cleanup-task cancel doesn't self-cancel
@@ -1551,10 +1556,10 @@ class SessionManager:
         if len(active) < max_concurrent:
             return
 
-        # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted），
-        # 且没有在途后台子智能体——后者等同进行中，宁可拒绝新会话也不断开它。
+        # 可淘汰的会话：没有在途轮次（含 inbox 尚未切 running 的自主轮次），且没有在途
+        # 后台子智能体——两者都等同进行中，宁可拒绝新会话也不断开它。
         evictable = sorted(
-            [s for s in active if s.status != "running" and not s.holds_background_work()],
+            [s for s in active if not s.turn_in_flight() and not s.holds_background_work()],
             key=lambda s: s.last_activity or 0,
         )
 
@@ -1586,7 +1591,7 @@ class SessionManager:
         cleanup_delay = await self._get_cleanup_delay()
         now = time.monotonic()
         for sid, managed in list(self.sessions.items()):
-            if managed.status == "running" or sid in self._disconnecting:
+            if managed.turn_in_flight() or sid in self._disconnecting:
                 continue
             if managed.holds_background_work():
                 continue
