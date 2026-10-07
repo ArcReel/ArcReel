@@ -278,12 +278,12 @@ export function useAssistantSession(projectName: string | null) {
   }, [closeStream, connectStream, store]);
 
   // 不确定是否错过了恢复时，按服务端状态补接：running 接回 entry 流；已结束的也接一次，
-  // 流补发冷读之后的条目再以终态关闭，补上整轮都落在空窗里的自主轮次。
+  // 流补发冷读之后的条目再以终态关闭，补上整轮都落在空窗里的自主轮次。本地仍是 running
+  // 也照常核对：那可能只是上一轮的终态还没到，旧句柄随后会被它关掉。
   const resyncSession = useCallback((sessionId: string, signal: AbortSignal) => {
     API.getAssistantSession(projectName!, sessionId, { signal })
       .then((res) => {
         if (signal.aborted || store.getState().currentSessionId !== sessionId) return;
-        if (statusRef.current === "running") return;
         const raw = res as Record<string, unknown>;
         const status = ((raw.session ?? raw) as Record<string, unknown>).status as string | undefined;
         if (status === "running") {
