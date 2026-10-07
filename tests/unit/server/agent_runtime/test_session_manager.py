@@ -372,6 +372,30 @@ class TestSessionManager:
             await asyncio.wait_for(session_manager.send_message(meta.id, "too early"), timeout=1.0)
         assert managed.status == "idle"
 
+    async def test_interrupt_reaches_autonomous_turn_before_inbox_marks_running(self, session_manager, meta_store):
+        from tests.fakes import build_managed_with_actor
+
+        meta = await meta_store.create("demo", "sdk-autonomous-interrupt")
+        read = asyncio.Event()
+
+        def _on_read(managed: ManagedSession, msg: dict) -> None:
+            managed.note_turn_frame_read(msg)
+            read.set()
+
+        managed, _actor, client = await build_managed_with_actor(
+            session_id=meta.id, project_name="demo", status="idle", on_message_hook=_on_read
+        )
+        session_manager.sessions[meta.id] = managed
+        try:
+            client.push_message({"type": "assistant", "content": [], "parent_tool_use_id": None})
+            await asyncio.wait_for(read.wait(), timeout=1.0)
+
+            await session_manager.interrupt_session(meta.id)
+
+            assert client.interrupted
+        finally:
+            await session_manager.close_session(meta.id)
+
     def test_unsettled_turns_pair_reads_with_inbox_settles(self):
         """读取侧与 inbox 侧各按同一规则判定轮次边界：没有主线程帧的轮次两侧都不计。"""
         managed = ManagedSession(session_id="s1", actor=_dummy_actor(), project_name="demo")

@@ -1214,7 +1214,7 @@ class SessionManager:
                 return "interrupted"
             return meta.status
 
-        if managed.status != "running":
+        if not managed.turn_in_flight():
             return managed.status
 
         # 不清 pending_user_echoes：SDK 可能尚未回放刚受理的用户消息副本，

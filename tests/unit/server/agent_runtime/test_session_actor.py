@@ -706,6 +706,24 @@ async def test_actor_exits_when_message_stream_closes():
     assert client.sent_queries == ["turn 1"]
 
 
+async def test_disconnect_completes_even_if_interrupt_fails():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    client.push_message({"type": "assistant", "id": "follow-up"})
+    await recorder.wait_for("follow-up")
+
+    async def _broken_interrupt() -> None:
+        raise RuntimeError("transport gone")
+
+    client.interrupt = _broken_interrupt
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+
+    await asyncio.wait_for(d.done.wait(), timeout=1.0)
+    await actor.wait()
+    assert client.disconnected
+
+
 async def test_disconnect_interrupts_unsolicited_turn():
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)

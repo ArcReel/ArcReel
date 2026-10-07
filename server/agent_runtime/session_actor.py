@@ -195,14 +195,17 @@ class SessionActor:
                 cmd, cmd_task = cmd_task.result(), None
 
                 if cmd.type == "disconnect":
-                    if active_query is not None or unsolicited_open:
-                        # 先 interrupt 让在途轮次收尾；这一轮的 result 不会再被读取，
-                        # 显式 complete 以兑现 "done 必定转换" 的契约。
-                        await client.interrupt()
-                        if active_query is not None:
-                            active_query.complete()
-                            active_query = None
-                    cmd.complete()
+                    # cmd 已出队，interrupt 抛错时 finally 与队列清理都够不着它，在此兜底释放
+                    try:
+                        if active_query is not None or unsolicited_open:
+                            # 先 interrupt 让在途轮次收尾；这一轮的 result 不会再被读取，
+                            # 显式 complete 以兑现 "done 必定转换" 的契约。
+                            await client.interrupt()
+                            if active_query is not None:
+                                active_query.complete()
+                                active_query = None
+                    finally:
+                        cmd.complete()
                     return  # 触发 __aexit__，同 task disconnect
                 if cmd.type == "interrupt":
                     if active_query is None and not unsolicited_open:
