@@ -336,6 +336,10 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
                 )
                 if thumbnail is not None:
                     return thumbnail
+                # 生成期间源文件可能已被替换：回退原图时按此刻的文件计算长度与 ETag
+                stat_result = _regular_file_stat(file_path)
+                if stat_result is None:
+                    raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
 
             return file_path, stat_result
 

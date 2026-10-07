@@ -2125,6 +2125,27 @@ class TestServeProjectFileThumbnails:
         with Image.open(BytesIO(second.content)) as thumbnail:
             assert thumbnail.size == (320, 320)
 
+    def test_source_replaced_while_thumbnailing_falls_back_to_the_current_original(self, tmp_path, monkeypatch):
+        # 生成缩略图期间源图被替换，缩略图放弃发布；回退的原图按替换后的文件计算长度与 ETag
+        client, pm = _client(monkeypatch, tmp_path)
+        source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
+        os.utime(source, (1_700_000_000, 1_700_000_000))
+
+        def _replaced_during_encode(path, *_args, **_kwargs):
+            _write_png(path, (2400, 1800))
+            os.utime(path, (1_700_000_060, 1_700_000_060))
+
+        monkeypatch.setattr(files, "ensure_image_thumbnail", _replaced_during_encode)
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/a.png?w=320")
+            current = client.get("/api/v1/files/demo/storyboards/a.png")
+
+        assert resp.status_code == 200
+        assert resp.content == source.read_bytes()
+        assert resp.headers["content-length"] == str(len(resp.content))
+        assert resp.headers["etag"] == current.headers["etag"]
+
     def test_original_not_wider_than_target_is_served_as_is(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (300, 900))
