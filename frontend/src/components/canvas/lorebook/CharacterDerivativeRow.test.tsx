@@ -89,6 +89,19 @@ describe("CharacterDerivativeRow", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装"));
   });
 
+  it("shows a 640px thumbnail in the row and opens the original image in the viewer", () => {
+    useProjectsStore.setState({ assetFingerprints: { [SHEET_PATH]: 7 } });
+    const onView = vi.fn();
+    renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false }, { onView });
+
+    const thumb = screen.getByAltText(IMAGE_ALT);
+    expect(thumb).toHaveAttribute("src", `/api/v1/files/demo/${SHEET_PATH}?v=7&w=640`);
+    expect(thumb).toHaveAttribute("loading", "lazy");
+
+    fireEvent.click(screen.getByRole("button", { name: `查看大图：${IMAGE_ALT}` }));
+    expect(onView).toHaveBeenCalledWith(expect.objectContaining({ src: `/api/v1/files/demo/${SHEET_PATH}?v=7` }));
+  });
+
   it("retries the thumbnail once the sheet is replaced", async () => {
     renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false });
 

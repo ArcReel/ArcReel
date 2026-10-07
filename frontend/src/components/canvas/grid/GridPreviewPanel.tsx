@@ -13,6 +13,7 @@ import {
   User,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import { API } from "@/api";
 import { enqueueGridRegenerate } from "@/actions/generation";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,8 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
+import type { ProjectData } from "@/types/project";
+import { previewAspect } from "@/utils/preview-aspect";
 
 export interface GridPreviewPanelProps {
   projectName: string;
@@ -35,11 +38,38 @@ export interface GridPreviewPanelProps {
   canGenerate?: boolean;
   /** 重新生成提交成功后通知父级刷新宫格列表。 */
   onRegenerated?: () => void;
-  /** 宫格列表每刷新一次加一，指纹送达前作联合图与参考图的缓存破坏参数。 */
-  refreshKey?: number;
 }
 
 type GridDisplayStatus = GridGeneration["status"] | "interrupted";
+
+type GridImageAspect = "16:9" | "9:16" | "4:3" | "3:4";
+
+/**
+ * 联合图加载前的占位比例与宽度：宽度取「栏宽」与「70cqh 高度下按该比例的宽度」中较小者，
+ * 比例推算正确时与加载后按图片自身尺寸受 max-w-full、max-h-[70cqh] 约束的结果一致，加载前后不跳动。
+ * width/height 属性只提供比例。
+ */
+const GRID_IMAGE_BOX: Record<GridImageAspect, { width: number; height: number; className: string }> = {
+  "16:9": { width: 1920, height: 1080, className: "w-[min(100%,calc(70cqh*16/9))]" },
+  "9:16": { width: 1080, height: 1920, className: "w-[min(100%,calc(70cqh*9/16))]" },
+  "4:3": { width: 1920, height: 1440, className: "w-[min(100%,calc(70cqh*4/3))]" },
+  "3:4": { width: 1440, height: 1920, className: "w-[min(100%,calc(70cqh*3/4))]" },
+};
+
+/**
+ * 联合图的整图比例，与后端 grid_aspect_ratio_for 同口径：方形档取视频比例的规范朝向，
+ * 存量 3×2 / 2×3 记录取 4:3 / 3:4。记录未冻结视频比例时按项目画幅回退。
+ */
+export function gridImageAspect(
+  grid: Pick<GridGeneration, "rows" | "cols" | "video_aspect_ratio">,
+  project: Pick<ProjectData, "aspect_ratio" | "content_mode"> | null | undefined,
+): GridImageAspect {
+  const [w, h] = (grid.video_aspect_ratio ?? previewAspect(project)).split(":").map(Number);
+  const videoAspect = w > h ? "16:9" : "9:16";
+  if (grid.rows === 3 && grid.cols === 2) return "4:3";
+  if (grid.rows === 2 && grid.cols === 3) return "3:4";
+  return videoAspect;
+}
 
 const STATUS_ICON: Record<Exclude<GridDisplayStatus, "generating">, typeof Clock> = {
   pending: Clock,
@@ -80,11 +110,9 @@ const REF_ICON: Record<ReferenceImage["ref_type"], typeof User> = {
 function ReferenceImages({
   references,
   projectName,
-  refreshKey,
 }: {
   references: ReferenceImage[];
   projectName: string;
-  refreshKey: number;
 }) {
   const { t } = useTranslation("dashboard");
   const fingerprints = useProjectsStore((s) => s.assetFingerprints);
@@ -97,8 +125,10 @@ function ReferenceImages({
           return (
             <li key={ref.path} className="flex w-16 flex-col gap-1">
               <img
-                src={API.getFileUrl(projectName, ref.path, fingerprints[ref.path] ?? refreshKey)}
+                src={API.getFileUrl(projectName, ref.path, fingerprints[ref.path] ?? null, { width: 160 })}
                 alt=""
+                loading="lazy"
+                decoding="async"
                 className="aspect-square w-full rounded-md border border-border bg-muted object-cover"
               />
               <span className="flex min-w-0 items-center gap-1 text-xs text-subtle-foreground">
@@ -123,7 +153,6 @@ export function GridPreviewPanel({
   busy = false,
   canGenerate = false,
   onRegenerated,
-  refreshKey = 0,
 }: GridPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -134,15 +163,16 @@ export function GridPreviewPanel({
   const [splitting, setSplitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  // 已加载完成的联合图地址：加载前按记录推算的比例占位，加载后改回按原图尺寸排版
+  const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
+  const project = useProjectsStore((s) => s.currentProjectData);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const multipleGrids = gridIds.length > 1;
   const safeIdx = Math.min(selectedIdx, Math.max(0, gridIds.length - 1));
   const selectedGridId = gridIds[safeIdx] ?? null;
 
-  // 直接订阅全局 grid 变更信号作为唯一 refetch 触发源；
-  // parent 透传的 refreshKey 是同一事件流（gridsRevision → listGrids → setRefreshKey）
-  // 的下游产物，加入 deps 会导致每次事件多发一次冗余 GET /grids/{id}。
+  // 直接订阅全局 grid 变更信号作为唯一 refetch 触发源。
   const gridsRevision = useAppStore((s) => s.gridsRevision);
   const tasksConnected = useTasksStore((s) => s.connected);
 
@@ -172,7 +202,7 @@ export function GridPreviewPanel({
       });
 
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 仅用于切换宫格判断；refreshKey 与 gridsRevision 同源，仅保留后者避免双触发；t 稳定
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 仅用于切换宫格判断；t 稳定
   }, [selectedGridId, projectName, gridsRevision]);
 
   // 占用判定接入 live tasks store：与同页兄弟控件同源，
@@ -260,13 +290,14 @@ export function GridPreviewPanel({
       .finally(() => setRegenerating(false));
   };
 
-  // 优先使用持久化的 mtime 指纹做 cache-bust，跨页面刷新仍然有效；
-  // 回退到 refreshKey 仅用于指纹尚未送达前的当次会话。
+  // 用持久化的 mtime 指纹做 cache-bust，跨页面刷新仍然有效。带版本的地址按 immutable 长缓存，
+  // 版本只能取文件自身的指纹；指纹尚未送达时不带版本，走服务端的协商缓存。
   const gridFp = useProjectsStore((s) =>
     grid?.grid_image_path ? (s.assetFingerprints[grid.grid_image_path] ?? null) : null,
   );
+  // 面板里联合图最宽约 1280px，取 1280 宽的缩略图，不拉原图
   const imageUrl = grid?.grid_image_path
-    ? API.getFileUrl(projectName, grid.grid_image_path, gridFp ?? refreshKey)
+    ? API.getFileUrl(projectName, grid.grid_image_path, gridFp, { width: 1280 })
     : null;
 
   if (gridIds.length === 0) {
@@ -300,6 +331,8 @@ export function GridPreviewPanel({
   const refs = grid.reference_images ?? [];
   const unsplit = grid.status === "completed" && Boolean(grid.grid_image_path) && !grid.split_at;
   const generatingImage = displayStatus === "generating" || displayStatus === "pending";
+  const imageBox = GRID_IMAGE_BOX[gridImageAspect(grid, project)];
+  const imageLoaded = imageUrl !== null && loadedImageUrl === imageUrl;
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_18.75rem] gap-4 p-4 @min-[53.75rem]/grid:grid-cols-[minmax(17.5rem,22.5rem)_minmax(0,1fr)]">
@@ -408,7 +441,7 @@ export function GridPreviewPanel({
         </div>
 
         {refs.length > 0 && (
-          <ReferenceImages references={refs} projectName={projectName} refreshKey={refreshKey} />
+          <ReferenceImages references={refs} projectName={projectName} />
         )}
       </div>
 
@@ -416,7 +449,15 @@ export function GridPreviewPanel({
         <img
           src={imageUrl}
           alt={t("grid_composite_image_alt")}
-          className="block h-auto max-h-[70cqh] w-auto max-w-full justify-self-start rounded-md border border-border bg-muted"
+          width={imageBox.width}
+          height={imageBox.height}
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setLoadedImageUrl(imageUrl)}
+          className={cn(
+            "block h-auto max-h-[70cqh] max-w-full justify-self-start rounded-md border border-border bg-muted object-contain",
+            imageLoaded ? "w-auto" : imageBox.className,
+          )}
         />
       ) : (
         <div className="flex min-h-40 items-center justify-center gap-2 rounded-md border border-dashed border-border text-xs text-muted-foreground">

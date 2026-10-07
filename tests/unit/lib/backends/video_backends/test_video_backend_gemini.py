@@ -196,6 +196,22 @@ class TestGeminiVideoBackendGenerate:
             mock_op.response.generated_videos[0].video
         )
 
+    async def test_generate_hands_landed_video_to_faststart(self, gemini_backend, tmp_path, monkeypatch):
+        """Gemini 自管落盘、不经 download_video，成片改名到位后要自己补 faststart。"""
+        output = tmp_path / "out.mp4"
+        gemini_backend._client.aio.models.generate_videos = AsyncMock(return_value=_make_done_operation())
+        landed = []
+
+        async def fake_faststart(path):
+            landed.append(path)
+
+        monkeypatch.setattr("lib.backends.video_backends.gemini.faststart_video_artifact", fake_faststart)
+
+        await gemini_backend.generate(VideoGenerationRequest(prompt="a cat", output_path=output, duration_seconds=8))
+
+        assert landed == [output]
+        assert output.read_bytes() == b"aistudio-bytes"
+
     async def test_generate_image_to_video(self, gemini_backend, tmp_path):
         output = tmp_path / "out.mp4"
         frame = tmp_path / "frame.png"

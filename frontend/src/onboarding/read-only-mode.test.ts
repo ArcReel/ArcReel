@@ -137,11 +137,12 @@ describe("read-only demo mode", () => {
 describe("getFileUrl", () => {
   it("passes inline placeholder URIs through untouched", () => {
     const dataUri = "data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E";
-    expect(API.getFileUrl("onboarding_demo", dataUri)).toBe(dataUri);
+    expect(API.getFileUrl("onboarding_demo", dataUri, null)).toBe(dataUri);
+    expect(API.getFileUrl("onboarding_demo", dataUri, 3, { width: 320 })).toBe(dataUri);
   });
 
   it("still builds a project-relative URL for real asset paths", () => {
-    expect(API.getFileUrl("demo", "storyboards/E1S1.png")).toContain(
+    expect(API.getFileUrl("demo", "storyboards/E1S1.png", null)).toContain(
       "storyboards/E1S1.png",
     );
   });

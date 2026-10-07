@@ -17,6 +17,26 @@ function renderCard(props: Partial<Parameters<typeof MediaCard>[0]> = {}) {
   );
 }
 
+describe("MediaCard storyboard image", () => {
+  afterEach(() => useProjectsStore.setState({ assetFingerprints: {} }));
+
+  it("offers 640 and 1280 thumbnails to the card and keeps the original for the full-screen preview", () => {
+    useProjectsStore.setState({ assetFingerprints: { "storyboards/E1S01.png": 5 } });
+    renderCard({ assetPath: "storyboards/E1S01.png" });
+
+    const card = screen.getByRole("img", { name: /分镜图$/ });
+    expect(card).toHaveAttribute(
+      "srcset",
+      "/api/v1/files/demo/storyboards/E1S01.png?v=5&w=640 640w, /api/v1/files/demo/storyboards/E1S01.png?v=5&w=1280 1280w",
+    );
+    expect(card).toHaveAttribute("src", "/api/v1/files/demo/storyboards/E1S01.png?v=5");
+
+    fireEvent.click(screen.getByRole("button", { name: /分镜图」的大图$/ }));
+    const preview = screen.getAllByRole("img", { name: /分镜图$/ }).find((img) => !img.hasAttribute("srcset"));
+    expect(preview).toHaveAttribute("src", "/api/v1/files/demo/storyboards/E1S01.png?v=5");
+  });
+});
+
 describe("MediaCard upload", () => {
   it("invokes onUpload with the selected file", () => {
     const onUpload = vi.fn();

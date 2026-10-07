@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
+from lib.project.project_manager import ProjectManager
 from server.services.project.project_cover import resolve_project_cover
 
 
 def _mk_manager(scripts_by_file: dict[str, dict]) -> MagicMock:
-    """构造 fake ProjectManager，load_script 按文件名查表返回；缺失则抛 FileNotFoundError。"""
+    """构造 fake ProjectManager，load_script 按文件名查表返回；缺失则抛 FileNotFoundError。
+
+    get_project_path 抛 FileNotFoundError，封面 URL 不带版本键，只验证挑选顺序；
+    版本键的用例用 ``_real_manager`` 走真实的项目目录查找。
+    """
     mgr = MagicMock()
+    mgr.get_project_path.side_effect = FileNotFoundError("proj")
 
     def _load_script(_project_name: str, filename: str) -> dict:
         if filename in scripts_by_file:
@@ -265,3 +273,42 @@ def test_ignores_falsy_sheet_values(sheet_value):
     }
     url = resolve_project_cover(_mk_manager({}), "proj", project)
     assert url == "/api/v1/files/proj/characters/x.png"
+
+
+def _real_manager(tmp_path: Path, *, create: str | None = "proj") -> ProjectManager:
+    """数据根落在 tmp_path 的真实 ProjectManager；``create`` 给出要预先建好的项目名。"""
+    manager = ProjectManager(tmp_path)
+    if create is not None:
+        manager.create_project(create)
+    return manager
+
+
+def test_cover_url_carries_mtime_version_key_when_file_exists(tmp_path: Path):
+    """封面文件在场时 URL 附 ?v=<mtime_ns>，重新生成（mtime 变化）后 URL 随之变化。"""
+    project = {"scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}}}
+    manager = _real_manager(tmp_path)
+    sheet = manager.get_project_path("proj") / "scenes" / "酒馆.png"
+    sheet.parent.mkdir(exist_ok=True)
+    sheet.write_bytes(b"png")
+    os.utime(sheet, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+
+    first = resolve_project_cover(manager, "proj", project)
+    assert first == "/api/v1/files/proj/scenes/酒馆.png?v=1700000000000000000"
+
+    os.utime(sheet, ns=(1_700_000_060_000_000_000, 1_700_000_060_000_000_000))
+    assert resolve_project_cover(manager, "proj", project) != first
+
+
+def test_cover_url_has_no_version_key_when_file_missing(tmp_path: Path):
+    """登记了封面路径但文件不在场时不附版本键，URL 原样交给 files 路由处理。"""
+    project = {"scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}}}
+    url = resolve_project_cover(_real_manager(tmp_path), "proj", project)
+    assert url == "/api/v1/files/proj/scenes/酒馆.png"
+
+
+@pytest.mark.parametrize("project_name", ["ghost", "../escape"], ids=["missing-project", "traversal-name"])
+def test_cover_url_has_no_version_key_when_project_lookup_fails(tmp_path: Path, project_name: str):
+    """项目目录查不到（不存在或名称非法）时不抛异常，封面 URL 照常给出、不附版本键。"""
+    project = {"scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}}}
+    url = resolve_project_cover(_real_manager(tmp_path, create=None), project_name, project)
+    assert url == f"/api/v1/files/{project_name}/scenes/酒馆.png"

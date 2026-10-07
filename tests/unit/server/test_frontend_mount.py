@@ -142,3 +142,39 @@ async def test_spa_shell_responses_are_never_cached(
         root_res = await client.get("/", headers={"accept": "text/html"})
         assert root_res.status_code == 200
         assert root_res.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+
+
+async def test_hashed_assets_are_immutable_but_unhashed_public_files_are_not(
+    reload_app_cleanup: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """dist/assets/ 下的哈希资源永久缓存（含 304 再验证）；缺失资源与 dist 根目录的未哈希文件不设 immutable。"""
+    dist_dir = tmp_path / "frontend" / "dist"
+    (dist_dir / "assets").mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<html>shell</html>", encoding="utf-8")
+    bundle = "console.log('arcreel');\n" * 200
+    (dist_dir / "assets" / "index-abc123.js").write_text(bundle, encoding="utf-8")
+    (dist_dir / "favicon.svg").write_text("<svg/>", encoding="utf-8")
+    monkeypatch.setattr(lib, "PROJECT_ROOT", tmp_path)
+    importlib.reload(app_module)
+
+    immutable = "public, max-age=31536000, immutable"
+    transport = ASGITransport(app=app_module.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/assets/index-abc123.js", headers={"accept-encoding": "gzip"})
+        assert res.status_code == 200
+        assert res.headers["cache-control"] == immutable
+        # 文本类构建产物经响应压缩下发
+        assert res.headers["content-encoding"] == "gzip"
+        assert res.text == bundle
+
+        revalidated = await client.get("/assets/index-abc123.js", headers={"if-none-match": res.headers["etag"]})
+        assert revalidated.status_code == 304
+        assert revalidated.headers["cache-control"] == immutable
+
+        missing = await client.get("/assets/index-gone.js")
+        assert missing.status_code == 404
+        assert "immutable" not in missing.headers.get("cache-control", "")
+
+        favicon = await client.get("/favicon.svg")
+        assert favicon.status_code == 200
+        assert "immutable" not in favicon.headers.get("cache-control", "")

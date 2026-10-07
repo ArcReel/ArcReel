@@ -40,6 +40,7 @@ import {
   deriveForm,
   formEqual,
   isFormTab,
+  keepSavedStylePreview,
   pendingStyleUpload,
   styleImageUrl,
   tabDirty,
@@ -113,7 +114,7 @@ async function loadSettings(projectName: string, signal: AbortSignal): Promise<L
   };
   const project = projectRes.project as unknown as Record<string, unknown>;
   return {
-    source: deriveForm(projectRes.project, projectName, globals),
+    source: deriveForm(projectRes.project, projectName, globals, projectRes.asset_fingerprints ?? null),
     title: typeof project.title === "string" ? project.title : "",
     facts: {
       contentMode: typeof project.content_mode === "string" ? project.content_mode : "narration",
@@ -313,7 +314,7 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
       const res = await API.updateProject(projectName, buildProjectPatch(value, saved, facts, globals));
       // grid_storyboard、video_backend 落盘后 /video-capabilities 按已存值解析，查询 key 不变，需显式失效
       useCapabilitiesStore.getState().invalidate();
-      const next = deriveForm(res.project, projectName, globals);
+      const next = keepSavedStylePreview(deriveForm(res.project, projectName, globals, null), saved);
       const file = pendingStyleUpload(value, saved);
       if (!file) return next;
       let uploaded;
@@ -326,8 +327,9 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
           cause: error,
         });
       }
-      // 参考图文件名固定，地址加版本参数，避免浏览器沿用旧图的缓存
-      const preview = `${styleImageUrl(projectName, uploaded.style_image)}?v=${Date.now()}`;
+      // 参考图文件名固定，地址要换版本才不会沿用旧图的缓存。上传响应不带文件 mtime，
+      // 以上传完成的时刻作版本：只在本页这次会话里用，重新进入时换成项目详情里的资产指纹。
+      const preview = styleImageUrl(projectName, uploaded.style_image, Date.now());
       return { ...next, style: { kind: "image", preview, description: uploaded.style_description, file: null } };
     },
     [projectName, facts, globals, t],

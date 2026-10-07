@@ -703,8 +703,23 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/assistant/skills", { signal: undefined });
     });
 
+    it("appends the thumbnail width after the version, with or without a fingerprint", () => {
+      expect(API.getFileUrl("demo", "storyboards/E1S1.png", 1712345678901, { width: 320 })).toBe(
+        "/api/v1/files/demo/storyboards/E1S1.png?v=1712345678901&w=320",
+      );
+      expect(API.getFileUrl("demo", "storyboards/E1S1.png", null, { width: 160 })).toBe(
+        "/api/v1/files/demo/storyboards/E1S1.png?w=160",
+      );
+      expect(API.getFileUrl("demo", "storyboards/E1S1.png", 7, {})).toBe(
+        "/api/v1/files/demo/storyboards/E1S1.png?v=7",
+      );
+    });
+
     it("builds static file and stream urls", () => {
-      expect(API.getFileUrl("my project", "source/a.txt")).toBe(
+      expect(API.getFileUrl("my project", "source/a.txt", null)).toBe(
+        "/api/v1/files/my%20project/source/a.txt",
+      );
+      expect(API.getFileUrl("my project", "source/a.txt", "")).toBe(
         "/api/v1/files/my%20project/source/a.txt",
       );
       expect(API.getFileUrl("my project", "source/a.txt", 3)).toBe(

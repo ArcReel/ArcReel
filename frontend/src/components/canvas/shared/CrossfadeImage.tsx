@@ -10,6 +10,7 @@ export function CrossfadeImage({
   alt,
   fallback,
   className,
+  loading,
   onError,
 }: {
   src: string | null;
@@ -17,6 +18,8 @@ export function CrossfadeImage({
   fallback: ReactNode;
   /** 作用于图片元素，如 `object-contain`。 */
   className?: string;
+  /** 透传给图片元素；列表里的卡片传 `"lazy"`，滚到视口附近才加载。 */
+  loading?: "lazy" | "eager";
   onError?: () => void;
 }) {
   const [shown, setShown] = useState<{ src: string | null; loaded: boolean; failed: boolean; previous: string | null }>({
@@ -36,12 +39,20 @@ export function CrossfadeImage({
   return (
     <span className="relative block size-full">
       {shown.previous && (
-        <img src={shown.previous} alt="" aria-hidden className={cn("absolute inset-0 size-full", className)} />
+        <img
+          src={shown.previous}
+          alt=""
+          aria-hidden
+          loading={loading}
+          decoding="async"
+          className={cn("absolute inset-0 size-full", className)}
+        />
       )}
       <img
         key={src}
         src={src}
         alt={alt}
+        loading={loading}
         decoding="async"
         onLoad={() => setShown((current) => (current.src === src ? { ...current, loaded: true } : current))}
         onError={() => {

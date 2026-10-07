@@ -227,7 +227,9 @@ export function ShotList({
               const text = getSegmentText(seg, contentMode);
               const active = index === selectedIndex;
               const sbPath = seg.generated_assets?.storyboard_image;
-              const sbUrl = sbPath ? API.getFileUrl(projectName, sbPath, fingerprints[sbPath] ?? null) : null;
+              const sbUrl = sbPath
+                ? API.getFileUrl(projectName, sbPath, fingerprints[sbPath] ?? null, { width: 160 })
+                : null;
               const section = contentMode === "ad" ? (seg as AdShot).section : undefined;
               return (
                 <SortableItem
@@ -253,7 +255,7 @@ export function ShotList({
                       )}
                     >
                       {sbUrl ? (
-                        <img src={sbUrl} alt="" className="size-full object-cover" loading="lazy" />
+                        <img src={sbUrl} alt="" className="size-full object-cover" loading="lazy" decoding="async" />
                       ) : null}
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-1">

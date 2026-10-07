@@ -40,6 +40,8 @@ export default {
   'config_incomplete': 'Cấu hình chưa đầy đủ',
   'refresh': 'Làm mới',
   'write_refresh_failed': 'Đã xong nhưng không làm mới được trang. Hãy tải lại để xem trạng thái mới nhất',
+  'page_load_failed': 'Không tải được trang. Hãy kiểm tra kết nối rồi tải lại',
+  'reload_page': 'Tải lại',
   'close': 'Đóng',
   'jump_to_latest': 'Đến tin mới nhất',
   'jump_to_start': 'Về đầu',

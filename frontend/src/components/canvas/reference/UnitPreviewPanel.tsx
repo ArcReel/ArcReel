@@ -185,6 +185,7 @@ export function UnitPreviewPanel({
               projectName={projectName}
               resourceType="reference_videos"
               resourceId={unit.unit_id}
+              posterPath={unit.generated_assets?.video_thumbnail ?? null}
               {...playbackStart}
             />
             <div

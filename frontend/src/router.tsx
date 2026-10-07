@@ -3,19 +3,16 @@
 import { useEffect, useRef } from "react";
 import { Route, Switch, Redirect, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
 import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
-import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
-import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
-import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
 import { LoginPage } from "@/components/pages/LoginPage";
 import { NotFoundPage } from "@/components/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
+import { LazyBoundary } from "@/components/shared/LazyBoundary";
+import { LoadingState } from "@/components/shared/LoadingState";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useTrackReturnTo } from "@/components/shared/page-shell/return-to";
-import { OnboardingTour } from "@/onboarding/OnboardingTour";
 import {
   buildDemoProjectData,
   buildDemoScripts,
@@ -28,7 +25,9 @@ import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useOnboardingStore } from "@/stores/onboarding-store";
 import { errMsg } from "@/utils/async";
+import { lazyNamed } from "@/utils/lazy-component";
 import {
   ROUTE_APP,
   ROUTE_APP_ASSETS,
@@ -37,9 +36,32 @@ import {
   WORKSPACE_ROUTE_SETTINGS,
 } from "@/app-routes";
 
+// 首屏之外的整页按路由拆 chunk：项目大厅、项目工作区与登录页是落地页，保持随入口加载；
+// 全局设置（含用量图表 Recharts）、项目设置与资产库进入时再拉取。
+const SystemConfigPage = lazyNamed(() => import("@/components/pages/SystemConfigPage"), "SystemConfigPage");
+const ProjectSettingsPage = lazyNamed(
+  () => import("@/components/pages/ProjectSettingsPage"),
+  "ProjectSettingsPage",
+);
+const AssetLibraryPage = lazyNamed(() => import("@/components/pages/AssetLibraryPage"), "AssetLibraryPage");
+// 引导（driver.js）不参与首屏绘制，拆出后与页面并行加载；它自身不渲染 DOM，加载期间无需占位。
+const OnboardingTour = lazyNamed(() => import("@/onboarding/OnboardingTour"), "OnboardingTour");
+
 /** 记录最近停留的应用页面，全局设置与资产库的「返回」据此回到进入之前的位置。 */
 function ReturnToTracker() {
   useTrackReturnTo();
+  return null;
+}
+
+/**
+ * 引导开启后预取设置页 chunk：引导会从大厅跨到设置页高亮其中的元素，锚点等待有上限，
+ * chunk 在跨页那一刻才开始拉取会挤占这段等待。
+ */
+function OnboardingChunkPreloader() {
+  const active = useOnboardingStore((s) => s.active);
+  useEffect(() => {
+    if (active) SystemConfigPage.preload();
+  }, [active]);
   return null;
 }
 
@@ -84,19 +106,9 @@ function ConfigStatusLoader() {
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
-  const { t } = useTranslation("common");
 
   if (isLoading) {
-    return (
-      <div
-        role="status"
-        aria-live="polite"
-        className="flex h-dvh items-center justify-center gap-2 bg-background text-sm text-muted-foreground"
-      >
-        <Loader2 aria-hidden className="size-4 animate-spin" />
-        <span>{t("loading")}</span>
-      </div>
-    );
+    return <LoadingState variant="screen" />;
   }
 
   if (!isAuthenticated) {
@@ -201,68 +213,74 @@ export function AppRoutes() {
     <LeaveGuardProvider>
       <ConfigStatusLoader />
       <ReturnToTracker />
-      <OnboardingTour />
-      <Switch>
-        {/* Login page */}
-        <Route path="/login" component={LoginPage} />
+      <OnboardingChunkPreloader />
+      <LazyBoundary variant="none">
+        <OnboardingTour />
+      </LazyBoundary>
+      {/* 懒加载页面的 chunk 未到达时显示整页加载占位、最终失败时显示整页失败提示；工作区画布另有局部边界，不会退到这里 */}
+      <LazyBoundary variant="screen">
+        <Switch>
+          {/* Login page */}
+          <Route path="/login" component={LoginPage} />
 
-        {/* Root redirects to projects list */}
-        <Route path="/">
-          <Redirect to="/app/projects" />
-        </Route>
+          {/* Root redirects to projects list */}
+          <Route path="/">
+            <Redirect to="/app/projects" />
+          </Route>
 
-        {/* /app and /app/ also redirect to projects list */}
-        <Route path={ROUTE_APP}>
-          <Redirect to={ROUTE_APP_PROJECTS} />
-        </Route>
+          {/* /app and /app/ also redirect to projects list */}
+          <Route path={ROUTE_APP}>
+            <Redirect to={ROUTE_APP_PROJECTS} />
+          </Route>
 
-        {/* Projects list */}
-        <Route path={ROUTE_APP_PROJECTS}>
-          <AuthGuard>
-            <ProjectsPage />
-          </AuthGuard>
-        </Route>
+          {/* Projects list */}
+          <Route path={ROUTE_APP_PROJECTS}>
+            <AuthGuard>
+              <ProjectsPage />
+            </AuthGuard>
+          </Route>
 
-        {/* System settings */}
-        <Route path={ROUTE_APP_SETTINGS}>
-          <AuthGuard>
-            <SystemConfigPage />
-          </AuthGuard>
-        </Route>
+          {/* System settings */}
+          <Route path={ROUTE_APP_SETTINGS}>
+            <AuthGuard>
+              <SystemConfigPage />
+            </AuthGuard>
+          </Route>
 
-        {/* Asset library */}
-        <Route path={ROUTE_APP_ASSETS}>
-          <AuthGuard>
-            <AssetLibraryPage />
-          </AuthGuard>
-        </Route>
+          {/* Asset library */}
+          <Route path={ROUTE_APP_ASSETS}>
+            <AuthGuard>
+              <AssetLibraryPage />
+            </AuthGuard>
+          </Route>
 
-        {/* 演示项目没有可用的项目级设置（后端不存在该项目）——地址栏直达、书签或外部链接
-            都可能绕开 GlobalHeader 里已做的重定向，这里在路由层再挡一次，指向全局设置。
-            必须排在下面通用的项目设置路由之前，wouter 按声明顺序匹配。 */}
-        <Route path={`${ROUTE_APP_PROJECTS}/${DEMO_PROJECT_NAME}/${WORKSPACE_ROUTE_SETTINGS}`}>
-          <Redirect to={ROUTE_APP_SETTINGS} />
-        </Route>
+          {/* 演示项目没有可用的项目级设置（后端不存在该项目）——地址栏直达、书签或外部链接
+              都可能绕开 GlobalHeader 里已做的重定向，这里在路由层再挡一次，指向全局设置。
+              必须排在下面通用的项目设置路由之前，wouter 按声明顺序匹配。 */}
+          <Route path={`${ROUTE_APP_PROJECTS}/${DEMO_PROJECT_NAME}/${WORKSPACE_ROUTE_SETTINGS}`}>
+            <Redirect to={ROUTE_APP_SETTINGS} />
+          </Route>
 
-        {/* Project settings — full-screen, must be before the nested workspace route */}
-        <Route path={`${ROUTE_APP_PROJECTS}/:projectName/${WORKSPACE_ROUTE_SETTINGS}`}>
-          <AuthGuard>
-            <ProjectSettingsPage />
-          </AuthGuard>
-        </Route>
+          {/* Project settings — full-screen, must be before the nested workspace route */}
+          <Route path={`${ROUTE_APP_PROJECTS}/:projectName/${WORKSPACE_ROUTE_SETTINGS}`}>
+            <AuthGuard>
+              <ProjectSettingsPage />
+            </AuthGuard>
+          </Route>
 
-        {/* Studio workspace (three-column layout)；未注册的子路径由画布内层 Switch 的兜底路由显示空状态 */}
-        <Route path={`${ROUTE_APP_PROJECTS}/:projectName`} nest>
-          <AuthGuard>
-            <StudioWorkspace />
-          </AuthGuard>
-        </Route>
+          {/* Studio workspace (three-column layout)；未注册的子路径由画布内层 Switch 的兜底路由显示空状态 */}
+          <Route path={`${ROUTE_APP_PROJECTS}/:projectName`} nest>
+            <AuthGuard>
+              <StudioWorkspace />
+            </AuthGuard>
+          </Route>
 
-        {/* 404 */}
-        <Route>
-          <NotFoundPage />
-        </Route>
-      </Switch>
+          {/* 404 */}
+          <Route>
+            <NotFoundPage />
+          </Route>
+        </Switch>
+      </LazyBoundary>
       <ToastOverlay />
     </LeaveGuardProvider>
   );

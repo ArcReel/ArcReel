@@ -115,7 +115,9 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
 
   const sheetFp = useProjectsStore((s) => (asset.sheetPath ? s.getAssetFingerprint(asset.sheetPath) : null));
   const sheetUrl =
-    asset.sheetPath && sheetStatus?.status !== "missing" ? API.getFileUrl(projectName, asset.sheetPath, sheetFp) : null;
+    asset.sheetPath && sheetStatus?.status !== "missing"
+      ? API.getFileUrl(projectName, asset.sheetPath, sheetFp, { width: 640 })
+      : null;
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
 
   // 资产图被生成、局部修改、上传或版本恢复占用，或资产正在删除时，兄弟操作一起禁用。
@@ -176,6 +178,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
           src={imageUrl}
           alt=""
           className="object-contain"
+          loading="lazy"
           onError={() => setFailedUrl(sheetUrl)}
           fallback={<Icon aria-hidden className="size-8" />}
         />

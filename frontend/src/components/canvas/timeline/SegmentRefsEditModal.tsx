@@ -432,8 +432,10 @@ function Row({ row, selected, onToggle, projectName }: RowProps) {
     >
       {showImage ? (
         <img
-          src={API.getFileUrl(projectName, row.thumbPath!, sheetFp)}
+          src={API.getFileUrl(projectName, row.thumbPath!, sheetFp, { width: 160 })}
           alt=""
+          loading="lazy"
+          decoding="async"
           className={cn("size-8 shrink-0 object-cover", thumbShape)}
         />
       ) : (

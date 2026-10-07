@@ -22,7 +22,9 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Request, Response
+from fastapi.datastructures import Headers
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from starlette.datastructures import MutableHeaders
 from starlette.types import Message, Receive, Scope, Send
@@ -804,15 +806,24 @@ async def serve_agent_installation_guide(request: Request) -> Response:
     return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
 
 
-class SPAShellNoCacheMiddleware:
-    """SPA 入口 HTML 外壳禁止浏览器缓存。
+#: 前端构建产物里带内容哈希的资源目录（Vite 默认 assetsDir）。文件名随内容变化，可永久缓存；
+#: dist 根目录下来自 public/ 的文件（favicon、style-thumbnails 等）不带哈希，不在此列。
+_HASHED_FRONTEND_ASSETS_PREFIX = "/assets/"
+_SPA_SHELL_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
+_HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
-    覆盖 spa_deep_link 与 app.frontend 原生 fallback 两条路径共用的响应特征
-    （text/html），否则重新部署后浏览器可能沿用旧壳加载已被删除的旧哈希资源，
-    导致白屏——按 content-type 而非按路由判定，才能同时管住 "/"、"/login" 等
-    落在原生 fallback 上的入口。纯 ASGI 实现而非 BaseHTTPMiddleware：这是个作用于
-    全部请求的全局中间件，BaseHTTPMiddleware 的 anyio TaskGroup + contextvars
-    复制机制会给每个请求引入额外开销。
+
+class FrontendCacheHeadersMiddleware:
+    """前端构建产物的缓存头。
+
+    - SPA 入口 HTML 外壳禁止浏览器缓存：覆盖 spa_deep_link 与 app.frontend 原生 fallback
+      两条路径共用的响应特征（text/html），否则重新部署后浏览器可能沿用旧壳加载已被删除的
+      旧哈希资源，导致白屏——按 content-type 而非按路由判定，才能同时管住 "/"、"/login" 等
+      落在原生 fallback 上的入口。
+    - ``/assets/`` 下的哈希资源（含 304 再验证响应）设 immutable；404 等失败响应不缓存。
+
+    纯 ASGI 实现而非 BaseHTTPMiddleware：这是个作用于全部请求的全局中间件，
+    BaseHTTPMiddleware 的 anyio TaskGroup + contextvars 复制机制会给每个请求引入额外开销。
     """
 
     def __init__(self, app):
@@ -823,17 +834,46 @@ class SPAShellNoCacheMiddleware:
             await self.app(scope, receive, send)
             return
 
+        is_hashed_asset = scope["path"].startswith(_HASHED_FRONTEND_ASSETS_PREFIX)
+
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 if headers.get("content-type", "").lower().startswith("text/html"):
-                    headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+                    headers["Cache-Control"] = _SPA_SHELL_CACHE_CONTROL
+                elif is_hashed_asset and message["status"] in (200, 206, 304):
+                    headers["Cache-Control"] = _HASHED_ASSET_CACHE_CONTROL
             await send(message)
 
         await self.app(scope, receive, send_wrapper)
 
 
-app.add_middleware(SPAShellNoCacheMiddleware)
+app.add_middleware(FrontendCacheHeadersMiddleware)
+
+
+class ResponseCompressionMiddleware:
+    """JSON / JS / CSS / HTML 等文本响应的 gzip 压缩，SSE 请求整体绕过。
+
+    GZipMiddleware 的默认排除清单已含 text/event-stream 与 image/audio/video 等已压缩的
+    媒体类型，206 分段响应也原样透传；流式响应按块 Z_SYNC_FLUSH，不攒批。但即便内容类型被
+    排除，它也要等到第一个 body 块才放行响应头——事件流在首个事件前会一直收不到响应头。
+    因此按请求的 ``Accept: text/event-stream``（前端流式客户端与 EventSource 都会带）直接绕开。
+    compresslevel 取 zlib 默认档 6：JSON/JS 的体积收益与 9 相差无几，CPU 开销低得多。
+    """
+
+    def __init__(self, app):
+        self.app = app
+        self.gzip = GZipMiddleware(app, compresslevel=6)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and "text/event-stream" in Headers(scope=scope).get("accept", ""):
+            await self.app(scope, receive, send)
+            return
+        await self.gzip(scope, receive, send)
+
+
+# 最外层：前端缓存头中间件改写的是响应头，压缩不改变 content-type，两者顺序互不影响
+app.add_middleware(ResponseCompressionMiddleware)
 
 
 # 前端构建产物：SPA 静态文件服务。fallback 仅对 GET/HEAD 生效，写请求误入页面路径不再返回页面。

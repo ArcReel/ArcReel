@@ -17,6 +17,7 @@ from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.mp4_faststart import ensure_faststart
 from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, get_project_manager
@@ -100,11 +101,13 @@ async def save_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: 
 
     先写同目录 dot-tmp 再 ``Path.replace``：跨卷 rename 在 Windows 会失败，
     且避免半截文件被 canonical 路径的读取方看到。超限抛 UploadTooLargeError。
+    改名前尽力做 faststart（moov 挪到 mdat 之前），失败时保留上传的原样字节。
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = _upload_tmp_path(target)
     try:
         await asyncio.to_thread(_copy_limited, src, tmp_path, max_bytes)
+        await ensure_faststart(tmp_path)
         await asyncio.to_thread(tmp_path.replace, target)
     except BaseException:
         await asyncio.to_thread(tmp_path.unlink, missing_ok=True)

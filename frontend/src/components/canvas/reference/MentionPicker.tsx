@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { assetColor } from "./asset-colors";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { API } from "@/api";
+import { useProjectsStore } from "@/stores/projects-store";
 import { formatReferenceName, normalizeAssetName, splitDerivativeReference } from "@/utils/reference-mentions";
 import type { AssetKind } from "@/types/reference-video";
 
@@ -65,6 +66,8 @@ export function MentionPicker({
   anchorElement,
 }: MentionPickerProps) {
   const { t } = useTranslation("dashboard");
+  // 缩略图地址带资产指纹：重新生成后换地址，未变化时命中浏览器的长缓存
+  const fingerprints = useProjectsStore((s) => s.assetFingerprints);
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   // Reset highlight to the first option whenever the filter query or tab
@@ -262,7 +265,9 @@ export function MentionPicker({
                     // 转为可 fetch 的 URL；无 projectName 时回退圆点（测试环境常见）。
                     const thumbUrl =
                       item.imagePath && projectName
-                        ? API.getFileUrl(projectName, item.imagePath)
+                        ? API.getFileUrl(projectName, item.imagePath, fingerprints[item.imagePath] ?? null, {
+                            width: 160,
+                          })
                         : null;
                     return (
                       <button
@@ -294,6 +299,7 @@ export function MentionPicker({
                             alt=""
                             aria-hidden="true"
                             loading="lazy"
+                            decoding="async"
                             className={`size-7 shrink-0 rounded-sm border object-cover ${palette.borderClass}`}
                           />
                         ) : (

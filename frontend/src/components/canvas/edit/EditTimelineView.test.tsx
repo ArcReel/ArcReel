@@ -13,6 +13,7 @@ import type {
   EditTimelineReadout,
   EditTimelineSummary,
 } from "@/types/edit-timeline";
+import { stubMediaElementPlayback } from "@/test/media-element";
 
 import { EditTimelineView } from "./EditTimelineView";
 
@@ -106,8 +107,7 @@ function renderView(ttsNarration = true) {
 describe("EditTimelineView", () => {
   beforeEach(() => {
     useProjectsStore.setState({ projectSnapshotRevisions: {} });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
-    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    stubMediaElementPlayback();
     vi.spyOn(API, "getEditTimelinePreviewMedia").mockResolvedValue({
       timeline_id: "tl-00000002",
       revision: 3,
@@ -128,7 +128,7 @@ describe("EditTimelineView", () => {
     expect(await screen.findByText("ArcReel Agent 刚刚修改")).toBeInTheDocument();
   });
 
-  it("opens the most recently edited timeline and loads the first clip with the next one preloaded", async () => {
+  it("opens the most recently edited timeline and loads only the first clip's metadata until playback starts", async () => {
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({
       timelines: [
         summary("tl-00000001", "按脚本顺序", "2026-09-30T09:00:00Z"),
@@ -143,15 +143,37 @@ describe("EditTimelineView", () => {
     expect(screen.getByText(/ArcReel Agent 修改于/)).toBeInTheDocument();
     await screen.findByTestId("edit-clip-c1");
     expect(read).toHaveBeenCalledWith("demo", "tl-00000002", expect.anything());
-    expect(screen.getByTestId("edit-player-video-0")).toHaveAttribute(
-      "src",
-      "/api/v1/files/demo/reference_videos/E1U1.mp4?v=1",
-    );
-    // 已删除单元的片段被跳过，空闲的元素预载下一个可播放片段
-    expect(screen.getByTestId("edit-player-video-1")).toHaveAttribute(
-      "src",
-      "/api/v1/files/demo/reference_videos/E1U3.mp4?v=2",
-    );
+    const [current, idle] = [screen.getByTestId("edit-player-video-0"), screen.getByTestId("edit-player-video-1")];
+    expect(current).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U1.mp4?v=1");
+    expect(current).toHaveAttribute("preload", "metadata");
+    // 播放之前不预载下一段
+    expect(idle).not.toHaveAttribute("src");
+
+    fireEvent.click(screen.getByRole("button", { name: "播放" }));
+
+    // 已删除单元的片段被跳过，空闲的元素预载下一个可播放片段，并在这次点击里一并解锁
+    expect(idle).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U3.mp4?v=2");
+    expect(vi.mocked(HTMLMediaElement.prototype.play).mock.contexts).toContain(idle);
+    expect(current).toHaveAttribute("preload", "auto");
+    expect(idle).toHaveAttribute("preload", "auto");
+  });
+
+  it("releases the buffered video and audio when the player unmounts", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+
+    const view = renderView();
+    await screen.findByTestId("edit-clip-c1");
+    fireEvent.click(screen.getByRole("button", { name: "播放" }));
+    const videos = [screen.getByTestId("edit-player-video-0"), screen.getByTestId("edit-player-video-1")];
+    expect(videos.every((video) => video.hasAttribute("src"))).toBe(true);
+
+    view.unmount();
+
+    for (const video of videos) expect(video).not.toHaveAttribute("src");
+    expect(vi.mocked(HTMLMediaElement.prototype.load).mock.contexts).toEqual(expect.arrayContaining(videos));
   });
 
   it("plays the source at the clip volume times the provider audio switch of its unit", async () => {
@@ -187,6 +209,8 @@ describe("EditTimelineView", () => {
     await waitFor(() => {
       expect((screen.getByTestId("edit-player-video-0") as HTMLVideoElement).volume).toBe(0);
     });
+    // 下一段在开始播放后才装进空闲元素
+    fireEvent.click(screen.getByRole("button", { name: "播放" }));
     expect((screen.getByTestId("edit-player-video-1") as HTMLVideoElement).volume).toBe(0.5);
   });
 
@@ -214,6 +238,44 @@ describe("EditTimelineView", () => {
     expect(inspector).toHaveTextContent("（素材共 5s）");
     expect(inspector).toHaveTextContent("素材已更新，暂用完整视频");
     expect(inspector).toHaveTextContent("保留推门动作");
+  });
+
+  it("versions clip and unused-unit thumbnails with the asset fingerprints at their display width", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+    useProjectsStore.setState({
+      assetFingerprints: { "thumbnails/E1U3.jpg": 31, "thumbnails/E1U4.jpg": 41 },
+    });
+    const script = {
+      episode: 1,
+      video_units: [
+        { unit_id: "E1U1" },
+        { unit_id: "E1U3", generated_assets: { video_thumbnail: "thumbnails/E1U3.jpg" } },
+        { unit_id: "E1U4", generated_assets: { video_thumbnail: "thumbnails/E1U4.jpg" } },
+      ],
+    };
+
+    render(
+      <EditTimelineView
+        projectName="demo"
+        episode={1}
+        script={script}
+        aspect="16:9"
+        ttsNarration
+        renderEmptyState={NO_TIMELINE}
+      />,
+    );
+
+    const unused = (await screen.findByText("未使用")).parentElement as HTMLElement;
+    expect(unused.querySelector("img")).toHaveAttribute("src", "/api/v1/files/demo/thumbnails/E1U4.jpg?v=41&w=160");
+    fireEvent.click(await screen.findByTestId("edit-clip-c3"));
+    expect(within(screen.getByTestId("edit-clip-inspector")).getByRole("presentation")).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/thumbnails/E1U3.jpg?v=31&w=320",
+    );
+    useProjectsStore.setState({ assetFingerprints: {} });
   });
 
   it("words each narration issue by its cause", async () => {

@@ -5,7 +5,6 @@ import { useSearchParams } from "wouter";
 import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
 import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { EPISODE_VIEW_PARAM } from "@/app-routes";
-import { EditTimelineView } from "@/components/canvas/edit/EditTimelineView";
 import { EditTimelineEmptyState } from "@/components/canvas/edit-render/EditTimelineEmptyState";
 import { RenderButton } from "@/components/canvas/edit-render/RenderButton";
 import { EpisodeSourceReview } from "@/components/canvas/EpisodeSourceReview";
@@ -13,6 +12,7 @@ import { AdScriptHost } from "@/components/canvas/shared/AdScriptDialog";
 import { PromptAuthoringHost } from "@/components/canvas/shared/PromptAuthoringDialog";
 import { ScriptPlanHost } from "@/components/canvas/shared/ScriptPlanDialog";
 import { TextTaskFailureNote } from "@/components/canvas/shared/TextTaskFailureNote";
+import { LazyBoundary } from "@/components/shared/LazyBoundary";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
 import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
 import { useCostStore } from "@/stores/cost-store";
@@ -21,6 +21,7 @@ import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import type { EpisodeMeta, ProjectData } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
+import { lazyNamed } from "@/utils/lazy-component";
 import { previewAspect } from "@/utils/preview-aspect";
 
 import {
@@ -36,6 +37,9 @@ import { EpisodeHeaderActions, EpisodeHeaderSlotProvider } from "./EpisodeHeader
 import { EpisodePageHeader, episodeViewTabId } from "./EpisodePageHeader";
 import { EpisodeViewFactsProvider } from "./EpisodeViewScope";
 import { StorySettingView } from "./StorySettingView";
+
+// 剪辑视图（时间线播放器与轨道）只在切到「剪辑」时用到，按需拉取
+const EditTimelineView = lazyNamed(() => import("@/components/canvas/edit/EditTimelineView"), "EditTimelineView");
 
 export interface EpisodeViewChangeOptions {
   /** 替换当前历史记录而不是新增一条：程序触发的切换（如跳到某个单元）用它，后退不必多退一步。 */
@@ -161,32 +165,34 @@ function EpisodePageContent({
   let body: ReactNode;
   if (view === "edit") {
     body = (
-      <EditTimelineView
-        key={`${projectName}::${episode}`}
-        projectName={projectName}
-        episode={episode}
-        script={script}
-        aspect={previewAspect(projectData)}
-        ttsNarration={ttsNarration}
-        renderActions={({ timelineId, timelineName, issues, showIssues }) =>
-          // 读取完成前不知道有没有阻断级 issue，先不给出片入口。
-          issues === null ? null : (
-            <EpisodeHeaderActions>
-              <RenderButton
-                projectName={projectName}
-                timelineId={timelineId}
-                timelineName={timelineName}
-                issues={issues}
-                narrationAvailable={ttsNarration}
-                onShowIssues={showIssues}
-              />
-            </EpisodeHeaderActions>
-          )
-        }
-        renderEmptyState={({ reload }) => (
-          <EditTimelineEmptyState projectName={projectName} episode={episode} onCreated={reload} />
-        )}
-      />
+      <LazyBoundary variant="pane">
+        <EditTimelineView
+          key={`${projectName}::${episode}`}
+          projectName={projectName}
+          episode={episode}
+          script={script}
+          aspect={previewAspect(projectData)}
+          ttsNarration={ttsNarration}
+          renderActions={({ timelineId, timelineName, issues, showIssues }) =>
+            // 读取完成前不知道有没有阻断级 issue，先不给出片入口。
+            issues === null ? null : (
+              <EpisodeHeaderActions>
+                <RenderButton
+                  projectName={projectName}
+                  timelineId={timelineId}
+                  timelineName={timelineName}
+                  issues={issues}
+                  narrationAvailable={ttsNarration}
+                  onShowIssues={showIssues}
+                />
+              </EpisodeHeaderActions>
+            )
+          }
+          renderEmptyState={({ reload }) => (
+            <EditTimelineEmptyState projectName={projectName} episode={episode} onCreated={reload} />
+          )}
+        />
+      </LazyBoundary>
     );
   } else if (view === "setting") {
     body = (

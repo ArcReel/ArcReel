@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import type { EditClip, EditTimelineReadout } from "@/types/edit-timeline";
 
@@ -141,9 +142,7 @@ export function EditTimelineTracks({
                 key={unitId}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-dashed border-border px-1.5 py-0.5"
               >
-                {thumbnail && (
-                  <img src={API.getFileUrl(projectName, thumbnail)} alt="" className="h-4 w-7 rounded-xs object-cover" />
-                )}
+                {thumbnail && <UnusedUnitThumbnail projectName={projectName} path={thumbnail} />}
                 {itemIdWithinEpisode(unitId)}
               </span>
             );
@@ -151,6 +150,20 @@ export function EditTimelineTracks({
         </div>
       )}
     </div>
+  );
+}
+
+/** 未使用单元的小缩略图；单独订阅这张图的指纹，指纹变化只重渲这一张。 */
+function UnusedUnitThumbnail({ projectName, path }: { projectName: string; path: string }) {
+  const fingerprint = useProjectsStore((s) => s.getAssetFingerprint(path));
+  return (
+    <img
+      src={API.getFileUrl(projectName, path, fingerprint, { width: 160 })}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className="h-4 w-7 rounded-xs object-cover"
+    />
   );
 }
 

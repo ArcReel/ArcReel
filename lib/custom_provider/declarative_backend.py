@@ -46,6 +46,7 @@ from arcreel_market_core.video_backend_contract import (
 from lib.backends.artifact_download_guard import VIDEO_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
+    faststart_video_artifact,
     notify_provider_response_to,
     poll_with_retry,
     request_with_scoped_credentials,
@@ -712,6 +713,8 @@ class DeclarativeJobEngine[StateT: JobState]:
             raise
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
+        # 重封装在下载预算之外进行，不让它的耗时把已下载成功的产物拖成下载超时
+        await faststart_video_artifact(output_path)
 
 
 async def _notify(call: JobCall, stage: ProviderResponseStage, body: object) -> None:

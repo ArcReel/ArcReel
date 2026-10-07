@@ -24,9 +24,9 @@ import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ProductsPage } from "./lorebook/ProductsPage";
-import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
-import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodePage } from "./episode-page/EpisodePage";
+import { LazyBoundary } from "@/components/shared/LazyBoundary";
+import { lazyNamed } from "@/utils/lazy-component";
 import { API } from "@/api";
 import {
   enqueueCharacter,
@@ -45,6 +45,11 @@ import {
 } from "@/hooks/useModelCapabilities";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
 import type { EpisodeScript } from "@/types/script";
+
+// 参考生视频与多宫格画布只服务对应生成模式的项目，按需拉取；最常见的逐镜分镜画布
+// （TimelineCanvas）与资产、分集页面保持随工作区加载。
+const ReferenceVideoCanvas = lazyNamed(() => import("./reference/ReferenceVideoCanvas"), "ReferenceVideoCanvas");
+const GridImageToVideoCanvas = lazyNamed(() => import("./grid/GridImageToVideoCanvas"), "GridImageToVideoCanvas");
 
 /** 集级路由 path，与渲染该集的 `<Route>` 共用一份。 */
 const EPISODE_ROUTE_PATH = `/${WORKSPACE_ROUTE_EPISODES}/:episodeId`;
@@ -529,88 +534,91 @@ export function StudioCanvasRouter() {
                   ? undefined
                   : (stepId, unitIds) => void handleWorkflowRegenerate(stepId, unitIds, scriptFile)
               }
-              renderCanvas={({ view, onViewChange }) =>
-                route === "reference_video" ? (
-                  <ReferenceVideoCanvas
-                    // 同一 epNum 跨项目不 remount 会让 optimisticUnitIds / prevTaskStatusRef
-                    // 残留上个项目的状态（例如 "E1U1" 长驻 set 里），切到同名 unit 的新项目
-                    // 时 "optimistic && !hasQueueRow" 会误判 busy。改 key 到 project::episode
-                    // 让实例天然按项目隔离，避免显式 pruning 逻辑。
-                    key={`${currentProjectName}::${epNum}`}
-                    projectName={currentProjectName}
-                    episode={epNum}
-                    view={view}
-                    onViewChange={onViewChange}
-                    hasScript={Boolean(script)}
-                    showPreprocess={!isAd}
-                    freeDuration={isAd}
-                    videoModelUnresolved={capabilities.videoModelUnresolved}
-                    planDurationOptions={planDurationOptions}
-                  />
-                ) : gridStoryboardEnabled(currentProjectData) ? (
-                  <GridImageToVideoCanvas
-                    key={`${currentProjectName}::${epNum}`}
-                    projectName={currentProjectName}
-                    episode={epNum}
-                    view={view}
-                    onViewChange={onViewChange}
-                    hasDraft={hasDraft}
-                    episodeScript={script}
-                    scriptFile={scriptFile ?? undefined}
-                    projectData={currentProjectData}
-                    durationOptions={durationOptions}
-                    planDurationOptions={planDurationOptions}
-                    durationWarningReason={durationWarningReason}
-                    durationEndpointFixed={durationEndpointFixed}
-                    videoModelUnresolved={capabilities.videoModelUnresolved}
-                    lastFrame={capabilities.lastFrame}
-                    capabilitiesLoading={capabilities.loading}
-                    onUpdatePrompt={handleUpdatePrompt}
-                    onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={handleGenerateVideo}
-                    onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
-                    onGenerateEpisodeNarration={narrationGenerationEnabled ? voidPromise(handleGenerateEpisodeNarration) : undefined}
-                    onGenerateGrid={handleGenerateGrid}
-                    onRestoreStoryboard={handleRestoreAsset}
-                    onRestoreVideo={handleRestoreAsset}
-                    onMoveShot={handleMoveShot}
-                    onInsertShot={handleInsertShot}
-                    onRemoveShot={handleRemoveShot}
-                  />
-                ) : (
-                  <TimelineCanvas
-                    // 和 ReferenceVideoCanvas (上方) 同理：同 epNum 跨项目不 remount
-                    // 会让 TimelineCanvas 内部的 useState / useRef（选中 scene、草稿缓冲、
-                    // 滚动位置等）残留上一个项目的值。key 带上 projectName 天然按项目隔离。
-                    key={`${currentProjectName}::${epNum}`}
-                    projectName={currentProjectName}
-                    episode={epNum}
-                    view={view}
-                    onViewChange={onViewChange}
-                    hasDraft={hasDraft}
-                    episodeScript={script}
-                    scriptFile={scriptFile ?? undefined}
-                    projectData={currentProjectData}
-                    durationOptions={durationOptions}
-                    planDurationOptions={planDurationOptions}
-                    durationWarningReason={durationWarningReason}
-                    durationEndpointFixed={durationEndpointFixed}
-                    videoModelUnresolved={capabilities.videoModelUnresolved}
-                    lastFrame={capabilities.lastFrame}
-                    capabilitiesLoading={capabilities.loading}
-                    onUpdatePrompt={handleUpdatePrompt}
-                    onMoveShot={handleMoveShot}
-                    onInsertShot={handleInsertShot}
-                    onRemoveShot={handleRemoveShot}
-                    onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={handleGenerateVideo}
-                    onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
-                    onGenerateEpisodeNarration={narrationGenerationEnabled ? voidPromise(handleGenerateEpisodeNarration) : undefined}
-                    onRestoreStoryboard={handleRestoreAsset}
-                    onRestoreVideo={handleRestoreAsset}
-                  />
-                )
-              }
+              renderCanvas={({ view, onViewChange }) => (
+                // 懒加载画布的 chunk 未到达或加载失败时只在画布区域显示占位，页头与视图切换保持可见
+                <LazyBoundary variant="pane">
+                  {route === "reference_video" ? (
+                    <ReferenceVideoCanvas
+                      // 同一 epNum 跨项目不 remount 会让 optimisticUnitIds / prevTaskStatusRef
+                      // 残留上个项目的状态（例如 "E1U1" 长驻 set 里），切到同名 unit 的新项目
+                      // 时 "optimistic && !hasQueueRow" 会误判 busy。改 key 到 project::episode
+                      // 让实例天然按项目隔离，避免显式 pruning 逻辑。
+                      key={`${currentProjectName}::${epNum}`}
+                      projectName={currentProjectName}
+                      episode={epNum}
+                      view={view}
+                      onViewChange={onViewChange}
+                      hasScript={Boolean(script)}
+                      showPreprocess={!isAd}
+                      freeDuration={isAd}
+                      videoModelUnresolved={capabilities.videoModelUnresolved}
+                      planDurationOptions={planDurationOptions}
+                    />
+                  ) : gridStoryboardEnabled(currentProjectData) ? (
+                    <GridImageToVideoCanvas
+                      key={`${currentProjectName}::${epNum}`}
+                      projectName={currentProjectName}
+                      episode={epNum}
+                      view={view}
+                      onViewChange={onViewChange}
+                      hasDraft={hasDraft}
+                      episodeScript={script}
+                      scriptFile={scriptFile ?? undefined}
+                      projectData={currentProjectData}
+                      durationOptions={durationOptions}
+                      planDurationOptions={planDurationOptions}
+                      durationWarningReason={durationWarningReason}
+                      durationEndpointFixed={durationEndpointFixed}
+                      videoModelUnresolved={capabilities.videoModelUnresolved}
+                      lastFrame={capabilities.lastFrame}
+                      capabilitiesLoading={capabilities.loading}
+                      onUpdatePrompt={handleUpdatePrompt}
+                      onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
+                      onGenerateVideo={handleGenerateVideo}
+                      onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
+                      onGenerateEpisodeNarration={narrationGenerationEnabled ? voidPromise(handleGenerateEpisodeNarration) : undefined}
+                      onGenerateGrid={handleGenerateGrid}
+                      onRestoreStoryboard={handleRestoreAsset}
+                      onRestoreVideo={handleRestoreAsset}
+                      onMoveShot={handleMoveShot}
+                      onInsertShot={handleInsertShot}
+                      onRemoveShot={handleRemoveShot}
+                    />
+                  ) : (
+                    <TimelineCanvas
+                      // 和 ReferenceVideoCanvas (上方) 同理：同 epNum 跨项目不 remount
+                      // 会让 TimelineCanvas 内部的 useState / useRef（选中 scene、草稿缓冲、
+                      // 滚动位置等）残留上一个项目的值。key 带上 projectName 天然按项目隔离。
+                      key={`${currentProjectName}::${epNum}`}
+                      projectName={currentProjectName}
+                      episode={epNum}
+                      view={view}
+                      onViewChange={onViewChange}
+                      hasDraft={hasDraft}
+                      episodeScript={script}
+                      scriptFile={scriptFile ?? undefined}
+                      projectData={currentProjectData}
+                      durationOptions={durationOptions}
+                      planDurationOptions={planDurationOptions}
+                      durationWarningReason={durationWarningReason}
+                      durationEndpointFixed={durationEndpointFixed}
+                      videoModelUnresolved={capabilities.videoModelUnresolved}
+                      lastFrame={capabilities.lastFrame}
+                      capabilitiesLoading={capabilities.loading}
+                      onUpdatePrompt={handleUpdatePrompt}
+                      onMoveShot={handleMoveShot}
+                      onInsertShot={handleInsertShot}
+                      onRemoveShot={handleRemoveShot}
+                      onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
+                      onGenerateVideo={handleGenerateVideo}
+                      onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
+                      onGenerateEpisodeNarration={narrationGenerationEnabled ? voidPromise(handleGenerateEpisodeNarration) : undefined}
+                      onRestoreStoryboard={handleRestoreAsset}
+                      onRestoreVideo={handleRestoreAsset}
+                    />
+                  )}
+                </LazyBoundary>
+              )}
             />
           );
         }}

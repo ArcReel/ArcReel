@@ -108,6 +108,28 @@ class TestOpenAIVideoBackend:
         assert call_kwargs["size"] == "720x1280"  # 720p 9:16
         assert "input_reference" not in call_kwargs
 
+    async def test_landed_video_goes_through_faststart(self, tmp_path: Path, monkeypatch):
+        """OpenAI 自管落盘、不经 download_video，写完成片后要自己补 faststart。"""
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client, data=b"mp4-video-content")
+        landed: list[Path] = []
+
+        async def fake_faststart(path: Path) -> None:
+            landed.append(path)
+
+        monkeypatch.setattr("lib.backends.video_backends.openai.faststart_video_artifact", fake_faststart)
+
+        with captured_openai_clients(mock_client), bounded_poll_clock():
+            from lib.backends.video_backends.openai import OpenAIVideoBackend
+
+            output_path = tmp_path / "output.mp4"
+            await OpenAIVideoBackend(api_key="test-key").generate(
+                VideoGenerationRequest(prompt="A cat", output_path=output_path, duration_seconds=8)
+            )
+
+        assert landed == [output_path]
+        assert output_path.read_bytes() == b"mp4-video-content"
+
     async def test_image_to_video(self, tmp_path: Path):
         start_image = tmp_path / "start.png"
         start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)

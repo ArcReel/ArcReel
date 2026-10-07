@@ -135,7 +135,7 @@ function ProductRow({
 }) {
   const imagePath = product.product_sheet || product.reference_images?.[0] || null;
   const fingerprint = useProjectsStore((s) => (imagePath ? s.getAssetFingerprint(imagePath) : null));
-  const imageUrl = imagePath ? API.getFileUrl(projectName, imagePath, fingerprint) : null;
+  const imageUrl = imagePath ? API.getFileUrl(projectName, imagePath, fingerprint, { width: 160 }) : null;
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const description = product.description.trim();
 
@@ -147,7 +147,14 @@ function ProductRow({
     >
       <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
         {imageUrl && imageUrl !== failedUrl ? (
-          <img src={imageUrl} alt="" className="size-full object-cover" onError={() => setFailedUrl(imageUrl)} />
+          <img
+            src={imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="size-full object-cover"
+            onError={() => setFailedUrl(imageUrl)}
+          />
         ) : (
           <ShoppingBag aria-hidden className="size-4" />
         )}
