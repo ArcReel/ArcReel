@@ -395,6 +395,51 @@ class TestSessionManager:
             await asyncio.wait_for(session_manager.send_message(meta.id, "too early"), timeout=1.0)
         assert managed.status == "idle"
 
+    async def test_send_message_is_busy_while_cli_owes_a_turn_after_background_agent_finished(
+        self, session_manager, meta_store
+    ):
+        """子智能体在一轮的 result 之前结束：这一轮收尾后 CLI 仍欠一轮，此时受理会与它交错。"""
+        meta = await meta_store.create("demo", "sdk-owed-turn-busy")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        on_message = session_manager._make_actor_message_callback([managed])
+
+        def _state(state: str) -> dict:
+            data = {"type": "system", "subtype": "session_state_changed", "state": state}
+            return {"type": "system", "subtype": "session_state_changed", "data": data}
+
+        for frame in (
+            _state("running"),
+            {"type": "assistant", "content": [], "parent_tool_use_id": None},
+            {"type": "system", "subtype": "task_started", "task_id": "t1", "task_type": "local_agent"},
+            {"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "completed"},
+            {"type": "result", "subtype": "success", "session_id": meta.id},
+        ):
+            on_message(frame)
+        managed._inbox.put_nowait(None)
+        await session_manager._process_inbox(managed)
+        assert managed.status != "running"
+
+        with pytest.raises(SessionBusyError):
+            await asyncio.wait_for(session_manager.send_message(meta.id, "too early"), timeout=1.0)
+
+        on_message(_state("idle"))
+        assert not managed.turn_in_flight()
+
+    def test_ordinary_turn_awaiting_cli_idle_does_not_count_as_owed_turn(self):
+        """CLI 在一轮的 result 之后、flush 完才报 idle：这段间隔不能把受理拦下。"""
+        managed = ManagedSession(session_id="s1", actor=_dummy_actor(), project_name="demo")
+        running = {"type": "system", "subtype": "session_state_changed", "data": {"state": "running"}}
+        result = {"type": "result", "subtype": "success"}
+        main = {"type": "assistant", "content": [], "parent_tool_use_id": None}
+
+        for frame in (running, main, result):
+            managed.note_frame_read(frame)
+            managed.settle_turn_frame(frame)
+
+        assert not managed.turn_in_flight()
+
     async def test_interrupt_reaches_autonomous_turn_before_inbox_marks_running(self, session_manager, meta_store):
         from tests.fakes import build_managed_with_actor
 
@@ -402,7 +447,7 @@ class TestSessionManager:
         read = asyncio.Event()
 
         def _on_read(managed: ManagedSession, msg: dict) -> None:
-            managed.note_turn_frame_read(msg)
+            managed.note_frame_read(msg)
             read.set()
 
         managed, _actor, client = await build_managed_with_actor(
@@ -427,7 +472,7 @@ class TestSessionManager:
         frames = [result, main, result, main]  # 无主线程帧的一轮、完整的一轮、刚开始的一轮
 
         for frame in frames:
-            managed.note_turn_frame_read(frame)
+            managed.note_frame_read(frame)
         assert managed.unsettled_turns == 2
 
         for frame in frames[:3]:

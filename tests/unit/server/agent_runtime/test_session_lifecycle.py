@@ -272,7 +272,7 @@ class TestEnsureCapacity:
         busy, busy_client = _make_managed("s_busy", status="idle")
         await _start(busy)
         busy.last_activity = time.monotonic() - 100
-        busy.note_turn_frame_read({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        busy.note_frame_read({"type": "assistant", "content": [], "parent_tool_use_id": None})
         quiet, quiet_client = _make_managed("s_quiet", status="idle")
         await _start(quiet)
         quiet.last_activity = time.monotonic()
@@ -411,11 +411,18 @@ def _task_started(task_id: str = "t1", task_type: str = "local_agent") -> dict:
     return {"type": "system", "subtype": "task_started", "task_id": task_id, "task_type": task_type}
 
 
+def _session_state(state: str) -> dict:
+    """CLI 的 session_state_changed 帧，序列化后的形状（状态在 data 里）。"""
+    data = {"type": "system", "subtype": "session_state_changed", "state": state}
+    return {"type": "system", "subtype": "session_state_changed", "data": data}
+
+
 async def _feed(mgr: SessionManager, managed: ManagedSession, *frames: dict) -> None:
-    """经真实 inbox 处理喂入消息帧，处理完即返回。"""
+    """经真实读取回调与 inbox 处理喂入消息帧，处理完即返回。"""
     managed.resolved_sdk_id = managed.session_id
+    on_message = mgr._make_actor_message_callback([managed])
     for frame in frames:
-        managed._inbox.put_nowait(frame)
+        on_message(frame)
     managed._inbox.put_nowait(None)
     await mgr._process_inbox(managed)
 
@@ -507,7 +514,9 @@ class TestBackgroundWork:
         actor_task.add_done_callback(mgr._make_actor_done_callback(managed))
         mgr.sessions["s1"] = managed
         managed.resolved_sdk_id = "s1"
-        managed._inbox.put_nowait(_task_started())
+        on_message = mgr._make_actor_message_callback([managed])
+        on_message(_task_started())
+        on_message(_session_state("running"))
 
         client.close_stream()
         await asyncio.wait_for(mgr._process_inbox(managed), timeout=1.0)
@@ -548,6 +557,63 @@ class TestBackgroundWork:
         try:
             with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
                 await mgr._patrol_once()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
+
+# --- CLI 报告的会话状态：子智能体在一轮的 result 之前结束时，账本已清空，CLI 仍欠一轮 ------
+
+
+class TestCliSessionState:
+    @pytest.mark.parametrize("state", ["running", "requires_action"])
+    async def test_idle_cleanup_spares_session_while_cli_still_reports_work(self, tmp_path, state):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        finished = {"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "completed"}
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+                await _feed(mgr, managed, _task_started(), _session_state(state), finished)
+                await mgr._cleanup_idle("s1")
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_cli_reporting_idle_restarts_idle_cleanup(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+
+        actor_task = managed.actor.task
+        assert actor_task is not None
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+                await _feed(mgr, managed, _session_state("running"), _session_state("idle"))
+                await asyncio.wait_for(asyncio.shield(actor_task), timeout=1.0)
+
+            assert client.disconnected is True
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_cli_idle_does_not_release_a_live_background_agent(self, tmp_path):
+        """与 SDK 同口径取并集：CLI 可配置为每轮结束都报 idle，此时只有账本知道子智能体还在。"""
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+                await _feed(mgr, managed, _task_started(), _session_state("idle"))
+                await mgr._cleanup_idle("s1")
 
             assert "s1" in mgr.sessions
             assert client.disconnected is False

@@ -228,8 +228,14 @@ class ManagedSession:
     assistant_model: str = ""
     interrupt_requested: bool = False
     last_activity: float | None = None  # updated on every send/receive
-    # 在途的后台子智能体（task_id），由 track_background_task 按任务生命周期帧维护。
+    # 在途的后台子智能体（task_id），actor 回调按任务生命周期帧维护。
     background_tasks: set[str] = field(default_factory=set)
+    # CLI 最近一次报告的会话状态（session_state_changed 帧）；CLI 不报告时为 None，只剩账本可依。
+    cli_session_state: str | None = None
+    # CLI 还欠一轮：最后一个子智能体结束时 CLI 仍报有工作，它的完成要 CLI 再跑一轮来处理。
+    # 子智能体在一轮的 result 之前结束时，这一轮收尾后到下一轮首帧之间只有它标出轮次未完。
+    # CLI 报 idle 或欠的那一轮开始时清除。
+    _turn_owed: bool = False
     # 消息流上已开始、尚未经 inbox 收尾的轮次数。CLI 自主开启的一轮要等 inbox 处理到才切
     # running，处理完它的 result 才算收尾，受理新消息不能只看 status。actor 回调读到一轮的
     # 首帧时登记，inbox 跑完这一轮的 result 后注销；两侧在同一消息序列上按同一规则判定
@@ -246,12 +252,15 @@ class ManagedSession:
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES: ClassVar[set[str]] = {"result", "runtime_status", "log_entry", "log_turn_complete"}
 
-    def note_turn_frame_read(self, msg: dict[str, Any]) -> None:
-        """actor 回调侧：读到一轮的首帧时登记。"""
+    def note_frame_read(self, msg: dict[str, Any]) -> bool:
+        """actor 回调侧，按读取顺序：登记一轮的首帧，更新后台工作；返回本帧是否解除了后台工作保护。"""
         was_open = self._read_turn_open
         self._read_turn_open = _turn_open_after(was_open, msg)
         if self._read_turn_open and not was_open:
             self.unsettled_turns += 1
+            # 欠的那一轮开始了，之后由轮次计数接管
+            self._turn_owed = False
+        return self._track_background_work(msg)
 
     def settle_turn_frame(self, msg: dict[str, Any]) -> None:
         """inbox 侧：一帧处理完毕后调用，这一轮的 result 处理完时注销。"""
@@ -261,14 +270,14 @@ class ManagedSession:
             self.unsettled_turns -= 1
 
     def turn_in_flight(self) -> bool:
-        """有轮次在途：已切 running，或已在消息流上开始、inbox 尚未收尾。
+        """有轮次在途：已切 running，或已在消息流上开始、inbox 尚未收尾，或 CLI 还欠一轮。
 
         此时受理新消息会与这一轮交错，断开 CLI 会中止它。
         """
-        return self.status == "running" or self.unsettled_turns > 0
+        return self.status == "running" or self.unsettled_turns > 0 or self._turn_owed
 
     def forget_stream_state(self) -> None:
-        """CLI 已退出或 inbox 停止处理：没收尾的轮次与后台子智能体都等不到收尾帧了。
+        """CLI 已退出或 inbox 停止处理：没收尾的轮次、后台子智能体与 CLI 状态都等不到后续帧了。
 
         账本不清空的话，会话会一直受驱逐保护，死掉的 CLI 永久占着并发名额。
         """
@@ -276,9 +285,28 @@ class ManagedSession:
         self._read_turn_open = False
         self._inbox_turn_open = False
         self.background_tasks.clear()
+        self.cli_session_state = None
+        self._turn_owed = False
 
-    def track_background_task(self, msg: dict[str, Any]) -> bool:
-        """按任务生命周期帧维护在途账本；返回本帧是否清空了账本。
+    def _track_background_work(self, msg: dict[str, Any]) -> bool:
+        """按会话状态帧与任务生命周期帧更新后台工作；返回本帧是否解除了保护。"""
+        held = self.holds_background_work()
+        if msg.get("type") == "system" and msg.get("subtype") == "session_state_changed":
+            data = msg.get("data")
+            self.cli_session_state = data.get("state") if isinstance(data, dict) else None
+            if self.cli_session_state in (None, "idle"):
+                self._turn_owed = False
+        else:
+            had_tasks = bool(self.background_tasks)
+            self._track_task_lifecycle(msg)
+            # 不能拿「CLI 报 running 且账本为空」直接判定：普通一轮的 result 之后，CLI 要 flush
+            # 完 transcript 才报 idle，那段间隔同样如此。
+            if had_tasks and not self.background_tasks and self.cli_session_state not in (None, "idle"):
+                self._turn_owed = True
+        return held and not self.holds_background_work()
+
+    def _track_task_lifecycle(self, msg: dict[str, Any]) -> None:
+        """维护在途账本。
 
         口径同 SDK ``Query._track_task_lifecycle``：只记会可靠到达终态的委派
         工作（子智能体、工作流），后台 shell 可能永不结束，记进来会让会话一直
@@ -286,28 +314,26 @@ class ManagedSession:
         """
         task_id = msg.get("task_id")
         if not task_id:
-            return False
+            return
         subtype = msg.get("subtype")
         if subtype == "task_started":
             if msg.get("task_type") in DEFERRING_TASK_TYPES:
                 self.background_tasks.add(task_id)
-            return False
-        if task_id not in self.background_tasks:
-            return False
-        if subtype == "task_notification":
-            finished = True
+        elif subtype == "task_notification":
+            self.background_tasks.discard(task_id)
         elif subtype == "task_updated":
             patch = msg.get("patch")
-            finished = isinstance(patch, dict) and patch.get("status") in TERMINAL_TASK_STATUSES
-        else:
-            finished = False
-        if finished:
-            self.background_tasks.discard(task_id)
-        return finished and not self.background_tasks
+            if isinstance(patch, dict) and patch.get("status") in TERMINAL_TASK_STATUSES:
+                self.background_tasks.discard(task_id)
 
     def holds_background_work(self) -> bool:
-        """有在途后台子智能体。与 SDK 一致不设上限：终态帧不到，会话就一直受保护。"""
-        return bool(self.background_tasks)
+        """CLI 还有轮次之外的工作：报告着 running/requires_action，或账本里有在途子智能体。
+
+        CLI 在子智能体存活、或其完成后还欠一轮时持续报 running，子智能体在一轮的 result
+        之前结束时只有它知道还欠一轮。账本兜底不报状态、或配置为每轮结束都报 idle 的 CLI，
+        两者取并集，与 SDK 判定 run 是否结束的口径一致。同样不设上限。
+        """
+        return bool(self.background_tasks) or self.cli_session_state not in (None, "idle")
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
@@ -610,7 +636,9 @@ class SessionManager:
             if managed is None:
                 return
             msg_dict = message_to_dict(raw_msg)
-            managed.note_turn_frame_read(msg_dict)
+            if managed.note_frame_read(msg_dict) and managed.status != "running":
+                # 后台工作全部结束（CLI 报 idle、账本清空）：受保护期间到点的清理计时从此刻重来
+                self._schedule_cleanup(managed.session_id)
             echo = match_user_echo(managed.pending_user_echoes, msg_dict)
             if echo is not None:
                 # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
@@ -933,9 +961,6 @@ class SessionManager:
                 # 不会把刚切回的 running 覆盖成 idle。
                 if managed.status != "running" and is_main_turn_activity(msg_dict):
                     await self._begin_autonomous_turn(managed)
-                if managed.track_background_task(msg_dict) and managed.status != "running":
-                    # 最后一个后台子智能体结束：受保护期间到点的清理计时从此刻重来
-                    self._schedule_cleanup(managed.session_id)
                 # 事件日志写入点：sdk_session_id 就绪后逐条定型入日志。
                 # handle_message 内部吞异常，不会打断会话消费。
                 if managed.entry_pipeline is not None and managed.resolved_sdk_id is not None:
@@ -1452,7 +1477,7 @@ class SessionManager:
         if managed is None:
             return
         if managed.holds_background_work() or managed.turn_in_flight():
-            # 断开 CLI 会连带杀掉后台子智能体、中止在途轮次。账本清空、轮次收尾时重新计时。
+            # 断开 CLI 会连带杀掉后台子智能体、中止在途轮次。后台工作结束、轮次收尾时重新计时。
             return
         if managed.status in ("idle", "interrupted", "error", "completed"):
             # Clear our own reference first so _evict_one's cleanup-task cancel doesn't self-cancel
