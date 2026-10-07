@@ -4,6 +4,7 @@
       "Bash(ls:*)",
       "Bash(uv run python -m pytest:*)",
       "Bash(uv run pytest:*)",
+      "Bash(uv run python scripts/gate.py:*)",
       "Bash(uv run ruff check:*)",
       "Bash(uv run ruff format:*)",
       "Bash(uv run alembic:*)",
