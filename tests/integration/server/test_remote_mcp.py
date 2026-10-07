@@ -221,26 +221,22 @@ async def test_remote_mcp_serves_endpoint_without_redirect(remote_server, path: 
     assert response.status_code == 200
 
 
-async def test_remote_mcp_challenge_points_to_reachable_root_metadata(
-    remote_projects: ProjectManager, monkeypatch
-) -> None:
-    """401 challenge 声明的 RFC 9728 元数据地址位于根路径且可取回，``resource`` 与公开端点一致。"""
-    monkeypatch.setenv("MCP_PUBLIC_URL", "https://arcreel.example.com/mcp")
-    services = Services(projects=remote_projects, workflow_planner=_Planner(), capabilities=_Capabilities())
-    app = _mounted(build_remote_mcp_server(services=services))
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="https://arcreel.example.com"
-    ) as client:
+@pytest.mark.parametrize(
+    "metadata_path", ["/.well-known/oauth-protected-resource/mcp", "/mcp/.well-known/oauth-protected-resource"]
+)
+async def test_remote_mcp_does_not_advertise_oauth_discovery(remote_server, metadata_path: str) -> None:
+    """只认静态 arc- API Key、没有授权服务器：401 是普通 Bearer challenge，也不提供受保护资源元数据。"""
+    app = _mounted(remote_server)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client:
         challenge = await client.post(
             "/mcp", headers={"Accept": "application/json, text/event-stream"}, json=_INITIALIZE_REQUEST
         )
-        metadata_url = challenge.headers["www-authenticate"].split('resource_metadata="')[1].split('"')[0]
-        metadata = await client.get(metadata_url)
+        metadata = await client.get(metadata_path)
 
     assert challenge.status_code == 401
-    assert metadata_url == "https://arcreel.example.com/.well-known/oauth-protected-resource/mcp"
-    assert metadata.status_code == 200
-    assert metadata.json()["resource"] == "https://arcreel.example.com/mcp"
+    assert challenge.headers["www-authenticate"].startswith("Bearer ")
+    assert "resource_metadata" not in challenge.headers["www-authenticate"]
+    assert metadata.status_code == 404
 
 
 _INITIALIZE_REQUEST = {
