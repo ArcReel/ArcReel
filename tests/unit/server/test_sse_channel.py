@@ -123,7 +123,7 @@ class TestEvictNonCriticalAndSignalOverflow:
 
 
 class TestDropSubscriberOverflow:
-    """项目事件流溢出策略：队列满移除订阅者，无溢出信号。"""
+    """项目事件流溢出策略：队列满移除订阅者并结束它的流，客户端重连后由快照补齐。"""
 
     async def test_full_queue_removes_subscriber_and_reports_count(self):
         removed_counts: list[int] = []
@@ -131,32 +131,30 @@ class TestDropSubscriberOverflow:
             overflow=DropSubscriber(on_removed=removed_counts.append),
             queue_maxsize=1,
         )
-        stale = channel.subscribe()
+        channel.subscribe()  # 不消费，第二条广播时溢出
         healthy = channel.subscribe()
         channel.broadcast(("changes", {"batch_id": "b1"}))
-        healthy.get_nowait()  # stale 不消费，healthy 跟上节奏
+        healthy.get_nowait()  # healthy 跟上节奏
 
         channel.broadcast(("changes", {"batch_id": "b2"}))
 
         assert channel.subscriber_count == 1
         assert removed_counts == [1]
         assert healthy.get_nowait() == ("changes", {"batch_id": "b2"})
-        # 被移除订阅者的队列只剩溢出前的内容——不注入任何信号。
-        assert stale.get_nowait() == ("changes", {"batch_id": "b1"})
-        assert stale.empty()
 
-    async def test_removed_subscriber_stream_does_not_end(self):
+    async def test_removed_subscriber_stream_ends(self):
+        """流不结束的话客户端只收到空闲心跳，不会重连，此后的一次性事件全部静默丢失。"""
         channel = SseChannel(overflow=DropSubscriber(), queue_maxsize=1)
         stale = channel.subscribe()
         channel.broadcast(("changes", {"batch_id": "b1"}))
         channel.broadcast(("changes", {"batch_id": "b2"}))  # 溢出 → 移除
         assert channel.subscriber_count == 0
 
-        # 流不结束：消费完存量后靠空闲心跳维持，断线由消费方自检。
-        stream = channel.iterate(stale, idle_timeout=0.02)
-        assert await anext(stream) == ("changes", {"batch_id": "b1"})
-        assert await asyncio.wait_for(anext(stream), timeout=1.0) is IDLE
-        await stream.aclose()
+        # 积压随之丢弃：重连后的快照会重新对齐
+        async def _drain() -> list:
+            return [item async for item in channel.iterate(stale, idle_timeout=0.02)]
+
+        assert await asyncio.wait_for(_drain(), timeout=1.0) == []
 
 
 class TestLifecycleHooks:

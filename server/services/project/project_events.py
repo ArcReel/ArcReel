@@ -274,9 +274,9 @@ class ProjectEventService:
         - a ``{"type": "_idle"}`` sentinel whenever *idle_timeout* elapses with no
           event (consumers poll disconnect on it).
 
-        The "queue full → silently drop subscriber" overflow semantics are
-        unchanged (:class:`DropSubscriber` — no overflow signal, the stream keeps
-        idling). Subscription and unsubscribe live behind this seam; cleanup is
+        When the subscriber's queue fills, :class:`DropSubscriber` removes it and
+        the iterator ends; the client reconnects and the fresh snapshot realigns
+        it. Subscription and unsubscribe live behind this seam; cleanup is
         carried by ``__aexit__`` (see ADR-0005). Consume as
         ``async with stream_events(...) as stream: async for item in stream``.
         """
