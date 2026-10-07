@@ -112,7 +112,17 @@ def select_domains(paths: Iterable[str]) -> list[str]:
 
 
 def _vcs(root: Path, *args: str) -> str:
-    return subprocess.run(("git", *args), cwd=root, capture_output=True, text=True, check=True).stdout
+    # 路径按 UTF-8 解码，不随平台区域编码变；非 UTF-8 字节用 surrogateescape 保留原样。
+    completed = subprocess.run(
+        ("git", *args),
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="surrogateescape",
+        check=True,
+    )
+    return completed.stdout
 
 
 def changed_paths(base: str, root: Path = ROOT) -> list[str]:
