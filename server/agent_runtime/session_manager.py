@@ -269,12 +269,16 @@ class ManagedSession:
         if was_open and not self._inbox_turn_open:
             self.unsettled_turns -= 1
 
+    def turn_underway(self) -> bool:
+        """有轮次已经开始：已切 running，或已在消息流上开始、inbox 尚未收尾。中断只对它有意义。"""
+        return self.status == "running" or self.unsettled_turns > 0
+
     def turn_in_flight(self) -> bool:
-        """有轮次在途：已切 running，或已在消息流上开始、inbox 尚未收尾，或 CLI 还欠一轮。
+        """有轮次在途：已经开始，或 CLI 还欠一轮。
 
         此时受理新消息会与这一轮交错，断开 CLI 会中止它。
         """
-        return self.status == "running" or self.unsettled_turns > 0 or self._turn_owed
+        return self.turn_underway() or self._turn_owed
 
     def forget_stream_state(self) -> None:
         """CLI 已退出或 inbox 停止处理：没收尾的轮次、后台子智能体与 CLI 状态都等不到后续帧了。
@@ -1239,7 +1243,8 @@ class SessionManager:
                 return "interrupted"
             return meta.status
 
-        if not managed.turn_in_flight():
+        if not managed.turn_underway():
+            # 欠的那一轮还没开始时 actor 无轮次可中断；记下中断标志会让它随后出错时被误判为用户中断
             return managed.status
 
         # 不清 pending_user_echoes：SDK 可能尚未回放刚受理的用户消息副本，

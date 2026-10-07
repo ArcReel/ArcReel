@@ -53,6 +53,36 @@ class _FakeClaudeClient:
         return empty_sdk_response_stream()
 
 
+def _cli_state(state: str) -> dict:
+    data = {"type": "system", "subtype": "session_state_changed", "state": state}
+    return {"type": "system", "subtype": "session_state_changed", "data": data}
+
+
+async def _settle_turn_whose_agent_finished_before_result(
+    session_manager: sm_mod.SessionManager, session_id: str
+) -> ManagedSession:
+    """读出并收尾一轮：后台子智能体在它的 result 之前结束，CLI 仍报 running（还欠一轮）。"""
+    managed = ManagedSession(session_id=session_id, actor=_dummy_actor(), status="idle", project_name="demo")
+    managed.resolved_sdk_id = session_id
+    session_manager.sessions[session_id] = managed
+    on_message = session_manager._make_actor_message_callback([managed])
+    for frame in (
+        _cli_state("running"),
+        {"type": "assistant", "content": [], "parent_tool_use_id": None},
+        {"type": "system", "subtype": "task_started", "task_id": "t1", "task_type": "local_agent"},
+        {"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "completed"},
+        {"type": "result", "subtype": "success", "session_id": session_id},
+    ):
+        on_message(frame)
+    managed._inbox.put_nowait(None)
+    await session_manager._process_inbox(managed)
+    assert managed.status != "running"
+    # 收尾排下的闲置清理计时与这些用例无关，留着会在用例结束后访问已关闭的数据库
+    assert managed._cleanup_task is not None
+    managed._cleanup_task.cancel()
+    return managed
+
+
 def _dummy_actor() -> SessionActor:
     """Build an un-started actor with a no-op FakeSDKClient — for tests that
     never touch actor IO but need a non-None ``actor`` field."""
@@ -400,32 +430,22 @@ class TestSessionManager:
     ):
         """子智能体在一轮的 result 之前结束：这一轮收尾后 CLI 仍欠一轮，此时受理会与它交错。"""
         meta = await meta_store.create("demo", "sdk-owed-turn-busy")
-        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
-        managed.resolved_sdk_id = meta.id
-        session_manager.sessions[meta.id] = managed
-        on_message = session_manager._make_actor_message_callback([managed])
-
-        def _state(state: str) -> dict:
-            data = {"type": "system", "subtype": "session_state_changed", "state": state}
-            return {"type": "system", "subtype": "session_state_changed", "data": data}
-
-        for frame in (
-            _state("running"),
-            {"type": "assistant", "content": [], "parent_tool_use_id": None},
-            {"type": "system", "subtype": "task_started", "task_id": "t1", "task_type": "local_agent"},
-            {"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "completed"},
-            {"type": "result", "subtype": "success", "session_id": meta.id},
-        ):
-            on_message(frame)
-        managed._inbox.put_nowait(None)
-        await session_manager._process_inbox(managed)
-        assert managed.status != "running"
+        managed = await _settle_turn_whose_agent_finished_before_result(session_manager, meta.id)
 
         with pytest.raises(SessionBusyError):
             await asyncio.wait_for(session_manager.send_message(meta.id, "too early"), timeout=1.0)
 
-        on_message(_state("idle"))
+        session_manager._make_actor_message_callback([managed])(_cli_state("idle"))
         assert not managed.turn_in_flight()
+
+    async def test_interrupt_is_not_recorded_while_the_owed_turn_has_not_started(self, session_manager, meta_store):
+        """actor 此时没有轮次可中断：记下中断标志会让随后开始的那一轮出错时被误判为用户中断。"""
+        meta = await meta_store.create("demo", "sdk-owed-turn-interrupt")
+        managed = await _settle_turn_whose_agent_finished_before_result(session_manager, meta.id)
+
+        await asyncio.wait_for(session_manager.interrupt_session(meta.id), timeout=1.0)
+
+        assert managed.interrupt_requested is False
 
     def test_ordinary_turn_awaiting_cli_idle_does_not_count_as_owed_turn(self):
         """CLI 在一轮的 result 之后、flush 完才报 idle：这段间隔不能把受理拦下。"""

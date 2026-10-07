@@ -267,12 +267,15 @@ export function useAssistantSession(projectName: string | null) {
   const deferredResumeRef = useRef<string | null>(null);
 
   // 会话未经发送、自主开启了新一轮（后台任务完成后唤醒）：idle 时没有 entry 流，
-  // 重新接上才能看到这一轮的输出与问答卡片。
+  // 重新接上才能看到这一轮的输出与问答卡片。同会话的旧句柄也要换掉：恢复通知与
+  // 上一轮的终态走两条连接、互不保序，旧句柄随后收到终态会把流关掉；新流从已有
+  // 条目之后续传，不丢内容。
   const resumeStream = useCallback((sessionId: string) => {
     statusRef.current = "running";
     store.getState().setSessionStatus("running");
+    closeStream();
     connectStream(sessionId);
-  }, [connectStream, store]);
+  }, [closeStream, connectStream, store]);
 
   // 不确定是否错过了恢复时，按服务端状态补接：running 接回 entry 流；已结束的也接一次，
   // 流补发冷读之后的条目再以终态关闭，补上整轮都落在空窗里的自主轮次。

@@ -862,6 +862,37 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().pendingQuestion?.question_id).toBe("q-1");
   });
 
+  it("replaces the previous turn's still-open stream when the session resumes", async () => {
+    // 两条 SSE 连接互不保序：恢复通知可能先于上一轮的终态到达，沿用旧句柄的话，
+    // 终态随后关掉它，自主轮次的输出就没有流来接。
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "running")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    act(() => {
+      FakeSseStream.instances[0].emit("entry", userEntry(0, "hello"));
+    });
+
+    act(() => {
+      useAssistantStore.getState().notifySessionResumed("demo", "session-1");
+    });
+    expect(FakeSseStream.instances).toHaveLength(2);
+    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
+    expect(streamOptions(1)).toMatchObject({ sessionId: "session-1", after: 0 });
+
+    // 上一轮迟到的终态落在已替换的旧句柄上，不再关掉接自主轮次的流
+    act(() => {
+      FakeSseStream.instances[0].emit("status", { status: "idle" });
+    });
+    expect(FakeSseStream.instances[1].close).not.toHaveBeenCalled();
+    expect(useAssistantStore.getState().sessionStatus).toBe("running");
+  });
+
   it.each([
     ["another session", "demo", "session-other"],
     ["another project", "other-project", "session-1"],
