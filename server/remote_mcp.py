@@ -13,7 +13,9 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
-from starlette.types import Receive, Scope, Send
+from starlette.applications import Starlette
+from starlette.routing import Mount, Route
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.script.source_loader import SourceLoader
@@ -111,10 +113,51 @@ class RemoteMCPHost:
 
 remote_mcp_host = RemoteMCPHost()
 
+REMOTE_MCP_PATH = "/mcp"
+
+
+class _MountPrefixEndpoint:
+    """把挂载前缀本身（无末尾斜杠）按 Mount 的子作用域交给同一子应用，代替 307 重定向。"""
+
+    def __init__(self, prefix: str, app: ASGIApp) -> None:
+        self._prefix = prefix
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        root_path = scope.get("root_path", "")
+        child_scope = {
+            **scope,
+            "app_root_path": scope.get("app_root_path", root_path),
+            "root_path": root_path + self._prefix,
+            "path": scope["path"] + "/",
+        }
+        if "raw_path" in scope:
+            child_scope["raw_path"] = scope["raw_path"] + b"/"
+        await self._app(child_scope, receive, send)
+
+
+def mount_remote_mcp(app: Starlette, mcp_app: ASGIApp) -> None:
+    """把远程 MCP 端点挂到 ``/mcp``，并在根路径暴露其 RFC 9728 受保护资源元数据。
+
+    MCP 规范以无末尾斜杠的 ``/mcp`` 为端点的规范形式，这里直接处理而不回 307：部分客户端不跟随
+    POST 重定向，反向代理子路径部署下相对 ``Location`` 也会跳出前缀。``/mcp/`` 保留为兼容入口。
+    SDK 把元数据路由注册在子应用内，挂载后会落到 ``/mcp/.well-known/...``；RFC 9728 要求它位于
+    根路径，另挂一条根路由转给同一子应用，由子应用按 ``MCP_PUBLIC_URL`` 的路径匹配。
+    """
+    app.router.routes.extend(
+        [
+            Route(REMOTE_MCP_PATH, _MountPrefixEndpoint(REMOTE_MCP_PATH, mcp_app), include_in_schema=False),
+            Mount(REMOTE_MCP_PATH, mcp_app),
+            Route("/.well-known/oauth-protected-resource/{resource:path}", mcp_app, include_in_schema=False),
+        ]
+    )
+
 
 __all__ = [
+    "REMOTE_MCP_PATH",
     "ArcApiKeyVerifier",
     "RemoteMCPHost",
     "build_remote_mcp_server",
+    "mount_remote_mcp",
     "remote_mcp_host",
 ]
