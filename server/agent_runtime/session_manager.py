@@ -623,7 +623,8 @@ class SessionManager:
                 return
             msg_dict = message_to_dict(raw_msg)
             if managed.note_frame_read(msg_dict) and managed.status != "running":
-                # 后台工作全部结束（CLI 报 idle、账本清空）：受保护期间到点的清理计时从此刻重来
+                # 后台工作全部结束（CLI 报 idle、账本清空）：闲置从此刻算起，清理计时与巡检都重来
+                managed.last_activity = time.monotonic()
                 self._schedule_cleanup(managed.session_id)
             echo = match_user_echo(managed.pending_user_echoes, msg_dict)
             if echo is not None:

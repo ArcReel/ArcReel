@@ -289,11 +289,13 @@ export function useAssistantSession(projectName: string | null) {
         if (status === "running") {
           resumeStream(sessionId);
         } else if (status && TERMINAL.has(status)) {
+          // 同会话的旧句柄只会送出上一轮的终态，不会补发空窗里已结束那一轮的条目
+          closeStream();
           connectStream(sessionId);
         }
       })
       .catch(() => {/* 静默失败 */});
-  }, [projectName, connectStream, resumeStream, store]);
+  }, [projectName, closeStream, connectStream, resumeStream, store]);
 
   const pendingResumeSignals = useAssistantStore((s) => s.sessionResumeSignals);
   useEffect(() => {

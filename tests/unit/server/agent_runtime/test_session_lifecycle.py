@@ -619,3 +619,23 @@ class TestCliSessionState:
             assert client.disconnected is False
         finally:
             await mgr.close_session("s1")
+
+    async def test_patrol_counts_idle_time_from_when_background_work_ended(self, tmp_path):
+        """子智能体跑得比两倍清理延迟还久：结束时不能按它开始前的活跃时间被巡检立即驱逐。"""
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1", status="completed")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        finished = {"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "completed"}
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
+                await _feed(mgr, managed, _task_started())
+                managed.last_activity = time.monotonic() - 1000
+                await _feed(mgr, managed, finished)
+                await mgr._patrol_once()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")

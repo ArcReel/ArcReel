@@ -1075,6 +1075,30 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
   });
 
+  it("replaces a stale stream when the project stream reconnects after the missed turn finished", async () => {
+    // 旧句柄只会送出上一轮的终态，不会补发空窗里已结束那一轮的条目
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "running")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "completed") });
+
+    act(() => {
+      useAssistantStore.getState().requestSessionResync("demo");
+    });
+
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(2);
+    });
+    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
+    expect(streamOptions(1)).toMatchObject({ sessionId: "session-1" });
+  });
+
   it("does not let a delayed idle cold-read overwrite state set by a concurrent sendMessage", async () => {
     // 冷读 listAssistantEntries 挂起期间，用户在同一会话内发送消息：sendMessage
     // 受理后作废在途加载链。冷读迟到完成后携带的是发消息前的旧快照，不得据此
