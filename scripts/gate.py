@@ -86,7 +86,8 @@ def _write_holder(handle: IO[str] | None, note: str) -> None:
 def _acquire_gate_lock() -> portalocker.Lock:
     """拿到机器级锁后返回；别人持有时每秒重试，只在开始排队时打印一次。"""
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    lock = portalocker.Lock(LOCK_PATH, mode="a+")
+    # 持有者说明含非 ASCII 字符，读写两端都显式用 UTF-8，避开 Windows 的区域默认编码。
+    lock = portalocker.Lock(LOCK_PATH, mode="a", encoding="utf-8")
     waited_from = time.monotonic()
     announced = False
     while True:
