@@ -1,7 +1,27 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 
-/** 本会话已因 chunk 加载失败整页刷新过一次的标记，防止新入口仍拉不到时无限刷新。 */
+/**
+ * 本会话已因加载失败整页刷新过的 chunk（按导出名记录），防止新入口仍拉不到时无限刷新。
+ * 按 chunk 记录：别的 chunk 加载成功不代表失败的那个已经恢复，不能借此解除它的刷新限制。
+ */
 const RELOAD_MARK = "arcreel:lazy-chunk-reload";
+
+function reloadedChunks(): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(sessionStorage.getItem(RELOAD_MARK) ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function markReloaded(name: string, reloaded: boolean) {
+  const chunks = reloadedChunks();
+  if (reloaded) chunks.add(name);
+  else chunks.delete(name);
+  if (chunks.size > 0) sessionStorage.setItem(RELOAD_MARK, JSON.stringify([...chunks]));
+  else sessionStorage.removeItem(RELOAD_MARK);
+}
 
 /** 发起刷新后页面仍未离开、判定刷新被拦下的等待时长。 */
 const RELOAD_BLOCKED_AFTER_MS = 3000;
@@ -40,9 +60,9 @@ async function reloadAndConfirm(reload: () => void, blockedAfterMs: number): Pro
  * 按命名导出懒加载组件，配合 `<Suspense>` 把非首屏页面拆进独立 chunk。
  *
  * chunk 拉取失败多发生在新版本部署之后：页面仍是旧入口，引用的带 hash 文件名已被替换，
- * 请求返回 404。此时整页刷新一次换上新入口；同一会话内刷新后仍失败，错误照常抛给 React，
- * 不再刷新。任一 chunk 加载成功即清除标记，下次部署后的失败仍可刷新一次。刷新被离开确认
- * 拦下（用户为保护未保存修改选择留下）时同样抛出错误并清除标记。
+ * 请求返回 404。此时整页刷新一次换上新入口；同一会话内该 chunk 刷新后仍失败，错误照常抛给
+ * React，不再刷新。该 chunk 之后加载成功即清除它的标记，下次部署后的失败仍可刷新一次。刷新被
+ * 离开确认拦下（用户为保护未保存修改选择留下）时同样抛出错误并清除标记。
  *
  * 抛出的错误由外层 `LazyBoundary`（`components/shared/LazyBoundary`）接住，显示加载失败与
  * 「重新加载」；使用处必须包在它里面，否则错误会卸载整个应用根节点。
@@ -65,17 +85,17 @@ export function lazyNamed<K extends string, P extends object>(
   const component = lazy(async () => {
     try {
       const mod = await loadOnce();
-      sessionStorage.removeItem(RELOAD_MARK);
+      markReloaded(name, false);
       return { default: mod[name] };
     } catch (err) {
-      if (sessionStorage.getItem(RELOAD_MARK) !== null) throw err;
-      sessionStorage.setItem(RELOAD_MARK, "1");
+      if (reloadedChunks().has(name)) throw err;
+      markReloaded(name, true);
       if (await reloadAndConfirm(reload, reloadBlockedAfterMs)) {
         // 刷新期间保持挂起，界面停在 Suspense 的占位上，不闪错误
         return new Promise<never>(() => {});
       }
       // 刷新被拦下，本页不会换新：清除标记，让之后的失败仍能刷新，错误交给边界显示
-      sessionStorage.removeItem(RELOAD_MARK);
+      markReloaded(name, false);
       throw err;
     }
   });

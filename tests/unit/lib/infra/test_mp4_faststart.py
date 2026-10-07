@@ -189,6 +189,22 @@ class TestEnsureFaststart:
         assert video.read_bytes() == MOOV_LAST
         assert _siblings(video) == [video]
 
+    async def test_temp_cleanup_failure_keeps_the_remux_best_effort(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # 临时文件删不掉（如 Windows 上被其他进程占用）不能把尽力而为的优化变成失败
+        video = _write(tmp_path, "clip.mp4", MOOV_LAST)
+        spawn, _ = _remux_writing(MOOV_LAST)
+
+        def _locked(self: Path, missing_ok: bool = False) -> None:
+            raise PermissionError("file is in use")
+
+        monkeypatch.setattr(Path, "unlink", _locked)
+
+        assert await ensure_faststart(video, resolve_ffmpeg=_ffmpeg, spawn=spawn) is False
+
+        assert video.read_bytes() == MOOV_LAST
+
     async def test_spawn_error_keeps_original(self, tmp_path: Path):
         video = _write(tmp_path, "clip.mp4", MOOV_LAST)
 

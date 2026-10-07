@@ -191,4 +191,8 @@ async def ensure_faststart(
         logger.warning("faststart 重封装出错，保留原文件: %s", path, exc_info=True)
         return False
     finally:
-        temp_path.unlink(missing_ok=True)
+        # 清理失败（如临时文件被其他进程占用）只记日志，不让尽力而为的重封装抛错或盖过取消
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("faststart 临时文件清理失败: %s", temp_path, exc_info=True)

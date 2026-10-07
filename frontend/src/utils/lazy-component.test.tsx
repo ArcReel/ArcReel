@@ -114,21 +114,50 @@ describe("lazyNamed", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it("allows another reload after a later chunk loads successfully", async () => {
-    const reload = unloadingReload();
-    sessionStorage.setItem("arcreel:lazy-chunk-reload", "1");
-    const Ok = lazyNamed(async () => ({ Greeting }), "Greeting", { reload });
-    renderLazy(<Ok name="ok" />);
-    expect(await screen.findByText("hello ok")).toBeInTheDocument();
+  /** 一次失败的加载触发刷新后卸载，模拟刷新后的新页面。 */
+  async function failOnceAndReload(reload: () => void, name: "Greeting" | "Farewell" = "Greeting") {
+    const Broken = lazyNamed<typeof name, { name: string }>(() => Promise.reject(new Error("chunk 404")), name, {
+      reload,
+    });
+    const { unmount } = renderLazy(<Broken name="arc" />);
+    await vi.waitFor(() => expect(reload).toHaveBeenCalled());
+    unmount();
+  }
 
-    const Broken = lazyNamed<"Greeting", { name: string }>(
-      () => Promise.reject(new Error("chunk 404")),
+  it("allows another reload once the chunk that failed loads successfully", async () => {
+    const reload = unloadingReload();
+    await failOnceAndReload(reload);
+
+    const Ok = lazyNamed(async () => ({ Greeting }), "Greeting", { reload });
+    const { unmount } = renderLazy(<Ok name="ok" />);
+    expect(await screen.findByText("hello ok")).toBeInTheDocument();
+    unmount();
+
+    await failOnceAndReload(reload);
+    expect(reload).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the reload guard when only a different chunk loads", async () => {
+    // 刷新后引导等别的 chunk 照常加载，失败的路由 chunk 依旧拉不到：不得再次刷新
+    const reload = unloadingReload();
+    await failOnceAndReload(reload);
+
+    const Farewell = ({ name }: { name: string }) => <p>bye {name}</p>;
+    const Other = lazyNamed(async () => ({ Farewell }), "Farewell", { reload });
+    const { unmount } = renderLazy(<Other name="ok" />);
+    expect(await screen.findByText("bye ok")).toBeInTheDocument();
+    unmount();
+
+    const StillBroken = lazyNamed<"Greeting", { name: string }>(
+      () => Promise.reject(new Error("chunk still 404")),
       "Greeting",
       { reload },
     );
-    renderLazy(<Broken name="arc" />);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    renderLazy(<StillBroken name="arc" />);
 
-    await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent("chunk still 404");
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it("shares one request between preload and render", async () => {
