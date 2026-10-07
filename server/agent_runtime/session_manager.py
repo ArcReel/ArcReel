@@ -239,6 +239,8 @@ class ManagedSession:
     unsettled_turns: int = 0
     _read_turn_open: bool = False
     _inbox_turn_open: bool = False
+    # inbox 已停止处理：actor 仍在读帧，但读取侧不再登记轮次或后台工作，否则无人收尾。
+    _stream_abandoned: bool = False
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
     _inbox_warned: bool = False  # edge-triggered backlog warning state
@@ -250,6 +252,8 @@ class ManagedSession:
 
     def note_frame_read(self, msg: dict[str, Any]) -> bool:
         """actor 回调侧，按读取顺序：登记一轮的首帧，更新后台工作；返回本帧是否解除了后台工作保护。"""
+        if self._stream_abandoned:
+            return False
         was_open = self._read_turn_open
         self._read_turn_open = _turn_open_after(was_open, msg)
         if self._read_turn_open and not was_open:
@@ -280,6 +284,11 @@ class ManagedSession:
         self._inbox_turn_open = False
         self.background_tasks.clear()
         self.cli_session_state = None
+
+    def abandon_stream(self) -> None:
+        """inbox 停止处理而 actor 仍在读：清掉账本，之后读到的帧也不再登记。"""
+        self._stream_abandoned = True
+        self.forget_stream_state()
 
     def _track_background_work(self, msg: dict[str, Any]) -> bool:
         """按会话状态帧与任务生命周期帧更新后台工作；返回本帧是否解除了保护。"""
@@ -971,7 +980,7 @@ class SessionManager:
                         with contextlib.suppress(Exception):
                             await self._mark_session_terminal(managed, "error", "finalize failed")
                         # inbox 就此停止，之后的帧不再处理：轮次与任务账本都不会再被收尾
-                        managed.forget_stream_state()
+                        managed.abandon_stream()
                         return None
                 managed.settle_turn_frame(msg_dict)
         except asyncio.CancelledError:
@@ -989,7 +998,7 @@ class SessionManager:
             raise
         except Exception:
             logger.exception("_process_inbox 异常 session_id=%s", managed.session_id)
-            managed.forget_stream_state()
+            managed.abandon_stream()
             try:
                 await self._mark_session_terminal(managed, "error", "session error")
             except Exception:
@@ -1849,7 +1858,8 @@ class SessionManager:
         managed = self.sessions.get(session_id)
         if managed is None:
             raise ValueError("会话未运行或无待回答问题")
-        if managed.status != "running":
+        # CLI 自主开启的一轮在 inbox 切 running 前就可能提问
+        if not managed.turn_in_flight():
             raise ValueError("会话未运行或无待回答问题")
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")

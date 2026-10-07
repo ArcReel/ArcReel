@@ -419,6 +419,39 @@ class TestSessionManager:
         finally:
             await session_manager.close_session(meta.id)
 
+    async def test_frames_read_after_the_inbox_stopped_do_not_protect_the_session(self, session_manager, meta_store):
+        """finalize 失败后 inbox 不再处理帧：读取侧继续登记的话，这些轮次永远没人收尾，会话一直受保护。"""
+        meta = await meta_store.create("demo", "sdk-inbox-stopped")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        on_message = session_manager._make_actor_message_callback([managed])
+        main = {"type": "assistant", "content": [], "parent_tool_use_id": None}
+
+        async def _broken_finalize(*_args, **_kwargs):
+            raise RuntimeError("finalize failed")
+
+        session_manager._finalize_turn = _broken_finalize
+        on_message(main)
+        on_message({"type": "result", "subtype": "success", "session_id": meta.id})
+        await asyncio.wait_for(session_manager._process_inbox(managed), timeout=1.0)
+        if managed._cleanup_task is not None:
+            managed._cleanup_task.cancel()
+
+        on_message(main)
+
+        assert not managed.turn_in_flight()
+
+    async def test_question_from_an_autonomous_turn_is_answerable_before_the_inbox_marks_running(self, session_manager):
+        managed = ManagedSession(session_id="s1", actor=_dummy_actor(), status="idle", project_name="demo")
+        session_manager.sessions["s1"] = managed
+        managed.note_frame_read({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        pending = managed.add_pending_question({"questions": []})
+
+        await session_manager.answer_user_question("s1", pending.question_id, {"Q": "A"})
+
+        assert pending.answer_future.result() == {"Q": "A"}
+
     def test_unsettled_turns_pair_reads_with_inbox_settles(self):
         """读取侧与 inbox 侧各按同一规则判定轮次边界：没有主线程帧的轮次两侧都不计。"""
         managed = ManagedSession(session_id="s1", actor=_dummy_actor(), project_name="demo")
