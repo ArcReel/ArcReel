@@ -111,15 +111,18 @@ def select_domains(paths: Iterable[str]) -> list[str]:
     return [name for name in DOMAINS if name in hit]
 
 
-def _vcs(*args: str) -> str:
-    return subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True, check=True).stdout
+def _vcs(root: Path, *args: str) -> str:
+    return subprocess.run(("git", *args), cwd=root, capture_output=True, text=True, check=True).stdout
 
 
-def changed_paths(base: str) -> list[str]:
-    """相对 base 与 HEAD 公共祖先的全部改动：已提交、未提交与未跟踪的都算。"""
-    merge_base = _vcs("merge-base", base, "HEAD").strip()
-    tracked = _vcs("diff", "--name-only", merge_base).splitlines()
-    untracked = _vcs("ls-files", "--others", "--exclude-standard").splitlines()
+def changed_paths(base: str, root: Path = ROOT) -> list[str]:
+    """相对 base 与 HEAD 公共祖先的全部改动：已提交、未提交与未跟踪的都算。
+
+    关掉重命名识别，移动的文件新旧路径都列出来：旧路径所在域可能因此少了文件而失败。
+    """
+    merge_base = _vcs(root, "merge-base", base, "HEAD").strip()
+    tracked = _vcs(root, "diff", "--name-only", "--no-renames", merge_base).splitlines()
+    untracked = _vcs(root, "ls-files", "--others", "--exclude-standard").splitlines()
     return sorted({*tracked, *untracked})
 
 
