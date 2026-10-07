@@ -108,7 +108,8 @@ def read_mp4_layout(path: Path) -> Mp4Layout | None:
             if parsed is None:
                 return None
             box_type, size = parsed
-            if index == 0 and box_type == b"ftyp":
+            if index == 0 and box_type == b"ftyp" and size >= _BOX_HEADER_BYTES + 4:
+                # major brand 紧跟 box 头；装不下时视为没有，不越界读后一个 box
                 major_brand = _read_major_brand(handle, offset)
             elif box_type == b"moov" and moov_index is None:
                 moov_index = index

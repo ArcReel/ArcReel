@@ -52,6 +52,8 @@ class TestReadMp4Layout:
             # 首个 box 不是 ftyp：老式 QuickTime
             pytest.param(_box(b"wide") + _MDAT + _MOOV, Mp4Layout(major_brand=None, moov_first=False), id="no-ftyp"),
             pytest.param(_FTYP_QT + _MDAT + _MOOV, Mp4Layout(major_brand=b"qt  ", moov_first=False), id="quicktime"),
+            # ftyp 装不下 major brand：不越界去读后一个 box 的字节
+            pytest.param(_box(b"ftyp") + _MDAT + _MOOV, Mp4Layout(major_brand=None, moov_first=False), id="empty-ftyp"),
         ],
     )
     def test_reports_moov_position(self, tmp_path: Path, content: bytes, expected: Mp4Layout):

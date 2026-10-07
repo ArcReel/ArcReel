@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useProjectsStore } from "@/stores/projects-store";
 import { AssetOriginalsField } from "./AssetOriginalsField";
@@ -27,6 +27,18 @@ describe("AssetOriginalsField", () => {
     expect(within(screen.getByRole("button", { name: /阿青/ })).getByRole("img")).toHaveAttribute(
       "src",
       "/api/v1/files/p/characters/a.png?w=640",
+    );
+  });
+
+  it("switches to the new version when the fingerprint arrives after mount", () => {
+    useProjectsStore.setState({ assetFingerprints: {} });
+    render(<AssetOriginalsField projectName="p" name="阿青" assetType="character" paths={["characters/a.png"]} readOnly />);
+
+    act(() => useProjectsStore.setState({ assetFingerprints: { "characters/a.png": 9 } }));
+
+    expect(within(screen.getByRole("button", { name: /阿青/ })).getByRole("img")).toHaveAttribute(
+      "src",
+      "/api/v1/files/p/characters/a.png?v=9&w=640",
     );
   });
 });
