@@ -177,7 +177,7 @@ async function openImport() {
 }
 
 /** 导入对话框里的文件选择框；新建页的端点测试区也有上传框，只在对话框里找。 */
-export function importFileInput(): HTMLInputElement {
+function importFileInput(): HTMLInputElement {
   const picker = screen.getByRole("dialog").querySelector<HTMLInputElement>('input[type="file"]');
   if (picker === null) throw new Error("no file input");
   return picker;

@@ -18,7 +18,6 @@ import {
   chooseMenu,
   clickRail,
   descriptor,
-  importFileInput,
   pasteSource,
   pickFile,
   renderSection,
@@ -32,6 +31,13 @@ describe("EndpointsSection", () => {
   describe("ComfyUI endpoints", () => {
     const PROMPT_TARGET = { node: "6", input: "text", class_type: "CLIPTextEncode" };
     const OUTPUT_TARGET = { node: "9", class_type: "SaveVideo" };
+
+    /** 「重新导入」直接在已打开的端点弹窗里换文件，不经过 pickFile 的打开步骤，所以单独取 file input。 */
+    function importFileInput(): HTMLInputElement {
+      const picker = screen.getByRole("dialog").querySelector<HTMLInputElement>('input[type="file"]');
+      if (picker === null) throw new Error("no file input");
+      return picker;
+    }
 
     function keyInference(target: ComfyuiBindingTarget, origin: ComfyuiMatchOrigin = "inferred") {
       return {

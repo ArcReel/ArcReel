@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """按域运行完整质量闸门，整机同一时刻只跑一份。
 
-    uv run python scripts/gate.py backend frontend
-    uv run python scripts/gate.py --list
+    uv run python scripts/gate.py --changed            # 按相对 origin/main 的改动选域
+    uv run python scripts/gate.py backend frontend     # 直接点名域
+    uv run python scripts/gate.py --list               # 各域的触发路径与步骤
 
 完整闸门里的 pytest 与 vitest 都按整机核数并行；几个 worktree 同时跑时互相抢核，
 vitest 的 jsdom 用例会先超时。本脚本用机器级文件锁把各次闸门排成队：谁拿到锁谁独占
-整机跑完，排队的只打印等待信息。各域的命令只在这里定义一次，AGENTS.md 只写域名。
+整机跑完，排队的只打印等待信息。各域的命令与触发路径只在这里定义一次。
 
 锁文件默认在用户目录下（同一台机器上的所有 worktree 都看得到），`ARCREEL_GATE_LOCK`
 可改路径。命令任一失败即停止并以其退出码退出，与 `&&` 串联一致。
@@ -15,10 +16,12 @@ vitest 的 jsdom 用例会先超时。本脚本用机器级文件锁把各次闸
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
@@ -63,6 +66,61 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
     "frontend": (Step(("pnpm", "check"), ROOT / "frontend"),),
     "website": (Step(("pnpm", "check"), ROOT / "website"),),
 }
+
+# 域 → 触发路径，fnmatch 通配（`*` 也跨目录分隔符）。与 CI 的 .github/actions/domain-filter/action.yml
+# 对照维护：CI 的 backend 域对应这里的 backend 与 market-core，workflow 域对应 workflows；
+# CI 的 docker 域（Dockerfile、public/）没有本地闸门。tests 与 conventions 两个域是秒级的
+# 结构审计，触发条件含「新增豁免注释」这类看路径判断不了的情况，按改动选域时总是跑。
+TRIGGERS: dict[str, tuple[str, ...]] = {
+    "backend": (
+        "lib/*",
+        "server/*",
+        "alembic/*",
+        "alembic.ini",
+        "scripts/*",
+        "tests/*",
+        "agent_runtime_profile/*",
+        "packages/*",
+        "pyproject.toml",
+        "uv.lock",
+        ".gitignore",  # ruff 的文件发现尊重 gitignore
+        # 后端契约测试直接读取的前端源文件
+        "frontend/src/i18n/*/dashboard.ts",
+        "frontend/src/i18n/*/events.ts",
+        "frontend/src/types/workflow.ts",
+        "frontend/src/data/example-templates/*",
+    ),
+    "market-core": ("packages/arcreel-market-core/*",),
+    "workflows": (".github/*", ".pre-commit-config.yaml"),
+    "frontend": ("frontend/*",),
+    # website-checks 同时跑翻译 lockfile 的缺译与滞后报告，CONTRIBUTING 与两个 README 在其特例映射内
+    "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md", ".claude/skills/translate-docs/*"),
+}
+ALWAYS_WHEN_CHANGED = ("tests", "conventions")
+
+
+def select_domains(paths: Iterable[str]) -> list[str]:
+    """按改动路径选域，顺序与 DOMAINS 一致；秒级审计域总是入选。"""
+    changed = list(paths)
+    hit = {
+        name
+        for name, patterns in TRIGGERS.items()
+        if any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in patterns)
+    }
+    hit.update(ALWAYS_WHEN_CHANGED)
+    return [name for name in DOMAINS if name in hit]
+
+
+def _vcs(*args: str) -> str:
+    return subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True, check=True).stdout
+
+
+def changed_paths(base: str) -> list[str]:
+    """相对 base 与 HEAD 公共祖先的全部改动：已提交、未提交与未跟踪的都算。"""
+    merge_base = _vcs("merge-base", base, "HEAD").strip()
+    tracked = _vcs("diff", "--name-only", merge_base).splitlines()
+    untracked = _vcs("ls-files", "--others", "--exclude-standard").splitlines()
+    return sorted({*tracked, *untracked})
 
 
 def _holder_note() -> str:
@@ -132,20 +190,37 @@ def run_domains(domains: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("domains", nargs="*", metavar="DOMAIN", help="|".join(DOMAINS))
-    parser.add_argument("--list", action="store_true", help="列出各域的步骤后退出")
+    parser.add_argument(
+        "--changed",
+        nargs="?",
+        const="origin/main",
+        metavar="BASE",
+        help="按相对 BASE（默认 origin/main）的改动选域，可与点名的域合并",
+    )
+    parser.add_argument("--list", action="store_true", help="列出各域的触发路径与步骤后退出")
     args = parser.parse_args(argv)
     if args.list:
         for name, steps in DOMAINS.items():
-            print(name)
+            triggers = TRIGGERS.get(name)
+            print(f"{name}    # {' '.join(triggers) if triggers else '按改动选域时总是跑'}")
             for step in steps:
                 print(f"  {step.describe()}")
         return 0
-    domains: list[str] = list(dict.fromkeys(args.domains))
-    if not domains:
-        parser.error("至少给一个域名，或用 --list 查看")
-    unknown = [name for name in domains if name not in DOMAINS]
+    unknown = [name for name in args.domains if name not in DOMAINS]
     if unknown:
         parser.error(f"未知的域：{', '.join(unknown)}；可选 {', '.join(DOMAINS)}")
+    selected: set[str] = set(args.domains)
+    if args.changed is not None:
+        try:
+            paths = changed_paths(args.changed)
+        except subprocess.CalledProcessError as error:
+            parser.error(f"读取相对 {args.changed} 的改动失败：{error.stderr.strip()}")
+        picked = select_domains(paths)
+        print(f"[gate] 相对 {args.changed} 改动 {len(paths)} 个文件，命中域：{' '.join(picked)}", flush=True)
+        selected.update(picked)
+    domains = [name for name in DOMAINS if name in selected]
+    if not domains:
+        parser.error("至少给一个域名或 --changed，或用 --list 查看")
     return run_domains(domains)
 
 
