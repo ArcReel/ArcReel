@@ -229,6 +229,9 @@ class ManagedSession:
     last_activity: float | None = None  # updated on every send/receive
     # 在途的后台子智能体（task_id），由 track_background_task 按任务生命周期帧维护。
     background_tasks: set[str] = field(default_factory=set)
+    # SDK 消息流上有一轮尚未见到 result。在 actor 回调里按读取顺序维护，不经 inbox：
+    # CLI 自主开启的一轮要等 inbox 处理到才切 running，受理新消息不能只看 status。
+    sdk_turn_open: bool = False
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
     _inbox_warned: bool = False  # edge-triggered backlog warning state
@@ -237,6 +240,13 @@ class ManagedSession:
 
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES: ClassVar[set[str]] = {"result", "runtime_status", "log_entry", "log_turn_complete"}
+
+    def observe_turn_frame(self, msg: dict[str, Any]) -> None:
+        """按消息流维护 sdk_turn_open。"""
+        if msg.get("type") == "result":
+            self.sdk_turn_open = False
+        elif _is_main_turn_activity(msg):
+            self.sdk_turn_open = True
 
     def track_background_task(self, msg: dict[str, Any]) -> bool:
         """按任务生命周期帧维护在途账本；返回本帧是否清空了账本。
@@ -573,6 +583,7 @@ class SessionManager:
             if managed is None:
                 return
             msg_dict = message_to_dict(raw_msg)
+            managed.observe_turn_frame(msg_dict)
             echo = match_user_echo(managed.pending_user_echoes, msg_dict)
             if echo is not None:
                 # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
@@ -611,6 +622,8 @@ class SessionManager:
                         managed.session_id,
                         redact_diagnostic_text(error),
                     )
+            # 消息流已终止：中途断掉的一轮不会再有 result 来收尾
+            managed.sdk_turn_open = False
             try:
                 managed._inbox.put_nowait(_ActorExitNotice(error=error))
             except Exception:
@@ -1096,7 +1109,9 @@ class SessionManager:
             managed._cleanup_task.cancel()
             managed._cleanup_task = None
 
-        if managed.status == "running":
+        # sdk_turn_open：CLI 自主开启的一轮已读出、inbox 还没切到 running。此时受理，
+        # 这一轮的 _finalize_turn 会把本条消息的回显登记当认领失败清掉，日志重复落库。
+        if managed.status == "running" or managed.sdk_turn_open:
             raise SessionBusyError("会话正在处理中，请等待当前回复完成后再发送新消息")
 
         log_entry: dict[str, Any] | None = None

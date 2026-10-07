@@ -605,6 +605,29 @@ async def test_unsolicited_turn_after_result_is_delivered_without_new_query():
         await _disconnect(actor)
 
 
+async def test_query_during_unsolicited_turn_is_held_until_its_result():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    try:
+        client.push_message({"type": "assistant", "id": "follow-up"})
+        await recorder.wait_for("follow-up")
+
+        q2 = SessionCommand(type="query", prompt="turn 2")
+        await actor.enqueue(q2)
+        # 握手：已有一条暂存时第三条被拒，拒绝落地即 q2 已处理完
+        q3 = SessionCommand(type="query", prompt="turn 3")
+        await actor.enqueue(q3)
+        await asyncio.wait_for(q3.done.wait(), timeout=1.0)
+        assert client.sent_queries == ["turn 1"]
+
+        client.push_message({"type": "result", "subtype": "success", "id": "follow-up-result"})
+        await asyncio.wait_for(q2.sent.wait(), timeout=1.0)
+        assert client.sent_queries == ["turn 1", "turn 2"]
+        assert not q2.done.is_set()
+    finally:
+        await _disconnect(actor)
+
+
 async def test_query_after_unsolicited_turn_completes_at_its_own_result():
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
@@ -640,6 +663,17 @@ async def test_interrupt_reaches_client_during_unsolicited_turn():
         assert client.interrupted
     finally:
         await _disconnect(actor)
+
+
+async def test_disconnect_interrupts_unsolicited_turn():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    client.push_message({"type": "assistant", "id": "follow-up"})
+    await recorder.wait_for("follow-up")
+
+    await _disconnect(actor)
+
+    assert client.interrupted
 
 
 async def test_interrupt_while_idle_does_not_reach_client():

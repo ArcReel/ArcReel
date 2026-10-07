@@ -286,9 +286,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void refreshProject();
         }
         // 快照在每次建连时到达。首次之外的每一次都意味着断过一次线：断线期间的结算与
-        // 任务终态事件已经错过，顶栏用量按事件刷新，故在此补一次全量重取。
+        // 任务终态事件已经错过，顶栏用量按事件刷新，故在此补一次全量重取；错过的
+        // 会话恢复通知同样只此一次，交给会话 hook 核对当前会话状态。
         if (previousFingerprint) {
           void useUsageHeaderStore.getState().refresh();
+          useAssistantStore.getState().requestSessionResync(projectName);
         }
       },
       onChanges(payload: ProjectChangeBatchPayload) {
@@ -477,7 +479,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
       },
       onAssistantSessionResumed(payload) {
         if (disposed) return;
-        useAssistantStore.getState().notifySessionResumed(payload.session_id);
+        useAssistantStore.getState().notifySessionResumed(payload.project_name, payload.session_id);
       },
       onProjectDeleted() {
         if (disposed) return;

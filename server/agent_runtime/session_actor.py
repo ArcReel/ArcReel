@@ -152,7 +152,7 @@ class SessionActor:
         cmd_task: asyncio.Task[SessionCommand] | None = None
         # 已送入 SDK、等待本轮 result 的 query
         active_query: SessionCommand | None = None
-        # active_query 在途时送来的 query：暂存到本轮 result 后再送入 SDK
+        # 有轮次在途时送来的 query：暂存到本轮 result 后再送入 SDK
         pending_query: SessionCommand | None = None
         # 无 query 在途时收到过消息：CLI 自主开启的一轮尚未见到 result
         unsolicited_open = False
@@ -169,7 +169,7 @@ class SessionActor:
                     if item is _TURN_END:
                         unsolicited_open = False
                         if active_query is not None:
-                            active_query.done.set()
+                            active_query.complete()
                             active_query = None
                         if pending_query is not None:
                             active_query, pending_query = pending_query, None
@@ -184,12 +184,13 @@ class SessionActor:
                 cmd, cmd_task = cmd_task.result(), None
 
                 if cmd.type == "disconnect":
-                    if active_query is not None:
+                    if active_query is not None or unsolicited_open:
                         # 先 interrupt 让在途轮次收尾；这一轮的 result 不会再被读取，
-                        # 显式 set 以兑现 "done 必定转换" 的契约。
+                        # 显式 complete 以兑现 "done 必定转换" 的契约。
                         await client.interrupt()
-                        active_query.done.set()
-                        active_query = None
+                        if active_query is not None:
+                            active_query.complete()
+                            active_query = None
                     cmd.complete()
                     return  # 触发 __aexit__，同 task disconnect
                 if cmd.type == "interrupt":
@@ -210,11 +211,12 @@ class SessionActor:
                     if caught is not None:
                         raise caught
                 elif cmd.type == "query":
-                    if active_query is None:
+                    if active_query is None and not unsolicited_open:
                         active_query = cmd
                         await self._send_query(client, cmd)
                     elif pending_query is None:
-                        # 违反 "drain before new query"：暂存，等本轮 result 后再送入
+                        # 有轮次在途（自己的 query 或 CLI 自主开启的一轮）：暂存，等本轮
+                        # result 后再送入。插进自主轮次会让它的 result 被当成这条 query 的。
                         pending_query = cmd
                     else:
                         # 上层 race 送来第三个 query：拒绝（FIFO 只保留第一个暂存）

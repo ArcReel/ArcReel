@@ -322,7 +322,24 @@ describe("useProjectEventsSSE", () => {
       stream.options?.onAssistantSessionResumed?.({ project_name: "demo", session_id: "session-1", status: "running" }),
     );
 
-    expect(useAssistantStore.getState().resumedSession).toEqual({ sessionId: "session-1" });
+    expect(useAssistantStore.getState().sessionResumeSignal).toEqual({
+      kind: "resumed",
+      projectName: "demo",
+      sessionId: "session-1",
+    });
+  });
+
+  it("asks the assistant to re-check its session after the stream reconnects", () => {
+    // 恢复通知只推一次，断线期间错过的要靠重连核对；首次建连的快照不算断线
+    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    const stream = mockProjectEventStream();
+    renderHarness("/");
+
+    act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-a" } as never));
+    expect(useAssistantStore.getState().sessionResumeSignal).toBeNull();
+
+    act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-a" } as never));
+    expect(useAssistantStore.getState().sessionResumeSignal).toEqual({ kind: "resync", projectName: "demo" });
   });
 
   it("names an episode the Agent just created from the refreshed ledger", async () => {

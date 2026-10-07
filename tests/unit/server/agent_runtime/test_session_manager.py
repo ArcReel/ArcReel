@@ -344,6 +344,20 @@ class TestSessionManager:
         assert managed.status == "idle"
         assert resumed == []
 
+    async def test_send_message_is_busy_once_autonomous_turn_is_read(self, session_manager, meta_store):
+        """自主轮次的首帧已经读出、inbox 还没切到 running：新消息按会话忙拒绝。"""
+        meta = await meta_store.create("demo", "sdk-autonomous-busy")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        on_message = session_manager._make_actor_message_callback([managed])
+
+        on_message({"type": "assistant", "content": [], "parent_tool_use_id": None})
+
+        with pytest.raises(SessionBusyError):
+            await asyncio.wait_for(session_manager.send_message(meta.id, "too early"), timeout=1.0)
+        assert managed.status == "idle"
+
     @pytest.mark.asyncio
     async def test_can_use_tool_callback_branches(self, session_manager, monkeypatch):
         monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)

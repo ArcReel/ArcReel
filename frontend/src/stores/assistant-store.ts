@@ -23,6 +23,10 @@ import {
 /** 启动失败的来源入口——决定故障卡片的重试重放哪一处输入。 */
 export type StartupFailureOrigin = "send" | "rewrite";
 
+export type SessionResumeSignal =
+  | { kind: "resumed"; projectName: string; sessionId: string }
+  | { kind: "resync"; projectName: string };
+
 interface AssistantState {
   // Sessions
   sessions: SessionMeta[];
@@ -82,10 +86,10 @@ interface AssistantState {
   isDraftSession: boolean;
 
   /**
-   * 最近一次「会话未经发送、自主回到 running」的通知（来自项目事件流）。每次通知都是
-   * 新对象，同一会话连续恢复也能被订阅方区分；由会话 hook 判定是否属于当前会话。
+   * 项目事件流送来的会话恢复信号，由会话 hook 一次性消费。resumed：会话未经发送、
+   * 自主回到 running；resync：事件流断线重连，期间的恢复通知可能已错过，需要核对。
    */
-  resumedSession: { sessionId: string } | null;
+  sessionResumeSignal: SessionResumeSignal | null;
 
   // Actions
   setSessions: (sessions: SessionMeta[]) => void;
@@ -121,7 +125,9 @@ interface AssistantState {
   setEditingTurnUuid: (uuid: string | null) => void;
   setCurrentProject: (project: string | null) => void;
   setIsDraftSession: (draft: boolean) => void;
-  notifySessionResumed: (sessionId: string) => void;
+  notifySessionResumed: (projectName: string, sessionId: string) => void;
+  requestSessionResync: (projectName: string) => void;
+  clearSessionResumeSignal: () => void;
 }
 
 export const useAssistantStore = create<AssistantState>((set, get) => {
@@ -191,7 +197,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     editingTurnUuid: null,
     currentProject: null,
     isDraftSession: false,
-    resumedSession: null,
+    sessionResumeSignal: null,
 
     setSessions: (sessions) => set({ sessions }),
     setCurrentSessionId: (id) => set({ currentSessionId: id }),
@@ -297,6 +303,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     setEditingTurnUuid: (uuid) => set({ editingTurnUuid: uuid }),
     setCurrentProject: (project) => set({ currentProject: project }),
     setIsDraftSession: (draft) => set({ isDraftSession: draft }),
-    notifySessionResumed: (sessionId) => set({ resumedSession: { sessionId } }),
+    notifySessionResumed: (projectName, sessionId) =>
+      set({ sessionResumeSignal: { kind: "resumed", projectName, sessionId } }),
+    requestSessionResync: (projectName) => set({ sessionResumeSignal: { kind: "resync", projectName } }),
+    clearSessionResumeSignal: () => set({ sessionResumeSignal: null }),
   };
 });
