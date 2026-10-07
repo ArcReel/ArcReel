@@ -116,7 +116,11 @@ REMOTE_MCP_PATH = "/mcp"
 
 
 class _MountPrefixEndpoint:
-    """把挂载前缀本身（无末尾斜杠）按 Mount 的子作用域交给同一子应用，代替 307 重定向。"""
+    """把挂载前缀本身（无末尾斜杠）按 Mount 的子作用域交给同一子应用，代替 307 重定向。
+
+    与 Starlette ``Mount`` 一致：``path`` 保留完整路径，只把前缀并入 ``root_path``，子应用经
+    ``get_route_path`` 自行去掉前缀；``path`` 若改成 ``"/"``，会和 ``Mount`` 的子作用域不一致。
+    """
 
     def __init__(self, prefix: str, app: ASGIApp) -> None:
         self._prefix = prefix
