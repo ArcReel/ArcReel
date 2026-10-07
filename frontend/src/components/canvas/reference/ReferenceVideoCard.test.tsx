@@ -358,7 +358,7 @@ describe("ReferenceVideoCard final prompt preview", () => {
     expect(await within(dialog).findByText(/草稿正文/)).toBeInTheDocument();
     expect(within(dialog).getByRole("img", { name: "酒馆" })).toHaveAttribute(
       "src",
-      API.getFileUrl("proj", "scenes/酒馆.png", 1712345678901),
+      API.getFileUrl("proj", "scenes/酒馆.png", 1712345678901, { width: 160 }),
     );
     expect(within(dialog).getByText("图片1 · 酒馆")).toBeInTheDocument();
     expect(within(dialog).getByText("参考图已裁剪")).toBeInTheDocument();

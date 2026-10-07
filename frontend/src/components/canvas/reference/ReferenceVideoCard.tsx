@@ -111,7 +111,7 @@ function ReferencePreviewImage({ projectName, path, name }: { projectName: strin
   const fingerprint = useProjectsStore((s) => s.getAssetFingerprint(path));
   return (
     <img
-      src={API.getFileUrl(projectName, path, fingerprint)}
+      src={API.getFileUrl(projectName, path, fingerprint, { width: 160 })}
       alt={name}
       className="h-12 w-16 rounded-sm object-contain"
     />

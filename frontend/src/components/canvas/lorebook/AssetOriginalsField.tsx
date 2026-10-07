@@ -47,6 +47,10 @@ export function AssetOriginalsField({
   const getFingerprint = useProjectsStore((s) => s.getAssetFingerprint);
   const multiple = assetType === "product";
   const urls = paths.map((path) => API.getFileUrl(projectName, path, getFingerprint(path)));
+  // 列表只显示缩略图（多张 64px 方块，单张 112px 高），点开查看时才拉原图
+  const thumbUrls = paths.map((path) =>
+    API.getFileUrl(projectName, path, getFingerprint(path), { width: multiple ? 160 : 640 }),
+  );
   const altOf = (index: number) =>
     multiple ? t("assets:original_alt_indexed", { name, index: index + 1 }) : t("assets:original_alt", { name });
   const uploadLabel = multiple
@@ -95,7 +99,7 @@ export function AssetOriginalsField({
     <div className="flex flex-col gap-2">
       {urls.length > 0 ? (
         <ul className="flex flex-wrap gap-2">
-          {urls.map((url, index) => (
+          {thumbUrls.map((url, index) => (
             <li key={paths[index]}>
               <button
                 type="button"
