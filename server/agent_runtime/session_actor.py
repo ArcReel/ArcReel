@@ -36,9 +36,6 @@ class SessionCommand:
     # 仅在 client.query() 正常返回后置真；与 sent 分开，因为失败 complete()
     # 也会唤醒 sent，但那不代表请求已被 SDK 受理。
     accepted: bool = False
-    # query 送入 SDK 的那一刻在 actor task 内同步回调：被暂存的 query 晚于调用方
-    # 的 await 才送入，按送入时刻记账只能在这里做。
-    on_accepted: Callable[[], None] | None = None
 
     def complete(self, error: BaseException | None = None) -> None:
         """唤醒所有等待者（sent + done）并可选携带 error。
@@ -262,8 +259,6 @@ class SessionActor:
             raise
         # prompt 已送入 SDK：释放 HTTP 路径，actor 继续在后台 drain 消息流
         cmd.accepted = True
-        if cmd.on_accepted is not None:
-            cmd.on_accepted()
         cmd.sent.set()
 
     async def enqueue(self, cmd: SessionCommand) -> None:
