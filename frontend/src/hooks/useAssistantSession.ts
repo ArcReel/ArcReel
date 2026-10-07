@@ -292,26 +292,28 @@ export function useAssistantSession(projectName: string | null) {
       .catch(() => {/* 静默失败 */});
   }, [projectName, connectStream, resumeStream, store]);
 
-  const resumeSignal = useAssistantStore((s) => s.sessionResumeSignal);
+  const pendingResumeSignals = useAssistantStore((s) => s.sessionResumeSignals);
   useEffect(() => {
-    if (!resumeSignal) return;
-    // 一次性消费：留在全局 store 里，切项目重建回调时会被当成新信号再处理一次
-    store.getState().clearSessionResumeSignal();
-    if (!projectName || resumeSignal.projectName !== projectName) return;
+    if (pendingResumeSignals.length === 0) return;
+    // 整批取走：留在全局 store 里，切项目重建回调时会被当成新信号再处理一次
+    const signals = store.getState().takeSessionResumeSignals();
     const sessionId = store.getState().currentSessionId;
-    if (!sessionId) return;
-    if (resumeSignal.kind === "resumed" && resumeSignal.sessionId !== sessionId) return;
+    if (!projectName || !sessionId) return;
+    const relevant = signals.filter(
+      (s) => s.projectName === projectName && (s.kind === "resync" || s.sessionId === sessionId),
+    );
+    if (relevant.length === 0) return;
     if (store.getState().messagesLoading) {
       deferredResumeRef.current = deletingKey(projectName, sessionId);
       return;
     }
-    if (resumeSignal.kind === "resumed") {
+    if (relevant.some((s) => s.kind === "resumed")) {
       resumeStream(sessionId);
       return;
     }
     const signal = projectAbortRef.current?.signal;
     if (signal && projectAbortOwnerRef.current === projectName) resyncSession(sessionId, signal);
-  }, [projectName, resumeSignal, resumeStream, resyncSession, store]);
+  }, [projectName, pendingResumeSignals, resumeStream, resyncSession, store]);
 
   // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放。
   // signal 被 abort 时网络 await 断点由 fetch 自动 reject；写 store 与建流前

@@ -882,6 +882,24 @@ describe("useAssistantSession", () => {
     expect(FakeSseStream.instances).toHaveLength(0);
   });
 
+  it("keeps a resume for the current session when another signal follows in the same tick", async () => {
+    mockIdleSession([userEntry(0, "历史消息")]);
+
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().turns).toHaveLength(1);
+    });
+
+    act(() => {
+      useAssistantStore.getState().notifySessionResumed("demo", "session-1");
+      useAssistantStore.getState().notifySessionResumed("demo", "session-other");
+    });
+
+    expect(useAssistantStore.getState().sessionStatus).toBe("running");
+    expect(FakeSseStream.instances).toHaveLength(1);
+    expect(streamOptions(0)).toMatchObject({ sessionId: "session-1" });
+  });
+
   it("does not replay a handled resume notification after switching projects", async () => {
     // 通知留在全局 store 里不消费的话，切项目重建回调会拿上一个项目的会话 id 在新项目下建流
     mockIdleSession([userEntry(0, "历史消息")]);

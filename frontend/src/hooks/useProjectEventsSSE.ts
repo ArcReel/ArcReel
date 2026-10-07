@@ -286,12 +286,13 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void refreshProject();
         }
         // 快照在每次建连时到达。首次之外的每一次都意味着断过一次线：断线期间的结算与
-        // 任务终态事件已经错过，顶栏用量按事件刷新，故在此补一次全量重取；错过的
-        // 会话恢复通知同样只此一次，交给会话 hook 核对当前会话状态。
+        // 任务终态事件已经错过，顶栏用量按事件刷新，故在此补一次全量重取。
         if (previousFingerprint) {
           void useUsageHeaderStore.getState().refresh();
-          useAssistantStore.getState().requestSessionResync(projectName);
         }
+        // 会话恢复通知只推一次，订阅建立之前（含首次建连前的失败重试）发出的已经错过；
+        // 首次快照也要核对：会话 hook 的加载读到的状态可能早于这次恢复。
+        useAssistantStore.getState().requestSessionResync(projectName);
       },
       onChanges(payload: ProjectChangeBatchPayload) {
         if (disposed) return;

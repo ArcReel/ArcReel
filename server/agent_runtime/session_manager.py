@@ -229,9 +229,13 @@ class ManagedSession:
     last_activity: float | None = None  # updated on every send/receive
     # 在途的后台子智能体（task_id），由 track_background_task 按任务生命周期帧维护。
     background_tasks: set[str] = field(default_factory=set)
-    # SDK 消息流上有一轮尚未见到 result。在 actor 回调里按读取顺序维护，不经 inbox：
-    # CLI 自主开启的一轮要等 inbox 处理到才切 running，受理新消息不能只看 status。
-    sdk_turn_open: bool = False
+    # 消息流上已开始、尚未经 inbox 收尾的轮次数。CLI 自主开启的一轮要等 inbox 处理到才切
+    # running，处理完它的 result 才算收尾，受理新消息不能只看 status。actor 回调读到一轮的
+    # 首帧时登记，inbox 跑完这一轮的 result 后注销；两侧在同一消息序列上按同一规则判定
+    # 轮次边界，登记与注销一一配对。
+    unsettled_turns: int = 0
+    _read_turn_open: bool = False
+    _inbox_turn_open: bool = False
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
     _inbox_warned: bool = False  # edge-triggered backlog warning state
@@ -241,12 +245,25 @@ class ManagedSession:
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES: ClassVar[set[str]] = {"result", "runtime_status", "log_entry", "log_turn_complete"}
 
-    def observe_turn_frame(self, msg: dict[str, Any]) -> None:
-        """按消息流维护 sdk_turn_open。"""
-        if msg.get("type") == "result":
-            self.sdk_turn_open = False
-        elif _is_main_turn_activity(msg):
-            self.sdk_turn_open = True
+    def note_turn_frame_read(self, msg: dict[str, Any]) -> None:
+        """actor 回调侧：读到一轮的首帧时登记。"""
+        was_open = self._read_turn_open
+        self._read_turn_open = _turn_open_after(was_open, msg)
+        if self._read_turn_open and not was_open:
+            self.unsettled_turns += 1
+
+    def settle_turn_frame(self, msg: dict[str, Any]) -> None:
+        """inbox 侧：一帧处理完毕后调用，这一轮的 result 处理完时注销。"""
+        was_open = self._inbox_turn_open
+        self._inbox_turn_open = _turn_open_after(was_open, msg)
+        if was_open and not self._inbox_turn_open:
+            self.unsettled_turns -= 1
+
+    def reset_turn_tracking(self) -> None:
+        """消息流或 inbox 已终止：没收尾的轮次不会再有 result。"""
+        self.unsettled_turns = 0
+        self._read_turn_open = False
+        self._inbox_turn_open = False
 
     def track_background_task(self, msg: dict[str, Any]) -> bool:
         """按任务生命周期帧维护在途账本；返回本帧是否清空了账本。
@@ -379,6 +396,13 @@ def _is_main_turn_activity(msg: dict[str, Any]) -> bool:
     已结束的会话错切回 running，又没有 result 来收尾。
     """
     return msg.get("type") in ("assistant", "stream_event") and msg.get("parent_tool_use_id") is None
+
+
+def _turn_open_after(turn_open: bool, msg: dict[str, Any]) -> bool:
+    """轮次边界：主线程首帧开启一轮，result 收尾。没有主线程帧就结束的轮次不计。"""
+    if msg.get("type") == "result":
+        return False
+    return turn_open or _is_main_turn_activity(msg)
 
 
 class SessionManager:
@@ -583,7 +607,7 @@ class SessionManager:
             if managed is None:
                 return
             msg_dict = message_to_dict(raw_msg)
-            managed.observe_turn_frame(msg_dict)
+            managed.note_turn_frame_read(msg_dict)
             echo = match_user_echo(managed.pending_user_echoes, msg_dict)
             if echo is not None:
                 # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
@@ -622,8 +646,6 @@ class SessionManager:
                         managed.session_id,
                         redact_diagnostic_text(error),
                     )
-            # 消息流已终止：中途断掉的一轮不会再有 result 来收尾
-            managed.sdk_turn_open = False
             try:
                 managed._inbox.put_nowait(_ActorExitNotice(error=error))
             except Exception:
@@ -919,6 +941,7 @@ class SessionManager:
                         # 首条用户消息落库已失败，send_new_session 的错误清理路径
                         # 即将取消本任务；此处短路不再 finalize，避免先广播/落库
                         # 非 error 终态（如 completed），随后又被改写为 error。
+                        managed.settle_turn_frame(msg_dict)
                         continue
                     try:
                         await self._finalize_turn(managed, msg_dict)
@@ -932,6 +955,7 @@ class SessionManager:
                         with contextlib.suppress(Exception):
                             await self._mark_session_terminal(managed, "error", "finalize failed")
                         return None
+                managed.settle_turn_frame(msg_dict)
         except asyncio.CancelledError:
             # Only mark interrupted if session was actually running. Cancel can
             # also happen during failed send_new_session cleanup or normal
@@ -952,6 +976,8 @@ class SessionManager:
             except Exception:
                 logger.debug("_mark_session_terminal cleanup failed", exc_info=True)
             raise
+        finally:
+            managed.reset_turn_tracking()
 
     async def get_or_connect(
         self,
@@ -1109,9 +1135,9 @@ class SessionManager:
             managed._cleanup_task.cancel()
             managed._cleanup_task = None
 
-        # sdk_turn_open：CLI 自主开启的一轮已读出、inbox 还没切到 running。此时受理，
-        # 这一轮的 _finalize_turn 会把本条消息的回显登记当认领失败清掉，日志重复落库。
-        if managed.status == "running" or managed.sdk_turn_open:
+        # unsettled_turns：CLI 自主开启的一轮已读出、inbox 还没收尾。此时受理，这一轮的
+        # _finalize_turn 会把本条消息的回显登记当认领失败清掉（日志重复落库），并覆写它的状态。
+        if managed.status == "running" or managed.unsettled_turns:
             raise SessionBusyError("会话正在处理中，请等待当前回复完成后再发送新消息")
 
         log_entry: dict[str, Any] | None = None

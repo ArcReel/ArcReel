@@ -344,19 +344,48 @@ class TestSessionManager:
         assert managed.status == "idle"
         assert resumed == []
 
-    async def test_send_message_is_busy_once_autonomous_turn_is_read(self, session_manager, meta_store):
-        """自主轮次的首帧已经读出、inbox 还没切到 running：新消息按会话忙拒绝。"""
+    @pytest.mark.parametrize(
+        "frames_read",
+        [
+            [{"type": "assistant", "content": [], "parent_tool_use_id": None}],
+            [
+                {"type": "assistant", "content": [], "parent_tool_use_id": None},
+                {"type": "result", "subtype": "success", "is_error": False},
+            ],
+        ],
+        ids=["first-frame-read", "result-read-not-finalized"],
+    )
+    async def test_send_message_is_busy_until_inbox_settles_autonomous_turn(
+        self, session_manager, meta_store, frames_read
+    ):
+        """自主轮次已经读出、inbox 还没收尾（含 result 已读出、finalize 未跑）：新消息按会话忙拒绝。"""
         meta = await meta_store.create("demo", "sdk-autonomous-busy")
         managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
         managed.resolved_sdk_id = meta.id
         session_manager.sessions[meta.id] = managed
         on_message = session_manager._make_actor_message_callback([managed])
 
-        on_message({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        for frame in frames_read:
+            on_message(frame)
 
         with pytest.raises(SessionBusyError):
             await asyncio.wait_for(session_manager.send_message(meta.id, "too early"), timeout=1.0)
         assert managed.status == "idle"
+
+    def test_unsettled_turns_pair_reads_with_inbox_settles(self):
+        """读取侧与 inbox 侧各按同一规则判定轮次边界：没有主线程帧的轮次两侧都不计。"""
+        managed = ManagedSession(session_id="s1", actor=_dummy_actor(), project_name="demo")
+        main = {"type": "assistant", "content": [], "parent_tool_use_id": None}
+        result = {"type": "result", "subtype": "success"}
+        frames = [result, main, result, main]  # 无主线程帧的一轮、完整的一轮、刚开始的一轮
+
+        for frame in frames:
+            managed.note_turn_frame_read(frame)
+        assert managed.unsettled_turns == 2
+
+        for frame in frames[:3]:
+            managed.settle_turn_frame(frame)
+        assert managed.unsettled_turns == 1
 
     @pytest.mark.asyncio
     async def test_can_use_tool_callback_branches(self, session_manager, monkeypatch):
