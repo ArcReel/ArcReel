@@ -119,11 +119,12 @@ def changed_paths(base: str, root: Path = ROOT) -> list[str]:
     """相对 base 与 HEAD 公共祖先的全部改动：已提交、未提交与未跟踪的都算。
 
     关掉重命名识别，移动的文件新旧路径都列出来：旧路径所在域可能因此少了文件而失败。
+    按 NUL 分隔读取，含非 ASCII 字符的路径才是原文而不是加引号的转义串。
     """
     merge_base = _vcs(root, "merge-base", base, "HEAD").strip()
-    tracked = _vcs(root, "diff", "--name-only", "--no-renames", merge_base).splitlines()
-    untracked = _vcs(root, "ls-files", "--others", "--exclude-standard").splitlines()
-    return sorted({*tracked, *untracked})
+    tracked = _vcs(root, "diff", "--name-only", "--no-renames", "-z", merge_base).split("\0")
+    untracked = _vcs(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0")
+    return sorted({*tracked, *untracked} - {""})
 
 
 def _holder_note() -> str:
