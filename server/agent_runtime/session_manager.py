@@ -1317,7 +1317,12 @@ class SessionManager:
             managed._cleanup_task = None
         managed.status = "running"
         managed.last_activity = time.monotonic()
-        await self.meta_store.update_status(managed.session_id, "running")
+        try:
+            await self.meta_store.update_status(managed.session_id, "running")
+        except Exception:
+            # 运行在 inbox 里：异常会让 inbox 退出、actor 却还活着，这一轮再也没人收尾。
+            # 内存状态已切换，持久化由本轮 finalize 写入终态时补上。
+            logger.exception("持久化自主轮次 running 状态失败 session_id=%s", managed.session_id)
         listener = self._autonomous_turn_listener
         if listener is None:
             return

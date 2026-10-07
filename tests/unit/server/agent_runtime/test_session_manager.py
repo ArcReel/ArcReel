@@ -304,6 +304,29 @@ class TestSessionManager:
         assert managed.status == "interrupted"
         assert (await meta_store.get(meta.id)).status == "interrupted"
 
+    async def test_autonomous_turn_survives_failed_running_persist(self, session_manager, meta_store, monkeypatch):
+        """自主轮次开头写 running 失败：inbox 照常处理到 result，这一轮仍能收尾。"""
+        meta = await meta_store.create("demo", "sdk-autonomous-persist")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        real_update = meta_store.update_status
+
+        async def _flaky_update(session_id, status):
+            if status == "running":
+                raise RuntimeError("db unavailable")
+            return await real_update(session_id, status)
+
+        monkeypatch.setattr(meta_store, "update_status", _flaky_update)
+
+        managed._inbox.put_nowait({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        managed._inbox.put_nowait({"type": "result", "subtype": "success", "is_error": False})
+        managed._inbox.put_nowait(None)
+        await session_manager._process_inbox(managed)
+
+        assert managed.status == "completed"
+        assert (await meta_store.get(meta.id)).status == "completed"
+
     async def test_process_inbox_resumes_running_on_autonomous_turn(self, session_manager, meta_store):
         """idle 会话收到主线程 assistant 消息（CLI 自主开启的一轮）：回到 running 并通知监听方。"""
         meta = await meta_store.create("demo", "sdk-autonomous-1")
