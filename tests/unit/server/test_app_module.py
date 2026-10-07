@@ -141,7 +141,7 @@ def _recording_send(events: list[str], messages: list[dict]):
     return send
 
 
-async def _call(app, accept: str, events: list[str]) -> list[dict]:
+async def _call(app, accept: str, events: list[str], *, accept_encoding: str = "gzip") -> list[dict]:
     messages: list[dict] = []
 
     async def receive():
@@ -151,7 +151,7 @@ async def _call(app, accept: str, events: list[str]) -> list[dict]:
         "type": "http",
         "method": "GET",
         "path": "/",
-        "headers": [(b"accept", accept.encode()), (b"accept-encoding", b"gzip")],
+        "headers": [(b"accept", accept.encode()), (b"accept-encoding", accept_encoding.encode())],
     }
     await app_module.ResponseCompressionMiddleware(app)(scope, receive, _recording_send(events, messages))
     return messages
@@ -172,12 +172,29 @@ async def test_compression_skips_media():
     assert b"content-encoding" not in dict(messages[0]["headers"])
 
 
-async def test_compression_bypasses_event_streams_so_headers_are_not_held():
-    """SSE 请求整体绕过压缩：响应头在首个事件前就送达客户端，body 原样透传。"""
+@pytest.mark.parametrize("accept", ["text/event-stream", "*/*"])
+@pytest.mark.parametrize("accept_encoding", ["gzip", ""])
+async def test_event_stream_headers_reach_the_client_before_the_first_event(accept: str, accept_encoding: str):
+    """事件流按响应类型识别，与请求是否声明 Accept 无关：响应头在首个事件前送达，body 原样透传。"""
     events: list[str] = []
     body = b"data: hello\n\n" * 100
-    messages = await _call(_recording_app("text/event-stream", body, events), "text/event-stream", events)
+    messages = await _call(
+        _recording_app("text/event-stream", body, events), accept, events, accept_encoding=accept_encoding
+    )
 
     assert events[:2] == ["client-got-start", "start-delivered"]
     assert b"content-encoding" not in dict(messages[0]["headers"])
     assert messages[1]["body"] == body
+
+
+async def test_excluded_media_sent_by_pathsend_gets_a_single_response_start():
+    """媒体响应头已即时放行时，pathsend 不再重复发送响应头。"""
+    events: list[str] = []
+
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"video/mp4")]})
+        await send({"type": "http.response.pathsend", "path": "/tmp/clip.mp4"})
+
+    messages = await _call(app, "*/*", events)
+
+    assert [message["type"] for message in messages] == ["http.response.start", "http.response.pathsend"]

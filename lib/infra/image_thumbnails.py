@@ -8,8 +8,9 @@
 
 磁盘缓存：``<cache_root>/<缓存命名空间>/<源路径摘要>/w<宽度>-<源 mtime_ns>-<源 size>.webp``。
 源文件任一属性变化都会落到新的文件名；同一源路径写入新版本时顺手删掉该路径下的旧版本，
-所以每个源路径最多保留各档位的当前版本。源文件或项目被删除后，对应缓存目录留在原处
-（缓存根整目录删除即可回收，不影响正确性）。
+所以每个源路径最多保留各档位的当前版本。并发请求可能拿着源文件被替换前的 stat：发布前
+复核源文件版本，清理时保留源文件此刻的版本，旧请求既不按旧版本键发布新内容，也不删掉新版本。
+源文件或项目被删除后，对应缓存目录留在原处（缓存根整目录删除即可回收，不影响正确性）。
 """
 
 from __future__ import annotations
@@ -88,7 +89,8 @@ def ensure_image_thumbnail(
 
     缓存写入走同目录临时文件 + ``os.replace``：并发请求同一缓存键时各写各的临时文件，
     最终文件始终是某一次完整的编码结果。缓存文件的 mtime 对齐源文件 mtime，
-    使重新生成的同一缓存键得到相同的 ETag。
+    使重新生成的同一缓存键得到相同的 ETag。编码期间源文件被替换时返回 None，
+    由调用方按原图处理。
     """
     target = thumbnail_cache_path(cache_dir, source_key, source_stat, width)
     cached_stat = _regular_file_stat(target)
@@ -98,6 +100,9 @@ def ensure_image_thumbnail(
     encoded = _encode_thumbnail(source, width)
     if encoded is None:
         return None
+    version = _version_prefix(source_stat)
+    if _current_version(source) != version:
+        return None
 
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -106,12 +111,17 @@ def ensure_image_thumbnail(
         # 缓存目录不可写等情形：缩略图只是优化，回退原图而不让请求失败
         logger.warning("写入图片缩略图缓存失败，回退原图: %s", target, exc_info=True)
         return None
-    _remove_stale_versions(target.parent, keep_prefix=_version_prefix(source_stat))
+    _remove_stale_versions(target.parent, keep={version, _current_version(source)})
 
     cached_stat = _regular_file_stat(target)
     if cached_stat is None:  # 写入后被并发的旧版本清理删掉（源文件刚好在此期间变化）
         return None
     return target, cached_stat
+
+
+def _current_version(source: Path) -> str | None:
+    source_stat = _regular_file_stat(source)
+    return None if source_stat is None else _version_prefix(source_stat)
 
 
 def _regular_file_stat(path: Path) -> os.stat_result | None:
@@ -170,10 +180,10 @@ def _atomic_write(target: Path, data: bytes, *, mtime_ns: int) -> None:
             tmp_path.unlink()
 
 
-def _remove_stale_versions(source_dir: Path, *, keep_prefix: str) -> None:
-    """删掉同一源路径下其它版本（mtime / size 不同）的缓存；清理失败不影响本次请求。"""
+def _remove_stale_versions(source_dir: Path, *, keep: set[str | None]) -> None:
+    """删掉同一源路径下 ``keep`` 以外版本（mtime / size 不同）的缓存；清理失败不影响本次请求。"""
     for entry in source_dir.glob(f"w*{_THUMBNAIL_SUFFIX}"):
         version = entry.stem.split("-", 1)[1] if "-" in entry.stem else ""
-        if version != keep_prefix:
+        if version not in keep:
             with contextlib.suppress(OSError):
                 entry.unlink()

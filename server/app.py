@@ -24,10 +24,10 @@ from typing import Any
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.datastructures import Headers
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from starlette.datastructures import MutableHeaders
-from starlette.types import Message, Receive, Scope, Send
+from starlette.middleware.gzip import GZipResponder, IdentityResponder
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from lib import PROJECT_ROOT
 from lib.agent.agent_session_store import session_store_enabled
@@ -851,25 +851,52 @@ class FrontendCacheHeadersMiddleware:
 app.add_middleware(FrontendCacheHeadersMiddleware)
 
 
-class ResponseCompressionMiddleware:
-    """JSON / JS / CSS / HTML 等文本响应的 gzip 压缩，SSE 请求整体绕过。
+class _IdentityResponder(IdentityResponder):
+    """内容类型不压缩（事件流、已压缩的媒体）的响应，响应头到达即放行。
 
-    GZipMiddleware 的默认排除清单已含 text/event-stream 与 image/audio/video 等已压缩的
-    媒体类型，206 分段响应也原样透传；流式响应按块 Z_SYNC_FLUSH，不攒批。但即便内容类型被
-    排除，它也要等到第一个 body 块才放行响应头——事件流在首个事件前会一直收不到响应头。
-    因此按请求的 ``Accept: text/event-stream``（前端流式客户端与 EventSource 都会带）直接绕开。
-    compresslevel 取 zlib 默认档 6：JSON/JS 的体积收益与 9 相差无几，CPU 开销低得多。
+    Starlette 的 responder 要等到第一个 body 块才放行响应头，以便决定是否改写编码相关的头；
+    不压缩的类型无需改写，事件流却会因此在首个事件前一直收不到响应头。按响应的
+    Content-Type 判断，不依赖请求是否声明 ``Accept: text/event-stream``。
     """
 
-    def __init__(self, app):
+    async def send_with_compression(self, message: Message) -> None:
+        if message["type"] == "http.response.start":
+            await super().send_with_compression(message)
+            if self.content_type_is_excluded:
+                self.started = True
+                await self.send(self.initial_message)
+        elif message["type"] == "http.response.pathsend" and self.started:
+            await self.send(message)
+        else:
+            await super().send_with_compression(message)
+
+
+class _GZipResponder(_IdentityResponder, GZipResponder):
+    """在 :class:`_IdentityResponder` 的响应头放行之上做 gzip 压缩。"""
+
+
+class ResponseCompressionMiddleware:
+    """JSON / JS / CSS / HTML 等文本响应的 gzip 压缩。
+
+    沿用 Starlette GZip 的默认排除清单（text/event-stream 与 image/audio/video 等已压缩的
+    媒体类型），206 分段响应原样透传；流式响应按块 Z_SYNC_FLUSH，不攒批。排除类型的响应头
+    即时放行，见 :class:`_IdentityResponder`。compresslevel 取 zlib 默认档 6：
+    JSON/JS 的体积收益与 9 相差无几，CPU 开销低得多。
+    """
+
+    def __init__(self, app: ASGIApp):
         self.app = app
-        self.gzip = GZipMiddleware(app, compresslevel=6)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and "text/event-stream" in Headers(scope=scope).get("accept", ""):
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        await self.gzip(scope, receive, send)
+        responder: ASGIApp
+        if "gzip" in Headers(scope=scope).get("accept-encoding", ""):
+            responder = _GZipResponder(self.app, minimum_size=500, compresslevel=6)
+        else:
+            responder = _IdentityResponder(self.app, minimum_size=500)
+        await responder(scope, receive, send)
 
 
 # 最外层：前端缓存头中间件改写的是响应头，压缩不改变 content-type，两者顺序互不影响

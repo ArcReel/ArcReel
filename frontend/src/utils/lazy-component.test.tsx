@@ -1,5 +1,5 @@
 import { Component, Suspense, type ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { lazyNamed } from "./lazy-component";
 
@@ -34,6 +34,7 @@ function renderLazy(node: ReactNode) {
 
 describe("lazyNamed", () => {
   afterEach(() => {
+    vi.useRealTimers();
     sessionStorage.clear();
     vi.restoreAllMocks();
   });
@@ -48,6 +49,7 @@ describe("lazyNamed", () => {
   });
 
   it("reloads the page once and keeps the fallback while the page unloads", async () => {
+    vi.useFakeTimers();
     // 无离开拦截：beforeunload 未被拦下，页面正在离开
     const reload = unloadingReload();
     const load = vi.fn().mockRejectedValue(new Error("chunk 404"));
@@ -59,7 +61,8 @@ describe("lazyNamed", () => {
     renderLazy(<LazyGreeting name="arc" />);
 
     await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 走完「刷新被拦下」的判定时长，确认页面离开期间仍停在占位上
+    await act(() => vi.advanceTimersByTimeAsync(10));
     expect(screen.getByText("loading")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

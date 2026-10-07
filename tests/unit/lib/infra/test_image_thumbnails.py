@@ -171,6 +171,51 @@ def test_new_source_version_replaces_old_cache_entries(tmp_path: Path) -> None:
     assert sorted(path.name for path in new[0].parent.iterdir()) == [new[0].name]
 
 
+def _replace_source(source: Path, size: tuple[int, int], mtime_ns: int) -> None:
+    _write_image(source, size)
+    os.utime(source, ns=(mtime_ns, mtime_ns))
+
+
+def test_worker_holding_a_stale_source_stat_publishes_nothing(tmp_path: Path) -> None:
+    # 请求 A 拿到旧 stat 后源图被替换，请求 B 已发布新版本缩略图；A 随后才开始生成
+    cache_dir = tmp_path / "cache"
+    source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
+    os.utime(source, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+    stale_stat = source.stat()
+    _replace_source(source, (1200, 600), 1_700_000_100_000_000_000)
+    current = _thumb(source, cache_dir, 320)
+    assert current is not None
+
+    stale = ensure_image_thumbnail(source, stale_stat, cache_dir=cache_dir, source_key="storyboards/a.png", width=320)
+
+    assert stale is None
+    assert sorted(path.name for path in current[0].parent.iterdir()) == [current[0].name]
+
+
+def test_pruning_keeps_the_version_the_source_currently_has(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 请求 A 发布旧版本后、清理前，源图被替换且请求 B 发布了新版本：A 的清理不得删掉 B 的文件
+    cache_dir = tmp_path / "cache"
+    source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
+    os.utime(source, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+    stale_stat = source.stat()
+    newer: list[Path] = []
+    real_replace = os.replace
+
+    def _publish_then_source_changes(src, dst) -> None:
+        real_replace(src, dst)
+        monkeypatch.setattr(os, "replace", real_replace)
+        _replace_source(source, (1200, 600), 1_700_000_100_000_000_000)
+        result = _thumb(source, cache_dir, 320)
+        assert result is not None
+        newer.append(result[0])
+
+    monkeypatch.setattr(os, "replace", _publish_then_source_changes)
+
+    ensure_image_thumbnail(source, stale_stat, cache_dir=cache_dir, source_key="storyboards/a.png", width=320)
+
+    assert newer[0].exists()
+
+
 def test_widths_of_the_same_version_coexist(tmp_path: Path) -> None:
     cache_dir = tmp_path / "cache"
     source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
