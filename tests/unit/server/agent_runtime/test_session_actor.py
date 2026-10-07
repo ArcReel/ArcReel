@@ -606,7 +606,8 @@ async def test_unsolicited_turn_after_result_is_delivered_without_new_query():
         await _disconnect(actor)
 
 
-async def test_query_during_unsolicited_turn_is_held_until_its_result():
+async def test_query_during_unsolicited_turn_goes_straight_to_the_cli():
+    """消息排队由 CLI 负责（并入当前轮或之后另开一轮），actor 不暂存。"""
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
     try:
@@ -615,16 +616,9 @@ async def test_query_during_unsolicited_turn_is_held_until_its_result():
 
         q2 = SessionCommand(type="query", prompt="turn 2")
         await actor.enqueue(q2)
-        # 握手：已有一条暂存时第三条被拒，拒绝落地即 q2 已处理完
-        q3 = SessionCommand(type="query", prompt="turn 3")
-        await actor.enqueue(q3)
-        await asyncio.wait_for(q3.done.wait(), timeout=1.0)
-        assert client.sent_queries == ["turn 1"]
-
-        client.push_message({"type": "result", "subtype": "success", "id": "follow-up-result"})
         await asyncio.wait_for(q2.sent.wait(), timeout=1.0)
+
         assert client.sent_queries == ["turn 1", "turn 2"]
-        assert not q2.done.is_set()
     finally:
         await _disconnect(actor)
 
@@ -674,17 +668,18 @@ async def test_interrupt_reaches_client_during_unsolicited_turn():
     ],
     ids=["trailing-system-frame", "background-subagent-message"],
 )
-async def test_non_turn_frames_while_idle_do_not_hold_the_next_query(frame):
+async def test_non_turn_frames_while_idle_do_not_open_a_turn(frame):
+    """它们之后不会再有 result 来收尾：据此开轮的话，空闲会话的中断会打到 CLI 上。"""
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
     try:
         client.push_message(frame)
         await recorder.wait_for("trailing")
 
-        q2 = SessionCommand(type="query", prompt="turn 2")
-        await actor.enqueue(q2)
-        await asyncio.wait_for(q2.sent.wait(), timeout=1.0)
-        assert client.sent_queries == ["turn 1", "turn 2"]
+        i = SessionCommand(type="interrupt")
+        await actor.enqueue(i)
+        await asyncio.wait_for(i.done.wait(), timeout=1.0)
+        assert not client.interrupted
     finally:
         await _disconnect(actor)
 

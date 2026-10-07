@@ -161,9 +161,9 @@ class SessionActor:
         cmd_task: asyncio.Task[SessionCommand] | None = None
         # 已送入 SDK、等待本轮 result 的 query
         active_query: SessionCommand | None = None
-        # 有轮次在途时送来的 query：暂存到本轮 result 后再送入 SDK
+        # 本 actor 的 query 在途时送来的 query：暂存到本轮 result 后再送入 SDK
         pending_query: SessionCommand | None = None
-        # 无 query 在途时收到过主线程帧：CLI 自主开启的一轮尚未见到 result
+        # 无 query 在途时收到过主线程帧：CLI 自主开启的一轮尚未见到 result，中断与断开要送达它
         unsolicited_open = False
         try:
             while True:
@@ -188,7 +188,7 @@ class SessionActor:
                             await self._send_query(client, active_query)
                     else:
                         # 只认主线程帧：result 之后的 system 帧、后台子智能体的消息
-                        # 之后不会再有 result 来收尾，据此开轮会把后续 query 永远暂存
+                        # 之后不会再有 result 来收尾，据此开轮会把空闲会话当成在途
                         if active_query is None and is_main_turn_activity(item):
                             unsolicited_open = True
                         self._on_message(item)
@@ -228,12 +228,11 @@ class SessionActor:
                     if caught is not None:
                         raise caught
                 elif cmd.type == "query":
-                    if active_query is None and not unsolicited_open:
+                    if active_query is None:
+                        # 自主轮次在途也直接送入：CLI 自己排队，或把它并入当前轮
                         active_query = cmd
                         await self._send_query(client, cmd)
                     elif pending_query is None:
-                        # 有轮次在途（自己的 query 或 CLI 自主开启的一轮）：暂存，等本轮
-                        # result 后再送入。插进自主轮次会让它的 result 被当成这条 query 的。
                         pending_query = cmd
                     else:
                         # 上层 race 送来第三个 query：拒绝（FIFO 只保留第一个暂存）

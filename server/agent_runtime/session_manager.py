@@ -232,18 +232,14 @@ class ManagedSession:
     background_tasks: set[str] = field(default_factory=set)
     # CLI 最近一次报告的会话状态（session_state_changed 帧）；CLI 不报告时为 None，只剩账本可依。
     cli_session_state: str | None = None
-    # CLI 还欠一轮：最后一个子智能体结束时 CLI 仍报有工作，它的完成要 CLI 再跑一轮来处理。
-    # 子智能体在一轮的 result 之前结束时，这一轮收尾后到下一轮首帧之间只有它标出轮次未完。
-    # CLI 报 idle 或欠的那一轮开始时清除。
-    _turn_owed: bool = False
     # 消息流上已开始、尚未经 inbox 收尾的轮次数。CLI 自主开启的一轮要等 inbox 处理到才切
     # running，处理完它的 result 才算收尾，受理新消息不能只看 status。actor 回调读到一轮的
     # 首帧时登记，inbox 跑完这一轮的 result 后注销；两侧在同一消息序列上按同一规则判定
     # 轮次边界，登记与注销一一配对。
     unsettled_turns: int = 0
     # 消息流上读到、inbox 处理到的 result 数。回显登记按送入时的 results_read 记账，
-    # 第 k 个 result 收尾时只清送入早于它的登记：被 actor 暂存到自主轮次之后的 query，
-    # 回放在那一轮之后才来。
+    # 第 k 个 result 收尾时只清送入早于它的登记：被 actor 暂存的 query 在前一轮的 result
+    # 之后才送入，回放也在那之后才来。
     results_read: int = 0
     results_settled: int = 0
     _read_turn_open: bool = False
@@ -265,8 +261,6 @@ class ManagedSession:
         self._read_turn_open = _turn_open_after(was_open, msg)
         if self._read_turn_open and not was_open:
             self.unsettled_turns += 1
-            # 欠的那一轮开始了，之后由轮次计数接管
-            self._turn_owed = False
         return self._track_background_work(msg)
 
     def _note_query_delivered(self) -> None:
@@ -282,16 +276,12 @@ class ManagedSession:
         if was_open and not self._inbox_turn_open:
             self.unsettled_turns -= 1
 
-    def turn_underway(self) -> bool:
-        """有轮次已经开始：已切 running，或已在消息流上开始、inbox 尚未收尾。中断只对它有意义。"""
-        return self.status == "running" or self.unsettled_turns > 0
-
     def turn_in_flight(self) -> bool:
-        """有轮次在途：已经开始，或 CLI 还欠一轮。
+        """有轮次在途：已切 running，或已在消息流上开始、inbox 尚未收尾。
 
         此时受理新消息会与这一轮交错，断开 CLI 会中止它。
         """
-        return self.turn_underway() or self._turn_owed
+        return self.status == "running" or self.unsettled_turns > 0
 
     def forget_stream_state(self) -> None:
         """CLI 已退出或 inbox 停止处理：没收尾的轮次、后台子智能体与 CLI 状态都等不到后续帧了。
@@ -303,7 +293,6 @@ class ManagedSession:
         self._inbox_turn_open = False
         self.background_tasks.clear()
         self.cli_session_state = None
-        self._turn_owed = False
 
     def _track_background_work(self, msg: dict[str, Any]) -> bool:
         """按会话状态帧与任务生命周期帧更新后台工作；返回本帧是否解除了保护。"""
@@ -311,15 +300,8 @@ class ManagedSession:
         if msg.get("type") == "system" and msg.get("subtype") == "session_state_changed":
             data = msg.get("data")
             self.cli_session_state = data.get("state") if isinstance(data, dict) else None
-            if self.cli_session_state in (None, "idle"):
-                self._turn_owed = False
         else:
-            had_tasks = bool(self.background_tasks)
             self._track_task_lifecycle(msg)
-            # 不能拿「CLI 报 running 且账本为空」直接判定：普通一轮的 result 之后，CLI 要 flush
-            # 完 transcript 才报 idle，那段间隔同样如此。
-            if had_tasks and not self.background_tasks and self.cli_session_state not in (None, "idle"):
-                self._turn_owed = True
         return held and not self.holds_background_work()
 
     def _track_task_lifecycle(self, msg: dict[str, Any]) -> None:
@@ -1259,8 +1241,7 @@ class SessionManager:
                 return "interrupted"
             return meta.status
 
-        if not managed.turn_underway():
-            # 欠的那一轮还没开始时 actor 无轮次可中断；记下中断标志会让它随后出错时被误判为用户中断
+        if not managed.turn_in_flight():
             return managed.status
 
         # 不清 pending_user_echoes：SDK 可能尚未回放刚受理的用户消息副本，
