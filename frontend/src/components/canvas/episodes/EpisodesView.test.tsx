@@ -199,7 +199,7 @@ describe("EpisodesView", () => {
     const { location } = renderView("/episodes?upload=episode");
 
     await findManuscript();
-    // 对话框由地址参数经 effect 打开，与正文渲染不同步，要等它出现。
+    // 打开对话框的状态在渲染期间从地址参数写入，与正文加载是两次独立的渲染，要等它出现。
     expect(await screen.findByRole("dialog", { name: "上传原文" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /逐集原文/ })).toBeChecked();
     await waitFor(() => expect(location.history?.at(-1)).toBe("/episodes"));

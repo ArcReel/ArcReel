@@ -44,7 +44,7 @@ UV = ("uv", "run")
 DOMAINS: dict[str, tuple[Step, ...]] = {
     "backend": (
         Step((*UV, "ruff", "check", ".")),
-        Step((*UV, "ruff", "format", ".")),
+        Step((*UV, "ruff", "format", "--check", ".")),
         Step((*UV, "basedpyright", "--warnings")),
         Step((*UV, "lint-imports")),
         Step((*UV, "deptry", "lib", "server", "alembic", "scripts", "tests")),
