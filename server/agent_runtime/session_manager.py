@@ -241,6 +241,11 @@ class ManagedSession:
     # 首帧时登记，inbox 跑完这一轮的 result 后注销；两侧在同一消息序列上按同一规则判定
     # 轮次边界，登记与注销一一配对。
     unsettled_turns: int = 0
+    # 消息流上读到、inbox 处理到的 result 数。回显登记按送入时的 results_read 记账，
+    # 第 k 个 result 收尾时只清送入早于它的登记：被 actor 暂存到自主轮次之后的 query，
+    # 回放在那一轮之后才来。
+    results_read: int = 0
+    results_settled: int = 0
     _read_turn_open: bool = False
     _inbox_turn_open: bool = False
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
@@ -254,6 +259,8 @@ class ManagedSession:
 
     def note_frame_read(self, msg: dict[str, Any]) -> bool:
         """actor 回调侧，按读取顺序：登记一轮的首帧，更新后台工作；返回本帧是否解除了后台工作保护。"""
+        if msg.get("type") == "result":
+            self.results_read += 1
         was_open = self._read_turn_open
         self._read_turn_open = _turn_open_after(was_open, msg)
         if self._read_turn_open and not was_open:
@@ -261,6 +268,12 @@ class ManagedSession:
             # 欠的那一轮开始了，之后由轮次计数接管
             self._turn_owed = False
         return self._track_background_work(msg)
+
+    def _note_query_delivered(self) -> None:
+        """actor 把 query 送入 CLI 的那一刻：给尚未送入的回显登记记上送入时刻。"""
+        for echo in self.pending_user_echoes:
+            if echo.delivered_after is None:
+                echo.delivered_after = self.results_read
 
     def settle_turn_frame(self, msg: dict[str, Any]) -> None:
         """inbox 侧：一帧处理完毕后调用，这一轮的 result 处理完时注销。"""
@@ -360,7 +373,9 @@ class ManagedSession:
         `/sessions/send` 原有的 "立即 accepted + SSE 异步消费" 语义。
         """
         self.status = "running"
-        cmd = SessionCommand(type="query", prompt=prompt, session_id=sdk_session_id)
+        cmd = SessionCommand(
+            type="query", prompt=prompt, session_id=sdk_session_id, on_accepted=self._note_query_delivered
+        )
         await self.actor.enqueue(cmd)
         await cmd.sent.wait()
         if cmd.error is not None:
@@ -970,6 +985,7 @@ class SessionManager:
                 if managed.entry_pipeline is not None and managed.resolved_sdk_id is not None:
                     await managed.entry_pipeline.handle_message(msg_dict)
                 if msg_dict.get("type") == "result":
+                    managed.results_settled += 1
                     if managed.initial_user_entry_error is not None:
                         # 首条用户消息落库已失败，send_new_session 的错误清理路径
                         # 即将取消本任务；此处短路不再 finalize，避免先广播/落库
@@ -1309,7 +1325,9 @@ class SessionManager:
             },
         )
 
-    def _drain_pending_user_echoes(self, managed: ManagedSession, reason: str) -> None:
+    def _drain_pending_user_echoes(
+        self, managed: ManagedSession, reason: str, *, settled_results: int | None = None
+    ) -> None:
         """清空回显登记队列；轮次终结时仍有残留即认领失败，记一条告警。
 
         观测点在轮次终结处而非逐条比对处：登记与回放一一对应，轮次结束时队列
@@ -1317,8 +1335,18 @@ class SessionManager:
         到——单看一条消息无从判定它「是回放副本却没认上」。残留的后果是同一条
         用户消息在事件日志里重复落库，以及其身份映射缺失（改写锚点随后走恒等
         回退，锚点若是活跃路径 mint 的 id 则解析失败）。
+
+        给出 ``settled_results``（刚收尾的是第几个 result）时只清送入早于它的登记：
+        尚未送入、或在这一轮的 result 之后才送入的 query，回放还在后头。
         """
-        residue = len(managed.pending_user_echoes)
+        kept: list[PendingUserEcho] = []
+        if settled_results is not None:
+            kept = [
+                echo
+                for echo in managed.pending_user_echoes
+                if echo.delivered_after is None or echo.delivered_after >= settled_results
+            ]
+        residue = len(managed.pending_user_echoes) - len(kept)
         if residue:
             self.unclaimed_user_echoes += residue
             logger.warning(
@@ -1330,7 +1358,7 @@ class SessionManager:
                     "reason": reason,
                 },
             )
-        managed.pending_user_echoes.clear()
+        managed.pending_user_echoes[:] = kept
 
     def set_autonomous_turn_listener(self, listener: Callable[[str, str], None] | None) -> None:
         """注册会话因 CLI 自主开启新一轮而回到 running 时的通知（参数：项目名、会话 id）。"""
@@ -1363,7 +1391,7 @@ class SessionManager:
 
     async def _finalize_turn(self, managed: ManagedSession, result_msg: dict[str, Any]) -> None:
         """Settle session state after a result message completes a turn."""
-        self._drain_pending_user_echoes(managed, "turn finalized")
+        self._drain_pending_user_echoes(managed, "turn finalized", settled_results=managed.results_settled)
         managed.cancel_pending_questions("session completed")
         explicit = str(result_msg.get("session_status") or "").strip()
         final_status: SessionStatus = (

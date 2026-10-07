@@ -164,7 +164,11 @@ class TestSessionManagerUserInput:
         messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
         _meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
         try:
-            managed.pending_user_echoes.extend([PendingUserEcho(dedup_key="从未被回放", entry_uuid="user-a")] * 2)
+            # 两条登记都在本轮开始前送入 CLI，本轮收尾时回放仍未到
+            managed.pending_user_echoes.extend(
+                [PendingUserEcho(dedup_key="从未被回放", entry_uuid="user-a", delivered_after=0)] * 2
+            )
+            managed.results_settled = 1
 
             with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
                 await session_manager._finalize_turn(managed, {"type": "result", "subtype": "success"})

@@ -27,10 +27,14 @@ class PendingUserEcho:
     ``entry_uuid`` 是 ArcReel 合成的用户消息 id，随命中的回放副本一起交给写入点，
     与副本携带的 SDK transcript uuid 配成映射落库。条目尚未分配身份时为 None，
     此时只做去重、不落映射。
+
+    ``delivered_after`` 是 query 送入 CLI 时消息流上已读到的 result 数，尚未送入为
+    None：回放出现在送入之后的那一轮里，轮次收尾据此只清属于本轮及更早的登记。
     """
 
     dedup_key: str
     entry_uuid: str | None = None
+    delivered_after: int | None = None
 
 
 # SDK message class name to type mapping

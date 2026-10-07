@@ -8,6 +8,7 @@ import pytest
 from lib.infra.data_root_layout import DataRootLayout
 from server.agent_runtime import session_manager as sm_mod
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.message_serialization import PendingUserEcho
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionReady
 from server.agent_runtime.session_actor import SessionActor
@@ -459,6 +460,53 @@ class TestSessionManager:
             managed.settle_turn_frame(frame)
 
         assert not managed.turn_in_flight()
+
+    async def test_echo_of_a_query_held_behind_an_autonomous_turn_survives_that_turns_finalize(
+        self, session_manager, meta_store
+    ):
+        """受理检查通过后自主轮次才开始：query 被 actor 暂存到它的 result 之后，这一轮收尾不能清掉本条的回显登记。"""
+        from tests.fakes import build_managed_with_actor
+
+        meta = await meta_store.create("demo", "sdk-held-query-echo")
+        ref: list[ManagedSession | None] = [None]
+        on_message = session_manager._make_actor_message_callback(ref)
+        read: asyncio.Queue[dict] = asyncio.Queue()
+
+        def _on_read(_managed: ManagedSession, msg: dict) -> None:
+            on_message(msg)
+            read.put_nowait(msg)
+
+        managed, _actor, client = await build_managed_with_actor(
+            session_id=meta.id, project_name="demo", status="idle", on_message_hook=_on_read
+        )
+        ref[0] = managed
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        inbox = asyncio.create_task(session_manager._process_inbox(managed))
+        try:
+            client.push_message({"type": "assistant", "content": [], "parent_tool_use_id": None})
+            await asyncio.wait_for(read.get(), timeout=1.0)
+
+            # send_message 已过受理检查、登记了回显：query 落在自主轮次之后，被暂存
+            managed.pending_user_echoes.append(PendingUserEcho("hello"))
+            send = asyncio.create_task(managed.send_query("hello", sdk_session_id=meta.id))
+            await asyncio.sleep(0.01)
+            assert client.sent_queries == []
+
+            client.push_message({"type": "result", "subtype": "success", "session_id": meta.id})
+            await asyncio.wait_for(read.get(), timeout=1.0)
+            await asyncio.wait_for(send, timeout=1.0)
+            assert client.sent_queries == ["hello"]
+            # inbox 按序处理完自主轮次的 result（含收尾）后遇哨兵返回
+            managed._inbox.put_nowait(None)
+            await asyncio.wait_for(inbox, timeout=1.0)
+
+            assert [echo.dedup_key for echo in managed.pending_user_echoes] == ["hello"]
+            assert session_manager.unclaimed_user_echoes == 0
+        finally:
+            await session_manager.close_session(meta.id)
+            inbox.cancel()
+            await asyncio.gather(inbox, return_exceptions=True)
 
     async def test_interrupt_reaches_autonomous_turn_before_inbox_marks_running(self, session_manager, meta_store):
         from tests.fakes import build_managed_with_actor
