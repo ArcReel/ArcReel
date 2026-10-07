@@ -282,7 +282,7 @@ The remote MCP endpoint is mounted at `/mcp` and enforces an `arc-` API key on e
 
 The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(enable_dns_rebinding_protection=False)`), so ArcReel validates neither the `Host` nor the `Origin` header inside the MCP mount. A rebound request reaches the endpoint but carries no credential, because the API key is never held in a browser cookie or session, and receives 401. Host ownership is delegated to the reverse proxy and deployment topology. Cross-origin protection for browser MCP clients rests entirely on the application-level CORS allowlist described in 9.7. Disabling the flag does not affect the SDK's `Content-Type` validation for POST requests.
 
-`MCP_PUBLIC_URL` populates only the RFC 9728 protected-resource metadata and the 401 challenge. The `AccessToken` returned by `ArcApiKeyVerifier` carries no resource, so neither the issuer nor the resource URL participates in token validation.
+The endpoint is not an OAuth resource server: it publishes no RFC 9728 protected-resource metadata, and its 401 response is a plain `Bearer` challenge without `resource_metadata`, so discovery-based clients are never sent into an OAuth flow that has no authorization server behind it. The `issuer_url` required by the SDK's `AuthSettings` is a placeholder that is never published.
 
 ## 10. Attack surfaces and abuse cases
 

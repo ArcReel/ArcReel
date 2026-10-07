@@ -74,6 +74,8 @@ htmlcov/
 coverage/
 coverage.xml
 coverage-pg.xml
+# pytest-testmon 的依赖数据库（每个 worktree 一份）
+.testmondata*
 
 # File locks (project_manager 原子写产物)
 **/*.lock
