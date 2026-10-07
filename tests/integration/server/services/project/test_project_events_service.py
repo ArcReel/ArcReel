@@ -20,6 +20,7 @@ from server.agent_toolset.edit_timelines import CREATE_TIMELINE
 from server.dependencies import require_project_migration_ok
 from server.routers import edit_timelines
 from server.services.project.project_events import (
+    ASSISTANT_SESSION_RESUMED_EVENT,
     PROJECT_DELETED_EVENT,
     ProjectEventService,
     read_project_state,
@@ -206,6 +207,26 @@ class TestProjectEventService:
             assert payload["changes"][0]["action"] == "storyboard_ready"
 
         await service.shutdown()
+
+    async def test_assistant_session_resumed_is_broadcast_to_project_subscribers(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=1.0)
+        await service.start()
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
+
+                service.publish_assistant_session_resumed("demo", "sess-1")
+
+                event_name, payload = await _next_event(stream, timeout=1.0)
+                assert event_name == ASSISTANT_SESSION_RESUMED_EVENT
+                assert payload == {"project_name": "demo", "session_id": "sess-1", "status": "running"}
+        finally:
+            await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_stale_rebuild_does_not_broadcast_reverse_diff(self, tmp_path):

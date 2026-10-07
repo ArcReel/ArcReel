@@ -81,6 +81,12 @@ interface AssistantState {
   // Draft session (lazy creation)
   isDraftSession: boolean;
 
+  /**
+   * 最近一次「会话未经发送、自主回到 running」的通知（来自项目事件流）。每次通知都是
+   * 新对象，同一会话连续恢复也能被订阅方区分；由会话 hook 判定是否属于当前会话。
+   */
+  resumedSession: { sessionId: string } | null;
+
   // Actions
   setSessions: (sessions: SessionMeta[]) => void;
   setCurrentSessionId: (id: string | null) => void;
@@ -115,6 +121,7 @@ interface AssistantState {
   setEditingTurnUuid: (uuid: string | null) => void;
   setCurrentProject: (project: string | null) => void;
   setIsDraftSession: (draft: boolean) => void;
+  notifySessionResumed: (sessionId: string) => void;
 }
 
 export const useAssistantStore = create<AssistantState>((set, get) => {
@@ -184,6 +191,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     editingTurnUuid: null,
     currentProject: null,
     isDraftSession: false,
+    resumedSession: null,
 
     setSessions: (sessions) => set({ sessions }),
     setCurrentSessionId: (id) => set({ currentSessionId: id }),
@@ -289,5 +297,6 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     setEditingTurnUuid: (uuid) => set({ editingTurnUuid: uuid }),
     setCurrentProject: (project) => set({ currentProject: project }),
     setIsDraftSession: (draft) => set({ isDraftSession: draft }),
+    notifySessionResumed: (sessionId) => set({ resumedSession: { sessionId } }),
   };
 });

@@ -61,7 +61,9 @@ from server.sse_channel import IDLE, EvictNonCriticalAndSignal, SseChannel
 logger = logging.getLogger(__name__)
 
 from claude_agent_sdk import ClaudeSDKClient
+from claude_agent_sdk._internal.query import DEFERRING_TASK_TYPES
 from claude_agent_sdk.types import (
+    TERMINAL_TASK_STATUSES,
     PermissionResultAllow,
     PermissionResultDeny,
     SettingSource,
@@ -225,6 +227,8 @@ class ManagedSession:
     assistant_model: str = ""
     interrupt_requested: bool = False
     last_activity: float | None = None  # updated on every send/receive
+    # 在途的后台子智能体（task_id），由 track_background_task 按任务生命周期帧维护。
+    background_tasks: set[str] = field(default_factory=set)
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
     _inbox_warned: bool = False  # edge-triggered backlog warning state
@@ -233,6 +237,38 @@ class ManagedSession:
 
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES: ClassVar[set[str]] = {"result", "runtime_status", "log_entry", "log_turn_complete"}
+
+    def track_background_task(self, msg: dict[str, Any]) -> bool:
+        """按任务生命周期帧维护在途账本；返回本帧是否清空了账本。
+
+        口径同 SDK ``Query._track_task_lifecycle``：只记会可靠到达终态的委派
+        工作（子智能体、工作流），后台 shell 可能永不结束，记进来会让会话一直
+        受保护。``task_updated`` 序列化后不带 type，只按 subtype 判定。
+        """
+        task_id = msg.get("task_id")
+        if not task_id:
+            return False
+        subtype = msg.get("subtype")
+        if subtype == "task_started":
+            if msg.get("task_type") in DEFERRING_TASK_TYPES:
+                self.background_tasks.add(task_id)
+            return False
+        if task_id not in self.background_tasks:
+            return False
+        if subtype == "task_notification":
+            finished = True
+        elif subtype == "task_updated":
+            patch = msg.get("patch")
+            finished = isinstance(patch, dict) and patch.get("status") in TERMINAL_TASK_STATUSES
+        else:
+            finished = False
+        if finished:
+            self.background_tasks.discard(task_id)
+        return finished and not self.background_tasks
+
+    def holds_background_work(self) -> bool:
+        """有在途后台子智能体。与 SDK 一致不设上限：终态帧不到，会话就一直受保护。"""
+        return bool(self.background_tasks)
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
@@ -326,6 +362,15 @@ def _entry_uuid(entry: dict[str, Any] | None) -> str | None:
     return str(uuid) if uuid else None
 
 
+def _is_main_turn_activity(msg: dict[str, Any]) -> bool:
+    """主线程正在产出一轮回复，与 SDK 判定「轮次进行中」的口径一致。
+
+    子代理消息、任务进度与 result 之后的 system 帧都不算：拿它们判定会把
+    已结束的会话错切回 running，又没有 result 来收尾。
+    """
+    return msg.get("type") in ("assistant", "stream_event") and msg.get("parent_tool_use_id") is None
+
+
 class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
 
@@ -376,6 +421,9 @@ class SessionManager:
         self.sessions: dict[str, ManagedSession] = {}
         # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
         self.unclaimed_user_echoes = 0
+        # CLI 自主开启新一轮、会话回到 running 时的通知出口（参数：项目名、会话 id），
+        # 见 _begin_autonomous_turn。
+        self._autonomous_turn_listener: Callable[[str, str], None] | None = None
         self._disconnecting: set[str] = set()
         # 优雅 send_disconnect 的等待上限；超时后各调用点再走无界的 cancel 兜底。
         self._session_actor_shutdown_timeout: float = 15.0
@@ -842,6 +890,13 @@ class SessionManager:
                             "sdk_session_id 处理失败 session_id=%s",
                             managed.session_id,
                         )
+                # 在 inbox 串行序上判定：上一轮的 _finalize_turn 已跑完，
+                # 不会把刚切回的 running 覆盖成 idle。
+                if managed.status != "running" and _is_main_turn_activity(msg_dict):
+                    await self._begin_autonomous_turn(managed)
+                if managed.track_background_task(msg_dict) and managed.status != "running":
+                    # 最后一个后台子智能体结束：受保护期间到点的清理计时从此刻重来
+                    self._schedule_cleanup(managed.session_id)
                 # 事件日志写入点：sdk_session_id 就绪后逐条定型入日志。
                 # handle_message 内部吞异常，不会打断会话消费。
                 if managed.entry_pipeline is not None and managed.resolved_sdk_id is not None:
@@ -1201,6 +1256,30 @@ class SessionManager:
             )
         managed.pending_user_echoes.clear()
 
+    def set_autonomous_turn_listener(self, listener: Callable[[str, str], None] | None) -> None:
+        """注册会话因 CLI 自主开启新一轮而回到 running 时的通知（参数：项目名、会话 id）。"""
+        self._autonomous_turn_listener = listener
+
+    async def _begin_autonomous_turn(self, managed: ManagedSession) -> None:
+        """CLI 未经 query 开启了新一轮（后台任务完成后唤醒）：会话回到 running。
+
+        idle 会话没有 entry 流订阅者，这一轮的消息与问答卡片只能等客户端得到
+        通知后重新订阅才看得到。
+        """
+        if managed._cleanup_task is not None and not managed._cleanup_task.done():
+            managed._cleanup_task.cancel()
+            managed._cleanup_task = None
+        managed.status = "running"
+        managed.last_activity = time.monotonic()
+        await self.meta_store.update_status(managed.session_id, "running")
+        listener = self._autonomous_turn_listener
+        if listener is None:
+            return
+        try:
+            listener(managed.project_name, managed.session_id)
+        except Exception:
+            logger.exception("自主轮次通知失败 session_id=%s", managed.session_id)
+
     async def _finalize_turn(self, managed: ManagedSession, result_msg: dict[str, Any]) -> None:
         """Settle session state after a result message completes a turn."""
         self._drain_pending_user_echoes(managed, "turn finalized")
@@ -1321,6 +1400,9 @@ class SessionManager:
         managed = self.sessions.get(session_id)
         if managed is None:
             return
+        if managed.holds_background_work():
+            # 断开 CLI 会连带杀掉后台子智能体。账本清空时 _process_inbox 重新计时。
+            return
         if managed.status in ("idle", "interrupted", "error", "completed"):
             # Clear our own reference first so _evict_one's cleanup-task cancel doesn't self-cancel
             managed._cleanup_task = None
@@ -1428,9 +1510,10 @@ class SessionManager:
         if len(active) < max_concurrent:
             return
 
-        # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
+        # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted），
+        # 且没有在途后台子智能体——后者等同进行中，宁可拒绝新会话也不断开它。
         evictable = sorted(
-            [s for s in active if s.status != "running"],
+            [s for s in active if s.status != "running" and not s.holds_background_work()],
             key=lambda s: s.last_activity or 0,
         )
 
@@ -1452,7 +1535,7 @@ class SessionManager:
                 raise SessionCapacityError("存在未能关闭的空闲会话，当前无法释放并发槽位，请稍后重试") from exc
             return
 
-        # 所有会话都在 running → 拒绝
+        # 所有会话都在 running 或有在途后台子智能体 → 拒绝
         raise SessionCapacityError(f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试")
 
     _PATROL_INTERVAL = 300  # 5 分钟
@@ -1463,6 +1546,8 @@ class SessionManager:
         now = time.monotonic()
         for sid, managed in list(self.sessions.items()):
             if managed.status == "running" or sid in self._disconnecting:
+                continue
+            if managed.holds_background_work():
                 continue
             activity_age = now - (managed.last_activity or 0)
             if activity_age > cleanup_delay * 2:

@@ -6,6 +6,7 @@ import { API, type ProjectEventStreamOptions } from "@/api";
 import { LeaveGuardProvider, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { useProjectEventsSSE } from "./useProjectEventsSSE";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
@@ -310,6 +311,18 @@ describe("useProjectEventsSSE", () => {
 
     expect(revision()).toBeGreaterThan(before);
     expect(useAppStore.getState().getEntityRevision("draft:episode_4_prompt_authoring")).toBeGreaterThan(0);
+  });
+
+  it("forwards an assistant session resuming on its own to the assistant store", () => {
+    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    const stream = mockProjectEventStream();
+    renderHarness("/");
+
+    act(() =>
+      stream.options?.onAssistantSessionResumed?.({ project_name: "demo", session_id: "session-1", status: "running" }),
+    );
+
+    expect(useAssistantStore.getState().resumedSession).toEqual({ sessionId: "session-1" });
   });
 
   it("names an episode the Agent just created from the refreshed ledger", async () => {

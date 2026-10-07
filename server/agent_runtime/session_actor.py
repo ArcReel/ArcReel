@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterable, Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -45,6 +45,56 @@ class SessionCommand:
 
 OnMessage = Callable[[dict[str, Any]], None]
 ClientFactory = Callable[[], AbstractAsyncContextManager[Any]]
+
+# _MessagePump 在一次 receive_response() 迭代结束（读到 result）时产出的标记
+_TURN_END = object()
+
+
+class _MessagePump:
+    """持续读取 SDK 消息流，一轮接一轮地重开 receive_response()。
+
+    同一时刻至多一个在途读取 task，跨 idle 与轮次复用、只在 actor 退出时取消：
+    反复取消重建会把恰好送达的消息丢在被取消的 task 里。
+    """
+
+    def __init__(self, client: Any):
+        self._client = client
+        self._iter: AsyncIterator[Any] | None = None
+        self._yielded = False
+        # 消息流已关闭（CLI 退出）：一次迭代未产出任何消息即结束
+        self._closed = False
+        self._task: asyncio.Task[Any] | None = None
+
+    def arm(self) -> asyncio.Task[Any] | None:
+        """返回在途读取 task，没有则新建；流已关闭时返回 None。"""
+        if self._task is None and not self._closed:
+            self._task = asyncio.create_task(self._next(), name="actor-recv")
+        return self._task
+
+    def take(self) -> Any:
+        """取走已完成读取 task 的结果：一条消息或 _TURN_END；读取异常原样抛出。"""
+        task, self._task = self._task, None
+        assert task is not None
+        return task.result()
+
+    def cancel(self) -> None:
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+
+    async def _next(self) -> Any:
+        iterator = self._iter
+        if iterator is None:
+            iterator = self._iter = self._client.receive_response().__aiter__()
+            self._yielded = False
+        try:
+            msg = await iterator.__anext__()
+        except StopAsyncIteration:
+            self._iter = None
+            if not self._yielded:
+                self._closed = True
+            return _TURN_END
+        self._yielded = True
+        return msg
 
 
 class SessionActor:
@@ -92,101 +142,109 @@ class SessionActor:
             self._drain_pending_commands(self._fatal or _ActorClosed())
 
     async def _command_loop(self, client: Any) -> None:
-        deferred_cmd: SessionCommand | None = None
-        while True:
-            cmd = deferred_cmd or await self._cmd_queue.get()
-            deferred_cmd = None
+        """在同一 task 内交织消费消息流与命令队列，直到 disconnect。
 
-            if cmd.type == "disconnect":
-                cmd.complete()
-                return  # 触发 __aexit__，同 task disconnect
-
-            if cmd.type == "query":
-                try:
-                    await client.query(cmd.prompt, session_id=cmd.session_id)
-                    # prompt 已送入 SDK：释放 HTTP 路径，actor 继续在后台 drain 消息流
-                    cmd.accepted = True
-                    cmd.sent.set()
-                    deferred_cmd = await self._drive_query(client, cmd)
-                except BaseException as exc:
-                    cmd.complete(exc)
-                    raise
-            elif cmd.type == "interrupt":
-                # 当前无 query 进行中；interrupt 无操作，但仍 ACK
-                cmd.complete()
-
-    async def _drive_query(self, client: Any, query_cmd: SessionCommand) -> SessionCommand | None:
-        """在同一 task 内交织消费 receive_response 与新命令。
-        返回：从队列取出但本轮未消化的命令（交给 _command_loop 下一轮）。
+        消息流在会话存续期间持续读取，不随 query 起止：result 只代表一轮结束，
+        后台任务完成后 CLI 会不经 query 自主开启新一轮，idle 时停读会让这一轮
+        滞留在 SDK 缓冲里，直到下一次 query 才被读出。
         """
-        msg_iter = client.receive_response().__aiter__()
-        msg_task = asyncio.create_task(msg_iter.__anext__(), name="actor-recv")
-        cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
+        pump = _MessagePump(client)
+        cmd_task: asyncio.Task[SessionCommand] | None = None
+        # 已送入 SDK、等待本轮 result 的 query
+        active_query: SessionCommand | None = None
+        # active_query 在途时送来的 query：暂存到本轮 result 后再送入 SDK
         pending_query: SessionCommand | None = None
+        # 无 query 在途时收到过消息：CLI 自主开启的一轮尚未见到 result
+        unsolicited_open = False
         try:
             while True:
-                done, _ = await asyncio.wait({msg_task, cmd_task}, return_when=asyncio.FIRST_COMPLETED)
+                if cmd_task is None:
+                    cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
+                msg_task = pump.arm()
+                waiters: set[asyncio.Task[Any]] = {cmd_task} if msg_task is None else {cmd_task, msg_task}
+                done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
 
-                if msg_task in done:
-                    try:
-                        self._on_message(msg_task.result())
-                        msg_task = asyncio.create_task(msg_iter.__anext__())
-                    except StopAsyncIteration:
-                        query_cmd.done.set()
+                if msg_task is not None and msg_task in done:
+                    item = pump.take()
+                    if item is _TURN_END:
+                        unsolicited_open = False
+                        if active_query is not None:
+                            active_query.done.set()
+                            active_query = None
                         if pending_query is not None:
-                            # 若 cmd_task 又 race 到下一条命令，回塞到队列避免丢失
-                            if cmd_task.done():
-                                self._cmd_queue.put_nowait(cmd_task.result())
-                            else:
-                                cmd_task.cancel()
-                            handed_off, pending_query = pending_query, None
-                            return handed_off
-                        if cmd_task.done():
-                            return cmd_task.result()
-                        cmd_task.cancel()
-                        return None
+                            active_query, pending_query = pending_query, None
+                            await self._send_query(client, active_query)
+                    else:
+                        if active_query is None:
+                            unsolicited_open = True
+                        self._on_message(item)
 
-                if cmd_task in done:
-                    next_cmd = cmd_task.result()
-                    if next_cmd.type == "interrupt":
-                        # 无论 client.interrupt() 成败都要唤醒等待者——常规失败时
-                        # 把异常挂到 cmd.error 透传给 send_interrupt；CancelledError 等
-                        # 控制流异常不拦截，但 finally 仍保证 cmd 被 complete 避免挂死。
-                        caught: Exception | None = None
-                        try:
-                            await client.interrupt()
-                        except Exception as exc:
-                            caught = exc
-                        finally:
-                            next_cmd.complete(caught)
-                        if caught is not None:
-                            raise caught
-                        cmd_task = asyncio.create_task(self._cmd_queue.get())
-                    elif next_cmd.type == "disconnect":
-                        # drive_query 内部遇到 disconnect：先 interrupt 让消息流收尾，
-                        # 然后把 disconnect 命令携带回 _command_loop 处理。
-                        # query_cmd.done 在此分支下永远不会有 StopAsyncIteration 触发，
-                        # 显式 set 以兑现 "done 必定转换" 的隐式契约（保护未来调用方）。
+                if cmd_task not in done:
+                    continue
+                cmd, cmd_task = cmd_task.result(), None
+
+                if cmd.type == "disconnect":
+                    if active_query is not None:
+                        # 先 interrupt 让在途轮次收尾；这一轮的 result 不会再被读取，
+                        # 显式 set 以兑现 "done 必定转换" 的契约。
                         await client.interrupt()
-                        query_cmd.done.set()
-                        return next_cmd
-                    elif next_cmd.type == "query":
-                        if pending_query is not None:
-                            # 上层 race 送来第三个 query：拒绝（FIFO 只保留第一个暂存）
-                            next_cmd.complete(RuntimeError("session busy: 当前会话已有待执行 query"))
-                        else:
-                            # 违反 "drain before new query"：暂存，让消息流自然 drain 完成；
-                            # 在 StopAsyncIteration 分支返回 pending_query 由下一轮 _command_loop 处理。
-                            pending_query = next_cmd
-                        cmd_task = asyncio.create_task(self._cmd_queue.get())
+                        active_query.done.set()
+                        active_query = None
+                    cmd.complete()
+                    return  # 触发 __aexit__，同 task disconnect
+                if cmd.type == "interrupt":
+                    if active_query is None and not unsolicited_open:
+                        # 没有在途轮次；interrupt 无操作，但仍 ACK
+                        cmd.complete()
+                        continue
+                    # 无论 client.interrupt() 成败都要唤醒等待者——常规失败时
+                    # 把异常挂到 cmd.error 透传给 send_interrupt；CancelledError 等
+                    # 控制流异常不拦截，但 finally 仍保证 cmd 被 complete 避免挂死。
+                    caught: Exception | None = None
+                    try:
+                        await client.interrupt()
+                    except Exception as exc:
+                        caught = exc
+                    finally:
+                        cmd.complete(caught)
+                    if caught is not None:
+                        raise caught
+                elif cmd.type == "query":
+                    if active_query is None:
+                        active_query = cmd
+                        await self._send_query(client, cmd)
+                    elif pending_query is None:
+                        # 违反 "drain before new query"：暂存，等本轮 result 后再送入
+                        pending_query = cmd
+                    else:
+                        # 上层 race 送来第三个 query：拒绝（FIFO 只保留第一个暂存）
+                        cmd.complete(RuntimeError("session busy: 当前会话已有待执行 query"))
+        except BaseException as exc:
+            if active_query is not None:
+                active_query.complete(active_query.error or exc)
+            raise
         finally:
-            if not msg_task.done():
-                msg_task.cancel()
-            if not cmd_task.done():
-                cmd_task.cancel()
+            pump.cancel()
+            if cmd_task is not None:
+                if not cmd_task.done():
+                    cmd_task.cancel()
+                elif not cmd_task.cancelled() and cmd_task.exception() is None:
+                    # 与消息流异常同轮取出、尚未处理的命令：不释放会让调用方挂死
+                    cmd_task.result().complete(_ActorClosed())
             # 异常退出路径下 pending_query 已脱离队列，必须显式释放等待者
             if pending_query is not None and not pending_query.done.is_set():
                 pending_query.complete(pending_query.error or _ActorClosed())
+
+    @staticmethod
+    async def _send_query(client: Any, cmd: SessionCommand) -> None:
+        try:
+            await client.query(cmd.prompt, session_id=cmd.session_id)
+        except BaseException as exc:
+            cmd.complete(exc)
+            raise
+        # prompt 已送入 SDK：释放 HTTP 路径，actor 继续在后台 drain 消息流
+        cmd.accepted = True
+        cmd.sent.set()
 
     async def enqueue(self, cmd: SessionCommand) -> None:
         if self._task is not None and self._task.done():

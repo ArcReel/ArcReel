@@ -379,3 +379,135 @@ class TestPatrolLoop:
             assert client.disconnected is False
         finally:
             await mgr.close_session("s1")
+
+
+# --- 后台子智能体在途：断开 CLI 会连带杀掉它，完成后的自主轮次也不会发生 ------------
+
+
+def _task_started(task_id: str = "t1", task_type: str = "local_agent") -> dict:
+    return {"type": "system", "subtype": "task_started", "task_id": task_id, "task_type": task_type}
+
+
+async def _feed(mgr: SessionManager, managed: ManagedSession, *frames: dict) -> None:
+    """经真实 inbox 处理喂入消息帧，处理完即返回。"""
+    managed.resolved_sdk_id = managed.session_id
+    for frame in frames:
+        managed._inbox.put_nowait(frame)
+    managed._inbox.put_nowait(None)
+    await mgr._process_inbox(managed)
+
+
+class TestBackgroundWork:
+    async def test_idle_cleanup_spares_session_with_background_agent(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        await _feed(mgr, managed, _task_started())
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+                await mgr._cleanup_idle("s1")
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_idle_cleanup_evicts_session_with_only_a_background_shell(self, tmp_path):
+        """后台 shell 可能永不结束（dev server、tail -f），与 SDK 同口径不算在途工作。"""
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        await _feed(mgr, managed, _task_started(task_type="local_bash"))
+
+        with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+            await mgr._cleanup_idle("s1")
+
+        assert "s1" not in mgr.sessions
+        assert client.disconnected is True
+
+    @pytest.mark.parametrize(
+        "terminal_frame",
+        [
+            {"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "completed"},
+            # task_updated 序列化后不带 type，只能按 subtype 认
+            {"subtype": "task_updated", "task_id": "t1", "status": "killed", "patch": {"status": "killed"}},
+        ],
+        ids=["task-notification", "task-updated-terminal"],
+    )
+    async def test_last_background_agent_finishing_restarts_idle_cleanup(self, tmp_path, terminal_frame):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+
+        actor_task = managed.actor.task
+        assert actor_task is not None
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+                await _feed(mgr, managed, _task_started(), terminal_frame)
+                # 清理断开 CLI 即 actor 退出；shield 让超时只报失败，不顺带取消 actor
+                await asyncio.wait_for(asyncio.shield(actor_task), timeout=1.0)
+
+            assert client.disconnected is True
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_capacity_rejects_rather_than_evicting_session_with_background_agent(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        await _feed(mgr, managed, _task_started())
+
+        try:
+            with (
+                patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=1),
+                pytest.raises(SessionCapacityError),
+            ):
+                await mgr._ensure_capacity()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_capacity_evicts_unprotected_session_before_older_protected_one(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        protected, protected_client = _make_managed("s_bg")
+        await _start(protected)
+        mgr.sessions["s_bg"] = protected
+        await _feed(mgr, protected, _task_started())
+        protected.last_activity = time.monotonic() - 100
+        plain, plain_client = _make_managed("s_plain")
+        await _start(plain)
+        mgr.sessions["s_plain"] = plain
+
+        try:
+            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
+                await mgr._ensure_capacity()
+
+            assert plain_client.disconnected is True
+            assert protected_client.disconnected is False
+        finally:
+            await mgr.close_session("s_bg")
+            await mgr.close_session("s_plain")
+
+    async def test_patrol_spares_stale_session_with_background_agent(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1", status="completed")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        await _feed(mgr, managed, _task_started())
+        managed.last_activity = time.monotonic() - 1000
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
+                await mgr._patrol_once()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")

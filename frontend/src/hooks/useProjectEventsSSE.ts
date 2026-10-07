@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useHasUnsavedChanges } from "@/components/shared/edit-unit/LeaveGuard";
 import type { SseStreamHandle } from "@/utils/sse-stream";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { SCRIPT_PLAN_TASK_TYPES, useTasksStore } from "@/stores/tasks-store";
@@ -473,6 +474,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (entityChanges.some((c) => c.action === "grid_ready" || c.action === "grid_split_done")) {
           useAppStore.getState().invalidateGrids();
         }
+      },
+      onAssistantSessionResumed(payload) {
+        if (disposed) return;
+        useAssistantStore.getState().notifySessionResumed(payload.session_id);
       },
       onProjectDeleted() {
         if (disposed) return;

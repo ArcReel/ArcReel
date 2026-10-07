@@ -837,6 +837,81 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().turns[0].content[0].text).toBe("S3-0");
   });
 
+  it("reconnects the entry stream when the current idle session resumes on its own", async () => {
+    mockIdleSession([userEntry(0, "历史消息")]);
+
+    renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().turns).toHaveLength(1);
+    });
+    expect(FakeSseStream.instances).toHaveLength(0);
+
+    act(() => {
+      useAssistantStore.getState().notifySessionResumed("session-1");
+    });
+
+    expect(useAssistantStore.getState().sessionStatus).toBe("running");
+    expect(FakeSseStream.instances).toHaveLength(1);
+    expect(streamOptions(0)).toMatchObject({ sessionId: "session-1", after: 0 });
+
+    // 自主轮次里的问答卡片经重新接上的流送达
+    act(() => {
+      FakeSseStream.instances[0].emit("question", makePendingQuestion());
+    });
+    expect(useAssistantStore.getState().pendingQuestion?.question_id).toBe("q-1");
+  });
+
+  it("ignores resume notifications for sessions other than the current one", async () => {
+    mockIdleSession([userEntry(0, "历史消息")]);
+
+    renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().turns).toHaveLength(1);
+    });
+
+    act(() => {
+      useAssistantStore.getState().notifySessionResumed("session-other");
+    });
+
+    expect(useAssistantStore.getState().sessionStatus).toBe("idle");
+    expect(FakeSseStream.instances).toHaveLength(0);
+  });
+
+  it("connects after the cold read settles when the session resumes mid-load", async () => {
+    // 加载链已按 idle 走冷读：此时到达的通知不能直接建流（冷读随后整帧覆写时间线），
+    // 记账后在加载收尾时补接。
+    const deferredEntries = createDeferred<EntriesResponse>();
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
+    vi.spyOn(API, "listAssistantEntries").mockReturnValue(deferredEntries.promise);
+
+    renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(API.listAssistantEntries).toHaveBeenCalled();
+    });
+
+    act(() => {
+      useAssistantStore.getState().notifySessionResumed("session-1");
+    });
+    expect(FakeSseStream.instances).toHaveLength(0);
+
+    await act(async () => {
+      deferredEntries.resolve(makeEntriesResponse({ entries: [userEntry(0, "历史消息")] }));
+      await deferredEntries.promise;
+    });
+
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    expect(streamOptions(0)).toMatchObject({ sessionId: "session-1", after: 0 });
+    expect(useAssistantStore.getState().sessionStatus).toBe("running");
+  });
+
   it("does not let a delayed idle cold-read overwrite state set by a concurrent sendMessage", async () => {
     // 冷读 listAssistantEntries 挂起期间，用户在同一会话内发送消息：sendMessage
     // 受理后作废在途加载链。冷读迟到完成后携带的是发消息前的旧快照，不得据此

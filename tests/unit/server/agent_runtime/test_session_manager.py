@@ -304,6 +304,46 @@ class TestSessionManager:
         assert managed.status == "interrupted"
         assert (await meta_store.get(meta.id)).status == "interrupted"
 
+    async def test_process_inbox_resumes_running_on_autonomous_turn(self, session_manager, meta_store):
+        """idle 会话收到主线程 assistant 消息（CLI 自主开启的一轮）：回到 running 并通知监听方。"""
+        meta = await meta_store.create("demo", "sdk-autonomous-1")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        resumed: list[tuple[str, str]] = []
+        session_manager.set_autonomous_turn_listener(lambda project, sid: resumed.append((project, sid)))
+
+        managed._inbox.put_nowait({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        managed._inbox.put_nowait(None)
+        await session_manager._process_inbox(managed)
+
+        assert managed.status == "running"
+        assert (await meta_store.get(meta.id)).status == "running"
+        assert resumed == [("demo", meta.id)]
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            {"type": "assistant", "content": [], "parent_tool_use_id": "toolu_subagent"},
+            {"type": "system", "subtype": "session_state_changed", "state": "idle"},
+        ],
+        ids=["subagent-message", "trailing-system-frame"],
+    )
+    async def test_process_inbox_keeps_idle_on_non_turn_message(self, session_manager, meta_store, message):
+        meta = await meta_store.create("demo", "sdk-autonomous-2")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        resumed: list[tuple[str, str]] = []
+        session_manager.set_autonomous_turn_listener(lambda project, sid: resumed.append((project, sid)))
+
+        managed._inbox.put_nowait(message)
+        managed._inbox.put_nowait(None)
+        await session_manager._process_inbox(managed)
+
+        assert managed.status == "idle"
+        assert resumed == []
+
     @pytest.mark.asyncio
     async def test_can_use_tool_callback_branches(self, session_manager, monkeypatch):
         monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)

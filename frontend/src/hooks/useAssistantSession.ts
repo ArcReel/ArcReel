@@ -262,11 +262,38 @@ export function useAssistantSession(projectName: string | null) {
     [clearPendingQuestion, projectName, closeStream, refreshSessions, store, syncPendingQuestion],
   );
 
+  // 会话加载期间到达的自主恢复通知：加载链可能已按 idle 走冷读，冷读落地会整帧覆写
+  // 时间线，当场建流的条目会被冲掉；记账到 loadSession 收尾时补接。
+  const deferredResumeRef = useRef<string | null>(null);
+
+  // 会话未经发送、自主开启了新一轮（后台任务完成后唤醒）：idle 时没有 entry 流，
+  // 重新接上才能看到这一轮的输出与问答卡片。
+  const resumeStream = useCallback((sessionId: string) => {
+    statusRef.current = "running";
+    store.getState().setSessionStatus("running");
+    connectStream(sessionId);
+  }, [connectStream, store]);
+
+  const resumedSession = useAssistantStore((s) => s.resumedSession);
+  useEffect(() => {
+    if (!resumedSession) return;
+    const { sessionId } = resumedSession;
+    if (store.getState().currentSessionId !== sessionId) return;
+    if (store.getState().messagesLoading) {
+      deferredResumeRef.current = sessionId;
+      return;
+    }
+    resumeStream(sessionId);
+  }, [resumedSession, resumeStream, store]);
+
   // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放。
   // signal 被 abort 时网络 await 断点由 fetch 自动 reject；写 store 与建流前
   // 复核 aborted，拦截「abort 发生在响应已 resolve 之后」的窗口。
   const loadSession = useCallback(async (sessionId: string, options: { signal: AbortSignal }) => {
     const { signal } = options;
+    // 此后到达的恢复通知由下面读到的状态覆盖（服务端先切 running 再发通知），
+    // 之前记的账已经过时
+    deferredResumeRef.current = null;
     store.getState().beginHistory();
     const res = await API.getAssistantSession(projectName!, sessionId, { signal });
     if (signal.aborted) return;
@@ -287,8 +314,12 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().setEntries(data.entries ?? []);
       store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
       store.getState().settleHistory();
+      if (deferredResumeRef.current === sessionId) {
+        deferredResumeRef.current = null;
+        resumeStream(sessionId);
+      }
     }
-  }, [projectName, clearPendingQuestion, connectStream, store]);
+  }, [projectName, clearPendingQuestion, connectStream, resumeStream, store]);
 
   // 加载会话
   useEffect(() => {
