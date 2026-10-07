@@ -351,16 +351,24 @@ describe("GridPreviewPanel 图片地址版本", () => {
 
     const { container } = render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
-    const composite = await screen.findByRole("img", { name: "联合图" });
-    expect(composite).toHaveAttribute("src", "/api/v1/files/demo/grids/grid-1.png?w=1280");
-    const reference = container.querySelector<HTMLImageElement>('img[src*="characters/"]');
-    expect(reference?.getAttribute("src")).toBe("/api/v1/files/demo/characters/主角.png?w=160");
+    // 断言当前显示的图片：期间若有重拉，面板会回到加载态再重新挂载图片，先前取到的节点已脱离文档
+    const referenceSrc = () =>
+      container.querySelector<HTMLImageElement>('img[src*="characters/"]')?.getAttribute("src");
+
+    expect(await screen.findByRole("img", { name: "联合图" })).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/grids/grid-1.png?w=1280",
+    );
+    expect(referenceSrc()).toBe("/api/v1/files/demo/characters/主角.png?w=160");
 
     act(() =>
       useProjectsStore.setState({ assetFingerprints: { "grids/grid-1.png": 11, "characters/主角.png": 22 } }),
     );
-    expect(composite).toHaveAttribute("src", "/api/v1/files/demo/grids/grid-1.png?v=11&w=1280");
-    expect(reference?.getAttribute("src")).toBe("/api/v1/files/demo/characters/主角.png?v=22&w=160");
+    expect(await screen.findByRole("img", { name: "联合图" })).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/grids/grid-1.png?v=11&w=1280",
+    );
+    expect(referenceSrc()).toBe("/api/v1/files/demo/characters/主角.png?v=22&w=160");
   });
 });
 
