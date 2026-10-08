@@ -39,6 +39,8 @@ class CustomProvider(TimestampMixin, Base):
             "audio_max_workers IS NULL OR audio_max_workers >= 1",
             name="ck_custom_provider_audio_max_workers_positive",
         ),
+        # 删除的供应商 ID 不回收：provider_id（custom-<id>）落在失败记录与用量里，复用会错归
+        {"sqlite_autoincrement": True},
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
