@@ -32,7 +32,8 @@ from lib.project.source_revision import SourceRevisionResult, compute_source_rev
 from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
 from tests.factories import register_project_sources
-from tests.integration.lib.manifest_parse_support import count_manifest_parses
+from tests.integration.lib.episode_media_support import episodes_with_media
+from tests.integration.lib.manifest_parse_support import count_manifest_parses, count_versions_parses
 from tests.integration.lib.workflow.test_workflow_state import (
     _complete_episode_media,
     _count_source_reads,
@@ -665,6 +666,26 @@ def test_verified_manifest_parses_do_not_grow_with_the_artifact_count(
         parses[count] = manifest_parses["parses"]
 
     assert parses[8] == parses[4] == 1
+
+
+def test_verified_versions_parses_do_not_grow_with_the_episode_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """完整口径按集比对产物，但版本历史整份解析的次数与集数无关：集数从 1 到 3，解析次数不变。"""
+
+    parses: dict[int, int] = {}
+    for count in (1, 3):
+        pm, project_path = _make_project(tmp_path / f"episodes-{count}", "narration")
+        episodes_with_media(pm, project_path, count)
+
+        versions_parses = count_versions_parses(monkeypatch)
+        summary = WorkflowStateService(pm).get_project_summary("demo", currency="verified")
+        monkeypatch.undo()
+
+        assert [(episode.videos.total, episode.videos.available) for episode in summary.episodes] == [(1, 1)] * count
+        parses[count] = versions_parses["parses"]
+
+    assert parses[3] == parses[1] == 1
 
 
 def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path) -> None:
