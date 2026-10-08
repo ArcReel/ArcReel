@@ -12,6 +12,7 @@ from lib.i18n import _, render_generation_input_error
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_manager import ProjectManager
 from server.services.tasks import generation_tasks
+from tests.factories import make_display_names
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     ad_pm,
@@ -124,8 +125,8 @@ async def test_every_gap_is_reported_before_the_provider_is_resolved(tmp_path, m
     def translate(key, **params):
         return _(key, locale="zh", **params)
 
-    detail = render_generation_input_error(refused.value.key, refused.value.params, translate)
-    assert detail == render_failure(stored, translate)
+    detail = render_generation_input_error(refused.value.key, refused.value.params, translate, make_display_names())
+    assert detail == render_failure(stored, translate, make_display_names())
     assert "原图读不到：product: 保温杯" in detail
     assert "参考素材缺失或文件不可用：character: Alice/劲装" in detail
     assert "未登记的资产名：Bob" in detail

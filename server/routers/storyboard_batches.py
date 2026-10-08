@@ -24,7 +24,7 @@ from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.project.project_manager import get_project_manager
 from lib.script.script_skeleton import SkeletonRouteMismatchError
 from server.auth import CurrentUser
-from server.i18n import Translator
+from server.i18n import DisplayNamesCatalog, Translator
 from server.routers._batch_admission import enqueue_failure_payload, localized_admission_payload
 from server.services.admission.cost_estimation import estimate_image_batch_cost
 from server.services.admission.storyboard_batch import (
@@ -126,7 +126,7 @@ async def submit_storyboard_batch(project_name: str, episode: int, user: Current
 
 @router.post("/videos/batch/preview")
 async def preview_storyboard_video_batch(
-    project_name: str, episode: int, user: CurrentUser, _t: Translator
+    project_name: str, episode: int, user: CurrentUser, _t: Translator, names: DisplayNamesCatalog
 ) -> dict[str, Any]:
     """规划一批分镜视频但不建任务：要生成的分镜、跳过项、整批准入结论与能算出时的预估费用。"""
 
@@ -135,20 +135,20 @@ async def preview_storyboard_video_batch(
     return {
         "targets": [{"unit_id": unit_id} for unit_id in plan.target_ids],
         "skipped": _skipped(plan.skips),
-        "admission": localized_admission_payload(plan.admission, _t),
+        "admission": localized_admission_payload(plan.admission, _t, names),
         "estimated_cost": estimated or None,
     }
 
 
 @router.post("/videos/batch")
 async def submit_storyboard_video_batch_route(
-    project_name: str, episode: int, user: CurrentUser, _t: Translator
+    project_name: str, episode: int, user: CurrentUser, _t: Translator, names: DisplayNamesCatalog
 ) -> dict[str, Any]:
     """重新规划后提交一批分镜视频。整批准入未通过时以 200 返回结论、一个任务也不建。"""
 
     plan = await _video_plan(project_name, episode, user.id)
     payload: dict[str, Any] = {
-        "admission": localized_admission_payload(plan.admission, _t),
+        "admission": localized_admission_payload(plan.admission, _t, names),
         "skipped": _skipped(plan.skips),
         "batch_id": None,
         "task_ids_by_unit": {},

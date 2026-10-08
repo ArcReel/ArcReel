@@ -15,7 +15,7 @@ from lib.custom_provider.comfyui.request_builder import (
     workflow_sha256,
 )
 from lib.generation.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
-from tests.factories import comfyui_endpoint_definition, make_translator
+from tests.factories import comfyui_endpoint_definition, make_display_names, make_translator
 
 
 def _build(definition: dict[str, Any], **kwargs: Any):
@@ -527,7 +527,7 @@ class TestFailureCodeRegistration:
         reason = encode_failure(IMAGE_DROP_UNSUPPORTED, node="30")
 
         for locale in ("zh", "en", "vi"):
-            rendered = render_failure(reason, make_translator(locale))
+            rendered = render_failure(reason, make_translator(locale), make_display_names(locale))
             assert "30" in rendered
             assert IMAGE_DROP_UNSUPPORTED not in rendered
 

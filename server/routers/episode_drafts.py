@@ -16,7 +16,7 @@ from lib.project.project_manager import get_project_manager
 from server.agent_toolset.envelope import json_value
 from server.auth import CurrentUser
 from server.draft_workflow import DraftWorkflowError
-from server.i18n import Translator
+from server.i18n import DisplayNamesCatalog, Translator
 from server.routers.script_review import localize_draft_view
 from server.services.project.episode_drafts import EpisodeDraftService
 from server.text_generation import MAX_INSTRUCTIONS_LEN
@@ -91,7 +91,7 @@ async def list_episode_drafts(project_name: str, episode: int):
 
 
 @router.get("/projects/{project_name}/episodes/{episode}/drafts/{doc_type}")
-async def get_episode_draft(project_name: str, episode: int, doc_type: str, _t: Translator):
+async def get_episode_draft(project_name: str, episode: int, doc_type: str, _t: Translator, names: DisplayNamesCatalog):
     """一份草稿的呈现视图：违约与降级提示逐条目定位；Agent 的可编辑草稿不带正文。"""
     try:
         view = await EpisodeDraftService(get_project_manager()).get_draft(project_name, episode, doc_type)
@@ -99,7 +99,7 @@ async def get_episode_draft(project_name: str, episode: int, doc_type: str, _t: 
         _raise_draft_error(exc, episode)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    return localize_draft_view(view, _t)
+    return localize_draft_view(view, _t, names)
 
 
 @router.put("/projects/{project_name}/episodes/{episode}/drafts/{doc_type}")
@@ -108,6 +108,7 @@ async def save_episode_draft(
     episode: int,
     doc_type: str,
     _t: Translator,
+    names: DisplayNamesCatalog,
     req: SaveDraftRequest = Body(...),
 ):
     """手修保存：服务端全量重判，违约清零即采用为正式内容，否则返回刷新后的草稿视图。"""
@@ -119,7 +120,7 @@ async def save_episode_draft(
         _raise_draft_error(exc, episode)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    result["draft"] = localize_draft_view(result["draft"], _t)
+    result["draft"] = localize_draft_view(result["draft"], _t, names)
     return result
 
 

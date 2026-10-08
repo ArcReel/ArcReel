@@ -55,7 +55,7 @@ from lib.episode.episode_target_duration import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
-from lib.i18n import render_generation_input_error
+from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
 from lib.infra.json_io import domain_error_on_value_error
@@ -91,7 +91,7 @@ from lib.workflow.workflow_state import (
 )
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
-from server.i18n import Translator
+from server.i18n import DisplayNamesCatalog, Translator
 from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._script_edits import (
     execute_current_script_edit,
@@ -1226,6 +1226,7 @@ async def preview_script_item_prompts(
     name: str,
     item_id: str,
     _t: Translator,
+    names: DisplayNamesCatalog,
     script_file: str = Query(..., description="剧本文件名"),
 ):
     """渲染该条目当前会送进图像 / 视频模型的最终提示词文本。
@@ -1249,12 +1250,12 @@ async def preview_script_item_prompts(
     def _side(rendered):
         return {
             "text": rendered.text,
-            "unavailable": render_generation_input_error(rendered.unavailable, rendered.unavailable_params, _t)
+            "unavailable": render_generation_input_error(rendered.unavailable, rendered.unavailable_params, _t, names)
             if rendered.unavailable
             else None,
             "is_text_form": rendered.is_text_form,
             # 渲染时产生的提示（如参考图超限裁剪）与任务结果的 warnings 同源，同样按请求语言渲染成成品文案
-            "warnings": [_t(warning["key"], **warning["params"]) for warning in rendered.warnings],
+            "warnings": [render_message(warning["key"], warning["params"], _t, names) for warning in rendered.warnings],
         }
 
     return {

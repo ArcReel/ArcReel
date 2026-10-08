@@ -5,6 +5,7 @@ from typing import Any
 from lib.generation.task_failure import encode_failure
 from lib.i18n import _ as translate_message
 from server.routers.tasks import _localize_task
+from tests.factories import make_display_names
 
 
 def _translator(locale: str):
@@ -39,8 +40,8 @@ class TestWarningRendering:
             }
         )
 
-        zh = _localize_task(task, _translator("zh"))["result"]["warnings"]
-        en = _localize_task(task, _translator("en"))["result"]["warnings"]
+        zh = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
+        en = _localize_task(task, _translator("en"), make_display_names("en"))["result"]["warnings"]
 
         assert zh == ["脚本编排 7s 不在 sora 的时长档位内，已按 8s 生成，成片长于脚本编排"]
         assert en != zh
@@ -49,7 +50,7 @@ class TestWarningRendering:
     def test_warning_without_params_renders(self):
         task = _task(result={"warnings": [{"key": "ref_sora_single_ref", "params": {}}]})
 
-        rendered = _localize_task(task, _translator("zh"))["result"]["warnings"]
+        rendered = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
 
         assert rendered == ["Sora 参考生视频暂不支持多图，已降级为单图"]
 
@@ -63,17 +64,17 @@ class TestWarningRendering:
             }
         )
 
-        rendered = _localize_task(task, _translator("zh"))["result"]["warnings"]
+        rendered = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
 
         assert len(rendered) == 2
         assert rendered[0].startswith("Sora")
-        assert "viduq2" in rendered[1]
+        assert rendered[1].startswith("参考图数量 8")
 
     def test_input_task_is_not_mutated(self):
         warnings = [{"key": "ref_sora_single_ref", "params": {}}]
         task = _task(result={"warnings": warnings})
 
-        _localize_task(task, _translator("en"))
+        _localize_task(task, _translator("en"), make_display_names("en"))
 
         assert task["result"]["warnings"] is warnings
         assert warnings[0] == {"key": "ref_sora_single_ref", "params": {}}
@@ -85,7 +86,7 @@ class TestWarningRendering:
             result={"warnings": [{"key": "ref_sora_single_ref", "params": {}}]},
         )
 
-        localized = _localize_task(task, _translator("zh"))
+        localized = _localize_task(task, _translator("zh"), make_display_names("zh"))
 
         assert not localized["error_message"].startswith("[")
         assert localized["error_code"] == "provider_unsupported_media"
@@ -102,7 +103,10 @@ class TestWarningRendering:
             ),
         )
 
-        localized = {locale: _localize_task(task, _translator(locale)) for locale in ("zh", "en", "vi")}
+        localized = {
+            locale: _localize_task(task, _translator(locale), make_display_names(locale))
+            for locale in ("zh", "en", "vi")
+        }
 
         for result in localized.values():
             assert result["error_code"] == "reference_supported_durations_invalid"
@@ -114,7 +118,7 @@ class TestWarningPassthroughAndTolerance:
     def test_execution_checkpoint_is_removed_without_mutating_internal_task(self):
         task = _task(execution_checkpoint_json='{"provider_id":"secret"}')
 
-        localized = _localize_task(task, _translator("zh"))
+        localized = _localize_task(task, _translator("zh"), make_display_names("zh"))
 
         assert "execution_checkpoint_json" not in localized
         assert task["execution_checkpoint_json"] == '{"provider_id":"secret"}'
@@ -122,12 +126,12 @@ class TestWarningPassthroughAndTolerance:
     def test_task_without_result_is_returned_unchanged(self):
         task = _task()
 
-        assert _localize_task(task, _translator("zh")) is task
+        assert _localize_task(task, _translator("zh"), make_display_names("zh")) is task
 
     def test_empty_warning_list_is_left_alone(self):
         task = _task(result={"warnings": []})
 
-        assert _localize_task(task, _translator("zh"))["result"]["warnings"] == []
+        assert _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"] == []
 
     def test_malformed_entries_are_skipped_not_raised(self):
         task = _task(
@@ -142,24 +146,26 @@ class TestWarningPassthroughAndTolerance:
             }
         )
 
-        rendered = _localize_task(task, _translator("zh"))["result"]["warnings"]
+        rendered = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
 
         assert rendered == ["Sora 参考生视频暂不支持多图，已降级为单图"]
 
     def test_non_list_warnings_become_empty_list(self):
         task = _task(result={"warnings": "boom"})
 
-        assert _localize_task(task, _translator("zh"))["result"]["warnings"] == []
+        assert _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"] == []
 
     def test_unknown_key_falls_back_to_the_key_itself(self):
         task = _task(result={"warnings": [{"key": "some_future_warning", "params": {}}]})
 
-        assert _localize_task(task, _translator("zh"))["result"]["warnings"] == ["some_future_warning"]
+        assert _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"] == [
+            "some_future_warning"
+        ]
 
     def test_missing_params_leave_the_template_intact(self):
         task = _task(result={"warnings": [{"key": "ref_duration_rounded_up", "params": {"total": 7}}]})
 
-        rendered = _localize_task(task, _translator("zh"))["result"]["warnings"]
+        rendered = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]["warnings"]
 
         assert len(rendered) == 1
         assert "{model}" in rendered[0]
@@ -173,7 +179,7 @@ class TestWarningPassthroughAndTolerance:
             }
         )
 
-        result = _localize_task(task, _translator("zh"))["result"]
+        result = _localize_task(task, _translator("zh"), make_display_names("zh"))["result"]
 
         assert result["version"] == 3
         assert result["file_path"] == "reference_videos/E1U1.mp4"

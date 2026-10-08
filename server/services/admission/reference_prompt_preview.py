@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from lib.generation.batch_admission import DURATION_CONFIRMATION_CODE
+from lib.i18n import render_message
+from lib.i18n.display_names import DisplayNames
 from lib.script.reference_video.prompt_render import render_video_unit_prompt, resolve_reference_audio_paths
 from lib.script.reference_video.request_projection import ReferenceUnitRequestProjection
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
@@ -17,6 +19,7 @@ def render_reference_prompt_preview(
     project_path: Path,
     projection: ReferenceUnitRequestProjection,
     translate: Callable[..., str],
+    names: DisplayNames,
 ) -> dict[str, Any]:
     """只读渲染；时长待确认不妨碍查看文本，其他投影阻断项显式显示为不可用。
 
@@ -31,7 +34,7 @@ def render_reference_prompt_preview(
     }
     blockers = [problem for problem in projection.blocking_problems if problem.code != DURATION_CONFIRMATION_CODE]
     if blockers:
-        result["unavailable"] = translate(blockers[0].code, **blockers[0].parameters())
+        result["unavailable"] = render_message(blockers[0].code, blockers[0].parameters(), translate, names)
         return result
     request_facts = projection.request_facts
     if request_facts is None:
@@ -61,7 +64,7 @@ def render_reference_prompt_preview(
         for asset in projection.request_assets
     ]
     result["warnings"] = [
-        *(translate(problem.code, **problem.parameters()) for problem in projection.problems),
-        *(translate(warning["key"], **warning["params"]) for warning in rendered.warnings),
+        *(render_message(problem.code, problem.parameters(), translate, names) for problem in projection.problems),
+        *(render_message(warning["key"], warning["params"], translate, names) for warning in rendered.warnings),
     ]
     return result

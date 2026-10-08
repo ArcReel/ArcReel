@@ -8,12 +8,13 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from lib.i18n import render_generation_input_error
+from lib.i18n import render_generation_input_error, render_message
+from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import NotFoundError
 from lib.project.asset_derivatives import resolve_derivative_target
 from lib.project.asset_types import AssetSpec, resolve_asset_key
 from lib.project.project_manager import ProjectManager
-from server.i18n import Translator
+from server.i18n import DisplayNamesCatalog, Translator
 from server.services.admission.asset_prompt_preview import render_asset_prompt
 from server.services.admission.prompt_preview import UNAVAILABLE_MISSING, RenderedPrompt
 
@@ -33,6 +34,7 @@ def register_asset_prompt_preview_routes(
         entry_name: str,
         req: AssetPromptPreviewRequest,
         translate: Translator,
+        names: DisplayNames,
         derivative_name: str | None = None,
     ):
         def load() -> tuple[dict[str, Any], Path, str, str | None] | None:
@@ -72,20 +74,22 @@ def register_asset_prompt_preview_routes(
                 (
                     translate("asset_prompt_preview_missing")
                     if result.unavailable == UNAVAILABLE_MISSING
-                    else render_generation_input_error(result.unavailable, result.unavailable_params, translate)
+                    else render_generation_input_error(result.unavailable, result.unavailable_params, translate, names)
                 )
                 if result.unavailable
                 else None
             ),
             "is_text_form": result.is_text_form,
-            "warnings": [translate(w["key"], **w["params"]) for w in result.warnings],
+            "warnings": [render_message(w["key"], w["params"], translate, names) for w in result.warnings],
         }
 
     base = f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}"
 
     @router.post(f"{base}/prompt-preview")
-    async def preview_asset(project_name: str, entry_name: str, req: AssetPromptPreviewRequest, _t: Translator):
-        return await preview(project_name, entry_name, req, _t)
+    async def preview_asset(
+        project_name: str, entry_name: str, req: AssetPromptPreviewRequest, _t: Translator, names: DisplayNamesCatalog
+    ):
+        return await preview(project_name, entry_name, req, _t, names)
 
     if spec.supports_derivatives:
 
@@ -96,5 +100,6 @@ def register_asset_prompt_preview_routes(
             derivative_name: str,
             req: AssetPromptPreviewRequest,
             _t: Translator,
+            names: DisplayNamesCatalog,
         ):
-            return await preview(project_name, entry_name, req, _t, derivative_name)
+            return await preview(project_name, entry_name, req, _t, names, derivative_name)

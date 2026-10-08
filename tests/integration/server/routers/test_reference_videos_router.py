@@ -16,7 +16,7 @@ from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.factories import make_video_request_facts
+from tests.factories import make_display_names, make_video_request_facts
 from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
@@ -675,7 +675,10 @@ def test_generate_unit_bucket_capability_error_returns_400(
                 "locations": [{"path": ["text"], "line": None}],
                 "params": {"provider": "minimax", "model": "MiniMax-Hailuo-2.3"},
                 "action": "configure_video_model",
-                "message": i18n_message("video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3"),
+                "message": i18n_message(
+                    "video_capability_missing_r2v",
+                    **make_display_names().apply({"provider": "minimax", "model": "MiniMax-Hailuo-2.3"}),
+                ),
             }
         ],
     }
@@ -907,7 +910,10 @@ def test_precheck_empty_duration_metadata_returns_structured_blocker(
         "locations": [{"path": ["duration_seconds"], "line": None}],
         "params": {"provider": "fake", "model": "fake-model"},
         "action": "configure_video_model",
-        "message": i18n_message("reference_supported_durations_missing", provider="fake", model="fake-model"),
+        "message": i18n_message(
+            "reference_supported_durations_missing",
+            **make_display_names().apply({"provider": "fake", "model": "fake-model"}),
+        ),
     }
 
 
