@@ -7,15 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterable, AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from claude_agent_sdk import ResultMessage
-
 from server.agent_runtime import sdk_frames
-from server.agent_runtime.message_serialization import is_main_turn_activity
 from server.agent_runtime.sdk_frames import CommandLifecycle
 
 
@@ -27,44 +24,40 @@ class MessageStreamClosed(Exception):
     """SDK 消息流已终止（CLI 退出），会话不再可用。"""
 
 
+async def _single_message(message: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+    """把一条用户消息帧包成 ``client.query`` 接受的流：只有流形式会把帧（含 uuid）原样写给 CLI。"""
+    yield message
+
+
 @dataclass
 class SessionCommand:
     type: Literal["query", "interrupt", "disconnect"]
-    prompt: str | AsyncIterable[dict] | None = None
+    # query 送入 CLI 的用户消息帧（带服务端分配的 uuid）
+    message: dict[str, Any] | None = None
     session_id: str = "default"
-    # query 的 prompt 已被送入 SDK（不代表整轮响应结束）；非 query 命令与 done 同时置位
-    sent: asyncio.Event = field(default_factory=asyncio.Event)
-    # query 这一轮读到 result（或消息流结束）；非 query 命令也用它标记处理完毕
+    # disconnect 之前先中断当前轮：会话仍在 running 时由会话层置位
+    interrupt_first: bool = False
+    # 命令处理完毕：query 已写入 CLI 输入流（不代表 CLI 已开始处理它），或 interrupt / disconnect 已执行
     done: asyncio.Event = field(default_factory=asyncio.Event)
     error: BaseException | None = None
-    # 仅在 client.query() 正常返回后置真；与 sent 分开，因为失败 complete()
-    # 也会唤醒 sent，但那不代表请求已被 SDK 受理。
-    accepted: bool = False
 
     def complete(self, error: BaseException | None = None) -> None:
-        """唤醒所有等待者（sent + done）并可选携带 error。
-
-        sent 与 done 必须同时置位，否则等待其中之一的调用方会挂死；所有完成路径都经此处。
-        """
+        """唤醒等待者并可选携带 error；所有完成路径都经此处。"""
         if error is not None:
             self.error = error
-        self.sent.set()
         self.done.set()
 
 
-OnMessage = Callable[[dict[str, Any]], None]
+OnMessage = Callable[[Any], None]
 OnCommandLifecycle = Callable[[CommandLifecycle], None]
 ClientFactory = Callable[[], AbstractAsyncContextManager[Any]]
-
-# _MessagePump 在读到一轮的 result 之后、或消息流结束时产出的标记
-_TURN_END = object()
 
 
 class _MessagePump:
     """持续读取 SDK Query 的原始帧流，逐帧解析为 SDK 消息或 CommandLifecycle。
 
     SDK 解析器不认识的帧被丢弃，与 ``ClaudeSDKClient.receive_messages()`` 一致；
-    每个 result 之后补一个 ``_TURN_END`` 标记一轮结束。
+    帧流结束（CLI 退出）时读取抛出 ``MessageStreamClosed``。
 
     同一时刻至多一个在途读取 task，跨 idle 与轮次复用、只在 actor 退出时取消：
     反复取消重建会把恰好送达的消息丢在被取消的 task 里。
@@ -73,20 +66,16 @@ class _MessagePump:
     def __init__(self, client: Any):
         self._client = client
         self._frames: AsyncIterator[dict[str, Any]] | None = None
-        # 刚产出一轮的 result，下一次读取先补 _TURN_END
-        self._turn_end_due = False
-        # 消息流已关闭（CLI 退出）
-        self._closed = False
         self._task: asyncio.Task[Any] | None = None
 
-    def arm(self) -> asyncio.Task[Any] | None:
-        """返回在途读取 task，没有则新建；流已关闭时返回 None。"""
-        if self._task is None and not self._closed:
+    def arm(self) -> asyncio.Task[Any]:
+        """返回在途读取 task，没有则新建。"""
+        if self._task is None:
             self._task = asyncio.create_task(self._next(), name="actor-recv")
         return self._task
 
     def take(self) -> Any:
-        """取走已完成读取 task 的结果：SDK 消息、CommandLifecycle 或 _TURN_END；读取异常原样抛出。"""
+        """取走已完成读取 task 的结果：SDK 消息或 CommandLifecycle；读取异常原样抛出。"""
         task, self._task = self._task, None
         assert task is not None
         return task.result()
@@ -96,9 +85,6 @@ class _MessagePump:
             self._task.cancel()
 
     async def _next(self) -> Any:
-        if self._turn_end_due:
-            self._turn_end_due = False
-            return _TURN_END
         frames = self._frames
         if frames is None:
             frames = self._frames = sdk_frames.raw_frames(self._client)
@@ -106,19 +92,20 @@ class _MessagePump:
             try:
                 frame = await anext(frames)
             except StopAsyncIteration:
-                # 收尾仍按一轮结束交付：流断在轮次中途时，在途 query 随之完成
-                self._closed = True
-                return _TURN_END
+                # 退出 actor 让会话层收到退出通知、按终态收尾；留着等命令的话，
+                # 后续 query 会送进已经没有 CLI 的 client。
+                raise MessageStreamClosed("SDK message stream closed") from None
             item = sdk_frames.parse_frame(frame)
-            if item is None:
-                continue
-            if isinstance(item, ResultMessage):
-                self._turn_end_due = True
-            return item
+            if item is not None:
+                return item
 
 
 class SessionActor:
-    """单 task 拥有一个 ClaudeSDKClient，所有 SDK 操作在同一 async context 中执行。"""
+    """单 task 拥有一个 ClaudeSDKClient，所有 SDK 操作在同一 async context 中执行。
+
+    actor 不撮合 query 与 result：用户消息一律立即送入 CLI，由 CLI 排队、并入当前轮或另开一轮；
+    result 只代表一轮结束。轮次是否在途由会话层按 CLI 报告的会话状态判断。
+    """
 
     def __init__(
         self,
@@ -168,47 +155,24 @@ class SessionActor:
     async def _command_loop(self, client: Any) -> None:
         """在同一 task 内交织消费消息流与命令队列，直到 disconnect。
 
-        消息流在会话存续期间持续读取，不随 query 起止：result 只代表一轮结束，
-        后台任务完成后 CLI 会不经 query 自主开启新一轮，idle 时停读会让这一轮
-        滞留在 SDK 缓冲里，直到下一次 query 才被读出。
+        消息流在会话存续期间持续读取，不随 query 起止：后台任务完成后 CLI 会不经 query
+        自主开启新一轮，idle 时停读会让这一轮滞留在 SDK 缓冲里，直到下一次 query 才被读出。
         """
         pump = _MessagePump(client)
         cmd_task: asyncio.Task[SessionCommand] | None = None
-        # 已送入 SDK、等待本轮 result 的 query
-        active_query: SessionCommand | None = None
-        # 本 actor 的 query 在途时送来的 query：暂存到本轮 result 后再送入 SDK
-        pending_query: SessionCommand | None = None
-        # 无 query 在途时收到过主线程帧：CLI 自主开启的一轮尚未见到 result，中断与断开要送达它
-        unsolicited_open = False
         try:
             while True:
                 if cmd_task is None:
                     cmd_task = asyncio.create_task(self._cmd_queue.get(), name="actor-cmd")
                 msg_task = pump.arm()
-                if msg_task is None:
-                    # 退出 actor 让会话层收到退出通知、按终态收尾；留着等命令的话，
-                    # 后续 query 会送进已经没有 CLI 的 client，轮次永远等不到 result。
-                    raise MessageStreamClosed("SDK message stream closed")
                 done, _ = await asyncio.wait({cmd_task, msg_task}, return_when=asyncio.FIRST_COMPLETED)
 
                 if msg_task in done:
                     item = pump.take()
-                    if item is _TURN_END:
-                        unsolicited_open = False
-                        if active_query is not None:
-                            active_query.complete()
-                            active_query = None
-                        if pending_query is not None:
-                            active_query, pending_query = pending_query, None
-                            await self._send_query(client, active_query)
-                    elif isinstance(item, CommandLifecycle):
+                    if isinstance(item, CommandLifecycle):
                         if self._on_command_lifecycle is not None:
                             self._on_command_lifecycle(item)
                     else:
-                        # 只认主线程帧：result 之后的 system 帧、后台子智能体的消息
-                        # 之后不会再有 result 来收尾，据此开轮会把空闲会话当成在途
-                        if active_query is None and is_main_turn_activity(item):
-                            unsolicited_open = True
                         self._on_message(item)
 
                 if cmd_task not in done:
@@ -218,21 +182,12 @@ class SessionActor:
                 if cmd.type == "disconnect":
                     # cmd 已出队，interrupt 抛错时 finally 与队列清理都够不着它，在此兜底释放
                     try:
-                        if active_query is not None or unsolicited_open:
-                            # 先 interrupt 让在途轮次收尾；这一轮的 result 不会再被读取，
-                            # 显式 complete 以兑现 "done 必定转换" 的契约。
+                        if cmd.interrupt_first:
                             await client.interrupt()
-                            if active_query is not None:
-                                active_query.complete()
-                                active_query = None
                     finally:
                         cmd.complete()
                     return  # 触发 __aexit__，同 task disconnect
                 if cmd.type == "interrupt":
-                    if active_query is None and not unsolicited_open:
-                        # 没有在途轮次；interrupt 无操作，但仍 ACK
-                        cmd.complete()
-                        continue
                     # 无论 client.interrupt() 成败都要唤醒等待者——常规失败时
                     # 把异常挂到 cmd.error 透传给 send_interrupt；CancelledError 等
                     # 控制流异常不拦截，但 finally 仍保证 cmd 被 complete 避免挂死。
@@ -246,19 +201,7 @@ class SessionActor:
                     if caught is not None:
                         raise caught
                 elif cmd.type == "query":
-                    if active_query is None:
-                        # 自主轮次在途也直接送入：CLI 自己排队，或把它并入当前轮
-                        active_query = cmd
-                        await self._send_query(client, cmd)
-                    elif pending_query is None:
-                        pending_query = cmd
-                    else:
-                        # 上层 race 送来第三个 query：拒绝（FIFO 只保留第一个暂存）
-                        cmd.complete(RuntimeError("session busy: 当前会话已有待执行 query"))
-        except BaseException as exc:
-            if active_query is not None:
-                active_query.complete(active_query.error or exc)
-            raise
+                    await self._send_query(client, cmd)
         finally:
             pump.cancel()
             if cmd_task is not None:
@@ -267,20 +210,16 @@ class SessionActor:
                 elif not cmd_task.cancelled() and cmd_task.exception() is None:
                     # 与消息流异常同轮取出、尚未处理的命令：不释放会让调用方挂死
                     cmd_task.result().complete(_ActorClosed())
-            # 异常退出路径下 pending_query 已脱离队列，必须显式释放等待者
-            if pending_query is not None and not pending_query.done.is_set():
-                pending_query.complete(pending_query.error or _ActorClosed())
 
     @staticmethod
     async def _send_query(client: Any, cmd: SessionCommand) -> None:
+        assert cmd.message is not None
         try:
-            await client.query(cmd.prompt, session_id=cmd.session_id)
+            await client.query(_single_message(cmd.message), session_id=cmd.session_id)
         except BaseException as exc:
             cmd.complete(exc)
             raise
-        # prompt 已送入 SDK：释放 HTTP 路径，actor 继续在后台 drain 消息流
-        cmd.accepted = True
-        cmd.sent.set()
+        cmd.complete()
 
     async def enqueue(self, cmd: SessionCommand) -> None:
         if self._task is not None and self._task.done():

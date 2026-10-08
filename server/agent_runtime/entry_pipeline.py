@@ -13,8 +13,8 @@ import asyncio
 import copy
 import json
 import logging
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 from server.agent_runtime.event_log import (
     ENTRY_SUBTYPE_AGENT_TURN_FAILURE,
@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 # 落库瞬时失败（SQLite busy / 连接抖动）的有界重试；重试耗尽才放弃该条目。
 _APPEND_ATTEMPTS = 3
 _APPEND_RETRY_BASE_S = 0.05
+
+_T = TypeVar("_T")
 
 
 def _coerce_index(value: Any) -> int | None:
@@ -346,6 +348,23 @@ class SessionEntryPipeline:
             if entry.get("type") == ENTRY_TYPE_ASSISTANT and self.draft.clear_for_message(entry.get("message_id")):
                 break
 
+    async def append_user_entry(self, entry: dict[str, Any], *, client_key: str | None = None) -> None:
+        """排队消息被 Agent 接纳：写入用户条目并广播，条目排在此前已产生的输出之后。
+
+        失败只记日志不打断会话——时间线的修复手段是重放重建。
+        """
+        session_id = self._session_id_provider()
+        if not session_id:
+            return
+        try:
+            authoritative, _created = await self._retrying(
+                lambda: self._store.append_user_entry(session_id, entry, client_key=client_key)
+            )
+        except Exception:
+            logger.exception("用户条目写入事件日志失败 session_id=%s entry_uuid=%s", session_id, entry.get("uuid"))
+            return
+        self._broadcast({"type": "log_entry", "session_id": session_id, "entry": authoritative})
+
     async def append_interrupt(self) -> list[dict[str, Any]]:
         """中断动作的直接写入点（终态路径：SDK 回显不再经 inbox 到达时补写）。
 
@@ -367,10 +386,14 @@ class SessionEntryPipeline:
             return await self._append_with_retry(session_id, [entry])
 
     async def _append_with_retry(self, session_id: str, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return await self._retrying(lambda: self._store.append(session_id, entries))
+
+    @staticmethod
+    async def _retrying(operation: Callable[[], Awaitable[_T]]) -> _T:
         """有界重试落库：瞬时 DB 错误不至于在 append-only 日志上留下永久空洞。"""
         for attempt in range(_APPEND_ATTEMPTS):
             try:
-                return await self._store.append(session_id, entries)
+                return await operation()
             except Exception:
                 if attempt == _APPEND_ATTEMPTS - 1:
                     raise

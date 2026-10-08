@@ -327,6 +327,43 @@ describe("AgentCopilot", () => {
       expect(input).toHaveValue("/");
     });
 
+    it("while the agent replies, one button stops on an empty input and sends once there is content", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({ currentSessionId: "session-1", sessionStatus: "running" });
+      render(<AgentCopilot />);
+
+      await user.click(screen.getByRole("button", { name: "停止回复" }));
+      expect(interrupt).toHaveBeenCalledTimes(1);
+
+      const input = screen.getByRole("combobox", { name: "Agent 输入" });
+      await user.type(input, "结尾再加一个空镜");
+      expect(screen.queryByRole("button", { name: "停止回复" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+      expect(sendMessage).toHaveBeenCalledWith("结尾再加一个空镜", undefined);
+    });
+
+    it("stacks queued messages above the input in send order", () => {
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [
+          { id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "queued" },
+          {
+            id: "q-2",
+            content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }],
+            state: "queued",
+          },
+        ],
+      });
+      render(<AgentCopilot />);
+
+      const items = within(screen.getByRole("list", { name: "排队消息" })).getAllByRole("listitem");
+      expect(items).toHaveLength(2);
+      expect(items[0]).toHaveTextContent("第 3 镜改成黄昏");
+      expect(items[0]).toHaveTextContent("排队中");
+      expect(items[1]).toHaveTextContent("1 张图片");
+    });
   });
 
   it("does not send when Enter is used to confirm an IME composition", () => {

@@ -4,6 +4,7 @@ import type {
   DraftState,
   FailureObservation,
   PendingQuestion,
+  QueuedMessage,
   SessionMeta,
   SessionStatus,
   SkillInfo,
@@ -47,6 +48,8 @@ interface AssistantState {
    * entry 流补发存量），此时到达的条目都算历史。没有载入过程的会话（新建、草稿）为 -1。
    */
   historySeq: number | null;
+  /** 排队消息托盘：已发出、Agent 尚未接纳的消息，按发送顺序排列；不进时间线。 */
+  queuedMessages: QueuedMessage[];
 
   // Input
   input: string;
@@ -112,6 +115,12 @@ interface AssistantState {
   beginHistory: () => void;
   /** 会话历史载入完毕：以当前最后一条条目为界；已经定界时不变。 */
   settleHistory: () => void;
+  /** 整体替换排队消息（entry 流开场快照）。 */
+  setQueuedMessages: (messages: QueuedMessage[]) => void;
+  /** 加入或更新一条排队消息；已离开排队的消息不再加回。 */
+  upsertQueuedMessage: (message: QueuedMessage) => void;
+  /** 移出一条排队消息（已被接纳或已被丢弃）。 */
+  removeQueuedMessage: (id: string) => void;
   setInput: (input: string) => void;
   setSending: (sending: boolean) => void;
   setInterrupting: (interrupting: boolean) => void;
@@ -147,6 +156,13 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
   let projectorSource: TimelineEntry[] | null = null;
   let committedIds = new Set<string>();
   let committedSource: TimelineEntry[] | null = null;
+  // 已离开排队的消息 id：发送响应可能晚于流上的移出事件到达，据此不把它加回托盘
+  let settledQueuedIds = new Set<string>();
+
+  const withoutQueued = (messages: QueuedMessage[], id: string): QueuedMessage[] => {
+    settledQueuedIds.add(id);
+    return messages.some((m) => m.id === id) ? messages.filter((m) => m.id !== id) : messages;
+  };
 
   // base 是本次 mutation 之前 get().entries 持有的引用，next 是即将写入 state
   // 的新引用（二者恒不相等——每次 mutation 都会构造新数组）。自愈检查必须
@@ -184,6 +200,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     draftTurn: null,
     messagesLoading: false,
     historySeq: -1,
+    queuedMessages: [],
     input: "",
     sending: false,
     interrupting: false,
@@ -234,9 +251,13 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
         entry.message_id != null &&
         entry.message_id === draft.message_id;
       const nextDraft = draftReplaced ? null : draft;
+      // 用户条目即被接纳的排队消息，同一身份不在托盘与时间线上各出现一次
+      const queuedMessages =
+        entry.type === "user" && entry.uuid ? withoutQueued(get().queuedMessages, entry.uuid) : get().queuedMessages;
       set({
         entries: next,
         draft: nextDraft,
+        queuedMessages,
         turns: projectEntries(entries, next),
         draftTurn: buildDraftTurn(nextDraft, isDraftReplaced(nextDraft, ids)),
       });
@@ -269,8 +290,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
       projectorSource = null;
       committedIds = new Set<string>();
       committedSource = null;
+      settledQueuedIds = new Set<string>();
       set({
         entries: [],
+        queuedMessages: [],
         draft: null,
         draftRev: 0,
         turns: [],
@@ -288,6 +311,22 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     settleHistory: () => {
       const { historySeq, entries } = get();
       if (historySeq === null) set({ historySeq: entries.at(-1)?.seq ?? -1 });
+    },
+    setQueuedMessages: (messages) => set({ queuedMessages: messages }),
+    upsertQueuedMessage: (message) => {
+      const { queuedMessages, entries } = get();
+      if (settledQueuedIds.has(message.id) || entries.some((e) => e.uuid === message.id)) return;
+      const index = queuedMessages.findIndex((m) => m.id === message.id);
+      set({
+        queuedMessages:
+          index < 0
+            ? [...queuedMessages, message]
+            : queuedMessages.map((m, i) => (i === index ? message : m)),
+      });
+    },
+    removeQueuedMessage: (id) => {
+      const queuedMessages = withoutQueued(get().queuedMessages, id);
+      if (queuedMessages !== get().queuedMessages) set({ queuedMessages });
     },
     setInput: (input) => set({ input }),
     setSending: (sending) => set({ sending }),

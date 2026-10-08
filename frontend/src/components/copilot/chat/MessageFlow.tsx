@@ -66,6 +66,7 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
   const sending = useAssistantStore((s) => s.sending);
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
   const hasPendingQuestion = useAssistantStore((s) => Boolean(s.pendingQuestion));
+  const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
   const startupFailure = useAssistantStore((s) => s.startupFailure);
   const entries = useAssistantStore((s) => s.entries);
   const historySeq = useAssistantStore((s) => s.historySeq);
@@ -100,7 +101,7 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
                   turn={turn}
                   streaming={streaming}
                   announce={turn.uuid !== undefined && arrived.has(turn.uuid)}
-                  editable={canEditUserTurn(turn, { sessionStatus, hasPendingQuestion, isSending: sending })}
+                  editable={canEditUserTurn(turn, { sessionStatus, hasPendingQuestion, isSending: sending, hasQueuedMessages })}
                   editing={Boolean(turn.uuid) && turn.uuid === editingTurnUuid}
                   submitting={sending}
                   onStartEdit={setEditingTurnUuid}

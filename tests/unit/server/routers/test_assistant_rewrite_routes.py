@@ -9,12 +9,13 @@ from fastapi.testclient import TestClient
 from server.agent_runtime.service import (
     InterruptSettleTimeoutError,
     PendingQuestionError,
+    QueuedMessagesPendingError,
     RewriteAnchorError,
     RewriteUnavailableError,
     SessionSupersededError,
 )
 from server.agent_runtime.session_branch import SessionBranchError
-from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
+from server.agent_runtime.session_manager import SessionCapacityError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.i18n import get_translator
@@ -111,12 +112,12 @@ class TestRewriteRejections:
         [
             (RewriteAnchorError("bad anchor"), 400, "rewrite_anchor_invalid"),
             (PendingQuestionError("pending"), 409, "rewrite_blocked_by_question"),
+            (QueuedMessagesPendingError("queued"), 409, "rewrite_blocked_by_queued_messages"),
             (SessionSupersededError("superseded"), 409, "session_already_superseded"),
             (RewriteUnavailableError("no store"), 503, "rewrite_unavailable"),
             (InterruptSettleTimeoutError("stuck"), 504, "rewrite_interrupt_timeout"),
             (SessionBranchError("copy failed"), 500, "rewrite_failed"),
             (SessionCapacityError("full"), 503, "session_capacity_exceeded"),
-            (SessionBusyError("busy"), 409, "session_busy"),
             (FileNotFoundError("gone"), 404, "session_or_project_not_found"),
             (ValueError("empty"), 400, "request_invalid"),
         ],

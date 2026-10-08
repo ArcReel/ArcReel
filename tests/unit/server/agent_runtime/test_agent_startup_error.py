@@ -107,7 +107,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
     secret = "startup-secret-must-not-leak"
 
     class _FakeActor:
-        def __init__(self, *_, on_message=None, client_factory=None):
+        def __init__(self, *_, on_message=None, client_factory=None, **__):
             self.task = None
             self._on_message = on_message
             captured_stderr_cb.append(client_factory().options.stderr)
@@ -162,7 +162,7 @@ async def test_send_new_session_no_stderr_still_wraps(
     monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     class _FakeActor:
-        def __init__(self, *_, on_message=None, client_factory=None):
+        def __init__(self, *_, on_message=None, client_factory=None, **__):
             self.task = None
 
         async def start(self):
@@ -222,7 +222,7 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
     captured_stderr_cb: list = []
 
     class _FakeActor:
-        def __init__(self, *_, on_message=None, client_factory=None):
+        def __init__(self, *_, on_message=None, client_factory=None, **__):
             self.task = None
             captured_stderr_cb.append(client_factory().options.stderr)
 
@@ -264,7 +264,7 @@ async def test_startup_stderr_is_not_truncated(
     observed_count = 250
 
     class _FakeActor:
-        def __init__(self, *_, on_message=None, client_factory=None):
+        def __init__(self, *_, on_message=None, client_factory=None, **__):
             self.task = None
             captured_stderr_cb.append(client_factory().options.stderr)
 

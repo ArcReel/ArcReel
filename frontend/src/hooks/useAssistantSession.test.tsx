@@ -2,7 +2,15 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { AgentFailureError, API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
-import type { EntriesResponse, PendingQuestion, SessionMeta, SkillInfo, TimelineEntry } from "@/types";
+import type {
+  AcceptedMessageResponse,
+  EntriesResponse,
+  PendingQuestion,
+  QueuedMessage,
+  SessionMeta,
+  SkillInfo,
+  TimelineEntry,
+} from "@/types";
 import { useAssistantSession } from "./useAssistantSession";
 import { createDeferred } from "@/test/deferred";
 import { FakeSseStream } from "@/test/fakeSseStream";
@@ -48,6 +56,10 @@ function makeEntriesResponse(overrides: Partial<EntriesResponse> = {}): EntriesR
 
 function userEntry(seq: number, text: string): TimelineEntry {
   return { seq, type: "user", content: [{ type: "text", text }], uuid: `u-${seq}` };
+}
+
+function queuedMessage(id: string, text: string): QueuedMessage {
+  return { id, content: [{ type: "text", text }], timestamp: "2026-02-01T00:00:00Z", state: "queued" };
 }
 
 function mockIdleSession(entries: TimelineEntry[] = []) {
@@ -120,6 +132,89 @@ describe("useAssistantSession", () => {
     const state = useAssistantStore.getState();
     expect(state.entries.map((e) => e.seq)).toEqual([0, 1]);
     expect(state.turns.map((t) => t.type)).toEqual(["user", "assistant"]);
+  });
+
+  it("keeps the queued-message tray in step with the stream's snapshot and increments", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "running")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    const stream = FakeSseStream.instances[0];
+    const queuedIds = () => useAssistantStore.getState().queuedMessages.map((m) => m.id);
+
+    act(() => {
+      stream.emit("queue", { session_id: "session-1", messages: [queuedMessage("u-0", "先改第 3 镜")] });
+    });
+    expect(queuedIds()).toEqual(["u-0"]);
+
+    act(() => {
+      stream.emit("queue_upsert", { session_id: "session-1", message: queuedMessage("u-1", "再改第 4 镜") });
+    });
+    expect(queuedIds()).toEqual(["u-0", "u-1"]);
+
+    // Agent 接纳第一条：条目先到，随后移出托盘
+    act(() => {
+      stream.emit("entry", userEntry(0, "先改第 3 镜"));
+      stream.emit("queue_remove", { session_id: "session-1", id: "u-0" });
+    });
+    expect(queuedIds()).toEqual(["u-1"]);
+    expect(useAssistantStore.getState().entries.map((e) => e.uuid)).toEqual(["u-0"]);
+  });
+
+  it("puts a message sent during a reply into the tray, and a late response does not bring back one already taken", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "running")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+    const late = createDeferred<AcceptedMessageResponse>();
+    vi.spyOn(API, "sendAssistantMessage")
+      .mockResolvedValueOnce({
+        session_id: "session-1",
+        status: "accepted",
+        entry: null,
+        queued_message: queuedMessage("u-1", "再改第 4 镜"),
+      })
+      .mockReturnValueOnce(late.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    const stream = FakeSseStream.instances[0];
+    const queuedIds = () => useAssistantStore.getState().queuedMessages.map((m) => m.id);
+
+    await act(async () => {
+      expect(await result.current.sendMessage("再改第 4 镜")).toBe(true);
+    });
+    expect(queuedIds()).toEqual(["u-1"]);
+    expect(useAssistantStore.getState().sessionStatus).toBe("running");
+
+    // 第二条的响应迟到：流上它已被接纳、离开排队
+    let sent: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      sent = result.current.sendMessage("第 5 镜删掉");
+    });
+    act(() => {
+      stream.emit("queue_upsert", { session_id: "session-1", message: queuedMessage("u-2", "第 5 镜删掉") });
+      stream.emit("entry", userEntry(2, "第 5 镜删掉"));
+      stream.emit("queue_remove", { session_id: "session-1", id: "u-2" });
+    });
+    await act(async () => {
+      late.resolve({
+        session_id: "session-1",
+        status: "accepted",
+        entry: null,
+        queued_message: queuedMessage("u-2", "第 5 镜删掉"),
+      });
+      expect(await sent).toBe(true);
+    });
+
+    expect(queuedIds()).toEqual(["u-1"]);
   });
 
   it("applies draft snapshot and rev-gated deltas, then replaces draft by message_id identity", async () => {
@@ -210,6 +305,7 @@ describe("useAssistantSession", () => {
       session_id: "session-1",
       status: "accepted",
       entry: userEntry(1, "第二轮"),
+      queued_message: null,
     });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -242,7 +338,7 @@ describe("useAssistantSession", () => {
 
   it("keeps the CLI terminal status when it arrives before the send response", async () => {
     mockIdleSession();
-    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    const deferred = createDeferred<AcceptedMessageResponse>();
     vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -260,7 +356,7 @@ describe("useAssistantSession", () => {
       stream.emit("status", { status: "completed" });
     });
     await act(async () => {
-      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello"), queued_message: null });
       expect(await send).toBe(true);
     });
 
@@ -272,7 +368,7 @@ describe("useAssistantSession", () => {
 
   it("sets running after accepted when only an older terminal snapshot arrived during send", async () => {
     mockIdleSession([userEntry(0, "上一轮")]);
-    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    const deferred = createDeferred<AcceptedMessageResponse>();
     vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -284,7 +380,7 @@ describe("useAssistantSession", () => {
       FakeSseStream.instances[0].emit("status", { status: "completed" });
     });
     await act(async () => {
-      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(1, "hello") });
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(1, "hello"), queued_message: null });
       await deferred.promise;
     });
 
@@ -413,6 +509,7 @@ describe("useAssistantSession", () => {
       session_id: "session-1",
       status: "accepted",
       entry: userEntry(0, "hello"),
+      queued_message: null,
     });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -446,7 +543,7 @@ describe("useAssistantSession", () => {
     const sendSpy = vi
       .spyOn(API, "sendAssistantMessage")
       .mockRejectedValueOnce(new Error("发送失败"))
-      .mockResolvedValueOnce({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      .mockResolvedValueOnce({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello"), queued_message: null });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
 
@@ -517,7 +614,7 @@ describe("useAssistantSession", () => {
     const sendSpy = vi
       .spyOn(API, "sendAssistantMessage")
       .mockRejectedValueOnce(new Error("发送失败"))
-      .mockResolvedValueOnce({ session_id: "session-1", status: "accepted", entry: userEntry(0, "另一条") });
+      .mockResolvedValueOnce({ session_id: "session-1", status: "accepted", entry: userEntry(0, "另一条"), queued_message: null });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
 
@@ -542,7 +639,7 @@ describe("useAssistantSession", () => {
     const sendSpy = vi
       .spyOn(API, "sendAssistantMessage")
       .mockRejectedValueOnce(new Error("发送失败")) // 项目 A：失败并缓存 clientKey
-      .mockResolvedValueOnce({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      .mockResolvedValueOnce({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello"), queued_message: null });
 
     const { result, rerender } = renderHook(({ p }) => useAssistantSession(p), {
       initialProps: { p: "proj_a" },
@@ -588,7 +685,7 @@ describe("useAssistantSession", () => {
           : [],
       }),
     );
-    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    const deferred = createDeferred<AcceptedMessageResponse>();
     vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -616,7 +713,7 @@ describe("useAssistantSession", () => {
     ]);
 
     await act(async () => {
-      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello"), queued_message: null });
       await deferred.promise;
     });
 
@@ -640,7 +737,7 @@ describe("useAssistantSession", () => {
       session: makeSession(sessionId, "idle"),
     }));
     vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
-    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    const deferred = createDeferred<AcceptedMessageResponse>();
     vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -665,7 +762,7 @@ describe("useAssistantSession", () => {
     });
 
     await act(async () => {
-      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello"), queued_message: null });
       await deferred.promise;
     });
 
@@ -679,7 +776,7 @@ describe("useAssistantSession", () => {
     // 可能被本实例之外的路径直接改写（不经过 invalidatePendingSend）。即便版本号未失配，
     // 只要响应回来时 currentSessionId 已不是发送时的会话，也不能返回 true 清空新会话输入框。
     mockIdleSession();
-    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    const deferred = createDeferred<AcceptedMessageResponse>();
     vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -704,7 +801,7 @@ describe("useAssistantSession", () => {
     });
 
     await act(async () => {
-      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello"), queued_message: null });
       await deferred.promise;
     });
 
@@ -791,7 +888,7 @@ describe("useAssistantSession", () => {
       sessions: [makeSession("session-1", "running")],
     });
     vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
-    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({ session_id: "session-1", status: "accepted", entry: null });
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({ session_id: "session-1", status: "accepted", entry: null, queued_message: null });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
 
@@ -1068,6 +1165,7 @@ describe("useAssistantSession", () => {
       session_id: "session-1",
       status: "accepted",
       entry: userEntry(0, "hello"),
+      queued_message: null,
     });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -1269,6 +1367,7 @@ describe("useAssistantSession", () => {
       session_id: "session-new",
       status: "accepted",
       entry: userEntry(0, "hello"),
+      queued_message: null,
     });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -1543,6 +1642,7 @@ describe("useAssistantSession", () => {
       session_id: "session-2",
       origin_session_id: "session-1",
       entry: userEntry(1, "改写后的消息"),
+      queued_message: null,
     });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -1618,6 +1718,7 @@ describe("useAssistantSession", () => {
       session_id: "session-2",
       origin_session_id: "session-1",
       entry: null,
+      queued_message: null,
     });
     const images = [{ data: "AAAA", media_type: "image/png" }];
 
@@ -1693,6 +1794,7 @@ describe("useAssistantSession", () => {
       session_id: "session-2",
       origin_session_id: "session-1",
       entry: null,
+      queued_message: null,
     });
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -1819,12 +1921,7 @@ describe("useAssistantSession", () => {
     });
     const deleteDeferred = createDeferred<void>();
     vi.spyOn(API, "deleteAssistantSession").mockReturnValue(deleteDeferred.promise as never);
-    const rewriteDeferred = createDeferred<{
-      status: string;
-      session_id: string;
-      origin_session_id: string | null;
-      entry: TimelineEntry | null;
-    }>();
+    const rewriteDeferred = createDeferred<AcceptedMessageResponse & { origin_session_id: string | null }>();
     vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -1847,6 +1944,7 @@ describe("useAssistantSession", () => {
         session_id: "session-2",
         origin_session_id: "session-1",
         entry: null,
+        queued_message: null,
       });
       await rewriteDeferred.promise;
     });
@@ -1885,12 +1983,7 @@ describe("useAssistantSession", () => {
       if (sessionId === "session-1") return deleteCurrentDeferred.promise as never;
       return Promise.resolve(undefined as never);
     });
-    const rewriteDeferred = createDeferred<{
-      status: string;
-      session_id: string;
-      origin_session_id: string | null;
-      entry: TimelineEntry | null;
-    }>();
+    const rewriteDeferred = createDeferred<AcceptedMessageResponse & { origin_session_id: string | null }>();
     vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -1915,6 +2008,7 @@ describe("useAssistantSession", () => {
         session_id: "session-2",
         origin_session_id: "session-1",
         entry: null,
+        queued_message: null,
       });
       await rewriteDeferred.promise;
     });
@@ -1945,12 +2039,7 @@ describe("useAssistantSession", () => {
     );
     // session-1 的删除一直挂着
     vi.spyOn(API, "deleteAssistantSession").mockReturnValue(createDeferred<void>().promise as never);
-    const rewriteDeferred = createDeferred<{
-      status: string;
-      session_id: string;
-      origin_session_id: string | null;
-      entry: TimelineEntry | null;
-    }>();
+    const rewriteDeferred = createDeferred<AcceptedMessageResponse & { origin_session_id: string | null }>();
     vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -1976,6 +2065,7 @@ describe("useAssistantSession", () => {
         session_id: "session-3",
         origin_session_id: "session-2",
         entry: null,
+        queued_message: null,
       });
       await rewriteDeferred.promise;
     });
@@ -2000,12 +2090,7 @@ describe("useAssistantSession", () => {
     );
     // 项目 A 的删除一直挂着，模拟慢请求
     vi.spyOn(API, "deleteAssistantSession").mockReturnValue(createDeferred<void>().promise as never);
-    const rewriteDeferred = createDeferred<{
-      status: string;
-      session_id: string;
-      origin_session_id: string | null;
-      entry: TimelineEntry | null;
-    }>();
+    const rewriteDeferred = createDeferred<AcceptedMessageResponse & { origin_session_id: string | null }>();
     vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
 
     const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
@@ -2035,6 +2120,7 @@ describe("useAssistantSession", () => {
         session_id: "b-s3",
         origin_session_id: "b-s1",
         entry: null,
+        queued_message: null,
       });
       await rewriteDeferred.promise;
     });
@@ -2104,6 +2190,7 @@ describe("useAssistantSession", () => {
       session_id: "b-new",
       status: "accepted",
       entry: userEntry(0, "hello"),
+      queued_message: null,
     });
 
     const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
@@ -2176,6 +2263,7 @@ describe("useAssistantSession", () => {
       session_id: "session-3",
       origin_session_id: "session-1",
       entry: null,
+      queued_message: null,
     });
     await act(async () => {
       await result.current.rewriteMessage("u-0", "改写后的消息");
@@ -2223,12 +2311,7 @@ describe("useAssistantSession", () => {
     // DELETE 挂起，让改写的受理落在它在途的那段窗口里
     const deleteDeferred = createDeferred<void>();
     vi.spyOn(API, "deleteAssistantSession").mockReturnValue(deleteDeferred.promise as never);
-    const deferred = createDeferred<{
-      status: string;
-      session_id: string;
-      origin_session_id: string | null;
-      entry: TimelineEntry | null;
-    }>();
+    const deferred = createDeferred<AcceptedMessageResponse & { origin_session_id: string | null }>();
     vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(deferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -2251,6 +2334,7 @@ describe("useAssistantSession", () => {
         session_id: "session-2",
         origin_session_id: "session-1",
         entry: null,
+        queued_message: null,
       });
       await deferred.promise;
       deleteDeferred.resolve();
@@ -2350,12 +2434,7 @@ describe("useAssistantSession", () => {
     vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
       makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
     );
-    const deferred = createDeferred<{
-      status: string;
-      session_id: string;
-      origin_session_id: string | null;
-      entry: TimelineEntry | null;
-    }>();
+    const deferred = createDeferred<AcceptedMessageResponse & { origin_session_id: string | null }>();
     vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(deferred.promise);
 
     const { result } = renderHook(() => useAssistantSession("demo"));
@@ -2388,6 +2467,7 @@ describe("useAssistantSession", () => {
         session_id: "session-2",
         origin_session_id: "session-1",
         entry: userEntry(1, "改写后的消息"),
+        queued_message: null,
       });
       await deferred.promise;
     });

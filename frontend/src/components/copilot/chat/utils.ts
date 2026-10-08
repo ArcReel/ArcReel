@@ -63,7 +63,12 @@ export function turnImageAttachments(turn: Turn): ImagePayload[] {
 
 export function canEditUserTurn(
   turn: Turn,
-  context: { sessionStatus: SessionStatus | null; hasPendingQuestion: boolean; isSending: boolean },
+  context: {
+    sessionStatus: SessionStatus | null;
+    hasPendingQuestion: boolean;
+    isSending: boolean;
+    hasQueuedMessages: boolean;
+  },
 ): boolean {
   if (turn.type !== "user") return false;
   // 改写锚点就是条目 uuid：没有 uuid 的 turn（合成卡片、draft）无从锚定
@@ -77,5 +82,7 @@ export function canEditUserTurn(
   // 已有发送或改写在途：此刻放行别处的编辑入口，点下去会顶掉正在提交的编辑器，
   // 连同它里面还没被受理的草稿一起消失
   if (context.isSending) return false;
+  // 排队消息还没进入对话：此刻分叉，它们会落在被取代的原会话里
+  if (context.hasQueuedMessages) return false;
   return true;
 }

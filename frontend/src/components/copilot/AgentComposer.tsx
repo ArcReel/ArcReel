@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
-import { ArrowUp, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Loader2, Paperclip, Square, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import {
@@ -18,6 +18,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } fro
 import { MAX_ATTACHED_IMAGES, useImageAttachments, type AttachedImage } from "@/hooks/useImageAttachments";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { voidCall } from "@/utils/async";
+import { QueuedMessageTray } from "./QueuedMessageTray";
 import { SlashCommandMenu, useSlashCommands } from "./SlashCommandMenu";
 
 export interface AgentComposerHandle {
@@ -27,10 +28,12 @@ export interface AgentComposerHandle {
 
 interface AgentComposerProps {
   ref?: Ref<AgentComposerHandle>;
-  /** Agent 运行、发送中或等待回答时锁定输入。 */
+  /** 等待回答或发送请求在途时锁定输入。 */
   disabled: boolean;
-  /** 运行中：发送按钮换成「中断」。 */
+  /** 运行中且输入为空：发送按钮换成「停止」；有内容时仍是发送。 */
   running: boolean;
+  /** 发送请求在途：发送按钮转圈。 */
+  sending: boolean;
   placeholder: string;
   /** 提问占用输入框位置时隐藏；仍保持挂载，已输入的文字与附件不丢。 */
   hidden?: boolean;
@@ -52,10 +55,20 @@ function findSlashToken(value: string, cursor: number): { pos: number; filter: s
 
 // ---------------------------------------------------------------------------
 // AgentComposer — Agent 面板底部的输入框。
-// 图片附件在输入框顶行，可逐个移除；输入「/」时技能菜单浮在输入框上方。
+// 排队消息托盘在输入框正上方；图片附件在输入框顶行，可逐个移除；输入「/」时
+// 技能菜单浮在输入框上方。回复进行中也可以发送，发送与停止共用一个按钮。
 // ---------------------------------------------------------------------------
 
-export function AgentComposer({ ref, disabled, running, placeholder, hidden, onSend, onInterrupt }: AgentComposerProps) {
+export function AgentComposer({
+  ref,
+  disabled,
+  running,
+  sending,
+  placeholder,
+  hidden,
+  onSend,
+  onInterrupt,
+}: AgentComposerProps) {
   const { t } = useTranslation("dashboard");
   const groupRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -86,7 +99,8 @@ export function AgentComposer({ ref, disabled, running, placeholder, hidden, onS
     invalidatePendingTranscodes,
   } = useImageAttachments();
   const attachDisabled = disabled || isReading || images.length >= MAX_ATTACHED_IMAGES;
-  const canSend = !disabled && !isReading && (text.trim().length > 0 || images.length > 0);
+  const hasContent = text.trim().length > 0 || images.length > 0;
+  const canSend = !disabled && !isReading && hasContent;
   const previewImage = previewIndex === null ? undefined : images[previewIndex];
 
   const send = useCallback(() => {
@@ -203,6 +217,7 @@ export function AgentComposer({ ref, disabled, running, placeholder, hidden, onS
 
   return (
     <div hidden={hidden} className="shrink-0 border-t border-border p-3">
+      <QueuedMessageTray />
       {attachError && (
         <p role="alert" className="mb-2 text-xs text-destructive">
           {attachError}
@@ -282,7 +297,11 @@ export function AgentComposer({ ref, disabled, running, placeholder, hidden, onS
             >
               <Paperclip aria-hidden />
             </InputGroupButton>
-            {running ? (
+            {sending ? (
+              <Button size="icon-sm" className="ml-auto" disabled aria-label={t("send_message_pending")}>
+                <Loader2 aria-hidden className="animate-spin" />
+              </Button>
+            ) : running && !hasContent ? (
               <Button variant="outline" size="icon-sm" className="ml-auto" onClick={onInterrupt} aria-label={t("stop_session")}>
                 <Square aria-hidden />
               </Button>

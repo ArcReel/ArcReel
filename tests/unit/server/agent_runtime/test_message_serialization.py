@@ -10,13 +10,10 @@ from datetime import UTC, datetime
 from pydantic import BaseModel
 
 from server.agent_runtime.message_serialization import (
-    IMAGE_ONLY_SENTINEL,
     MESSAGE_TYPE_MAP,
     TASK_MESSAGE_SUBTYPES,
-    PendingUserEcho,
     build_runtime_status_message,
     infer_message_type,
-    match_user_echo,
     message_to_dict,
     serialize_value,
 )
@@ -174,32 +171,3 @@ class TestBuildRuntimeStatusMessage:
     def test_non_error_status(self):
         status = build_runtime_status_message("idle", "s2")
         assert status["is_error"] is False
-
-
-class TestMatchUserEcho:
-    def test_empty_queue_never_matches(self):
-        assert match_user_echo([], {"type": "user", "content": "hi"}) is None
-
-    def test_matching_text_pops_and_returns_record(self):
-        pending = [PendingUserEcho("hi", entry_uuid="user-1")]
-        matched = match_user_echo(pending, {"type": "user", "content": " hi "})
-        assert matched is not None
-        assert matched.entry_uuid == "user-1"
-        assert pending == []
-
-    def test_non_matching_text_keeps_queue(self):
-        pending = [PendingUserEcho("hi")]
-        assert match_user_echo(pending, {"type": "user", "content": "bye"}) is None
-        assert pending == [PendingUserEcho("hi")]
-
-    def test_image_only_sentinel_matches_empty_content(self):
-        pending = [PendingUserEcho(IMAGE_ONLY_SENTINEL, entry_uuid="user-2")]
-        matched = match_user_echo(pending, {"type": "user", "content": []})
-        assert matched is not None
-        assert matched.entry_uuid == "user-2"
-        assert pending == []
-
-    def test_empty_content_without_sentinel_not_matched(self):
-        pending = [PendingUserEcho("hi")]
-        assert match_user_echo(pending, {"type": "user", "content": []}) is None
-        assert pending == [PendingUserEcho("hi")]

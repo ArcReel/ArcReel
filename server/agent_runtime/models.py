@@ -1,6 +1,6 @@
 """Agent runtime data models."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
@@ -32,6 +32,38 @@ class Heartbeat:
     消费方在其上执行存活自检（SSE 查断线、同步收集方查 deadline/会话状态），
     保证空闲期也有确定性的醒来时机（见 ADR-0005）。
     """
+
+
+QueuedMessageState = Literal["queued"]
+"""排队消息的状态。``queued``：已交给 CLI，在 CLI 的队列里等待被并入一轮。"""
+
+
+@dataclass(slots=True)
+class QueuedMessage:
+    """排队消息：已交给 CLI、尚未被 Agent 接纳进对话的用户消息（服务端内存态，随会话清理）。
+
+    ``id`` 即被接纳后用户条目的 uuid，在消息的整个生命周期内不变；``cli_uuid`` 是送入 CLI 时
+    携带的消息 uuid，CLI 的 ``command_lifecycle`` 帧与用户消息回放都以它指认这条消息。
+    """
+
+    entry: dict[str, Any]
+    """被接纳时写入会话事件日志的用户条目。"""
+    cli_uuid: str
+    client_key: str | None = None
+    state: QueuedMessageState = "queued"
+    id: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.id = str(self.entry["uuid"])
+
+    def to_payload(self) -> dict[str, Any]:
+        """对外形状：发送响应与 entry 流的排队消息事件共用。"""
+        return {
+            "id": self.id,
+            "content": self.entry.get("content", []),
+            "timestamp": self.entry.get("timestamp"),
+            "state": self.state,
+        }
 
 
 SessionStreamEvent = SubscriptionReady | LiveMessage | Heartbeat

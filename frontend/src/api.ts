@@ -25,7 +25,7 @@ import type {
   SessionMeta,
   ImagePayload,
   EntriesResponse,
-  TimelineEntry,
+  AcceptedMessageResponse,
   SkillInfo,
   ProjectOverview,
   ProjectChangeBatchPayload,
@@ -2842,7 +2842,7 @@ class API {
     sessionId?: string | null,
     images?: ImagePayload[],
     clientKey?: string
-  ): Promise<{ session_id: string; status: string; entry: TimelineEntry | null }> {
+  ): Promise<AcceptedMessageResponse> {
     return this.request(`${this.assistantBase(projectName)}/sessions/send`, {
       method: "POST",
       body: JSON.stringify({
@@ -2870,7 +2870,7 @@ class API {
     content: string,
     images?: ImagePayload[],
     clientKey?: string
-  ): Promise<{ status: string; session_id: string; origin_session_id: string | null; entry: TimelineEntry | null }> {
+  ): Promise<AcceptedMessageResponse & { origin_session_id: string | null }> {
     return this.request(
       `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/rewrite`,
       {
