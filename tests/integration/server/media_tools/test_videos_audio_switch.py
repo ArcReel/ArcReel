@@ -19,14 +19,15 @@ from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import GenerationSelectionMode
+from lib.i18n import SUPPORTED_LOCALES, _, render_message
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.reference_video.text_parser import extract_mentions
 from server.services.admission import video_batch_admission as admission_mod
 from server.services.admission.video_batch_admission import admit_reference_video_batch
-from server.services.tasks.video_caps import assert_audio_switch_supported
+from server.services.tasks.video_caps import AudioSwitchConflict, assert_audio_switch_supported
 from server.tool_runtime import ToolOutcome
-from tests.factories import make_video_request_facts
+from tests.factories import make_display_names, make_video_request_facts
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     read_generation_result,
@@ -96,11 +97,12 @@ class TestStoryboardRouteGate:
 
         async def _reject(_project, generation_type, **_kwargs):
             seen.append(generation_type)
-            raise ValueError("成片恒有声")
+            raise AudioSwitchConflict("dashscope", "wan2.7-i2v")
 
         monkeypatch.setattr(admission_mod, "assert_audio_switch_supported", _reject)
         conflict = await admission_mod.audio_switch_conflict({"generation_mode": "storyboard"})
-        assert conflict == "成片恒有声"
+        assert conflict is not None
+        assert conflict.code == "video_audio_switch_not_supported"
         assert seen == ["i2v"]
 
     async def test_voice_characters_resolve_independently_of_the_gate(self, tmp_path, monkeypatch):
@@ -305,6 +307,37 @@ class TestStoryboardGateEntersAdmission:
         assert out.value["batch_admission"]["decision"] == "blocked"
         enqueue.assert_not_awaited()
         assert _admission_codes(out) == {"E1S01": ["video_audio_switch_not_supported"]}
+
+    async def test_audio_switch_conflict_renders_with_display_names(self, tmp_path, set_admission_video_request_facts):
+        """冲突问题带实际的供应商与模型：界面按目录渲染成名称，不露占位符与内部 ID。"""
+        set_admission_video_request_facts(
+            make_video_request_facts(provider_id="custom-7", model_id="shared-model", requested_generate_audio=False)
+        )
+
+        out = await run_generate_videos(self._ctx(tmp_path), _EPISODE_1, batch_waiter=AsyncMock(return_value=([], [])))
+
+        assert isinstance(out.value, dict)
+        (problem,) = [
+            problem
+            for unit in out.value["batch_admission"]["units"]
+            for problem in unit["problems"]
+            if problem["code"] == "video_audio_switch_not_supported"
+        ]
+        # 另一个供应商下同一上游模型 ID 名称不同：只有带上供应商才能查到这一个模型名
+        models = {("custom-7", "shared-model"): "甲网关模型", ("custom-8", "shared-model"): "乙网关模型"}
+        for locale in SUPPORTED_LOCALES:
+            names = make_display_names(locale, providers={"custom-7": "我的网关"}, models=models)
+            rendered = render_message(
+                problem["code"],
+                problem["params"],
+                lambda key, locale=locale, **params: _(key, locale=locale, **params),
+                names,
+            )
+            assert "{" not in rendered
+            assert "custom-7" not in rendered
+            assert "shared-model" not in rendered
+            assert "我的网关" in rendered
+            assert "甲网关模型" in rendered
 
     async def test_a_blank_prompt_is_refused_per_unit(self, tmp_path, monkeypatch):
         """空白提示词构造不出 TaskSpec：该条目带自己的问题码进结论，不把整批打成通用报错。"""
