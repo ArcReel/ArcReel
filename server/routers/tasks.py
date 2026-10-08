@@ -58,8 +58,9 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
     """Return ``task`` with its stored failure reason and warnings rendered for the request locale.
 
     Known structured codes become localized text while their machine ``error_code`` and
-    ``error_params`` remain available to API consumers; raw exception text and legacy
-    rows pass through unchanged (see ``lib.generation.task_failure.render_failure``). Generation
+    ``error_params`` remain available to API consumers, and the stored server text moves to
+    ``error_detail``; raw exception text and legacy rows pass through unchanged without
+    ``error_detail`` (see ``lib.generation.task_failure.render_failure``). Generation
     warnings stored as ``result.warnings`` (``{key, params}`` entries written by the
     reference-video pipeline) are rendered in place into a list of strings, mirroring
     how ``error_message`` is rendered. Internal execution checkpoints are stripped at
@@ -90,12 +91,11 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
             if message is not None:
                 key, params = message
             translated = translate(key, **params)
-            localized = {
-                **localized,
-                "error_code": problem.code,
-                "error_params": problem.params,
-                "error_message": translated if translated != key else problem.detail,
-            }
+            localized = {**localized, "error_code": problem.code, "error_params": problem.params}
+            if translated != key:
+                localized = {**localized, "error_message": translated, "error_detail": problem.detail}
+            else:
+                localized = {**localized, "error_message": problem.detail}
         elif failure is None:
             localized = {**localized, "error_message": render_failure(message, translate)}
         else:
@@ -105,6 +105,7 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
                 "error_code": code,
                 "error_params": params,
                 "error_message": render_failure(message, translate),
+                "error_detail": message,
             }
     result = localized.get("result")
     if isinstance(result, dict):

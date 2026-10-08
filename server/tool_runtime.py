@@ -208,6 +208,7 @@ from server.draft_workflow import (
     PromoteDraftRequest,
 )
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
+from server.services.admission.video_batch_admission import generation_action_for
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 from server.services.project.workflow_planner import WorkflowPlanner
@@ -227,6 +228,7 @@ from server.text_generation import (
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
+    VideoRequestFactsUnavailableError,
     generate_drama_script_plan,
     generate_narration_script_plan,
     generate_reference_script_plan,
@@ -623,6 +625,17 @@ def truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
     )
 
 
+def video_facts_problem(exc: VideoRequestFactsUnavailableError) -> ToolProblem:
+    """视频请求事实解析不出：问题码与参数原样透出，修复指引与批量准入同一映射（多为配置供应商）。"""
+    failure = exc.failure
+    return ToolProblem(
+        failure.code,
+        str(exc),
+        action=generation_action_for(failure.action),
+        params=failure.parameters(),
+    )
+
+
 def _not_admitted_problem(exc: OperationNotAdmittedError) -> ToolProblem:
     """准入不成立的拒绝：``params.reason`` 与制作状态 ``operations`` 里同一操作的理由码一致。"""
     return ToolProblem(
@@ -660,6 +673,8 @@ async def _run_text_generation(
         return ToolOutcome(problem=_not_admitted_problem(exc))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
+    except VideoRequestFactsUnavailableError as exc:
+        return ToolOutcome(problem=video_facts_problem(exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:

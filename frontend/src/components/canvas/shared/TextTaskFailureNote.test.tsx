@@ -61,6 +61,32 @@ describe("TextTaskFailureNote", () => {
     expect(screen.queryByRole("link", { name: "去登记最大输出长度" })).not.toBeInTheDocument();
   });
 
+  it("keeps the problem code, params and server text of a localized failure behind its details", () => {
+    const summary = "custom-2/I2V_H3 不支持参考生视频；请在设置中为「参考生视频」单独指定支持该用途的模型，或更换默认视频模型";
+    useTasksStore.setState({
+      tasks: [
+        failed({
+          task_type: "text_reference_script_plan",
+          resource_id: "episode-1",
+          error_message: summary,
+          error_code: "video_capability_missing_r2v",
+          error_params: { provider: "custom-2", model: "I2V_H3" },
+          error_detail: "❌ 服务端原文",
+        }),
+      ],
+    });
+    renderNote();
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(`上一次 AI 规划脚本失败：${summary}`);
+    expect(alert).not.toHaveTextContent("video_capability_missing_r2v");
+    fireEvent.click(screen.getByRole("button", { name: "详情" }));
+
+    expect(screen.getByText("video_capability_missing_r2v")).toBeInTheDocument();
+    expect(screen.getByText("provider=custom-2, model=I2V_H3")).toBeInTheDocument();
+    expect(screen.getByText("❌ 服务端原文")).toBeInTheDocument();
+  });
+
   it("shows only the latest text task of this episode, until it is dismissed", () => {
     useTasksStore.setState({
       tasks: [
@@ -83,6 +109,7 @@ describe("TextTaskFailureNote", () => {
     renderNote();
 
     expect(screen.getByRole("alert")).toHaveTextContent("上一次 AI 规划脚本失败：源文读取失败");
+    expect(screen.queryByRole("button", { name: "详情" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
