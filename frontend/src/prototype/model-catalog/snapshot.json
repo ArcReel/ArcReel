@@ -1,0 +1,5467 @@
+{
+ "entries": [
+  {
+   "id": "google/gemini-3.1-pro-preview",
+   "maker": "google",
+   "name": "gemini-3.1-pro-preview",
+   "displayName": "Gemini 3.1 Pro",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 12.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/gemini-3-flash-preview",
+   "maker": "google",
+   "name": "gemini-3-flash-preview",
+   "displayName": "Gemini 3 Flash",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.5
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 3.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/gemini-3.1-flash-lite",
+   "maker": "google",
+   "name": "gemini-3.1-flash-lite",
+   "displayName": "Gemini 3.1 Flash Lite",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.25
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 1.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/gemini-3-pro-image-preview",
+   "maker": "google",
+   "name": "gemini-3-pro-image-preview",
+   "displayName": "Gemini 3 Pro Image",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K",
+    "4K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "1K"
+        },
+        "price": 0.134
+       },
+       {
+        "when": {
+         "resolution": "2K"
+        },
+        "price": 0.134
+       },
+       {
+        "when": {
+         "resolution": "4K"
+        },
+        "price": 0.24
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/gemini-3.1-flash-image-preview",
+   "maker": "google",
+   "name": "gemini-3.1-flash-image-preview",
+   "displayName": "Gemini 3.1 Flash Image",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K",
+    "4K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "512PX"
+        },
+        "price": 0.045
+       },
+       {
+        "when": {
+         "resolution": "1K"
+        },
+        "price": 0.067
+       },
+       {
+        "when": {
+         "resolution": "2K"
+        },
+        "price": 0.101
+       },
+       {
+        "when": {
+         "resolution": "4K"
+        },
+        "price": 0.151
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/veo-3.1-generate-preview",
+   "maker": "google",
+   "name": "veo-3.1-generate-preview",
+   "displayName": "Veo 3.1",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    6,
+    8
+   ],
+   "resolutions": [
+    "720p",
+    "1080p",
+    "4k"
+   ],
+   "durationConstraints": {
+    "1080p": [
+     8
+    ],
+    "4k": [
+     8
+    ]
+   },
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": true
+        },
+        "price": 0.4
+       },
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": false
+        },
+        "price": 0.2
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": true
+        },
+        "price": 0.4
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": false
+        },
+        "price": 0.2
+       },
+       {
+        "when": {
+         "resolution": "4k",
+         "audio": true
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "resolution": "4k",
+         "audio": false
+        },
+        "price": 0.4
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/veo-3.1-fast-generate-preview",
+   "maker": "google",
+   "name": "veo-3.1-fast-generate-preview",
+   "displayName": "Veo 3.1 Fast",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    6,
+    8
+   ],
+   "resolutions": [
+    "720p",
+    "1080p",
+    "4k"
+   ],
+   "durationConstraints": {
+    "1080p": [
+     8
+    ],
+    "4k": [
+     8
+    ]
+   },
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": true
+        },
+        "price": 0.1
+       },
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": false
+        },
+        "price": 0.08
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": true
+        },
+        "price": 0.12
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": false
+        },
+        "price": 0.1
+       },
+       {
+        "when": {
+         "resolution": "4k",
+         "audio": true
+        },
+        "price": 0.3
+       },
+       {
+        "when": {
+         "resolution": "4k",
+         "audio": false
+        },
+        "price": 0.25
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/veo-3.1-lite-generate-preview",
+   "maker": "google",
+   "name": "veo-3.1-lite-generate-preview",
+   "displayName": "Veo 3.1 Lite",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    6,
+    8
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {
+    "1080p": [
+     8
+    ]
+   },
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": true
+        },
+        "price": 0.05
+       },
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": false
+        },
+        "price": 0.03
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": true
+        },
+        "price": 0.08
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": false
+        },
+        "price": 0.05
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/veo-3.1-generate-001",
+   "maker": "google",
+   "name": "veo-3.1-generate-001",
+   "displayName": "Veo 3.1",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    6,
+    8
+   ],
+   "resolutions": [
+    "720p",
+    "1080p",
+    "4k"
+   ],
+   "durationConstraints": {
+    "1080p": [
+     8
+    ],
+    "4k": [
+     8
+    ]
+   },
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": true
+        },
+        "price": 0.4
+       },
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": false
+        },
+        "price": 0.2
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": true
+        },
+        "price": 0.4
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": false
+        },
+        "price": 0.2
+       },
+       {
+        "when": {
+         "resolution": "4k",
+         "audio": true
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "resolution": "4k",
+         "audio": false
+        },
+        "price": 0.4
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "google/veo-3.1-fast-generate-001",
+   "maker": "google",
+   "name": "veo-3.1-fast-generate-001",
+   "displayName": "Veo 3.1 Fast",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    6,
+    8
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {
+    "1080p": [
+     8
+    ]
+   },
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": true
+        },
+        "price": 0.1
+       },
+       {
+        "when": {
+         "resolution": "720p",
+         "audio": false
+        },
+        "price": 0.08
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": true
+        },
+        "price": 0.12
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "audio": false
+        },
+        "price": 0.1
+       },
+       {
+        "when": {
+         "resolution": "4k",
+         "audio": true
+        },
+        "price": 0.3
+       },
+       {
+        "when": {
+         "resolution": "4k",
+         "audio": false
+        },
+        "price": 0.25
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seed-2-0-pro-260215",
+   "maker": "bytedance",
+   "name": "doubao-seed-2-0-pro-260215",
+   "displayName": "豆包 Seed 2.0 Pro",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 3.2
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 16.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seed-2-0-lite-260215",
+   "maker": "bytedance",
+   "name": "doubao-seed-2-0-lite-260215",
+   "displayName": "豆包 Seed 2.0 Lite",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.6
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 3.6
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seed-2-0-mini-260215",
+   "maker": "bytedance",
+   "name": "doubao-seed-2-0-mini-260215",
+   "displayName": "豆包 Seed 2.0 Mini",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seed-1-8-251228",
+   "maker": "bytedance",
+   "name": "doubao-seed-1-8-251228",
+   "displayName": "豆包 Seed 1.8",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 32768,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.8
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedream-5-0-lite-260128",
+   "maker": "bytedance",
+   "name": "doubao-seedream-5-0-lite-260128",
+   "displayName": "Seedream 5.0 Lite",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.22
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedream-5-0-260128",
+   "maker": "bytedance",
+   "name": "doubao-seedream-5-0-260128",
+   "displayName": "Seedream 5.0",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.22
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedream-4-5-251128",
+   "maker": "bytedance",
+   "name": "doubao-seedream-4-5-251128",
+   "displayName": "Seedream 4.5",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.25
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedream-4-0-250828",
+   "maker": "bytedance",
+   "name": "doubao-seedream-4-0-250828",
+   "displayName": "Seedream 4.0",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedance-1-5-pro-251215",
+   "maker": "bytedance",
+   "name": "doubao-seedance-1-5-pro-251215",
+   "displayName": "Seedance 1.5 Pro",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "video_tokens",
+      "unit": "per_1m",
+      "dims": [
+       "service_tier",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": true
+        },
+        "price": 16.0
+       },
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": false
+        },
+        "price": 8.0
+       },
+       {
+        "when": {
+         "service_tier": "flex",
+         "audio": true
+        },
+        "price": 8.0
+       },
+       {
+        "when": {
+         "service_tier": "flex",
+         "audio": false
+        },
+        "price": 4.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedance-2-0-260128",
+   "maker": "bytedance",
+   "name": "doubao-seedance-2-0-260128",
+   "displayName": "Seedance 2.0",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "video_tokens",
+      "unit": "per_1m",
+      "dims": [
+       "service_tier",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": true
+        },
+        "price": 46.0
+       },
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": false
+        },
+        "price": 46.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedance-2-0-fast-260128",
+   "maker": "bytedance",
+   "name": "doubao-seedance-2-0-fast-260128",
+   "displayName": "Seedance 2.0 Fast",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "video_tokens",
+      "unit": "per_1m",
+      "dims": [
+       "service_tier",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": true
+        },
+        "price": 37.0
+       },
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": false
+        },
+        "price": 37.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedance-2-0-mini-260615",
+   "maker": "bytedance",
+   "name": "doubao-seedance-2-0-mini-260615",
+   "displayName": "Seedance 2.0 Mini",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "video_tokens",
+      "unit": "per_1m",
+      "dims": [
+       "service_tier",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": true
+        },
+        "price": 23.0
+       },
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": false
+        },
+        "price": 23.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seedance-2-5-260628",
+   "maker": "bytedance",
+   "name": "doubao-seedance-2-5-260628",
+   "displayName": "Seedance 2.5",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30
+   ],
+   "resolutions": [
+    "480p",
+    "720p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "video_tokens",
+      "unit": "per_1m",
+      "dims": [
+       "service_tier",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": true
+        },
+        "price": 70.0
+       },
+       {
+        "when": {
+         "service_tier": "default",
+         "audio": false
+        },
+        "price": 70.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "bytedance/doubao-seed-2.0-code",
+   "maker": "bytedance",
+   "name": "doubao-seed-2.0-code",
+   "displayName": "豆包 Seed 2.0 Code",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": null,
+    "meters": []
+   }
+  },
+  {
+   "id": "deepseek/deepseek-v4-flash",
+   "maker": "deepseek",
+   "name": "deepseek-v4-flash",
+   "displayName": "DeepSeek V4 Flash",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 393216,
+   "price": {
+    "currency": null,
+    "meters": []
+   }
+  },
+  {
+   "id": "deepseek/deepseek-v4-pro",
+   "maker": "deepseek",
+   "name": "deepseek-v4-pro",
+   "displayName": "DeepSeek V4 Pro",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 393216,
+   "price": {
+    "currency": null,
+    "meters": []
+   }
+  },
+  {
+   "id": "zhipu/glm-5.1",
+   "maker": "zhipu",
+   "name": "glm-5.1",
+   "displayName": "GLM 5.1",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": null,
+    "meters": []
+   }
+  },
+  {
+   "id": "moonshot/kimi-k2.6",
+   "maker": "moonshot",
+   "name": "kimi-k2.6",
+   "displayName": "Kimi K2.6",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 32768,
+   "price": {
+    "currency": null,
+    "meters": []
+   }
+  },
+  {
+   "id": "minimax/minimax-m2.7",
+   "maker": "minimax",
+   "name": "minimax-m2.7",
+   "displayName": "MiniMax M2.7",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": null,
+    "meters": []
+   }
+  },
+  {
+   "id": "xai/grok-4.20-0309-reasoning",
+   "maker": "xai",
+   "name": "grok-4.20-0309-reasoning",
+   "displayName": "Grok 4.20 Reasoning",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 6.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "xai/grok-4.20-0309-non-reasoning",
+   "maker": "xai",
+   "name": "grok-4.20-0309-non-reasoning",
+   "displayName": "Grok 4.20 Non-Reasoning",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 6.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "xai/grok-4-1-fast-reasoning",
+   "maker": "xai",
+   "name": "grok-4-1-fast-reasoning",
+   "displayName": "Grok 4.1 Fast Reasoning",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "xai/grok-4-1-fast-non-reasoning",
+   "maker": "xai",
+   "name": "grok-4-1-fast-non-reasoning",
+   "displayName": "Grok 4.1 Fast (Non-Reasoning)",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "xai/grok-imagine-image-pro",
+   "maker": "xai",
+   "name": "grok-imagine-image-pro",
+   "displayName": "Grok Imagine Image Pro",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.07
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "xai/grok-imagine-image",
+   "maker": "xai",
+   "name": "grok-imagine-image",
+   "displayName": "Grok Imagine Image",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.02
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "xai/grok-imagine-video",
+   "maker": "xai",
+   "name": "grok-imagine-video",
+   "displayName": "Grok Imagine Video",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "480p"
+        },
+        "price": 0.05
+       },
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.07
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "xai/grok-imagine-video-1.5",
+   "maker": "xai",
+   "name": "grok-imagine-video-1.5",
+   "displayName": "Grok Imagine Video 1.5",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "480p"
+        },
+        "price": 0.08
+       },
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.14
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 0.25
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "xai/grok-imagine-video-1.5-lite",
+   "maker": "xai",
+   "name": "grok-imagine-video-1.5-lite",
+   "displayName": "Grok Imagine Video 1.5 Lite",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "480p"
+        },
+        "price": 0.02
+       },
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.03
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 0.14
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "openai/gpt-5.5",
+   "maker": "openai",
+   "name": "gpt-5.5",
+   "displayName": "GPT-5.5",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 128000,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 5.0
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 30.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "openai/gpt-5.4",
+   "maker": "openai",
+   "name": "gpt-5.4",
+   "displayName": "GPT-5.4",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 128000,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.5
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 15.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "openai/gpt-5.4-mini",
+   "maker": "openai",
+   "name": "gpt-5.4-mini",
+   "displayName": "GPT-5.4 Mini",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 128000,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.75
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 4.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "openai/gpt-5.4-nano",
+   "maker": "openai",
+   "name": "gpt-5.4-nano",
+   "displayName": "GPT-5.4 Nano",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 128000,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 1.25
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "openai/gpt-image-2",
+   "maker": "openai",
+   "name": "gpt-image-2",
+   "displayName": "GPT Image 2",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "512px",
+    "1K",
+    "2K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "image_input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 8.0
+       }
+      ]
+     },
+     {
+      "meter": "image_cache_read_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     },
+     {
+      "meter": "image_output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 30.0
+       }
+      ]
+     },
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 5.0
+       }
+      ]
+     },
+     {
+      "meter": "cache_read_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 1.25
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "openai/sora-2",
+   "maker": "openai",
+   "name": "sora-2",
+   "displayName": "Sora 2",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    8,
+    12
+   ],
+   "resolutions": [
+    "720p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.1
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "openai/sora-2-pro",
+   "maker": "openai",
+   "name": "sora-2-pro",
+   "displayName": "Sora 2 Pro",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    8,
+    12
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.3
+       },
+       {
+        "when": {
+         "resolution": "1024p"
+        },
+        "price": 0.5
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 0.7
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "shengshu/viduq2",
+   "maker": "shengshu",
+   "name": "viduq2",
+   "displayName": "Vidu Q2 Image",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1080p",
+    "2K",
+    "4K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": []
+   }
+  },
+  {
+   "id": "shengshu/viduq1",
+   "maker": "shengshu",
+   "name": "viduq1",
+   "displayName": "Vidu Q1 Image",
+   "mediaType": "image",
+   "capabilities": [
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": []
+   }
+  },
+  {
+   "id": "shengshu/viduq3-turbo",
+   "maker": "shengshu",
+   "name": "viduq3-turbo",
+   "displayName": "Vidu Q3 Turbo",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+   ],
+   "resolutions": [
+    "540p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": []
+   }
+  },
+  {
+   "id": "shengshu/viduq3-pro",
+   "maker": "shengshu",
+   "name": "viduq3-pro",
+   "displayName": "Vidu Q3 Pro",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+   ],
+   "resolutions": [
+    "540p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": []
+   }
+  },
+  {
+   "id": "shengshu/viduq3",
+   "maker": "shengshu",
+   "name": "viduq3",
+   "displayName": "Vidu Q3 (Reference)",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+   ],
+   "resolutions": [
+    "540p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": []
+   }
+  },
+  {
+   "id": "shengshu/vidu2.0",
+   "maker": "shengshu",
+   "name": "vidu2.0",
+   "displayName": "Vidu 2.0",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    8
+   ],
+   "resolutions": [
+    "360p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {
+    "360p": [
+     4
+    ],
+    "1080p": [
+     4
+    ]
+   },
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": []
+   }
+  },
+  {
+   "id": "alibaba/qwen-plus",
+   "maker": "alibaba",
+   "name": "qwen-plus",
+   "displayName": "Qwen Plus",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 32768,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.8
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen3.6-plus",
+   "maker": "alibaba",
+   "name": "qwen3.6-plus",
+   "displayName": "Qwen3.6 Plus",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 12.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen3-max",
+   "maker": "alibaba",
+   "name": "qwen3-max",
+   "displayName": "Qwen3 Max",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 32768,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.5
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 10.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen3.7-max",
+   "maker": "alibaba",
+   "name": "qwen3.7-max",
+   "displayName": "Qwen3.7 Max",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 131072,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 12.0
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 36.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen3.6-flash",
+   "maker": "alibaba",
+   "name": "qwen3.6-flash",
+   "displayName": "Qwen3.6 Flash",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 1.2
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 7.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen-long",
+   "maker": "alibaba",
+   "name": "qwen-long",
+   "displayName": "Qwen Long",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 8192,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.5
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen-image-2.0",
+   "maker": "alibaba",
+   "name": "qwen-image-2.0",
+   "displayName": "Qwen Image 2.0",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "2048*2048",
+    "2688*1536",
+    "1536*2688",
+    "2368*1728",
+    "1728*2368"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen-image-2.0-pro",
+   "maker": "alibaba",
+   "name": "qwen-image-2.0-pro",
+   "displayName": "Qwen Image 2.0 Pro",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "2048*2048",
+    "2688*1536",
+    "1536*2688",
+    "2368*1728",
+    "1728*2368"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen-image-edit-plus",
+   "maker": "alibaba",
+   "name": "qwen-image-edit-plus",
+   "displayName": "Qwen Image Edit Plus",
+   "mediaType": "image",
+   "capabilities": [
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "2048*2048",
+    "2048*1152",
+    "1152*2048",
+    "2048*1536",
+    "1536*2048"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen-image-edit-max",
+   "maker": "alibaba",
+   "name": "qwen-image-edit-max",
+   "displayName": "Qwen Image Edit Max",
+   "mediaType": "image",
+   "capabilities": [
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "2048*2048",
+    "2048*1152",
+    "1152*2048",
+    "2048*1536",
+    "1536*2048"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/wan2.7-image",
+   "maker": "alibaba",
+   "name": "wan2.7-image",
+   "displayName": "万相 2.7 图像",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/wan2.7-image-pro",
+   "maker": "alibaba",
+   "name": "wan2.7-image-pro",
+   "displayName": "万相 2.7 图像 Pro",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K",
+    "4K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/happyhorse-1.1-i2v",
+   "maker": "alibaba",
+   "name": "happyhorse-1.1-i2v",
+   "displayName": "HappyHorse 1.1 图生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "480p"
+        },
+        "price": 0.45
+       },
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.9
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/happyhorse-1.1-t2v",
+   "maker": "alibaba",
+   "name": "happyhorse-1.1-t2v",
+   "displayName": "HappyHorse 1.1 文生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "480p"
+        },
+        "price": 0.45
+       },
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.9
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/happyhorse-1.1-r2v",
+   "maker": "alibaba",
+   "name": "happyhorse-1.1-r2v",
+   "displayName": "HappyHorse 1.1 参考生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "480p"
+        },
+        "price": 0.45
+       },
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.9
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/happyhorse-1.0-i2v",
+   "maker": "alibaba",
+   "name": "happyhorse-1.0-i2v",
+   "displayName": "HappyHorse 1.0 图生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.9
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.6
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/happyhorse-1.0-t2v",
+   "maker": "alibaba",
+   "name": "happyhorse-1.0-t2v",
+   "displayName": "HappyHorse 1.0 文生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.9
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.6
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/happyhorse-1.0-r2v",
+   "maker": "alibaba",
+   "name": "happyhorse-1.0-r2v",
+   "displayName": "HappyHorse 1.0 参考生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.9
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.6
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/wan2.7-i2v",
+   "maker": "alibaba",
+   "name": "wan2.7-i2v",
+   "displayName": "万相 2.7 图生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/wan2.7-t2v",
+   "maker": "alibaba",
+   "name": "wan2.7-t2v",
+   "displayName": "万相 2.7 文生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/wan2.7-r2v",
+   "maker": "alibaba",
+   "name": "wan2.7-r2v",
+   "displayName": "万相 2.7 参考生视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/wan3.0-video",
+   "maker": "alibaba",
+   "name": "wan3.0-video",
+   "displayName": "万相 3.0 视频",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "480p"
+        },
+        "price": 0.3
+       },
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 1.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "alibaba/qwen3-tts-flash",
+   "maker": "alibaba",
+   "name": "qwen3-tts-flash",
+   "displayName": "Qwen3 TTS Flash",
+   "mediaType": "audio",
+   "capabilities": [
+    "text_to_speech"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "characters",
+      "unit": "per_10k",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.8
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "minimax/MiniMax-M3",
+   "maker": "minimax",
+   "name": "MiniMax-M3",
+   "displayName": "MiniMax M3",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output",
+    "vision"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 524288,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.1
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 8.4
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "minimax/MiniMax-M2.7",
+   "maker": "minimax",
+   "name": "MiniMax-M2.7",
+   "displayName": "MiniMax M2.7",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 204800,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 2.1
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 8.4
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "minimax/image-01",
+   "maker": "minimax",
+   "name": "image-01",
+   "displayName": "MiniMax Image 01",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.025
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "minimax/MiniMax-H3",
+   "maker": "minimax",
+   "name": "MiniMax-H3",
+   "displayName": "MiniMax H3",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "768p",
+    "2k"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "768p"
+        },
+        "price": 0.5
+       },
+       {
+        "when": {
+         "resolution": "2k"
+        },
+        "price": 0.8
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "minimax/MiniMax-Hailuo-2.3",
+   "maker": "minimax",
+   "name": "MiniMax-Hailuo-2.3",
+   "displayName": "MiniMax Hailuo 2.3",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    6,
+    10
+   ],
+   "resolutions": [
+    "768p",
+    "1080p"
+   ],
+   "durationConstraints": {
+    "1080p": [
+     6
+    ]
+   },
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "requests",
+      "unit": "per_item",
+      "dims": [
+       "resolution",
+       "duration"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "768p",
+         "duration": 6
+        },
+        "price": 2.0
+       },
+       {
+        "when": {
+         "resolution": "768p",
+         "duration": 10
+        },
+        "price": 4.0
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "duration": 6
+        },
+        "price": 3.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "minimax/MiniMax-Hailuo-2.3-Fast",
+   "maker": "minimax",
+   "name": "MiniMax-Hailuo-2.3-Fast",
+   "displayName": "MiniMax Hailuo 2.3 Fast",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    6,
+    10
+   ],
+   "resolutions": [
+    "768p",
+    "1080p"
+   ],
+   "durationConstraints": {
+    "1080p": [
+     6
+    ]
+   },
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "requests",
+      "unit": "per_item",
+      "dims": [
+       "resolution",
+       "duration"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "768p",
+         "duration": 6
+        },
+        "price": 1.35
+       },
+       {
+        "when": {
+         "resolution": "768p",
+         "duration": 10
+        },
+        "price": 2.25
+       },
+       {
+        "when": {
+         "resolution": "1080p",
+         "duration": 6
+        },
+        "price": 2.31
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "minimax/S2V-01",
+   "maker": "minimax",
+   "name": "S2V-01",
+   "displayName": "MiniMax S2V-01",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    6
+   ],
+   "resolutions": [
+    "768p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "requests",
+      "unit": "per_item",
+      "dims": [
+       "resolution",
+       "duration"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "768p",
+         "duration": 6
+        },
+        "price": 3.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "kuaishou/kling-v2-5-turbo",
+   "maker": "kuaishou",
+   "name": "kling-v2-5-turbo",
+   "displayName": "可灵 2.5 Turbo",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    5,
+    10
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "quality",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "quality": "std",
+         "audio": false
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "quality": "std",
+         "audio": true
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": false
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": true
+        },
+        "price": 1.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": false
+        },
+        "price": 3.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": true
+        },
+        "price": 3.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "kuaishou/kling-image-o1",
+   "maker": "kuaishou",
+   "name": "kling-image-o1",
+   "displayName": "可灵图像 O1",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.2
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "kuaishou/kling-v3-omni-image",
+   "maker": "kuaishou",
+   "name": "kling-v3-omni-image",
+   "displayName": "可灵 V3-Omni（图像）",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K",
+    "4K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "1K"
+        },
+        "price": 0.2
+       },
+       {
+        "when": {
+         "resolution": "2K"
+        },
+        "price": 0.2
+       },
+       {
+        "when": {
+         "resolution": "4K"
+        },
+        "price": 0.4
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "kuaishou/kling-v3",
+   "maker": "kuaishou",
+   "name": "kling-v3",
+   "displayName": "可灵 v3",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "720p",
+    "1080p",
+    "4k"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "quality",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "quality": "std",
+         "audio": false
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "quality": "std",
+         "audio": true
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": false
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": true
+        },
+        "price": 1.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": false
+        },
+        "price": 3.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": true
+        },
+        "price": 3.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "kuaishou/kling-v3-omni",
+   "maker": "kuaishou",
+   "name": "kling-v3-omni",
+   "displayName": "可灵 v3 Omni",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "resolutions": [
+    "720p",
+    "1080p",
+    "4k"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "quality",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "quality": "std",
+         "audio": false
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "quality": "std",
+         "audio": true
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": false
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": true
+        },
+        "price": 1.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": false
+        },
+        "price": 3.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": true
+        },
+        "price": 3.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "kuaishou/kling-v2-6",
+   "maker": "kuaishou",
+   "name": "kling-v2-6",
+   "displayName": "可灵 v2.6",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    5,
+    10
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "quality",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "quality": "std",
+         "audio": false
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "quality": "std",
+         "audio": true
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": false
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": true
+        },
+        "price": 1.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": false
+        },
+        "price": 3.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": true
+        },
+        "price": 3.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "kuaishou/kling-video-o1",
+   "maker": "kuaishou",
+   "name": "kling-video-o1",
+   "displayName": "可灵 Video O1",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    5,
+    10
+   ],
+   "resolutions": [
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "CNY",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "quality",
+       "audio"
+      ],
+      "rows": [
+       {
+        "when": {
+         "quality": "std",
+         "audio": false
+        },
+        "price": 0.6
+       },
+       {
+        "when": {
+         "quality": "std",
+         "audio": true
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": false
+        },
+        "price": 0.8
+       },
+       {
+        "when": {
+         "quality": "pro",
+         "audio": true
+        },
+        "price": 1.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": false
+        },
+        "price": 3.0
+       },
+       {
+        "when": {
+         "quality": "4k",
+         "audio": true
+        },
+        "price": 3.0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-3.0-flash",
+   "maker": "agnes",
+   "name": "agnes-3.0-flash",
+   "displayName": "Agnes 3.0 Flash",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.05
+       }
+      ]
+     },
+     {
+      "meter": "cache_read_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.005
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.15
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-2.5-flash",
+   "maker": "agnes",
+   "name": "agnes-2.5-flash",
+   "displayName": "Agnes 2.5 Flash",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.05
+       }
+      ]
+     },
+     {
+      "meter": "cache_read_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.005
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.15
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-2.5-pro",
+   "maker": "agnes",
+   "name": "agnes-2.5-pro",
+   "displayName": "Agnes 2.5 Pro",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.45
+       }
+      ]
+     },
+     {
+      "meter": "cache_read_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.045
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.9
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-2.0-flash",
+   "maker": "agnes",
+   "name": "agnes-2.0-flash",
+   "displayName": "Agnes 2.0 Flash",
+   "mediaType": "text",
+   "capabilities": [
+    "text_generation",
+    "structured_output"
+   ],
+   "durations": [],
+   "resolutions": [],
+   "durationConstraints": {},
+   "maxOutputTokens": 65536,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "input_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.03
+       }
+      ]
+     },
+     {
+      "meter": "output_tokens",
+      "unit": "per_1m",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.15
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-image-2.5-flash",
+   "maker": "agnes",
+   "name": "agnes-image-2.5-flash",
+   "displayName": "Agnes Image 2.5 Flash",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K",
+    "3K",
+    "4K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "1K"
+        },
+        "price": 0.01
+       },
+       {
+        "when": {
+         "resolution": "2K"
+        },
+        "price": 0.018
+       },
+       {
+        "when": {
+         "resolution": "3K"
+        },
+        "price": 0.021
+       },
+       {
+        "when": {
+         "resolution": "4K"
+        },
+        "price": 0.024
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-image-2.1-flash",
+   "maker": "agnes",
+   "name": "agnes-image-2.1-flash",
+   "displayName": "Agnes Image 2.1 Flash",
+   "mediaType": "image",
+   "capabilities": [
+    "text_to_image",
+    "image_to_image"
+   ],
+   "durations": [],
+   "resolutions": [
+    "1K",
+    "2K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_images",
+      "unit": "per_item",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "1K"
+        },
+        "price": 0.01
+       },
+       {
+        "when": {
+         "resolution": "2K"
+        },
+        "price": 0.018
+       },
+       {
+        "when": {
+         "resolution": "3K"
+        },
+        "price": 0.021
+       },
+       {
+        "when": {
+         "resolution": "4K"
+        },
+        "price": 0.024
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-video-2.5-flash",
+   "maker": "agnes",
+   "name": "agnes-video-2.5-flash",
+   "displayName": "Agnes Video 2.5 Flash",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "resolutions": [
+    "720p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.025
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-video-2.5",
+   "maker": "agnes",
+   "name": "agnes-video-2.5",
+   "displayName": "Agnes Video 2.5",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "resolutions": [
+    "720p",
+    "1080p",
+    "2K"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [
+       "resolution"
+      ],
+      "rows": [
+       {
+        "when": {
+         "resolution": "720p"
+        },
+        "price": 0.025
+       },
+       {
+        "when": {
+         "resolution": "1080p"
+        },
+        "price": 0.04
+       },
+       {
+        "when": {
+         "resolution": "2k"
+        },
+        "price": 0.055
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "agnes/agnes-video-v2.0",
+   "maker": "agnes",
+   "name": "agnes-video-v2.0",
+   "displayName": "Agnes Video 2.0",
+   "mediaType": "video",
+   "capabilities": [],
+   "durations": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18
+   ],
+   "resolutions": [
+    "480p",
+    "720p",
+    "1080p"
+   ],
+   "durationConstraints": {},
+   "maxOutputTokens": null,
+   "price": {
+    "currency": "USD",
+    "meters": [
+     {
+      "meter": "output_seconds",
+      "unit": "per_second",
+      "dims": [],
+      "rows": [
+       {
+        "when": {},
+        "price": 0.005
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "providers": [
+  {
+   "id": "gemini-aistudio",
+   "displayName": "AI Studio",
+   "mediaTypes": [
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "google/gemini-3.1-pro-preview",
+     "apiModelName": "gemini-3.1-pro-preview",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/gemini-3-flash-preview",
+     "apiModelName": "gemini-3-flash-preview",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "google/gemini-3.1-flash-lite",
+     "apiModelName": "gemini-3.1-flash-lite",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/gemini-3-pro-image-preview",
+     "apiModelName": "gemini-3-pro-image-preview",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/gemini-3.1-flash-image-preview",
+     "apiModelName": "gemini-3.1-flash-image-preview",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "google/veo-3.1-generate-preview",
+     "apiModelName": "veo-3.1-generate-preview",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/veo-3.1-fast-generate-preview",
+     "apiModelName": "veo-3.1-fast-generate-preview",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/veo-3.1-lite-generate-preview",
+     "apiModelName": "veo-3.1-lite-generate-preview",
+     "isDefault": true,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "gemini-vertex",
+   "displayName": "Vertex AI",
+   "mediaTypes": [
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "google/gemini-3.1-pro-preview",
+     "apiModelName": "gemini-3.1-pro-preview",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/gemini-3-flash-preview",
+     "apiModelName": "gemini-3-flash-preview",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "google/gemini-3.1-flash-lite",
+     "apiModelName": "gemini-3.1-flash-lite",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/gemini-3-pro-image-preview",
+     "apiModelName": "gemini-3-pro-image-preview",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/gemini-3.1-flash-image-preview",
+     "apiModelName": "gemini-3.1-flash-image-preview",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "google/veo-3.1-generate-001",
+     "apiModelName": "veo-3.1-generate-001",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "google/veo-3.1-fast-generate-001",
+     "apiModelName": "veo-3.1-fast-generate-001",
+     "isDefault": true,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "ark",
+   "displayName": "火山方舟",
+   "mediaTypes": [
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "bytedance/doubao-seed-2-0-pro-260215",
+     "apiModelName": "doubao-seed-2-0-pro-260215",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seed-2-0-lite-260215",
+     "apiModelName": "doubao-seed-2-0-lite-260215",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seed-2-0-mini-260215",
+     "apiModelName": "doubao-seed-2-0-mini-260215",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seed-1-8-251228",
+     "apiModelName": "doubao-seed-1-8-251228",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedream-5-0-lite-260128",
+     "apiModelName": "doubao-seedream-5-0-lite-260128",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedream-5-0-260128",
+     "apiModelName": "doubao-seedream-5-0-260128",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedream-4-5-251128",
+     "apiModelName": "doubao-seedream-4-5-251128",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedream-4-0-250828",
+     "apiModelName": "doubao-seedream-4-0-250828",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-1-5-pro-251215",
+     "apiModelName": "doubao-seedance-1-5-pro-251215",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-2-0-260128",
+     "apiModelName": "doubao-seedance-2-0-260128",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-2-0-fast-260128",
+     "apiModelName": "doubao-seedance-2-0-fast-260128",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-2-0-mini-260615",
+     "apiModelName": "doubao-seedance-2-0-mini-260615",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-2-5-260628",
+     "apiModelName": "doubao-seedance-2-5-260628",
+     "isDefault": false,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "ark-agent-plan",
+   "displayName": "火山方舟 Agent Plan",
+   "mediaTypes": [
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "bytedance/doubao-seed-2-0-mini-260215",
+     "apiModelName": "doubao-seed-2.0-mini",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seed-2-0-lite-260215",
+     "apiModelName": "doubao-seed-2.0-lite",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seed-2-0-pro-260215",
+     "apiModelName": "doubao-seed-2.0-pro",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seed-2.0-code",
+     "apiModelName": "doubao-seed-2.0-code",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "deepseek/deepseek-v4-flash",
+     "apiModelName": "deepseek-v4-flash",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "deepseek/deepseek-v4-pro",
+     "apiModelName": "deepseek-v4-pro",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "zhipu/glm-5.1",
+     "apiModelName": "glm-5.1",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "moonshot/kimi-k2.6",
+     "apiModelName": "kimi-k2.6",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "minimax/minimax-m2.7",
+     "apiModelName": "minimax-m2.7",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedream-5-0-lite-260128",
+     "apiModelName": "doubao-seedream-5.0-lite",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-1-5-pro-251215",
+     "apiModelName": "doubao-seedance-1.5-pro",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-2-0-260128",
+     "apiModelName": "doubao-seedance-2.0",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-2-0-fast-260128",
+     "apiModelName": "doubao-seedance-2.0-fast",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "bytedance/doubao-seedance-2-0-mini-260615",
+     "apiModelName": "doubao-seedance-2.0-mini",
+     "isDefault": true,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "grok",
+   "displayName": "Grok",
+   "mediaTypes": [
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "xai/grok-4.20-0309-reasoning",
+     "apiModelName": "grok-4.20-0309-reasoning",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "xai/grok-4.20-0309-non-reasoning",
+     "apiModelName": "grok-4.20-0309-non-reasoning",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "xai/grok-4-1-fast-reasoning",
+     "apiModelName": "grok-4-1-fast-reasoning",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "xai/grok-4-1-fast-non-reasoning",
+     "apiModelName": "grok-4-1-fast-non-reasoning",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "xai/grok-imagine-image-pro",
+     "apiModelName": "grok-imagine-image-pro",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "xai/grok-imagine-image",
+     "apiModelName": "grok-imagine-image",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "xai/grok-imagine-video",
+     "apiModelName": "grok-imagine-video",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "xai/grok-imagine-video-1.5",
+     "apiModelName": "grok-imagine-video-1.5",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "xai/grok-imagine-video-1.5-lite",
+     "apiModelName": "grok-imagine-video-1.5-lite",
+     "isDefault": false,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "openai",
+   "displayName": "OpenAI",
+   "mediaTypes": [
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "openai/gpt-5.5",
+     "apiModelName": "gpt-5.5",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "openai/gpt-5.4",
+     "apiModelName": "gpt-5.4",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "openai/gpt-5.4-mini",
+     "apiModelName": "gpt-5.4-mini",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "openai/gpt-5.4-nano",
+     "apiModelName": "gpt-5.4-nano",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "openai/gpt-image-2",
+     "apiModelName": "gpt-image-2",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "openai/sora-2",
+     "apiModelName": "sora-2",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "openai/sora-2-pro",
+     "apiModelName": "sora-2-pro",
+     "isDefault": false,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "vidu",
+   "displayName": "Vidu",
+   "mediaTypes": [
+    "image",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "shengshu/viduq2",
+     "apiModelName": "viduq2",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "shengshu/viduq1",
+     "apiModelName": "viduq1",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "shengshu/viduq3-turbo",
+     "apiModelName": "viduq3-turbo",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "shengshu/viduq3-pro",
+     "apiModelName": "viduq3-pro",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "shengshu/viduq3",
+     "apiModelName": "viduq3",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "shengshu/vidu2.0",
+     "apiModelName": "vidu2.0",
+     "isDefault": false,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "dashscope",
+   "displayName": "阿里百炼",
+   "mediaTypes": [
+    "audio",
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "alibaba/qwen-plus",
+     "apiModelName": "qwen-plus",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen3.6-plus",
+     "apiModelName": "qwen3.6-plus",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen3-max",
+     "apiModelName": "qwen3-max",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen3.7-max",
+     "apiModelName": "qwen3.7-max",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen3.6-flash",
+     "apiModelName": "qwen3.6-flash",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen-long",
+     "apiModelName": "qwen-long",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen-image-2.0",
+     "apiModelName": "qwen-image-2.0",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen-image-2.0-pro",
+     "apiModelName": "qwen-image-2.0-pro",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen-image-edit-plus",
+     "apiModelName": "qwen-image-edit-plus",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen-image-edit-max",
+     "apiModelName": "qwen-image-edit-max",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/wan2.7-image",
+     "apiModelName": "wan2.7-image",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/wan2.7-image-pro",
+     "apiModelName": "wan2.7-image-pro",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/happyhorse-1.1-i2v",
+     "apiModelName": "happyhorse-1.1-i2v",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/happyhorse-1.1-t2v",
+     "apiModelName": "happyhorse-1.1-t2v",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/happyhorse-1.1-r2v",
+     "apiModelName": "happyhorse-1.1-r2v",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/happyhorse-1.0-i2v",
+     "apiModelName": "happyhorse-1.0-i2v",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/happyhorse-1.0-t2v",
+     "apiModelName": "happyhorse-1.0-t2v",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/happyhorse-1.0-r2v",
+     "apiModelName": "happyhorse-1.0-r2v",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/wan2.7-i2v",
+     "apiModelName": "wan2.7-i2v",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/wan2.7-t2v",
+     "apiModelName": "wan2.7-t2v",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/wan2.7-r2v",
+     "apiModelName": "wan2.7-r2v",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/wan3.0-video",
+     "apiModelName": "wan3.0-video",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "alibaba/qwen3-tts-flash",
+     "apiModelName": "qwen3-tts-flash",
+     "isDefault": true,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "minimax",
+   "displayName": "MiniMax",
+   "mediaTypes": [
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "minimax/MiniMax-M3",
+     "apiModelName": "MiniMax-M3",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "minimax/MiniMax-M2.7",
+     "apiModelName": "MiniMax-M2.7",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "minimax/image-01",
+     "apiModelName": "image-01",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "minimax/MiniMax-H3",
+     "apiModelName": "MiniMax-H3",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "minimax/MiniMax-Hailuo-2.3",
+     "apiModelName": "MiniMax-Hailuo-2.3",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "minimax/MiniMax-Hailuo-2.3-Fast",
+     "apiModelName": "MiniMax-Hailuo-2.3-Fast",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "minimax/S2V-01",
+     "apiModelName": "S2V-01",
+     "isDefault": false,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "kling",
+   "displayName": "可灵 Kling",
+   "mediaTypes": [
+    "image",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "kuaishou/kling-v2-5-turbo",
+     "apiModelName": "kling-v2-5-turbo",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "kuaishou/kling-image-o1",
+     "apiModelName": "kling-image-o1",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "kuaishou/kling-v3-omni-image",
+     "apiModelName": "kling-v3-omni",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "kuaishou/kling-v3",
+     "apiModelName": "kling-v3",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "kuaishou/kling-v3-omni",
+     "apiModelName": "kling-v3-omni",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "kuaishou/kling-v2-6",
+     "apiModelName": "kling-v2-6",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "kuaishou/kling-video-o1",
+     "apiModelName": "kling-video-o1",
+     "isDefault": false,
+     "hidden": false
+    }
+   ]
+  },
+  {
+   "id": "agnes",
+   "displayName": "Agnes",
+   "mediaTypes": [
+    "image",
+    "text",
+    "video"
+   ],
+   "models": [
+    {
+     "entryId": "agnes/agnes-3.0-flash",
+     "apiModelName": "agnes-3.0-flash",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "agnes/agnes-2.5-flash",
+     "apiModelName": "agnes-2.5-flash",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "agnes/agnes-2.5-pro",
+     "apiModelName": "agnes-2.5-pro",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "agnes/agnes-2.0-flash",
+     "apiModelName": "agnes-2.0-flash",
+     "isDefault": false,
+     "hidden": true
+    },
+    {
+     "entryId": "agnes/agnes-image-2.5-flash",
+     "apiModelName": "agnes-image-2.5-flash",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "agnes/agnes-image-2.1-flash",
+     "apiModelName": "agnes-image-2.1-flash",
+     "isDefault": false,
+     "hidden": true
+    },
+    {
+     "entryId": "agnes/agnes-video-2.5-flash",
+     "apiModelName": "agnes-video-2.5-flash",
+     "isDefault": true,
+     "hidden": false
+    },
+    {
+     "entryId": "agnes/agnes-video-2.5",
+     "apiModelName": "agnes-video-2.5",
+     "isDefault": false,
+     "hidden": false
+    },
+    {
+     "entryId": "agnes/agnes-video-v2.0",
+     "apiModelName": "agnes-video-v2.0",
+     "isDefault": false,
+     "hidden": true
+    }
+   ]
+  }
+ ]
+}

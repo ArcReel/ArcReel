@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useSearch } from "wouter";
 import {
   AlertTriangle,
+  Boxes,
   BarChart3,
   Bot,
   Brain,
@@ -28,7 +29,6 @@ import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useConfigStatusStore, useSectionConfigIssues } from "@/stores/config-status-store";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { AgentConfigTab } from "./AgentConfigTab";
-import { ProviderSection } from "./ProviderSection";
 import { AboutSection } from "./settings/AboutSection";
 import { AccessTokensSection } from "./settings/agent-access/AccessTokensSection";
 import { ExternalAgentSection } from "./settings/agent-access/ExternalAgentSection";
@@ -38,6 +38,7 @@ import { GeneralSection } from "./settings/GeneralSection";
 import { MarketSection } from "./settings/market/MarketSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
+import { MODELS_SECTION_LABEL, ProtoBar, ProtoModels, ProtoProviders, useProto } from "@/prototype/model-catalog";
 
 interface SectionDef {
   labelKey: string;
@@ -47,6 +48,7 @@ interface SectionDef {
 
 const SECTIONS: Record<SettingsSection, SectionDef> = {
   providers: { labelKey: "dashboard:providers", icon: Plug, tier: "bleed" },
+  models: { labelKey: "模型目录", icon: Boxes, tier: "bleed" }, // PROTOTYPE #3091
   "default-models": { labelKey: "dashboard:settings_default_models", icon: Film, tier: "constrained" },
   endpoints: { labelKey: "dashboard:ce_section_title", icon: Waypoints, tier: "bleed" },
   "arcreel-agent": { labelKey: "dashboard:settings_arcreel_agent", icon: Bot, tier: "constrained" },
@@ -62,7 +64,7 @@ const SECTIONS: Record<SettingsSection, SectionDef> = {
 
 /** 侧栏分组与顺序。市场与使用记录各自单独成项，不设分组标题。 */
 const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection[] }[] = [
-  { id: "generation", labelKey: "dashboard:settings_group_generation", sections: ["providers", "default-models", "endpoints"] },
+  { id: "generation", labelKey: "dashboard:settings_group_generation", sections: ["providers", "models", "default-models", "endpoints"] },
   {
     id: "agent",
     labelKey: "dashboard:settings_group_agent",
@@ -102,14 +104,16 @@ export function SystemConfigPage() {
     () => configIssues.filter((issue) => issue.section === activeSection),
     [configIssues, activeSection],
   );
+  const protoVariant = useProto((s) => s.variant);
+  const modelsLabel = MODELS_SECTION_LABEL[protoVariant];
   const groups = useMemo<PageSidebarGroup[]>(
     () =>
       SECTION_GROUPS.map((group) => ({
         id: group.id,
         label: group.labelKey ? t(group.labelKey) : undefined,
-        items: group.sections.map((id) => ({
+        items: group.sections.filter((id) => id !== "models" || modelsLabel).map((id) => ({
           id,
-          label: t(SECTIONS[id].labelKey),
+          label: id === "models" ? (modelsLabel ?? "") : t(SECTIONS[id].labelKey),
           icon: SECTIONS[id].icon,
           href: settingsSectionPath(id),
           onboardingAnchor: SECTION_ONBOARDING_ANCHORS[id],
@@ -121,7 +125,7 @@ export function SystemConfigPage() {
             ) : undefined,
         })),
       })),
-    [t, issueSections],
+    [t, issueSections, modelsLabel],
   );
 
   return (
@@ -136,7 +140,8 @@ export function SystemConfigPage() {
           <ConfigIssueNotice issues={activeIssues} />
         </div>
       )}
-      <SectionContent section={activeSection} />
+      <SectionContent section={activeSection === "models" && !modelsLabel ? "providers" : activeSection} />
+      {(activeSection === "providers" || activeSection === "models") && <ProtoBar />}
     </PageShell>
   );
 }
@@ -144,7 +149,9 @@ export function SystemConfigPage() {
 function SectionContent({ section }: { section: SettingsSection }) {
   switch (section) {
     case "providers":
-      return <ProviderSection />;
+      return <ProtoProviders />;
+    case "models":
+      return <ProtoModels />;
     case "default-models":
       return <MediaModelSection />;
     case "endpoints":

@@ -11,6 +11,7 @@ export const ROUTE_APP_ASSETS = "/app/assets";
 /** 全局设置的分区，即地址参数 `section` 的取值，顺序同侧栏；缺省或无法识别时落在 `providers`。 */
 export const SETTINGS_SECTIONS = [
   "providers",
+  "models", // PROTOTYPE #3091
   "default-models",
   "endpoints",
   "arcreel-agent",
