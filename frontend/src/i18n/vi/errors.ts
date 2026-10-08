@@ -16,8 +16,6 @@ export default {
   // Image Capability
   'image_endpoint_mismatch_no_i2i': 'Mô hình {{model}} chỉ hỗ trợ text-to-image (không có /v1/images/edits)',
   'image_endpoint_mismatch_no_t2i': 'Mô hình {{model}} chỉ hỗ trợ image-to-image (yêu cầu ảnh tham chiếu)',
-  'image_capability_missing_i2i': '{{provider}}/{{model}} không hỗ trợ image-to-image; hãy cấu hình mô hình mặc định có hỗ trợ chỉnh sửa ảnh',
-  'image_capability_missing_t2i': '{{provider}}/{{model}} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image',
   // Thông báo dự phòng của tầng API và luồng sự kiện (khi máy chủ không nêu lý do)
   'request_failed': 'Yêu cầu thất bại',
   'session_expired': 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại',

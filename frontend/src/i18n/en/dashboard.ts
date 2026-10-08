@@ -1707,7 +1707,7 @@ export default {
   'reference_bucket_i2v': 'image-to-video (no reference image)',
   'reference_bucket_r2v': 'reference-to-video (with reference images)',
   'reference_unit_tier_unknown_label': '{{bucket}} tiers unknown',
-  'reference_unit_tier_unknown_hint': '{{reason}} ({{code}}). Configure an available {{bucket}} model in project settings, or fix the model under Settings → Providers.',
+  'reference_unit_tier_unknown_hint': '{{reason}}. Configure an available {{bucket}} model in project settings, or fix the model under Settings → Providers.',
   'reference_unit_tier_reason_unsupported': 'The current model does not support {{bucket}}',
   'reference_unit_tier_reason_removed': 'The {{bucket}} model was removed or disabled',
   'reference_unit_tier_reason_missing_tiers': 'The {{bucket}} model has no duration tiers',

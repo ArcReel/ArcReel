@@ -34,7 +34,7 @@ type Translate = TFunction<"workflow">;
 
 /**
  * 按问题码本地化的一句话原因，参数取自 `params`。不认识的问题码按它交回的动作给通用原因，
- * 动作也不认识时给最泛的一句——界面不出现服务端原文、问题码或理由码。
+ * 动作也不认识时给最泛的一句——摘要不出现服务端原文、问题码或理由码，原文进折叠详情。
  */
 function localizedSummary(
   t: Translate,
