@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0098
 ---
 
 # 计费定价改为代码级声明式：定价并进 `ModelInfo`、按 `kind` 派发，不引入运行时 DB+UI 改价
