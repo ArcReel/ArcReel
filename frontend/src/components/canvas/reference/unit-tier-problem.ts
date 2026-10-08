@@ -24,7 +24,7 @@ function tierProblemReasonKey(code: string): string {
 }
 
 /**
- * 所落桶的视频请求事实失败 → 「档位未知」标签与带问题码、成因、修复指引的提示。
+ * 所落桶的视频请求事实失败 → 「档位未知」标签与只写成因与修复指引的提示（问题码不进界面）。
  * 成因文案按桶插值：i2v 桶失败说图生视频模型，r2v 桶失败说参考生视频模型，不混用。
  */
 export function tierProblemText(
@@ -36,7 +36,6 @@ export function tierProblemText(
   return {
     label: t("reference_unit_tier_unknown_label", { bucket: bucketText }),
     hint: t("reference_unit_tier_unknown_hint", {
-      code: problem.code,
       bucket: bucketText,
       reason: t(tierProblemReasonKey(problem.code), { bucket: bucketText }),
     }),

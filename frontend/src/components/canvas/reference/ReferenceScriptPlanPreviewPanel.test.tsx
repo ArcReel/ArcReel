@@ -187,7 +187,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
     expect(await screen.findByText("图生视频（无参考图）档位未知")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("当前模型不支持图生视频（无参考图）");
-    expect(screen.getByRole("alert")).toHaveTextContent("video_capability_missing_i2v");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("video_capability_missing_i2v");
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
     expect(screen.queryByRole("combobox", { name: "U01 时长" })).not.toBeInTheDocument();
   });

@@ -16,8 +16,6 @@ export default {
   // Image Capability
   'image_endpoint_mismatch_no_i2i': '模型 {{model}} 仅支持文生图（不支持 /v1/images/edits）',
   'image_endpoint_mismatch_no_t2i': '模型 {{model}} 仅支持图生图（必须传参考图）',
-  'image_capability_missing_i2i': '{{provider}}/{{model}} 不支持图生图；请配置一个支持图生图的默认模型',
-  'image_capability_missing_t2i': '{{provider}}/{{model}} 不支持文生图；请配置一个支持文生图的默认模型',
   // 接口层与事件流的兜底文案（服务端没有给出原因时）
   'request_failed': '请求失败',
   'session_expired': '认证已过期，请重新登录',

@@ -1706,7 +1706,7 @@ export default {
   'reference_bucket_i2v': '图生视频（无参考图）',
   'reference_bucket_r2v': '参考生视频（带参考图）',
   'reference_unit_tier_unknown_label': '{{bucket}}档位未知',
-  'reference_unit_tier_unknown_hint': '{{reason}}（{{code}}）；请在项目设置中配置可用的{{bucket}}模型，或在「设置 → 供应商」中修复模型配置。',
+  'reference_unit_tier_unknown_hint': '{{reason}}；请在项目设置中配置可用的{{bucket}}模型，或在「设置 → 供应商」中修复模型配置。',
   'reference_unit_tier_reason_unsupported': '当前模型不支持{{bucket}}',
   'reference_unit_tier_reason_removed': '{{bucket}}模型已删除或停用',
   'reference_unit_tier_reason_missing_tiers': '{{bucket}}模型未声明时长档位',

@@ -1697,7 +1697,7 @@ export default {
   'reference_bucket_i2v': 'tạo video từ ảnh (không có ảnh tham chiếu)',
   'reference_bucket_r2v': 'tạo video từ ảnh tham chiếu (có ảnh tham chiếu)',
   'reference_unit_tier_unknown_label': 'Chưa rõ mức thời lượng {{bucket}}',
-  'reference_unit_tier_unknown_hint': '{{reason}} ({{code}}). Hãy chọn mô hình {{bucket}} khả dụng trong cài đặt dự án hoặc sửa cấu hình mô hình tại Cài đặt → Nhà cung cấp.',
+  'reference_unit_tier_unknown_hint': '{{reason}}. Hãy chọn mô hình {{bucket}} khả dụng trong cài đặt dự án hoặc sửa cấu hình mô hình tại Cài đặt → Nhà cung cấp.',
   'reference_unit_tier_reason_unsupported': 'Mô hình hiện tại không hỗ trợ {{bucket}}',
   'reference_unit_tier_reason_removed': 'Mô hình {{bucket}} đã bị xóa hoặc tắt',
   'reference_unit_tier_reason_missing_tiers': 'Mô hình {{bucket}} chưa khai báo mức thời lượng',
