@@ -1,7 +1,10 @@
-// PROTOTYPE — #3091 变体 C（占位，待实现）。
+// PROTOTYPE — #3091 变体 C「以模型为主轴」：「供应商」只管连接，「模型」按条目列出，每个条目下展开各渠道。
+import { ModelsC } from "./ModelsC";
+import { ProvidersC } from "./ProvidersC";
+
 export function ProvidersView() {
-  return <div className="p-6 text-sm text-muted-foreground">变体 C · 供应商（待实现）</div>;
+  return <ProvidersC />;
 }
 export function ModelsView() {
-  return <div className="p-6 text-sm text-muted-foreground">变体 C · 模型（待实现）</div>;
+  return <ModelsC />;
 }

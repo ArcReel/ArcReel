@@ -152,7 +152,7 @@ export const useProto = create<ProtoState>((set, get) => ({
         models: p.models.map((m) => {
           if (m.key !== key) return m;
           // 改挂端点时原有路径覆盖丢弃（ADR 0100）
-          const endpointChanged = patch.endpoint && patch.endpoint !== m.endpoint;
+          const endpointChanged = patch.endpoint && patch.endpoint !== m.endpoint && !patch.pathOverrides;
           return { ...m, ...patch, ...(endpointChanged ? { pathOverrides: {} } : {}) };
         }),
       })),
