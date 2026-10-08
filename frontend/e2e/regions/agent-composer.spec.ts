@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { waitForEntrance } from "../support/region-helpers.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { idleSessionApi } from "../support/assistant-session.ts";
 
 // Agent 面板输入区：Agent 提问时的问卷、待办进度行、会话历史与删除确认、斜杠命令菜单、输入框里的图片附件。
 // 会话与提问都是手写的压力数据：长标题、长选项、多条会话。
@@ -142,10 +143,7 @@ const HISTORY_API: ApiOverrides = {
   ...EVENTS_STREAM,
   [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: HISTORY_SESSIONS } },
   [`GET ${SESSIONS_PATH}/${IDLE_SESSION_ID}`]: { status: 200, body: { session: HISTORY_SESSIONS[0] } },
-  [`GET ${SESSIONS_PATH}/${IDLE_SESSION_ID}/entries`]: {
-    status: 200,
-    body: { session_id: IDLE_SESSION_ID, status: "idle", entries: buildEntries(), draft: null, draft_rev: 0 },
-  },
+  ...idleSessionApi(SESSIONS_PATH, IDLE_SESSION_ID, buildEntries()),
 };
 
 const agentPanel = (page: Page) => page.getByRole("complementary", { name: "Agent 面板" });

@@ -120,7 +120,7 @@ def test_retired_tool_names_are_not_registered() -> None:
 
 
 @pytest.mark.parametrize("resume", [False, True], ids=["new", "resumed"])
-async def test_timeline_revision_records_the_session_turn(tmp_path: Path, file_db_factory, resume: bool) -> None:
+async def test_timeline_revision_records_the_agent_author(tmp_path: Path, file_db_factory, resume: bool) -> None:
     projects = ProjectManager(tmp_path / "data")
     projects.create_project("demo")
     projects.create_project_metadata("demo", "Demo", "Anime", "narration")

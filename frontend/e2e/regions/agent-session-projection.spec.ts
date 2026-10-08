@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { idleSessionApi } from "../support/assistant-session.ts";
 
 // Agent 消息区的会话投影：压缩续接摘要显示为「上下文已压缩」分隔线、缺锚点的子代理显示
 // 推断出的描述与终态、Agent 失败显示为一句话结论的卡片。会话是手写的压力数据：很长的续接
@@ -125,10 +126,7 @@ function sessionApi(sessionId: string, title: string, entries: Entry[]): ApiOver
     "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
     [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: [session] } },
     [`GET ${SESSIONS_PATH}/${sessionId}`]: { status: 200, body: { session } },
-    [`GET ${SESSIONS_PATH}/${sessionId}/entries`]: {
-      status: 200,
-      body: { session_id: sessionId, status: "idle", entries, draft: null, draft_rev: 0 },
-    },
+    ...idleSessionApi(SESSIONS_PATH, sessionId, entries),
   };
 }
 

@@ -2,7 +2,7 @@
 
 sdk_frames 依赖的都是 SDK 未公开的入口（Query 的原始帧流、消息解析器、控制请求入口）。
 升级 claude-agent-sdk 后这里失败，说明这些入口变了，需要先改 sdk_frames 再升级。
-帧形状取自 CLI 2.1.294 本地 stdio 模式（``--replay-user-messages``）的实测输出。
+帧覆盖本地 stdio 模式下的用户消息回放、命令生命周期和撤回控制应答。
 """
 
 from __future__ import annotations
@@ -83,10 +83,10 @@ async def test_command_lifecycle_frames_are_read_from_the_raw_frame_stream():
     try:
         transport.emit(command_lifecycle_frame("u1", "started"))
         transport.emit(assistant_frame({"type": "text", "text": "好的"}, uuid="a1"))
-        frames = sdk_frames.raw_frames(client).__aiter__()
+        frames = sdk_frames.raw_frames(client)
 
-        first = sdk_frames.parse_frame(await asyncio.wait_for(frames.__anext__(), timeout=5))
-        second = sdk_frames.parse_frame(await asyncio.wait_for(frames.__anext__(), timeout=5))
+        first = sdk_frames.parse_frame(await asyncio.wait_for(anext(frames), timeout=5))
+        second = sdk_frames.parse_frame(await asyncio.wait_for(anext(frames), timeout=5))
 
         assert first == CommandLifecycle(command_uuid="u1", state="started")
         assert isinstance(second, AssistantMessage)

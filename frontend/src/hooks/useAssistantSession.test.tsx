@@ -240,6 +240,58 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessionStatus).toBe("completed");
   });
 
+  it("keeps the CLI terminal status when it arrives before the send response", async () => {
+    mockIdleSession();
+    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    const stream = FakeSseStream.instances[0];
+    let send: Promise<boolean>;
+    act(() => {
+      send = result.current.sendMessage("hello");
+    });
+    act(() => {
+      stream.emit("status", { status: "running" });
+      stream.emit("entry", userEntry(0, "hello"));
+      stream.emit("status", { status: "completed" });
+    });
+    await act(async () => {
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello") });
+      expect(await send).toBe(true);
+    });
+
+    expect(useAssistantStore.getState().sessionStatus).toBe("completed");
+    expect(useAssistantStore.getState().entries).toHaveLength(1);
+    expect(FakeSseStream.instances).toHaveLength(1);
+    expect(stream.close).not.toHaveBeenCalled();
+  });
+
+  it("sets running after accepted when only an older terminal snapshot arrived during send", async () => {
+    mockIdleSession([userEntry(0, "上一轮")]);
+    const deferred = createDeferred<{ session_id: string; status: string; entry: TimelineEntry | null }>();
+    vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    act(() => {
+      void result.current.sendMessage("hello");
+      FakeSseStream.instances[0].emit("status", { status: "completed" });
+    });
+    await act(async () => {
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: userEntry(1, "hello") });
+      await deferred.promise;
+    });
+
+    expect(useAssistantStore.getState().sessionStatus).toBe("running");
+    expect(FakeSseStream.instances).toHaveLength(1);
+  });
+
   it("writes pendingQuestion from question SSE events", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "running")],
@@ -971,6 +1023,35 @@ describe("useAssistantSession", () => {
       expect(FakeSseStream.instances).toHaveLength(1);
     });
     expect(streamOptions(0)).toMatchObject({ sessionId: "session-1", after: 0 });
+  });
+
+  it.each(["metadata", "entries"])("opens the stream when the session resumes mid-load and the %s read fails", async (phase) => {
+    mockIdleSession();
+    const deferredRead = createDeferred<never>();
+    if (phase === "metadata") {
+      vi.spyOn(API, "getAssistantSession").mockReturnValue(deferredRead.promise);
+    } else {
+      vi.spyOn(API, "listAssistantEntries").mockReturnValue(deferredRead.promise);
+    }
+
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(phase === "metadata" ? API.getAssistantSession : API.listAssistantEntries).toHaveBeenCalled();
+    });
+    act(() => {
+      useAssistantStore.getState().notifySessionResumed("demo", "session-1");
+    });
+    await act(async () => {
+      deferredRead.reject(new Error("network unavailable"));
+      await deferredRead.promise.catch(() => {});
+    });
+
+    expect(FakeSseStream.instances).toHaveLength(1);
+    expect(streamOptions(0)).toMatchObject({ sessionId: "session-1", after: -1 });
+    act(() => {
+      FakeSseStream.instances[0].emit("entry", userEntry(0, "自主轮次"));
+    });
+    expect(useAssistantStore.getState().entries).toHaveLength(1);
   });
 
   it("does not let a delayed idle cold-read overwrite state set by a concurrent sendMessage", async () => {

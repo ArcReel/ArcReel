@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { RECORDED_ACCESS_TOKEN } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
+import { idleSessionApi } from "../support/assistant-session.ts";
 
 // Agent 面板消息区：滚动跟随与「跳到最新」、气泡与正文限宽、Markdown 代码块与宽表格、
 // 原地编辑与图片放大。会话是手写的压力数据：长文本、长链接、多轮对话。
@@ -128,10 +129,7 @@ const API: ApiOverrides = {
       },
     },
   },
-  [`GET ${SESSIONS_PATH}/${SESSION_ID}/entries`]: {
-    status: 200,
-    body: { session_id: SESSION_ID, status: "idle", entries: buildEntries(), draft: null, draft_rev: 0 },
-  },
+  ...idleSessionApi(SESSIONS_PATH, SESSION_ID, buildEntries()),
 };
 
 const agentPanel = (page: Page) => page.getByRole("complementary", { name: "Agent 面板" });

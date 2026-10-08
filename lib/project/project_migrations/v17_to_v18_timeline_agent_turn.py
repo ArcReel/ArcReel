@@ -24,15 +24,39 @@ _FROM_VERSION = TARGET_SCHEMA_VERSION - 1
 _REMOVED_FIELD = "agent_turn"
 
 
-def timeline_files(project_dir: Path) -> Iterator[Path]:
-    """项目里所有剪辑时间线文件：``edit_timelines/episode_*/*.json``。"""
+def _is_real_dir(path: Path) -> bool:
+    return not path.is_symlink() and not path.is_junction() and path.is_dir()
+
+
+def _episode_dirs(project_dir: Path) -> Iterator[Path]:
+    """``edit_timelines/episode_*`` 目录。符号链接与 junction 不跟随，以免改写项目外的文件。"""
 
     root = Path(project_dir) / "edit_timelines"
-    if not root.is_dir():
+    if not _is_real_dir(root):
         return
-    for directory in sorted(root.glob("episode_*")):
-        if directory.is_dir():
-            yield from sorted(path for path in directory.glob("*.json") if path.is_file())
+    yield from (directory for directory in sorted(root.glob("episode_*")) if _is_real_dir(directory))
+
+
+def _timeline_names(directory: Path) -> set[str]:
+    return {path.name for path in directory.glob("*.json") if not path.is_symlink() and path.is_file()}
+
+
+def timeline_files(project_dir: Path) -> Iterator[Path]:
+    """项目里所有剪辑时间线文件：``edit_timelines/episode_*/*.json``，不含符号链接。"""
+
+    for directory in _episode_dirs(project_dir):
+        yield from (directory / name for name in sorted(_timeline_names(directory)))
+
+
+def timeline_backup_sources(project_dir: Path) -> Iterator[Path]:
+    """剪辑时间线备份对应的源路径：现存的时间线文件，加上源文件已删、只剩备份的时间线。"""
+
+    for directory in _episode_dirs(project_dir):
+        names = _timeline_names(directory)
+        names.update(
+            path.name.partition(".bak.v")[0] for path in directory.glob("*.json.bak.v*") if not path.is_symlink()
+        )
+        yield from (directory / name for name in sorted(names))
 
 
 def migrate_timeline_dict(document: Mapping[str, Any]) -> dict[str, Any]:
@@ -78,4 +102,10 @@ def migrate_v17_to_v18(project_dir: Path) -> None:
         atomic_write_json(project_file, {**project, "schema_version": TARGET_SCHEMA_VERSION})
 
 
-__all__ = ["TARGET_SCHEMA_VERSION", "migrate_timeline_dict", "migrate_v17_to_v18", "timeline_files"]
+__all__ = [
+    "TARGET_SCHEMA_VERSION",
+    "migrate_timeline_dict",
+    "migrate_v17_to_v18",
+    "timeline_backup_sources",
+    "timeline_files",
+]
