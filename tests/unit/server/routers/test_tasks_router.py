@@ -233,10 +233,38 @@ class TestTaskErrorLocalization:
             "vi": "Đã xảy ra lỗi. Hãy thử lại, hoặc giao cho Agent nếu vẫn thất bại",
         }
 
+    def test_text_task_video_model_failure_is_localized_with_the_server_text_as_detail(self, monkeypatch):
+        from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
+        from lib.i18n import _
+
+        params = {"provider": "custom-2", "model": "I2V_H3"}
+        problem = GenerationProblem(
+            code="video_capability_missing_r2v",
+            detail="❌ 服务端原文",
+            action=GenerationAction.CONFIGURE_PROVIDER,
+            params=params,
+        )
+        items = [{"task_id": "plan", "status": "failed", "error_message": encode_generation_problem(problem)}]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        for locale in ("zh", "en", "vi"):
+            row = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"][0]
+            assert row["error_message"] == _("video_capability_missing_r2v", locale=locale, **params)
+            assert (row["error_code"], row["error_params"], row["error_detail"]) == (
+                "video_capability_missing_r2v",
+                params,
+                "❌ 服务端原文",
+            )
+
     def test_list_tasks_passthrough_raw_and_legacy(self, monkeypatch):
+        from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
+
+        refused = GenerationProblem(
+            code="generation_refused", detail="❌ 源文读取失败", action=GenerationAction.FIX_INPUT
+        )
         items = [
             {"task_id": "raw", "error_message": "RuntimeError: provider 500"},
             {"task_id": "legacy", "error_message": "[restart_lost] image 任务无法接续，需手动重试以避免重复计费"},
+            {"task_id": "refused", "error_message": encode_generation_problem(refused)},
             {"task_id": "ok", "error_message": None},
         ]
         client = self._client(monkeypatch, _RenderQueue(items=items))
@@ -244,7 +272,9 @@ class TestTaskErrorLocalization:
         by_id = {t["task_id"]: t["error_message"] for t in out}
         assert by_id["raw"] == "RuntimeError: provider 500"
         assert by_id["legacy"] == "[restart_lost] image 任务无法接续，需手动重试以避免重复计费"
+        assert by_id["refused"] == "❌ 源文读取失败"
         assert by_id["ok"] is None
+        assert all("error_detail" not in t for t in out)
 
     def test_get_task_renders_error_message(self, monkeypatch):
         from lib.generation.task_failure import encode_failure

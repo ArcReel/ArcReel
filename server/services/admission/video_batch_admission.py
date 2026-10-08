@@ -448,7 +448,7 @@ _PROBLEM_ACTIONS: dict[str, GenerationAction] = {
 }
 
 
-def _action_for(raw: object) -> GenerationAction:
+def generation_action_for(raw: object) -> GenerationAction:
     """Map a request-planning action onto the generation-result action set.
 
     Anything the planning modules add later degrades to ``FIX_INPUT``: telling a
@@ -471,7 +471,7 @@ def _generation_problem(problem: ProjectionProblem, *, unit_id: str) -> Generati
     return GenerationProblem(
         code=problem.code,
         detail=str(payload.get("reason") or problem.code),
-        action=_action_for(payload.get("action")),
+        action=generation_action_for(payload.get("action")),
         params=params if isinstance(params, dict) else {},
     )
 

@@ -70,13 +70,13 @@ from server.text_generation import (
     _narration_script_plan_path,
     _narration_script_plan_result_text,
     _reference_result_text,
-    _video_facts_failure_text,
     fetch_storyboard_durations,
     load_novel_source,
     reference_soft_violations,
     render_soft_violation_lines,
     render_soft_violation_section,
     uses_reference_video_units,
+    video_facts_failure_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -414,7 +414,7 @@ async def _promote_reference_script_plan(
             config_resolver=ctx.config_resolver,
         )
     except VideoRequestFactsError as exc:
-        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
+        raise DraftWorkflowError("draft_invalid", video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
     violations, flat_units, split_caps = revalidation.violations, revalidation.flat_units, revalidation.caps
@@ -700,7 +700,7 @@ async def _promote_drama_script_plan(
             config_resolver=ctx.config_resolver,
         )
     except VideoRequestFactsError as exc:
-        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
+        raise DraftWorkflowError("draft_invalid", video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
 
@@ -902,7 +902,7 @@ async def _promote_narration_script_plan(
             config_resolver=ctx.config_resolver,
         )
     except VideoRequestFactsError as exc:
-        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
+        raise DraftWorkflowError("draft_invalid", video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
 

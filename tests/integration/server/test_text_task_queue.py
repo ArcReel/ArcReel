@@ -38,6 +38,7 @@ from lib.generation.generation_result import (
     problem_from_task_failure,
 )
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.infra.api_errors import ConflictError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout
@@ -656,6 +657,34 @@ async def test_queued_plan_failure_carries_the_way_out(
     assert (problem.code, problem.action, problem.params) == (code, action, params)
     if code == "text_output_truncated":
         assert problem.detail == str(failure)
+
+
+async def test_queued_reference_plan_fails_with_the_real_video_model_problem(set_video_request_facts) -> None:
+    """所选视频模型不支持参考生视频：任务失败带真实问题码与「去配置供应商」，而不是笼统的拒绝。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    projects.create_project("reference", content_mode="narration")
+    projects.create_project_metadata("reference", "Reference", "", "narration")
+    projects.update_project("reference", lambda project: project.update(generation_mode="reference_video"))
+    _admit_text_operations(projects, "reference")
+    set_video_request_facts(
+        VideoRequestFactsFailure("video_capability_missing_r2v", (("provider", "custom-2"), ("model", "I2V_H3")))
+    )
+
+    task = {
+        "task_id": "task-reference-plan",
+        "project_name": "reference",
+        "task_type": "text_reference_script_plan",
+        "payload": {"episode": 1},
+    }
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "video_capability_missing_r2v",
+        GenerationAction.CONFIGURE_PROVIDER,
+        {"provider": "custom-2", "model": "I2V_H3"},
+    )
 
 
 async def test_cancel_during_started_episode_script_commit_leaves_member_running_to_success(
