@@ -295,7 +295,7 @@ MESSAGES = {
     "source_too_large": "Source file '{filename}' is too large ({size_mb} MB > {limit_mb} MB)",
     "source_conflict": "Source file '{existing}' already exists; suggested rename: '{suggested}'",
     # Providers
-    "unknown_provider": "Unknown provider: {provider_id}",
+    "unknown_provider": "Unknown provider: {value}",
     "max_workers_must_be_positive_integer": "{field} must be a positive integer, got: {value}",
     "credentials_not_found": "Credentials not found",
     "vertex_json_read_failed": "Failed to read the uploaded file",

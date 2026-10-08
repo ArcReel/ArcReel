@@ -55,7 +55,7 @@ class TestPromptPreviewEndpoint:
             "unavailable": None,
             "is_text_form": True,
             # 渲染时的提示与不可用原因同口径：按请求语言渲染成成品文案，不把裸 key 推给前端
-            "warnings": ["参考图数量 8 超出 viduq2 上限 7，已取前 7 张"],
+            "warnings": ["参考图数量 8 超出 Vidu Q2 Image 上限 7，已取前 7 张"],
         }
         assert body["video"]["text"] is None
         assert body["video"]["warnings"] == []

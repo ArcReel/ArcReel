@@ -278,7 +278,7 @@ MESSAGES = {
     "source_too_large": "源文件「{filename}」过大（{size_mb} MB > {limit_mb} MB）",
     "source_conflict": "源文件「{existing}」已存在，建议改名为「{suggested}」",
     # Providers
-    "unknown_provider": "未知供应商: {provider_id}",
+    "unknown_provider": "未知供应商: {value}",
     "max_workers_must_be_positive_integer": "{field} 必须是正整数，收到：{value}",
     "credentials_not_found": "凭证不存在",
     "vertex_json_read_failed": "读取上传文件失败",

@@ -31,6 +31,8 @@ from lib.generation.generation_result import (
     GenerationSelectionMode,
     normalize_requested_ids,
 )
+from lib.i18n import render_message
+from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_change_hints import project_change_source
@@ -50,7 +52,7 @@ from lib.script.script_editor import ScriptEditError, new_item_id
 from lib.speech.speech_composition import admit_script_unit, refresh_video_unit_replan_state
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
-from server.i18n import Translator
+from server.i18n import DisplayNamesCatalog, Translator
 from server.routers._batch_admission import enqueue_failure_payload, localized_admission_payload
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
 from server.routers._validators import reject_retired_query_params
@@ -153,16 +155,19 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
     return project, script, script_file
 
 
-def _problem_payload(projection: ReferenceUnitRequestProjection, _t: Translator) -> list[dict[str, Any]]:
+def _problem_payload(
+    projection: ReferenceUnitRequestProjection, _t: Translator, names: DisplayNames
+) -> list[dict[str, Any]]:
     payloads = projection.problem_payloads()
     for payload, problem in zip(payloads, projection.problems, strict=True):
-        payload["message"] = _t(problem.code, **problem.parameters())
+        payload["message"] = render_message(problem.code, problem.parameters(), _t, names)
     return payloads
 
 
 def _raise_projection_blocker(
     projection: ReferenceUnitRequestProjection,
     _t: Translator,
+    names: DisplayNames,
     *,
     allow_duration_confirmation: bool,
 ) -> None:
@@ -175,7 +180,7 @@ def _raise_projection_blocker(
         return
     detail = projection.to_advisory_payload()
     detail["allowed"] = False
-    detail["problems"] = _problem_payload(projection, _t)
+    detail["problems"] = _problem_payload(projection, _t, names)
     raise HTTPException(
         status_code=400,
         detail=detail,
@@ -421,6 +426,7 @@ async def precheck_unit_duration(
     unit_id: str,
     request: Request,
     _t: Translator,
+    names: DisplayNamesCatalog,
 ) -> dict[str, Any]:
     """入队前的时长取档预检：申请秒数与剧本计划时长不一致时前端需先向用户确认。
 
@@ -438,7 +444,7 @@ async def precheck_unit_duration(
         unit=unit,
         project_path=get_project_manager().get_project_path(project_name),
     )
-    _raise_projection_blocker(projection, _t, allow_duration_confirmation=True)
+    _raise_projection_blocker(projection, _t, names, allow_duration_confirmation=True)
     slot = projection.request_duration
     if slot is None:
         raise BadRequestError("reference_supported_durations_missing")
@@ -456,7 +462,7 @@ async def precheck_unit_duration(
         "hydrated_capability": projection.hydrated_generation_type,
         "provider_id": projection.provider_id,
         "model_id": projection.model_id,
-        "problems": _problem_payload(projection, _t),
+        "problems": _problem_payload(projection, _t, names),
     }
 
 
@@ -473,6 +479,7 @@ async def preview_unit_prompt(
     unit_id: str,
     req: UnitPromptPreviewRequest,
     _t: Translator,
+    names: DisplayNamesCatalog,
 ) -> dict[str, Any]:
     """按草稿正文投影并渲染，不保存、不入队。"""
     project, script, _sf = _load_episode_script(project_name, episode, _t)
@@ -491,6 +498,7 @@ async def preview_unit_prompt(
         project_path=project_path,
         projection=projection,
         translate=_t,
+        names=names,
     )
 
 
@@ -500,6 +508,7 @@ async def preview_script(
     episode: int,
     req: ScriptPreviewRequest,
     _t: Translator,
+    names: DisplayNamesCatalog,
 ) -> dict[str, Any]:
     """视频单元正文的读时派生预览：utterances + 降级可见性 warning。
 
@@ -520,7 +529,9 @@ async def preview_script(
             {"index": index, "kind": u.kind, "speaker": u.speaker, "text": u.text}
             for index, u in enumerate(preview.utterances, start=1)
         ],
-        "warnings": [{"key": w["key"], "message": _t(w["key"], **w["params"])} for w in preview.warnings],
+        "warnings": [
+            {"key": w["key"], "message": render_message(w["key"], w["params"], _t, names)} for w in preview.warnings
+        ],
     }
 
 
@@ -534,6 +545,7 @@ async def generate_unit(
     unit_id: str,
     user: CurrentUser,
     _t: Translator,
+    names: DisplayNamesCatalog,
     req: GenerateUnitRequest | None = None,
 ) -> dict[str, Any]:
     project, script, script_file = _load_episode_script(project_name, episode, _t)
@@ -549,7 +561,7 @@ async def generate_unit(
         project_path=get_project_manager().get_project_path(project_name),
         options=request_options,
     )
-    _raise_projection_blocker(projection, _t, allow_duration_confirmation=False)
+    _raise_projection_blocker(projection, _t, names, allow_duration_confirmation=False)
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
     # 不再漏到执行层失败（见 ADR-0001）。
@@ -578,7 +590,7 @@ async def generate_unit(
     return {
         "task_id": result["task_id"],
         "deduped": result.get("deduped", False),
-        "projection": {**projection.to_advisory_payload(), "problems": _problem_payload(projection, _t)},
+        "projection": {**projection.to_advisory_payload(), "problems": _problem_payload(projection, _t, names)},
     }
 
 
@@ -588,6 +600,7 @@ async def generate_units_batch(
     episode: int,
     user: CurrentUser,
     _t: Translator,
+    names: DisplayNamesCatalog,
     req: GenerateUnitsBatchRequest,
 ) -> dict[str, Any]:
     """Admit a whole batch of reference units, then create their tasks.
@@ -652,7 +665,7 @@ async def generate_units_batch(
         user_id=user.id,
         queue=queue,
     )
-    payload = localized_admission_payload(admission, _t)
+    payload = localized_admission_payload(admission, _t, names)
     payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)
     if admission.decision is not BatchAdmissionDecision.ADMITTED:
         payload["task_ids"] = []

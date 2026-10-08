@@ -1,11 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from lib.i18n.display_names import DisplayNames
 from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
+from server.i18n import get_display_names, get_locale
 from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.factories import make_display_names
 
 
 class _FakeQueue:
@@ -122,11 +125,19 @@ class _RenderQueue:
         return dict(self._task) if self._task is not None else None
 
 
+def _display_names(request: Request) -> DisplayNames:
+    """目录里只有一个自定义供应商 custom-2（「我的中转站」）及其模型 I2V_H3（「图生视频 H3」）。"""
+    return make_display_names(
+        get_locale(request), providers={"custom-2": "我的中转站"}, models={("custom-2", "I2V_H3"): "图生视频 H3"}
+    )
+
+
 class TestTaskErrorLocalization:
     def _client(self, monkeypatch, queue):
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.dependency_overrides[get_display_names] = _display_names
         app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return TestClient(app)
 
@@ -138,13 +149,13 @@ class TestTaskErrorLocalization:
         client = self._client(monkeypatch, _RenderQueue(items=items))
 
         en = client.get("/api/v1/tasks", headers={"Accept-Language": "en"}).json()["items"][0]
-        assert en["error_message"] == "Provider grok does not support image generation"
+        assert en["error_message"] == "Provider Grok does not support image generation"
 
         zh = client.get("/api/v1/tasks", headers={"Accept-Language": "zh"}).json()["items"][0]
-        assert zh["error_message"] == "供应商 grok 不支持 image 生成"
+        assert zh["error_message"] == "供应商 Grok 不支持 image 生成"
 
         vi = client.get("/api/v1/tasks", headers={"Accept-Language": "vi"}).json()["items"][0]
-        assert "grok" in vi["error_message"]
+        assert "Grok" in vi["error_message"]
         assert "image" in vi["error_message"]
         assert vi["error_message"] != en["error_message"]
 
@@ -248,12 +259,28 @@ class TestTaskErrorLocalization:
         client = self._client(monkeypatch, _RenderQueue(items=items))
         for locale in ("zh", "en", "vi"):
             row = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"][0]
-            assert row["error_message"] == _("video_capability_missing_r2v", locale=locale, **params)
+            assert row["error_message"] == _(
+                "video_capability_missing_r2v", locale=locale, provider="我的中转站", model="图生视频 H3"
+            )
             assert (row["error_code"], row["error_params"], row["error_detail"]) == (
                 "video_capability_missing_r2v",
                 params,
                 "❌ 服务端原文",
             )
+
+    def test_failure_of_a_deleted_provider_names_it_generically(self, monkeypatch):
+        from lib.generation.task_failure import encode_failure
+        from lib.i18n import _
+
+        encoded = encode_failure("video_capability_missing_r2v", provider="custom-9", model="I2V_H3")
+        items = [{"task_id": "gen", "status": "failed", "error_message": encoded}]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        for locale in ("zh", "en", "vi"):
+            row = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"][0]
+            assert _("deleted_provider_display_name", locale=locale) in row["error_message"]
+            assert "custom-9" not in row["error_message"]
+            assert row["error_params"] == {"provider": "custom-9", "model": "I2V_H3"}
+            assert row["error_detail"] == encoded
 
     def test_list_tasks_passthrough_raw_and_legacy(self, monkeypatch):
         from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
@@ -287,7 +314,7 @@ class TestTaskErrorLocalization:
         client = self._client(monkeypatch, _RenderQueue(task=task))
         body = client.get("/api/v1/tasks/t9", headers={"Accept-Language": "en"}).json()["task"]
         assert body["error_message"] == (
-            "Provider vidu does not support task resumption; please retry manually to avoid duplicate billing"
+            "Provider Vidu does not support task resumption; please retry manually to avoid duplicate billing"
         )
 
     def test_project_tasks_renders_error_message(self, monkeypatch):

@@ -67,8 +67,9 @@ from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.generation_result import problem_from_task_failure
 from lib.generation.task_failure import encode_failure, parse_failure, render_failure
+from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
-from server.i18n import Translator
+from server.i18n import DisplayNamesCatalog, Translator
 
 logger = logging.getLogger(__name__)
 
@@ -361,6 +362,7 @@ async def _custom_provider(provider_id: str, session: AsyncSession) -> CustomPro
 async def preview_endpoint_request(
     request: Request,
     _t: Translator,
+    names: DisplayNamesCatalog,
     session: AsyncSession = Depends(get_async_session),
 ) -> PreviewResponse:
     """渲染将要发出的请求，不外发。凭证打码、素材换成体积摘要、提交后才有的 id 保持占位符。"""
@@ -379,7 +381,7 @@ async def preview_endpoint_request(
         # 构造期的 ComfyUI 失败（如参考图少于格子数、改图的级联触到产物节点）不是定义有错，而是
         # 这份定义配上这组参数渲染不出请求。用失败码本身的三语文案说明，不另写一套措辞。
         raise BadRequestError(
-            "endpoint_test_preview_failed", detail=render_failure(encode_failure(exc.code, **exc.params), _t)
+            "endpoint_test_preview_failed", detail=render_failure(encode_failure(exc.code, **exc.params), _t, names)
         ) from exc
     return PreviewResponse(
         submit=_previewed(preview.submit),
@@ -412,6 +414,7 @@ async def check_endpoint_response(
 async def start_trial_run(
     request: Request,
     _t: Translator,
+    names: DisplayNamesCatalog,
     session: AsyncSession = Depends(get_async_session),
     manager: TrialRunManager = Depends(get_trial_run_manager),
     resolver: ConfigResolver = Depends(get_config_resolver),
@@ -459,20 +462,21 @@ async def start_trial_run(
         # manager 接手前失败（落素材、建结果目录）时临时目录还没有主人，留在盘上没人会回来删。
         shutil.rmtree(staging, ignore_errors=True)
         raise
-    return _run_response(run, _t)
+    return _run_response(run, _t, names)
 
 
 @router.get("/trial-runs/{run_id}")
 async def get_trial_run(
     run_id: str,
     _t: Translator,
+    names: DisplayNamesCatalog,
     manager: TrialRunManager = Depends(get_trial_run_manager),
 ) -> TrialRunResponse:
     """读一次测试连接。运行中读内存、终态读盘；取消或被重启打断的 run 不留结果。"""
     run = manager.get(run_id)
     if run is None:
         raise NotFoundError("trial_run_not_found")
-    return _run_response(run, _t)
+    return _run_response(run, _t, names)
 
 
 @router.post("/trial-runs/{run_id}/cancel", status_code=204)
@@ -512,7 +516,7 @@ def _previewed(section: Any) -> PreviewedRequestResponse:
     return PreviewedRequestResponse(method=section.method, url=section.url, headers=section.headers, body=section.body)
 
 
-def _run_response(run: TrialRun, translate: Translator) -> TrialRunResponse:
+def _run_response(run: TrialRun, translate: Translator, names: DisplayNames) -> TrialRunResponse:
     """结果体本地化：失败原因渲染成当前语言，失败码与它的后续动作另给一份原文。
 
     码与动作一并给出，而不是让读侧从文案里认：文案随语言变，而「这是哪一类失败、该去做什么」
@@ -522,7 +526,7 @@ def _run_response(run: TrialRun, translate: Translator) -> TrialRunResponse:
     """
     payload = run.to_payload()
     parsed = parse_failure(run.error)
-    payload["error"] = render_failure(run.error, translate)
+    payload["error"] = render_failure(run.error, translate, names)
     payload["error_code"] = parsed[0] if parsed else None
     payload["error_action"] = problem_from_task_failure(run.error).action.value if parsed else None
     return TrialRunResponse(**payload)

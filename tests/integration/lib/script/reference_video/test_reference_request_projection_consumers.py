@@ -14,7 +14,7 @@ from server.agent_toolset.media_generation import GENERATE_VIDEOS
 from server.auth import CurrentUserInfo
 from server.routers import reference_videos
 from server.services.admission.cost_estimation import CostEstimationService, VideoRequestQuote
-from tests.factories import activate_reference_project
+from tests.factories import activate_reference_project, make_display_names
 from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
 from tests.integration.server.agent_tool_support import ToolHarness
 
@@ -133,6 +133,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 unit_id="E1U1",
                 request=Request({"type": "http", "query_string": b"", "headers": []}),
                 _t=lambda key, **_params: key,
+                names=make_display_names(),
             )
         with pytest.raises(HTTPException) as web_generate_blocked:
             await reference_videos.generate_unit(
@@ -141,6 +142,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 unit_id="E1U1",
                 user=CurrentUserInfo(id="u1", sub="test", role="admin"),
                 _t=lambda key, **_params: key,
+                names=make_display_names(),
                 req=reference_videos.GenerateUnitRequest(),
             )
 

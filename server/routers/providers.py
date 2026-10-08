@@ -36,8 +36,9 @@ from lib.config.url_utils import normalize_base_url
 from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.db.repositories.display_names import load_display_names
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
-from lib.i18n import translate_or
+from lib.i18n import render_message, translate_or
 from lib.infra.api_errors import BadRequestError, UnprocessableError
 from lib.infra.data_root_layout import DataRootLayout
 from server.dependencies import get_config_service
@@ -228,7 +229,7 @@ class UpdateCredentialRequest(BaseModel):
 def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
     """验证供应商 ID 是否存在，不存在则抛 404。"""
     if provider_id not in PROVIDER_REGISTRY:
-        raise HTTPException(status_code=404, detail=_t("unknown_provider", provider_id=provider_id))
+        raise HTTPException(status_code=404, detail=_t("unknown_provider", value=provider_id))
 
 
 def _submitted_secret_values(
@@ -1020,6 +1021,7 @@ _CONNECTIVITY_CHECK_DISPATCH: dict[str, Callable[[dict[str, str], Any], Connecti
 async def check_provider_connectivity(
     provider_id: str,
     _t: Translator,
+    locale: Locale,
     credential_id: int | None = None,
     session: AsyncSession = Depends(get_async_session),
 ) -> ConnectivityCheckResponse:
@@ -1052,10 +1054,11 @@ async def check_provider_connectivity(
 
     check_fn = _CONNECTIVITY_CHECK_DISPATCH.get(provider_id)
     if check_fn is None:
+        names = await load_display_names(session, locale)
         return ConnectivityCheckResponse(
             success=False,
             available_models=[],
-            message=_t("connectivity_check_unsupported", provider_id=provider_id),
+            message=render_message("connectivity_check_unsupported", {"provider_id": provider_id}, _t, names),
         )
 
     try:

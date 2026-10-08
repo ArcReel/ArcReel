@@ -11,6 +11,7 @@ from lib.db.repositories.task_repo import TaskNotCancellableError, TaskRepositor
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation.task_failure import encode_failure, render_failure
 from lib.i18n import _ as translate_message
+from tests.factories import make_display_names
 
 
 async def stored_calls(session) -> list[ApiCall]:
@@ -400,7 +401,7 @@ class TestTaskRepository:
         assert len(error_message) <= 2000
 
         for locale in ("zh", "en", "vi"):
-            rendered = render_failure(error_message, _translator(locale))
+            rendered = render_failure(error_message, _translator(locale), make_display_names(locale))
             assert rendered is not None
             assert "[" not in rendered
             assert "resume_expired_detail" not in rendered
@@ -435,7 +436,7 @@ class TestTaskRepository:
         assert len(error_message) <= 2000
 
         for locale in ("zh", "en", "vi"):
-            rendered = render_failure(error_message, _translator(locale))
+            rendered = render_failure(error_message, _translator(locale), make_display_names(locale))
             assert rendered is not None
             assert "[" not in rendered
             assert "cascade_blocked_dependency" not in rendered

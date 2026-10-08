@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import contextlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -17,12 +16,12 @@ from lib.billing.call_failure import CallErrorCode
 from lib.billing.cost_calculator import cost_calculator
 from lib.billing.pricing.strategies import PricingParams
 from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
-from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.db.repositories.display_names import provider_display_names
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
@@ -66,11 +65,6 @@ def bound_provider_response(body: object) -> object:
 # 它撞不上任何真实 segment_id——后者取自 resource_id（分镜/单元 ID、资产名），不含控制字符。
 # 撞键会让剧本里同名的那个单元的支出既算进集合计、又作为项目级支出再算一次。
 PROJECT_LEVEL_SEGMENT_KEY = "\x00__project__"
-
-# 存量裸 provider 值的报表显示兜底：身份反转前，文本 gemini 调用以 backend.name 落账为裸
-# "gemini"（图像/视频侧已是 "gemini-aistudio"）。这些历史行不迁移，仅在分组报表按此表补一个
-# 友好显示名；registry 只登记新格式 key（gemini-aistudio / gemini-vertex），故裸值查不到 meta。
-_LEGACY_PROVIDER_DISPLAY_NAMES = {PROVIDER_GEMINI: "Gemini"}
 
 # 产出项目媒体（资产图、分镜、视频、配音）的调用类型
 _MEDIA_CALL_TYPES = ("image", "video", "audio")
@@ -710,34 +704,7 @@ class UsageRepository(BaseRepository):
 
     async def provider_display_names(self, provider_ids: set[str]) -> dict[str, str]:
         """供应商 id → 目录里的显示名；目录查不到的回退 id 本身。"""
-        from lib.config.registry import PROVIDER_REGISTRY
-        from lib.db.models.custom_provider import CustomProvider
-
-        custom_db_ids: set[int] = set()
-        for provider_id in provider_ids:
-            if is_custom_provider(provider_id):
-                # 防御畸形 provider 字符串（如 "custom-abc"）
-                with contextlib.suppress(ValueError):
-                    custom_db_ids.add(parse_provider_id(provider_id))
-
-        custom_names: dict[int, str] = {}
-        if custom_db_ids:
-            cp_stmt = select(CustomProvider).where(CustomProvider.id.in_(custom_db_ids))
-            custom_names = {cp.id: cp.display_name for cp in (await self.session.execute(cp_stmt)).scalars()}
-
-        names: dict[str, str] = {}
-        for provider_id in provider_ids:
-            if is_custom_provider(provider_id):
-                try:
-                    names[provider_id] = custom_names.get(parse_provider_id(provider_id), provider_id)
-                except ValueError:
-                    names[provider_id] = provider_id
-                continue
-            meta = PROVIDER_REGISTRY.get(provider_id)
-            names[provider_id] = (
-                meta.display_name if meta else _LEGACY_PROVIDER_DISPLAY_NAMES.get(provider_id, provider_id)
-            )
-        return names
+        return await provider_display_names(self.session, provider_ids)
 
     async def fetch_summary_rows(self, *, filters: UsageFilters | None = None) -> list[UsageSummaryRow]:
         """期间内可聚合的调用行（轻投影）；pending 行不参与任何汇总口径。"""

@@ -31,7 +31,7 @@ from arcreel_market_core.endpoint_definition import (
     validate_definition,
     version_relation,
 )
-from lib.custom_provider import make_endpoint_key
+from lib.custom_provider import make_endpoint_key, make_provider_id
 from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds
 from lib.custom_provider.endpoint_resolution import derive_mirror_columns
@@ -431,7 +431,7 @@ async def _check_kind_change_keeps_attachments(
         raise UnprocessableError(
             "custom_endpoint_kind_conflicts_with_attachment",
             model_id=attachment.model_id,
-            provider=attachment.provider_display_name,
+            provider=make_provider_id(attachment.provider_id),
         )
 
 
@@ -455,7 +455,7 @@ async def _check_media_type_change_has_no_attachments(
             "custom_endpoint_media_type_conflicts_with_attachment",
             media_type=new_media_type,
             model_id=attachments[0].model_id,
-            provider=attachments[0].provider_display_name,
+            provider=make_provider_id(attachments[0].provider_id),
         )
 
 

@@ -12,6 +12,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.factories import make_display_names
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -542,7 +543,8 @@ class TestGenerateRouter:
             )
         assert res.status_code == 400
         assert res.json()["detail"] == i18n_message(
-            "video_capability_missing_i2v", provider="dashscope", model="happyhorse-1.0-r2v"
+            "video_capability_missing_i2v",
+            **make_display_names().apply({"provider": "dashscope", "model": "happyhorse-1.0-r2v"}),
         )
         assert fake_queue.calls == []
 
@@ -578,7 +580,8 @@ class TestGenerateRouter:
             )
         assert res.status_code == 400
         assert res.json()["detail"] == i18n_message(
-            "video_audio_switch_not_supported", provider="dashscope", model="wan2.7-i2v"
+            "video_audio_switch_not_supported",
+            **make_display_names().apply({"provider": "dashscope", "model": "wan2.7-i2v"}),
         )
         assert fake_queue.calls == []
 
