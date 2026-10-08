@@ -61,12 +61,12 @@
   </tr>
   <tr>
     <td width="200" align="center" valign="top">
-      <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL"><img src="docs/assets/sponsors/fluxion-ai.png" alt="Fluxion AI" width="180"></a>
+      <a href="https://sidrune.ai/register?source=github&campaign=arcreel&promo=arcreel"><img src="docs/assets/sponsors/sidrune-ai.png" alt="Sidrune AI" width="180"></a>
     </td>
     <td valign="top">
-      <strong>一个入口，接入并管理全球主流 AI 模型｜Fluxion AI</strong><br>
-      Fluxion AI 面向个人开发者、技术团队与企业，通过统一 API 接入并管理全球主流 AI 模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。根据不同模型与线路，API 调用成本较官方或基准价格可降低 40%—98%。<br>
-      <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">立即访问并注册</a>，即可获得 $3 API 额度。
+      <strong>一个入口，接入并管理全球主流 AI 模型｜Sidrune AI</strong><br>
+      Sidrune AI 面向个人开发者、技术团队与企业，通过统一 API 接入并管理全球主流 AI 模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。根据不同模型与线路，API 调用成本较官方或基准价格可降低 40%—98%。<br>
+      <a href="https://sidrune.ai/register?source=github&campaign=arcreel&promo=arcreel">立即访问并注册</a>，即可获得 $3 API 额度。
     </td>
   </tr>
   <tr>
