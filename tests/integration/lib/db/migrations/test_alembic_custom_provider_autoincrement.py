@@ -106,6 +106,68 @@ def test_upgrade_keeps_data_and_stops_reusing_deleted_max_id(
         engine.dispose()
 
 
+_PROBLEM = (
+    'generation_problem:{"code":"video_capability_missing_r2v","detail":"","action":"configure_provider",'
+    '"params":{"provider":"custom-3","model":"m"}}'
+)
+
+
+def _insert_reference(conn: sa.Connection, table: str, column: str, value: str) -> None:
+    """升级前留下的失败记录或用量，在指定列里引用供应商。"""
+    if table == "tasks":
+        values = {"provider_id": None, "error_message": None, column: value}
+        conn.execute(
+            sa.text(
+                "INSERT INTO tasks (task_id, project_name, task_type, media_type, resource_id, status, "
+                "provider_id, error_message, queued_at, updated_at) "
+                f"VALUES ('t1', 'p', 'text', 'text', 'r', 'failed', :provider_id, :error_message, {_TS}, {_TS})"
+            ),
+            values,
+        )
+    else:
+        conn.execute(
+            sa.text(
+                "INSERT INTO api_calls (project_name, call_type, model, status, provider, started_at, created_at, "
+                f"updated_at) VALUES ('p', 'video', 'm', 'failed', :provider, {_TS}, {_TS}, {_TS})"
+            ),
+            {"provider": value},
+        )
+
+
+@pytest.mark.parametrize(
+    ("table", "column", "value"),
+    [
+        ("tasks", "provider_id", "custom-3"),
+        ("tasks", "error_message", _PROBLEM),
+        ("tasks", "error_message", "custom-abc 不是供应商 ID；custom-3 是"),
+        ("api_calls", "provider", "custom-3"),
+    ],
+)
+def test_upgrade_skips_ids_deleted_before_upgrade_that_records_still_reference(
+    alembic_cfg: tuple[Config, Path], autoincrement_revisions: tuple[str, str], table: str, column: str, value: str
+):
+    """升级前删掉的最大 ID 仍被失败记录或用量引用：新供应商不能拿到它，否则旧记录会错归。"""
+    revision_id, parent_id = autoincrement_revisions
+    cfg, db_path = alembic_cfg
+    command.upgrade(cfg, parent_id)
+
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    try:
+        _seed(engine)
+        with engine.begin() as conn:
+            conn.execute(sa.text("DELETE FROM custom_provider_model WHERE provider_id = 3"))
+            conn.execute(sa.text("DELETE FROM custom_provider WHERE id = 3"))
+            _insert_reference(conn, table, column, value)
+
+        command.upgrade(cfg, revision_id)
+
+        with engine.begin() as conn:
+            new_id = _insert_provider(conn, "new")
+        assert new_id == 4
+    finally:
+        engine.dispose()
+
+
 def test_downgrade_keeps_data_and_schema(alembic_cfg: tuple[Config, Path], autoincrement_revisions: tuple[str, str]):
     revision_id, parent_id = autoincrement_revisions
     cfg, db_path = alembic_cfg

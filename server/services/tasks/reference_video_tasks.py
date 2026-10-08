@@ -421,7 +421,7 @@ async def execute_reference_video_task(
                     max_refs=max_count,
                 )
             )
-    duration_warning = projection.request_duration.warning(model=model_name)
+    duration_warning = projection.request_duration.warning(provider=actual_provider_id, model=model_name)
     if duration_warning is not None:
         warnings.append(duration_warning)
 
@@ -434,14 +434,7 @@ async def execute_reference_video_task(
     #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
     #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
-    voice_settings = VoiceRenderSettings(
-        voice_consistency=request_facts.voice_consistency,
-        requested_generate_audio=request_facts.requested_generate_audio,
-        max_reference_audio=request_facts.max_reference_audio_count,
-        model_id=model_name,
-        audio_ready=audio_paths,
-        requires_reference_image=request_facts.reference_audio_per_image,
-    )
+    voice_settings = VoiceRenderSettings.from_request_facts(request_facts, audio_ready=audio_paths)
     rendered = _render_unit_prompt(
         unit,
         project,

@@ -28,9 +28,13 @@ from tests.factories import comfyui_api_workflow, comfyui_endpoint_definition, c
 
 
 @pytest.fixture
-def endpoints_app(db_engine) -> FastAPI:
-    """绑定内存数据库的应用，同时挂端点路由与供应商路由（目录用例要读同一个库）。"""
+def endpoints_app(db_engine, set_error_handler_sessions) -> FastAPI:
+    """绑定内存数据库的应用，同时挂端点路由与供应商路由（目录用例要读同一个库）。
+
+    错误处理器自开会话加载显示名目录，也指向这个库。
+    """
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    set_error_handler_sessions(session_factory)
     app = FastAPI()
 
     async def _override_session():
@@ -537,7 +541,8 @@ class TestImportRouting:
         resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=comfyui_endpoint_definition())
 
         assert resp.status_code == 422
-        assert "demo-video" in resp.json()["detail"]
+        assert "演示视频模型（供应商 中转站）" in resp.json()["detail"]
+        assert "demo-video" not in resp.json()["detail"]
         assert endpoints_client.get(f"/api/v1/custom-endpoints/{created['id']}").json()["kind"] == "declarative"
 
     async def test_replacing_a_comfyui_definition_with_declarative_is_refused_while_attached(
@@ -573,7 +578,8 @@ class TestImportRouting:
         resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=comfyui_endpoint_definition())
 
         assert resp.status_code == 422
-        assert "demo-video" in resp.json()["detail"]
+        assert "演示视频模型（供应商 中转站）" in resp.json()["detail"]
+        assert "demo-video" not in resp.json()["detail"]
         assert endpoints_client.get(f"/api/v1/custom-endpoints/{created['id']}").json()["media_type"] == "image"
 
     def test_changing_the_media_type_is_allowed_while_nothing_references_it(self, endpoints_client: TestClient):

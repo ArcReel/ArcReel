@@ -393,11 +393,11 @@ MESSAGES = {
         "itself. Import a ComfyUI endpoint and attach it to a model row instead"
     ),
     "custom_endpoint_kind_conflicts_with_attachment": (
-        "The replacement definition changes the endpoint kind, which no longer fits the current attachment: the provider protocol of model {model_id} (provider {provider}) cannot take it. Change the model row's attachment first, then replace the definition"
+        "The replacement definition changes the endpoint kind, which no longer fits the current attachment: the provider protocol of model {model} (provider {provider}) cannot take it. Change the model row's attachment first, then replace the definition"
     ),
     "custom_endpoint_media_type_conflicts_with_attachment": (
         "This definition produces {media_type}, which differs from the endpoint's current media type, while model "
-        "{model_id} (provider {provider}) is still attached: an endpoint decides which lane its models belong to. "
+        "{model} (provider {provider}) is still attached: an endpoint decides which lane its models belong to. "
         "Detach the models first, then replace the definition"
     ),
     "comfyui_endpoint_requires_comfyui_provider": (

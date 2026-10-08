@@ -432,7 +432,7 @@ def test_warn_silent_model_notice():
         text, PROJECT_WITHOUT_SCENES, VoiceRenderSettings(voice_consistency="none", model_id="minimax-01")
     )
     assert keys(preview) == [WARN_SILENT_MODEL]
-    assert preview.warnings[0]["params"] == {"model": "minimax-01"}
+    assert preview.warnings[0]["params"] == {"provider": "", "model": "minimax-01"}
 
 
 def test_silent_model_notice_skips_a_voiceover_only_script():
@@ -537,7 +537,7 @@ WARNING_PARAMS = {
     WARN_UNREGISTERED_SPEAKER: {"name": "王五"},
     WARN_SPEAKER_WITHOUT_AUDIO: {"name": "李四"},
     WARN_REFERENCE_AUDIO_OVERFLOW: {"limit": 3, "name": "李四"},
-    WARN_SILENT_MODEL: {"model": "minimax-01"},
+    WARN_SILENT_MODEL: {"provider": "", "model": "minimax-01"},
     WARN_SILENT_EPISODE: {},
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE: {"name": "李四"},
 }

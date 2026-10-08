@@ -825,6 +825,21 @@ class TestTestProviderConnection:
         assert body["success"] is False
         assert "API key invalid" in body["message"]
 
+    def test_unsupported_check_survives_a_failing_display_name_catalog(self):
+        """没有连通性检查的供应商走 connectivity_check_unsupported；目录查询失败时仍如实回执。"""
+        app, session = _make_session_app()
+        session.execute.side_effect = RuntimeError("catalog unavailable")
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._mock_cred_repo_configured()),
+            patch("server.routers.providers.ConfigService", return_value=self._mock_svc()),
+            patch.dict(providers._CONNECTIVITY_CHECK_DISPATCH, clear=True),
+            TestClient(app) as client,
+        ):
+            resp = client.post("/api/v1/providers/gemini-aistudio/test")
+        assert resp.status_code == 200
+        assert resp.json()["success"] is False
+        session.rollback.assert_awaited_once()
+
     def test_dashscope_registered_in_dispatch(self):
         # dashscope 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
         # 否则点"测试连接"会落到 connectivity_check_unsupported 分支（即便 API Key 有效）

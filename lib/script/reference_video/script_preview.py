@@ -173,7 +173,7 @@ def derive_voice_bindings(
             if not settings.requested_generate_audio:
                 warnings.append(_warning(WARN_SILENT_EPISODE))
             else:
-                warnings.append(_warning(WARN_SILENT_MODEL, model=settings.model_id))
+                warnings.append(_warning(WARN_SILENT_MODEL, provider=settings.provider_id, model=settings.model_id))
     elif settings.voice_consistency == "native":
         image_names = {asset_name_comparison_key(name) for name in speakers_with_reference_image or ()}
         audio_ready = (

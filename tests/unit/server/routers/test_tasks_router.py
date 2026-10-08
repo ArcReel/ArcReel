@@ -126,9 +126,11 @@ class _RenderQueue:
 
 
 def _display_names(request: Request) -> DisplayNames:
-    """目录里只有一个自定义供应商 custom-2（「我的中转站」）及其模型 I2V_H3（「图生视频 H3」）。"""
+    """两个供应商使用同一模型 ID，显示名按供应商区分。"""
     return make_display_names(
-        get_locale(request), providers={"custom-2": "我的中转站"}, models={("custom-2", "I2V_H3"): "图生视频 H3"}
+        get_locale(request),
+        providers={"custom-2": "我的中转站", "custom-3": "另一家中转站"},
+        models={("custom-2", "I2V_H3"): "图生视频 H3", ("custom-3", "I2V_H3"): "另一家视频模型"},
     )
 
 
@@ -140,6 +142,32 @@ class TestTaskErrorLocalization:
         app.dependency_overrides[get_display_names] = _display_names
         app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return TestClient(app)
+
+    def test_video_warnings_use_the_selected_providers_model_name(self, monkeypatch):
+        from lib.script.reference_video.duration_slots import resolve_duration_slot
+        from lib.script.reference_video.script_preview import build_script_preview
+        from lib.script.reference_video.voice_settings import VoiceRenderSettings
+        from tests.factories import make_video_request_facts
+
+        facts = make_video_request_facts(provider_id="custom-2", model_id="I2V_H3", voice_consistency="none")
+        preview = build_script_preview(
+            "@[角色]{你好}", {"characters": {"角色": {}}}, VoiceRenderSettings.from_request_facts(facts)
+        )
+        warnings = [
+            resolve_duration_slot(7, [5, 10]).warning(provider=facts.provider_id, model=facts.model_id),
+            *preview.warnings,
+        ]
+        client = self._client(monkeypatch, _RenderQueue(items=[{"task_id": "t1", "result": {"warnings": warnings}}]))
+
+        for locale in ("zh", "en", "vi"):
+            rendered = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"][0]["result"][
+                "warnings"
+            ]
+            assert len(rendered) == 2
+            for message in rendered:
+                assert "图生视频 H3" in message
+                assert "I2V_H3" not in message
+                assert "另一家视频模型" not in message
 
     def test_list_tasks_renders_known_code_per_locale(self, monkeypatch):
         from lib.generation.task_failure import encode_failure

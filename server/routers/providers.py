@@ -36,13 +36,12 @@ from lib.config.url_utils import normalize_base_url
 from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
-from lib.db.repositories.display_names import load_display_names
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import render_message, translate_or
 from lib.infra.api_errors import BadRequestError, UnprocessableError
 from lib.infra.data_root_layout import DataRootLayout
 from server.dependencies import get_config_service
-from server.i18n import Locale, Translator
+from server.i18n import Locale, Translator, load_display_names_or_builtin
 from server.routers._validators import split_video_backend_query
 from server.services.tasks.video_caps import capability_request_facts, duration_constraints_payload
 
@@ -1054,7 +1053,7 @@ async def check_provider_connectivity(
 
     check_fn = _CONNECTIVITY_CHECK_DISPATCH.get(provider_id)
     if check_fn is None:
-        names = await load_display_names(session, locale)
+        names = await load_display_names_or_builtin(session, locale)
         return ConnectivityCheckResponse(
             success=False,
             available_models=[],

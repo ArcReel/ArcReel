@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Annotated, Any
 
@@ -13,9 +14,11 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db import async_session_factory, get_async_session
-from lib.db.repositories.display_names import load_display_names
+from lib.db.repositories.display_names import build_display_names, load_display_names
 from lib.i18n import DEFAULT_LOCALE, SUPPORTED_LOCALES, _
 from lib.i18n.display_names import DisplayNames
+
+logger = logging.getLogger(__name__)
 
 
 def get_locale(request: Request) -> str:
@@ -51,15 +54,41 @@ Translator = Annotated[Callable[..., str], Depends(get_translator)]
 Locale = Annotated[str, Depends(get_locale)]
 
 
+def _builtin_display_names(locale: str) -> DisplayNames:
+    """目录加载失败时的退路：只认内置供应商与模型，自定义供应商显示泛称。
+
+    目录只决定文案里怎么称呼供应商与模型，加载失败不应改变响应本身。
+    """
+    logger.warning("显示名目录加载失败，使用内置名称", exc_info=True)
+    return build_display_names(locale, custom_providers={}, custom_models={})
+
+
+async def load_display_names_or_builtin(session: AsyncSession, locale: str) -> DisplayNames:
+    """在路由的会话里按语言加载显示名目录；查询失败时退回内置名称。
+
+    路由需要在函数体内按需加载目录时也调用这里，不直接调用 ``load_display_names``。
+    """
+    try:
+        return await load_display_names(session, locale)
+    except Exception:
+        # 会话由整个请求共用：回滚失败的查询，路由自己的查询不受牵连。
+        await session.rollback()
+        return _builtin_display_names(locale)
+
+
 async def get_display_names(request: Request, session: AsyncSession = Depends(get_async_session)) -> DisplayNames:
-    """Dependency to load the provider and model display-name catalog in the request locale."""
-    return await load_display_names(session, get_locale(request))
+    """路由依赖：按请求语言加载供应商与模型的显示名目录；查询失败时退回内置名称。"""
+    return await load_display_names_or_builtin(session, get_locale(request))
 
 
 async def request_display_names(request: Request) -> DisplayNames:
-    """拿不到依赖注入的地方（app 级异常处理器）按请求语言加载显示名目录。"""
-    async with async_session_factory() as session:
-        return await load_display_names(session, get_locale(request))
+    """app 级异常处理器按请求语言加载目录；查询或会话失败时保留原错误，退回内置名称。"""
+    locale = get_locale(request)
+    try:
+        async with async_session_factory() as session:
+            return await load_display_names(session, locale)
+    except Exception:
+        return _builtin_display_names(locale)
 
 
 #: 失败文案渲染所需的显示名目录：供应商与模型 ID 按请求语言换成名称。
