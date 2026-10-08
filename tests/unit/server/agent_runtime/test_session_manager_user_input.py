@@ -7,15 +7,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from server.agent_runtime.event_log import REPLAYED_USER_ECHO_ENTRY_UUID_KEY, REPLAYED_USER_ECHO_KEY
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
     PendingUserEcho,
     match_user_echo,
-    message_to_dict,
 )
 from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError, ManagedSession, SessionManager
-from tests.fakes import assistant_frame, build_managed_with_actor, result_frame, stream_event_frame
+from tests.fakes import assistant_frame, build_managed_with_actor, result_frame, stream_event_frame, system_frame
 
 
 async def _seed(session_manager, meta_store, *, frames=None, status="idle"):
@@ -23,14 +21,20 @@ async def _seed(session_manager, meta_store, *, frames=None, status="idle"):
     meta = await meta_store.create("demo", "sdk-user-input")
     await meta_store.update_status(meta.id, status)
 
-    # Build actor with the on_message hook that mirrors SessionManager's production path
-    # so ResultMessage finalization and stream pruning work end-to-end.
+    # 读取回调用 SessionManager 的生产实现，result 收尾与 CLI 状态帧都走真实路径。
+    callbacks: list = []
+
+    def _on_message(m, msg):
+        if not callbacks:
+            callbacks.append(session_manager._make_actor_message_callback([m]))
+        callbacks[0](msg)
+
     managed, actor, client = await build_managed_with_actor(
         session_id=meta.id,
         project_name="demo",
         status=status,
         frames=frames,
-        on_message_hook=lambda m, msg: _on_actor_message_full(session_manager, m, msg),
+        on_message_hook=_on_message,
     )
     managed.resolved_sdk_id = meta.id
     managed.sdk_id_event.set()
@@ -49,21 +53,6 @@ async def _seed(session_manager, meta_store, *, frames=None, status="idle"):
 
         actor._task.add_done_callback(_done_cb)
     return meta, managed, client
-
-
-def _on_actor_message_full(session_manager, managed, raw_msg):
-    """Replicate SessionManager's production on_message behavior for tests."""
-    msg_dict = message_to_dict(raw_msg)
-    echo = match_user_echo(managed.pending_user_echoes, msg_dict)
-    if echo is not None:
-        msg_dict[REPLAYED_USER_ECHO_KEY] = True
-        if echo.entry_uuid:
-            msg_dict[REPLAYED_USER_ECHO_ENTRY_UUID_KEY] = echo.entry_uuid
-        managed._inbox.put_nowait(msg_dict)
-        return
-    session_manager._handle_special_message(managed, msg_dict)
-    managed._on_actor_message(msg_dict)
-    managed._inbox.put_nowait(msg_dict)
 
 
 async def _finish(managed):
@@ -121,13 +110,14 @@ class TestSessionManagerUserInput:
         finally:
             await _finish(managed)
 
-    async def test_consume_result_finalizes_status(self, session_manager, meta_store):
+    async def test_cli_idle_after_result_settles_status(self, session_manager, meta_store):
         frames = [
             stream_event_frame(
                 {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}, uuid="stream-1"
             ),
             assistant_frame({"type": "text", "text": "Hello"}, uuid="assistant-1"),
             result_frame(uuid="result-1"),
+            system_frame("session_state_changed", state="idle"),
         ]
         meta, managed, _client = await _seed(session_manager, meta_store, frames=frames, status="idle")
         try:

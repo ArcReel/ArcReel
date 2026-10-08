@@ -100,6 +100,10 @@ async def entry_service(db_factory, tmp_path):
     return service, store
 
 
+# CLI 报 idle 后会话层广播的终态（见 SessionManager._settle_cli_idle）
+_CLI_IDLE_COMPLETED = {"type": "runtime_status", "status": "completed", "reason": "cli idle", "subtype": "success"}
+
+
 def _collect(event: ServerSentEvent) -> tuple[str, dict, str | None]:
     data = event.data if isinstance(event.data, dict) else {}
     return event.event or "", data, event.id
@@ -154,6 +158,7 @@ class TestStreamEntryEvents:
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
         manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
         manager.queue.put_nowait(_finish_turn)
+        manager.queue.put_nowait(_CLI_IDLE_COMPLETED)
         manager.queue.put_nowait(_send_next)
         manager.queue.put_nowait(
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "user", "uuid": "c"}}
@@ -211,7 +216,7 @@ class TestStreamEntryEvents:
         await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}])
 
         # 直播队列：重复条目（seq 1，已在存量中）须被 seq 门槛跳过；
-        # 新条目 seq 2 放行；delta 透传；result 产出终态 status 并结束。
+        # 新条目 seq 2 放行；delta 透传；CLI 报 idle 后的 runtime_status 产出终态 status。
         manager.queue.put_nowait(
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}
         )
@@ -231,6 +236,7 @@ class TestStreamEntryEvents:
         )
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
         manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
+        manager.queue.put_nowait(_CLI_IDLE_COMPLETED)
         manager.end_stream()
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID, after_seq=-1)]
@@ -267,11 +273,8 @@ class TestStreamEntryEvents:
         entry_events = [e for e in events if e[0] == "entry"]
         assert [e[2] for e in entry_events] == ["2"]
 
-    async def test_final_entry_after_raw_result_still_delivered(self, entry_service):
-        """末条 log_entry 晚于原始 result 广播到达（inbox 落库延迟）时仍须送达。
-
-        终态由 log_turn_complete 触发，不在原始 result 处提前终结。
-        """
+    async def test_result_does_not_push_status_before_cli_idle(self, entry_service):
+        """result 只代表一轮结束：状态停在 running，CLI 报 idle 后的 runtime_status 才推终态，排在本轮条目之后。"""
         service, store = entry_service
         manager = _FakeEntrySessionManager(status="running")
         service.session_manager = manager
@@ -283,6 +286,9 @@ class TestStreamEntryEvents:
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}
         )
         manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
+        manager.queue.put_nowait(HEARTBEAT)
+        manager.queue.put_nowait(HEARTBEAT)
+        manager.queue.put_nowait(_CLI_IDLE_COMPLETED)
         manager.end_stream()
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
@@ -290,7 +296,7 @@ class TestStreamEntryEvents:
         names = [name for name, _, _ in events]
         assert names[-2:] == ["entry", "status"]
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1"]
-        assert events[-1][1]["status"] == "completed"
+        assert [e[1]["status"] for e in events if e[0] == "status"] == ["running", "completed"]
 
     async def test_pending_questions_replayed_on_subscribe(self, entry_service):
         service, _store = entry_service

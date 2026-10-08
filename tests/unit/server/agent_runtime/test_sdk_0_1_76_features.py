@@ -85,7 +85,6 @@ class TestResultErrorLogging:
         }
         with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
             await session_manager._finalize_turn(managed, result_message)
-        assert managed.status == "error"
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert any(getattr(r, "api_error_status", None) == 429 for r in warnings), (
             f"expected a warning with api_error_status=429, got {[r.__dict__ for r in warnings]}"
@@ -108,7 +107,6 @@ class TestResultErrorLogging:
         }
         with caplog.at_level(logging.WARNING, logger="server.agent_runtime.session_manager"):
             await session_manager._finalize_turn(managed, result_message)
-        assert managed.status == "completed"
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert not warnings, f"unexpected warnings on completed result: {warnings}"
 

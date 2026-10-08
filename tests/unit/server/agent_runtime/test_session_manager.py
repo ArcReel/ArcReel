@@ -13,7 +13,14 @@ from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionRead
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession, SessionBusyError
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeSDKClient, assistant_frame, empty_sdk_response_stream, result_frame
+from tests.fakes import (
+    FakeSDKClient,
+    assistant_frame,
+    empty_sdk_response_stream,
+    result_frame,
+    session_state_message,
+    system_frame,
+)
 
 
 class _FakeOptions:
@@ -309,7 +316,7 @@ class TestSessionManager:
         assert (await meta_store.get(meta.id)).status == "interrupted"
 
     async def test_autonomous_turn_survives_failed_running_persist(self, session_manager, meta_store, monkeypatch):
-        """自主轮次开头写 running 失败：inbox 照常处理到 result，这一轮仍能收尾。"""
+        """自主轮次开头写 running 失败：inbox 照常处理到 CLI 报 idle，会话仍能收尾。"""
         meta = await meta_store.create("demo", "sdk-autonomous-persist")
         managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
         managed.resolved_sdk_id = meta.id
@@ -322,9 +329,12 @@ class TestSessionManager:
             return await real_update(session_id, status)
 
         monkeypatch.setattr(meta_store, "update_status", _flaky_update)
+        on_message = session_manager._make_actor_message_callback([managed])
 
-        managed._inbox.put_nowait({"type": "assistant", "content": [], "parent_tool_use_id": None})
-        managed._inbox.put_nowait({"type": "result", "subtype": "success", "is_error": False})
+        on_message(session_state_message("running"))
+        on_message({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        on_message({"type": "result", "subtype": "success", "is_error": False})
+        on_message(session_state_message("idle"))
         managed._inbox.put_nowait(None)
         await session_manager._process_inbox(managed)
 
@@ -374,18 +384,14 @@ class TestSessionManager:
     @pytest.mark.parametrize(
         "frames_read",
         [
-            [{"type": "assistant", "content": [], "parent_tool_use_id": None}],
-            [
-                {"type": "assistant", "content": [], "parent_tool_use_id": None},
-                {"type": "result", "subtype": "success", "is_error": False},
-            ],
+            [session_state_message("running")],
+            [session_state_message("requires_action")],
+            [session_state_message("running"), {"type": "result", "subtype": "success", "is_error": False}],
         ],
-        ids=["first-frame-read", "result-read-not-finalized"],
+        ids=["cli-running", "cli-requires-action", "result-before-idle"],
     )
-    async def test_send_message_is_busy_until_inbox_settles_autonomous_turn(
-        self, session_manager, meta_store, frames_read
-    ):
-        """自主轮次已经读出、inbox 还没收尾（含 result 已读出、finalize 未跑）：新消息按会话忙拒绝。"""
+    async def test_send_message_is_busy_until_cli_reports_idle(self, session_manager, meta_store, frames_read):
+        """CLI 报告开始工作的帧一读出、到它报 idle 之前，新消息都按会话忙拒绝，不必等 inbox。"""
         meta = await meta_store.create("demo", "sdk-autonomous-busy")
         managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
         managed.resolved_sdk_id = meta.id
@@ -397,23 +403,28 @@ class TestSessionManager:
 
         with pytest.raises(SessionBusyError):
             await asyncio.wait_for(session_manager.send_message(meta.id, "too early"), timeout=1.0)
-        assert managed.status == "idle"
+        assert managed.status == "running"
 
-    async def test_interrupt_reaches_autonomous_turn_before_inbox_marks_running(self, session_manager, meta_store):
+    async def test_interrupt_reaches_autonomous_turn_before_inbox_runs(self, session_manager, meta_store):
         from tests.fakes import build_managed_with_actor
 
         meta = await meta_store.create("demo", "sdk-autonomous-interrupt")
         read = asyncio.Event()
+        callbacks: list = []
 
         def _on_read(managed: ManagedSession, msg: dict) -> None:
-            managed.note_frame_read(msg)
-            read.set()
+            if not callbacks:
+                callbacks.append(session_manager._make_actor_message_callback([managed]))
+            callbacks[0](msg)
+            if msg.get("type") == "assistant":
+                read.set()
 
         managed, _actor, client = await build_managed_with_actor(
             session_id=meta.id, project_name="demo", status="idle", on_message_hook=_on_read
         )
         session_manager.sessions[meta.id] = managed
         try:
+            client.push_frame(system_frame("session_state_changed", state="running"))
             client.push_frame(assistant_frame())
             await asyncio.wait_for(read.wait(), timeout=1.0)
 
@@ -423,53 +434,39 @@ class TestSessionManager:
         finally:
             await session_manager.close_session(meta.id)
 
-    async def test_frames_read_after_the_inbox_stopped_do_not_protect_the_session(self, session_manager, meta_store):
-        """finalize 失败后 inbox 不再处理帧：读取侧继续登记的话，这些轮次永远没人收尾，会话一直受保护。"""
+    async def test_cli_work_read_after_the_inbox_stopped_does_not_protect_the_session(
+        self, session_manager, meta_store
+    ):
+        """finalize 失败后 inbox 不再处理帧：读到 CLI 开始工作仍切 running 的话，再也没人收尾，会话一直受保护。"""
         meta = await meta_store.create("demo", "sdk-inbox-stopped")
         managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
         managed.resolved_sdk_id = meta.id
         session_manager.sessions[meta.id] = managed
         on_message = session_manager._make_actor_message_callback([managed])
-        main = {"type": "assistant", "content": [], "parent_tool_use_id": None}
 
         async def _broken_finalize(*_args, **_kwargs):
             raise RuntimeError("finalize failed")
 
         session_manager._finalize_turn = _broken_finalize
-        on_message(main)
+        on_message(session_state_message("running"))
         on_message({"type": "result", "subtype": "success", "session_id": meta.id})
         await asyncio.wait_for(session_manager._process_inbox(managed), timeout=1.0)
         if managed._cleanup_task is not None:
             managed._cleanup_task.cancel()
 
-        on_message(main)
+        on_message(session_state_message("running"))
 
-        assert not managed.turn_in_flight()
+        assert managed.status == "error"
 
-    async def test_question_from_an_autonomous_turn_is_answerable_before_the_inbox_marks_running(self, session_manager):
+    async def test_question_is_answerable_before_the_cli_running_frame_is_read(self, session_manager):
+        """提问经 SDK 控制请求到达，可能先于 actor 读到 CLI 报告 running 的帧。"""
         managed = ManagedSession(session_id="s1", actor=_dummy_actor(), status="idle", project_name="demo")
         session_manager.sessions["s1"] = managed
-        managed.note_frame_read({"type": "assistant", "content": [], "parent_tool_use_id": None})
         pending = managed.add_pending_question({"questions": []})
 
         await session_manager.answer_user_question("s1", pending.question_id, {"Q": "A"})
 
         assert pending.answer_future.result() == {"Q": "A"}
-
-    def test_unsettled_turns_pair_reads_with_inbox_settles(self):
-        """读取侧与 inbox 侧各按同一规则判定轮次边界：没有主线程帧的轮次两侧都不计。"""
-        managed = ManagedSession(session_id="s1", actor=_dummy_actor(), project_name="demo")
-        main = {"type": "assistant", "content": [], "parent_tool_use_id": None}
-        result = {"type": "result", "subtype": "success"}
-        frames = [result, main, result, main]  # 无主线程帧的一轮、完整的一轮、刚开始的一轮
-
-        for frame in frames:
-            managed.note_frame_read(frame)
-        assert managed.unsettled_turns == 2
-
-        for frame in frames[:3]:
-            managed.settle_turn_frame(frame)
-        assert managed.unsettled_turns == 1
 
     @pytest.mark.asyncio
     async def test_can_use_tool_callback_branches(self, session_manager, monkeypatch):

@@ -668,8 +668,6 @@ class TestAssistantService:
         assert sse_event.event == "status"
         assert sse_event.data == {"x": 1}
 
-        assert service._resolve_result_status({"session_status": "interrupted"}) == "interrupted"
-        assert service._resolve_result_status({"subtype": "error_x", "is_error": True}) == "error"
         payload = service._build_status_event_payload("error", "s1", None)
         assert payload["status"] == "error"
         assert payload["subtype"] == "error"

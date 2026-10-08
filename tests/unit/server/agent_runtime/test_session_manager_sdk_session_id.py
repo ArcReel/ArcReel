@@ -10,7 +10,7 @@ from sqlalchemy import select
 from lib.db.models.api_call import ApiCall
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
-from tests.fakes import FakeSDKClient
+from tests.fakes import FakeSDKClient, session_state_message
 
 
 class StreamEvent:
@@ -116,9 +116,6 @@ class TestSessionManagerSdkSessionId:
         assert row.usage_tokens == 1250
         assert row.cost_amount == pytest.approx(0.1234)
         assert row.currency == "USD"
-        refreshed = await meta_store.get(meta.id)
-        assert refreshed is not None
-        assert refreshed.status == "completed"
 
     async def test_finalize_turn_preserves_sdk_cost_for_failed_status(self, session_manager, meta_store):
         meta = await meta_store.create("demo", "sdk-usage-failed-789")
@@ -150,9 +147,6 @@ class TestSessionManagerSdkSessionId:
         assert row.status == "failed"
         assert row.cost_amount == pytest.approx(0.0456)
         assert row.currency == "USD"
-        refreshed = await meta_store.get(meta.id)
-        assert refreshed is not None
-        assert refreshed.status == "error"
 
     async def test_finalize_turn_uses_model_usage_cost_when_total_cost_missing(self, session_manager, meta_store):
         meta = await meta_store.create("demo", "sdk-model-usage-cost-789")
@@ -255,9 +249,10 @@ class TestSessionManagerSdkSessionId:
         assert row.cost_amount == pytest.approx(0.0042)
         assert row.currency == "USD"
 
-    async def test_finalize_turn_usage_failure_does_not_override_status(self, session_manager, meta_store, monkeypatch):
+    async def test_usage_failure_does_not_block_settling_the_turn(self, session_manager, meta_store, monkeypatch):
         meta = await meta_store.create("demo", "sdk-usage-error-789")
-        managed = _make_managed(session_id=meta.id, project_name="demo")
+        managed = _make_managed(session_id=meta.id, project_name="demo", status="running")
+        managed.resolved_sdk_id = meta.id
         called = False
 
         async def _raise_usage_error(*_args, **_kwargs):
@@ -267,10 +262,11 @@ class TestSessionManagerSdkSessionId:
 
         monkeypatch.setattr(session_manager, "_record_assistant_usage", _raise_usage_error)
 
-        await session_manager._finalize_turn(
-            managed,
-            {"type": "result", "session_status": "completed", "model": "claude-sonnet-4", "usage": {"input_tokens": 1}},
-        )
+        on_message = session_manager._make_actor_message_callback([managed])
+        on_message({"type": "result", "subtype": "success", "model": "claude-sonnet-4", "usage": {"input_tokens": 1}})
+        on_message(session_state_message("idle"))
+        managed._inbox.put_nowait(None)
+        await session_manager._process_inbox(managed)
 
         assert called is True
         refreshed = await meta_store.get(meta.id)
