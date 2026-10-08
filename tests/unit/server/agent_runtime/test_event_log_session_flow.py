@@ -3,38 +3,43 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from collections.abc import Callable, Generator
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from server.agent_runtime.event_log import EventLogStore, build_user_entry
+from lib.infra.data_root_layout import DataRootLayout
+from lib.project.project_manager import ProjectManager
+from server.agent_runtime.event_log import EventLogService, EventLogStore, build_user_entry
 from server.agent_runtime.models import LiveMessage
+from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import AgentStartupError, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import (
     FakeSDKClient,
+    ScriptedFrame,
     assistant_frame,
+    command_lifecycle_frame,
     empty_sdk_response_stream,
+    replay_frame,
     result_frame,
     stream_event_frame,
     system_frame,
 )
 
-SDK_ID = "sdk-e2e-1"
 
-
-def _user_frame(
+def user_frame(
     content: str | list[dict[str, Any]],
     *,
     uuid: str | None = None,
     parent_tool_use_id: str | None = None,
     session_id: str = "default",
-    is_replay: bool = False,
     tool_use_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """CLI 输出的 user 原始帧：工具结果、注入消息，或 ``--replay-user-messages`` 的回放（``is_replay``）。"""
+    """CLI 输出的 user 原始帧：工具结果或注入消息。"""
     frame: dict[str, Any] = {
         "type": "user",
         "message": {"role": "user", "content": content},
@@ -42,11 +47,17 @@ def _user_frame(
         "session_id": session_id,
         "uuid": uuid,
     }
-    if is_replay:
-        frame["isReplay"] = True
     if tool_use_result is not None:
         frame["tool_use_result"] = tool_use_result
     return frame
+
+
+def started_frame(index: int = -1, *, session_id: str = "default") -> Callable[[FakeSDKClient], dict[str, Any]]:
+    """CLI 开始处理第 ``index`` 条送入的用户消息（``command_lifecycle`` started）。"""
+    return lambda client: command_lifecycle_frame(client.sent_messages[index]["uuid"], "started", session_id=session_id)
+
+
+SDK_ID = "sdk-e2e-1"
 
 
 def _session_state_frame(state: str) -> dict[str, Any]:
@@ -67,12 +78,12 @@ async def manager(tmp_path, file_db_factory):
     )
 
 
-def _new_session_frames() -> list[dict]:
+def _new_session_frames() -> list[ScriptedFrame]:
     """一轮完整对话：init → 用户回放 → 流式 → assistant(工具) → tool_result → subagent → result。"""
     return [
         system_frame("init", session_id=SDK_ID, uuid="init-1"),
-        # SDK 回放的用户消息（POST 受理时已写日志，须被跳过）
-        _user_frame("帮我写分镜", uuid="sdk-u1", session_id=SDK_ID, is_replay=True),
+        # CLI 回放的用户消息（首条消息在 sdk_session_id 就绪时已写日志，须被跳过）
+        replay_frame(session_id=SDK_ID),
         stream_event_frame({"type": "message_start", "message": {"id": "msg_01"}}, uuid="se-1", session_id=SDK_ID),
         stream_event_frame(
             {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "好的"}},
@@ -86,7 +97,7 @@ def _new_session_frames() -> list[dict]:
             uuid="a-1",
             session_id=SDK_ID,
         ),
-        _user_frame(
+        user_frame(
             [{"type": "tool_result", "tool_use_id": "tu-1", "content": "file.txt", "is_error": False}],
             uuid="u-tr-1",
             session_id=SDK_ID,
@@ -127,14 +138,14 @@ class _InterruptingClient(FakeSDKClient):
     """interrupt() 时按真实 CLI 行为注入中断回显（可选）与 result 消息。"""
 
     def __init__(self, *, echo: bool = True):
-        super().__init__()
+        super().__init__(frames=[started_frame(session_id=SDK_ID)])
         self._echo = echo
 
     async def interrupt(self) -> None:
         self._record("interrupt")
         self.interrupted = True
         if self._echo:
-            self.push_frame(_user_frame("[Request interrupted by user]", uuid="sdk-echo-1", session_id=SDK_ID))
+            self.push_frame(user_frame("[Request interrupted by user]", uuid="sdk-echo-1", session_id=SDK_ID))
         self.push_frame(result_frame("error_during_execution", is_error=True, uuid="r-int", session_id=SDK_ID))
         self.push_frame(_idle_frame())
 
@@ -282,7 +293,7 @@ class TestNewSessionEventLogFlow:
             # 时间线不变：回放副本仍未产生第二条 user 条目
             assert [e["type"] for e in entries] == ["user", "assistant", "tool_result", "assistant"]
             linked = await manager.event_log_store.find_user_message_link(SDK_ID, entries[0]["uuid"])
-            assert linked == "sdk-u1"
+            assert linked == client.sent_messages[0]["uuid"]
         finally:
             await manager.close_session(SDK_ID)
 
@@ -317,7 +328,7 @@ class TestNewSessionEventLogFlow:
         client = FakeSDKClient(
             frames=[
                 system_frame("init", session_id=SDK_ID, uuid="init-error"),
-                _user_frame("你好", uuid="sdk-u-error", session_id=SDK_ID, is_replay=True),
+                replay_frame(session_id=SDK_ID),
                 assistant_error,
                 result_error,
                 _idle_frame(),
@@ -435,6 +446,7 @@ class TestNewSessionEventLogFlow:
         meta = await manager.meta_store.create("demo", SDK_ID)
         client = FakeSDKClient(
             frames=[
+                started_frame(session_id=SDK_ID),
                 assistant_frame(
                     {
                         "type": "tool_use",
@@ -446,7 +458,7 @@ class TestNewSessionEventLogFlow:
                     uuid="a-q",
                     session_id=SDK_ID,
                 ),
-                _user_frame(
+                user_frame(
                     [
                         {
                             "type": "tool_result",
@@ -497,10 +509,11 @@ class TestNewSessionEventLogFlow:
         meta = await manager.meta_store.create("demo", SDK_ID)
         client = FakeSDKClient(
             frames=[
+                started_frame(session_id=SDK_ID),
                 system_frame(
                     "task_started", task_id="t1", description="分析", tool_use_id="tu-a", uuid="s-1", session_id=SDK_ID
                 ),
-                _user_frame(xml, uuid="n-1", session_id=SDK_ID),
+                user_frame(xml, uuid="n-1", session_id=SDK_ID),
                 result_frame(session_id=SDK_ID, uuid="r-1"),
             ]
         )
@@ -529,113 +542,37 @@ class TestNewSessionEventLogFlow:
         finally:
             await manager.close_session(SDK_ID)
 
-    async def test_send_message_writes_user_entry_before_query(self, manager: SessionManager, file_db_factory):
+    async def test_retry_with_the_same_client_key_is_not_sent_again(self, manager: SessionManager):
+        """排队期间重试返回同一条排队消息，被接纳后重试返回权威条目，CLI 都只收到一次。"""
         meta = await manager.meta_store.create("demo", SDK_ID)
-        client = FakeSDKClient(frames=[result_frame(session_id=SDK_ID, uuid="r-1")])
-        fake_options = SimpleNamespace(env=None)
+        client = FakeSDKClient()
 
-        with (
-            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
-            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
-        ):
-            user_entry = build_user_entry([{"type": "text", "text": "继续"}])
-            log_entry = await manager.send_message(
-                SDK_ID,
-                "继续",
-                meta=meta,
-                user_entry=user_entry,
-                client_key="ck-2",
-            )
-
-        try:
-            assert log_entry is not None
-            assert log_entry["seq"] == 0
-            assert client.sent_queries == ["继续"]
-
-            # 同一幂等键重试：返回既有条目，不重复送 SDK
-            retry_entry = build_user_entry([{"type": "text", "text": "继续"}])
-            managed = manager.sessions[SDK_ID]
-            managed.status = "idle"  # 模拟上一轮已结束
-            second = await manager.send_message(
-                SDK_ID,
-                "继续",
-                meta=meta,
-                user_entry=retry_entry,
-                client_key="ck-2",
-            )
-            assert second is not None
-            assert second["seq"] == log_entry["seq"]
-            assert second["uuid"] == log_entry["uuid"]
-            assert client.sent_queries == ["继续"]  # 未重复投递
-            entries = await manager.event_log_store.list_after(SDK_ID)
-            assert len(entries) == 1
-        finally:
-            await manager.close_session(SDK_ID)
-
-    async def test_send_message_links_user_entry_to_replayed_transcript_uuid(self, manager: SessionManager):
-        """已有会话续发同样落映射：受理条目 uuid ↔ SDK 回放副本的 transcript uuid。"""
-        meta = await manager.meta_store.create("demo", SDK_ID)
-        client = FakeSDKClient(
-            frames=[
-                _user_frame("继续", uuid="sdk-u9", session_id=SDK_ID, is_replay=True),
-                result_frame(session_id=SDK_ID, uuid="r-1"),
-                _idle_frame(),
-            ]
-        )
-        fake_options = SimpleNamespace(env=None)
-
-        with (
-            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
-            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
-        ):
-            user_entry = build_user_entry([{"type": "text", "text": "继续"}])
-            log_entry = await manager.send_message(SDK_ID, "继续", meta=meta, user_entry=user_entry)
-
-        try:
-            assert log_entry is not None
-            await _wait_for_status(manager, SDK_ID, "completed")
-            assert len(await manager.event_log_store.list_after(SDK_ID)) == 1
-            linked = await manager.event_log_store.find_user_message_link(SDK_ID, log_entry["uuid"])
-            assert linked == "sdk-u9"
-        finally:
-            await manager.close_session(SDK_ID)
-
-    async def test_retry_while_running_returns_idempotent_success(self, manager: SessionManager):
-        """受理成功但响应丢失、轮次仍在运行时，同幂等键重试得到条目而非 400。"""
-        meta = await manager.meta_store.create("demo", SDK_ID)
-        client = FakeSDKClient(frames=[result_frame(session_id=SDK_ID, uuid="r-1")])
-        fake_options = SimpleNamespace(env=None)
-
-        with (
-            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
-            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
-        ):
-            first = await manager.send_message(
+        async def _send() -> dict[str, Any]:
+            return await manager.send_message(
                 SDK_ID,
                 "继续",
                 meta=meta,
                 user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
                 client_key="ck-run",
             )
-            try:
-                assert first is not None
-                manager.sessions[SDK_ID].status = "running"  # 模拟轮次仍在执行
 
-                retry = await manager.send_message(
-                    SDK_ID,
-                    "继续",
-                    meta=meta,
-                    user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
-                    client_key="ck-run",
-                )
-                assert retry is not None
-                assert retry["seq"] == first["seq"]
-                assert client.sent_queries == ["继续"]  # 未重复投递
-            finally:
-                await manager.close_session(SDK_ID)
+        with _scripted_client(manager, client):
+            first = await _send()
+        try:
+            assert (await _send())["queued_message"] == first["queued_message"]
 
-    async def test_send_query_failure_rolls_back_entry_and_retry_delivers(self, manager: SessionManager):
-        """投递失败即受理失败：条目补偿删除，同幂等键重试重新受理并送达 SDK。"""
+            client.push_frame(started_frame(session_id=SDK_ID))
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 1)
+            retry = await _send()
+
+            assert retry == {"entry": entries[0]}
+            assert entries[0]["uuid"] == first["queued_message"]["id"]
+            assert client.sent_queries == ["继续"]
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_send_failure_withdraws_the_queued_message_and_retry_delivers(self, manager: SessionManager):
+        """投递失败即受理失败：排队消息撤下，同幂等键重试重新送达 CLI。"""
         meta = await manager.meta_store.create("demo", SDK_ID)
 
         class _FlakyQueryClient(FakeSDKClient):
@@ -649,37 +586,28 @@ class TestNewSessionEventLogFlow:
                     raise RuntimeError("transport down")
                 await super().query(prompt, session_id)
 
-        client = _FlakyQueryClient(frames=[result_frame(session_id=SDK_ID, uuid="r-1")])
-        fake_options = SimpleNamespace(env=None)
+        client = _FlakyQueryClient()
 
-        with (
-            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
-            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
-        ):
+        async def _send() -> dict[str, Any]:
+            return await manager.send_message(
+                SDK_ID,
+                "继续",
+                meta=meta,
+                user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
+                client_key="ck-fail",
+            )
+
+        with _scripted_client(manager, client):
             with pytest.raises(RuntimeError):
-                await manager.send_message(
-                    SDK_ID,
-                    "继续",
-                    meta=meta,
-                    user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
-                    client_key="ck-fail",
-                )
+                await _send()
             try:
-                # 受理条目已回滚，日志无残留
-                assert await manager.event_log_store.list_after(SDK_ID) == []
+                assert manager.get_queued_messages_snapshot(SDK_ID) == []
 
                 # actor 已随失败退出；关闭会话模拟冷恢复后重试
                 await manager.close_session(SDK_ID)
-                retry = await manager.send_message(
-                    SDK_ID,
-                    "继续",
-                    meta=meta,
-                    user_entry=build_user_entry([{"type": "text", "text": "继续"}]),
-                    client_key="ck-fail",
-                )
-                # 重试重新受理（seq 重新分配）且真正送达 SDK
-                assert retry is not None
-                assert retry["seq"] == 0
+                retry = await _send()
+
+                assert retry["queued_message"]["state"] == "queued"
                 assert client.sent_queries == ["继续"]
             finally:
                 await manager.close_session(SDK_ID)
@@ -939,6 +867,7 @@ class TestSessionStatusFollowsCliIdle:
         client = FakeSDKClient(
             frames=[
                 _session_state_frame("running"),
+                started_frame(session_id=SDK_ID),
                 assistant_frame({"type": "text", "text": "好的"}, uuid="a-1", session_id=SDK_ID),
                 *turn_frames,
             ]
@@ -951,3 +880,192 @@ class TestSessionStatusFollowsCliIdle:
         meta = await manager.meta_store.get(SDK_ID)
         assert meta is not None
         assert meta.status == expected
+
+
+@contextlib.contextmanager
+def _scripted_client(manager: SessionManager, client: FakeSDKClient) -> Generator[None]:
+    """会话连接 CLI 时拿到这个替身。"""
+    with (
+        patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+        patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+    ):
+        yield
+
+
+class _NoTranscript:
+    async def read_raw_messages(self, sdk_session_id=None, project_cwd=None):
+        return []
+
+    async def read_subagent_timelines(self, sdk_session_id=None, project_cwd=None):
+        return {}
+
+    async def read_subagent_descriptions(self, sdk_session_id=None, project_cwd=None, tool_use_ids=()):
+        return {}
+
+
+class _EntryStream:
+    """在后台消费会话的 entry 流，按到达顺序逐个取出指定事件。"""
+
+    def __init__(self, service: AssistantService, session_id: str) -> None:
+        self.events: list[tuple[str, dict[str, Any]]] = []
+        self._cursor = 0
+        self._changed = asyncio.Event()
+        self._task = asyncio.create_task(self._consume(service, session_id))
+
+    async def _consume(self, service: AssistantService, session_id: str) -> None:
+        async for event in service.stream_entry_events(session_id):
+            self.events.append((event.event or "", event.data if isinstance(event.data, dict) else {}))
+            self._changed.set()
+
+    async def next(self, name: str) -> dict[str, Any]:
+        """取出游标之后的第一个 ``name`` 事件，游标移到它之后。"""
+
+        async def _wait() -> dict[str, Any]:
+            while True:
+                for index in range(self._cursor, len(self.events)):
+                    if self.events[index][0] == name:
+                        self._cursor = index + 1
+                        return self.events[index][1]
+                self._changed.clear()
+                await self._changed.wait()
+
+        return await asyncio.wait_for(_wait(), timeout=5.0)
+
+    async def close(self) -> None:
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+
+
+@pytest.fixture
+async def service(manager: SessionManager, tmp_path) -> AssistantService:
+    """接上真实 SessionManager 的 AssistantService：发送与 entry 流都走生产路径。"""
+    (DataRootLayout(tmp_path).projects_dir / "demo").mkdir(parents=True)
+    svc = AssistantService(project_root=tmp_path)
+    svc.pm = ProjectManager(tmp_path)
+    svc.session_manager = manager
+    svc.meta_store = manager.meta_store
+    svc.event_log_store = manager.event_log_store
+    svc.event_log = EventLogService(manager.event_log_store, _NoTranscript())
+    await manager.meta_store.create("demo", SDK_ID)
+    return svc
+
+
+class TestQueuedMessages:
+    """回复进行中发出的消息先成为排队消息，CLI 开始处理它时才进入时间线。"""
+
+    async def _start_running_turn(self, service: AssistantService, client: FakeSDKClient) -> None:
+        """发出第一条消息并等 Agent 开始输出：会话此后一直 running。"""
+        with _scripted_client(service.session_manager, client):
+            await service.send_or_create("demo", "写分镜", session_id=SDK_ID)
+        await _wait_for_entries(service.event_log_store, SDK_ID, 2)
+
+    @staticmethod
+    def _running_turn_client() -> FakeSDKClient:
+        return FakeSDKClient(
+            frames=[
+                _session_state_frame("running"),
+                started_frame(session_id=SDK_ID),
+                assistant_frame({"type": "text", "text": "先读剧本"}, uuid="a-1", session_id=SDK_ID),
+            ]
+        )
+
+    async def test_send_while_running_is_handed_to_the_cli_with_a_uuid_and_queued(self, service: AssistantService):
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            assert (await stream.next("queue"))["messages"] == []
+
+            response = await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
+
+            queued = response["queued_message"]
+            assert response["entry"] is None
+            assert queued["state"] == "queued"
+            assert queued["content"] == [{"type": "text", "text": "加一段旁白"}]
+            sent = client.sent_messages[-1]
+            assert sent["message"]["content"] == "加一段旁白"
+            assert sent["uuid"] not in (None, client.sent_messages[0]["uuid"])
+            assert (await stream.next("queue_upsert"))["message"] == queued
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
+            assert [entry["type"] for entry in await service.event_log_store.list_after(SDK_ID)] == [
+                "user",
+                "assistant",
+            ]
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_started_logs_the_message_after_earlier_output_and_leaves_the_queue(self, service: AssistantService):
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))["queued_message"]
+            # 发送之后、接纳之前 Agent 仍在输出
+            client.push_frame(assistant_frame({"type": "text", "text": "读完了"}, uuid="a-2", session_id=SDK_ID))
+            client.push_frame(started_frame(session_id=SDK_ID))
+
+            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 4)
+            removed = await stream.next("queue_remove")
+
+            assert [entry["type"] for entry in entries] == ["user", "assistant", "assistant", "user"]
+            assert entries[2]["uuid"] == "a-2"
+            assert entries[3]["uuid"] == queued["id"]
+            assert entries[3]["content"] == queued["content"]
+            assert removed["id"] == queued["id"]
+            # 条目先于移出到达：托盘里的消息消失时，时间线上已经有它
+            order = [(name, data.get("uuid") or data.get("id")) for name, data in stream.events]
+            assert order.index(("entry", queued["id"])) < order.index(("queue_remove", queued["id"]))
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_replay_links_the_transcript_uuid_and_repeated_replays_add_no_entry(self, service: AssistantService):
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        try:
+            queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))["queued_message"]
+            # 并入进行中轮次的消息：回放先于 started 到达，之后 CLI 又回放了一次
+            client.push_frame(replay_frame(session_id=SDK_ID))
+            client.push_frame(started_frame(session_id=SDK_ID))
+            client.push_frame(replay_frame(session_id=SDK_ID))
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
+            client.push_frame(_idle_frame())
+            await _wait_for_status(service.session_manager, SDK_ID, "completed")
+
+            entries = await service.event_log_store.list_after(SDK_ID)
+            assert [entry["type"] for entry in entries] == ["user", "assistant", "user"]
+            linked = await service.event_log_store.find_user_message_link(SDK_ID, queued["id"])
+            assert linked == client.sent_messages[-1]["uuid"]
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_message_the_cli_cancels_leaves_the_queue_and_its_retry_is_sent_again(
+        self, service: AssistantService
+    ):
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1"))[
+                "queued_message"
+            ]
+            client.push_frame(
+                lambda c: command_lifecycle_frame(c.sent_messages[-1]["uuid"], "cancelled", session_id=SDK_ID)
+            )
+            removed = await stream.next("queue_remove")
+
+            retry = await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
+
+            assert removed["id"] == queued["id"]
+            assert retry["queued_message"]["id"] != queued["id"]
+            assert len(client.sent_messages) == 3
+            assert [entry["type"] for entry in await service.event_log_store.list_after(SDK_ID)] == [
+                "user",
+                "assistant",
+            ]
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)

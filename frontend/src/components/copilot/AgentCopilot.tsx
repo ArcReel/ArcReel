@@ -20,7 +20,8 @@ import { MessageFlow, type MessageFlowHandle } from "./chat/MessageFlow";
 // AgentCopilot — Agent 面板。
 //
 // 顶栏显示当前会话标题；「历史」开关把消息区换成会话列表，输入框仍可用。
-// 消息区下方依次是待办进度、错误条与输入框；Agent 提问时问题占用输入框的位置。
+// 消息区下方依次是待办进度、错误条与输入框（排队消息托盘在输入框正上方）；Agent
+// 提问时问题占用输入框的位置。
 // ---------------------------------------------------------------------------
 
 export function AgentCopilot() {
@@ -47,7 +48,8 @@ export function AgentCopilot() {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const isRunning = sessionStatus === "running";
-  const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || isRunning || sending;
+  // 回复进行中输入框照常可用：此时发出的消息进排队消息托盘
+  const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || sending;
   const title =
     isDraftSession || !currentSessionId
       ? t("dashboard:new_session")
@@ -164,7 +166,8 @@ export function AgentCopilot() {
         hidden={Boolean(pendingQuestion)}
         disabled={inputDisabled}
         running={isRunning}
-        placeholder={isRunning ? t("dashboard:generating_stop_hint") : t("dashboard:input_placeholder")}
+        sending={sending}
+        placeholder={isRunning ? t("dashboard:generating_queue_hint") : t("dashboard:input_placeholder")}
         onSend={handleSend}
         onInterrupt={() => voidCall(interrupt())}
       />

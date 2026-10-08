@@ -23,12 +23,13 @@ from server.agent_runtime.service import (
     AssistantService,
     InterruptSettleTimeoutError,
     PendingQuestionError,
+    QueuedMessagesPendingError,
     RewriteAnchorError,
     RewriteUnavailableError,
     SessionSupersededError,
 )
 from server.agent_runtime.session_branch import SessionBranchError
-from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
+from server.agent_runtime.session_manager import AgentStartupError, SessionCapacityError
 from server.i18n import Translator, get_locale
 
 router = APIRouter()
@@ -166,9 +167,6 @@ async def send_message(
         raise NotFoundError("session_or_project_not_found") from exc
     except TimeoutError as exc:
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout")) from exc
-    except SessionBusyError as exc:
-        logger.warning("会话发送请求冲突: %s", exc)
-        raise ConflictError("session_busy") from exc
     except ValueError as exc:
         # 空消息内容 / 非法项目名等坏请求，str(exc) 只进日志
         logger.warning("会话发送请求非法: %s", exc)
@@ -216,6 +214,8 @@ async def rewrite_message(
         raise BadRequestError("rewrite_anchor_invalid") from exc
     except PendingQuestionError as exc:
         raise ConflictError("rewrite_blocked_by_question") from exc
+    except QueuedMessagesPendingError as exc:
+        raise ConflictError("rewrite_blocked_by_queued_messages") from exc
     except SessionSupersededError as exc:
         raise ConflictError("session_already_superseded") from exc
     except RewriteUnavailableError as exc:
@@ -231,9 +231,6 @@ async def rewrite_message(
         raise NotFoundError("session_or_project_not_found") from exc
     except TimeoutError as exc:
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout")) from exc
-    except SessionBusyError as exc:
-        logger.warning("会话改写请求冲突: %s", exc)
-        raise ConflictError("session_busy") from exc
     except ValueError as exc:
         logger.warning("会话改写请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc

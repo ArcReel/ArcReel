@@ -86,7 +86,7 @@ _PG_UNIQUE_VIOLATION_SQLSTATE = "23505"
 # UNIQUE，两者对本表都意味着唯一约束冲突。
 _SQLITE_UNIQUE_ERRORNAMES = {"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"}
 
-# 标记 SDK 回放的用户消息副本（POST 受理时已写日志），供写入点跳过。
+# 标记 CLI 回放的用户消息副本（条目在消息被接纳时已写入），供写入点跳过。
 # 只存活在进程内消息 dict 上，不落任何持久化层。
 REPLAYED_USER_ECHO_KEY = "_replayed_user_echo"
 
@@ -197,7 +197,7 @@ def build_user_entry(
     *,
     timestamp: str | None = None,
 ) -> dict[str, Any]:
-    """构造用户消息受理时的权威条目（POST 先写日志分配身份再回显）。"""
+    """构造用户消息的权威条目：身份在发送时分配，消息被 Agent 接纳时写入日志。"""
     return {
         "type": ENTRY_TYPE_USER,
         "content": normalize_content(content_blocks),
@@ -797,18 +797,6 @@ class EventLogStore:
             )
             rows = result.all()
         return [{"seq": int(row.seq), **row.payload} for row in rows]
-
-    async def delete_entry(self, session_id: str, seq: int) -> None:
-        """补偿删除单条条目（仅限受理失败回滚：SDK 投递失败时撤销刚写入的
-        用户条目，否则同幂等键重试会短路而永不投递）。"""
-        async with self._session_factory() as session:
-            await session.execute(
-                sa_delete(AgentSessionEventLogEntry).where(
-                    AgentSessionEventLogEntry.session_id == session_id,
-                    AgentSessionEventLogEntry.seq == seq,
-                )
-            )
-            await session.commit()
 
     async def record_user_message_link(
         self,

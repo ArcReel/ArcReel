@@ -296,6 +296,27 @@ def command_lifecycle_frame(command_uuid: str, state: str, *, session_id: str = 
     }
 
 
+ScriptedFrame = dict[str, Any] | Callable[["FakeSDKClient"], dict[str, Any]]
+"""替身发出的帧，或在发出时按替身状态生成帧的函数（用来引用 ArcReel 送入的消息 uuid）。"""
+
+
+def replay_frame(index: int = -1, *, session_id: str = "default") -> Callable[[FakeSDKClient], dict[str, Any]]:
+    """CLI 回放第 ``index`` 条送入的用户消息，保留送入时的 uuid。"""
+
+    def _build(client: FakeSDKClient) -> dict[str, Any]:
+        sent = client.sent_messages[index]
+        return {
+            "type": "user",
+            "message": {"role": "user", "content": sent["message"]["content"]},
+            "parent_tool_use_id": None,
+            "session_id": session_id,
+            "uuid": sent["uuid"],
+            "isReplay": True,
+        }
+
+    return _build
+
+
 ControlResponse = dict[str, Any] | BaseException | Callable[[dict[str, Any]], dict[str, Any]]
 
 
@@ -338,7 +359,9 @@ class FakeSDKClient:
 
     - `async with`：`__aenter__` 记录 connect 的 current_task，`__aexit__` 记录 disconnect
     - `method_tasks`: dict[str, list[asyncio.Task]] 记录每个方法被调用时的 task
-    - `frames`：首次 `query()` 后依次发出的首轮原始帧；之后用 `push_frame` 按脚本发帧
+    - `frames`：首次 `query()` 后依次发出的首轮原始帧；之后用 `push_frame` 按脚本发帧。帧可以是
+      ``replay_frame()`` 这类在发出时按替身状态生成帧的函数
+    - `sent_messages`：ArcReel 送入的用户消息帧（带 uuid）；`sent_queries` 是其中的消息内容
     - 一轮在 result 帧处结束；不发 result 帧，这一轮就一直在途
     - `interrupt_frame`：`interrupt()` 被调用时发出的帧（通常是该轮的 result）
     - `control_responses`：按控制请求 subtype 指定应答——应答 dict、要抛出的异常，
@@ -348,7 +371,7 @@ class FakeSDKClient:
 
     def __init__(
         self,
-        frames: list[dict[str, Any]] | None = None,
+        frames: list[ScriptedFrame] | None = None,
         *,
         interrupt_frame: dict[str, Any] | None = None,
         control_responses: Mapping[str, ControlResponse] | None = None,
@@ -362,6 +385,7 @@ class FakeSDKClient:
         self._query = _FakeQuery(self)
         self.method_tasks: dict[str, list[asyncio.Task]] = {}
         self.sent_queries: list = []
+        self.sent_messages: list[dict[str, Any]] = []
         self.control_requests: list[dict[str, Any]] = []
         self.interrupted = False
         self.disconnected = False
@@ -383,10 +407,15 @@ class FakeSDKClient:
 
     async def query(self, prompt, session_id: str = "default") -> None:
         self._record("query")
-        self.sent_queries.append(prompt)
+        if isinstance(prompt, str):
+            self.sent_queries.append(prompt)
+        else:
+            async for message in prompt:
+                self.sent_messages.append(message)
+                self.sent_queries.append(message["message"]["content"])
         # 与真实 CLI 一致：首轮回复在收到 prompt 之后才产出
         for frame in self._initial_frames:
-            await self._frames.put(frame)
+            await self._frames.put(frame(self) if callable(frame) else frame)
         self._initial_frames.clear()
 
     async def interrupt(self) -> None:
@@ -395,9 +424,9 @@ class FakeSDKClient:
         if self._interrupt_frame is not None:
             await self._frames.put(self._interrupt_frame)
 
-    def push_frame(self, frame: dict[str, Any]) -> None:
+    def push_frame(self, frame: ScriptedFrame) -> None:
         """测试辅助：运行中让 CLI 发出一条原始帧。"""
-        self._frames.put_nowait(frame)
+        self._frames.put_nowait(frame(self) if callable(frame) else frame)
 
     def respond_control(self, subtype: str, response: ControlResponse) -> None:
         """测试辅助：指定之后该 subtype 控制请求的应答。"""

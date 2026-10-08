@@ -11,6 +11,7 @@ import type {
   DraftState,
   ImagePayload,
   PendingQuestion,
+  QueuedMessage,
   SessionMeta,
   TimelineEntry,
 } from "@/types";
@@ -65,8 +66,9 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
  * - SSE entry 流实时接收（事件 id 即 seq，断线由流式客户端带 Last-Event-ID 续传）：
  *   打开会话时建立一条，切换会话或关闭面板时关闭；轮次结束只更新状态、不关流，
  *   发送与自主轮次的内容都从这条流收到
- * - 发送消息：服务端先写日志分配身份，响应回传权威条目；
- *   client_key 幂等，重试不产生重复；不渲染本地合成消息
+ * - 发送消息：回复进行中同样可发；已有会话的消息先进排队消息托盘，被 Agent 接纳时
+ *   才作为权威条目从流上到达；新会话的首条消息由响应直接回传权威条目。
+ *   client_key 幂等，重试不产生重复；时间线不渲染本地合成消息
  */
 export function useAssistantSession(projectName: string | null) {
   const { t } = useTranslation("dashboard");
@@ -238,6 +240,17 @@ export function useAssistantSession(projectName: string | null) {
             // 轮次结束后刷新会话列表，获取 SDK summary 标题；开场下发的终态不算
             if (wasRunning) refreshSessions();
           }
+        },
+        queue(payload) {
+          if (Array.isArray(payload.messages)) {
+            store.getState().setQueuedMessages(payload.messages.filter(isQueuedMessage));
+          }
+        },
+        queue_upsert(payload) {
+          if (isQueuedMessage(payload.message)) store.getState().upsertQueuedMessage(payload.message);
+        },
+        queue_remove(payload) {
+          if (typeof payload.id === "string") store.getState().removeQueuedMessage(payload.id);
         },
         question(payload) {
           const pendingQuestion = getPendingQuestionFromEvent(payload);
@@ -493,6 +506,8 @@ export function useAssistantSession(projectName: string | null) {
 
         if (store.getState().currentSessionId !== sessionId) return false;
 
+        // 排队消息进托盘；它被接纳时由流送来条目并移出托盘
+        if (result.queued_message) store.getState().upsertQueuedMessage(result.queued_message);
         // 响应携带的权威条目（服务端已写日志分配身份），seq 门槛去重
         if (result.entry) {
           const lastSeq = lastEntrySeq(store.getState().entries);
@@ -509,9 +524,12 @@ export function useAssistantSession(projectName: string | null) {
           }
           store.getState().appendEntry(result.entry);
         }
-        // 常驻流可能已收到 CLI idle；迟到的受理响应不能覆盖服务端状态。
+        // 常驻流可能已收到这条消息的条目乃至其后的 CLI idle；迟到的受理响应不能覆盖服务端状态。
+        const acceptedId = result.queued_message?.id;
+        const acceptedEntry =
+          result.entry ?? (acceptedId ? store.getState().entries.find((e) => e.uuid === acceptedId) : undefined);
         const statusCursor = streamStatusCursorRef.current;
-        if (!result.entry || statusCursor?.sessionId !== sessionId || statusCursor.seq < result.entry.seq) {
+        if (!acceptedEntry || statusCursor?.sessionId !== sessionId || statusCursor.seq < acceptedEntry.seq) {
           statusRef.current = "running";
           store.getState().setSessionStatus("running");
         }
@@ -645,7 +663,7 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().setError(null);
       store.getState().setStartupFailure(null);
 
-      // 幂等键：响应丢失后的重试由服务端在新分支里认领同一条权威条目，
+      // 幂等键：响应丢失后的重试由服务端在新分支里认领同一条消息（仍在排队或已入日志），
       // 不会再分叉一次。签名含锚点与改写后内容（含附件），改了内容即换新键。
       const signature = JSON.stringify([
         projectName,
@@ -793,6 +811,12 @@ export function useAssistantSession(projectName: string | null) {
   ]);
 
   return { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
+}
+
+function isQueuedMessage(value: unknown): value is QueuedMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const message = value as Record<string, unknown>;
+  return typeof message.id === "string" && Array.isArray(message.content) && typeof message.state === "string";
 }
 
 function getPendingQuestionFromEvent(payload: Record<string, unknown>): PendingQuestion | null {

@@ -939,20 +939,6 @@ class TestEventLogStore:
         assert tail["seq"] == 1
         assert tail["uuid"] == "b"
 
-    async def test_delete_entry_rolls_back_accepted_user_entry(self, log_store: EventLogStore):
-        """受理失败补偿删除：条目连同幂等键一起消失，重试可重新受理。"""
-        entry = build_user_entry([{"type": "text", "text": "hi"}])
-        appended, _created = await log_store.append_user_entry("s1", entry, client_key="ck-1")
-
-        await log_store.delete_entry("s1", appended["seq"])
-
-        assert await log_store.list_after("s1") == []
-        assert await log_store.find_by_client_key("s1", "ck-1") is None
-        retry = build_user_entry([{"type": "text", "text": "hi"}])
-        again, created = await log_store.append_user_entry("s1", retry, client_key="ck-1")
-        assert created is True
-        assert again["seq"] == 0
-
 
 class TestUserMessageLink:
     """用户消息身份映射：服务端条目 id ↔ SDK transcript entry uuid。"""

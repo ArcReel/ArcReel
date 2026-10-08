@@ -65,6 +65,9 @@ class _FakeEntrySessionManager:
     async def get_pending_questions_snapshot(self, session_id):
         return list(self.pending)
 
+    def get_queued_messages_snapshot(self, session_id):
+        return []
+
     def end_stream(self):
         """模拟客户端离开：常驻流本身不会结束，测试据此收尾。"""
         self.queue.put_nowait(None)
@@ -127,7 +130,7 @@ class TestStreamEntryEvents:
         assert events[1][1]["status"] == "error"
         assert await store.list_after(SESSION_ID) == []
 
-    async def test_non_running_opens_with_entries_draft_and_status(self, entry_service):
+    async def test_non_running_opens_with_entries_draft_queue_and_status(self, entry_service):
         service, store = entry_service
         manager = _FakeEntrySessionManager(status="completed")
         service.session_manager = manager
@@ -136,10 +139,11 @@ class TestStreamEntryEvents:
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
 
-        assert [name for name, _, _ in events] == ["entry", "entry", "draft", "status"]
+        assert [name for name, _, _ in events] == ["entry", "entry", "draft", "queue", "status"]
         # SSE 事件 id 即 seq
         assert [sse_id for _, _, sse_id in events[:2]] == ["0", "1"]
-        assert events[3][1]["status"] == "completed"
+        assert events[3][1]["messages"] == []
+        assert events[4][1]["status"] == "completed"
 
     async def test_stream_stays_open_after_terminal_status_and_pushes_later_entries(self, entry_service):
         """终态 status 只更新状态、不关流：之后发送产生的新一轮照常推送。"""
@@ -171,7 +175,7 @@ class TestStreamEntryEvents:
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
 
         names = [name for name, _, _ in events]
-        assert names == ["entry", "draft", "status", "status", "status", "draft", "entry", "entry"]
+        assert names == ["entry", "draft", "queue", "status", "status", "status", "draft", "entry", "entry"]
         assert [e[1]["status"] for e in events if e[0] == "status"] == ["running", "completed", "running"]
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1", "2"]
 
@@ -242,7 +246,7 @@ class TestStreamEntryEvents:
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID, after_seq=-1)]
 
         names = [name for name, _, _ in events]
-        assert names == ["entry", "entry", "draft", "status", "entry", "delta", "status"]
+        assert names == ["entry", "entry", "draft", "queue", "status", "entry", "delta", "status"]
         # 存量 entry：seq 0、1；直播放行的只有 seq 2（seq 1 重复被跳过）
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1", "2"]
         # draft 首帧快照携带累积态与 rev 门槛

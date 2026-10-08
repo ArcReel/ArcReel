@@ -8,10 +8,9 @@ import pytest
 from lib.infra.data_root_layout import DataRootLayout
 from server.agent_runtime import session_manager as sm_mod
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
-from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionReady
 from server.agent_runtime.session_actor import SessionActor
-from server.agent_runtime.session_manager import ManagedSession, SessionBusyError
+from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import (
     FakeSDKClient,
@@ -57,6 +56,10 @@ class _FakeClaudeClient:
 
     async def interrupt(self):
         pass
+
+
+def _user_message(text: str, uuid: str) -> dict:
+    return {"type": "user", "message": {"role": "user", "content": text}, "parent_tool_use_id": None, "uuid": uuid}
 
 
 def _dummy_actor() -> SessionActor:
@@ -234,19 +237,8 @@ class TestSessionManager:
         from tests.fakes import build_managed_with_actor
 
         meta = await meta_store.create("demo", "sdk-send-msg")
-        managed_running, _actor_running, _ = await build_managed_with_actor(
-            session_id=meta.id,
-            project_name="demo",
-            status="running",
-        )
-        session_manager.sessions[meta.id] = managed_running
-        try:
-            with pytest.raises(SessionBusyError):
-                await session_manager.send_message(meta.id, "blocked")
-        finally:
-            await session_manager.close_session(meta.id)
 
-        # Now build a client whose query explodes — verify send_message flips status to error.
+        # Build a client whose query explodes — verify send_message flips status to error.
         client = FakeSDKClient()
 
         async def _boom(prompt, session_id: str = "default"):
@@ -482,8 +474,10 @@ class TestSessionManager:
         ],
         ids=["cli-running", "cli-requires-action", "result-before-idle"],
     )
-    async def test_send_message_is_busy_until_cli_reports_idle(self, session_manager, meta_store, frames_read):
-        """CLI 报告开始工作的帧一读出、到它报 idle 之前，新消息都按会话忙拒绝，不必等 inbox。"""
+    async def test_cli_work_read_keeps_the_session_running_until_cli_idle(
+        self, session_manager, meta_store, frames_read
+    ):
+        """CLI 报告开始工作的帧一读出就切入 running，不必等 inbox；result 不让它离开 running。"""
         meta = await meta_store.create("demo", "sdk-autonomous-busy")
         managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
         managed.resolved_sdk_id = meta.id
@@ -493,8 +487,6 @@ class TestSessionManager:
         for frame in frames_read:
             on_message(frame)
 
-        with pytest.raises(SessionBusyError):
-            await asyncio.wait_for(session_manager.send_message(meta.id, "too early"), timeout=1.0)
         assert managed.status == "running"
 
     async def test_interrupt_reaches_autonomous_turn_before_inbox_runs(self, session_manager, meta_store):
@@ -587,10 +579,6 @@ class TestSessionManager:
         assert "user interrupted" in deny.message
 
     def test_misc_helpers_and_serialization(self, session_manager):
-        assert extract_plain_user_content({"type": "user", "content": " hi "}) == "hi"
-        assert extract_plain_user_content({"type": "user", "content": [{"type": "text", "text": " hello "}]}) == "hello"
-        assert extract_plain_user_content({"type": "assistant"}) is None
-
         msg = {}
         raw = SimpleNamespace(session_id="sdk-1")
         assert session_manager._extract_sdk_session_id(raw, msg) == "sdk-1"
@@ -1448,11 +1436,9 @@ async def test_send_query_sets_running_and_awaits_done():
     managed_ref.append(managed)
 
     await actor.start()
-    await managed.send_query("hi")
-    assert client.sent_queries == ["hi"]
-    # send_query 在 sent 即返回；status 转 running 但不会自己变（由 _finalize_turn 设置，
-    # 此单元测试没挂 _process_inbox）。完整链路的 status 转换由
-    # test_session_manager_user_input 集成测试覆盖。
+    await managed.send_query(_user_message("hi", "u-1"))
+    assert [m["uuid"] for m in client.sent_messages] == ["u-1"]
+    # send_query 在消息写给 CLI 后即返回；离开 running 以 CLI 报 idle 为准（此单元测试没挂 inbox）
     assert managed.status == "running"
 
     # 收尾
@@ -1474,7 +1460,7 @@ async def test_send_query_raises_on_cmd_error():
     managed = ManagedSession(session_id="t", actor=actor, status="idle", project_name="p")
     await actor.start()
     with pytest.raises(RuntimeError, match="boom"):
-        await managed.send_query("hi")
+        await managed.send_query(_user_message("hi", "u-1"))
     assert managed.status == "error"
 
 
@@ -1491,16 +1477,15 @@ async def test_send_interrupt_is_idempotent_via_flag():
     await actor.start()
 
     # 发一个 query 让这一轮开始
-    q = SessionCommand(type="query", prompt="x")
+    q = SessionCommand(type="query", message=_user_message("x", "u-x"))
     await actor.enqueue(q)
-    await asyncio.sleep(0.05)
+    await q.done.wait()
 
     # 并发两次 send_interrupt；第二次应走 _interrupting fast-return
     await asyncio.gather(managed.send_interrupt(), managed.send_interrupt())
     # client.interrupt 至少被调一次（具体次数视 asyncio 调度，允许 1 或 2）
     assert client.interrupted
 
-    await q.done.wait()
     await managed.send_disconnect()
 
 
