@@ -12,7 +12,11 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from claude_agent_sdk import ResultMessage
+
+from server.agent_runtime import sdk_frames
 from server.agent_runtime.message_serialization import is_main_turn_activity
+from server.agent_runtime.sdk_frames import CommandLifecycle
 
 
 class _ActorClosed(Exception):
@@ -30,7 +34,7 @@ class SessionCommand:
     session_id: str = "default"
     # query 的 prompt 已被送入 SDK（不代表整轮响应结束）；非 query 命令与 done 同时置位
     sent: asyncio.Event = field(default_factory=asyncio.Event)
-    # query 整轮 receive_response drain 完成；非 query 命令也用它标记处理完毕
+    # query 这一轮读到 result（或消息流结束）；非 query 命令也用它标记处理完毕
     done: asyncio.Event = field(default_factory=asyncio.Event)
     error: BaseException | None = None
     # 仅在 client.query() 正常返回后置真；与 sent 分开，因为失败 complete()
@@ -50,14 +54,18 @@ class SessionCommand:
 
 
 OnMessage = Callable[[dict[str, Any]], None]
+OnCommandLifecycle = Callable[[CommandLifecycle], None]
 ClientFactory = Callable[[], AbstractAsyncContextManager[Any]]
 
-# _MessagePump 在一次 receive_response() 迭代结束（读到 result）时产出的标记
+# _MessagePump 在读到一轮的 result 之后、或消息流结束时产出的标记
 _TURN_END = object()
 
 
 class _MessagePump:
-    """持续读取 SDK 消息流，一轮接一轮地重开 receive_response()。
+    """持续读取 SDK Query 的原始帧流，逐帧解析为 SDK 消息或 CommandLifecycle。
+
+    SDK 解析器不认识的帧被丢弃，与 ``ClaudeSDKClient.receive_messages()`` 一致；
+    每个 result 之后补一个 ``_TURN_END`` 标记一轮结束。
 
     同一时刻至多一个在途读取 task，跨 idle 与轮次复用、只在 actor 退出时取消：
     反复取消重建会把恰好送达的消息丢在被取消的 task 里。
@@ -65,9 +73,10 @@ class _MessagePump:
 
     def __init__(self, client: Any):
         self._client = client
-        self._iter: AsyncIterator[Any] | None = None
-        self._yielded = False
-        # 消息流已关闭（CLI 退出）：一次迭代未产出任何消息即结束
+        self._frames: AsyncIterator[dict[str, Any]] | None = None
+        # 刚产出一轮的 result，下一次读取先补 _TURN_END
+        self._turn_end_due = False
+        # 消息流已关闭（CLI 退出）
         self._closed = False
         self._task: asyncio.Task[Any] | None = None
 
@@ -78,7 +87,7 @@ class _MessagePump:
         return self._task
 
     def take(self) -> Any:
-        """取走已完成读取 task 的结果：一条消息或 _TURN_END；读取异常原样抛出。"""
+        """取走已完成读取 task 的结果：SDK 消息、CommandLifecycle 或 _TURN_END；读取异常原样抛出。"""
         task, self._task = self._task, None
         assert task is not None
         return task.result()
@@ -88,19 +97,25 @@ class _MessagePump:
             self._task.cancel()
 
     async def _next(self) -> Any:
-        iterator = self._iter
-        if iterator is None:
-            iterator = self._iter = self._client.receive_response().__aiter__()
-            self._yielded = False
-        try:
-            msg = await iterator.__anext__()
-        except StopAsyncIteration:
-            self._iter = None
-            if not self._yielded:
-                self._closed = True
+        if self._turn_end_due:
+            self._turn_end_due = False
             return _TURN_END
-        self._yielded = True
-        return msg
+        frames = self._frames
+        if frames is None:
+            frames = self._frames = sdk_frames.raw_frames(self._client).__aiter__()
+        while True:
+            try:
+                frame = await frames.__anext__()
+            except StopAsyncIteration:
+                # 收尾仍按一轮结束交付：流断在轮次中途时，在途 query 随之完成
+                self._closed = True
+                return _TURN_END
+            item = sdk_frames.parse_frame(frame)
+            if item is None:
+                continue
+            if isinstance(item, ResultMessage):
+                self._turn_end_due = True
+            return item
 
 
 class SessionActor:
@@ -110,9 +125,13 @@ class SessionActor:
         self,
         client_factory: ClientFactory,
         on_message: OnMessage,
+        on_command_lifecycle: OnCommandLifecycle | None = None,
     ):
         self._client_factory = client_factory
         self._on_message = on_message
+        # CLI 报告的用户消息去向（排队、被并入轮次、撤回等），与 on_message 按帧序在 actor task 内交付；
+        # 未提供时丢弃。
+        self._on_command_lifecycle = on_command_lifecycle
         self._cmd_queue: asyncio.Queue[SessionCommand] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._started: asyncio.Event = asyncio.Event()
@@ -183,6 +202,9 @@ class SessionActor:
                         if pending_query is not None:
                             active_query, pending_query = pending_query, None
                             await self._send_query(client, active_query)
+                    elif isinstance(item, CommandLifecycle):
+                        if self._on_command_lifecycle is not None:
+                            self._on_command_lifecycle(item)
                     else:
                         # 只认主线程帧：result 之后的 system 帧、后台子智能体的消息
                         # 之后不会再有 result 来收尾，据此开轮会把空闲会话当成在途

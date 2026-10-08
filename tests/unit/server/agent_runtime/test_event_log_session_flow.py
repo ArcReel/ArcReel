@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -11,9 +12,40 @@ import pytest
 from server.agent_runtime.event_log import EventLogStore, build_user_entry
 from server.agent_runtime.session_manager import AgentStartupError, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeSDKClient, empty_sdk_response_stream
+from tests.fakes import (
+    FakeSDKClient,
+    assistant_frame,
+    empty_sdk_response_stream,
+    result_frame,
+    stream_event_frame,
+    system_frame,
+)
 
 SDK_ID = "sdk-e2e-1"
+
+
+def _user_frame(
+    content: str | list[dict[str, Any]],
+    *,
+    uuid: str | None = None,
+    parent_tool_use_id: str | None = None,
+    session_id: str = "default",
+    is_replay: bool = False,
+    tool_use_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """CLI 输出的 user 原始帧：工具结果、注入消息，或 ``--replay-user-messages`` 的回放（``is_replay``）。"""
+    frame: dict[str, Any] = {
+        "type": "user",
+        "message": {"role": "user", "content": content},
+        "parent_tool_use_id": parent_tool_use_id,
+        "session_id": session_id,
+        "uuid": uuid,
+    }
+    if is_replay:
+        frame["isReplay"] = True
+    if tool_use_result is not None:
+        frame["tool_use_result"] = tool_use_result
+    return frame
 
 
 @pytest.fixture
@@ -25,49 +57,38 @@ async def manager(tmp_path, file_db_factory):
     )
 
 
-def _new_session_messages() -> list[dict]:
+def _new_session_frames() -> list[dict]:
     """一轮完整对话：init → 用户回放 → 流式 → assistant(工具) → tool_result → subagent → result。"""
     return [
-        {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-1"},
+        system_frame("init", session_id=SDK_ID, uuid="init-1"),
         # SDK 回放的用户消息（POST 受理时已写日志，须被跳过）
-        {"type": "user", "content": "帮我写分镜", "uuid": "sdk-u1", "session_id": SDK_ID},
-        {
-            "type": "stream_event",
-            "session_id": SDK_ID,
-            "uuid": "se-1",
-            "event": {"type": "message_start", "message": {"id": "msg_01"}},
-        },
-        {
-            "type": "stream_event",
-            "session_id": SDK_ID,
-            "uuid": "se-2",
-            "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "好的"}},
-        },
-        {
-            "type": "assistant",
-            "message_id": "msg_01",
-            "uuid": "a-1",
-            "session_id": SDK_ID,
-            "content": [
-                {"type": "text", "text": "好的"},
-                {"type": "tool_use", "id": "tu-1", "name": "Bash", "input": {"command": "ls"}},
-            ],
-        },
-        {
-            "type": "user",
-            "uuid": "u-tr-1",
-            "session_id": SDK_ID,
-            "content": [{"type": "tool_result", "tool_use_id": "tu-1", "content": "file.txt", "is_error": False}],
-        },
-        {
-            "type": "assistant",
-            "message_id": "msg_02",
-            "uuid": "a-sub",
-            "session_id": SDK_ID,
-            "parent_tool_use_id": "tu-1",
-            "content": [{"type": "text", "text": "子智能体输出"}],
-        },
-        {"type": "result", "subtype": "success", "is_error": False, "session_id": SDK_ID, "uuid": "r-1"},
+        _user_frame("帮我写分镜", uuid="sdk-u1", session_id=SDK_ID, is_replay=True),
+        stream_event_frame({"type": "message_start", "message": {"id": "msg_01"}}, uuid="se-1", session_id=SDK_ID),
+        stream_event_frame(
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "好的"}},
+            uuid="se-2",
+            session_id=SDK_ID,
+        ),
+        assistant_frame(
+            {"type": "text", "text": "好的"},
+            {"type": "tool_use", "id": "tu-1", "name": "Bash", "input": {"command": "ls"}},
+            message_id="msg_01",
+            uuid="a-1",
+            session_id=SDK_ID,
+        ),
+        _user_frame(
+            [{"type": "tool_result", "tool_use_id": "tu-1", "content": "file.txt", "is_error": False}],
+            uuid="u-tr-1",
+            session_id=SDK_ID,
+        ),
+        assistant_frame(
+            {"type": "text", "text": "子智能体输出"},
+            message_id="msg_02",
+            uuid="a-sub",
+            session_id=SDK_ID,
+            parent_tool_use_id="tu-1",
+        ),
+        result_frame(session_id=SDK_ID, uuid="r-1"),
     ]
 
 
@@ -96,26 +117,15 @@ class _InterruptingClient(FakeSDKClient):
     """interrupt() 时按真实 CLI 行为注入中断回显（可选）与 result 消息。"""
 
     def __init__(self, *, echo: bool = True):
-        super().__init__(messages=[], block_forever=True)
+        super().__init__()
         self._echo = echo
 
     async def interrupt(self) -> None:
         self._record("interrupt")
         self.interrupted = True
         if self._echo:
-            await self._pending_messages.put(
-                {"type": "user", "content": "[Request interrupted by user]", "uuid": "sdk-echo-1", "session_id": SDK_ID}
-            )
-        await self._pending_messages.put(
-            {
-                "type": "result",
-                "subtype": "error_during_execution",
-                "is_error": True,
-                "uuid": "r-int",
-                "session_id": SDK_ID,
-            }
-        )
-        await self._pending_messages.put(None)
+            self.push_frame(_user_frame("[Request interrupted by user]", uuid="sdk-echo-1", session_id=SDK_ID))
+        self.push_frame(result_frame("error_during_execution", is_error=True, uuid="r-int", session_id=SDK_ID))
 
 
 class _CrashBeforeInitClient(FakeSDKClient):
@@ -123,13 +133,14 @@ class _CrashBeforeInitClient(FakeSDKClient):
         super().__init__()
         self._stderr_callback = stderr_callback
 
-    async def receive_response(self):
-        self._record("receive_response")
+        self._query = SimpleNamespace(receive_messages=self._crash_before_init)
+
+    async def _crash_before_init(self):
         if self._stderr_callback is not None:
             self._stderr_callback("OPENAI_API_KEY=pre-init-secret\nprovider stderr detail")
-        async for message in empty_sdk_response_stream():
-            yield message
-        raise RuntimeError("receive_response crashed before init")
+        async for frame in empty_sdk_response_stream():
+            yield frame
+        raise RuntimeError("receive_messages crashed before init")
 
 
 class _QueryFailureClient(FakeSDKClient):
@@ -157,7 +168,7 @@ class TestNewSessionEventLogFlow:
 
         assert exc_info.value.failure_observation is not None
         assert exc_info.value.failure_observation["phase"] == "startup"
-        assert exc_info.value.failure_observation["summary"]["message"] == "receive_response crashed before init"
+        assert exc_info.value.failure_observation["summary"]["message"] == "receive_messages crashed before init"
         assert exc_info.value.failure_observation["raw"]["sdk_stderr"] == (
             "OPENAI_API_KEY=••••\nprovider stderr detail"
         )
@@ -196,7 +207,7 @@ class TestNewSessionEventLogFlow:
         assert exc_info.value.failure_observation["summary"]["message"] == "inbox processor crashed before init"
 
     async def test_full_round_produces_typed_monotonic_entries(self, manager: SessionManager):
-        client = FakeSDKClient(messages=_new_session_messages())
+        client = FakeSDKClient(frames=_new_session_frames())
         fake_options = SimpleNamespace(env=None)
 
         with (
@@ -245,7 +256,7 @@ class TestNewSessionEventLogFlow:
 
     async def test_replayed_echo_persists_user_message_identity_mapping(self, manager: SessionManager):
         """回放副本被丢弃前先落映射：条目 uuid 可查回 transcript entry 身份。"""
-        client = FakeSDKClient(messages=_new_session_messages())
+        client = FakeSDKClient(frames=_new_session_frames())
         fake_options = SimpleNamespace(env=None)
 
         with (
@@ -272,32 +283,30 @@ class TestNewSessionEventLogFlow:
         upstream_message = (
             "There's an issue with the selected model (gpt-5.6-sol). It may not exist or you may not have access to it."
         )
-        assistant_error = {
-            "type": "assistant",
-            "message_id": "msg-error",
-            "uuid": "a-error",
-            "timestamp": "2026-07-23T01:02:03Z",
-            "session_id": SDK_ID,
-            "model": "<synthetic>",
-            "error": "invalid_request",
-            "stop_reason": "stop_sequence",
-            "content": [{"type": "text", "text": upstream_message}],
-            "future_sdk_field": {"kept": "verbatim", "api_key": "sk-ant-api03-secret-value"},
-        }
-        result_error = {
-            "type": "result",
-            "subtype": "success",
-            "is_error": True,
-            "api_error_status": 404,
-            "errors": ["upstream request failed"],
-            "session_id": SDK_ID,
-            "uuid": "r-error",
-            "future_result_field": {"request_id": "req-visible"},
-        }
+        assistant_error = assistant_frame(
+            {"type": "text", "text": upstream_message},
+            message_id="msg-error",
+            uuid="a-error",
+            session_id=SDK_ID,
+            model="<synthetic>",
+            usage={"kept": "verbatim", "api_key": "sk-ant-api03-secret-value"},
+        )
+        assistant_error["error"] = "invalid_request"
+        assistant_error["message"]["stop_reason"] = "stop_sequence"
+        # CLI 的 result 帧在 result 字段带回最后一条 assistant 文本
+        result_error = result_frame(
+            is_error=True,
+            result=upstream_message,
+            api_error_status=404,
+            errors=["upstream request failed"],
+            session_id=SDK_ID,
+            uuid="r-error",
+            usage={"request_id": "req-visible"},
+        )
         client = FakeSDKClient(
-            messages=[
-                {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-error"},
-                {"type": "user", "content": "你好", "uuid": "sdk-u-error", "session_id": SDK_ID},
+            frames=[
+                system_frame("init", session_id=SDK_ID, uuid="init-error"),
+                _user_frame("你好", uuid="sdk-u-error", session_id=SDK_ID, is_replay=True),
                 assistant_error,
                 result_error,
             ]
@@ -335,11 +344,11 @@ class TestNewSessionEventLogFlow:
                 "message": upstream_message,
             }
             assert failure["raw"]["assistant_message"]["model"] == "<synthetic>"
-            assert failure["raw"]["assistant_message"]["future_sdk_field"] == {
+            assert failure["raw"]["assistant_message"]["usage"] == {
                 "kept": "verbatim",
                 "api_key": "••••",
             }
-            assert failure["raw"]["result_message"]["future_result_field"] == {"request_id": "req-visible"}
+            assert failure["raw"]["result_message"]["usage"] == {"request_id": "req-visible"}
             assert all(entry["type"] != "assistant" for entry in entries)
 
             rendered_logs = "\n".join(record.getMessage() for record in caplog.records)
@@ -413,35 +422,31 @@ class TestNewSessionEventLogFlow:
         """AskUserQuestion 提问（assistant tool_use）与答复（typed 答复条目）都出现在日志。"""
         meta = await manager.meta_store.create("demo", SDK_ID)
         client = FakeSDKClient(
-            messages=[
-                {
-                    "type": "assistant",
-                    "message_id": "msg_q",
-                    "uuid": "a-q",
-                    "session_id": SDK_ID,
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "tu-q",
-                            "name": "AskUserQuestion",
-                            "input": {"questions": [{"question": "继续吗?", "options": [{"label": "继续"}]}]},
-                        }
-                    ],
-                },
-                {
-                    "type": "user",
-                    "uuid": "u-ans",
-                    "session_id": SDK_ID,
-                    "content": [
+            frames=[
+                assistant_frame(
+                    {
+                        "type": "tool_use",
+                        "id": "tu-q",
+                        "name": "AskUserQuestion",
+                        "input": {"questions": [{"question": "继续吗?", "options": [{"label": "继续"}]}]},
+                    },
+                    message_id="msg_q",
+                    uuid="a-q",
+                    session_id=SDK_ID,
+                ),
+                _user_frame(
+                    [
                         {
                             "type": "tool_result",
                             "tool_use_id": "tu-q",
                             "content": 'Your questions have been answered: "继续吗?"="继续".',
                         }
                     ],
-                    "tool_use_result": {"questions": [], "answers": {"继续吗?": "继续"}, "annotations": {}},
-                },
-                {"type": "result", "subtype": "success", "is_error": False, "session_id": SDK_ID, "uuid": "r-1"},
+                    uuid="u-ans",
+                    session_id=SDK_ID,
+                    tool_use_result={"questions": [], "answers": {"继续吗?": "继续"}, "annotations": {}},
+                ),
+                result_frame(session_id=SDK_ID, uuid="r-1"),
             ]
         )
         fake_options = SimpleNamespace(env=None)
@@ -479,18 +484,12 @@ class TestNewSessionEventLogFlow:
         )
         meta = await manager.meta_store.create("demo", SDK_ID)
         client = FakeSDKClient(
-            messages=[
-                {
-                    "type": "system",
-                    "subtype": "task_started",
-                    "task_id": "t1",
-                    "description": "分析",
-                    "tool_use_id": "tu-a",
-                    "uuid": "s-1",
-                    "session_id": SDK_ID,
-                },
-                {"type": "user", "content": xml, "uuid": "n-1", "session_id": SDK_ID},
-                {"type": "result", "subtype": "success", "is_error": False, "session_id": SDK_ID, "uuid": "r-1"},
+            frames=[
+                system_frame(
+                    "task_started", task_id="t1", description="分析", tool_use_id="tu-a", uuid="s-1", session_id=SDK_ID
+                ),
+                _user_frame(xml, uuid="n-1", session_id=SDK_ID),
+                result_frame(session_id=SDK_ID, uuid="r-1"),
             ]
         )
         fake_options = SimpleNamespace(env=None)
@@ -520,7 +519,7 @@ class TestNewSessionEventLogFlow:
 
     async def test_send_message_writes_user_entry_before_query(self, manager: SessionManager, file_db_factory):
         meta = await manager.meta_store.create("demo", SDK_ID)
-        client = FakeSDKClient(messages=[{"type": "result", "subtype": "success", "session_id": SDK_ID, "uuid": "r-1"}])
+        client = FakeSDKClient(frames=[result_frame(session_id=SDK_ID, uuid="r-1")])
         fake_options = SimpleNamespace(env=None)
 
         with (
@@ -565,9 +564,9 @@ class TestNewSessionEventLogFlow:
         """已有会话续发同样落映射：受理条目 uuid ↔ SDK 回放副本的 transcript uuid。"""
         meta = await manager.meta_store.create("demo", SDK_ID)
         client = FakeSDKClient(
-            messages=[
-                {"type": "user", "content": "继续", "uuid": "sdk-u9", "session_id": SDK_ID},
-                {"type": "result", "subtype": "success", "session_id": SDK_ID, "uuid": "r-1"},
+            frames=[
+                _user_frame("继续", uuid="sdk-u9", session_id=SDK_ID, is_replay=True),
+                result_frame(session_id=SDK_ID, uuid="r-1"),
             ]
         )
         fake_options = SimpleNamespace(env=None)
@@ -591,7 +590,7 @@ class TestNewSessionEventLogFlow:
     async def test_retry_while_running_returns_idempotent_success(self, manager: SessionManager):
         """受理成功但响应丢失、轮次仍在运行时，同幂等键重试得到条目而非 400。"""
         meta = await manager.meta_store.create("demo", SDK_ID)
-        client = FakeSDKClient(messages=[{"type": "result", "subtype": "success", "session_id": SDK_ID, "uuid": "r-1"}])
+        client = FakeSDKClient(frames=[result_frame(session_id=SDK_ID, uuid="r-1")])
         fake_options = SimpleNamespace(env=None)
 
         with (
@@ -637,9 +636,7 @@ class TestNewSessionEventLogFlow:
                     raise RuntimeError("transport down")
                 await super().query(prompt, session_id)
 
-        client = _FlakyQueryClient(
-            messages=[{"type": "result", "subtype": "success", "session_id": SDK_ID, "uuid": "r-1"}]
-        )
+        client = _FlakyQueryClient(frames=[result_frame(session_id=SDK_ID, uuid="r-1")])
         fake_options = SimpleNamespace(env=None)
 
         with (
@@ -676,7 +673,7 @@ class TestNewSessionEventLogFlow:
 
     async def test_initial_user_entry_write_failure_reports_error(self, manager: SessionManager):
         """新会话首条用户消息落库失败：受理显式失败，会话进入可观察的 error 态。"""
-        client = FakeSDKClient(messages=_new_session_messages())
+        client = FakeSDKClient(frames=_new_session_frames())
         fake_options = SimpleNamespace(env=None)
         update_status_spy = AsyncMock(wraps=manager.meta_store.update_status)
 
@@ -716,9 +713,9 @@ class TestNewSessionEventLogFlow:
         否则会先广播/落库非 error 终态（如 completed），随后又被错误清理路径改写为
         error，造成状态短暂跳变。"""
         client = FakeSDKClient(
-            messages=[
-                {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-1"},
-                {"type": "result", "subtype": "success", "is_error": False, "session_id": SDK_ID, "uuid": "r-1"},
+            frames=[
+                system_frame("init", session_id=SDK_ID, uuid="init-1"),
+                result_frame(session_id=SDK_ID, uuid="r-1"),
             ]
         )
         fake_options = SimpleNamespace(env=None)
@@ -753,11 +750,11 @@ class TestNewSessionEventLogFlow:
     async def test_initial_user_entry_retry_after_failure_delivers(self, manager: SessionManager):
         """落库失败后同幂等键重试：条目无残留短路，重试重新受理并分配 seq 0。"""
         retry_sdk_id = "sdk-e2e-retry"
-        failing_client = FakeSDKClient(messages=_new_session_messages())
+        failing_client = FakeSDKClient(frames=_new_session_frames())
         retry_client = FakeSDKClient(
-            messages=[
-                {"type": "system", "subtype": "init", "session_id": retry_sdk_id, "uuid": "init-2"},
-                {"type": "result", "subtype": "success", "is_error": False, "session_id": retry_sdk_id, "uuid": "r-2"},
+            frames=[
+                system_frame("init", session_id=retry_sdk_id, uuid="init-2"),
+                result_frame(session_id=retry_sdk_id, uuid="r-2"),
             ]
         )
         clients = iter([failing_client, retry_client])

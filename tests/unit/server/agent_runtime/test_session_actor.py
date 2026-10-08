@@ -8,14 +8,24 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage
 
+from server.agent_runtime.sdk_frames import CommandLifecycle
 from server.agent_runtime.session_actor import (
     MessageStreamClosed,
     SessionActor,
     SessionCommand,
     _ActorClosed,
 )
-from tests.fakes import FakeSDKClient
+from tests.fakes import (
+    FakeSDKClient,
+    assistant_frame,
+    command_lifecycle_frame,
+    result_frame,
+    system_frame,
+)
+
+_INTERRUPTED_RESULT = result_frame("error_during_execution", is_error=True, uuid="interrupted")
 
 
 def test_session_command_default_fields():
@@ -65,36 +75,24 @@ async def test_fake_client_records_current_task_per_method():
 
 
 @pytest.mark.asyncio
-async def test_fake_client_yields_injected_messages_then_stops():
-    messages = [
-        {"type": "assistant", "id": 1},
-        {"type": "result", "subtype": "success"},
-    ]
-    client = FakeSDKClient(messages=messages)
+async def test_fake_client_emits_initial_frames_after_first_query():
+    frames = [assistant_frame(uuid="a1"), result_frame(uuid="r1")]
+    client = FakeSDKClient(frames=frames)
     async with client:
         await client.query("hi")
-        collected = [msg async for msg in client.receive_response()]
-    assert collected == messages
+        client.close_stream()
+        collected = [frame async for frame in client._query.receive_messages()]
+    assert collected == frames
 
 
 @pytest.mark.asyncio
-async def test_fake_client_receive_response_blocks_until_interrupt():
-    # block_forever=True 时，receive_response 只在 interrupt 注入 message 后才结束
-    client = FakeSDKClient(
-        block_forever=True,
-        interrupt_message={"type": "result", "subtype": "error_during_execution"},
-    )
+async def test_fake_client_emits_interrupt_frame_on_interrupt():
+    client = FakeSDKClient(interrupt_frame=_INTERRUPTED_RESULT)
     async with client:
-        recv_task = asyncio.create_task(_collect(client))
-        await asyncio.sleep(0.05)
-        assert not recv_task.done()  # 仍在阻塞
         await client.interrupt()
-        collected = await asyncio.wait_for(recv_task, timeout=1.0)
-    assert collected == [{"type": "result", "subtype": "error_during_execution"}]
-
-
-async def _collect(client: FakeSDKClient) -> list[dict]:
-    return [msg async for msg in client.receive_response()]
+        client.close_stream()
+        collected = [frame async for frame in client._query.receive_messages()]
+    assert collected == [_INTERRUPTED_RESULT]
 
 
 @pytest.mark.asyncio
@@ -155,12 +153,8 @@ async def test_actor_connect_and_disconnect_same_task():
 
 @pytest.mark.asyncio
 async def test_query_consumes_all_messages_and_sets_done():
-    messages = [
-        {"type": "assistant", "id": 1},
-        {"type": "result", "subtype": "success"},
-    ]
-    client = FakeSDKClient(messages=messages)
-    collected: list[dict] = []
+    client = FakeSDKClient(frames=[assistant_frame(uuid="a1"), result_frame(uuid="r1")])
+    collected: list = []
     actor = SessionActor(
         client_factory=lambda: client,
         on_message=lambda msg: collected.append(msg),
@@ -172,7 +166,8 @@ async def test_query_consumes_all_messages_and_sets_done():
     await cmd.done.wait()
     assert cmd.error is None
     assert cmd.accepted is True
-    assert collected == messages
+    assert [type(m) for m in collected] == [AssistantMessage, ResultMessage]
+    assert [m.uuid for m in collected] == ["a1", "r1"]
     assert client.sent_queries == ["hi"]
 
     # 收尾
@@ -185,11 +180,10 @@ async def test_query_consumes_all_messages_and_sets_done():
 
 @pytest.mark.asyncio
 async def test_all_sdk_calls_recorded_on_same_task():
-    """契约锁定：connect / query / interrupt / disconnect / receive_response
-    都在 actor 主 task 内调用，current_task 完全相同。"""
+    """契约锁定：connect / query / interrupt / disconnect 都在 actor 主 task 内调用，
+    current_task 完全相同。"""
     client = FakeSDKClient(
-        block_forever=True,
-        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+        interrupt_frame=_INTERRUPTED_RESULT,
     )
     actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
     await actor.start()
@@ -197,9 +191,9 @@ async def test_all_sdk_calls_recorded_on_same_task():
     # 发 query
     q = SessionCommand(type="query", prompt="hi")
     await actor.enqueue(q)
-    # 短暂等待 query 进入 receive_response
+    # 短暂等待 query 进入读取
     await asyncio.sleep(0.05)
-    # 发 interrupt（应当穿插到 receive_response 中）
+    # 发 interrupt（应当穿插到消息读取中）
     i = SessionCommand(type="interrupt")
     await actor.enqueue(i)
     await i.done.wait()
@@ -212,7 +206,7 @@ async def test_all_sdk_calls_recorded_on_same_task():
     if actor._task is not None:
         await actor._task
 
-    # 仅锁定 method 调用（receive_response 是 async generator iteration，
+    # 仅锁定 method 调用（原始帧流是 async generator iteration，
     # 其 body 在子 task driven 是 asyncio 允许的，不属于 SDK 同 task 契约）
     sdk_methods = ("connect", "query", "interrupt", "disconnect")
     sdk_tasks: set = set()
@@ -228,8 +222,7 @@ async def test_all_sdk_calls_recorded_on_same_task():
 async def test_interrupt_during_long_query_is_immediate():
     """query 进行中，100ms 后送 interrupt；interrupt 应在 <300ms 内被 actor 调用。"""
     client = FakeSDKClient(
-        block_forever=True,
-        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+        interrupt_frame=_INTERRUPTED_RESULT,
     )
     actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
     await actor.start()
@@ -259,11 +252,10 @@ async def test_interrupt_during_long_query_is_immediate():
 
 @pytest.mark.asyncio
 async def test_drain_after_interrupt_reaches_error_during_execution():
-    """interrupt 后，receive_response 自然 drain 到 ResultMessage(error_during_execution)。"""
-    collected: list[dict] = []
+    """interrupt 后，消息流自然 drain 到 ResultMessage(error_during_execution)。"""
+    collected: list = []
     client = FakeSDKClient(
-        block_forever=True,
-        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+        interrupt_frame=_INTERRUPTED_RESULT,
     )
     actor = SessionActor(
         client_factory=lambda: client,
@@ -279,7 +271,8 @@ async def test_drain_after_interrupt_reaches_error_during_execution():
     await q.done.wait()
 
     # 最后一条消息应为 error_during_execution 的 ResultMessage
-    assert collected[-1] == {"type": "result", "subtype": "error_during_execution"}
+    assert isinstance(collected[-1], ResultMessage)
+    assert collected[-1].subtype == "error_during_execution"
 
     d = SessionCommand(type="disconnect")
     await actor.enqueue(d)
@@ -292,14 +285,9 @@ async def test_drain_after_interrupt_reaches_error_during_execution():
 async def test_two_queries_queued_during_interrupt_drain():
     """interrupt drain 期间新 query 排队，drain 完成后按序执行。"""
     client = FakeSDKClient(
-        block_forever=True,
-        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+        interrupt_frame=_INTERRUPTED_RESULT,
     )
-    collected: list[dict] = []
-    actor = SessionActor(
-        client_factory=lambda: client,
-        on_message=lambda m: collected.append(m),
-    )
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
     await actor.start()
 
     q1 = SessionCommand(type="query", prompt="first")
@@ -314,10 +302,7 @@ async def test_two_queries_queued_during_interrupt_drain():
     await q1.done.wait()
 
     # q2 要能被消费：向 client 推第二个 query 的响应
-    client.push_message({"type": "result", "subtype": "success"})
-    # block_forever=True 下需要显式 None sentinel 结束 q2 的 drain
-    client.push_message(None)
-    # interrupt 让 receive_response 卡住的协程已结束；第二次 receive_response 会从队列拿
+    client.push_frame(result_frame())
     await asyncio.wait_for(q2.done.wait(), timeout=1.0)
 
     assert client.sent_queries == ["first", "second"]
@@ -333,8 +318,7 @@ async def test_two_queries_queued_during_interrupt_drain():
 async def test_disconnect_during_query_defers_exit():
     """query 进行中送 disconnect：actor 先 interrupt，drain 完后才退出 async with。"""
     client = FakeSDKClient(
-        block_forever=True,
-        interrupt_message={"type": "result", "subtype": "error_during_execution"},
+        interrupt_frame=_INTERRUPTED_RESULT,
     )
     actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
     await actor.start()
@@ -432,14 +416,14 @@ async def test_enqueue_after_actor_closed_fails_fast():
 async def test_send_query_returns_on_sent_not_on_drain():
     """send_query 在 prompt 送入 SDK 即返回，不等整轮 drain。
 
-    block_forever=True 使 receive_response 永不自然结束；若 send_query 等
+    替身不发 result 帧，这一轮永不结束；若 send_query 等
     cmd.done.wait() 会挂死触发超时。等 cmd.sent 则应立即返回。
     """
     from contextlib import asynccontextmanager
 
     from server.agent_runtime.session_manager import ManagedSession
 
-    client = FakeSDKClient(block_forever=True)
+    client = FakeSDKClient()
 
     @asynccontextmanager
     async def _factory():
@@ -464,7 +448,7 @@ async def test_drive_query_rejects_second_pending_query():
     """pending_query 已非空时，第三个 query 应被拒绝而非覆盖。"""
     from contextlib import asynccontextmanager
 
-    client = FakeSDKClient(block_forever=True)
+    client = FakeSDKClient()
 
     @asynccontextmanager
     async def _factory():
@@ -492,7 +476,7 @@ async def test_drive_query_rejects_second_pending_query():
         assert not q2.done.is_set()
     finally:
         # 结束 q1，让 q2 进入执行；用 done.wait 替代 sleep 避免 CI flaky
-        client.push_message(None)  # block_forever sentinel
+        client.push_frame(result_frame())
         await asyncio.wait_for(q1.done.wait(), timeout=1.0)
         d = SessionCommand(type="disconnect")
         await actor.enqueue(d)
@@ -526,7 +510,7 @@ async def test_interrupt_failure_still_wakes_waiter():
             self._record("interrupt")
             raise RuntimeError("interrupt failed")
 
-    client = _BoomClient(block_forever=True)
+    client = _BoomClient()
 
     @asynccontextmanager
     async def _factory():
@@ -556,15 +540,15 @@ async def test_interrupt_failure_still_wakes_waiter():
 
 
 class _Recorder:
-    """on_message 替身：收到 id 为 key 的消息时唤醒对应等待者。"""
+    """on_message 替身：收到帧 uuid 为 key 的消息时唤醒对应等待者。"""
 
     def __init__(self) -> None:
-        self.messages: list[dict] = []
+        self.messages: list = []
         self._seen: dict[object, asyncio.Event] = {}
 
-    def __call__(self, msg: dict) -> None:
+    def __call__(self, msg) -> None:
         self.messages.append(msg)
-        self._event(msg.get("id")).set()
+        self._event(_frame_uuid(msg)).set()
 
     def _event(self, key: object) -> asyncio.Event:
         return self._seen.setdefault(key, asyncio.Event())
@@ -573,15 +557,22 @@ class _Recorder:
         await asyncio.wait_for(self._event(key).wait(), timeout=1.0)
 
 
-async def _start_with_finished_turn(recorder: _Recorder) -> tuple[SessionActor, FakeSDKClient]:
+def _frame_uuid(msg) -> object:
+    # SDK 把 system 帧整帧放进 SystemMessage.data
+    return msg.data.get("uuid") if isinstance(msg, SystemMessage) else msg.uuid
+
+
+async def _start_with_finished_turn(
+    recorder: _Recorder, on_command_lifecycle=None
+) -> tuple[SessionActor, FakeSDKClient]:
     client = FakeSDKClient()
-    actor = SessionActor(client_factory=lambda: client, on_message=recorder)
+    actor = SessionActor(client_factory=lambda: client, on_message=recorder, on_command_lifecycle=on_command_lifecycle)
     await actor.start()
     q = SessionCommand(type="query", prompt="turn 1")
     await actor.enqueue(q)
     await q.sent.wait()
-    client.push_message({"type": "assistant", "id": "turn-1"})
-    client.push_message({"type": "result", "subtype": "success", "id": "turn-1-result"})
+    client.push_frame(assistant_frame(uuid="turn-1"))
+    client.push_frame(result_frame(uuid="turn-1-result"))
     await asyncio.wait_for(q.done.wait(), timeout=1.0)
     return actor, client
 
@@ -597,8 +588,8 @@ async def test_unsolicited_turn_after_result_is_delivered_without_new_query():
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
     try:
-        client.push_message({"type": "assistant", "id": "follow-up"})
-        client.push_message({"type": "result", "subtype": "success", "id": "follow-up-result"})
+        client.push_frame(assistant_frame(uuid="follow-up"))
+        client.push_frame(result_frame(uuid="follow-up-result"))
 
         await recorder.wait_for("follow-up-result")
         assert client.sent_queries == ["turn 1"]
@@ -611,7 +602,7 @@ async def test_query_during_unsolicited_turn_goes_straight_to_the_cli():
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
     try:
-        client.push_message({"type": "assistant", "id": "follow-up"})
+        client.push_frame(assistant_frame(uuid="follow-up"))
         await recorder.wait_for("follow-up")
 
         q2 = SessionCommand(type="query", prompt="turn 2")
@@ -627,8 +618,8 @@ async def test_query_after_unsolicited_turn_completes_at_its_own_result():
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
     try:
-        client.push_message({"type": "assistant", "id": "follow-up"})
-        client.push_message({"type": "result", "subtype": "success", "id": "follow-up-result"})
+        client.push_frame(assistant_frame(uuid="follow-up"))
+        client.push_frame(result_frame(uuid="follow-up-result"))
         await recorder.wait_for("follow-up-result")
 
         q2 = SessionCommand(type="query", prompt="turn 2")
@@ -636,10 +627,10 @@ async def test_query_after_unsolicited_turn_completes_at_its_own_result():
         await q2.sent.wait()
         assert not q2.done.is_set()
 
-        client.push_message({"type": "assistant", "id": "turn-2"})
-        client.push_message({"type": "result", "subtype": "success", "id": "turn-2-result"})
+        client.push_frame(assistant_frame(uuid="turn-2"))
+        client.push_frame(result_frame(uuid="turn-2-result"))
         await asyncio.wait_for(q2.done.wait(), timeout=1.0)
-        assert recorder.messages[-1]["id"] == "turn-2-result"
+        assert _frame_uuid(recorder.messages[-1]) == "turn-2-result"
     finally:
         await _disconnect(actor)
 
@@ -648,7 +639,7 @@ async def test_interrupt_reaches_client_during_unsolicited_turn():
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
     try:
-        client.push_message({"type": "assistant", "id": "follow-up"})
+        client.push_frame(assistant_frame(uuid="follow-up"))
         await recorder.wait_for("follow-up")
 
         i = SessionCommand(type="interrupt")
@@ -663,8 +654,8 @@ async def test_interrupt_reaches_client_during_unsolicited_turn():
 @pytest.mark.parametrize(
     "frame",
     [
-        {"type": "system", "subtype": "session_state_changed", "state": "idle", "id": "trailing"},
-        {"type": "assistant", "parent_tool_use_id": "toolu_subagent", "id": "trailing"},
+        system_frame("session_state_changed", state="idle", uuid="trailing"),
+        assistant_frame(parent_tool_use_id="toolu_subagent", uuid="trailing"),
     ],
     ids=["trailing-system-frame", "background-subagent-message"],
 )
@@ -673,7 +664,7 @@ async def test_non_turn_frames_while_idle_do_not_open_a_turn(frame):
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
     try:
-        client.push_message(frame)
+        client.push_frame(frame)
         await recorder.wait_for("trailing")
 
         i = SessionCommand(type="interrupt")
@@ -704,7 +695,7 @@ async def test_actor_exits_when_message_stream_closes():
 async def test_disconnect_completes_even_if_interrupt_fails():
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
-    client.push_message({"type": "assistant", "id": "follow-up"})
+    client.push_frame(assistant_frame(uuid="follow-up"))
     await recorder.wait_for("follow-up")
 
     async def _broken_interrupt() -> None:
@@ -722,7 +713,7 @@ async def test_disconnect_completes_even_if_interrupt_fails():
 async def test_disconnect_interrupts_unsolicited_turn():
     recorder = _Recorder()
     actor, client = await _start_with_finished_turn(recorder)
-    client.push_message({"type": "assistant", "id": "follow-up"})
+    client.push_frame(assistant_frame(uuid="follow-up"))
     await recorder.wait_for("follow-up")
 
     await _disconnect(actor)
@@ -738,5 +729,51 @@ async def test_interrupt_while_idle_does_not_reach_client():
         await actor.enqueue(i)
         await asyncio.wait_for(i.done.wait(), timeout=1.0)
         assert not client.interrupted
+    finally:
+        await _disconnect(actor)
+
+
+# --- 原始帧流 ------------------------------------------------------------------
+
+
+async def test_command_lifecycle_frames_reach_the_hook_in_frame_order():
+    delivered: list = []
+    client = FakeSDKClient()
+    actor = SessionActor(
+        client_factory=lambda: client,
+        on_message=delivered.append,
+        on_command_lifecycle=delivered.append,
+    )
+    await actor.start()
+    try:
+        q = SessionCommand(type="query", prompt="hi")
+        await actor.enqueue(q)
+        await q.sent.wait()
+        client.push_frame(command_lifecycle_frame("u1", "started"))
+        client.push_frame(assistant_frame(uuid="a1"))
+        client.push_frame(command_lifecycle_frame("u2", "queued"))
+        client.push_frame(result_frame(uuid="r1"))
+        await asyncio.wait_for(q.done.wait(), timeout=1.0)
+
+        assert delivered[0] == CommandLifecycle(command_uuid="u1", state="started")
+        assert isinstance(delivered[1], AssistantMessage)
+        assert delivered[2] == CommandLifecycle(command_uuid="u2", state="queued")
+        assert isinstance(delivered[3], ResultMessage)
+    finally:
+        await _disconnect(actor)
+
+
+async def test_unrecognized_frames_are_dropped():
+    lifecycles: list = []
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder, on_command_lifecycle=lifecycles.append)
+    try:
+        client.push_frame({"type": "some_future_frame", "uuid": "unknown"})
+        client.push_frame(command_lifecycle_frame("u1", "some_future_state"))
+        client.push_frame(assistant_frame(uuid="follow-up"))
+        await recorder.wait_for("follow-up")
+
+        assert [_frame_uuid(m) for m in recorder.messages] == ["turn-1", "turn-1-result", "follow-up"]
+        assert lifecycles == []
     finally:
         await _disconnect(actor)
