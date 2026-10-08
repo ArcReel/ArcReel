@@ -6,8 +6,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,6 +17,7 @@ from lib.artifacts.artifact_manifest import (
     HASH_ALGORITHM,
     LOCK_FILENAME,
     MANIFEST_FILENAME,
+    MANIFEST_READ_CACHE_PROJECT_LIMIT,
     ArtifactBasis,
     ArtifactKey,
     ArtifactManifest,
@@ -23,8 +26,10 @@ from lib.artifacts.artifact_manifest import (
     ArtifactRegistrationError,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
+    reset_manifest_read_cache_for_tests,
 )
 from lib.artifacts.visual_artifact_provenance import visual_file_digest
+from tests.integration.lib.manifest_parse_support import count_manifest_parses
 
 _RUNTIME_FIFO_COMPARISON = """
 import json
@@ -239,6 +244,248 @@ def test_project_adapter_read_does_not_create_a_lock_file(tmp_path: Path) -> Non
     assert adapter.get_entry(ArtifactKey.episode_script(1)) is None
     assert adapter.snapshot_entries() == {}
     assert not (project / LOCK_FILENAME).exists()
+
+
+def _settled_clock_ns() -> int:
+    """A clock long after every Manifest change: an unchanged file identity is trusted."""
+
+    return time.time_ns() + 3600 * 1_000_000_000
+
+
+def _unsettled_clock_ns() -> int:
+    """A clock no later than any Manifest change: every read compares the full bytes."""
+
+    return 0
+
+
+_READ_CLOCKS = pytest.mark.parametrize(
+    "clock_ns", [_unsettled_clock_ns, _settled_clock_ns], ids=("unsettled", "settled")
+)
+
+
+class _PinnedChangeTimeStat:
+    """A stat result whose change time stays fixed, as on a coarse-timestamp filesystem."""
+
+    def __init__(self, real: os.stat_result, changed_ns: int) -> None:
+        self._real = real
+        self.st_ctime_ns = changed_ns
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+def _registered_script_project(tmp_path: Path, name: str = "project") -> tuple[Path, ArtifactManifest]:
+    project = tmp_path / name
+    project.mkdir()
+    for episode in (1, 2):
+        (project / f"episode_{episode}.json").write_text("{}", encoding="utf-8")
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project))
+    assert manifest.register(
+        ArtifactKey.episode_script(1),
+        artifact_path="episode_1.json",
+        basis=ArtifactBasis.build("test/script", kind_version=1, inputs={"revision": 1}),
+    )
+    return project, manifest
+
+
+@_READ_CLOCKS
+def test_project_adapter_reads_parse_each_manifest_version_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    clock_ns: Any,
+) -> None:
+    """Readers share one parse per Manifest version and see a new version on the next read."""
+
+    project, writer = _registered_script_project(tmp_path)
+    first_key = ArtifactKey.episode_script(1)
+    second_key = ArtifactKey.episode_script(2)
+    reset_manifest_read_cache_for_tests()
+    parses = count_manifest_parses(monkeypatch)
+    readers = [ProjectArtifactManifestAdapter(project, clock_ns=clock_ns) for _ in range(3)]
+
+    for reader in readers:
+        for _ in range(4):
+            assert reader.get_entry(first_key) is not None
+            assert set(reader.snapshot_entries()) == {first_key}
+    assert parses["parses"] == 1
+
+    second_basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"revision": 2})
+    assert writer.register(second_key, artifact_path="episode_2.json", basis=second_basis)
+    parses_before_reads = parses["parses"]
+    entry = readers[0].get_entry(second_key)
+
+    assert entry is not None
+    assert entry.basis_digest == second_basis.digest
+    assert set(readers[1].snapshot_entries()) == {first_key, second_key}
+    assert parses["parses"] == parses_before_reads + 1
+
+
+@_READ_CLOCKS
+def test_project_adapter_reads_never_serve_a_replaced_deleted_or_corrupted_manifest(
+    tmp_path: Path,
+    clock_ns: Any,
+) -> None:
+    project, _writer = _registered_script_project(tmp_path)
+    key = ArtifactKey.episode_script(1)
+    reader = ProjectArtifactManifestAdapter(project, clock_ns=clock_ns)
+    manifest_path = project / MANIFEST_FILENAME
+    assert reader.get_entry(key) is not None
+
+    replacement_basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"revision": "external"})
+    replaced = json.dumps(
+        {
+            "entries": {key.encode(): {"artifact_path": "episode_2.json", "basis_digest": replacement_basis.digest}},
+            "hash_algorithm": HASH_ALGORITHM,
+            "schema_version": 1,
+        }
+    ).encode("utf-8")
+    staged = project / "staged-manifest.json"
+    staged.write_bytes(replaced)
+    staged.replace(manifest_path)
+    assert reader.get_entry(key) == ArtifactManifestEntry(
+        artifact_path="episode_2.json",
+        basis_digest=replacement_basis.digest,
+    )
+
+    staged.write_bytes(b"{not json")
+    staged.replace(manifest_path)
+    with pytest.raises(ArtifactManifestError, match="not valid UTF-8 JSON"):
+        reader.get_entry(key)
+    comparison = ArtifactManifest(reader).compare(key, artifact_path="episode_2.json", basis=replacement_basis)
+    assert comparison.status is ArtifactStatus.BLOCKED
+
+    manifest_path.unlink()
+    assert reader.get_entry(key) is None
+    assert reader.snapshot_entries() == {}
+
+
+@pytest.mark.parametrize(
+    ("clock_ns", "sees_rewrite"),
+    [(_unsettled_clock_ns, True), (_settled_clock_ns, False)],
+    ids=("unsettled", "settled"),
+)
+def test_project_adapter_compares_bytes_until_the_manifest_has_settled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    clock_ns: Any,
+    sees_rewrite: bool,
+) -> None:
+    """A same-size in-place rewrite within one timestamp tick leaves the file identity unchanged.
+
+    An unsettled file is still compared byte for byte, so the rewrite is seen; a
+    settled identity is trusted by design, which is why the settle age must exceed
+    the filesystem timestamp granularity.
+    """
+
+    project, _writer = _registered_script_project(tmp_path)
+    key = ArtifactKey.episode_script(1)
+    manifest_path = project / MANIFEST_FILENAME
+    original_stat = manifest_path.stat()
+    real_fstat = os.fstat
+
+    def pinned_fstat(fd: int) -> Any:
+        result = real_fstat(fd)
+        if (result.st_dev, result.st_ino) == (original_stat.st_dev, original_stat.st_ino):
+            return _PinnedChangeTimeStat(result, original_stat.st_ctime_ns)
+        return result
+
+    monkeypatch.setattr("lib.artifacts.artifact_manifest.os.fstat", pinned_fstat)
+    reader = ProjectArtifactManifestAdapter(project, clock_ns=clock_ns)
+    before = reader.get_entry(key)
+    assert before is not None
+    rewritten_basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"revision": "in-place"})
+    raw = manifest_path.read_bytes()
+    rewritten = raw.replace(before.basis_digest.encode(), rewritten_basis.digest.encode())
+    assert len(rewritten) == len(raw)
+
+    with manifest_path.open("r+b") as handle:
+        handle.write(rewritten)
+    os.utime(manifest_path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+    after = reader.get_entry(key)
+    assert after is not None
+    assert after.basis_digest == (rewritten_basis.digest if sees_rewrite else before.basis_digest)
+
+
+def test_project_adapter_snapshot_is_a_private_copy_for_the_caller(tmp_path: Path) -> None:
+    project, _writer = _registered_script_project(tmp_path)
+    adapter = ProjectArtifactManifestAdapter(project, clock_ns=_settled_clock_ns)
+    key = ArtifactKey.episode_script(1)
+    snapshot = adapter.snapshot_entries()
+    assert isinstance(snapshot, dict)
+
+    snapshot.clear()
+
+    assert set(adapter.snapshot_entries()) == {key}
+    assert set(ProjectArtifactManifestAdapter(project).snapshot_entries()) == {key}
+
+
+def test_project_adapter_path_ownership_recovery_read_never_reaches_strict_readers(tmp_path: Path) -> None:
+    """The relaxed recovery read is never reused by strict readers, even when recovery is abandoned."""
+
+    project = tmp_path / "project"
+    project.mkdir()
+    first_key = ArtifactKey.episode_video(1, "E1S01")
+    second_key = ArtifactKey.episode_video(2, "E1S01")
+    first_entry = ArtifactManifestEntry(
+        artifact_path="videos/scene_E1S01.mp4",
+        basis_digest=ArtifactBasis.build("video", kind_version=1, inputs={"episode": 1}).digest,
+    )
+    conflicted = json.dumps(
+        {
+            "entries": {
+                first_key.encode(): {
+                    "artifact_path": first_entry.artifact_path,
+                    "basis_digest": first_entry.basis_digest,
+                },
+                second_key.encode(): {
+                    "artifact_path": first_entry.artifact_path,
+                    "basis_digest": ArtifactBasis.build("video", kind_version=1, inputs={"episode": 2}).digest,
+                },
+            },
+            "hash_algorithm": HASH_ALGORITHM,
+            "schema_version": 1,
+        }
+    ).encode("utf-8")
+    (project / MANIFEST_FILENAME).write_bytes(conflicted)
+    adapter = ProjectArtifactManifestAdapter(project, clock_ns=_settled_clock_ns)
+
+    def _abandon(entries: object) -> dict[ArtifactKey, ArtifactManifestEntry]:
+        raise RuntimeError("recovery abandoned")
+
+    with pytest.raises(RuntimeError, match="recovery abandoned"):
+        adapter.repair_path_conflicted_entries_atomically(_abandon)
+    with pytest.raises(ArtifactManifestError, match=r"formal artifact path.*multiple keys"):
+        adapter.get_entry(first_key)
+
+    assert adapter.repair_path_conflicted_entries_atomically(lambda entries: {first_key: entries[first_key]})
+    assert adapter.snapshot_entries() == {first_key: first_entry}
+
+
+def test_project_adapter_read_cache_is_bounded_across_projects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reading more projects than the cache holds evicts the least recently read one."""
+
+    projects = [
+        _registered_script_project(tmp_path, f"project-{index}")[0]
+        for index in range(MANIFEST_READ_CACHE_PROJECT_LIMIT + 1)
+    ]
+    key = ArtifactKey.episode_script(1)
+    reset_manifest_read_cache_for_tests()
+    parses = count_manifest_parses(monkeypatch)
+
+    first = ProjectArtifactManifestAdapter(projects[0])
+    assert first.get_entry(key) is not None
+    assert first.get_entry(key) is not None
+    assert parses["parses"] == 1
+    for project in projects[1:]:
+        assert ProjectArtifactManifestAdapter(project).get_entry(key) is not None
+    assert parses["parses"] == len(projects)
+
+    assert first.get_entry(key) is not None
+    assert parses["parses"] == len(projects) + 1
 
 
 @pytest.mark.skipif(os.name != "posix", reason="exclusive lock-file creation protects concurrent openat calls")
