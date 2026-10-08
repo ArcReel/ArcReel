@@ -151,7 +151,6 @@ async def create_timeline(
                 name=value.name,
                 revision=value.revision,
                 author=_author(caller),
-                agent_turn=caller.current_agent_turn(),
             )
         else:
             assert value.episode is not None
@@ -160,7 +159,6 @@ async def create_timeline(
                 episode=value.episode,
                 name=value.name,
                 author=_author(caller),
-                agent_turn=caller.current_agent_turn(),
             )
     except EditTimelineError as exc:
         return _domain_problem(exc)
@@ -216,7 +214,6 @@ async def edit_timeline(
             summary=value.summary,
             operations=value.operations,
             author=_author(caller),
-            agent_turn=caller.current_agent_turn(),
         )
     except EditTimelineError as exc:
         return _domain_problem(exc)
@@ -272,7 +269,6 @@ async def restore_revision(
             value.timeline,
             revision=value.revision,
             author=_author(caller),
-            agent_turn=caller.current_agent_turn(),
         )
     except EditTimelineError as exc:
         return _domain_problem(exc)

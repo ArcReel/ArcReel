@@ -44,6 +44,7 @@
 | `project.json` 带全书资产提取写下的 `workflow.asset_inventory` 标记 | schema ≤ 15 | 无此标记；资产识别并入逐集脚本规划（ADR 0092） | v15→v16 删除，`workflow` 随之变空时整个删去 |
 | `project.json` 的默认文本 backend 或文本档位精确引用已退役的 `gemini-3.1-flash-lite-preview` | schema ≤ 16 | `gemini-3.1-flash-lite` 正式 ID | v16→v17 将 `gemini-aistudio` / `gemini-vertex` 的精确旧 ID 改为正式 ID，其他 preview 模型与不匹配值原样保留 |
 | 资产图已生成，但角色或商品声明的原图读不到，或描述为空；衍生资产图已生成，但本体资产图不能登记。旧规划器对前两者静默不登记、不进报告，对衍生只看本体资产图文件在不在 | 任意 | 资产图与衍生资产图的生成输入成立才登记；衍生经本体资产图的清单登记判定可用，规划顺序本体先于衍生 | 不登记，进迁移报告，读时报 missing |
+| 剪辑时间线修订带 `agent_turn`（发起该轮的用户消息 uuid） | schema ≤ 17 | 修订无 Agent 轮次字段 | v17→v18 删除，改写前逐个文件备份；其余修订内容原样保留 |
 
 ## 约定
 

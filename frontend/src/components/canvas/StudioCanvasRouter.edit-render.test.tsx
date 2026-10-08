@@ -28,7 +28,6 @@ const SUMMARY: EditTimelineSummary = {
   updated_at: "2026-09-30T08:00:00Z",
   updated_by: { kind: "creator", user_id: null },
   update_summary: "按脚本新建",
-  agent_turn: null,
 };
 
 function readout(issues: EditTimelineReadout["issues"]): EditTimelineReadout {

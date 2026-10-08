@@ -7,7 +7,6 @@ Agent 工具集声明，由内嵌 adapter 暴露。
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 
 from claude_agent_sdk import McpSdkServerConfig
@@ -25,20 +24,14 @@ def build_arcreel_mcp_server(
     project_name: str,
     data_root: Path,
     user_id: str = DEFAULT_USER_ID,
-    agent_turn: Callable[[], str | None] | None = None,
 ) -> McpSdkServerConfig:
-    """以会话项目构建暴露全部 ArcReel 工具的 in-process MCP server；生成类工具等到批次终态再返回。
-
-    ``agent_turn`` 在每次工具调用时给出会话当前的轮次，供写入记录所属的 Agent 轮次。
-    """
+    """以会话项目构建暴露全部 ArcReel 工具的 in-process MCP server；生成类工具等到批次终态再返回。"""
     return embedded_server(
         AGENT_TOOLSET,
         name="arcreel",
         version="1.0.0",
         scope=ProjectScope(project_name=project_name, data_root=data_root),
-        caller=CallerContext(
-            user_id=user_id, source="embedded", batch_waiter=batch_enqueue_and_wait, agent_turn=agent_turn
-        ),
+        caller=CallerContext(user_id=user_id, source="embedded", batch_waiter=batch_enqueue_and_wait),
         services=Services.defaults(ProjectManager(data_root)),
     )
 
