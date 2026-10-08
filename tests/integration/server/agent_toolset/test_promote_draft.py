@@ -1093,7 +1093,8 @@ async def test_promote_drama_script_plan_reports_video_request_facts_problem(
     out = await promote_drama(fake_ctx)
 
     assert out.problem is not None
-    assert problem_of(out).code == "draft_invalid"
+    problem = problem_of(out)
+    assert (problem.code, problem.params) == ("video_capability_unavailable", {"capability": "i2v"})
     assert "video_capability_unavailable（capability=i2v）" in said(out)
     assert drama_quarantine_path(fake_ctx).exists()
 

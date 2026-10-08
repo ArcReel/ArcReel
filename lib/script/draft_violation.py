@@ -36,6 +36,9 @@ class DraftViolation(ValueError):
     ``item_index`` 是违约所在条目在草稿正文条目数组（``units`` / ``scenes`` / ``segments``）里的
     0-based 下标，``item_id`` 是该条目的 ID（参考单元 ``unit_id``、分镜 ``segment_id`` 等）；呈现层
     按下标把违约挂到对应条目上，不解析 ``label``。两者都为空即整集层面的违约。
+
+    ``params`` 非空表示 ``code`` 是问题码文案 key（视频请求事实一类的配置问题），呈现层按问题码与
+    参数本地化，不展示面向 Agent 的消息。
     """
 
     def __init__(
@@ -50,6 +53,7 @@ class DraftViolation(ValueError):
         action: str | None = None,
         item_index: int | None = None,
         item_id: str | None = None,
+        params: dict[str, object] | None = None,
     ):
         super().__init__(message)
         self.code = code
@@ -60,6 +64,7 @@ class DraftViolation(ValueError):
         self.action = action
         self.item_index = item_index
         self.item_id = item_id
+        self.params = params
 
 
 def schema_violations(

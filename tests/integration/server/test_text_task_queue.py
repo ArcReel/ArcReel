@@ -388,6 +388,29 @@ async def test_truncated_draft_repair_fails_with_the_way_out_and_keeps_the_draft
     assert draft_revision(draft) == revision
 
 
+async def test_draft_repair_blocked_by_the_video_model_fails_with_the_real_problem(set_video_request_facts) -> None:
+    """AI 修复重判被视频模型配置挡下：任务失败带真实问题码与「去配置供应商」，草稿不变。"""
+    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+    set_video_request_facts(
+        VideoRequestFactsFailure("video_capability_missing_i2v", (("provider", "custom-2"), ("model", "I2V_H3")))
+    )
+    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
+    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "video_capability_missing_i2v",
+        GenerationAction.CONFIGURE_PROVIDER,
+        {"provider": "custom-2", "model": "I2V_H3"},
+    )
+    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    assert draft is not None
+    assert draft_revision(draft) == revision
+
+
 async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state(
     tmp_path: Path,
     file_db_factory,
