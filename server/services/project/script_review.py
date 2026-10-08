@@ -347,12 +347,12 @@ class ScriptReviewService:
             )
         except VideoRequestFactsError as exc:
             # 视频请求事实解析不出是配置问题而非草稿损坏：按事实的问题码与参数报成一条无条目归属的
-            # 违约，router 按问题码的文案 key 本地化 message。
+            # 违约，message 由 router 按问题码的文案 key 与参数成文。
             view["violations"] = [
                 {
                     "code": exc.code,
                     "label": "",
-                    "message": f"视频时长档位无法解析：{exc.failure.summary()}；请在设置中配置可用的视频模型后重新校验",
+                    "message": "",
                     "line": None,
                     "params": exc.params,
                 }

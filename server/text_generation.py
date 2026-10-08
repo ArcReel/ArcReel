@@ -1084,10 +1084,14 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     的修复闭环，不该退回丢弃重抽。
     """
     if not has_references and caps.text_problem is not None:
+        # 无图桶的视频模型配置问题：按问题码陈述原因与出路，Web 视图按问题码与参数本地化。
+        failure = caps.text_problem
+        params: dict[str, Any] = failure.parameters()
         raise DraftViolation(
-            f"{label} 无参考图视频档位未知（{caps.text_problem.code}）；请在设置中配置可用的图生视频模型",
-            code=caps.text_problem.code,
+            f"{label}：{translate(failure.code, **params)}（{failure.summary()}）",
+            code=failure.code,
             label=label,
+            params=params,
         )
     tiers = caps.tiers_for(has_references=has_references)
     if duration in tiers:

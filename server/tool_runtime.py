@@ -120,7 +120,7 @@ from lib.generation.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
-from lib.generation.video_request_facts import VideoRequestFactsError
+from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
@@ -625,12 +625,11 @@ def truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
     )
 
 
-def video_facts_problem(exc: VideoRequestFactsUnavailableError) -> ToolProblem:
+def video_facts_problem(failure: VideoRequestFactsFailure, detail: str) -> ToolProblem:
     """视频请求事实解析不出：问题码与参数原样透出，修复指引与批量准入同一映射（多为配置供应商）。"""
-    failure = exc.failure
     return ToolProblem(
         failure.code,
-        str(exc),
+        detail,
         action=generation_action_for(failure.action),
         params=failure.parameters(),
     )
@@ -674,7 +673,7 @@ async def _run_text_generation(
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
     except VideoRequestFactsUnavailableError as exc:
-        return ToolOutcome(problem=video_facts_problem(exc))
+        return ToolOutcome(problem=video_facts_problem(exc.failure, str(exc)))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -1466,6 +1465,8 @@ async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, A
     try:
         return ToolOutcome(value=await call)
     except DraftWorkflowError as exc:
+        if exc.failure is not None:
+            return ToolOutcome(problem=video_facts_problem(exc.failure, exc.detail))
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
@@ -1602,7 +1603,8 @@ async def _execute_draft_repair(
             request.episode_id, request.doc_type, request.base_revision, request.instructions
         )
     )
-    if outcome.problem is not None and outcome.problem.code == "text_output_truncated":
+    if outcome.problem is not None and outcome.problem.action is not None:
+        # 带修复指引的问题（输出截断、视频模型配置）原样透出：问题码即文案 key，失败原因按真实原因呈现。
         return ToolOutcome(problem=outcome.problem)
     if outcome.problem is not None:
         # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。

@@ -50,6 +50,12 @@ def _raise_draft_error(exc: DraftWorkflowError, episode: int) -> NoReturn:
         raise ConflictError(_CONFLICT_KEYS[exc.code]).with_diagnostic({"code": exc.code}) from exc
     if exc.code in {"invalid_request", "doc_type_not_applicable"}:
         raise BadRequestError("draft_doc_type_not_applicable").with_diagnostic({"code": exc.code}) from exc
+    if exc.failure is not None:
+        # 视频模型配置问题：草稿已写回，重判被挡在配置上，按问题码说清原因与该改的设置。
+        failure = exc.failure
+        raise UnprocessableError(failure.code, **failure.parameters()).with_diagnostic(
+            {"code": failure.code, "params": failure.parameters()}
+        ) from exc
     if exc.code == "draft_repair_failed":
         logger.warning("草稿 AI 修复失败 episode=%s：%s", episode, exc.detail)
         raise UnprocessableError("draft_repair_failed").with_diagnostic({"code": exc.code}) from exc

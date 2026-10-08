@@ -253,6 +253,8 @@ export interface ScriptReviewViolation {
   /** 违约所在条目在草稿正文条目数组里的下标；与 `item_id` 同缺即整集层面的违约。 */
   item_index?: number | null;
   item_id?: string | null;
+  /** 视频模型配置问题的渲染参数：`code` 即问题码，`message` 已由服务端按问题码本地化。 */
+  params?: Record<string, unknown>;
 }
 
 /** 降级提示：不阻断采用，随条目呈现。`message` 由服务端按请求语言成文。 */
