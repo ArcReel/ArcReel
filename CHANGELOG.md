@@ -3,6 +3,17 @@
 ## [0.33.0](https://github.com/ArcReel/ArcReel/compare/v0.32.0...v0.33.0) (2026-10-08)
 
 
+### 🌟 版本亮点
+
+* **界面整体改版：** 全部页面基于 shadcn/ui 重做，布局、视觉和操作方式统一。窗口较小时，弹窗的标题和按钮也始终可见。
+  * **保存与离开提示：** 编辑内容统一为先修改、再保存。离开页面或切换选中项时，如有未保存的修改会先提示，不再静默丢弃。
+  * **工作区与 Agent 面板：** Agent 悬浮球改为顶栏开关，项目菜单改为可搜索的项目切换器。Agent 的工具调用等过程收为单行显示，提问时问题显示在输入框位置。
+  * **项目页面：** 项目大厅改为海报卡片，最近有改动的项目排在最前；概览改为单列的故事设定页；分集视图改为分集目录与原文并排；剧集页头精简为两行。
+  * **分镜与资产：** 分镜编辑与设定集重新排版，各类资产使用同一个详情面板编辑。项目资产新增删除入口，删除前会列出仍在引用该资产的集。
+  * **设置位置调整：** 外部 Agent 接入改为设置页，原「API 密钥」改称「访问令牌」。GitHub 访问代理和官方服务开关移到市场的「设置」标签页。项目设置改为侧栏分页。
+* **模型更新：** Agnes 新增 3.0/2.5 文本、图片和视频模型，并设为 Agnes 的默认模型。新增 Grok Imagine Video 1.5 和 1.5 Lite，支持 1080p 输出。Gemini 3.1 Flash Lite 改用正式模型 ID，已保存的选择会自动迁移。
+* **加载与稳定性：** 列表改为加载缩略图，重新生成后不再显示旧图，视频可以边下载边播放。外部 Agent 可以直接通过 `/mcp` 连接。
+
 ### ✨ 新功能
 
 * **agent-memory:** rebuild the memory editor with a file rail, one edit unit per file and leave protection ([d4e07dd](https://github.com/ArcReel/ArcReel/commit/d4e07dd8b54f5fa071de7647832add1b51873da1)), closes [#3009](https://github.com/ArcReel/ArcReel/issues/3009)
