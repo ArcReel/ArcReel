@@ -162,6 +162,6 @@ async def test_timeline_revision_records_the_session_turn(tmp_path: Path, file_d
         created = await _call(config["instance"], "create_timeline", {"from": "script", "episode": 1, "name": "完整版"})
         assert created.isError is False
         [summary] = await EditTimelineService(projects).list_timelines("demo", episode=1)
-        assert (summary.updated_by.kind, summary.agent_turn) == ("arcreel_agent", user_entry["uuid"])
+        assert summary.updated_by.kind == "arcreel_agent"
     finally:
         await manager.close_session(session_id)

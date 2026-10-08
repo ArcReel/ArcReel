@@ -73,7 +73,6 @@ class TimelineSummary(BaseModel):
     updated_at: str
     updated_by: RevisionAuthor
     update_summary: str
-    agent_turn: str | None
 
 
 class RevisionSummary(BaseModel):
@@ -85,7 +84,6 @@ class RevisionSummary(BaseModel):
     parent: int | None
     author: RevisionAuthor
     summary: str
-    agent_turn: str | None
     created_at: str
     clip_count: int
     changed_clip_ids: tuple[str, ...] | None
@@ -191,7 +189,6 @@ def _new_document(
     *,
     summary: str,
     author: RevisionAuthor,
-    agent_turn: str | None,
     next_clip_number: int,
     next_bgm_number: int = 1,
 ) -> EditTimelineDocument:
@@ -209,7 +206,6 @@ def _new_document(
                 number=1,
                 author=author,
                 summary=summary,
-                agent_turn=agent_turn,
                 created_at=now,
                 content=content,
             ),
@@ -229,7 +225,6 @@ def _summarize(document: EditTimelineDocument) -> TimelineSummary:
         updated_at=latest.created_at,
         updated_by=latest.author,
         update_summary=latest.summary,
-        agent_turn=latest.agent_turn,
     )
 
 
@@ -243,7 +238,7 @@ class EditTimelineService:
         return EditTimelineStore(self._projects, project_name)
 
     def _create_from_script_sync(
-        self, project_name: str, episode: int, name: str, author: RevisionAuthor, agent_turn: str | None
+        self, project_name: str, episode: int, name: str, author: RevisionAuthor
     ) -> EditTimelineDocument:
         store = self._store(project_name)
         script = load_episode_script_units(self._projects, project_name, episode)
@@ -256,7 +251,6 @@ class EditTimelineService:
                 content,
                 summary=MECHANICAL_CREATION_SUMMARY,
                 author=author,
-                agent_turn=agent_turn,
                 next_clip_number=len(content.clips) + 1,
             )
             store.write(document)
@@ -269,13 +263,10 @@ class EditTimelineService:
         episode: int,
         name: str,
         author: RevisionAuthor,
-        agent_turn: str | None = None,
     ) -> EditTimelineReadout:
         """按当前脚本机械新建一条剪辑时间线，返回它的第一个修订的读取结果。"""
         normalized = _normalized_name(name)
-        document = await run_sync_transaction(
-            self._create_from_script_sync, project_name, episode, normalized, author, agent_turn
-        )
+        document = await run_sync_transaction(self._create_from_script_sync, project_name, episode, normalized, author)
         return await self._readout(project_name, document, document.latest.number)
 
     def _copy_sync(
@@ -285,7 +276,6 @@ class EditTimelineService:
         revision: int | None,
         name: str,
         author: RevisionAuthor,
-        agent_turn: str | None,
     ) -> EditTimelineDocument:
         store = self._store(project_name)
         episode = store.find(timeline_id).episode
@@ -299,7 +289,6 @@ class EditTimelineService:
                 target.content,
                 summary=f"复制自「{source.name}」的修订 {target.number}",
                 author=author,
-                agent_turn=agent_turn,
                 next_clip_number=source.next_clip_number,
                 next_bgm_number=source.next_bgm_number,
             )
@@ -314,16 +303,13 @@ class EditTimelineService:
         name: str,
         revision: int | None = None,
         author: RevisionAuthor,
-        agent_turn: str | None = None,
     ) -> EditTimelineReadout:
         """把一条剪辑时间线的指定修订（缺省为最新修订）复制成同一集的新时间线，返回新时间线的第一个修订。
 
         内容原样复制，包括原声音量、截取与转场；片段编号保持不变，编号分配器一并带过去，之后新建的片段不会撞号。
         """
         normalized = _normalized_name(name)
-        document = await run_sync_transaction(
-            self._copy_sync, project_name, timeline_id, revision, normalized, author, agent_turn
-        )
+        document = await run_sync_transaction(self._copy_sync, project_name, timeline_id, revision, normalized, author)
         return await self._readout(project_name, document, document.latest.number)
 
     def _rename_sync(self, project_name: str, timeline_id: str, name: str) -> EditTimelineDocument:
@@ -354,7 +340,6 @@ class EditTimelineService:
                     parent=revision.parent,
                     author=revision.author,
                     summary=revision.summary,
-                    agent_turn=revision.agent_turn,
                     created_at=revision.created_at,
                     clip_count=len(revision.content.clips),
                     changed_clip_ids=revision.changed_clip_ids,
@@ -371,7 +356,6 @@ class EditTimelineService:
         episode: int,
         number: int,
         author: RevisionAuthor,
-        agent_turn: str | None,
     ) -> _Written:
         store = self._store(project_name)
         with store.locked_episode(episode):
@@ -392,7 +376,6 @@ class EditTimelineService:
                 parent=latest.number,
                 author=author,
                 summary=f"回滚到修订 {number}，撤销之后的改动；回滚前的修订仍保留在历史里",
-                agent_turn=agent_turn,
                 created_at=_utc_now(),
                 content=target.content,
                 changed_clip_ids=sorted_clip_ids(changed),
@@ -418,7 +401,6 @@ class EditTimelineService:
         *,
         revision: int,
         author: RevisionAuthor,
-        agent_turn: str | None = None,
     ) -> EditTimelineWriteResult:
         """回滚：以旧修订的内容追加一个新修订，历史不改写。
 
@@ -430,7 +412,7 @@ class EditTimelineService:
         unit_ids = {clip.unit_id for clip in (*target.content.clips, *document.latest.content.clips)}
         sources = await load_episode_sources(self._projects, project_name, script, unit_ids)
         written = await run_sync_transaction(
-            self._restore_sync, project_name, timeline_id, document.episode, revision, author, agent_turn
+            self._restore_sync, project_name, timeline_id, document.episode, revision, author
         )
         message = (
             f"剪辑时间线「{document.name}」已回滚：新修订 {written.document.latest.number} 的内容取自修订 {revision}，"
@@ -469,7 +451,6 @@ class EditTimelineService:
         summary: str,
         operations: Sequence[TimelineOperation],
         author: RevisionAuthor,
-        agent_turn: str | None = None,
     ) -> EditTimelineWriteResult:
         """按 ``base_revision`` 解读一批操作，原子追加一个修订。
 
@@ -501,7 +482,6 @@ class EditTimelineService:
             operations,
             sources,
             author,
-            agent_turn,
         )
         concurrent = tuple(
             ConcurrentRevision(number=revision.number, author=revision.author, summary=revision.summary)
@@ -567,7 +547,6 @@ class EditTimelineService:
         operations: Sequence[TimelineOperation],
         sources: EpisodeSources,
         author: RevisionAuthor,
-        agent_turn: str | None,
     ) -> _Written:
         store = self._store(project_name)
         with store.locked_episode(episode):
@@ -590,7 +569,6 @@ class EditTimelineService:
                 parent=latest.number,
                 author=author,
                 summary=summary,
-                agent_turn=agent_turn,
                 created_at=_utc_now(),
                 content=applied.content,
                 changed_clip_ids=sorted_clip_ids(frozenset(applied.last_operation)),

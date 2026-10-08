@@ -41,7 +41,6 @@ function summary(name: string): EditTimelineSummary {
     updated_at: "",
     updated_by: { kind: "creator", user_id: null },
     update_summary: "",
-    agent_turn: null,
   };
 }
 

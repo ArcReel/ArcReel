@@ -40,7 +40,6 @@ async def test_batch_applies_as_one_revision_and_reports_only_affected_clips(ser
             {"op": "set_reason", "clip": "c3", "reason": "先交代环境"},
         ),
         author=AGENT,
-        agent_turn="user-7",
     )
 
     assert (result.revision, result.base_revision, result.concurrent_revisions) == (2, 1, ())
@@ -52,11 +51,7 @@ async def test_batch_applies_as_one_revision_and_reports_only_affected_clips(ser
     assert readout.revision == 2
     assert [clip.id for clip in readout.clips] == ["c3", "c1", "c2"]
     [summary] = await service.list_timelines("demo")
-    assert (summary.update_summary, summary.updated_by, summary.agent_turn) == (
-        "压低开场原声并把无人声镜头提前",
-        AGENT,
-        "user-7",
-    )
+    assert (summary.update_summary, summary.updated_by) == ("压低开场原声并把无人声镜头提前", AGENT)
 
 
 async def _edit(service: EditTimelineService, timeline_id: str, base_revision: int, *operations: dict[str, Any]):

@@ -59,7 +59,7 @@ async def test_copy_of_a_given_revision_matches_the_source_content(service: Edit
     await _edit(service, source_id, 2, {"op": "delete", "clip": "c3"})
     before = await service.read("demo", source_id, revision=2)
 
-    copied = await service.copy("demo", source_id, name="快节奏版", revision=2, author=AGENT, agent_turn="user-3")
+    copied = await service.copy("demo", source_id, name="快节奏版", revision=2, author=AGENT)
 
     assert copied.timeline.id != source_id
     assert (copied.timeline.name, copied.timeline.episode, copied.revision, copied.latest_revision) == (
@@ -73,7 +73,7 @@ async def test_copy_of_a_given_revision_matches_the_source_content(service: Edit
     assert [clip.source_volume for clip in copied.clips] == [1.0, 0.6, 1.0]
     history = await service.list_revisions("demo", copied.timeline.id)
     [only] = history.revisions
-    assert (only.author, only.agent_turn, only.parent) == (AGENT, "user-3", None)
+    assert (only.author, only.parent) == (AGENT, None)
     assert "初剪" in only.summary
     assert "修订 2" in only.summary
     # 源时间线不受影响。
@@ -156,7 +156,6 @@ async def test_revision_history_lists_authors_summaries_and_changed_clips(servic
         summary="压低 c2 原声",
         operations=_ops({"op": "set_volume", "clip": "c2", "volume": 0.5}),
         author=AGENT,
-        agent_turn="user-9",
     )
 
     history = await service.list_revisions("demo", timeline_id)
@@ -170,13 +169,7 @@ async def test_revision_history_lists_authors_summaries_and_changed_clips(servic
         3,
         None,
     )
-    assert (second.number, second.parent, second.author, second.summary, second.agent_turn) == (
-        2,
-        1,
-        AGENT,
-        "压低 c2 原声",
-        "user-9",
-    )
+    assert (second.number, second.parent, second.author, second.summary) == (2, 1, AGENT, "压低 c2 原声")
     assert second.changed_clip_ids == ("c2",)
 
 
@@ -186,7 +179,7 @@ async def test_restore_appends_a_revision_with_the_target_content(service: EditT
     await _edit(service, timeline_id, 2, {"op": "delete", "clip": "c3"}, {"op": "move", "clip": "c2", "after": None})
     original = await service.read("demo", timeline_id, revision=1)
 
-    result = await service.restore("demo", timeline_id, revision=1, author=CREATOR, agent_turn=None)
+    result = await service.restore("demo", timeline_id, revision=1, author=CREATOR)
 
     assert (result.revision, result.base_revision) == (4, 3)
     assert result.deleted_clip_ids == ()

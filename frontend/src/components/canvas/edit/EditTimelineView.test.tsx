@@ -28,7 +28,6 @@ function summary(id: string, name: string, updatedAt: string, revision = 1): Edi
     updated_at: updatedAt,
     updated_by: { kind: "arcreel_agent", user_id: null },
     update_summary: "剪辑",
-    agent_turn: null,
   };
 }
 

@@ -223,8 +223,6 @@ class ManagedSession:
     # 据此显式回报失败（事件日志是时间线唯一读源，seq 0 缺失不可接受）。
     initial_user_entry_error: Exception | None = None
     last_user_prompt: str = ""
-    # 当前轮次的身份：发起该轮的用户消息在事件日志里的 uuid；工具写入据此记录所属 Agent 轮次。
-    current_turn: str | None = None
     assistant_model: str = ""
     interrupt_requested: bool = False
     last_activity: float | None = None  # updated on every send/receive
@@ -412,16 +410,6 @@ class ManagedSession:
         return [pending.payload for pending in self.pending_questions.values()]
 
 
-def _current_turn_of(managed_ref: list[ManagedSession | None]) -> Callable[[], str | None]:
-    """会话当前轮次的读取器：会话对象在 options 构建之后才建出，经引用延迟取值。"""
-    return lambda: managed_ref[0].current_turn if managed_ref[0] is not None else None
-
-
-def _entry_uuid(entry: dict[str, Any] | None) -> str | None:
-    uuid = entry.get("uuid") if entry is not None else None
-    return str(uuid) if uuid else None
-
-
 def _turn_open_after(turn_open: bool, msg: dict[str, Any]) -> bool:
     """轮次边界：主线程首帧开启一轮，result 收尾。没有主线程帧就结束的轮次不计。"""
     if msg.get("type") == "result":
@@ -570,7 +558,6 @@ class SessionManager:
         locale: str = DEFAULT_LOCALE,
         stderr: Callable[[str], None] | None = None,
         session_id: str | None = None,
-        agent_turn: Callable[[], str | None] | None = None,
     ) -> Any:
         """委派给 ``OptionsAssembler.build``——SessionManager 不再直接构建 options 与
         hook，仅调用装配器；凭证注入、prompt 装配、hook 工厂均由装配器持有。"""
@@ -581,7 +568,6 @@ class SessionManager:
             locale=locale,
             stderr=stderr,
             session_id=session_id,
-            agent_turn=agent_turn,
         )
 
     def _build_session_store(self):
@@ -716,7 +702,6 @@ class SessionManager:
                 can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
                 locale=locale,
                 stderr=startup_stderr,
-                agent_turn=_current_turn_of(managed_ref),
             )
         except Exception as exc:
             sdk_stderr = startup_stderr.render()
@@ -743,7 +728,6 @@ class SessionManager:
         )
         if user_entry is not None:
             managed.pending_initial_user_entry = {"entry": user_entry, "client_key": client_key}
-        managed.current_turn = _entry_uuid(user_entry)
         managed.entry_pipeline = self._build_entry_pipeline(managed)
         managed_ref[0] = managed
         managed.last_activity = time.monotonic()
@@ -1061,7 +1045,6 @@ class SessionManager:
                     locale=locale,
                     stderr=startup_stderr,
                     session_id=None if resumable else meta.id,
-                    agent_turn=_current_turn_of(managed_ref),
                 )
             except Exception as exc:
                 sdk_stderr = startup_stderr.render()
@@ -1191,7 +1174,6 @@ class SessionManager:
             if len(managed.pending_user_echoes) > 20:
                 managed.pending_user_echoes.pop(0)
         managed.last_user_prompt = display_text
-        managed.current_turn = _entry_uuid(log_entry)
 
         await self.meta_store.update_status(session_id, "running")
 

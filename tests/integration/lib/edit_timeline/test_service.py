@@ -125,7 +125,7 @@ async def test_list_reports_each_timeline_with_latest_revision(
     pm.save_script("demo", {**_script(_unit("E2U1", "关门")), "episode": 2}, "episode_2.json")
     first = await service.create_from_script("demo", episode=1, name="完整版", author=CREATOR)
     second = await service.create_from_script(
-        "demo", episode=1, name="快节奏版", author=RevisionAuthor(kind="arcreel_agent"), agent_turn="user-1"
+        "demo", episode=1, name="快节奏版", author=RevisionAuthor(kind="arcreel_agent")
     )
     other = await service.create_from_script("demo", episode=2, name="完整版", author=CREATOR)
 
