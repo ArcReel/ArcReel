@@ -73,6 +73,30 @@ class TestSessionManagerSdkSessionId:
         assert meta.project_name == "demo"
         assert meta.status == "running"
 
+    async def test_stream_opened_once_the_session_is_listed_subscribes_to_the_managed_channel(
+        self, session_manager, meta_store, monkeypatch
+    ):
+        """新会话的元数据一落库就可被列出：此时打开的 entry 流挂在会话实际广播的通道上。"""
+        sdk_session_id = "sdk-new-listed"
+        managed = _make_managed()
+        session_manager.sessions[managed.session_id] = managed
+        subscribed = []
+        real_create = meta_store.create
+
+        async def _create_then_client_subscribes(project_name, session_id):
+            meta = await real_create(project_name, session_id)
+            subscribed.append(session_manager._subscribe(session_id)[0])
+            return meta
+
+        monkeypatch.setattr(meta_store, "create", _create_then_client_subscribes)
+
+        await session_manager._on_sdk_session_id_received(
+            managed, StreamEvent(sdk_session_id), {"session_id": sdk_session_id}
+        )
+
+        assert subscribed == [managed.channel]
+        assert session_manager._channels[sdk_session_id] is managed.channel
+
     async def test_finalize_turn_records_assistant_usage(self, session_manager, meta_store):
         meta = await meta_store.create("demo", "sdk-usage-789")
         managed = _make_managed(session_id=meta.id, project_name="demo", assistant_model="claude-sonnet-4")

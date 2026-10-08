@@ -896,6 +896,34 @@ class TestSessionStatusFollowsCliIdle:
             finally:
                 await manager.close_session(SDK_ID)
 
+    async def test_interrupt_that_reaches_no_turn_does_not_carry_past_cli_idle(self, manager: SessionManager):
+        """result 之后、idle 之前的中断落空：CLI 报 idle 后，下一轮的失败仍记为 error。"""
+        client = FakeSDKClient(
+            frames=[
+                _session_state_frame("running"),
+                assistant_frame({"type": "text", "text": "好的"}, uuid="a-1", session_id=SDK_ID),
+                result_frame(session_id=SDK_ID, uuid="r-1"),
+            ]
+        )
+        async with manager.stream_messages(SDK_ID, idle_timeout=5) as stream:
+            await self._send(manager, client)
+            try:
+                await _next_broadcast(stream, "log_turn_complete")
+                await manager.interrupt_session(SDK_ID)
+                client.push_frame(_idle_frame())
+                assert (await _next_broadcast(stream, "runtime_status"))["status"] == "completed"
+
+                client.push_frame(_session_state_frame("running"))
+                client.push_frame(assistant_frame({"type": "text", "text": "汇总"}, uuid="a-2", session_id=SDK_ID))
+                client.push_frame(result_frame("error_during_execution", is_error=True, session_id=SDK_ID, uuid="r-2"))
+                client.push_frame(_idle_frame())
+                assert (await _next_broadcast(stream, "runtime_status"))["status"] == "running"
+                settled = await _next_broadcast(stream, "runtime_status")
+
+                assert settled["status"] == "error"
+            finally:
+                await manager.close_session(SDK_ID)
+
     @pytest.mark.parametrize(
         ("turn_frames", "expected"),
         [

@@ -254,15 +254,13 @@ class ManagedSession:
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES: ClassVar[set[str]] = {"result", "runtime_status", "log_entry", "log_turn_complete"}
 
-    def enter_running(self, *, invalidates_idle: bool = True) -> bool:
-        """消息送达 CLI 或 CLI 报告开始工作：会话进入 running。返回本次是否从非 running 切入。
+    def enter_running(self) -> bool:
+        """消息送达 CLI 或读到 CLI 开始工作：会话进入 running。返回本次是否从非 running 切入。
 
         同步执行（发送路径与 actor 回调都在事件循环上），这一刻起受理新消息、闲置清理与
-        驱逐就都把会话当作进行中。``invalidates_idle`` 为 False 时不计入进入 running 的信号：
-        inbox 序上的切入发生在已读出的帧之后，不能让读出时已登记的 idle 过时。
+        驱逐就都把会话当作进行中，此前读出的 idle 随之过时。
         """
-        if invalidates_idle:
-            self._running_epoch += 1
+        self._running_epoch += 1
         self.last_activity = time.monotonic()
         if self._cleanup_task is not None and not self._cleanup_task.done():
             self._cleanup_task.cancel()
@@ -589,9 +587,14 @@ class SessionManager:
             cli_state = _cli_session_state(msg_dict)
             if cli_state == "idle":
                 managed._inbox.put_nowait(_CliIdleNotice(epoch=managed._running_epoch))
-            elif cli_state in ("running", "requires_action") and not managed._inbox_stopped and managed.enter_running():
-                # running / requires_action：读到即切入，不等 inbox——这一刻起受理新消息就
-                # 会与 CLI 自主开启的这一轮交错，闲置清理也不能断开它。
+            elif (
+                (cli_state in ("running", "requires_action") or is_main_turn_activity(msg_dict))
+                and not managed._inbox_stopped
+                and managed.enter_running()
+            ):
+                # CLI 报告开始工作，或未报 running 就产出主线程帧：读到即切入，不等 inbox——
+                # 这一刻起受理新消息就会与 CLI 自主开启的这一轮交错，闲置清理也不能断开它，
+                # 在它之前读出的 idle 也随之过时。
                 managed._inbox.put_nowait(_CliBusyNotice())
 
         return _on_message
@@ -911,11 +914,8 @@ class SessionManager:
                             managed.session_id,
                         )
                 if is_main_turn_activity(msg_dict):
-                    # 主线程产出意味着新一轮已开始，上一轮的结局作废。CLI 没先报 running
-                    # 就开启的一轮（不报会话状态的 CLI）在此切入 running。
+                    # 主线程产出意味着新一轮已开始，上一轮的结局作废
                     managed.turn_outcome = None
-                    if managed.enter_running(invalidates_idle=False):
-                        await self._persist_cli_resumed(managed)
                 # 事件日志写入点：sdk_session_id 就绪后逐条定型入日志。
                 # handle_message 内部吞异常，不会打断会话消费。
                 if managed.entry_pipeline is not None and managed.resolved_sdk_id is not None:
@@ -1297,6 +1297,8 @@ class SessionManager:
             # 运行在 inbox 里：异常会让 inbox 退出、actor 却还活着，会话再也没人收尾。
             # 内存状态已切换，持久化由离开 running 时写入终态补上。
             logger.exception("持久化自主轮次 running 状态失败 session_id=%s", managed.session_id)
+        # 常驻的 entry 流据此立即推 running：这一轮可见输出之前，面板不停在旧终态
+        managed.channel.broadcast({"type": "runtime_status", "status": "running", "reason": "cli resumed"})
         listener = self._autonomous_turn_listener
         if listener is None:
             return
@@ -1353,7 +1355,15 @@ class SessionManager:
         status: SessionStatus = managed.turn_outcome or "completed"
         managed.status = status
         managed.last_activity = time.monotonic()
+        # result 之后才到的中断没有轮次可收尾，留到下一轮会把它的失败记成中断
+        managed.interrupt_requested = False
         await self.meta_store.update_status(managed.session_id, status)
+        if epoch != managed._running_epoch:
+            # 落库期间会话又回到 running（CLI 开始工作或新消息送达）：切回一方写入的 running
+            # 可能先于这次终态落库，补写一次让 running 最后落库；过时的终态不广播，也不调度清理
+            if managed.status == "running":
+                await self.meta_store.update_status(managed.session_id, "running")
+            return
         result = managed.last_turn_result or {}
         managed.channel.broadcast(
             {
@@ -1752,8 +1762,17 @@ class SessionManager:
 
         # Only create DB record for new sessions (no existing meta)
         if not managed.sdk_id_event.is_set():
-            # 会话与项目的归属只记在 meta_store。
-            await self.meta_store.create(managed.project_name, sdk_id)
+            # 会话与项目的归属只记在 meta_store。元数据落库即可被列出、打开 entry 流，
+            # 通道先按 sdk_id 登记，此后的订阅挂在会话实际广播的通道上；已离开常驻集合的会话不登记。
+            registered = managed.session_id in self.sessions
+            if registered:
+                self._channels[sdk_id] = managed.channel
+            try:
+                await self.meta_store.create(managed.project_name, sdk_id)
+            except BaseException:
+                if registered and self._channels.get(sdk_id) is managed.channel:
+                    del self._channels[sdk_id]
+                raise
             await self.meta_store.update_status(sdk_id, "running")
             # 新会话首条用户消息先写日志分配身份（seq 0）：本方法在 inbox 任务
             # 内串行执行于任何 assistant 条目定型之前，保证时间线顺序；写入
@@ -1783,7 +1802,6 @@ class SessionManager:
                 del self.sessions[old_id]
                 managed.session_id = sdk_id
                 self.sessions[sdk_id] = managed
-                self._channels.setdefault(sdk_id, managed.channel)
             managed.sdk_id_event.set()
 
     @staticmethod

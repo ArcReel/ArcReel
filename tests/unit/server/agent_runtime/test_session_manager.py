@@ -341,22 +341,114 @@ class TestSessionManager:
         assert managed.status == "completed"
         assert (await meta_store.get(meta.id)).status == "completed"
 
-    async def test_process_inbox_resumes_running_on_autonomous_turn(self, session_manager, meta_store):
-        """idle 会话收到主线程 assistant 消息（CLI 自主开启的一轮）：回到 running 并通知监听方。"""
+    async def test_autonomous_turn_resumes_running_when_read_and_broadcasts_it(
+        self, session_manager, meta_store, monkeypatch
+    ):
+        """idle 会话读到主线程 assistant 帧（CLI 未先报 running 就开启的一轮）：读到即回到 running，
+        inbox 随后持久化、在会话通道广播 running 并通知监听方。"""
         meta = await meta_store.create("demo", "sdk-autonomous-1")
         managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="idle", project_name="demo")
         managed.resolved_sdk_id = meta.id
         session_manager.sessions[meta.id] = managed
         resumed: list[tuple[str, str]] = []
         session_manager.set_autonomous_turn_listener(lambda project, sid: resumed.append((project, sid)))
+        broadcasts: list[dict] = []
+        monkeypatch.setattr(managed.channel, "broadcast", broadcasts.append)
+        on_message = session_manager._make_actor_message_callback([managed])
 
-        managed._inbox.put_nowait({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        on_message({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        assert managed.status == "running"
+
+        managed._inbox.put_nowait(None)
+        await session_manager._process_inbox(managed)
+
+        assert (await meta_store.get(meta.id)).status == "running"
+        assert {"type": "runtime_status", "status": "running", "reason": "cli resumed"} in broadcasts
+        assert resumed == [("demo", meta.id)]
+
+    async def test_turn_read_after_idle_without_running_frame_makes_that_idle_stale(
+        self, session_manager, meta_store, monkeypatch
+    ):
+        """CLI 报 idle 后未先报 running 就开启新一轮：读出时已登记的 idle 过时，会话不落终态。"""
+        meta = await meta_store.create("demo", "sdk-autonomous-stale-idle")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="running", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        written: list[str] = []
+        real_update = meta_store.update_status
+
+        async def _record_update(session_id, status):
+            written.append(status)
+            return await real_update(session_id, status)
+
+        monkeypatch.setattr(meta_store, "update_status", _record_update)
+        on_message = session_manager._make_actor_message_callback([managed])
+
+        on_message({"type": "result", "subtype": "success", "is_error": False})
+        on_message(session_state_message("idle"))
+        on_message({"type": "assistant", "content": [], "parent_tool_use_id": None})
+        managed._inbox.put_nowait(None)
+        await session_manager._process_inbox(managed)
+
+        assert managed.status == "running"
+        assert "completed" not in written
+
+    async def test_cli_work_read_while_idle_persists_does_not_broadcast_the_stale_terminal(
+        self, session_manager, meta_store, monkeypatch
+    ):
+        """idle 落库期间读到 CLI 开始工作：会话回到 running，不向订阅者广播过时的终态。"""
+        meta = await meta_store.create("demo", "sdk-idle-persist-race")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="running", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        broadcasts: list[dict] = []
+        monkeypatch.setattr(managed.channel, "broadcast", broadcasts.append)
+        on_message = session_manager._make_actor_message_callback([managed])
+        real_update = meta_store.update_status
+
+        async def _update_then_cli_resumes(session_id, status):
+            await real_update(session_id, status)
+            if status == "completed":
+                on_message(session_state_message("running"))
+                managed._inbox.put_nowait(None)
+
+        monkeypatch.setattr(meta_store, "update_status", _update_then_cli_resumes)
+
+        on_message({"type": "result", "subtype": "success", "is_error": False})
+        on_message(session_state_message("idle"))
+        await asyncio.wait_for(session_manager._process_inbox(managed), timeout=5)
+
+        assert managed.status == "running"
+        assert (await meta_store.get(meta.id)).status == "running"
+        assert [m["status"] for m in broadcasts if m.get("type") == "runtime_status"] == ["running"]
+
+    async def test_send_accepted_while_idle_persists_leaves_running_persisted(
+        self, session_manager, meta_store, monkeypatch
+    ):
+        """idle 落库期间新消息送达、且它的 running 先落库：会话最终持久化为 running，而不是过时的终态。"""
+        meta = await meta_store.create("demo", "sdk-idle-send-race")
+        managed = ManagedSession(session_id=meta.id, actor=_dummy_actor(), status="running", project_name="demo")
+        managed.resolved_sdk_id = meta.id
+        session_manager.sessions[meta.id] = managed
+        on_message = session_manager._make_actor_message_callback([managed])
+        real_update = meta_store.update_status
+
+        async def _send_lands_first(session_id, status):
+            if status == "completed":
+                # 发送路径看到非 running 后受理：先写 running，再送达 CLI
+                await real_update(session_id, "running")
+                managed.enter_running()
+            await real_update(session_id, status)
+
+        monkeypatch.setattr(meta_store, "update_status", _send_lands_first)
+
+        on_message({"type": "result", "subtype": "success", "is_error": False})
+        on_message(session_state_message("idle"))
         managed._inbox.put_nowait(None)
         await session_manager._process_inbox(managed)
 
         assert managed.status == "running"
         assert (await meta_store.get(meta.id)).status == "running"
-        assert resumed == [("demo", meta.id)]
 
     @pytest.mark.parametrize(
         "message",

@@ -44,8 +44,7 @@ class SessionCommand:
     def complete(self, error: BaseException | None = None) -> None:
         """唤醒所有等待者（sent + done）并可选携带 error。
 
-        集中定义避免漏置 sent 或 done 导致调用方挂死——历次 review 发现过
-        多个 "只 set done 忘了 set sent" 的回归，此 helper 作为单一契约点。
+        sent 与 done 必须同时置位，否则等待其中之一的调用方会挂死；所有完成路径都经此处。
         """
         if error is not None:
             self.error = error
@@ -102,10 +101,10 @@ class _MessagePump:
             return _TURN_END
         frames = self._frames
         if frames is None:
-            frames = self._frames = sdk_frames.raw_frames(self._client).__aiter__()
+            frames = self._frames = sdk_frames.raw_frames(self._client)
         while True:
             try:
-                frame = await frames.__anext__()
+                frame = await anext(frames)
             except StopAsyncIteration:
                 # 收尾仍按一轮结束交付：流断在轮次中途时，在途 query 随之完成
                 self._closed = True
