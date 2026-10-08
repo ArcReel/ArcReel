@@ -309,7 +309,7 @@ Claude 产品：https://claude.com/blog/memory （2025-09-11，含 2025-10-23 �
 
 ---
 
-## 八、CONTEXT.md 词条草案
+## 八、GLOSSARY.md 词条草案
 
 拟加入「Agent 运行时」节，位于「SDK transcript」词条之前；「指令」词条现有的「长期偏好由 Agent 记忆承载」保持不变即可指向本词条。只写含义与 Avoid，不写实现。
 

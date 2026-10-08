@@ -41,7 +41,7 @@ class CallStatus(StrEnum):
 
 
 class CallPurpose(StrEnum):
-    """一次供应商调用被发起的原因（CONTEXT「来源（purpose）」词条的七个取值）。
+    """一次供应商调用被发起的原因（GLOSSARY.md「来源（purpose）」词条的七个取值）。
 
     生成任务经 ``api_calls.task_id`` 回指它服务的任务，其余六个是无任务的调用各自的来源。
     """

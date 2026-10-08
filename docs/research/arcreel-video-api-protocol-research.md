@@ -686,7 +686,7 @@ ArcReel 需要在 channel 配置层维护 model name 别名映射，或者在 `i
 
 **关于命名（先澄清，避免误导）**：
 - ArcReel 当前的 `VideoBackend` Protocol + 各 `XxxVideoBackend` 实现，**本质上已经是业内推崇的 Ports & Adapters（六边形架构）范式**——Protocol 即 Port，各 backend 即 Adapter。架构骨架已对齐优秀实践。
-- 术语表（CONTEXT.md）选择 `backend` 而非 `adapter` 命名，理由是：backend 与 provider 的"派生"语义契合（一个 provider 派生多个 backend）、与 frontend 对仗、以及 video/image/text 三套媒体后端命名一致。**SQLAlchemy / Django 等成熟项目同样用 backend 而非 adapter 命名同类角色**，命名本身不构成"未对齐业内"的问题。
+- 术语表（GLOSSARY.md）选择 `backend` 而非 `adapter` 命名，理由是：backend 与 provider 的"派生"语义契合（一个 provider 派生多个 backend）、与 frontend 对仗、以及 video/image/text 三套媒体后端命名一致。**SQLAlchemy / Django 等成熟项目同样用 backend 而非 adapter 命名同类角色**，命名本身不构成"未对齐业内"的问题。
 - **结论倾向**：不建议以"对齐 adapter 命名"为目标做重构；命名是表层，真正该评估的是下面的能力缺口。
 
 **真正需要 PRD 评估的架构缺口（与命名无关）**：
@@ -747,7 +747,7 @@ ArcReel 需要在 channel 配置层维护 model name 别名映射，或者在 `i
 ### ArcReel 现有设计文档（背景对齐）
 
 - `docs/adr/` — VideoBackend 分层、自定义供应商与 endpoint、duration 真相源等架构决策
-- `CONTEXT.md` — 词汇表（backend 而非 adapter）
+- `GLOSSARY.md` — 词汇表（backend 而非 adapter）
 
 ### 中转站文档（事实标准来源）
 

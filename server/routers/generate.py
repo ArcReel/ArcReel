@@ -853,7 +853,7 @@ async def generate_product(
 async def _require_i2i_image_provider_configured(project: dict) -> str:
     """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
 
-    图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 CONTEXT.md「图片编辑」），
+    图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 GLOSSARY.md「图片编辑」），
     故解析前置到入队；执行层 ``generate_image_async`` 的能力 gating 保留兜底。
     返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
     """

@@ -1,6 +1,6 @@
 """图片指令式编辑（image edit）任务执行层。
 
-编辑语义（见 ``docs/adr/0050`` 与 CONTEXT.md「图片编辑」术语）：以资源的当前图为唯一
+编辑语义（见 ``docs/adr/0050`` 与 GLOSSARY.md「图片编辑」术语）：以资源的当前图为唯一
 参考图、用户编辑指令为唯一 prompt 调用 i2i，产出新图覆盖 current 并自动进版本历史；
 原 image_prompt 不回写——编辑是对**图**的分叉而非对 prompt 的分叉。
 
