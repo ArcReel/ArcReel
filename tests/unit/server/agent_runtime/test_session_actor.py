@@ -10,6 +10,7 @@ import asyncio
 import pytest
 
 from server.agent_runtime.session_actor import (
+    MessageStreamClosed,
     SessionActor,
     SessionCommand,
     _ActorClosed,
@@ -71,6 +72,7 @@ async def test_fake_client_yields_injected_messages_then_stops():
     ]
     client = FakeSDKClient(messages=messages)
     async with client:
+        await client.query("hi")
         collected = [msg async for msg in client.receive_response()]
     assert collected == messages
 
@@ -164,7 +166,7 @@ async def test_query_consumes_all_messages_and_sets_done():
         on_message=lambda msg: collected.append(msg),
     )
     await actor.start()
-    # FakeSDKClient 的初始 messages 在 __aenter__ 时入队；query 只是发送动作
+    # FakeSDKClient 的初始 messages 在首次 query 时入队，与真实 CLI 一致
     cmd = SessionCommand(type="query", prompt="hi")
     await actor.enqueue(cmd)
     await cmd.done.wait()
@@ -547,3 +549,194 @@ async def test_interrupt_failure_still_wakes_waiter():
     finally:
         # actor 已 crash；cancel 清理
         await actor.cancel_and_wait()
+
+
+# --- CLI 自主开启的轮次（后台任务完成后唤醒）---------------------------------
+# result 只代表一轮结束：后台 agent 完成后 CLI 会不经 query 自主开启新一轮。
+
+
+class _Recorder:
+    """on_message 替身：收到 id 为 key 的消息时唤醒对应等待者。"""
+
+    def __init__(self) -> None:
+        self.messages: list[dict] = []
+        self._seen: dict[object, asyncio.Event] = {}
+
+    def __call__(self, msg: dict) -> None:
+        self.messages.append(msg)
+        self._event(msg.get("id")).set()
+
+    def _event(self, key: object) -> asyncio.Event:
+        return self._seen.setdefault(key, asyncio.Event())
+
+    async def wait_for(self, key: object) -> None:
+        await asyncio.wait_for(self._event(key).wait(), timeout=1.0)
+
+
+async def _start_with_finished_turn(recorder: _Recorder) -> tuple[SessionActor, FakeSDKClient]:
+    client = FakeSDKClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=recorder)
+    await actor.start()
+    q = SessionCommand(type="query", prompt="turn 1")
+    await actor.enqueue(q)
+    await q.sent.wait()
+    client.push_message({"type": "assistant", "id": "turn-1"})
+    client.push_message({"type": "result", "subtype": "success", "id": "turn-1-result"})
+    await asyncio.wait_for(q.done.wait(), timeout=1.0)
+    return actor, client
+
+
+async def _disconnect(actor: SessionActor) -> None:
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+    await d.done.wait()
+    await actor.wait()
+
+
+async def test_unsolicited_turn_after_result_is_delivered_without_new_query():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    try:
+        client.push_message({"type": "assistant", "id": "follow-up"})
+        client.push_message({"type": "result", "subtype": "success", "id": "follow-up-result"})
+
+        await recorder.wait_for("follow-up-result")
+        assert client.sent_queries == ["turn 1"]
+    finally:
+        await _disconnect(actor)
+
+
+async def test_query_during_unsolicited_turn_goes_straight_to_the_cli():
+    """消息排队由 CLI 负责（并入当前轮或之后另开一轮），actor 不暂存。"""
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    try:
+        client.push_message({"type": "assistant", "id": "follow-up"})
+        await recorder.wait_for("follow-up")
+
+        q2 = SessionCommand(type="query", prompt="turn 2")
+        await actor.enqueue(q2)
+        await asyncio.wait_for(q2.sent.wait(), timeout=1.0)
+
+        assert client.sent_queries == ["turn 1", "turn 2"]
+    finally:
+        await _disconnect(actor)
+
+
+async def test_query_after_unsolicited_turn_completes_at_its_own_result():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    try:
+        client.push_message({"type": "assistant", "id": "follow-up"})
+        client.push_message({"type": "result", "subtype": "success", "id": "follow-up-result"})
+        await recorder.wait_for("follow-up-result")
+
+        q2 = SessionCommand(type="query", prompt="turn 2")
+        await actor.enqueue(q2)
+        await q2.sent.wait()
+        assert not q2.done.is_set()
+
+        client.push_message({"type": "assistant", "id": "turn-2"})
+        client.push_message({"type": "result", "subtype": "success", "id": "turn-2-result"})
+        await asyncio.wait_for(q2.done.wait(), timeout=1.0)
+        assert recorder.messages[-1]["id"] == "turn-2-result"
+    finally:
+        await _disconnect(actor)
+
+
+async def test_interrupt_reaches_client_during_unsolicited_turn():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    try:
+        client.push_message({"type": "assistant", "id": "follow-up"})
+        await recorder.wait_for("follow-up")
+
+        i = SessionCommand(type="interrupt")
+        await actor.enqueue(i)
+        await asyncio.wait_for(i.done.wait(), timeout=1.0)
+        assert i.error is None
+        assert client.interrupted
+    finally:
+        await _disconnect(actor)
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        {"type": "system", "subtype": "session_state_changed", "state": "idle", "id": "trailing"},
+        {"type": "assistant", "parent_tool_use_id": "toolu_subagent", "id": "trailing"},
+    ],
+    ids=["trailing-system-frame", "background-subagent-message"],
+)
+async def test_non_turn_frames_while_idle_do_not_open_a_turn(frame):
+    """它们之后不会再有 result 来收尾：据此开轮的话，空闲会话的中断会打到 CLI 上。"""
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    try:
+        client.push_message(frame)
+        await recorder.wait_for("trailing")
+
+        i = SessionCommand(type="interrupt")
+        await actor.enqueue(i)
+        await asyncio.wait_for(i.done.wait(), timeout=1.0)
+        assert not client.interrupted
+    finally:
+        await _disconnect(actor)
+
+
+async def test_actor_exits_when_message_stream_closes():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+
+    client.close_stream()
+
+    task = actor.task
+    assert task is not None
+    with pytest.raises(MessageStreamClosed):
+        await asyncio.wait_for(task, timeout=1.0)
+    q = SessionCommand(type="query", prompt="after exit")
+    await actor.enqueue(q)
+    assert q.done.is_set()
+    assert q.error is not None
+    assert client.sent_queries == ["turn 1"]
+
+
+async def test_disconnect_completes_even_if_interrupt_fails():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    client.push_message({"type": "assistant", "id": "follow-up"})
+    await recorder.wait_for("follow-up")
+
+    async def _broken_interrupt() -> None:
+        raise RuntimeError("transport gone")
+
+    client.interrupt = _broken_interrupt
+    d = SessionCommand(type="disconnect")
+    await actor.enqueue(d)
+
+    await asyncio.wait_for(d.done.wait(), timeout=1.0)
+    await actor.wait()
+    assert client.disconnected
+
+
+async def test_disconnect_interrupts_unsolicited_turn():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    client.push_message({"type": "assistant", "id": "follow-up"})
+    await recorder.wait_for("follow-up")
+
+    await _disconnect(actor)
+
+    assert client.interrupted
+
+
+async def test_interrupt_while_idle_does_not_reach_client():
+    recorder = _Recorder()
+    actor, client = await _start_with_finished_turn(recorder)
+    try:
+        i = SessionCommand(type="interrupt")
+        await actor.enqueue(i)
+        await asyncio.wait_for(i.done.wait(), timeout=1.0)
+        assert not client.interrupted
+    finally:
+        await _disconnect(actor)

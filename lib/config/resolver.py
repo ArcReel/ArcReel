@@ -57,7 +57,7 @@ _TRUTHY = frozenset({"true", "1", "yes"})
 class ProviderModel:
     """provider 解析的结果值对象：一对 (规范 provider_id, model_id)。
 
-    见 CONTEXT.md「ProviderModel」。这是"选了哪个 provider 及其 model"，**不是** backend
+    见 GLOSSARY.md「ProviderModel」。这是"选了哪个 provider 及其 model"，**不是** backend
     （未构造任何客户端）；命名刻意避开 ``*Backend`` 以保持 provider 身份与 backend 构造的区分。
     ``provider_id`` 一律为规范 id——解析链假设输入即规范形态（由项目迁移 + 写边界保证），不做归一化。
     """
@@ -1564,7 +1564,7 @@ class ConfigResolver:
             "max_reference_audio_count": max_reference_audio_count,
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,
-            # 档位是空集且该端点允许空集 = 这一维由端点固定（CONTEXT.md「维度由端点固定」）。
+            # 档位是空集且该端点允许空集 = 这一维由端点固定（GLOSSARY.md「维度由端点固定」）。
             # 消费方据此区分「这一维在该端点上不存在」与「档位声明缺失」——后者已在上面 fail loud。
             "duration_endpoint_fixed": duration_endpoint_fixed,
             "duration_endpoint_fixed_reason": duration_endpoint_fixed_reason(duration_endpoint_fixed),

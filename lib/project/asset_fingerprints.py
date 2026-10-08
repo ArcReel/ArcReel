@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-# 扫描的媒体子目录
+# 扫描的媒体子目录：与公开媒体端点（``server.routers.files.PUBLIC_MEDIA_DIRS``）对齐，
+# 只差 ``renders/``——成片按版本键定址，不参与 cache-bust。
 _MEDIA_SUBDIRS = (
     "storyboards",
     "end_frames",
@@ -14,6 +15,8 @@ _MEDIA_SUBDIRS = (
     "products",
     "grids",
     "reference_videos",
+    "audio",
+    "bgm",
 )
 
 # 根目录下的已知媒体文件（如风格参考图）

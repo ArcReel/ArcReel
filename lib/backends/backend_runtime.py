@@ -34,6 +34,7 @@ from lib.backends.http_status_errors import (
     redacted_status_error,
 )
 from lib.infra.logging_utils import redact_diagnostic_text, sanitize_diagnostic_payload
+from lib.infra.mp4_faststart import FASTSTART_SUFFIXES, ensure_faststart
 from lib.infra.retry import (
     BASE_RETRYABLE_ERRORS,
     AsyncClock,
@@ -751,6 +752,9 @@ async def stream_to_file(
     重定向，跳到别的源时把 ``headers`` 整个丢掉：httpx 跨源只摘 ``Authorization``，而端点
     定义的 auth 节可以用 ``X-API-Key`` 之类的任意头名，交给 ``follow_redirects`` 会把这些
     凭证原样送到重定向目标（对象存储 / CDN）去。
+
+    只落原样字节，不做 faststart：本函数在 :func:`with_artifact_retry` 的墙钟预算之内运行，
+    视频的重封装由调用方在重试返回之后经 :func:`faststart_video_artifact` 进行。
     """
 
     async def _write(resp: httpx.Response) -> None:
@@ -836,6 +840,18 @@ async def with_artifact_retry[T](
     return fetched[0]
 
 
+async def faststart_video_artifact(output_path: Path) -> None:
+    """已落盘的产物是 mp4 / mov / m4v 时尽力做 faststart（moov 挪到 mdat 之前），浏览器不必
+    下载到文件尾即可开播；随包 ffmpeg 不可用、重封装失败或超时都保留原样字节。
+
+    在 :func:`with_artifact_retry` 返回之后调用，不放进下载的墙钟预算：视频通道的预算取
+    ``poll_timeout_seconds``，最低只有 60 秒，重封装若被预算到期取消，已经下载成功的产物会
+    随之作废、生成失败。重封装有自己的期限，经临时文件原子替换产物，失败时原文件不变。
+    """
+    if output_path.suffix.lower() in FASTSTART_SUFFIXES:
+        await ensure_faststart(output_path)
+
+
 async def download_video(
     url: str,
     output_path: Path,
@@ -846,7 +862,7 @@ async def download_video(
     retryable_errors: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS,
     max_wait: float = ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
 ) -> None:
-    """从 URL 流式下载视频到本地文件，重试走共用的产物下载预算。"""
+    """从 URL 流式下载视频到本地文件，重试走共用的产物下载预算；落盘后尽力做 faststart。"""
 
     async def attempt() -> None:
         async with artifact_http_client(follow_redirects=True) as http_client:
@@ -855,6 +871,7 @@ async def download_video(
     await with_artifact_retry(
         attempt, label=label, retry_if=retry_if, retryable_errors=retryable_errors, max_wait=max_wait
     )
+    await faststart_video_artifact(output_path)
 
 
 async def download_resumable_video(url: str, output_path: Path, *, label: str) -> None:

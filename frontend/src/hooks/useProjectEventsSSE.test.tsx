@@ -6,6 +6,7 @@ import { API, type ProjectEventStreamOptions } from "@/api";
 import { LeaveGuardProvider, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { useProjectEventsSSE } from "./useProjectEventsSSE";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
@@ -310,6 +311,35 @@ describe("useProjectEventsSSE", () => {
 
     expect(revision()).toBeGreaterThan(before);
     expect(useAppStore.getState().getEntityRevision("draft:episode_4_prompt_authoring")).toBeGreaterThan(0);
+  });
+
+  it("forwards an assistant session resuming on its own to the assistant store", () => {
+    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    const stream = mockProjectEventStream();
+    renderHarness("/");
+
+    act(() =>
+      stream.options?.onAssistantSessionResumed?.({ project_name: "demo", session_id: "session-1", status: "running" }),
+    );
+
+    expect(useAssistantStore.getState().sessionResumeSignals).toEqual([
+      { kind: "resumed", projectName: "demo", sessionId: "session-1" },
+    ]);
+  });
+
+  it("asks the assistant to re-check its session on every snapshot, the first one included", () => {
+    // 恢复通知只推一次：订阅建立之前发出的（含首次建连前的失败重试、断线空窗）要靠快照核对
+    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    const stream = mockProjectEventStream();
+    renderHarness("/");
+
+    act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-a" } as never));
+    act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-a" } as never));
+
+    expect(useAssistantStore.getState().sessionResumeSignals).toEqual([
+      { kind: "resync", projectName: "demo" },
+      { kind: "resync", projectName: "demo" },
+    ]);
   });
 
   it("names an episode the Agent just created from the refreshed ledger", async () => {

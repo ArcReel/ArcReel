@@ -87,7 +87,7 @@ describe("UsageRecordsSection detail", () => {
 
     expect(dialog.getByRole("img", { name: "storyboards/scene_S10.png" })).toHaveAttribute(
       "src",
-      "/api/v1/files/demo/storyboards/scene_E1S10.png",
+      "/api/v1/files/demo/storyboards/scene_E1S10.png?w=320",
     );
   });
 

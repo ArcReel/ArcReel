@@ -109,7 +109,7 @@ class TestUpdateProjectWritableFields:
 
 
 class TestEnumSemantics:
-    """验证枚举类型的取值集合与 CONTEXT.md 一致。"""
+    """验证枚举类型的取值集合与 GLOSSARY.md 一致。"""
 
     def test_content_mode_values(self):
         from typing import get_args

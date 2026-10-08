@@ -628,7 +628,8 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByRole("tab", { name: "分镜" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "剪辑" }));
 
-    expect(screen.getByTestId("edit-timeline-view")).toHaveTextContent("episode 1");
+    // 剪辑视图按需加载，首次切入要等 chunk 到达
+    expect(await screen.findByTestId("edit-timeline-view")).toHaveTextContent("episode 1");
     expect(screen.queryByTestId("timeline-canvas")).not.toBeInTheDocument();
     expect(screen.getByTestId("workflow-panel")).toBeInTheDocument();
     expect(screen.getByRole("tabpanel", { name: "剪辑" })).toContainElement(screen.getByTestId("edit-timeline-view"));
@@ -651,7 +652,7 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByRole("tabpanel", { name: "剪辑" })).toContainElement(screen.getByTestId("edit-timeline-view"));
   });
 
-  it("deep-links each canvas view through ?view= and writes no view for the default one", () => {
+  it("deep-links each canvas view through ?view= and writes no view for the default one", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
@@ -670,7 +671,7 @@ describe("StudioCanvasRouter", () => {
     );
 
     expect(screen.getByRole("tab", { name: "脚本规划" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("grid-canvas")).toHaveAttribute("data-view", "plan");
+    expect(await screen.findByTestId("grid-canvas")).toHaveAttribute("data-view", "plan");
     expect(screen.getByRole("tabpanel", { name: "脚本规划" })).toContainElement(screen.getByTestId("grid-canvas"));
 
     fireEvent.click(screen.getByRole("tab", { name: "多宫格分镜图" }));
@@ -705,7 +706,7 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByTestId("timeline-canvas")).toHaveAttribute("data-view", "plan");
   });
 
-  it("names the board view after video units on the reference route and opens its plan view from the link", () => {
+  it("names the board view after video units on the reference route and opens its plan view from the link", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
@@ -721,7 +722,7 @@ describe("StudioCanvasRouter", () => {
 
     expect(screen.getByRole("tab", { name: "视频单元" })).toHaveAttribute("aria-selected", "false");
     expect(screen.queryByRole("tab", { name: "分镜" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("reference-video-canvas")).toHaveAttribute("data-view", "plan");
+    expect(await screen.findByTestId("reference-video-canvas")).toHaveAttribute("data-view", "plan");
   });
 
   it("deletes the episode from the page header menu", async () => {
@@ -758,7 +759,7 @@ describe("StudioCanvasRouter", () => {
     expect(remove).toHaveBeenLastCalledWith("demo", 1, "rev-1");
   });
 
-  it("opens the edit view directly from its link", () => {
+  it("opens the edit view directly from its link", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
@@ -776,7 +777,7 @@ describe("StudioCanvasRouter", () => {
     );
 
     expect(screen.getByRole("tab", { name: "剪辑" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("edit-timeline-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("edit-timeline-view")).toBeInTheDocument();
   });
 
   it("keeps the edit view closed for an episode that has no script yet", () => {
@@ -1246,7 +1247,7 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/episodes/1");
 
-    const canvas = screen.getByTestId("reference-video-canvas");
+    const canvas = await screen.findByTestId("reference-video-canvas");
     expect(canvas).toHaveAttribute("data-has-script", "yes");
     expect(canvas).toHaveAttribute("data-preprocess", "no");
     expect(canvas).toHaveAttribute("data-free-duration", "yes");
@@ -1344,7 +1345,7 @@ describe("StudioCanvasRouter", () => {
     expect(await screen.findByTestId("workflow-panel")).toHaveAttribute("data-can-regenerate", "no");
   });
 
-  it("uses the unified unit canvas even when project and script content modes temporarily differ", () => {
+  it("uses the unified unit canvas even when project and script content modes temporarily differ", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
@@ -1360,7 +1361,7 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/episodes/1");
 
-    const canvas = screen.getByTestId("reference-video-canvas");
+    const canvas = await screen.findByTestId("reference-video-canvas");
     expect(canvas).toHaveAttribute("data-has-script", "yes");
     expect(canvas).toHaveAttribute("data-preprocess", "no");
   });

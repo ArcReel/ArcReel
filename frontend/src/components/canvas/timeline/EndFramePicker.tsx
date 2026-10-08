@@ -225,7 +225,7 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
     >
       <AspectFrame ratio={aspectRatio}>
         <img
-          src={API.getFileUrl(projectName, image.path, fp)}
+          src={API.getFileUrl(projectName, image.path, fp, { width: 320 })}
           alt=""
           loading="lazy"
           className="h-full w-full object-cover"

@@ -1,3 +1,4 @@
+import { API } from "@/api";
 import type { ProjectSettingsTab } from "@/app-routes";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
@@ -103,9 +104,23 @@ export function tabDirty(tab: FormTab, value: ProjectSettingsForm, saved: Projec
   return !sameFields(value, saved, FORM_TAB_FIELDS[tab]);
 }
 
-/** 已保存参考图的地址。 */
-export function styleImageUrl(projectName: string, styleImage: string): string {
-  return `/api/v1/files/${encodeURIComponent(projectName)}/${styleImage}`;
+/**
+ * 已保存参考图的地址。参考图文件名固定（style_reference.*），换图不换路径，
+ * `version` 带上文件版本（资产指纹或上传时刻）才能让浏览器换掉旧图；确实没有版本时传 null。
+ */
+export function styleImageUrl(projectName: string, styleImage: string, version: number | string | null): string {
+  return API.getFileUrl(projectName, styleImage, version);
+}
+
+/**
+ * 项目 PATCH 不改参考图文件，响应也不带资产指纹：参考图仍是已保存的那张时，沿用已保存地址里的版本，
+ * 预览不会因为一次保存换成不带版本的地址。
+ */
+export function keepSavedStylePreview(next: ProjectSettingsForm, saved: ProjectSettingsForm): ProjectSettingsForm {
+  if (next.style.kind !== "image" || saved.style.kind !== "image" || saved.style.file) return next;
+  const unversioned = (url: string) => url.split("?")[0];
+  if (unversioned(next.style.preview) !== unversioned(saved.style.preview)) return next;
+  return { ...next, style: { ...next.style, preview: saved.style.preview } };
 }
 
 function str(value: unknown): string {
@@ -116,11 +131,15 @@ function finiteOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** 从项目数据读出表单的已保存内容。 */
+/**
+ * 从项目数据读出表单的已保存内容。
+ * `fingerprints` 是项目详情响应里的资产指纹（路径 → mtime_ns），给参考图地址带版本；响应没带时传 null。
+ */
 export function deriveForm(
   projectData: ProjectData,
   projectName: string,
   globals: GlobalModelDefaults,
+  fingerprints: Readonly<Record<string, number>> | null,
 ): ProjectSettingsForm {
   const project = projectData as unknown as Record<string, unknown>;
   const route = normalizeRoute(project.generation_mode);
@@ -166,7 +185,12 @@ export function deriveForm(
     episodeTargetDuration: finiteOrNull(project.episode_target_duration),
     adTargetDuration: typeof rawTarget === "number" && Number.isInteger(rawTarget) && rawTarget > 0 ? rawTarget : null,
     style: styleImage
-      ? { kind: "image", preview: styleImageUrl(projectName, styleImage), description: str(project.style_description), file: null }
+      ? {
+          kind: "image",
+          preview: styleImageUrl(projectName, styleImage, fingerprints?.[styleImage] ?? null),
+          description: str(project.style_description),
+          file: null,
+        }
       : templateId
         ? { kind: "template", templateId }
         : { kind: "none" },

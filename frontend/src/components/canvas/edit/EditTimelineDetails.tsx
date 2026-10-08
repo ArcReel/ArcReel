@@ -2,6 +2,7 @@ import { cn } from "cn";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { EditClip, EditTimelineIssue, EditTimelineIssueCode } from "@/types/edit-timeline";
 
 import { formatNameList } from "@/utils/list-format";
@@ -32,6 +33,7 @@ interface ClipInspectorProps {
 /** 选中片段的位置、截取、转场与说明。截取作废时旧的截取加删除线，并说明暂用完整视频。 */
 export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: ClipInspectorProps) {
   const { t } = useTranslation("dashboard");
+  const thumbnailFp = useProjectsStore((s) => (thumbnail ? s.getAssetFingerprint(thumbnail) : null));
   if (!clip) {
     return <p className="text-sm text-muted-foreground">{t("edit_view_inspector_empty")}</p>;
   }
@@ -44,8 +46,9 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
     <div className="flex flex-col gap-3" data-testid="edit-clip-inspector">
       {thumbnail && (
         <img
-          src={API.getFileUrl(projectName, thumbnail)}
+          src={API.getFileUrl(projectName, thumbnail, thumbnailFp, { width: 320 })}
           alt=""
+          decoding="async"
           className="aspect-video w-32 shrink-0 rounded-sm bg-black object-contain"
         />
       )}

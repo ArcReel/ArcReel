@@ -48,6 +48,16 @@ class TestComputeAssetFingerprints:
         assert "props/玉佩.png" in result
         assert "products/手镯.png" in result
 
+    def test_includes_audio_and_bgm(self, tmp_path):
+        """配音与项目 BGM 也走公开媒体端点，全量刷新后指纹不能丢。"""
+        for subdir, name in [("audio", "segment_E1S01.wav"), ("bgm", "theme.mp3")]:
+            (tmp_path / subdir).mkdir()
+            (tmp_path / subdir / name).write_bytes(b"x")
+
+        result = compute_asset_fingerprints(tmp_path)
+        assert "audio/segment_E1S01.wav" in result
+        assert "bgm/theme.mp3" in result
+
     def test_includes_root_level_assets(self, tmp_path):
         (tmp_path / "style_reference.png").write_bytes(b"style")
         result = compute_asset_fingerprints(tmp_path)

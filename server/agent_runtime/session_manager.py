@@ -34,6 +34,7 @@ from server.agent_runtime.failure_observation import (
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
     PendingUserEcho,
+    is_main_turn_activity,
     match_user_echo,
     message_to_dict,
     utc_now_iso,
@@ -61,7 +62,9 @@ from server.sse_channel import IDLE, EvictNonCriticalAndSignal, SseChannel
 logger = logging.getLogger(__name__)
 
 from claude_agent_sdk import ClaudeSDKClient
+from claude_agent_sdk._internal.query import DEFERRING_TASK_TYPES
 from claude_agent_sdk.types import (
+    TERMINAL_TASK_STATUSES,
     PermissionResultAllow,
     PermissionResultDeny,
     SettingSource,
@@ -225,6 +228,19 @@ class ManagedSession:
     assistant_model: str = ""
     interrupt_requested: bool = False
     last_activity: float | None = None  # updated on every send/receive
+    # 在途的后台子智能体（task_id），actor 回调按任务生命周期帧维护。
+    background_tasks: set[str] = field(default_factory=set)
+    # CLI 最近一次报告的会话状态（session_state_changed 帧）；CLI 不报告时为 None，只剩账本可依。
+    cli_session_state: str | None = None
+    # 消息流上已开始、尚未经 inbox 收尾的轮次数。CLI 自主开启的一轮要等 inbox 处理到才切
+    # running，处理完它的 result 才算收尾，受理新消息不能只看 status。actor 回调读到一轮的
+    # 首帧时登记，inbox 跑完这一轮的 result 后注销；两侧在同一消息序列上按同一规则判定
+    # 轮次边界，登记与注销一一配对。
+    unsettled_turns: int = 0
+    _read_turn_open: bool = False
+    _inbox_turn_open: bool = False
+    # inbox 已停止处理：actor 仍在读帧，但读取侧不再登记轮次或后台工作，否则无人收尾。
+    _stream_abandoned: bool = False
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
     _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
     _inbox_warned: bool = False  # edge-triggered backlog warning state
@@ -233,6 +249,86 @@ class ManagedSession:
 
     # Message types that must never be silently dropped from subscriber queues.
     _CRITICAL_MESSAGE_TYPES: ClassVar[set[str]] = {"result", "runtime_status", "log_entry", "log_turn_complete"}
+
+    def note_frame_read(self, msg: dict[str, Any]) -> bool:
+        """actor 回调侧，按读取顺序：登记一轮的首帧，更新后台工作；返回本帧是否解除了后台工作保护。"""
+        if self._stream_abandoned:
+            return False
+        was_open = self._read_turn_open
+        self._read_turn_open = _turn_open_after(was_open, msg)
+        if self._read_turn_open and not was_open:
+            self.unsettled_turns += 1
+        return self._track_background_work(msg)
+
+    def settle_turn_frame(self, msg: dict[str, Any]) -> None:
+        """inbox 侧：一帧处理完毕后调用，这一轮的 result 处理完时注销。"""
+        was_open = self._inbox_turn_open
+        self._inbox_turn_open = _turn_open_after(was_open, msg)
+        if was_open and not self._inbox_turn_open:
+            self.unsettled_turns -= 1
+
+    def turn_in_flight(self) -> bool:
+        """有轮次在途：已切 running，或已在消息流上开始、inbox 尚未收尾。
+
+        此时受理新消息会与这一轮交错，断开 CLI 会中止它。
+        """
+        return self.status == "running" or self.unsettled_turns > 0
+
+    def forget_stream_state(self) -> None:
+        """CLI 已退出或 inbox 停止处理：没收尾的轮次、后台子智能体与 CLI 状态都等不到后续帧了。
+
+        账本不清空的话，会话会一直受驱逐保护，死掉的 CLI 永久占着并发名额。
+        """
+        self.unsettled_turns = 0
+        self._read_turn_open = False
+        self._inbox_turn_open = False
+        self.background_tasks.clear()
+        self.cli_session_state = None
+
+    def abandon_stream(self) -> None:
+        """inbox 停止处理而 actor 仍在读：清掉账本，之后读到的帧也不再登记。"""
+        self._stream_abandoned = True
+        self.forget_stream_state()
+
+    def _track_background_work(self, msg: dict[str, Any]) -> bool:
+        """按会话状态帧与任务生命周期帧更新后台工作；返回本帧是否解除了保护。"""
+        held = self.holds_background_work()
+        if msg.get("type") == "system" and msg.get("subtype") == "session_state_changed":
+            data = msg.get("data")
+            self.cli_session_state = data.get("state") if isinstance(data, dict) else None
+        else:
+            self._track_task_lifecycle(msg)
+        return held and not self.holds_background_work()
+
+    def _track_task_lifecycle(self, msg: dict[str, Any]) -> None:
+        """维护在途账本。
+
+        口径同 SDK ``Query._track_task_lifecycle``：只记会可靠到达终态的委派
+        工作（子智能体、工作流），后台 shell 可能永不结束，记进来会让会话一直
+        受保护。``task_updated`` 序列化后不带 type，只按 subtype 判定。
+        """
+        task_id = msg.get("task_id")
+        if not task_id:
+            return
+        subtype = msg.get("subtype")
+        if subtype == "task_started":
+            if msg.get("task_type") in DEFERRING_TASK_TYPES:
+                self.background_tasks.add(task_id)
+        elif subtype == "task_notification":
+            self.background_tasks.discard(task_id)
+        elif subtype == "task_updated":
+            patch = msg.get("patch")
+            if isinstance(patch, dict) and patch.get("status") in TERMINAL_TASK_STATUSES:
+                self.background_tasks.discard(task_id)
+
+    def holds_background_work(self) -> bool:
+        """CLI 还有轮次之外的工作：报告着 running/requires_action，或账本里有在途子智能体。
+
+        CLI 在子智能体存活、或其完成后还欠一轮时持续报 running，子智能体在一轮的 result
+        之前结束时只有它知道还欠一轮。账本兜底不报状态、或配置为每轮结束都报 idle 的 CLI，
+        两者取并集，与 SDK 判定 run 是否结束的口径一致。同样不设上限。
+        """
+        return bool(self.background_tasks) or self.cli_session_state not in (None, "idle")
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
@@ -326,6 +422,13 @@ def _entry_uuid(entry: dict[str, Any] | None) -> str | None:
     return str(uuid) if uuid else None
 
 
+def _turn_open_after(turn_open: bool, msg: dict[str, Any]) -> bool:
+    """轮次边界：主线程首帧开启一轮，result 收尾。没有主线程帧就结束的轮次不计。"""
+    if msg.get("type") == "result":
+        return False
+    return turn_open or is_main_turn_activity(msg)
+
+
 class SessionManager:
     """Manages all active ClaudeSDKClient instances."""
 
@@ -376,6 +479,9 @@ class SessionManager:
         self.sessions: dict[str, ManagedSession] = {}
         # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
         self.unclaimed_user_echoes = 0
+        # CLI 自主开启新一轮、会话回到 running 时的通知出口（参数：项目名、会话 id），
+        # 见 _begin_autonomous_turn。
+        self._autonomous_turn_listener: Callable[[str, str], None] | None = None
         self._disconnecting: set[str] = set()
         # 优雅 send_disconnect 的等待上限；超时后各调用点再走无界的 cancel 兜底。
         self._session_actor_shutdown_timeout: float = 15.0
@@ -525,6 +631,10 @@ class SessionManager:
             if managed is None:
                 return
             msg_dict = message_to_dict(raw_msg)
+            if managed.note_frame_read(msg_dict) and managed.status != "running":
+                # 后台工作全部结束（CLI 报 idle、账本清空）：闲置从此刻算起，清理计时与巡检都重来
+                managed.last_activity = time.monotonic()
+                self._schedule_cleanup(managed.session_id)
             echo = match_user_echo(managed.pending_user_echoes, msg_dict)
             if echo is not None:
                 # SDK 回放的用户消息副本：POST 受理时已写日志分配身份，
@@ -813,6 +923,7 @@ class SessionManager:
             while True:
                 msg_dict = await managed._inbox.get()
                 if isinstance(msg_dict, _ActorExitNotice):
+                    managed.forget_stream_state()
                     if msg_dict.error is not None:
                         if managed.resolved_sdk_id is not None:
                             await self._mark_session_terminal(managed, "error", "session actor failed")
@@ -842,6 +953,10 @@ class SessionManager:
                             "sdk_session_id 处理失败 session_id=%s",
                             managed.session_id,
                         )
+                # 在 inbox 串行序上判定：上一轮的 _finalize_turn 已跑完，
+                # 不会把刚切回的 running 覆盖成 idle。
+                if managed.status != "running" and is_main_turn_activity(msg_dict):
+                    await self._begin_autonomous_turn(managed)
                 # 事件日志写入点：sdk_session_id 就绪后逐条定型入日志。
                 # handle_message 内部吞异常，不会打断会话消费。
                 if managed.entry_pipeline is not None and managed.resolved_sdk_id is not None:
@@ -851,6 +966,7 @@ class SessionManager:
                         # 首条用户消息落库已失败，send_new_session 的错误清理路径
                         # 即将取消本任务；此处短路不再 finalize，避免先广播/落库
                         # 非 error 终态（如 completed），随后又被改写为 error。
+                        managed.settle_turn_frame(msg_dict)
                         continue
                     try:
                         await self._finalize_turn(managed, msg_dict)
@@ -863,7 +979,10 @@ class SessionManager:
                         )
                         with contextlib.suppress(Exception):
                             await self._mark_session_terminal(managed, "error", "finalize failed")
+                        # inbox 就此停止，之后的帧不再处理：轮次与任务账本都不会再被收尾
+                        managed.abandon_stream()
                         return None
+                managed.settle_turn_frame(msg_dict)
         except asyncio.CancelledError:
             # Only mark interrupted if session was actually running. Cancel can
             # also happen during failed send_new_session cleanup or normal
@@ -879,6 +998,7 @@ class SessionManager:
             raise
         except Exception:
             logger.exception("_process_inbox 异常 session_id=%s", managed.session_id)
+            managed.abandon_stream()
             try:
                 await self._mark_session_terminal(managed, "error", "session error")
             except Exception:
@@ -1041,7 +1161,9 @@ class SessionManager:
             managed._cleanup_task.cancel()
             managed._cleanup_task = None
 
-        if managed.status == "running":
+        # 不只看 status：CLI 自主开启的一轮读出后、inbox 收尾前受理，这一轮的 _finalize_turn
+        # 会把本条消息的回显登记当认领失败清掉（日志重复落库），并覆写它的状态。
+        if managed.turn_in_flight():
             raise SessionBusyError("会话正在处理中，请等待当前回复完成后再发送新消息")
 
         log_entry: dict[str, Any] | None = None
@@ -1113,7 +1235,7 @@ class SessionManager:
                 return "interrupted"
             return meta.status
 
-        if managed.status != "running":
+        if not managed.turn_in_flight():
             return managed.status
 
         # 不清 pending_user_echoes：SDK 可能尚未回放刚受理的用户消息副本，
@@ -1200,6 +1322,35 @@ class SessionManager:
                 },
             )
         managed.pending_user_echoes.clear()
+
+    def set_autonomous_turn_listener(self, listener: Callable[[str, str], None] | None) -> None:
+        """注册会话因 CLI 自主开启新一轮而回到 running 时的通知（参数：项目名、会话 id）。"""
+        self._autonomous_turn_listener = listener
+
+    async def _begin_autonomous_turn(self, managed: ManagedSession) -> None:
+        """CLI 未经 query 开启了新一轮（后台任务完成后唤醒）：会话回到 running。
+
+        idle 会话没有 entry 流订阅者，这一轮的消息与问答卡片只能等客户端得到
+        通知后重新订阅才看得到。
+        """
+        if managed._cleanup_task is not None and not managed._cleanup_task.done():
+            managed._cleanup_task.cancel()
+            managed._cleanup_task = None
+        managed.status = "running"
+        managed.last_activity = time.monotonic()
+        try:
+            await self.meta_store.update_status(managed.session_id, "running")
+        except Exception:
+            # 运行在 inbox 里：异常会让 inbox 退出、actor 却还活着，这一轮再也没人收尾。
+            # 内存状态已切换，持久化由本轮 finalize 写入终态时补上。
+            logger.exception("持久化自主轮次 running 状态失败 session_id=%s", managed.session_id)
+        listener = self._autonomous_turn_listener
+        if listener is None:
+            return
+        try:
+            listener(managed.project_name, managed.session_id)
+        except Exception:
+            logger.exception("自主轮次通知失败 session_id=%s", managed.session_id)
 
     async def _finalize_turn(self, managed: ManagedSession, result_msg: dict[str, Any]) -> None:
         """Settle session state after a result message completes a turn."""
@@ -1321,6 +1472,9 @@ class SessionManager:
         managed = self.sessions.get(session_id)
         if managed is None:
             return
+        if managed.holds_background_work() or managed.turn_in_flight():
+            # 断开 CLI 会连带杀掉后台子智能体、中止在途轮次。后台工作结束、轮次收尾时重新计时。
+            return
         if managed.status in ("idle", "interrupted", "error", "completed"):
             # Clear our own reference first so _evict_one's cleanup-task cancel doesn't self-cancel
             managed._cleanup_task = None
@@ -1428,9 +1582,10 @@ class SessionManager:
         if len(active) < max_concurrent:
             return
 
-        # 可淘汰的会话：非 running 状态（idle / completed / error / interrupted）
+        # 可淘汰的会话：没有在途轮次（含 inbox 尚未切 running 的自主轮次），且没有在途
+        # 后台子智能体——两者都等同进行中，宁可拒绝新会话也不断开它。
         evictable = sorted(
-            [s for s in active if s.status != "running"],
+            [s for s in active if not s.turn_in_flight() and not s.holds_background_work()],
             key=lambda s: s.last_activity or 0,
         )
 
@@ -1452,7 +1607,7 @@ class SessionManager:
                 raise SessionCapacityError("存在未能关闭的空闲会话，当前无法释放并发槽位，请稍后重试") from exc
             return
 
-        # 所有会话都在 running → 拒绝
+        # 所有会话都在 running 或有在途后台子智能体 → 拒绝
         raise SessionCapacityError(f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试")
 
     _PATROL_INTERVAL = 300  # 5 分钟
@@ -1462,7 +1617,9 @@ class SessionManager:
         cleanup_delay = await self._get_cleanup_delay()
         now = time.monotonic()
         for sid, managed in list(self.sessions.items()):
-            if managed.status == "running" or sid in self._disconnecting:
+            if managed.turn_in_flight() or sid in self._disconnecting:
+                continue
+            if managed.holds_background_work():
                 continue
             activity_age = now - (managed.last_activity or 0)
             if activity_age > cleanup_delay * 2:
@@ -1701,7 +1858,8 @@ class SessionManager:
         managed = self.sessions.get(session_id)
         if managed is None:
             raise ValueError("会话未运行或无待回答问题")
-        if managed.status != "running":
+        # CLI 自主开启的一轮在 inbox 切 running 前就可能提问
+        if not managed.turn_in_flight():
             raise ValueError("会话未运行或无待回答问题")
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")

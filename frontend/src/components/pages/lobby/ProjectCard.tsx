@@ -15,6 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { API_BASE } from "@/api/transport";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { formatRelativeTime, isJustNow } from "@/utils/date-format";
 import { getProjectDisplayName } from "@/utils/project-display";
@@ -114,13 +115,24 @@ export function ProjectCard({ project, readOnly, actions }: ProjectCardProps) {
   );
 }
 
+const FILES_URL_PREFIX = `${API_BASE}/files/`;
+
+/**
+ * 封面走项目文件路由时请求 640 宽的缩略图：卡片从 280px 起按列铺满，海报通常不到 400px 宽。
+ * 后端给的地址可能已带 `?v=` 版本键；演示卡的 data: 等其他来源原样返回。
+ */
+function posterSrc(url: string): string {
+  if (!url.startsWith(FILES_URL_PREFIX)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}w=640`;
+}
+
 /** 海报 2:1。没有缩略图时用衬线字把标题写在海报上，不留一块无意义的色块。 */
 function Poster({ project, title }: { project: ProjectSummary; title: string }) {
   return (
     <div className="relative aspect-2/1 overflow-hidden bg-linear-to-br from-primary/30 via-muted to-background">
       {project.thumbnail ? (
         <img
-          src={project.thumbnail}
+          src={posterSrc(project.thumbnail)}
           alt=""
           loading="lazy"
           decoding="async"

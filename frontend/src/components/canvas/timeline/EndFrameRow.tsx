@@ -157,7 +157,8 @@ export function EndFrameRow({
   const handleClear = () =>
     void runWrite(() => API.clearEndFrame(projectName, segmentId, scriptFile));
 
-  const previewUrl = endFramePath ? API.getFileUrl(projectName, endFramePath, fp) : null;
+  // 摘要行与展开面板里都只是小图，取 160 宽的缩略图
+  const previewUrl = endFramePath ? API.getFileUrl(projectName, endFramePath, fp, { width: 160 }) : null;
 
   // 摘要只说尾帧本身设没设：能力不支持由下方警告条承载，混进摘要会盖掉「已设置」，
   // 让用户看不出自己设过一张待清除的尾帧。
@@ -187,6 +188,7 @@ export function EndFrameRow({
             src={previewUrl}
             alt=""
             aria-hidden
+            decoding="async"
             className="h-4 w-2.5 rounded-xs border border-primary/25 object-cover"
           />
         )}
@@ -233,6 +235,7 @@ export function EndFrameRow({
                   src={previewUrl}
                   alt={t("end_frame_preview_alt", { id: itemIdWithinEpisode(segmentId) })}
                   className="size-full object-cover"
+                  decoding="async"
                 />
               ) : (
                 <div className="grid size-full place-items-center text-xs text-muted-foreground">

@@ -1,5 +1,6 @@
 /**
  * 按剪辑时间线实时拼接播放：两个 `<video>` 交替，一个在播，另一个预载下一个片段的入点，到出点时切换；
+ * 第一次播放之前只装载当前片段（元素按 `preload="metadata"` 只拉元数据与定位处的画面），不预载下一段。
  * 旁白与 BGM 各用一个 `<audio>`，每一帧按全局时钟对齐，只缓冲当前位置附近要放的音频。
  * 调度与同步的结论全部来自 playback-schedule 与 audio-sync 的纯函数；这里只负责把结论落到媒体元素上。
  */
@@ -20,6 +21,8 @@ type Slot = 0 | 1;
 export interface TimelinePlayback {
   t: number;
   playing: boolean;
+  /** 是否已经开始播放过。此前 `<video>` 只需拉元数据与首帧，之后才需要整段缓冲与预载下一段。 */
+  started: boolean;
   /** 当前片段在播放计划里的下标；没有可播放片段时为 -1。 */
   index: number;
   /** 正在显示的 `<video>`。切到下一个片段时，新片段有了画面才换过去，之前停在上一个片段的末帧上。 */
@@ -50,6 +53,8 @@ interface Runtime {
   slot: Slot;
   visible: Slot;
   playing: boolean;
+  /** 播放过一次后为 true；此前不为下一段预载。 */
+  started: boolean;
   lastFrame: number;
   /** 每个元素当前装载的片段 ID。 */
   loaded: [string | null, string | null];
@@ -99,6 +104,7 @@ export function useTimelinePlayback(
   const refB = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [started, setStarted] = useState(false);
   const [index, setIndex] = useState(-1);
   const [visibleSlot, setVisibleSlot] = useState<Slot>(0);
   const [buffering, setBuffering] = useState(false);
@@ -109,6 +115,7 @@ export function useTimelinePlayback(
     slot: 0,
     visible: 0,
     playing: false,
+    started: false,
     lastFrame: 0,
     loaded: [null, null],
     pendingSeek: [null, null],
@@ -197,6 +204,8 @@ export function useTimelinePlayback(
   const preloadAfter = useCallback(
     (current: number) => {
       const state = runtime.current;
+      // 打开剪辑视图不等于要播放：第一次播放前只装载当前片段，下一段由 play() 里的 seek 补上。
+      if (!state.started) return;
       state.preloadedAfter = current;
       const idle: Slot = state.slot === 0 ? 1 : 0;
       element(idle)?.pause();
@@ -321,6 +330,9 @@ export function useTimelinePlayback(
     if (currentPlan.segments.length === 0) return;
     state.playing = true;
     setPlaying(true);
+    // 先于 seek 置位：seek 随即为下一段预载，空闲元素有了地址，才能在下面这次点击里一并解锁。
+    state.started = true;
+    setStarted(true);
     setBlocked(false);
     state.lastFrame = performance.now();
     seek(state.t >= currentPlan.duration ? 0 : state.t);
@@ -487,12 +499,17 @@ export function useTimelinePlayback(
   useEffect(() => {
     const videos = [refA.current, refB.current];
     const pool = audioPool.current;
+    // 卸下地址后 load() 让浏览器丢弃已缓冲的媒体数据，不等元素被回收才释放。
+    const release = (media: HTMLMediaElement) => {
+      media.pause();
+      media.removeAttribute("src");
+      media.load();
+    };
     return () => {
-      videos.forEach((video) => video?.pause());
-      pool.forEach(({ element: media }) => {
-        media.pause();
-        media.removeAttribute("src");
+      videos.forEach((video) => {
+        if (video) release(video);
       });
+      pool.forEach(({ element: media }) => release(media));
       pool.clear();
     };
   }, []);
@@ -500,6 +517,7 @@ export function useTimelinePlayback(
   return {
     t,
     playing,
+    started,
     index,
     visibleSlot,
     videoRefs: [refA, refB],

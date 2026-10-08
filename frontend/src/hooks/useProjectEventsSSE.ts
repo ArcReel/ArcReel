@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useHasUnsavedChanges } from "@/components/shared/edit-unit/LeaveGuard";
 import type { SseStreamHandle } from "@/utils/sse-stream";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { SCRIPT_PLAN_TASK_TYPES, useTasksStore } from "@/stores/tasks-store";
@@ -289,6 +290,9 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (previousFingerprint) {
           void useUsageHeaderStore.getState().refresh();
         }
+        // 会话恢复通知只推一次，订阅建立之前（含首次建连前的失败重试）发出的已经错过；
+        // 首次快照也要核对：会话 hook 的加载读到的状态可能早于这次恢复。
+        useAssistantStore.getState().requestSessionResync(projectName);
       },
       onChanges(payload: ProjectChangeBatchPayload) {
         if (disposed) return;
@@ -473,6 +477,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (entityChanges.some((c) => c.action === "grid_ready" || c.action === "grid_split_done")) {
           useAppStore.getState().invalidateGrids();
         }
+      },
+      onAssistantSessionResumed(payload) {
+        if (disposed) return;
+        useAssistantStore.getState().notifySessionResumed(payload.project_name, payload.session_id);
       },
       onProjectDeleted() {
         if (disposed) return;

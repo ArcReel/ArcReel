@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from lib.infra.path_safety import try_safe_join
 from lib.script.script_models import get_generated_assets
 from lib.script.script_skeleton import SKELETONS
 
@@ -48,7 +49,7 @@ def resolve_project_cover(
     *,
     preloaded_scripts: dict[str, dict] | None = None,
 ) -> str | None:
-    """按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL；全无则 None。
+    """按偏好顺序挑第一个可用的封面路径，返回 `/api/v1/files/...` URL（文件在场时带 ``?v=``）；全无则 None。
 
     ``preloaded_scripts`` 允许调用方（如 list_projects）一次性加载剧本后同时喂给
     项目摘要投影，避免两路重复 JSON I/O。key 为 ``episode['script_file']``
@@ -57,7 +58,21 @@ def resolve_project_cover(
 
     def _url(rel: str) -> str:
         # 统一走 files 静态路由，不直接拼盘路径；相对路径原样透传给 FileResponse。
-        return f"/api/v1/files/{project_name}/{rel.lstrip('/')}"
+        # 文件在场时附 ?v=<mtime_ns> 作版本键（与资产指纹同口径），封面被重新生成后 URL 随之变化，
+        # 大厅可长期缓存；文件缺失或路径非法时不附版本键，由 files 路由按原样回 404。
+        url = f"/api/v1/files/{project_name}/{rel.lstrip('/')}"
+        try:
+            project_dir = manager.get_project_path(project_name)
+        except (OSError, ValueError):
+            return url
+        resolved = try_safe_join(project_dir, rel, require_file=True)
+        if resolved is None:
+            return url
+        try:
+            mtime_ns = resolved.stat().st_mtime_ns
+        except OSError:
+            return url
+        return f"{url}?v={mtime_ns}"
 
     # 第一趟：遍历所有 episode 的 script，先整体扫 video_thumbnail，再整体扫
     # storyboard_image。两趟分开而不是在同一 item 上并列判断，是为了保证

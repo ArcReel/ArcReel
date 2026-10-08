@@ -31,6 +31,7 @@ import type {
   ProjectChangeBatchPayload,
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
+  AssistantSessionResumedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
   NarrationDefaultsResponse,
@@ -233,6 +234,14 @@ export type {
 export { setApiReadOnly } from "./api/transport";
 
 // ==================== Endpoint helpers ====================
+
+/** 项目文件缩略图的可选宽度，与服务端 `?w=` 的档位一致；其它宽度服务端会向上取档。 */
+export type FileUrlWidth = 160 | 320 | 640 | 1280;
+
+export interface FileUrlOptions {
+  /** 请求服务端缩略图的目标宽度（WebP、等比）；省略即原图。 */
+  width?: FileUrlWidth;
+}
 
 /** asset_type → REST 路径段（与后端 spec.subdir 对齐）。 */
 const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
@@ -1881,10 +1890,18 @@ class API {
     });
   }
 
+  /**
+   * 项目文件地址。
+   *
+   * `cacheBust` 必填：带版本（通常是 assetFingerprints 里的 mtime_ns）的地址按 immutable 长缓存，
+   * 文件改了换版本才会重新下载；资源确实没有版本时显式传 null，走服务端的协商缓存。
+   * `options.width` 请求服务端缩略图（只对位图生效，原图不比目标宽时服务端直接回原图）。
+   */
   static getFileUrl(
     projectName: string,
     path: string,
-    cacheBust?: number | string | null
+    cacheBust: number | string | null,
+    options: FileUrlOptions = {}
   ): string {
     // 引导演示的占位图是现算的内联 SVG（data: URI），直接用，不要再包一层项目路径。
     // 只放行 data: —— 目前没有第二种自带协议的图源，多放行的协议只是没人用的入口。
@@ -1892,11 +1909,14 @@ class API {
       return path;
     }
     const base = `${API_BASE}/files/${encodeURIComponent(projectName)}/${path}`;
-    if (cacheBust == null || cacheBust === "") {
-      return base;
+    const params: string[] = [];
+    if (cacheBust != null && cacheBust !== "") {
+      params.push(`v=${encodeURIComponent(String(cacheBust))}`);
     }
-
-    return `${base}?v=${encodeURIComponent(String(cacheBust))}`;
+    if (options.width != null) {
+      params.push(`w=${options.width}`);
+    }
+    return params.length ? `${base}?${params.join("&")}` : base;
   }
 
   // ==================== Source 文件管理 ====================
@@ -2681,6 +2701,9 @@ class API {
             break;
           case "project_deleted":
             options.onProjectDeleted?.(payload as unknown as ProjectDeletedPayload);
+            break;
+          case "assistant_session_resumed":
+            options.onAssistantSessionResumed?.(payload as unknown as AssistantSessionResumedPayload);
             break;
           default:
             break;

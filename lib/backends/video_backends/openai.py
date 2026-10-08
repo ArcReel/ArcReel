@@ -20,7 +20,12 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
     normalize_provider_status,
 )
-from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, poll_with_retry, with_artifact_retry
+from lib.backends.backend_runtime import (
+    ProviderJobIdPersistenceMixin,
+    faststart_video_artifact,
+    poll_with_retry,
+    with_artifact_retry,
+)
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -245,6 +250,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
             request.output_path.write_bytes(content.content)
 
         await asyncio.to_thread(_write)
+        await faststart_video_artifact(request.output_path)
 
         logger.info("OpenAI 视频下载完成: %s", request.output_path)
 

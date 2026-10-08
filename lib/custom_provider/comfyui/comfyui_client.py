@@ -22,6 +22,7 @@ import httpx
 from arcreel_market_core.auth_section import render_auth
 from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, ProviderResponseStage
 from lib.backends.backend_runtime import (
+    faststart_video_artifact,
     request_with_scoped_credentials,
     should_retry_submit,
     stream_to_file,
@@ -356,6 +357,8 @@ class ComfyuiClient:
             )
 
         await with_artifact_retry(once, label="comfyui artifact download", max_wait=max_wait)
+        # 重封装在下载预算之外进行，不让它的耗时把已下载成功的产物拖成下载超时
+        await faststart_video_artifact(output_path)
 
 
 def _queue_ids(entries: object) -> list[str]:

@@ -2,7 +2,7 @@
 
 > 调研日期：2026-06-02。所有单价/模型名/接口细节均为该日 fetch，TTS 定价变动频繁，工程决策前须复核 live 文档。
 > 不确定项一律标注 **UNVERIFIED**，不编造（遵循"不猜外部供应商数据"原则）。
-> 本报告对应的本期接入决策见 `docs/adr/0010-tts-audio-through-generation-queue.md` 与 `CONTEXT.md`「媒体类型与配音（TTS）」。
+> 本报告对应的本期接入决策见 `docs/adr/0010-tts-audio-through-generation-queue.md` 与 `GLOSSARY.md`「媒体类型与配音（TTS）」。
 
 ## 0. 调研范围与定位
 
@@ -89,7 +89,7 @@ TTS 真实语音时长 ≠ 旁白脚本 `NarrationSegment.duration_seconds`（�
 
 ## 5. 本期接入决策与实现面（摘要）
 
-完整决策记录见 `docs/adr/0010` 与 `CONTEXT.md`。要点：
+完整决策记录见 `docs/adr/0010` 与 `GLOSSARY.md`。要点：
 
 - **媒体类型**：新增第 4 个 `media_type` = `audio`（capability = `text_to_speech`），与 image/video/text 平级。
 - **调度**：走 GenerationQueue/Worker（audio lane），像 image/video；**backend 同步**（仿 `text_backends`，秒回，无 submit-poll-resume）。`enqueue_tts(segment_ids?)`。

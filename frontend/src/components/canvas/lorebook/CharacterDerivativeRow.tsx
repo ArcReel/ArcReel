@@ -138,8 +138,10 @@ export function CharacterDerivativeRow({
       : "missing";
   const sheetPath = artifactStatus === "missing" ? "" : (status?.character_sheet ?? derivative.character_sheet ?? "");
   const sheetFp = useProjectsStore((s) => (sheetPath ? s.getAssetFingerprint(sheetPath) : null));
+  // 行内缩略图取 640 宽的缩略图，查看大图仍用原图
   const sheetUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp) : null;
-  const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
+  const thumbUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp, { width: 640 }) : null;
+  const imageUrl = sheetUrl && thumbUrl !== failedUrl ? sheetUrl : null;
   const imageAlt = t("assets:library_derivative_thumb", { name: qualified });
   const describable = hasUsableDescription(unit.value);
   const marker: GalleryMarker = generating
@@ -280,10 +282,11 @@ export function CharacterDerivativeRow({
           className="focus-ring block size-full"
         >
           <CrossfadeImage
-            src={imageUrl}
+            src={thumbUrl}
             alt={imageAlt}
             className="object-contain"
-            onError={() => setFailedUrl(imageUrl)}
+            loading="lazy"
+            onError={() => setFailedUrl(thumbUrl)}
             fallback={null}
           />
         </button>

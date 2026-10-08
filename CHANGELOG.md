@@ -1,5 +1,115 @@
 # Changelog
 
+## [0.33.0](https://github.com/ArcReel/ArcReel/compare/v0.32.0...v0.33.0) (2026-10-08)
+
+
+### 🌟 版本亮点
+
+* **界面整体改版：** 全部页面基于 shadcn/ui 重做，布局、视觉和操作方式统一。窗口较小时，弹窗的标题和按钮也始终可见。
+  * **保存与离开提示：** 编辑内容统一为先修改、再保存。离开页面或切换选中项时，如有未保存的修改会先提示，不再静默丢弃。
+  * **工作区与 Agent 面板：** Agent 悬浮球改为顶栏开关，项目菜单改为可搜索的项目切换器。Agent 的工具调用等过程收为单行显示，提问时问题显示在输入框位置。
+  * **项目页面：** 项目大厅改为海报卡片，最近有改动的项目排在最前；概览改为单列的故事设定页；分集视图改为分集目录与原文并排；剧集页头精简为两行。
+  * **分镜与资产：** 分镜编辑与设定集重新排版，各类资产使用同一个详情面板编辑。项目资产新增删除入口，删除前会列出仍在引用该资产的集。
+  * **设置位置调整：** 外部 Agent 接入改为设置页，原「API 密钥」改称「访问令牌」。GitHub 访问代理和官方服务开关移到市场的「设置」标签页。项目设置改为侧栏分页。
+* **模型更新：** Agnes 新增 3.0/2.5 文本、图片和视频模型，并设为 Agnes 的默认模型。新增 Grok Imagine Video 1.5 和 1.5 Lite，支持 1080p 输出。Gemini 3.1 Flash Lite 改用正式模型 ID，已保存的选择会自动迁移。
+* **加载与稳定性：** 列表改为加载缩略图，重新生成后不再显示旧图，视频可以边下载边播放。外部 Agent 可以直接通过 `/mcp` 连接。
+
+### ✨ 新功能
+
+* **agent-memory:** rebuild the memory editor with a file rail, one edit unit per file and leave protection ([d4e07dd](https://github.com/ArcReel/ArcReel/commit/d4e07dd8b54f5fa071de7647832add1b51873da1)), closes [#3009](https://github.com/ArcReel/ArcReel/issues/3009)
+* **agent:** answer agent questions in place of the composer, track todos in one row and browse session history from the panel header ([a4a0e41](https://github.com/ArcReel/ArcReel/commit/a4a0e4183a68ef1f8050948e2f959c0ebfbae567)), closes [#3016](https://github.com/ArcReel/ArcReel/issues/3016)
+* **agent:** rework the agent panel message flow with follow-to-bottom scrolling, bubble user messages and an inline editor ([1540105](https://github.com/ArcReel/ArcReel/commit/154010548ea0eaf81ec347074addaf24ac712349)), closes [#3014](https://github.com/ArcReel/ArcReel/issues/3014)
+* **agent:** show compacted context as a divider, infer orphaned subagent outcomes and give agent failures a one-line conclusion ([8e3bf9c](https://github.com/ArcReel/ArcReel/commit/8e3bf9c3bd80235e843434e68a25501344633e2f)), closes [#3017](https://github.com/ArcReel/ArcReel/issues/3017)
+* **agent:** show tool calls, subagents, skills and background tasks as single-line work rows with localized names and summaries ([3da3f3c](https://github.com/ArcReel/ArcReel/commit/3da3f3c2fa9ea395487556e06060e2a6897ed48e)), closes [#3015](https://github.com/ArcReel/ArcReel/issues/3015)
+* **agnes:** add Agnes 3.0/2.5 text, image and video models as the new defaults ([#2901](https://github.com/ArcReel/ArcReel/issues/2901)) ([b3a1270](https://github.com/ArcReel/ArcReel/commit/b3a1270c7a71c61ca8fbe12ff9a93c88312d0711))
+* **assets:** rebuild the asset library with a detail sheet, live counts and infinite scroll, and turn add-to-library into a read-only preview ([9276054](https://github.com/ArcReel/ArcReel/commit/92760544b335072d610dae942bb4920b7eea21fa)), closes [#3011](https://github.com/ArcReel/ArcReel/issues/3011)
+* **comfyui:** let inference rules register autogrow inputs by name prefix ([12e085c](https://github.com/ArcReel/ArcReel/commit/12e085c0c395e69f1faf4d74224cd59bb9dea519)), closes [#2665](https://github.com/ArcReel/ArcReel/issues/2665)
+* **edit-view:** keep the player, clip details and full-width tracks on one screen, and move the render dialog to the new primitives ([398ba2f](https://github.com/ArcReel/ArcReel/commit/398ba2f459375b2e7e29510a174e63df66a2a93f)), closes [#3024](https://github.com/ArcReel/ArcReel/issues/3024)
+* **episode-page:** two-row episode header with view tabs, gap-counted batch fill and a progress popover ([0f376dd](https://github.com/ArcReel/ArcReel/commit/0f376dd35bbf8726c77ad8d7cd379a9e620bd7fe)), closes [#3020](https://github.com/ArcReel/ArcReel/issues/3020)
+* **episode:** start an episode's first script plan from the plan tab — instructions, hand-off and source in one place ([404a7a4](https://github.com/ArcReel/ArcReel/commit/404a7a4edc590d1c9feccd82acf56f3bd34ec5a9)), closes [#3028](https://github.com/ArcReel/ArcReel/issues/3028)
+* **episodes:** turn the episodes view into an episode outline beside the source manuscript ([e26ef8a](https://github.com/ArcReel/ArcReel/commit/e26ef8ad2b6c56cb79b8d2194e280a54f2f0db29)), closes [#3027](https://github.com/ArcReel/ArcReel/issues/3027)
+* **frontend:** add a shared page shell and regroup global settings navigation ([7c53e29](https://github.com/ArcReel/ArcReel/commit/7c53e29272a8219d7030b7b4a9ce532a8c74846c)), closes [#2998](https://github.com/ArcReel/ArcReel/issues/2998)
+* **frontend:** adopt shadcn semantic tokens with a single brand purple, red destructive and Nova radius scale ([9525d92](https://github.com/ArcReel/ArcReel/commit/9525d920d9c5d7e10bde45d6a089f30bd93baa86)), closes [#2994](https://github.com/ArcReel/ArcReel/issues/2994)
+* **frontend:** ask before leaving unsaved changes and pin a save bar to settings forms ([c3d83a8](https://github.com/ArcReel/ArcReel/commit/c3d83a8f06334087d6dc3980bace3c321f53d41e)), closes [#2997](https://github.com/ArcReel/ArcReel/issues/2997)
+* **frontend:** browse providers in a preset/custom rail and manage keys in dialogs ([88b735c](https://github.com/ArcReel/ArcReel/commit/88b735ce2640119286b14e574a3aa9332031f775)), closes [#3002](https://github.com/ArcReel/ArcReel/issues/3002)
+* **frontend:** edit custom provider models in an expandable table ([d940b1c](https://github.com/ArcReel/ArcReel/commit/d940b1c1693d091f716013a9ca892056ea5f4de6)), closes [#3004](https://github.com/ArcReel/ArcReel/issues/3004)
+* **frontend:** grow multi-line inputs with their content and scroll past a height cap ([08d7d7e](https://github.com/ArcReel/ArcReel/commit/08d7d7e900037ef12b0953834a279b6d3a97a08b)), closes [#2996](https://github.com/ArcReel/ArcReel/issues/2996)
+* **frontend:** initialize shadcn/ui on Base UI, self-host fonts and move business components out of components/ui ([f795c54](https://github.com/ArcReel/ArcReel/commit/f795c5434db46764bda15e6591be6c4045470a4f)), closes [#2993](https://github.com/ArcReel/ArcReel/issues/2993)
+* **frontend:** keep dialog titles and actions in view, add undo to toasts and show scrollbars at rest ([d6c3080](https://github.com/ArcReel/ArcReel/commit/d6c308019523a4a7122909ec5fcaf2bf85cf1e9c)), closes [#2995](https://github.com/ArcReel/ArcReel/issues/2995)
+* **frontend:** rebuild login, 404 and export scope dialog on shared primitives, retire /lorebook and /clues ([84e6a93](https://github.com/ArcReel/ArcReel/commit/84e6a93ac30023181a83dcf6972da27cc6714111)), closes [#3036](https://github.com/ArcReel/ArcReel/issues/3036)
+* **frontend:** rebuild the ArcReel Agent settings section around Agent providers ([07c4f0a](https://github.com/ArcReel/ArcReel/commit/07c4f0af5ec11a3f9bc1e7f0309e50bc4e0dce2f)), closes [#3000](https://github.com/ArcReel/ArcReel/issues/3000)
+* **frontend:** rebuild the endpoints section with a bottom save bar and the models using each endpoint ([676af0b](https://github.com/ArcReel/ArcReel/commit/676af0bc8d3253b0f622ddb7b181912424c88b84)), closes [#3003](https://github.com/ArcReel/ArcReel/issues/3003)
+* **frontend:** rebuild the new-project wizard as a fixed-height three-step dialog with a shared duration tier picker ([2c8a2b7](https://github.com/ArcReel/ArcReel/commit/2c8a2b7aed46fc657b02fee96f2e36024af34c70)), closes [#3007](https://github.com/ArcReel/ArcReel/issues/3007)
+* **frontend:** set code, model ID, token and request path fields in a monospace font, keep URL fields proportional ([7ca80c3](https://github.com/ArcReel/ArcReel/commit/7ca80c3ac34b3237c720e519809ad69bcacd23b8)), closes [#3064](https://github.com/ArcReel/ArcReel/issues/3064)
+* **frontend:** turn external Agent access into a settings page and rename API keys to access tokens ([a704fba](https://github.com/ArcReel/ArcReel/commit/a704fbad7b43d34831932eac60147f20d2d6c58a)), closes [#3001](https://github.com/ArcReel/ArcReel/issues/3001)
+* **grid:** rebuild the storyboard grid view as group cards with a media-first composite column ([94c8120](https://github.com/ArcReel/ArcReel/commit/94c8120041eda3f660b33c1742d35b2a82a7b661)), closes [#3025](https://github.com/ArcReel/ArcReel/issues/3025)
+* **grok:** add Grok Imagine Video 1.5 and 1.5 Lite with 1080p output ([ba57c9a](https://github.com/ArcReel/ArcReel/commit/ba57c9a2e6d97b576bfbdbd0588c87b4e7c42b1d)), closes [#2986](https://github.com/ArcReel/ArcReel/issues/2986)
+* **grok:** let Grok video turn its audio track off and bill 720p at the official rate ([6f8231c](https://github.com/ArcReel/ArcReel/commit/6f8231c7ae56361aeef6f3ecd976dc4b25ac07bb)), closes [#2950](https://github.com/ArcReel/ArcReel/issues/2950)
+* **lobby:** rebuild the project lobby with poster cards, progress filters and most-recent-first ordering ([d076853](https://github.com/ArcReel/ArcReel/commit/d076853e1e18d9eb78f6728d5cc1ac689e4e7973)), closes [#3010](https://github.com/ArcReel/ArcReel/issues/3010)
+* **lorebook:** browse asset images in a gallery viewer with versions and confirmed restore ([cb1d3c3](https://github.com/ArcReel/ArcReel/commit/cb1d3c3d9e9bba32c7d5356107f5eff249516639)), closes [#3032](https://github.com/ArcReel/ArcReel/issues/3032)
+* **lorebook:** browse characters, scenes, props and products as one card grid with filters and a single actions menu ([d55cd1a](https://github.com/ArcReel/ArcReel/commit/d55cd1a99ab486e2420333c38340d41facbe24c3)), closes [#3029](https://github.com/ArcReel/ArcReel/issues/3029)
+* **lorebook:** delete project assets from the card menu, warning which episodes still reference them ([e498fbb](https://github.com/ArcReel/ArcReel/commit/e498fbb43495bdd8b26c9fa51a997bd383e61ab0)), closes [#3033](https://github.com/ArcReel/ArcReel/issues/3033)
+* **lorebook:** edit every asset type in one detail sheet that guards unsaved changes ([fb5d95f](https://github.com/ArcReel/ArcReel/commit/fb5d95f8c97eb3693a31afe0c8ba03cc5c96cb61)), closes [#3030](https://github.com/ArcReel/ArcReel/issues/3030)
+* **lorebook:** manage character derivatives in a section of the detail sheet with inline saves ([3b07686](https://github.com/ArcReel/ArcReel/commit/3b076865fc87447cba70e934563b0760a8aa03ee)), closes [#3031](https://github.com/ArcReel/ArcReel/issues/3031)
+* **market:** rebuild the market section with browse, my shares and settings tabs and keyboard-sortable sources ([302d63f](https://github.com/ArcReel/ArcReel/commit/302d63f9c8c147a82a3f27be9b1f74d136758c3c)), closes [#3005](https://github.com/ArcReel/ArcReel/issues/3005)
+* **onboarding:** restyle the tour and demo workbench, and hand off to the agent in place ([7096dee](https://github.com/ArcReel/ArcReel/commit/7096deef1dcab2467a15c4286584ee46a84b2a63)), closes [#3035](https://github.com/ArcReel/ArcReel/issues/3035)
+* **overview:** rebuild the project overview as a single-column story setting page and slim the empty-project welcome ([63e9e3c](https://github.com/ArcReel/ArcReel/commit/63e9e3c83c668a87c337f3db764aa84c742af568)), closes [#3018](https://github.com/ArcReel/ArcReel/issues/3018)
+* **overview:** take an ad project's first input on the overview and edit its story setting in a video-page tab ([5e1f962](https://github.com/ArcReel/ArcReel/commit/5e1f9623b9c12f4129ca078b20a2d25d26c6f74b)), closes [#3034](https://github.com/ArcReel/ArcReel/issues/3034)
+* **overview:** tell a real zero cost from an unknown one and link unpriced models to their price settings ([177757b](https://github.com/ArcReel/ArcReel/commit/177757b6b7a03172c463cb8f03b4f0c001d11167)), closes [#3019](https://github.com/ArcReel/ArcReel/issues/3019)
+* **project-settings:** rebuild project settings with sidebar tabs, one save bar and live model override badges ([5096473](https://github.com/ArcReel/ArcReel/commit/5096473534ac933a063bb5dfd88e19c269a727df)), closes [#3008](https://github.com/ArcReel/ArcReel/issues/3008)
+* **reference:** rebuild the reference video workbench with keyboard-sortable units, an inline save bar and a portrait-sized preview ([a6b39fd](https://github.com/ArcReel/ArcReel/commit/a6b39fdcd73be9bc6e0e31741b8f94172173fb15)), closes [#3026](https://github.com/ArcReel/ArcReel/issues/3026)
+* **settings:** rebuild default models, prompt templates and about, and show config issues in place ([0538b8c](https://github.com/ArcReel/ArcReel/commit/0538b8c80be8978d6815b68459a473316c51baac)), closes [#2999](https://github.com/ArcReel/ArcReel/issues/2999)
+* **timeline:** edit a shot as one unit — fields save together, switching shots asks first, J/K switch and ⌘S saves ([4a70419](https://github.com/ArcReel/ArcReel/commit/4a7041989c4782535fcd2782472c0b7a4a28e71a)), closes [#3023](https://github.com/ArcReel/ArcReel/issues/3023)
+* **timeline:** lay out shot details as refs, prompts and lines beside a container-sized media column, with a keyboard-sortable shot list ([8b978d8](https://github.com/ArcReel/ArcReel/commit/8b978d861f104dc406fa5da2ec130b33789ce35a)), closes [#3022](https://github.com/ArcReel/ArcReel/issues/3022)
+* **usage:** show project titles in usage records and rebuild the usage section on the new design system ([1f6b701](https://github.com/ArcReel/ArcReel/commit/1f6b701e49de08191a25748481e760cfcab5a076)), closes [#3006](https://github.com/ArcReel/ArcReel/issues/3006)
+* **workspace:** resizable sidebar and Agent panel with a header toggle ([3747003](https://github.com/ArcReel/ArcReel/commit/3747003da53cf7bab865f8762cbf3ef0d76eae22)), closes [#3012](https://github.com/ArcReel/ArcReel/issues/3012)
+* **workspace:** searchable project switcher, anchored notifications and keyboard-sortable episodes in the workspace header and sidebar ([1853eb3](https://github.com/ArcReel/ArcReel/commit/1853eb34887f13d0a6591392a608f05944ff2660)), closes [#3013](https://github.com/ArcReel/ArcReel/issues/3013)
+* 媒体缓存按版本键修正、列表改用按需缩略图、视频 faststart 与路由按需加载 ([#3075](https://github.com/ArcReel/ArcReel/issues/3075)) ([6870ad7](https://github.com/ArcReel/ArcReel/commit/6870ad7c115e1abafbce6a312b9de1672e6f9d02))
+
+
+### 🐛 Bug 修复
+
+* **agent:** announce only new failures, keep code block names and focus current, and report session deletion results ([7512422](https://github.com/ArcReel/ArcReel/commit/7512422b02ea9316029986352a4302fbc4e527f3)), closes [#3058](https://github.com/ArcReel/ArcReel/issues/3058)
+* **agent:** 后台子智能体完成后 agent 自行开启的轮次正常显示，闲置清理不再杀掉运行中的子智能体 ([#3072](https://github.com/ArcReel/ArcReel/issues/3072)) ([17c805b](https://github.com/ArcReel/ArcReel/commit/17c805b48e863729eed08e405518b49aa31a7d08))
+* **assets:** keep asset and derivative edits safe across external changes, busy assets and failed refreshes ([5335a2c](https://github.com/ArcReel/ArcReel/commit/5335a2ca76f762fc487c5378d29dd379f673034e))
+* **dashscope:** send qwen-long structured output requests straight to the compatible fallback ([#2897](https://github.com/ArcReel/ArcReel/issues/2897)) ([e530d88](https://github.com/ArcReel/ArcReel/commit/e530d88094306f26af240c6bff35fd897b10abf5))
+* **edit-unit:** keep unsaved edits until a guarded deletion actually succeeds ([932c4fe](https://github.com/ArcReel/ArcReel/commit/932c4fe3acbb7dd1b267386cf962909f89be4623)), closes [#3055](https://github.com/ArcReel/ArcReel/issues/3055)
+* **endpoint-test:** gate test-connection video requests on the same tier-narrowed capabilities as production ([e6ff287](https://github.com/ArcReel/ArcReel/commit/e6ff287e371a0ad89b3f833af76fa68a83258eda)), closes [#2988](https://github.com/ArcReel/ArcReel/issues/2988)
+* **episode:** keep unsaved edits safe across switches, deletions and planning, and stabilize the stage ([9aaf441](https://github.com/ArcReel/ArcReel/commit/9aaf44130837120c099b2f774f05670877c91a66))
+* **frontend:** keep overview generation running across navigation, localize fallback copy and land notification jumps ([0836f47](https://github.com/ArcReel/ArcReel/commit/0836f47ea4fbe5172d6885480f7a71a2590bbe14)), closes [#3059](https://github.com/ArcReel/ArcReel/issues/3059)
+* **frontend:** keep the onboarding bubble beside its card, drop empty gaps in agent replies, and retire legacy UI code behind source-wide lint and screenshot gates ([1fd8d03](https://github.com/ArcReel/ArcReel/commit/1fd8d0376e91ab9fe81b0b84cc4881c44ac49448)), closes [#3039](https://github.com/ArcReel/ArcReel/issues/3039)
+* **frontend:** keep the rebuilt lobby, wizard, asset library, settings and memory editor consistent under concurrent edits ([9d48599](https://github.com/ArcReel/ArcReel/commit/9d48599df2ee3a782983db02d4a5f0ef1588d460))
+* **frontend:** leave unsaved changes without losing history, in-flight saves or invalid edits ([66d4714](https://github.com/ArcReel/ArcReel/commit/66d47148fbcd35feb17233209d4fc79f51711556))
+* **frontend:** let long dialog text scroll by keyboard, keep long names and narrow canvases from scrolling sideways, and harden page-level tests ([759c0f7](https://github.com/ArcReel/ArcReel/commit/759c0f73235f1e0c8496dc11df2ed10602774f7e)), closes [#3062](https://github.com/ArcReel/ArcReel/issues/3062)
+* **frontend:** lint every source file for motion variants, unpositioned scroll containers and scrollbar styling ([28bdcc9](https://github.com/ArcReel/ArcReel/commit/28bdcc971f759ad559d891027acdeb3777b9c54b)), closes [#3065](https://github.com/ArcReel/ArcReel/issues/3065)
+* **frontend:** show every queued toast, block the browser save dialog in overlays and keep merge and rename confirms in step with asset writes ([7987c37](https://github.com/ArcReel/ArcReel/commit/7987c37a5aa58dd663a93634704c45c7115e728b)), closes [#3057](https://github.com/ArcReel/ArcReel/issues/3057)
+* **frontend:** warn when the refresh after a write fails and stop reporting success alongside it ([ab31544](https://github.com/ArcReel/ArcReel/commit/ab315446a6e471ea736878a49b01a0b3ceedffdd)), closes [#3056](https://github.com/ArcReel/ArcReel/issues/3056)
+* **gemini-video:** stream AI Studio video downloads to disk to cut peak memory ([9c15180](https://github.com/ArcReel/ArcReel/commit/9c151804ee649e421663b03251741ca30d08f2d7)), closes [#2951](https://github.com/ArcReel/ArcReel/issues/2951)
+* **gemini-video:** write Vertex video downloads atomically so failures leave no truncated file ([b0efbf1](https://github.com/ArcReel/ArcReel/commit/b0efbf11571e963f047ef54c245a1184b9e1cf8d)), closes [#2985](https://github.com/ArcReel/ArcReel/issues/2985)
+* **gemini:** switch Gemini 3.1 Flash Lite to its formal model ID and migrate saved selections ([#2898](https://github.com/ArcReel/ArcReel/issues/2898)) ([600b605](https://github.com/ArcReel/ArcReel/commit/600b605f74ab5420a3dd622ae7a30704109c243e))
+* **grid:** show interrupted grid generations and let them be regenerated, split or uploaded ([#2896](https://github.com/ArcReel/ArcReel/issues/2896)) ([9e7181b](https://github.com/ArcReel/ArcReel/commit/9e7181b89dcc03a867e845e316452bf4323f3b46))
+* **image-backends:** reject inline base64 that does not decode to PNG, JPEG or WebP ([#2927](https://github.com/ArcReel/ArcReel/issues/2927)) ([774d2d3](https://github.com/ArcReel/ArcReel/commit/774d2d3df317cc120ce7dfe665a121b033994c4a))
+* let external agents connect at /mcp without a redirect and stop advertising an OAuth flow remote MCP cannot complete ([#3069](https://github.com/ArcReel/ArcReel/issues/3069)) ([dcba938](https://github.com/ArcReel/ArcReel/commit/dcba9385dbfb9b2cbdfcb02473142cb0d2896c29))
+* match accented names in asset search, count every saved change toward project activity, and keep leave prompts and the handoff tip correct across views ([0ebdebc](https://github.com/ArcReel/ArcReel/commit/0ebdebc5714f5918f567f4e77c0393e0f91b4a49))
+* match asset search the same way on SQLite and PostgreSQL and save only changed project settings ([ce7130d](https://github.com/ArcReel/ArcReel/commit/ce7130d0e49b24137ff80a6e12acb686c3e5bd6f)), closes [#3060](https://github.com/ArcReel/ArcReel/issues/3060)
+* **projects:** count draft, script plan, edit timeline and memory changes toward a project's last activity ([af3fe7c](https://github.com/ArcReel/ArcReel/commit/af3fe7cdb3d8924c8fd917c16898e3ea67701ea8)), closes [#3061](https://github.com/ArcReel/ArcReel/issues/3061)
+* **settings:** keep edits, async loads and dialogs reliable across the rebuilt settings sections ([6a861b4](https://github.com/ArcReel/ArcReel/commit/6a861b4a25164f6d11242941f80aeb28e7975311))
+* **settings:** lead built-in endpoints with creating a provider, hold cancel during imports and open the market on the media type in use ([c5d0b66](https://github.com/ArcReel/ArcReel/commit/c5d0b66588e499a24a4fe00ed05161ece2ed31a4)), closes [#3063](https://github.com/ArcReel/ArcReel/issues/3063)
+* **video:** settle stage integration fixes for Gemini downloads, Grok frame inputs and trial-run gating ([4df0b1e](https://github.com/ArcReel/ArcReel/commit/4df0b1ec0f479db5859c02cb31000cbd2e555ad0)), closes [#2951](https://github.com/ArcReel/ArcReel/issues/2951) [#2986](https://github.com/ArcReel/ArcReel/issues/2986) [#2988](https://github.com/ArcReel/ArcReel/issues/2988)
+* **workflow:** state each production-progress hint once, tagged with its unit, without raw codes or provider handles ([52b241f](https://github.com/ArcReel/ArcReel/commit/52b241f192bac040bb35b05d474ce0cd94cf7837)), closes [#3021](https://github.com/ArcReel/ArcReel/issues/3021)
+* **workspace:** keep the Agent panel following new replies and the overview accurate when refreshes fail or spend is unknown ([deb1241](https://github.com/ArcReel/ArcReel/commit/deb12418300cf9d8c5a74c55f7144c4421f6b111))
+
+
+### ♻️ 重构
+
+* **frontend:** move the header status bar and end-frame picker onto shared popovers and dialogs ([bc025c6](https://github.com/ArcReel/ArcReel/commit/bc025c678822ed63c00dae6de39df5dd4a086ef1)), closes [#3038](https://github.com/ArcReel/ArcReel/issues/3038)
+* **frontend:** move the remaining shared dialogs, draft status bars and image preview onto the shadcn primitives ([5bfe359](https://github.com/ArcReel/ArcReel/commit/5bfe359632f5b93f6533347753c0e44338583ab6)), closes [#3037](https://github.com/ArcReel/ArcReel/issues/3037)
+
+
+### 📚 文档
+
+* **readme:** rebrand sponsor Fluxion AI to Sidrune AI ([#3076](https://github.com/ArcReel/ArcReel/issues/3076)) ([35f0d4e](https://github.com/ArcReel/ArcReel/commit/35f0d4e6615e5a57d79192dd06387a73528ed813))
+
 ## [0.32.0](https://github.com/ArcReel/ArcReel/compare/v0.31.0...v0.32.0) (2026-10-02)
 
 

@@ -304,6 +304,30 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     expect(updateSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("已保存参考图的地址带项目详情里的资产指纹，只改其他设置的保存不换掉这个版本", async () => {
+    const updateSpy = mockProject({ style_image: "style_reference.png", style_description: "水墨", aspect_ratio: "9:16" });
+    vi.mocked(API.getProject).mockResolvedValue({
+      project: { title: "Demo", episodes: [], characters: {}, clues: {}, style_image: "style_reference.png", style_description: "水墨" },
+      scripts: {},
+      asset_fingerprints: { "style_reference.png": 1712345678901 },
+    } as unknown as ProjectResponse);
+    const user = userEvent.setup();
+    const { container } = renderAt("/app/projects/demo/settings?tab=style");
+
+    expect(await screen.findByText("自定义风格")).toBeInTheDocument();
+    const preview = () => container.querySelector<HTMLImageElement>('img[src*="style_reference.png"]')?.getAttribute("src");
+    expect(preview()).toBe("/api/v1/files/demo/style_reference.png?v=1712345678901");
+
+    await user.click(within(sidebar()).getByRole("link", { name: /^基础/ }));
+    await user.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
+    await user.click(saveButton());
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    await user.click(within(sidebar()).getByRole("link", { name: /^风格/ }));
+    expect(await screen.findByText("自定义风格")).toBeInTheDocument();
+    expect(preview()).toBe("/api/v1/files/demo/style_reference.png?v=1712345678901");
+    expect(within(sidebar()).queryByRole("link", { name: /有未保存的修改/ })).not.toBeInTheDocument();
+  });
+
   it("字段校验未通过时保存与「保存并离开」都不提交，指出所在分页并留在原处", async () => {
     const updateSpy = mockProject({ content_mode: "ad", generation_mode: "storyboard", target_duration: 30 });
     const { location } = renderAt("/app/projects/demo/settings");

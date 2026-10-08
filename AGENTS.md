@@ -25,5 +25,5 @@ uv run python scripts/gate.py backend frontend     # 或直接点名域；各域
 
 - 议题追踪：GitHub Issues，用 `gh` CLI 操作；Spec 与 ticket 的约定见 `docs/agents/issue-tracker.md`。
 - Triage 标签状态机：`docs/agents/triage-labels.md`。
-- 领域文档（`CONTEXT.md` + `docs/adr/`）的使用方式：`docs/agents/domain.md`。
+- 领域文档（`GLOSSARY.md` + `docs/adr/`）的使用方式：`docs/agents/domain.md`。
 - 项目 schema 迁移：新增或修改 `lib/project/project_migrations/` 的迁移步、改动产物补录规划器时读 `docs/agents/project-migrations.md`。

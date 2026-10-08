@@ -40,6 +40,9 @@ PROJECT_EVENTS_POLL_SECONDS = 0.5
 
 # 项目目录被删除后向订阅者广播的终止事件名——流在其后正常结束（见 stream_events._iter）。
 PROJECT_DELETED_EVENT = "project_deleted"
+# 项目下的 Agent 会话因 CLI 自主开启新一轮（后台任务完成后唤醒）回到 running；
+# idle 会话没有 entry 流订阅者，客户端凭此重新订阅。
+ASSISTANT_SESSION_RESUMED_EVENT = "assistant_session_resumed"
 
 #: 读取一个项目当前状态的读盘入口；在线程池中调用。项目目录不存在时抛 ``FileNotFoundError``。
 ProjectStateReader = Callable[[str], ProjectState]
@@ -271,9 +274,9 @@ class ProjectEventService:
         - a ``{"type": "_idle"}`` sentinel whenever *idle_timeout* elapses with no
           event (consumers poll disconnect on it).
 
-        The "queue full → silently drop subscriber" overflow semantics are
-        unchanged (:class:`DropSubscriber` — no overflow signal, the stream keeps
-        idling). Subscription and unsubscribe live behind this seam; cleanup is
+        When the subscriber's queue fills, :class:`DropSubscriber` removes it and
+        the iterator ends; the client reconnects and the fresh snapshot realigns
+        it. Subscription and unsubscribe live behind this seam; cleanup is
         carried by ``__aexit__`` (see ADR-0005). Consume as
         ``async with stream_events(...) as stream: async for item in stream``.
         """
@@ -293,6 +296,14 @@ class ProjectEventService:
             yield _iter()
         finally:
             await self._unsubscribe(project_name, queue)
+
+    def publish_assistant_session_resumed(self, project_name: str, session_id: str) -> None:
+        """向项目订阅者广播会话回到 running；没有订阅者时丢弃。须在事件循环线程调用。"""
+        channel = self._channels.get(project_name)
+        if channel is None:
+            return
+        payload = {"project_name": project_name, "session_id": session_id, "status": "running"}
+        channel.sse.broadcast((ASSISTANT_SESSION_RESUMED_EVENT, payload))
 
     def _on_hint(
         self,

@@ -294,7 +294,7 @@ ArcReel 的项目不仅是一条数据库记录，还包括文件系统中的媒
 ├── logs/                      文件日志
 ├── vertex_keys/               Vertex 凭据
 ├── trial_runs/                端点「测试连接」的产物
-└── runtime/                   生成准入锁、迁移完成标记、迁移错误日志
+└── runtime/                   生成准入锁、迁移完成标记、迁移错误日志、图片缩略图缓存
 ```
 
 - 各条目的位置只由 `lib/infra/data_root_layout.py` 的 `DataRootLayout` 给出，其它代码不自行拼接，也不从项目目录反推数据根。

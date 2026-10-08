@@ -292,7 +292,7 @@ Layout of the data root ([ADR 0088](https://github.com/ArcReel/ArcReel/blob/main
 ├── logs/                      file logs
 ├── vertex_keys/               Vertex credentials
 ├── trial_runs/                output of endpoint "Test connection" runs
-└── runtime/                   generation admission locks, migration completion markers, migration error log
+└── runtime/                   generation admission locks, migration completion markers, migration error log, image thumbnail cache
 ```
 
 - The location of every entry comes only from `DataRootLayout` in `lib/infra/data_root_layout.py`; other code neither builds these paths itself nor derives the data root from a project directory.

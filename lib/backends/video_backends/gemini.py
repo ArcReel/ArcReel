@@ -27,6 +27,7 @@ from arcreel_market_core.video_backend_contract import (
 from lib.backends.backend_runtime import (
     ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
     ProviderJobIdPersistenceMixin,
+    faststart_video_artifact,
     is_retryable_http_status,
     poll_with_retry,
     should_retry_poll,
@@ -343,6 +344,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
         await asyncio.to_thread(request.output_path.parent.mkdir, parents=True, exist_ok=True)
         await self._download_video_with_retry(video_ref, request.output_path)
+        await faststart_video_artifact(request.output_path)
 
         return VideoGenerationResult(
             video_path=request.output_path,
