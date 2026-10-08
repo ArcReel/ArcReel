@@ -51,4 +51,6 @@ export interface GridGeneration {
   reference_images?: ReferenceImage[] | null;
   /** 最近一次按当前联合图切分落格的时间；联合图内容变更（重生成/上传/还原）后为 null */
   split_at: string | null;
+  /** 产出当前联合图时冻结的单格目标比例；存量记录为 null，按项目设置回退 */
+  video_aspect_ratio?: string | null;
 }

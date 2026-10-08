@@ -154,3 +154,11 @@ class DataRootLayout:
     def project_migration_error_log_path(self) -> Path:
         """项目 schema 迁移的错误日志。"""
         return self.runtime_dir / "project-migration-errors.log"
+
+    @property
+    def image_thumbnail_cache_dir(self) -> Path:
+        """公开媒体端点按 ``?w=`` 生成的图片缩略图缓存，可随时整目录删除。
+
+        放在项目目录之外：不进资产指纹、版本快照与项目导出，也不在公开媒体白名单内。
+        """
+        return self.runtime_dir / "image-thumbnails"

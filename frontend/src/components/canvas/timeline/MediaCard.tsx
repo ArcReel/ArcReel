@@ -104,7 +104,12 @@ export function MediaCard({
     assetPath ? s.getAssetFingerprint(assetPath) : null,
   );
   const playbackStart = usePlaybackStart("videos", segmentId);
+  // 原图只给全屏预览；卡片里按媒体栏宽度从 640 / 1280 两档缩略图中取，媒体栏最宽约 720px。
   const assetUrl = assetPath ? API.getFileUrl(projectName, assetPath, assetFp) : null;
+  const storyboardSrcSet =
+    assetPath && kind === "storyboard"
+      ? `${API.getFileUrl(projectName, assetPath, assetFp, { width: 640 })} 640w, ${API.getFileUrl(projectName, assetPath, assetFp, { width: 1280 })} 1280w`
+      : undefined;
 
   const Icon = kind === "storyboard" ? ImageIcon : Film;
   const title =
@@ -172,8 +177,11 @@ export function MediaCard({
             <AspectFrame ratio={aspectRatio}>
               <img
                 src={assetUrl}
+                srcSet={storyboardSrcSet}
+                sizes="(min-width: 1280px) 720px, 640px"
                 alt={`${itemIdWithinEpisode(segmentId)} ${title}`}
                 loading="lazy"
+                decoding="async"
                 className="size-full object-cover"
               />
             </AspectFrame>

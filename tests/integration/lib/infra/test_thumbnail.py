@@ -44,6 +44,25 @@ class TestExtractVideoThumbnail:
         assert result == thumbnail_path
         assert _dominant_channel(thumbnail_path) == "red"
 
+    @pytest.mark.parametrize(
+        ("source_size", "expected"),
+        [("1920x1080", (1280, 720)), ("1080x1920", (720, 1280)), ("64x48", (64, 48))],
+    )
+    async def test_long_edge_is_capped_without_upscaling(
+        self, tmp_path: Path, source_size: str, expected: tuple[int, int]
+    ):
+        video = tmp_path / "source.mp4"
+        run_bundled_ffmpeg(
+            "-f", "lavfi", "-i", f"color=c=red:s={source_size}:d=0.2:r=10", "-c:v", "libx264", str(video)
+        )  # fmt: skip
+
+        result = await extract_video_thumbnail(video, tmp_path / "thumb.jpg")
+
+        assert result is not None
+        with Image.open(result) as image:
+            assert image.format == "JPEG"
+            assert image.size == expected
+
     async def test_returns_none_for_missing_video(self, tmp_path: Path):
         result = await extract_video_thumbnail(tmp_path / "missing.mp4", tmp_path / "thumb.jpg")
         assert result is None

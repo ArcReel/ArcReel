@@ -152,7 +152,7 @@ function finalCut(status: "current" | "stale" | "missing", narration = "without_
 
 const NO_TASKS = { status: 200, body: { items: [], total: 0, page: 1, page_size: 20 } };
 const TIMELINE_BASE = `/api/v1/projects/demo/edit-timelines/${TIMELINE_ID}`;
-// 播放器预载当前与下一个片段的源视频；套件不回放媒体文件，按不存在处理。
+// 播放器装载当前片段的源视频，开始播放后再预载下一段；套件不回放媒体文件，按不存在处理。
 const videoMissing = (index: number) => ({
   [`GET /api/v1/files/demo/videos/scene_${unit(index)}.mp4?v=1`]: { status: 404, body: { detail: "页面级套件不回放媒体" } },
 });

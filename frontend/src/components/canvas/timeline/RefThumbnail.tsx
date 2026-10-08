@@ -71,8 +71,9 @@ function RefPreview({
     <div className="flex items-start gap-2.5">
       {sheetPath ? (
         <img
-          src={API.getFileUrl(projectName, sheetPath, sheetFp)}
+          src={API.getFileUrl(projectName, sheetPath, sheetFp, { width: 320 })}
           alt={displayName}
+          decoding="async"
           className="h-30 w-22 shrink-0 rounded-sm object-cover"
         />
       ) : (
@@ -119,8 +120,10 @@ export function RefThumbnail({
 
   const thumb = showImage ? (
     <img
-      src={API.getFileUrl(projectName, sheetPath, sheetFp)}
+      src={API.getFileUrl(projectName, sheetPath, sheetFp, { width: 160 })}
       alt={formatReferenceName(name)}
+      loading="lazy"
+      decoding="async"
       className={cn("size-7 border-2 border-background object-cover", meta.shape)}
       onError={() => setErrorKey(currentKey)}
     />

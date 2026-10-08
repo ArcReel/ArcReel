@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -9,7 +9,7 @@ import {
 } from "@/stores/tasks-store";
 import type { GridGeneration } from "@/types/grid";
 import type { TaskItem } from "@/types";
-import { GridPreviewPanel } from "./GridPreviewPanel";
+import { GridPreviewPanel, gridImageAspect } from "./GridPreviewPanel";
 
 // useActiveResourceIds 默认包裹真实实现，仅在个别用例里用 mockReturnValue 模拟
 // "响应式信号尚未追上真实 store"的场景，验证提交 handler 不依赖它、独立新鲜读 store。
@@ -338,5 +338,65 @@ describe("GridPreviewPanel 版本时光机跨宫格切换", () => {
 
     await waitFor(() => expect(screen.getByText("v3")).toBeInTheDocument());
     expect(screen.queryByText("v7")).not.toBeInTheDocument();
+  });
+});
+
+describe("GridPreviewPanel 图片地址版本", () => {
+  it("联合图与参考图只用资产指纹作版本、按显示尺寸取缩略图，指纹未送达时不带版本参数", async () => {
+    const { useProjectsStore } = await import("@/stores/projects-store");
+    useProjectsStore.setState({ assetFingerprints: {} });
+    vi.spyOn(API, "getGrid").mockResolvedValue(
+      makeGrid({ reference_images: [{ ref_type: "character", name: "主角", path: "characters/主角.png" }] }),
+    );
+
+    const { container } = render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
+
+    // 断言当前显示的图片：期间若有重拉，面板会回到加载态再重新挂载图片，先前取到的节点已脱离文档
+    const referenceSrc = () =>
+      container.querySelector<HTMLImageElement>('img[src*="characters/"]')?.getAttribute("src");
+
+    expect(await screen.findByRole("img", { name: "联合图" })).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/grids/grid-1.png?w=1280",
+    );
+    expect(referenceSrc()).toBe("/api/v1/files/demo/characters/主角.png?w=160");
+
+    act(() =>
+      useProjectsStore.setState({ assetFingerprints: { "grids/grid-1.png": 11, "characters/主角.png": 22 } }),
+    );
+    expect(await screen.findByRole("img", { name: "联合图" })).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/grids/grid-1.png?v=11&w=1280",
+    );
+    expect(referenceSrc()).toBe("/api/v1/files/demo/characters/主角.png?v=22&w=160");
+  });
+});
+
+describe("gridImageAspect", () => {
+  it("方形档取记录冻结的视频比例朝向，存量 3×2 / 2×3 取 4:3 / 3:4", () => {
+    const landscapeProject = { aspect_ratio: "16:9", content_mode: "drama" } as const;
+    expect(gridImageAspect({ rows: 3, cols: 3, video_aspect_ratio: "9:16" }, landscapeProject)).toBe("9:16");
+    expect(gridImageAspect({ rows: 2, cols: 2, video_aspect_ratio: "16:9" }, null)).toBe("16:9");
+    expect(gridImageAspect({ rows: 3, cols: 2, video_aspect_ratio: "9:16" }, null)).toBe("4:3");
+    expect(gridImageAspect({ rows: 2, cols: 3, video_aspect_ratio: "16:9" }, null)).toBe("3:4");
+  });
+
+  it("记录未冻结视频比例时按项目画幅回退", () => {
+    expect(gridImageAspect({ rows: 2, cols: 2, video_aspect_ratio: null }, { aspect_ratio: "16:9", content_mode: "drama" })).toBe("16:9");
+    expect(gridImageAspect({ rows: 2, cols: 2 }, { aspect_ratio: "9:16", content_mode: "drama" })).toBe("9:16");
+  });
+});
+
+describe("GridPreviewPanel 联合图占位", () => {
+  it("加载前按记录的整图比例声明宽高，延迟加载、异步解码", async () => {
+    vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ video_aspect_ratio: "9:16" }));
+
+    render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
+
+    const composite = await screen.findByRole("img", { name: "联合图" });
+    expect(composite).toHaveAttribute("width", "1080");
+    expect(composite).toHaveAttribute("height", "1920");
+    expect(composite).toHaveAttribute("loading", "lazy");
+    expect(composite).toHaveAttribute("decoding", "async");
   });
 });

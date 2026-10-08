@@ -359,10 +359,10 @@ function TimelinePreview({
       bgm: Record<string, string>;
     };
     return (placement: AudioPlacement) => {
-      // BGM 按字节登记、文件不再改写，地址不带版本号。
+      // BGM 按字节登记（bgm/{随机 id}）、文件不再改写，地址本身就唯一，显式不带版本号。
       if (placement.kind === "bgm") {
         const path = sources.bgm[placement.sourceId];
-        return path ? API.getFileUrl(projectName, path) : null;
+        return path ? API.getFileUrl(projectName, path, null) : null;
       }
       const source = sources.narration[placement.sourceId];
       return source ? API.getFileUrl(projectName, source.path, source.version) : null;

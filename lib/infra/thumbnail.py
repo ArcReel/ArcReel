@@ -33,6 +33,14 @@ class FrameExtractionDeadlines:
 
 DEFAULT_DEADLINES = FrameExtractionDeadlines()
 
+#: 首帧缩略图长边上限（像素）
+VIDEO_THUMBNAIL_MAX_EDGE = 1280
+# 长边缩到不超过上限、不放大；短边按 -2 等比并取偶数
+VIDEO_THUMBNAIL_SCALE_FILTER = (
+    f"scale=w='if(gte(iw,ih),min({VIDEO_THUMBNAIL_MAX_EDGE},iw),-2)'"
+    f":h='if(gte(iw,ih),-2,min({VIDEO_THUMBNAIL_MAX_EDGE},ih))'"
+)
+
 
 async def extract_video_thumbnail(
     video_path: Path,
@@ -42,7 +50,7 @@ async def extract_video_thumbnail(
     spawn: Spawner | None = None,
 ) -> Path | None:
     """
-    使用 ffmpeg 提取视频第一帧作为 JPEG 缩略图。
+    使用 ffmpeg 提取视频第一帧作为 JPEG 缩略图，长边缩到不超过 ``VIDEO_THUMBNAIL_MAX_EDGE``（不放大）。
 
     Args:
         video_path: 视频文件路径
@@ -69,7 +77,18 @@ async def extract_video_thumbnail(
 
     try:
         written = await _run_ffmpeg_to_output(
-            [ffmpeg, "-nostdin", "-y", *local_file_input(video_path), "-vframes", "1", "-q:v", "2"],
+            [
+                ffmpeg,
+                "-nostdin",
+                "-y",
+                *local_file_input(video_path),
+                "-vframes",
+                "1",
+                "-vf",
+                VIDEO_THUMBNAIL_SCALE_FILTER,
+                "-q:v",
+                "2",
+            ],
             thumbnail_path,
             deadlines=deadlines,
             spawn=spawn,

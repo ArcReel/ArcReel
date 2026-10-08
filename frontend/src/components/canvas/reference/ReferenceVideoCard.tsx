@@ -106,6 +106,18 @@ export interface ReferenceVideoCardProps {
   saving?: boolean;
 }
 
+/** 提示词预览里的参考图；单独订阅这张图的指纹，地址随重新生成换版本。 */
+function ReferencePreviewImage({ projectName, path, name }: { projectName: string; path: string; name: string }) {
+  const fingerprint = useProjectsStore((s) => s.getAssetFingerprint(path));
+  return (
+    <img
+      src={API.getFileUrl(projectName, path, fingerprint, { width: 160 })}
+      alt={name}
+      className="h-12 w-16 rounded-sm object-contain"
+    />
+  );
+}
+
 export function ReferenceVideoCard({
   unit,
   projectName,
@@ -317,11 +329,7 @@ export function ReferenceVideoCard({
                   <ol className="space-y-2">
                     {result.references.map((reference, index) => (
                       <li key={`${reference.path}-${index}`} className="flex items-center gap-3 text-xs text-subtle-foreground">
-                        <img
-                          src={API.getFileUrl(projectName, reference.path)}
-                          alt={reference.name}
-                          className="h-12 w-16 rounded-sm object-contain"
-                        />
+                        <ReferencePreviewImage projectName={projectName} path={reference.path} name={reference.name} />
                         <span>{t("reference_prompt_preview_image", { index: index + 1, name: reference.name })}</span>
                       </li>
                     ))}

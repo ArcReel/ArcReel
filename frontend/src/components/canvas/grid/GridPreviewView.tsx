@@ -38,7 +38,6 @@ function GridGroupCard({
   gridIds,
   submitting,
   canGenerate,
-  refreshKey,
   onGenerate,
   onRegenerated,
 }: {
@@ -50,7 +49,6 @@ function GridGroupCard({
   gridIds: string[];
   submitting: boolean;
   canGenerate: boolean;
-  refreshKey: number;
   onGenerate: () => void;
   onRegenerated: () => void;
 }) {
@@ -96,7 +94,6 @@ function GridGroupCard({
         busy={submitting}
         canGenerate={canGenerate}
         onRegenerated={onRegenerated}
-        refreshKey={refreshKey}
       />
     </section>
   );
@@ -115,7 +112,6 @@ export function GridPreviewView({
   const gridsRevision = useAppStore((s) => s.gridsRevision);
   const invalidateGrids = useAppStore((s) => s.invalidateGrids);
   const [grids, setGrids] = useState<GridGeneration[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [generatingGroups, setGeneratingGroups] = useState<Set<string>>(new Set());
   // 单张宫格的格数上限由后端给：4×4 / 5×5 的 4K 门控要经供应商解析才能定，前端自行推导
   // 必然与入队口径漂移。取不到时 computeGridSize 用保守默认值。
@@ -142,7 +138,6 @@ export function GridPreviewView({
       .then((data) => {
         if (controller.signal.aborted) return;
         setGrids(data);
-        setRefreshKey((v) => v + 1);
       })
       .catch(() => {});
     return () => controller.abort();
@@ -216,7 +211,6 @@ export function GridPreviewView({
               gridIds={gridIds}
               submitting={generatingGroups.has(groupKey)}
               canGenerate={canGenerate}
-              refreshKey={refreshKey}
               onGenerate={() => void handleGenerateGroup(groupKey, group)}
               onRegenerated={invalidateGrids}
             />

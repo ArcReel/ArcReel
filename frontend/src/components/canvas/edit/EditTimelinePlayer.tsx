@@ -70,7 +70,8 @@ export function EditTimelinePlayer({
                 key={slot}
                 ref={ref}
                 playsInline
-                preload="auto"
+                // 播放过之前只拉元数据与定位处的画面；开始播放后整段缓冲，切换片段才能无缝
+                preload={playback.started ? "auto" : "metadata"}
                 data-testid={`edit-player-video-${slot}`}
                 className="absolute inset-0 size-full object-contain opacity-(--stage-opacity)"
                 style={{ "--stage-opacity": visible ? opacity : 0 } as CSSProperties}

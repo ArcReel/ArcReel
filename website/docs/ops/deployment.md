@@ -82,7 +82,7 @@ deploy/projects/               数据根
 ├── logs/                      应用日志
 ├── vertex_keys/               Vertex AI 凭据文件
 ├── trial_runs/                端点「测试连接」的产物
-└── runtime/                   迁移完成标记、生成准入锁等运行时状态
+└── runtime/                   迁移完成标记、生成准入锁、图片缩略图缓存等运行时状态
 ```
 
 只有 `projects/` 下名字由英文字母、数字或中划线组成、并且包含 `project.json` 的目录才算项目，数据根里的其它条目不会出现在项目列表中。设置页「关于」中下载的诊断日志会列出数据根及上述各类数据的实际位置。
@@ -534,7 +534,16 @@ ports:
 
 如果反向代理运行在容器网络或其他主机上，应取消不必要的宿主机端口发布，并通过容器网络、主机防火墙或等效网络策略保证只有代理能够访问 ArcReel 后端。
 
-Nginx 示例：
+ArcReel 自身已经处理缓存头和压缩，反向代理不需要另行配置：
+
+- 带版本键（`?v=`、`?fp=`）或指向 `versions/` 版本快照的媒体地址，以及前端 `/assets/` 下带内容哈希的构建产物，返回 `Cache-Control: public, max-age=31536000, immutable`，浏览器直接复用本地缓存；
+- 不带版本键的媒体地址返回 `Cache-Control: no-cache`，浏览器每次使用前向服务端再验证，文件未变化时返回 `304`；
+- 页面入口 HTML 返回 `no-store`，升级后浏览器会加载新版前端；
+- JSON、JS、CSS、HTML 等文本响应使用 gzip 压缩，SSE 事件流和图片、音视频不压缩。
+
+反向代理应原样透传这些响应头，不要用 `expires`、`add_header Cache-Control` 或 `proxy_hide_header` 覆盖。
+
+Nginx 示例。示例把媒体文件路径单独拆出：SSE 与普通 API 关闭代理缓冲，事件实时到达浏览器；`/api/v1/files/` 与 `/api/v1/global-assets/` 开启代理缓冲，图片和视频由 Nginx 先行接收，后端连接尽早释放。
 
 ```nginx
 server {
@@ -545,6 +554,26 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/arcreel.example.com/privkey.pem;
 
     client_max_body_size 2g;
+
+    # 只压缩文本类型。ArcReel 已压缩的响应 Nginx 不会重复压缩；
+    # 不要加入 text/event-stream，压缩缓冲会延迟 SSE 事件；图片和音视频本身已压缩，也不要加入
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/markdown application/json application/javascript image/svg+xml;
+
+    # 项目媒体与全局资产：只读 GET，开启缓冲
+    location ~ ^/api/v1/(files|global-assets)/ {
+        proxy_pass http://127.0.0.1:1241;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_buffering on;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:1241;

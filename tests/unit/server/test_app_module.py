@@ -117,3 +117,84 @@ async def test_remote_mcp_paths_reach_host_without_redirect(path: str) -> None:
 
     assert response.status_code == 503
     assert response.text == "MCP server is not running"
+
+
+def _recording_app(content_type: str, body: bytes, events: list[str]):
+    """先发响应头再发 body 的最小 ASGI 应用；发 body 前记录响应头是否已到达客户端。"""
+
+    async def app(scope, receive, send):
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": [(b"content-type", content_type.encode())]}
+        )
+        events.append("start-delivered" if "client-got-start" in events else "start-held")
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+    return app
+
+
+def _recording_send(events: list[str], messages: list[dict]):
+    async def send(message):
+        if message["type"] == "http.response.start":
+            events.append("client-got-start")
+        messages.append(message)
+
+    return send
+
+
+async def _call(app, accept: str, events: list[str], *, accept_encoding: str = "gzip") -> list[dict]:
+    messages: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"accept", accept.encode()), (b"accept-encoding", accept_encoding.encode())],
+    }
+    await app_module.ResponseCompressionMiddleware(app)(scope, receive, _recording_send(events, messages))
+    return messages
+
+
+async def test_compression_gzips_large_json():
+    events: list[str] = []
+    messages = await _call(_recording_app("application/json", b'{"k": "v"}' * 200, events), "*/*", events)
+
+    headers = dict(messages[0]["headers"])
+    assert headers[b"content-encoding"] == b"gzip"
+
+
+async def test_compression_skips_media():
+    events: list[str] = []
+    messages = await _call(_recording_app("image/png", b"\x89PNG" * 500, events), "*/*", events)
+
+    assert b"content-encoding" not in dict(messages[0]["headers"])
+
+
+@pytest.mark.parametrize("accept", ["text/event-stream", "*/*"])
+@pytest.mark.parametrize("accept_encoding", ["gzip", ""])
+async def test_event_stream_headers_reach_the_client_before_the_first_event(accept: str, accept_encoding: str):
+    """事件流按响应类型识别，与请求是否声明 Accept 无关：响应头在首个事件前送达，body 原样透传。"""
+    events: list[str] = []
+    body = b"data: hello\n\n" * 100
+    messages = await _call(
+        _recording_app("text/event-stream", body, events), accept, events, accept_encoding=accept_encoding
+    )
+
+    assert events[:2] == ["client-got-start", "start-delivered"]
+    assert b"content-encoding" not in dict(messages[0]["headers"])
+    assert messages[1]["body"] == body
+
+
+async def test_excluded_media_sent_by_pathsend_gets_a_single_response_start():
+    """媒体响应头已即时放行时，pathsend 不再重复发送响应头。"""
+    events: list[str] = []
+
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"video/mp4")]})
+        await send({"type": "http.response.pathsend", "path": "/tmp/clip.mp4"})
+
+    messages = await _call(app, "*/*", events)
+
+    assert [message["type"] for message in messages] == ["http.response.start", "http.response.pathsend"]

@@ -1600,17 +1600,42 @@ class TestFilesRouter:
             assert "immutable" in resp.headers.get("cache-control", "")
             assert resp.headers["x-content-type-options"] == "nosniff"
 
-    def test_no_cache_control_without_version(self, tmp_path, monkeypatch):
-        """无 ?v= 参数且非 versions 路径时不应有 immutable 头"""
+    def test_revalidate_without_version(self, tmp_path, monkeypatch):
+        """无 ?v= 参数且非 versions 路径时要求每次再验证；ETag 命中回 304，文件变更后回新内容"""
         client, pm = _client(monkeypatch, tmp_path)
         project_path = pm.get_project_path("demo")
         (project_path / "storyboards").mkdir(exist_ok=True)
-        (project_path / "storyboards" / "test.png").write_bytes(b"img")
+        target = project_path / "storyboards" / "test.png"
+        target.write_bytes(b"img")
+        os.utime(target, (1_700_000_000, 1_700_000_000))
 
         with client:
             resp = client.get("/api/v1/files/demo/storyboards/test.png")
             assert resp.status_code == 200
-            assert "immutable" not in resp.headers.get("cache-control", "")
+            assert resp.headers["cache-control"] == "no-cache"
+            etag = resp.headers["etag"]
+
+            revalidated = client.get("/api/v1/files/demo/storyboards/test.png", headers={"If-None-Match": etag})
+            assert revalidated.status_code == 304
+            assert revalidated.content == b""
+
+            target.write_bytes(b"img-v2")
+            os.utime(target, (1_700_000_060, 1_700_000_060))
+            changed = client.get("/api/v1/files/demo/storyboards/test.png", headers={"If-None-Match": etag})
+            assert changed.status_code == 200
+            assert changed.content == b"img-v2"
+
+    def test_range_request_still_partial(self, tmp_path, monkeypatch):
+        """视频拖动依赖的 Range 请求仍返回 206"""
+        client, pm = _client(monkeypatch, tmp_path)
+        project_path = pm.get_project_path("demo")
+        (project_path / "videos").mkdir(exist_ok=True)
+        (project_path / "videos" / "clip.mp4").write_bytes(b"0123456789")
+
+        with client:
+            resp = client.get("/api/v1/files/demo/videos/clip.mp4?v=1", headers={"Range": "bytes=2-5"})
+            assert resp.status_code == 206
+            assert resp.content == b"2345"
 
     def test_files_helper_functions(self, tmp_path):
         assert files._stage_files("narration") == {"script_plan": "script_plan_segments.json"}
@@ -1786,6 +1811,31 @@ class TestFilesRouter:
             resp = client.get("/api/v1/global-assets/character/abc.png")
             assert resp.status_code == 200
             assert resp.content == b"img-bytes"
+
+    @pytest.mark.parametrize("query", ["?fp=2026-01-01T00:00:00", "?v=1"])
+    def test_serve_global_asset_version_key_is_immutable(self, tmp_path, monkeypatch, query):
+        """前端以 ?fp=<updated_at> 作版本键（?v= 同义），带版本键即 immutable"""
+        client, pm = _client(monkeypatch, tmp_path)
+        (pm.get_global_assets_root() / "character" / "abc.png").write_bytes(b"img-bytes")
+
+        with client:
+            resp = client.get(f"/api/v1/global-assets/character/abc.png{query}")
+            assert resp.status_code == 200
+            assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+            assert resp.headers["x-content-type-options"] == "nosniff"
+
+    def test_serve_global_asset_without_version_revalidates(self, tmp_path, monkeypatch):
+        """无版本键时要求再验证，ETag 命中回 304"""
+        client, pm = _client(monkeypatch, tmp_path)
+        (pm.get_global_assets_root() / "character" / "abc.png").write_bytes(b"img-bytes")
+
+        with client:
+            resp = client.get("/api/v1/global-assets/character/abc.png")
+            assert resp.headers["cache-control"] == "no-cache"
+            revalidated = client.get(
+                "/api/v1/global-assets/character/abc.png", headers={"If-None-Match": resp.headers["etag"]}
+            )
+            assert revalidated.status_code == 304
 
     def test_serve_global_asset_scene_and_prop(self, tmp_path, monkeypatch):
         """scene/prop 子目录也能正确读取"""
@@ -1991,6 +2041,188 @@ class TestPublicFileRouteServesMediaOnly:
         with client:
             resp = client.get(f"/api/v1/global-assets/character/{filename}")
         assert resp.status_code == 404
+
+
+def _write_png(path: Path, size: tuple[int, int]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, (255, 0, 0)).save(path, format="PNG")
+    return path
+
+
+class TestServeProjectFileThumbnails:
+    """公开文件路由的 ?w= 缩略图：WebP、档位吸附、小图回原图、非图片忽略，白名单与缓存头不变。"""
+
+    def test_returns_webp_thumbnail_at_snapped_width(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/a.png?v=1&w=300")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/webp"
+        assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert resp.headers["x-content-type-options"] == "nosniff"
+        with Image.open(BytesIO(resp.content)) as thumbnail:
+            assert thumbnail.format == "WEBP"
+            assert thumbnail.size == (320, 160)
+
+    def test_cache_lives_outside_the_project_directory(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        _write_png(project_dir / "storyboards" / "a.png", (1600, 800))
+        before = sorted(p.relative_to(project_dir) for p in project_dir.rglob("*"))
+
+        with client:
+            first = client.get("/api/v1/files/demo/storyboards/a.png?w=640")
+            second = client.get("/api/v1/files/demo/storyboards/a.png?w=640")
+
+        assert first.status_code == second.status_code == 200
+        assert first.content == second.content
+        assert first.headers["etag"] == second.headers["etag"]
+        assert sorted(p.relative_to(project_dir) for p in project_dir.rglob("*")) == before
+        cached = list((pm.layout.image_thumbnail_cache_dir / "demo").rglob("*.webp"))
+        assert len(cached) == 1
+        assert cached[0].read_bytes() == first.content
+
+    def test_thumbnail_etag_differs_from_original_and_revalidates_to_304(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
+
+        with client:
+            original = client.get("/api/v1/files/demo/storyboards/a.png")
+            thumb = client.get("/api/v1/files/demo/storyboards/a.png?w=320")
+            assert thumb.headers["cache-control"] == "no-cache"
+            assert thumb.headers["etag"] != original.headers["etag"]
+            assert thumb.headers["content-length"] == str(len(thumb.content))
+
+            revalidated = client.get(
+                "/api/v1/files/demo/storyboards/a.png?w=320", headers={"If-None-Match": thumb.headers["etag"]}
+            )
+            assert revalidated.status_code == 304
+            assert revalidated.content == b""
+
+            # 原图的 ETag 校验不到缩略图上
+            mismatched = client.get(
+                "/api/v1/files/demo/storyboards/a.png?w=320", headers={"If-None-Match": original.headers["etag"]}
+            )
+            assert mismatched.status_code == 200
+
+    def test_source_change_produces_a_new_thumbnail(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
+        os.utime(source, (1_700_000_000, 1_700_000_000))
+
+        with client:
+            first = client.get("/api/v1/files/demo/storyboards/a.png?w=320")
+            _write_png(source, (1600, 1600))
+            os.utime(source, (1_700_000_060, 1_700_000_060))
+            second = client.get(
+                "/api/v1/files/demo/storyboards/a.png?w=320", headers={"If-None-Match": first.headers["etag"]}
+            )
+
+        assert second.status_code == 200
+        with Image.open(BytesIO(second.content)) as thumbnail:
+            assert thumbnail.size == (320, 320)
+
+    def test_source_replaced_while_thumbnailing_falls_back_to_the_current_original(self, tmp_path, monkeypatch):
+        # 生成缩略图期间源图被替换，缩略图放弃发布；回退的原图按替换后的文件计算长度与 ETag
+        client, pm = _client(monkeypatch, tmp_path)
+        source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
+        os.utime(source, (1_700_000_000, 1_700_000_000))
+
+        real_open = Image.open
+        replaced: list[bool] = []
+
+        def _replaced_while_decoding(fp, *args, **kwargs):
+            # 缩略图开始解码源图前，源图被重新生成替换
+            if not replaced and Path(fp) == source:
+                replaced.append(True)
+                _write_png(source, (2400, 1800))
+                os.utime(source, (1_700_000_060, 1_700_000_060))
+            return real_open(fp, *args, **kwargs)
+
+        monkeypatch.setattr(Image, "open", _replaced_while_decoding)
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/a.png?w=320")
+            current = client.get("/api/v1/files/demo/storyboards/a.png")
+
+        assert resp.status_code == 200
+        assert resp.content == source.read_bytes()
+        assert resp.headers["content-length"] == str(len(resp.content))
+        assert resp.headers["etag"] == current.headers["etag"]
+
+    def test_original_not_wider_than_target_is_served_as_is(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (300, 900))
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/a.png?w=320")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content == source.read_bytes()
+
+    @pytest.mark.parametrize("w", ["abc", "0", "-5", "", "1.5"])
+    def test_invalid_width_serves_original(self, tmp_path, monkeypatch, w):
+        client, pm = _client(monkeypatch, tmp_path)
+        source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
+
+        with client:
+            resp = client.get(f"/api/v1/files/demo/storyboards/a.png?w={w}")
+
+        assert resp.status_code == 200
+        assert resp.content == source.read_bytes()
+
+    @pytest.mark.parametrize("rel_path", ["videos/a.mp4", "audio/a.wav"])
+    def test_non_image_ignores_width(self, tmp_path, monkeypatch, rel_path):
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_project_path("demo") / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"0123456789")
+
+        with client:
+            resp = client.get(f"/api/v1/files/demo/{rel_path}?w=320")
+            ranged = client.get(f"/api/v1/files/demo/{rel_path}?w=320", headers={"Range": "bytes=2-5"})
+
+        assert resp.status_code == 200
+        assert resp.content == b"0123456789"
+        assert ranged.status_code == 206
+        assert ranged.content == b"2345"
+
+    def test_traversal_with_width_is_still_forbidden(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        _write_png(tmp_path / "projects" / "outside.png", (1600, 800))
+
+        with client:
+            resp = client.get("/api/v1/files/demo/%2E%2E/outside.png?w=320")
+
+        assert resp.status_code == 403
+        assert not pm.layout.image_thumbnail_cache_dir.exists()
+
+    @pytest.mark.parametrize("rel_path", ["cover.png", "versions/scene_E1S01.png", ".hidden/a.png"])
+    def test_non_whitelisted_image_with_width_returns_404(self, tmp_path, monkeypatch, rel_path):
+        client, pm = _client(monkeypatch, tmp_path)
+        _write_png(pm.get_project_path("demo") / rel_path, (1600, 800))
+
+        with client:
+            resp = client.get(f"/api/v1/files/demo/{rel_path}?w=320")
+
+        assert resp.status_code == 404
+        assert not pm.layout.image_thumbnail_cache_dir.exists()
+
+    def test_versions_snapshot_thumbnail_is_immutable(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        rel_path = "versions/storyboards/scene_E1S01_v1_20260101T000000.png"
+        _write_png(pm.get_project_path("demo") / rel_path, (1600, 800))
+
+        with client:
+            resp = client.get(f"/api/v1/files/demo/{rel_path}?w=160")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/webp"
+        assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
 # ==================== Source 多格式上传 ====================

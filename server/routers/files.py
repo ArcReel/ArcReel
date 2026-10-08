@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import shutil
+import stat
 import tempfile
 from collections.abc import Callable
 from contextlib import ExitStack
@@ -19,7 +20,7 @@ from typing import Annotated, Literal
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse
 
 from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
 from lib.bgm.service import BgmError, BgmLibraryService
@@ -50,6 +51,7 @@ from lib.episode.source_file_changes import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
 from lib.infra.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join
@@ -77,6 +79,7 @@ from lib.speech.audio_utils import (
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._episode_source_errors import episode_source_http_error
+from server.routers._file_responses import cached_file_response
 from server.routers._script_review_errors import raise_review_error
 from server.routers._source_file_changes import (
     ensure_no_displaced_tasks,
@@ -128,6 +131,15 @@ PUBLIC_ROOT_MEDIA_STEM = "style_reference"
 PUBLIC_MEDIA_EXTENSIONS: frozenset[str] = frozenset({*_IMAGE_EXTS, ".mp4", ".wav", ".mp3", ".m4a"})
 # 公开端点的所有文件响应都禁止浏览器按内容嗅探 MIME
 _PUBLIC_FILE_HEADERS: dict[str, str] = {"X-Content-Type-Options": "nosniff"}
+
+
+def _regular_file_stat(path: Path) -> os.stat_result | None:
+    """返回普通文件的 stat；不存在或不是普通文件时返回 None（与 ``Path.is_file`` 同口径）。"""
+    try:
+        stat_result = path.stat()
+    except (OSError, ValueError):
+        return None
+    return stat_result if stat.S_ISREG(stat_result.st_mode) else None
 
 
 def is_public_media_path(relative_parts: tuple[str, ...]) -> bool:
@@ -287,11 +299,16 @@ ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec
 
 @public_router.get("/files/{project_name}/{path:path}")
 async def serve_project_file(project_name: str, path: str, request: Request, _t: Translator):
-    """服务项目内的媒体文件（图片/视频/音频），范围见 ``is_public_media_path``"""
+    """服务项目内的媒体文件（图片/视频/音频），范围见 ``is_public_media_path``
+
+    图片可带 ``?w=`` 取 WebP 缩略图（档位与回退规则见 ``lib.infra.image_thumbnails``）；
+    缓存头与条件请求对缩略图同样适用，ETag 按缩略图文件计算。
+    """
     try:
 
         def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
+            project_manager = get_project_manager()
+            project_dir = project_manager.get_project_path(project_name)
 
             # 安全检查先于存在性检查：越界路径一律 403，不让 404/403 的差异成为
             # 项目目录外的文件存在性探针
@@ -303,25 +320,41 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
             # 媒体范围按解析后的真实路径判定（symlink 指向非媒体文件同样拒绝）；
             # 非媒体与文件不存在同形返回 404
             relative_parts = file_path.relative_to(os.path.realpath(project_dir)).parts
-            if not is_public_media_path(relative_parts) or not file_path.is_file():
+            stat_result = _regular_file_stat(file_path) if is_public_media_path(relative_parts) else None
+            if stat_result is None:
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
 
-            return file_path
+            # ?w= 只对栅格图生效：缩略图按解析后的真实路径缓存在项目目录之外；
+            # 原图不宽于目标宽度或无法解码时仍返回原图
+            if thumbnail_width is not None and is_thumbnail_source(file_path):
+                thumbnail = ensure_image_thumbnail(
+                    file_path,
+                    stat_result,
+                    cache_dir=project_manager.layout.image_thumbnail_cache_dir / project_dir.name,
+                    source_key="/".join(relative_parts),
+                    width=thumbnail_width,
+                )
+                if thumbnail is not None:
+                    return thumbnail
+                # 生成期间源文件可能已被替换：回退原图时按此刻的文件计算长度与 ETag
+                stat_result = _regular_file_stat(file_path)
+                if stat_result is None:
+                    raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
 
-        file_path = await asyncio.to_thread(_sync)
+            return file_path, stat_result
 
-        # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable
-        headers = dict(_PUBLIC_FILE_HEADERS)
-        if request.query_params.get("v") or path.startswith("versions/"):
-            headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        thumbnail_width = snap_thumbnail_width(request.query_params.get("w"))
+        file_path, stat_result = await asyncio.to_thread(_sync)
 
-        return FileResponse(file_path, headers=headers)
+        # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable，其余每次再验证
+        immutable = bool(request.query_params.get("v")) or path.startswith("versions/")
+        return cached_file_response(file_path, stat_result, request, immutable=immutable, headers=_PUBLIC_FILE_HEADERS)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @public_router.get("/global-assets/{asset_type}/{filename}")
-async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
+async def serve_global_asset(asset_type: str, filename: str, request: Request, _t: Translator):
     """服务 global_assets 下的全局资产媒体文件（仅全局库类型：character/scene/prop）"""
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
@@ -336,10 +369,16 @@ async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
     except PathTraversalError as exc:
         raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
-    if path.suffix.lower() not in PUBLIC_MEDIA_EXTENSIONS or not path.is_file():
+    stat_result = (
+        await asyncio.to_thread(_regular_file_stat, path) if path.suffix.lower() in PUBLIC_MEDIA_EXTENSIONS else None
+    )
+    if stat_result is None:
         raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
-    return FileResponse(str(path), headers=_PUBLIC_FILE_HEADERS)
+    # 文件名是 uuid，前端以 ?fp=<updated_at> 作版本键（?v= 同义）；带版本键即 immutable
+    query = request.query_params
+    immutable = bool(query.get("fp") or query.get("v"))
+    return cached_file_response(path, stat_result, request, immutable=immutable, headers=_PUBLIC_FILE_HEADERS)
 
 
 @router.post("/projects/{project_name}/upload/{upload_type}")

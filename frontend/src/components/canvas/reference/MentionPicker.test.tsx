@@ -2,6 +2,7 @@ import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useProjectsStore } from "@/stores/projects-store";
 import { MentionPicker } from "./MentionPicker";
 
 const CANDIDATES = {
@@ -14,6 +15,27 @@ const CANDIDATES = {
 };
 
 describe("MentionPicker", () => {
+  it("builds 160px thumbnail URLs with the asset fingerprint from the projects store", () => {
+    useProjectsStore.setState({ assetFingerprints: { "characters/zs.png": 1712345678901 } });
+    const candidates = {
+      character: [
+        { name: "张三", imagePath: "characters/zs.png" },
+        { name: "李四", imagePath: "characters/ls.png" },
+      ],
+      scene: [],
+      prop: [],
+    };
+    render(
+      <MentionPicker open query="" candidates={candidates} projectName="demo" onSelect={vi.fn()} onClose={vi.fn()} />,
+    );
+    const thumbs = screen.getAllByRole("option").map((option) => option.querySelector("img")?.getAttribute("src"));
+    expect(thumbs).toEqual([
+      "/api/v1/files/demo/characters/zs.png?v=1712345678901&w=160",
+      "/api/v1/files/demo/characters/ls.png?w=160",
+    ]);
+    useProjectsStore.setState({ assetFingerprints: {} });
+  });
+
   it("renders three group headers when all groups have items", () => {
     render(
       <MentionPicker

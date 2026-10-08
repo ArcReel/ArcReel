@@ -22,8 +22,21 @@ vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
 }));
 
 vi.mock("@/components/shared/PresentationPlayer", () => ({
-  PresentationPlayer: ({ resourceId, startAt }: { resourceId: string; startAt?: { seconds: number } }) => (
-    <div data-testid="presentation-player" data-resource-id={resourceId} data-start-at={startAt?.seconds} />
+  PresentationPlayer: ({
+    resourceId,
+    startAt,
+    posterPath,
+  }: {
+    resourceId: string;
+    startAt?: { seconds: number };
+    posterPath?: string | null;
+  }) => (
+    <div
+      data-testid="presentation-player"
+      data-resource-id={resourceId}
+      data-start-at={startAt?.seconds}
+      data-poster-path={posterPath ?? undefined}
+    />
   ),
 }));
 
@@ -74,6 +87,23 @@ describe("UnitPreviewPanel", () => {
     });
     render(<UnitPreviewPanel unit={unit} projectName="proj" />);
     expect(screen.getByTestId("presentation-player")).toHaveAttribute("data-resource-id", "E1U1");
+    expect(screen.getByTestId("presentation-player")).not.toHaveAttribute("data-poster-path");
+  });
+
+  it("uses the extracted thumbnail as the player poster", () => {
+    const unit = mkUnit({
+      generated_assets: {
+        ...mkUnit().generated_assets,
+        status: "completed",
+        video_clip: "reference_videos/E1U1.mp4",
+        video_thumbnail: "reference_videos/thumbnails/E1U1.jpg",
+      },
+    });
+    render(<UnitPreviewPanel unit={unit} projectName="proj" />);
+    expect(screen.getByTestId("presentation-player")).toHaveAttribute(
+      "data-poster-path",
+      "reference_videos/thumbnails/E1U1.jpg",
+    );
   });
 
   it("invokes onUploadVideo with unit id and selected file", () => {

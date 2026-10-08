@@ -70,7 +70,8 @@ function Thumbnail({
         </div>
       ) : (
         <img
-          src={API.getFileUrl(projectName, path)}
+          // 用量记录引用的图可能已被覆盖或删除，这里没有指纹可用：显式不带版本，走服务端的协商缓存
+          src={API.getFileUrl(projectName, path, null, { width: 320 })}
           alt={itemIdsInEpisodeText(caption ?? path)}
           onError={() => setBroken(true)}
           className="size-24 rounded-md border border-border object-cover"

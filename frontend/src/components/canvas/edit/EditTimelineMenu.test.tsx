@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
+import { stubMediaElementPlayback } from "@/test/media-element";
 
 import { EditTimelineView } from "./EditTimelineView";
 
@@ -60,8 +61,7 @@ describe("EditTimelineView tab menu", () => {
   beforeEach(() => {
     useProjectsStore.setState({ projectSnapshotRevisions: {} });
     useAppStore.setState({ toast: null });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
-    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    stubMediaElementPlayback();
     vi.spyOn(API, "getEditTimeline").mockImplementation((_project, id) =>
       Promise.resolve(readoutOf(id, id === FIRST.id ? FIRST.name : SECOND.name)),
     );
