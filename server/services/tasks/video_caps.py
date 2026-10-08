@@ -236,6 +236,18 @@ async def project_video_caps(
         return caps
 
 
+class AudioSwitchConflict(ValueError):
+    """关闭音频的意图落在成片恒有声的模型上；消息面向 Agent 转述，属性供界面按显示名渲染。"""
+
+    def __init__(self, provider_id: str, model_id: str) -> None:
+        super().__init__(
+            f"{provider_id}/{model_id} 的成片恒有声，无法关闭音频；"
+            "请让用户在设置中把音频开关改回开启后重试（当前配置会让声音照常出现，但音色约束被裁掉）"
+        )
+        self.provider_id = provider_id
+        self.model_id = model_id
+
+
 async def resolve_audio_switch_conflict(project: dict, generation_type: VideoGenerationType) -> tuple[str, str] | None:
     """项目的「关闭音频」意图是否落在一个收不到音轨开关的模型上；冲突时返回 ``(provider, model)``。
 
@@ -270,7 +282,7 @@ async def assert_audio_switch_supported(
     *,
     request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> None:
-    """Agent 视频入队前的音频开关预检，冲突时抛 ``ValueError``。
+    """Agent 视频入队前的音频开关预检，冲突时抛 :class:`AudioSwitchConflict`。
 
     与 WebUI 入口的 ``server.routers._validators.require_audio_switch_supported`` 判据同源
     （:func:`resolve_audio_switch_conflict`），差别只在出口：这里的消息面向 Agent 转述，不走
@@ -284,11 +296,7 @@ async def assert_audio_switch_supported(
         conflict = None
     if conflict is None:
         return
-    provider_id, model_id = conflict
-    raise ValueError(
-        f"{provider_id}/{model_id} 的成片恒有声，无法关闭音频；"
-        "请让用户在设置中把音频开关改回开启后重试（当前配置会让声音照常出现，但音色约束被裁掉）"
-    )
+    raise AudioSwitchConflict(*conflict)
 
 
 async def resolve_project_is_silent(project: dict) -> bool:
