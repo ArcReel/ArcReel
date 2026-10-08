@@ -234,6 +234,19 @@ def system_frame(subtype: str, **fields: Any) -> dict[str, Any]:
     return {"type": "system", "subtype": subtype, **fields}
 
 
+def session_state_message(state: str) -> dict[str, Any]:
+    """CLI 的 ``session_state_changed`` 帧经 SDK 解析、序列化后交给会话层的形状（状态在 ``data`` 里）。
+
+    直接喂给 ``SessionManager._make_actor_message_callback`` 返回的读取回调；经替身发帧用
+    ``system_frame("session_state_changed", state=...)``。
+    """
+    return {
+        "type": "system",
+        "subtype": "session_state_changed",
+        "data": system_frame("session_state_changed", state=state),
+    }
+
+
 def stream_event_frame(
     event: dict[str, Any],
     *,

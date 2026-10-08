@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from server.agent_runtime.event_log import EventLogStore, build_user_entry
+from server.agent_runtime.models import LiveMessage
 from server.agent_runtime.session_manager import AgentStartupError, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import (
@@ -46,6 +47,15 @@ def _user_frame(
     if tool_use_result is not None:
         frame["tool_use_result"] = tool_use_result
     return frame
+
+
+def _session_state_frame(state: str) -> dict[str, Any]:
+    return system_frame("session_state_changed", state=state, session_id=SDK_ID)
+
+
+def _idle_frame() -> dict[str, Any]:
+    """CLI 报告空闲：会话据此离开 running。"""
+    return _session_state_frame("idle")
 
 
 @pytest.fixture
@@ -126,6 +136,7 @@ class _InterruptingClient(FakeSDKClient):
         if self._echo:
             self.push_frame(_user_frame("[Request interrupted by user]", uuid="sdk-echo-1", session_id=SDK_ID))
         self.push_frame(result_frame("error_during_execution", is_error=True, uuid="r-int", session_id=SDK_ID))
+        self.push_frame(_idle_frame())
 
 
 class _CrashBeforeInitClient(FakeSDKClient):
@@ -309,6 +320,7 @@ class TestNewSessionEventLogFlow:
                 _user_frame("你好", uuid="sdk-u-error", session_id=SDK_ID, is_replay=True),
                 assistant_error,
                 result_error,
+                _idle_frame(),
             ]
         )
         fake_options = SimpleNamespace(env=None)
@@ -567,6 +579,7 @@ class TestNewSessionEventLogFlow:
             frames=[
                 _user_frame("继续", uuid="sdk-u9", session_id=SDK_ID, is_replay=True),
                 result_frame(session_id=SDK_ID, uuid="r-1"),
+                _idle_frame(),
             ]
         )
         fake_options = SimpleNamespace(env=None)
@@ -799,3 +812,114 @@ class TestNewSessionEventLogFlow:
             assert resolved == managed.initial_user_log_entry
         finally:
             await manager.close_session(retry_sdk_id)
+
+
+async def _next_broadcast(stream, msg_type: str, timeout: float = 5.0) -> dict[str, Any]:  # noqa: ASYNC109 -- 测试等待上限，非生产取消语义
+    """读到下一条指定类型的会话广播。"""
+
+    async def _read() -> dict[str, Any]:
+        async for event in stream:
+            if isinstance(event, LiveMessage) and event.message.get("type") == msg_type:
+                return event.message
+        raise AssertionError(f"stream ended before {msg_type!r}")
+
+    return await asyncio.wait_for(_read(), timeout=timeout)
+
+
+class TestSessionStatusFollowsCliIdle:
+    """会话状态以 CLI 报告的空闲为准：result 只代表一轮结束。"""
+
+    async def _send(self, manager: SessionManager, client: FakeSDKClient) -> None:
+        meta = await manager.meta_store.create("demo", SDK_ID)
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+        ):
+            await manager.send_message(
+                SDK_ID, "写分镜", meta=meta, user_entry=build_user_entry([{"type": "text", "text": "写分镜"}])
+            )
+
+    async def _status(self, manager: SessionManager) -> tuple[str, str]:
+        meta = await manager.meta_store.get(SDK_ID)
+        assert meta is not None
+        return manager.sessions[SDK_ID].status, meta.status
+
+    async def test_result_keeps_running_until_cli_idle_then_takes_the_turn_outcome(self, manager: SessionManager):
+        client = FakeSDKClient(
+            frames=[
+                _session_state_frame("running"),
+                assistant_frame({"type": "text", "text": "好的"}, uuid="a-1", session_id=SDK_ID),
+                result_frame(session_id=SDK_ID, uuid="r-1"),
+            ]
+        )
+        async with manager.stream_messages(SDK_ID, idle_timeout=5) as stream:
+            await self._send(manager, client)
+            try:
+                await _next_broadcast(stream, "log_turn_complete")
+                assert await self._status(manager) == ("running", "running")
+
+                client.push_frame(_idle_frame())
+                settled = await _next_broadcast(stream, "runtime_status")
+
+                assert settled["status"] == "completed"
+                assert await self._status(manager) == ("completed", "completed")
+            finally:
+                await manager.close_session(SDK_ID)
+
+    async def test_autonomous_turn_before_cli_idle_does_not_flash_a_terminal_status(self, manager: SessionManager):
+        """一轮结束后、CLI 报 idle 之前开启的自主轮次：轮次之间不闪烁为终态，最后取最近一轮的结局。"""
+        client = FakeSDKClient(
+            frames=[
+                _session_state_frame("running"),
+                assistant_frame({"type": "text", "text": "先派个子智能体"}, uuid="a-1", session_id=SDK_ID),
+                result_frame("error_during_execution", is_error=True, session_id=SDK_ID, uuid="r-1"),
+            ]
+        )
+        resumed: list[tuple[str, str]] = []
+        manager.set_autonomous_turn_listener(lambda project, sid: resumed.append((project, sid)))
+        async with manager.stream_messages(SDK_ID, idle_timeout=5) as stream:
+            await self._send(manager, client)
+            try:
+                await _next_broadcast(stream, "log_turn_complete")
+                # 子智能体完成，CLI 不经用户消息开启下一轮
+                client.push_frame(assistant_frame({"type": "text", "text": "汇总"}, uuid="a-2", session_id=SDK_ID))
+                client.push_frame(result_frame(session_id=SDK_ID, uuid="r-2"))
+                await _next_broadcast(stream, "log_turn_complete")
+                assert await self._status(manager) == ("running", "running")
+
+                client.push_frame(_idle_frame())
+                settled = await _next_broadcast(stream, "runtime_status")
+
+                assert settled["status"] == "completed"
+                assert await self._status(manager) == ("completed", "completed")
+                assert resumed == []
+            finally:
+                await manager.close_session(SDK_ID)
+
+    @pytest.mark.parametrize(
+        ("turn_frames", "expected"),
+        [
+            ([result_frame(session_id=SDK_ID, uuid="r-1")], "completed"),
+            ([], "interrupted"),
+        ],
+        ids=["after-result", "mid-turn"],
+    )
+    async def test_evicting_a_session_that_is_not_idle_settles_a_terminal_status(
+        self, manager: SessionManager, turn_frames, expected
+    ):
+        """驱逐时 CLI 还没报 idle：这一轮已收尾取其结局，否则记为中断。"""
+        client = FakeSDKClient(
+            frames=[
+                _session_state_frame("running"),
+                assistant_frame({"type": "text", "text": "好的"}, uuid="a-1", session_id=SDK_ID),
+                *turn_frames,
+            ]
+        )
+        await self._send(manager, client)
+        await _wait_for_entries(manager.event_log_store, SDK_ID, 2)
+
+        await manager.close_session(SDK_ID)
+
+        meta = await manager.meta_store.get(SDK_ID)
+        assert meta is not None
+        assert meta.status == expected

@@ -44,7 +44,6 @@ from server.agent_runtime.event_log import (
 )
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
-from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_branch import (
     BranchAnchorError,
@@ -744,25 +743,13 @@ class AssistantService:
             status: SessionStatus = await self.session_manager.get_status(session_id) or meta.status
             yield self._sse_event("status", self._build_status_event_payload(status=status, session_id=session_id))
 
-            # 原始 result 由 actor 回调同步广播，而末条 log_entry 由 inbox 任务
-            # 落库后才广播——在 result 处直接推终态会让末条条目落在终态之后。改为
-            # 暂存 result，等 inbox 串行序上的 log_turn_complete（此时本轮条目已全部
-            # 广播）再推终态；心跳兜底防 inbox 停摆时悬挂。
-            pending_result: dict[str, Any] | None = None
-            drain_beats = 0
+            # result 只代表一轮结束，不推状态：会话离开 running 以 CLI 报 idle 为准，由 inbox
+            # 在本轮条目全部广播之后发出 runtime_status。
             async for stream_event in stream:
                 if request is not None and await request.is_disconnected():
                     break
 
                 if isinstance(stream_event, Heartbeat):
-                    if pending_result is not None:
-                        drain_beats += 1
-                        if drain_beats >= 2:
-                            status = self._resolve_result_status(pending_result)
-                            yield self._result_status_event(pending_result, session_id)
-                            pending_result = None
-                            drain_beats = 0
-                        continue
                     # 驱逐等不经广播的状态变化由心跳对齐。
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status != status:
@@ -799,14 +786,6 @@ class AssistantService:
                     yield self._sse_event("delta", {k: v for k, v in message.items() if k != "type"})
                     continue
 
-                if msg_type == "log_turn_complete":
-                    if pending_result is not None:
-                        status = self._resolve_result_status(pending_result)
-                        yield self._result_status_event(pending_result, session_id)
-                        pending_result = None
-                        drain_beats = 0
-                    continue
-
                 if msg_type == "ask_user_question":
                     yield self._sse_event(
                         "question",
@@ -818,20 +797,14 @@ class AssistantService:
                     terminal = self._check_runtime_status_terminal(message, session_id)
                     if terminal is not None:
                         status = terminal.data["status"]
-                        pending_result = None
-                        drain_beats = 0
                         yield terminal
-                    continue
-
-                if msg_type == "result":
-                    pending_result = message
                     continue
 
     def _draft_sse_event(self, session_id: str) -> ServerSentEvent:
         return self._sse_event("draft", {"session_id": session_id, **self.session_manager.get_draft_state(session_id)})
 
     def _status_change_events(self, status: SessionStatus, session_id: str) -> list[ServerSentEvent]:
-        """不经 result 的状态变化。回到 running 时补一帧 draft 快照：会话若经驱逐后
+        """不经 runtime_status 广播的状态变化。回到 running 时补一帧 draft 快照：会话若经驱逐后
         复活，新进程的 delta rev 从头计数，客户端要换用新的过滤门槛。"""
         events = [self._sse_event("status", self._build_status_event_payload(status=status, session_id=session_id))]
         if status == "running":
@@ -850,16 +823,6 @@ class AssistantService:
         yield self._sse_event(
             "status",
             self._build_status_event_payload(status="error", session_id=session_id),
-        )
-
-    def _result_status_event(self, result_message: dict[str, Any], session_id: str) -> ServerSentEvent:
-        return self._sse_event(
-            "status",
-            self._build_status_event_payload(
-                status=self._resolve_result_status(result_message),
-                session_id=session_id,
-                result_message=result_message,
-            ),
         )
 
     @staticmethod
@@ -907,11 +870,6 @@ class AssistantService:
             return self.pm.get_project_path(project_name)
         except (FileNotFoundError, ValueError):
             return None
-
-    @staticmethod
-    def _resolve_result_status(result_message: dict[str, Any]) -> SessionStatus:
-        """Map SDK result subtype/is_error to runtime session status."""
-        return resolve_result_status(result_message)
 
     @staticmethod
     def _build_status_event_payload(
