@@ -23,6 +23,10 @@ import {
 /** 启动失败的来源入口——决定故障卡片的重试重放哪一处输入。 */
 export type StartupFailureOrigin = "send" | "rewrite";
 
+export type SessionResumeSignal =
+  | { kind: "resumed"; projectName: string; sessionId: string }
+  | { kind: "resync"; projectName: string };
+
 interface AssistantState {
   // Sessions
   sessions: SessionMeta[];
@@ -81,6 +85,13 @@ interface AssistantState {
   // Draft session (lazy creation)
   isDraftSession: boolean;
 
+  /**
+   * 项目事件流送来、尚未消费的会话恢复信号，由会话 hook 整批取走。resumed：会话未经发送、
+   * 自主回到 running；resync：事件流（重新）建连，此前的恢复通知可能已错过，需要核对。
+   * 排队而非只留最新一条：同一批事件里的多条信号在 hook 消费前到达，后者会覆盖前者。
+   */
+  sessionResumeSignals: SessionResumeSignal[];
+
   // Actions
   setSessions: (sessions: SessionMeta[]) => void;
   setCurrentSessionId: (id: string | null) => void;
@@ -115,6 +126,10 @@ interface AssistantState {
   setEditingTurnUuid: (uuid: string | null) => void;
   setCurrentProject: (project: string | null) => void;
   setIsDraftSession: (draft: boolean) => void;
+  notifySessionResumed: (projectName: string, sessionId: string) => void;
+  requestSessionResync: (projectName: string) => void;
+  /** 取走并清空待处理的恢复信号。 */
+  takeSessionResumeSignals: () => SessionResumeSignal[];
 }
 
 export const useAssistantStore = create<AssistantState>((set, get) => {
@@ -184,6 +199,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     editingTurnUuid: null,
     currentProject: null,
     isDraftSession: false,
+    sessionResumeSignals: [],
 
     setSessions: (sessions) => set({ sessions }),
     setCurrentSessionId: (id) => set({ currentSessionId: id }),
@@ -289,5 +305,14 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     setEditingTurnUuid: (uuid) => set({ editingTurnUuid: uuid }),
     setCurrentProject: (project) => set({ currentProject: project }),
     setIsDraftSession: (draft) => set({ isDraftSession: draft }),
+    notifySessionResumed: (projectName, sessionId) =>
+      set((s) => ({ sessionResumeSignals: [...s.sessionResumeSignals, { kind: "resumed", projectName, sessionId }] })),
+    requestSessionResync: (projectName) =>
+      set((s) => ({ sessionResumeSignals: [...s.sessionResumeSignals, { kind: "resync", projectName }] })),
+    takeSessionResumeSignals: () => {
+      const signals = get().sessionResumeSignals;
+      if (signals.length > 0) set({ sessionResumeSignals: [] });
+      return signals;
+    },
   };
 });

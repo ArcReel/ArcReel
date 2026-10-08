@@ -53,6 +53,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             {
                 "start_patrol": lambda self: None,
                 "stop_patrol": lambda self: None,
+                "set_autonomous_turn_listener": lambda self, listener: None,
             },
         )()
         # project_event_service.start() / shutdown()
@@ -62,6 +63,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             {
                 "start": AsyncMock(),
                 "shutdown": AsyncMock(),
+                "publish_assistant_session_resumed": lambda self, project_name, session_id: None,
             },
         )()
 

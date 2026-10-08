@@ -127,6 +127,8 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert options.extra_args == {"replay-user-messages": None}
     # CLI stdout 单条 NDJSON 行的缓冲上限：默认 1 MiB 会被附图请求的回放副本撞穿
     assert options.max_buffer_size == CLI_STDOUT_MAX_BUFFER_BYTES == 32 * 1024 * 1024
+    # 会话状态帧：CLI 欠后续轮次时一直报 running，会话层据此保护会话不被断开
+    assert options.env["CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"] == "1"
 
 
 @pytest.mark.asyncio

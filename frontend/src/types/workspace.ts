@@ -91,6 +91,13 @@ export interface ProjectDeletedPayload {
   project_name: string;
 }
 
+/** 项目下的 Agent 会话未经用户发送、自主开启新一轮（后台任务完成后唤醒）时下发。 */
+export interface AssistantSessionResumedPayload {
+  project_name: string;
+  session_id: string;
+  status: "running";
+}
+
 export interface WorkspaceFocusTarget {
   request_id: string;
   type: "character" | "scene" | "prop" | "product" | "segment" | "grid" | "reference_unit";

@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
 
 _NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
+# close_stream 注入的流终止标记：读到它之后每次 receive_response 都立即结束
+_STREAM_EOF = object()
 
 #: 带真实文件头的产物替身字节。取件路径按文件头判容器（见
 #: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
@@ -209,7 +211,7 @@ class FakeSDKClient:
     支持：
     - `async with`：`__aenter__` 记录 connect 的 current_task，`__aexit__` 记录 disconnect
     - `method_tasks`: dict[str, list[asyncio.Task]] 记录每个方法被调用时的 task
-    - `messages` 初始化参数：`receive_response` 依次 yield 的初始消息
+    - `messages` 初始化参数：首次 `query()` 后 `receive_response` 依次 yield 的首轮回复
     - `receive_response` 默认在 yield `type="result"` 后结束；
     - `block_forever=True` 时，仅在 `interrupt()` 注入 None sentinel 后才结束（用于测试 interrupt 中断 query 的场景）
     - `interrupt_message`：`interrupt()` 被调用时注入给 `receive_response` 的最后一条消息
@@ -228,11 +230,12 @@ class FakeSDKClient:
         self._block_forever = block_forever
         self._interrupt_message = interrupt_message
         self._connect_error = connect_error
-        self._pending_messages: asyncio.Queue[dict | None] = asyncio.Queue()
+        self._pending_messages: asyncio.Queue[Any] = asyncio.Queue()
         self.method_tasks: dict[str, list[asyncio.Task]] = {}
         self.sent_queries: list = []
         self.interrupted = False
         self.disconnected = False
+        self._stream_closed = False
 
     def _record(self, method: str) -> None:
         self.method_tasks.setdefault(method, []).append(asyncio.current_task())
@@ -241,8 +244,6 @@ class FakeSDKClient:
         self._record("connect")
         if self._connect_error is not None:
             raise self._connect_error
-        for msg in self._initial_messages:
-            await self._pending_messages.put(msg)
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -253,6 +254,10 @@ class FakeSDKClient:
     async def query(self, prompt, session_id: str = "default") -> None:
         self._record("query")
         self.sent_queries.append(prompt)
+        # 与真实 CLI 一致：首轮回复在收到 prompt 之后才产出
+        for msg in self._initial_messages:
+            await self._pending_messages.put(msg)
+        self._initial_messages.clear()
 
     async def interrupt(self) -> None:
         self._record("interrupt")
@@ -264,8 +269,11 @@ class FakeSDKClient:
 
     async def receive_response(self):
         self._record("receive_response")
-        while True:
+        while not self._stream_closed:
             msg = await self._pending_messages.get()
+            if msg is _STREAM_EOF:
+                self._stream_closed = True
+                return
             if msg is None:
                 return
             yield msg
@@ -275,6 +283,10 @@ class FakeSDKClient:
     def push_message(self, msg: dict) -> None:
         """测试辅助：运行中往消息流注入一条消息。"""
         self._pending_messages.put_nowait(msg)
+
+    def close_stream(self) -> None:
+        """测试辅助：模拟 CLI 退出，已注入的消息读完后消息流终止，此后每次读取都立即结束。"""
+        self._pending_messages.put_nowait(_STREAM_EOF)
 
     # 向后兼容：保留原方法签名（旧测试仍使用 `await client.connect()` / `await client.disconnect()`）
     async def connect(self) -> None:

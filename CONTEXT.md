@@ -733,6 +733,10 @@ _Avoid_: 子任务、子 Agent。
 每个 Agent 会话专属的执行体，串行化该会话对 SDK 的所有调用（见 `docs/adr/0028`）。
 _Avoid_: 与 ManagedSession 混为一谈。
 
+**自主轮次（autonomous turn）**：
+Agent 会话在一轮结束后、没有收到用户消息时自行开启的新一轮，典型来源是后台子智能体完成后 CLI 注入的任务通知；会话因此从 idle 回到 running，客户端经项目事件流得知后重新订阅会话。
+_Avoid_: 把 result 当作会话不再产出消息的信号。
+
 **Agent 启动失败（agent_startup_failure）**：
 Agent 尚未建立可用运行环境时发生的系统故障，位于任何对话轮次之前。
 _Avoid_: 与 Agent 轮次失败混为一谈。

@@ -87,6 +87,21 @@ def infer_message_type(message: Any) -> str | None:
     return MESSAGE_TYPE_MAP.get(class_name)
 
 
+def is_main_turn_activity(message: Any) -> bool:
+    """主线程正在产出一轮回复，与 SDK 判定「轮次进行中」的口径一致。接受 SDK 消息或其 dict 形式。
+
+    子代理消息、任务进度与 result 之后的 system 帧都不算：拿它们判定会把已结束的
+    会话错当成有一轮在途，又没有 result 来收尾。
+    """
+    if isinstance(message, dict):
+        msg_type = message.get("type")
+        parent_tool_use_id = message.get("parent_tool_use_id")
+    else:
+        msg_type = infer_message_type(message)
+        parent_tool_use_id = getattr(message, "parent_tool_use_id", None)
+    return msg_type in ("assistant", "stream_event") and parent_tool_use_id is None
+
+
 def message_to_dict(message: Any) -> dict[str, Any]:
     """Convert SDK message to dict for JSON serialization."""
     msg_dict = serialize_value(message)

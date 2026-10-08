@@ -5,8 +5,8 @@ SSE fanout，两处的语义差异全部经参数表达：
 
 - 溢出策略：会话流用 :class:`EvictNonCriticalAndSignal`（关键消息挤掉一条
   非关键消息；仍满则清空队列并结束该订阅者的流——流结束即重连信号），
-  项目事件流用 :class:`DropSubscriber`（队列满即移除订阅者，无溢出信号，
-  断线由消费方心跳自检发现）。
+  项目事件流用 :class:`DropSubscriber`（队列满即移除订阅者并结束其流，
+  客户端重连后由初始快照对齐）。
 - 首/末订阅者生命周期钩子可选（项目事件流用于启停后台扫描）。
 
 开场白（会话流的缓冲回放、项目事件流的初始快照）不进组件：订阅与开场白
@@ -36,9 +36,21 @@ class _IdleMarker:
 
 IDLE = _IdleMarker()
 
-# 溢出信号哨兵：EvictNonCriticalAndSignal 清空溢出队列后注入，iterate 遇之
-# 即结束流（流结束即重连信号）。对组件外不可见——消费方看到的只是流结束。
+# 溢出信号哨兵：溢出策略清空被移除订阅者的队列后注入，iterate 遇之即结束流
+# （流结束即重连信号）。对组件外不可见——消费方看到的只是流结束。
 _END_OF_STREAM = object()
+
+
+def _end_stream(queue: asyncio.Queue) -> None:
+    """清空 *queue* 并注入溢出信号，让消费循环终止而非永久阻塞。"""
+    while not queue.empty():
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+    # 清空后不应再满
+    with contextlib.suppress(asyncio.QueueFull):
+        queue.put_nowait(_END_OF_STREAM)
 
 
 class EvictNonCriticalAndSignal:
@@ -69,15 +81,7 @@ class EvictNonCriticalAndSignal:
             return False
 
     def finalize_removal(self, queue: asyncio.Queue) -> None:
-        """清空 *queue* 并注入溢出信号，让消费循环终止而非永久阻塞。"""
-        while not queue.empty():
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        # 清空后不应再满
-        with contextlib.suppress(asyncio.QueueFull):
-            queue.put_nowait(_END_OF_STREAM)
+        _end_stream(queue)
 
     def on_removed(self, count: int) -> None:
         pass
@@ -103,10 +107,11 @@ class EvictNonCriticalAndSignal:
 
 
 class DropSubscriber:
-    """溢出策略：队列满即移除订阅者，不注入任何溢出信号。
+    """溢出策略：队列满即移除订阅者，并结束它的流。
 
-    被移除订阅者的流不会结束（继续产出空闲心跳），断线由消费方在心跳上
-    自检发现。``on_removed`` 在单次广播移除订阅者后收到移除数量（记日志用）。
+    流若不结束，客户端只会收到空闲心跳、不会重连，此后的事件全部静默丢失；
+    结束后客户端重连，由初始快照重新对齐，积压随之丢弃。``on_removed`` 在
+    单次广播移除订阅者后收到移除数量（记日志用）。
     """
 
     def __init__(self, *, on_removed: Callable[[int], None] | None = None) -> None:
@@ -120,7 +125,7 @@ class DropSubscriber:
             return False
 
     def finalize_removal(self, queue: asyncio.Queue) -> None:
-        pass
+        _end_stream(queue)
 
     def on_removed(self, count: int) -> None:
         if self._on_removed is not None:

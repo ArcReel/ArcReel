@@ -31,6 +31,7 @@ import type {
   ProjectChangeBatchPayload,
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
+  AssistantSessionResumedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
   NarrationDefaultsResponse,
@@ -2681,6 +2682,9 @@ class API {
             break;
           case "project_deleted":
             options.onProjectDeleted?.(payload as unknown as ProjectDeletedPayload);
+            break;
+          case "assistant_session_resumed":
+            options.onAssistantSessionResumed?.(payload as unknown as AssistantSessionResumedPayload);
             break;
           default:
             break;

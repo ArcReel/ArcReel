@@ -492,11 +492,15 @@ async def lifespan(app: FastAPI):
     app.state.project_event_service = project_event_service
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")
+    assistant.assistant_service.session_manager.set_autonomous_turn_listener(
+        project_event_service.publish_assistant_session_resumed
+    )
 
     async with remote_mcp_host.run():
         yield
 
     # Shutdown
+    assistant.assistant_service.session_manager.set_autonomous_turn_listener(None)
     project_event_service = getattr(app.state, "project_event_service", None)
     if project_event_service:
         logger.info("正在停止 ProjectEventService...")
