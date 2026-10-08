@@ -15,10 +15,10 @@ from server.agent_runtime.message_serialization import (
     message_to_dict,
 )
 from server.agent_runtime.session_manager import SDK_AVAILABLE, AgentStartupError, ManagedSession, SessionManager
-from tests.fakes import build_managed_with_actor
+from tests.fakes import assistant_frame, build_managed_with_actor, result_frame, stream_event_frame
 
 
-async def _seed(session_manager, meta_store, *, messages=None, status="idle", block_forever=False):
+async def _seed(session_manager, meta_store, *, frames=None, status="idle"):
     """Create a session meta + pre-connected managed session with actor + FakeSDKClient."""
     meta = await meta_store.create("demo", "sdk-user-input")
     await meta_store.update_status(meta.id, status)
@@ -29,8 +29,7 @@ async def _seed(session_manager, meta_store, *, messages=None, status="idle", bl
         session_id=meta.id,
         project_name="demo",
         status=status,
-        messages=messages,
-        block_forever=block_forever,
+        frames=frames,
         on_message_hook=lambda m, msg: _on_actor_message_full(session_manager, m, msg),
     )
     managed.resolved_sdk_id = meta.id
@@ -83,8 +82,8 @@ async def _finish(managed):
 class TestSessionManagerUserInput:
     async def test_send_message_registers_pending_echo_and_sends_query(self, session_manager, meta_store):
         # Result message so the actor exits cleanly after query.
-        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
-        meta, managed, client = await _seed(session_manager, meta_store, messages=messages)
+        frames = [result_frame(uuid="r1")]
+        meta, managed, client = await _seed(session_manager, meta_store, frames=frames)
         try:
             queue = managed.channel.subscribe()
             await session_manager.send_message(meta.id, "hello realtime")
@@ -104,8 +103,8 @@ class TestSessionManagerUserInput:
         SDK 的 parser 丢掉 image 块，回放的 UserMessage content 为空，按文本匹配
         永远对不上——身份映射会漏，条目被二次落库。
         """
-        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
-        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        frames = [result_frame(uuid="r1")]
+        meta, managed, _client = await _seed(session_manager, meta_store, frames=frames)
         try:
             await session_manager.send_message(
                 meta.id,
@@ -123,28 +122,14 @@ class TestSessionManagerUserInput:
             await _finish(managed)
 
     async def test_consume_result_finalizes_status(self, session_manager, meta_store):
-        messages = [
-            {
-                "type": "stream_event",
-                "event": {
-                    "type": "content_block_delta",
-                    "delta": {"type": "text_delta", "text": "Hello"},
-                },
-                "uuid": "stream-1",
-            },
-            {
-                "type": "assistant",
-                "content": [{"type": "text", "text": "Hello"}],
-                "uuid": "assistant-1",
-            },
-            {
-                "type": "result",
-                "subtype": "success",
-                "is_error": False,
-                "uuid": "result-1",
-            },
+        frames = [
+            stream_event_frame(
+                {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}, uuid="stream-1"
+            ),
+            assistant_frame({"type": "text", "text": "Hello"}, uuid="assistant-1"),
+            result_frame(uuid="result-1"),
         ]
-        meta, managed, _client = await _seed(session_manager, meta_store, messages=messages, status="idle")
+        meta, managed, _client = await _seed(session_manager, meta_store, frames=frames, status="idle")
         try:
             await session_manager.send_message(meta.id, "hi")
 
@@ -161,8 +146,8 @@ class TestSessionManagerUserInput:
 
     async def test_unclaimed_echo_replays_are_reported_once_at_turn_end(self, session_manager, meta_store, caplog):
         """回显没被认领 = 该消息会重复落库且缺身份映射；轮次终结时一次性报出残留数。"""
-        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
-        _meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        frames = [result_frame(uuid="r1")]
+        _meta, managed, _client = await _seed(session_manager, meta_store, frames=frames)
         try:
             managed.pending_user_echoes.extend([PendingUserEcho(dedup_key="从未被回放", entry_uuid="user-a")] * 2)
 
@@ -183,8 +168,8 @@ class TestSessionManagerUserInput:
 
     async def test_a_fully_claimed_turn_reports_nothing(self, session_manager, meta_store, caplog):
         """登记被回放副本认领后队列自然排空，终结时无残留可报。"""
-        messages = [{"type": "result", "subtype": "success", "is_error": False, "uuid": "r1"}]
-        _meta, managed, _client = await _seed(session_manager, meta_store, messages=messages)
+        frames = [result_frame(uuid="r1")]
+        _meta, managed, _client = await _seed(session_manager, meta_store, frames=frames)
         try:
             managed.pending_user_echoes.append(PendingUserEcho(dedup_key="你好", entry_uuid="user-a"))
             claimed = match_user_echo(
@@ -204,7 +189,7 @@ class TestSessionManagerUserInput:
 
     async def test_closing_a_running_session_reports_echo_residue(self, session_manager, meta_store, caplog):
         """关停打断进行中的轮次也是轮次终结点，残留照样记账，不因关停路径而漏报。"""
-        meta, managed, _client = await _seed(session_manager, meta_store, status="running", block_forever=True)
+        meta, managed, _client = await _seed(session_manager, meta_store, status="running")
         managed.status = "running"
         managed.pending_user_echoes.append(PendingUserEcho(dedup_key="没等到回放", entry_uuid="user-a"))
 
@@ -450,15 +435,8 @@ class TestSessionManagerUserInput:
             await _finish(managed)
 
     async def test_interrupt_session_requests_interrupt_and_keeps_consumer_alive(self, session_manager, meta_store):
-        # block_forever so actor stays alive through interrupt; we push a result
-        # via interrupt() to unblock the drive_query loop.
-        meta, managed, client = await _seed(
-            session_manager,
-            meta_store,
-            messages=None,
-            status="running",
-            block_forever=True,
-        )
+        # 替身不发 result 帧，actor 在 interrupt 前后都保持这一轮在途
+        meta, managed, client = await _seed(session_manager, meta_store, status="running")
         # simulate the actor being mid-query. Instead of calling send_message,
         # directly enqueue a query and then interrupt.
         try:
@@ -477,8 +455,7 @@ class TestSessionManagerUserInput:
             assert not managed.actor._task.done()
 
             # cleanup: push a result to finish the drive_query, then await the query
-            client.push_message({"type": "result", "subtype": "error_during_execution", "is_error": True, "uuid": "r1"})
-            client.push_message(None)  # sentinel
+            client.push_frame(result_frame("error_during_execution", is_error=True, uuid="r1"))
             await query_task
         finally:
             await _finish(managed)

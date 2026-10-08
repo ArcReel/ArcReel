@@ -13,7 +13,7 @@ from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionRead
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession, SessionBusyError
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeSDKClient, empty_sdk_response_stream
+from tests.fakes import FakeSDKClient, assistant_frame, empty_sdk_response_stream, result_frame
 
 
 class _FakeOptions:
@@ -25,13 +25,15 @@ class _FakeClaudeClient:
     """Minimal ClaudeSDKClient stand-in used by SessionActor.
 
     Implements the async-context-manager protocol plus the narrow surface the
-    actor touches: ``query`` / ``interrupt`` / ``receive_response``. ``connect``
+    actor touches: ``query`` / ``interrupt`` / the raw frame stream
+    ``_query.receive_messages()`` (empty: the CLI exits at once). ``connect``
     is kept for the legacy get_or_connect path-check assertion.
     """
 
     def __init__(self, options):
         self.options = options
         self.connected = False
+        self._query = SimpleNamespace(receive_messages=empty_sdk_response_stream)
 
     async def __aenter__(self):
         self.connected = True
@@ -48,9 +50,6 @@ class _FakeClaudeClient:
 
     async def interrupt(self):
         pass
-
-    def receive_response(self):
-        return empty_sdk_response_stream()
 
 
 def _dummy_actor() -> SessionActor:
@@ -415,7 +414,7 @@ class TestSessionManager:
         )
         session_manager.sessions[meta.id] = managed
         try:
-            client.push_message({"type": "assistant", "content": [], "parent_tool_use_id": None})
+            client.push_frame(assistant_frame())
             await asyncio.wait_for(read.wait(), timeout=1.0)
 
             await session_manager.interrupt_session(meta.id)
@@ -1349,7 +1348,7 @@ async def test_send_query_sets_running_and_awaits_done():
     from server.agent_runtime.session_manager import ManagedSession
     from tests.fakes import FakeSDKClient
 
-    client = FakeSDKClient(messages=[{"type": "result", "subtype": "success"}])
+    client = FakeSDKClient(frames=[result_frame()])
     managed_ref: list = []
 
     def on_message(msg):
@@ -1397,15 +1396,12 @@ async def test_send_interrupt_is_idempotent_via_flag():
     from server.agent_runtime.session_manager import ManagedSession
     from tests.fakes import FakeSDKClient
 
-    client = FakeSDKClient(
-        block_forever=True,
-        interrupt_message={"type": "result", "subtype": "error_during_execution"},
-    )
+    client = FakeSDKClient(interrupt_frame=result_frame("error_during_execution", is_error=True))
     actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
     managed = ManagedSession(session_id="t", actor=actor, status="running", project_name="p")
     await actor.start()
 
-    # 发一个 query 让 receive_response 开始
+    # 发一个 query 让这一轮开始
     q = SessionCommand(type="query", prompt="x")
     await actor.enqueue(q)
     await asyncio.sleep(0.05)

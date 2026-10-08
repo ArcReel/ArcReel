@@ -17,7 +17,7 @@ from server.agent_runtime.event_log import EventLogStore, build_user_entry
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
-from tests.fakes import FakeSDKClient
+from tests.fakes import FakeSDKClient, result_frame, system_frame
 
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
@@ -135,9 +135,9 @@ async def test_timeline_revision_records_the_session_turn(tmp_path: Path, file_d
     )
     session_id = "sdk-timeline-turn"
     client = FakeSDKClient(
-        messages=[
-            {"type": "system", "subtype": "init", "session_id": session_id, "uuid": "init-1"},
-            {"type": "result", "subtype": "success", "is_error": False, "session_id": session_id, "uuid": "r-1"},
+        frames=[
+            system_frame("init", session_id=session_id, uuid="init-1"),
+            result_frame(session_id=session_id, uuid="r-1"),
         ]
     )
     sdk_options: list[ClaudeAgentOptions] = []

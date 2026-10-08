@@ -343,7 +343,7 @@ class ManagedSession:
         self.channel.broadcast(msg)
 
     async def send_query(self, prompt: str | AsyncIterable[dict], sdk_session_id: str = "default") -> None:
-        """将 prompt 送入 SDK 后立即返回；整轮 receive_response 由 actor 后台 drain。
+        """将 prompt 送入 SDK 后立即返回；这一轮的消息由 actor 在后台持续读取。
 
         只等 `cmd.sent`（prompt 已进 SDK）而非 `cmd.done`（整轮结束），以保持
         `/sessions/send` 原有的 "立即 accepted + SSE 异步消费" 语义。
