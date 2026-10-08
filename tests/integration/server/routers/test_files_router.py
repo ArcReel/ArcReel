@@ -2131,11 +2131,18 @@ class TestServeProjectFileThumbnails:
         source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
         os.utime(source, (1_700_000_000, 1_700_000_000))
 
-        def _replaced_during_encode(path, *_args, **_kwargs):
-            _write_png(path, (2400, 1800))
-            os.utime(path, (1_700_000_060, 1_700_000_060))
+        real_open = Image.open
+        replaced: list[bool] = []
 
-        monkeypatch.setattr(files, "ensure_image_thumbnail", _replaced_during_encode)
+        def _replaced_while_decoding(fp, *args, **kwargs):
+            # 缩略图开始解码源图前，源图被重新生成替换
+            if not replaced and Path(fp) == source:
+                replaced.append(True)
+                _write_png(source, (2400, 1800))
+                os.utime(source, (1_700_000_060, 1_700_000_060))
+            return real_open(fp, *args, **kwargs)
+
+        monkeypatch.setattr(Image, "open", _replaced_while_decoding)
 
         with client:
             resp = client.get("/api/v1/files/demo/storyboards/a.png?w=320")
