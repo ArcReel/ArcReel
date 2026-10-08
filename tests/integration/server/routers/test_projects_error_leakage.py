@@ -1,5 +1,6 @@
 """projects 路由的未预期异常不泄漏内部细节。"""
 
+from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects
 from tests.integration.server.routers.projects_router_support import (
@@ -218,15 +219,36 @@ class TestUnexpectedErrorsDoNotLeak:
             assert resp.status_code == 400
             assert resp.json()["detail"] == zh_errors.MESSAGES["overview_ai_response_invalid"]
 
-    def test_generate_overview_truncated_maps_to_truncation_problem(self, tmp_path, monkeypatch):
+    async def test_generate_overview_truncated_maps_to_truncation_problem(
+        self, tmp_path, monkeypatch, db_factory, set_error_handler_sessions
+    ):
         # 输出被截断是可操作的终局错误（缩小范围或换模型），不能落进兜底的通用 500；
         # diagnostic 复用 text_output_truncated 问题票的形状，前端据此给出登记输出长度或换模型的出路
+        async with db_factory() as session:
+            for provider_id, name in ((3, "My Text Model"), (4, "Other Text Model")):
+                session.add(
+                    CustomProvider(
+                        id=provider_id,
+                        display_name=f"Provider {provider_id}",
+                        discovery_format="openai",
+                        base_url="https://example.test",
+                        api_key="test",
+                    )
+                )
+                await session.flush()
+                session.add(
+                    CustomProviderModel(
+                        provider_id=provider_id, model_id="my-llm", display_name=name, endpoint="openai-chat"
+                    )
+                )
+            await session.commit()
+        set_error_handler_sessions(db_factory)
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/truncated/generate-overview")
             assert resp.status_code == 422
             body = resp.json()
-            assert body["detail"] == zh_errors.MESSAGES["text_output_truncated"].format(model="my-llm")
+            assert body["detail"] == zh_errors.MESSAGES["text_output_truncated"].format(model="My Text Model")
             assert body["diagnostic"]["code"] == "text_output_truncated"
             assert body["diagnostic"]["params"] == {"provider_id": "custom-3", "model": "my-llm", "custom_model": True}
 

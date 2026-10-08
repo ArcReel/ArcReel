@@ -393,11 +393,11 @@ MESSAGES = {
         "Hãy nhập một endpoint ComfyUI và gắn nó vào một dòng mô hình"
     ),
     "custom_endpoint_kind_conflicts_with_attachment": (
-        "Định nghĩa thay thế đổi loại endpoint nên không còn khớp với liên kết hiện tại: giao thức của nhà cung cấp cho mô hình {model_id} (nhà cung cấp {provider}) không nhận được nó. Hãy đổi liên kết của dòng mô hình trước, rồi mới thay định nghĩa"
+        "Định nghĩa thay thế đổi loại endpoint nên không còn khớp với liên kết hiện tại: giao thức của nhà cung cấp cho mô hình {model} (nhà cung cấp {provider}) không nhận được nó. Hãy đổi liên kết của dòng mô hình trước, rồi mới thay định nghĩa"
     ),
     "custom_endpoint_media_type_conflicts_with_attachment": (
         "Định nghĩa này tạo ra {media_type}, khác với loại phương tiện hiện tại của endpoint, trong khi mô hình "
-        "{model_id} (nhà cung cấp {provider}) vẫn đang gắn với nó: endpoint quyết định mô hình thuộc luồng nào. "
+        "{model} (nhà cung cấp {provider}) vẫn đang gắn với nó: endpoint quyết định mô hình thuộc luồng nào. "
         "Hãy gỡ liên kết trước, rồi mới thay thế định nghĩa"
     ),
     "comfyui_endpoint_requires_comfyui_provider": (

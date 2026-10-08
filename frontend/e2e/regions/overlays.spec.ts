@@ -91,16 +91,17 @@ defineRegionScenarios("弹层与提示", [
     act: async (page) => {
       // 逐帧记录提示的位置：从出现起采样 600ms，覆盖整个进场过程。
       await page.evaluate(() => {
-        const tops: number[] = [];
-        (window as unknown as { __toastTops: number[] }).__toastTops = tops;
+        const sampling = { tops: [] as number[], done: false };
+        (window as unknown as { __toastSampling: typeof sampling }).__toastSampling = sampling;
         let firstSeen: number | null = null;
         const sample = (now: number) => {
           const toast = document.querySelector('[data-slot="toast"]');
           if (toast) {
             firstSeen ??= now;
-            tops.push(toast.getBoundingClientRect().top);
+            sampling.tops.push(toast.getBoundingClientRect().top);
           }
           if (firstSeen === null || now - firstSeen < 600) requestAnimationFrame(sample);
+          else sampling.done = true;
         };
         requestAnimationFrame(sample);
       });
@@ -111,15 +112,15 @@ defineRegionScenarios("弹层与提示", [
       const toast = region.getByRole("dialog", { name: "项目 ZIP 已开始下载，导出包包含 2 条诊断" });
       await expect(toast).toBeVisible();
       await expect(diagnosticsDialog(page)).toBeVisible();
+      // 暂停自动消失，采样完成后再断言，不假定渲染帧率。
+      await toast.hover();
 
       await expect
-        .poll(() => page.evaluate(() => (window as unknown as { __toastTops: number[] }).__toastTops.length))
-        .toBeGreaterThan(10);
-      const tops = await page.evaluate(() => (window as unknown as { __toastTops: number[] }).__toastTops);
+        .poll(() => page.evaluate(() => (window as unknown as { __toastSampling: { done: boolean } }).__toastSampling.done))
+        .toBe(true);
+      const tops = await page.evaluate(() => (window as unknown as { __toastSampling: { tops: number[] } }).__toastSampling.tops);
       expect(Math.max(...tops) - Math.min(...tops), "提示在进场过程中发生了位移").toBeLessThanOrEqual(1);
 
-      // 指针停在提示上会暂停自动消失，截图与断言期间提示保持可见。
-      await toast.hover();
       await expect(region.getByRole("button", { name: "关闭提示" })).toBeVisible();
     },
     screenshot: { name: "overlays-toast-over-dialog", target: (page) => page.getByRole("region", { name: "提示" }) },

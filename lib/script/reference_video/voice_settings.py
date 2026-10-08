@@ -28,7 +28,7 @@ class VoiceRenderSettings:
     ``requested_generate_audio`` 是本集的无声开关（用户意图，非计价口径）。
 
     ``max_reference_audio`` 是每请求可携带的参考音频段数上限（backend 能力声明），
-    ``model_id`` 只用于降级 warning 的文案回显。
+    ``provider_id`` 与 ``model_id`` 只用于降级 warning 的显示名查找。
 
     ``audio_ready`` 是「音频确实可用」的角色名集合：解析预览不碰文件系统、留 None 表示按角色
     资产的 ``reference_audio`` 字段非空判定；执行层传入已解析且确实存在的文件对应的角色名。
@@ -40,6 +40,7 @@ class VoiceRenderSettings:
     voice_consistency: str = "soft"
     requested_generate_audio: bool = True
     max_reference_audio: int = 0
+    provider_id: str = ""
     model_id: str = ""
     audio_ready: Collection[str] | None = None
     requires_reference_image: bool = False
@@ -59,6 +60,7 @@ class VoiceRenderSettings:
             voice_consistency=str(caps.get("voice_consistency") or "soft"),
             requested_generate_audio=bool(caps.get("requested_generate_audio", True)),
             max_reference_audio=int(caps.get("max_reference_audio_count") or 0),
+            provider_id=str(caps.get("provider_id") or ""),
             model_id=str(caps.get("model") or ""),
             audio_ready=audio_ready,
             requires_reference_image=bool(caps.get("reference_audio_per_image") or False),
@@ -73,6 +75,7 @@ class VoiceRenderSettings:
             voice_consistency=facts.voice_consistency,
             requested_generate_audio=facts.requested_generate_audio,
             max_reference_audio=facts.max_reference_audio_count,
+            provider_id=facts.provider_id,
             model_id=facts.model_id,
             audio_ready=audio_ready,
             requires_reference_image=facts.reference_audio_per_image,

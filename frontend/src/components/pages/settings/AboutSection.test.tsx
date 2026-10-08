@@ -109,8 +109,8 @@ describe("AboutSection release notes", () => {
 
     await user.click(toggle);
 
-    // 正文由按需加载的 Streamdown 渲染：加载前的纯文本回退节点可能随后被替换，等渲染后的列表项。
-    expect(await screen.findByRole("listitem")).toHaveTextContent("faster exports");
+    // 正文可能从纯文本替换为 Markdown；同步查询并断言可见，不依赖子组件加载时序。
+    await waitFor(() => expect(screen.getByText(/faster exports/)).toBeVisible());
     expect(await screen.findByRole("link", { name: /打开 GitHub Release/ })).toHaveAttribute(
       "href",
       "https://github.com/example/ArcReel/releases/tag/v1.1.0",

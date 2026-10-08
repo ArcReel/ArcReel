@@ -430,7 +430,7 @@ async def _check_kind_change_keeps_attachments(
             continue
         raise UnprocessableError(
             "custom_endpoint_kind_conflicts_with_attachment",
-            model_id=attachment.model_id,
+            model=attachment.model_id,
             provider=make_provider_id(attachment.provider_id),
         )
 
@@ -454,7 +454,7 @@ async def _check_media_type_change_has_no_attachments(
         raise UnprocessableError(
             "custom_endpoint_media_type_conflicts_with_attachment",
             media_type=new_media_type,
-            model_id=attachments[0].model_id,
+            model=attachments[0].model_id,
             provider=make_provider_id(attachments[0].provider_id),
         )
 

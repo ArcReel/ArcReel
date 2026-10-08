@@ -52,6 +52,8 @@ function clickableElements(root: HTMLElement): string[] {
 
 async function renderLoaded(content: string) {
   const view = render(<StreamMarkdown content={content} />);
+  // 等实际按需模块加载完成，再断言 Markdown 结构，不把加载耗时计入查询超时。
+  await act(async () => { await import("streamdown"); });
   await waitFor(() => {
     expect(view.container.querySelector(".markdown-body")).not.toBeNull();
   });

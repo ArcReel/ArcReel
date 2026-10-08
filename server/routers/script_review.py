@@ -56,7 +56,8 @@ def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) 
     """把草稿视图里的固定文案违约与降级提示换成按 ``_t`` 渲染的本地化文本。
 
     ``quarantine_unreadable`` 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），都是不带
-    插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，问题码即文案 key，与内容确认的 422
+    插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，既可属于整集，也可带 ``item_id``
+    定位到具体条目；问题码即文案 key，与内容确认的 422
     同一呈现。二者都不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种产出时已
     渲染好插值的模板——违约的本地化范围限定在这两类。降级提示一律以 ``code`` 为文案 key 成文。
     参数里的供应商与模型 ID 按 ``names`` 换成显示名。

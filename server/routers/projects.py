@@ -2009,9 +2009,9 @@ async def generate_overview(name: str, _t: Translator):
     except TextOutputTruncatedError as exc:
         # 输出被最大输出长度截断：与各文本任务同一个问题票形状，前端据此给出登记输出长度或换模型的出路
         logger.warning("概述生成输出被截断: name=%s (%s)", name, exc)
-        raise UnprocessableError("text_output_truncated", model=exc.model).with_diagnostic(
-            truncation_problem(exc).model_dump()
-        ) from exc
+        raise UnprocessableError(
+            "text_output_truncated", provider_id=exc.provider_id or exc.provider, model=exc.model
+        ).with_diagnostic(truncation_problem(exc).model_dump()) from exc
     except EmptySourceError as e:
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e

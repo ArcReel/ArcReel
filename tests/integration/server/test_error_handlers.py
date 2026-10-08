@@ -3,11 +3,14 @@
 import tempfile
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.generation.generation_queue import ActiveTaskRequestConflict
 from lib.generation.generation_queue_client import TaskSpecValidationError
+from lib.i18n import _
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.script.script_editor import ScriptEditError
 from server.error_handlers import register_error_handlers
@@ -69,6 +72,27 @@ def _make_client() -> TestClient:
 
 
 class TestApiErrorHandler:
+    @pytest.mark.parametrize(
+        ("path", "status", "key"),
+        [
+            ("/api-error-422-with-diagnostic", 422, "script_validation_failed"),
+            ("/task-spec-error", 400, "prompt_text_empty"),
+        ],
+    )
+    async def test_catalog_database_unavailable_preserves_original_error(
+        self, tmp_path, set_error_handler_sessions, path, status, key
+    ):
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/missing/db.sqlite")
+        set_error_handler_sessions(async_sessionmaker(engine))
+        try:
+            response = _make_client().get(path)
+            assert response.status_code == status
+            assert response.json()["detail"] == _(key)
+            if status == 422:
+                assert response.json()["diagnostic"] == "scenes[0].shots must be a list"
+        finally:
+            await engine.dispose()
+
     def test_not_found_translated_zh_default(self):
         client = _make_client()
         resp = client.get("/api-error-404")
