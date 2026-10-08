@@ -465,6 +465,10 @@ class SessionManager:
         self.layout = DataRootLayout(self.data_root)
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
+        # 会话订阅广播通道，按 sdk_session_id 登记。entry 流的生命周期跟随会话面板而非
+        # CLI 进程：会话被驱逐后通道随订阅者留下，复活的会话接着往同一个通道广播。
+        # 既无常驻会话、又无订阅者时摘除。
+        self._channels: dict[str, SseChannel] = {}
         # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
         self.unclaimed_user_echoes = 0
         # CLI 自主开启新一轮、会话回到 running 时的通知出口（参数：项目名、会话 id），
@@ -768,6 +772,7 @@ class SessionManager:
             self.sessions.pop(temp_id, None)
             # sdk_session_id 就绪后 key swap 已把会话挂到正式 id 下，两个键都清。
             self.sessions.pop(managed.session_id, None)
+            self._release_channel(managed.session_id)
             try:
                 await asyncio.wait_for(managed.send_disconnect(), timeout=self._session_actor_shutdown_timeout)
             except TimeoutError:
@@ -1072,6 +1077,7 @@ class SessionManager:
                 project_name=meta.project_name,
                 assistant_model=assistant_model,
                 resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
+                channel=self._session_channel(meta.id),
             )
             managed.sdk_id_event.set()  # 已有会话不需要等待 sdk_id
             managed.entry_pipeline = self._build_entry_pipeline(managed)
@@ -1090,6 +1096,7 @@ class SessionManager:
                     sdk_stderr=sdk_stderr,
                 )
                 self.sessions.pop(session_id, None)
+                self._release_channel(session_id)
                 raise startup_error from exc
             finally:
                 startup_stderr.stop()
@@ -1312,8 +1319,8 @@ class SessionManager:
     async def _begin_autonomous_turn(self, managed: ManagedSession) -> None:
         """CLI 未经 query 开启了新一轮（后台任务完成后唤醒）：会话回到 running。
 
-        idle 会话没有 entry 流订阅者，这一轮的消息与问答卡片只能等客户端得到
-        通知后重新订阅才看得到。
+        打开着的会话面板经常驻的 entry 流收到这一轮；通知供会话列表等其他视图
+        得知会话回到 running。
         """
         if managed._cleanup_task is not None and not managed._cleanup_task.done():
             managed._cleanup_task.cancel()
@@ -1531,6 +1538,7 @@ class SessionManager:
                         await self.meta_store.update_status(managed.resolved_sdk_id, managed.status)
         finally:
             self.sessions.pop(session_id, None)
+            self._release_channel(session_id)
             self._connect_locks.pop(session_id, None)
             self._disconnecting.discard(session_id)
 
@@ -1788,6 +1796,7 @@ class SessionManager:
                 del self.sessions[old_id]
                 managed.session_id = sdk_id
                 self.sessions[sdk_id] = managed
+                self._channels.setdefault(sdk_id, managed.channel)
             managed.sdk_id_event.set()
 
     @staticmethod
@@ -1846,28 +1855,42 @@ class SessionManager:
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")
 
-    async def _subscribe(self, session_id: str, *, locale: str = DEFAULT_LOCALE) -> tuple[SseChannel, asyncio.Queue]:
+    def _session_channel(self, session_id: str) -> SseChannel:
+        """取会话的广播通道，没有就登记一个新的。"""
+        channel = self._channels.get(session_id)
+        if channel is None:
+            channel = _make_session_channel()
+            self._channels[session_id] = channel
+        return channel
+
+    def _release_channel(self, session_id: str) -> None:
+        """会话离开常驻集合或订阅者离开后调用：两者都没有了才摘除通道。"""
+        channel = self._channels.get(session_id)
+        if channel is None or channel.has_subscribers or session_id in self.sessions:
+            return
+        del self._channels[session_id]
+
+    def _subscribe(self, session_id: str) -> tuple[SseChannel, asyncio.Queue]:
         """Register a live-message queue for a session.
 
-        ``locale`` is forwarded to ``get_or_connect``, matching the send-message
-        path; it shapes the system prompt only when the revival starts a fresh
-        session.
+        不复活冷会话：面板开着不该占用 CLI 并发名额。订阅挂在会话的通道上，
+        会话之后由发送复活时沿用同一个通道，订阅者照常收到广播。
 
         Private: the only consumer is :meth:`stream_messages`, which owns the
         deterministic unsubscribe via its context-manager ``__aexit__``.
         """
-        managed = await self.get_or_connect(session_id, locale=locale)
-        queue = managed.channel.subscribe()
-        return managed.channel, queue
+        managed = self.sessions.get(session_id)
+        channel = managed.channel if managed is not None else self._session_channel(session_id)
+        return channel, channel.subscribe()
 
-    async def _unsubscribe(self, session_id: str, queue: asyncio.Queue) -> None:
+    async def _unsubscribe(self, channel: SseChannel, session_id: str, queue: asyncio.Queue) -> None:
         """Remove a queue from a session's subscriber channel."""
-        if session_id in self.sessions:
-            await self.sessions[session_id].channel.unsubscribe(queue)
+        await channel.unsubscribe(queue)
+        self._release_channel(session_id)
 
     @contextlib.asynccontextmanager
     async def stream_messages(
-        self, session_id: str, *, idle_timeout: float = 20.0, locale: str = DEFAULT_LOCALE
+        self, session_id: str, *, idle_timeout: float = 20.0
     ) -> AsyncGenerator[AsyncIterator[SessionStreamEvent]]:
         """Subscribe to a session's messages as a self-cleaning async iterator.
 
@@ -1879,19 +1902,18 @@ class SessionManager:
         - a :class:`Heartbeat` whenever *idle_timeout* elapses with no message
           (consumers run liveness / disconnect self-checks on it).
 
-        The stream ends when the subscriber queue is dropped under backpressure —
-        stream end is the reconnect signal; no overflow event reaches consumers
-        (the overflow sentinel is internal to :class:`SseChannel`).
+        The subscription outlives the session's residency: it survives eviction
+        and keeps receiving once the session is revived. The stream ends only
+        when the subscriber queue is dropped under backpressure — stream end is
+        the reconnect signal; no overflow event reaches consumers (the overflow
+        sentinel is internal to :class:`SseChannel`).
 
         Subscription, queue draining and unsubscribe all live behind this seam;
         cleanup is carried deterministically by ``__aexit__`` (see ADR-0005).
         Consume as ``async with stream_messages(...) as stream: async for event
         in stream``.
-
-        ``locale`` only matters when this subscription revives a cold session; an
-        already-resident session ignores it (session-fixed system prompt).
         """
-        channel, queue = await self._subscribe(session_id, locale=locale)
+        channel, queue = self._subscribe(session_id)
 
         async def _iter() -> AsyncIterator[SessionStreamEvent]:
             # NOTE: intentionally NO ``finally: _unsubscribe`` here. Cleanup is owned
@@ -1905,7 +1927,7 @@ class SessionManager:
         try:
             yield _iter()
         finally:
-            await self._unsubscribe(session_id, queue)
+            await self._unsubscribe(channel, session_id, queue)
 
     async def get_status(self, session_id: str) -> SessionStatus | None:
         """Get session status."""

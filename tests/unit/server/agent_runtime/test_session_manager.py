@@ -192,21 +192,26 @@ class TestSessionManager:
             await session_manager.close_session(meta.id)
 
     @pytest.mark.asyncio
-    async def test_stream_messages_threads_locale_into_cold_revival(self, session_manager, meta_store, monkeypatch):
-        """The SSE stream path is a second cold-revival entry: subscribing to a
-        non-resident session renders the language regulation from the caller's
-        locale, matching the send-message path."""
+    async def test_stream_messages_waits_across_eviction_and_revival(self, session_manager, meta_store, monkeypatch):
+        """订阅不复活冷会话；会话之后复活、被驱逐、再复活，同一订阅都照常收到广播。"""
         (session_manager.layout.projects_dir / "demo").mkdir(parents=True)
-        meta = await meta_store.create("demo", "sdk-locale-stream-en")
+        meta = await meta_store.create("demo", "sdk-stream-survives-eviction")
 
         async with _cold_revival_clients(session_manager, monkeypatch) as created_clients:
-            async with session_manager.stream_messages(meta.id, locale="en"):
-                await asyncio.sleep(0)
-            assert created_clients
-            append = created_clients[0].options.kwargs["system_prompt"]["append"]
-            assert "English" in append
-            assert "中文" not in append
-            await session_manager.close_session(meta.id)
+            async with session_manager.stream_messages(meta.id, idle_timeout=5) as stream:
+                assert isinstance(await anext(stream), SubscriptionReady)
+                assert created_clients == []
+                assert meta.id not in session_manager.sessions
+
+                for round_no in range(2):
+                    managed = await session_manager.get_or_connect(meta.id)
+                    managed.channel.broadcast({"type": "log_entry", "uuid": f"round-{round_no}"})
+                    live = await anext(stream)
+                    assert isinstance(live, LiveMessage)
+                    assert live.message["uuid"] == f"round-{round_no}"
+                    await session_manager.close_session(meta.id)
+
+            assert session_manager._channels == {}
 
     @pytest.mark.asyncio
     async def test_resolve_project_scope_and_status_helpers(self, session_manager, tmp_path, meta_store):
@@ -528,9 +533,9 @@ class TestSessionManager:
         )
         session_manager.sessions[meta.id] = managed
 
-        _channel, queue = await session_manager._subscribe(meta.id)
+        channel, queue = session_manager._subscribe(meta.id)
         assert queue.empty()
-        await session_manager._unsubscribe(meta.id, queue)
+        await session_manager._unsubscribe(channel, meta.id, queue)
         assert not managed.channel.has_subscribers
 
         await session_manager.shutdown_gracefully()

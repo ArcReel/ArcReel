@@ -54,7 +54,6 @@ from server.agent_runtime.session_branch import (
 )
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-from server.i18n import get_locale
 
 
 class MessageRewriteError(RuntimeError):
@@ -712,32 +711,21 @@ class AssistantService:
     ) -> AsyncIterator[ServerSentEvent]:
         """SSE entry 流：事件 ``id`` 即 seq，断线重连按 cursor 续传、不整帧重算。
 
-        序列协议：``entry``×N（cursor 之后的存量）→ ``draft``（首帧快照携带
-        流式累积态 + rev 过滤门槛）→ ``question``×N（未决问题）→ 直播
-        （entry / delta / question / status）。非 running 会话产出存量 entry
-        与终态 status 后即结束。
+        生命周期跟随会话面板：开场依次下发 ``entry``×N（cursor 之后的存量）、
+        ``draft``（流式累积态 + rev 过滤门槛）、``question``×N（未决问题）和当前
+        ``status``，之后直播 entry / delta / question / status。``status`` 只更新
+        状态、不关流；流只在客户端离开（或订阅者被溢出移除，即重连信号）时结束。
+        会话不常驻时同样建流等待，之后由发送复活的会话照常推送。
         """
         if meta is None:
             meta = await self.meta_store.get(session_id)
             if meta is None:
                 raise FileNotFoundError(f"session not found: {session_id}")
 
-        initial_status = await self.session_manager.get_status(session_id) or meta.status
         project_cwd = self._resolve_project_cwd_safe(meta.project_name)
-
-        if initial_status != "running":
-            for entry in await self.event_log.list_entries(session_id, project_cwd, after_seq=after_seq):
-                yield self._entry_sse_event(entry)
-            yield self._sse_event(
-                "status",
-                self._build_status_event_payload(status=initial_status, session_id=session_id),
-            )
-            return
-
-        locale = get_locale(request) if request is not None else DEFAULT_LOCALE
         last_seq = after_seq
         async with self.session_manager.stream_messages(
-            session_id, idle_timeout=self.stream_heartbeat_seconds, locale=locale
+            session_id, idle_timeout=self.stream_heartbeat_seconds
         ) as stream:
             ready = await anext(stream, None)
             if not isinstance(ready, SubscriptionReady):
@@ -748,24 +736,18 @@ class AssistantService:
                 last_seq = max(last_seq, self._entry_seq(entry))
                 yield self._entry_sse_event(entry)
 
-            draft_state = self.session_manager.get_draft_state(session_id)
-            yield self._sse_event("draft", {"session_id": session_id, **draft_state})
+            yield self._draft_sse_event(session_id)
 
             for question in await self.session_manager.get_pending_questions_snapshot(session_id):
                 yield self._sse_event("question", {**question, "session_id": session_id})
 
-            status: SessionStatus = await self.session_manager.get_status(session_id) or initial_status
-            if status != "running":
-                yield self._sse_event(
-                    "status",
-                    self._build_status_event_payload(status=status, session_id=session_id),
-                )
-                return
+            status: SessionStatus = await self.session_manager.get_status(session_id) or meta.status
+            yield self._sse_event("status", self._build_status_event_payload(status=status, session_id=session_id))
 
             # 原始 result 由 actor 回调同步广播，而末条 log_entry 由 inbox 任务
-            # 落库后才广播——在 result 处直接终结会丢末条条目。改为暂存 result，
-            # 等 inbox 串行序上的 log_turn_complete（此时本轮条目已全部广播）
-            # 再产出终态；心跳兜底防 inbox 停摆时悬挂。
+            # 落库后才广播——在 result 处直接推终态会让末条条目落在终态之后。改为
+            # 暂存 result，等 inbox 串行序上的 log_turn_complete（此时本轮条目已全部
+            # 广播）再推终态；心跳兜底防 inbox 停摆时悬挂。
             pending_result: dict[str, Any] | None = None
             drain_beats = 0
             async for stream_event in stream:
@@ -776,17 +758,17 @@ class AssistantService:
                     if pending_result is not None:
                         drain_beats += 1
                         if drain_beats >= 2:
+                            status = self._resolve_result_status(pending_result)
                             yield self._result_status_event(pending_result, session_id)
-                            break
-
+                            pending_result = None
+                            drain_beats = 0
                         continue
+                    # 驱逐等不经广播的状态变化由心跳对齐。
                     live_status = await self.session_manager.get_status(session_id) or status
-                    if live_status != "running":
-                        yield self._sse_event(
-                            "status",
-                            self._build_status_event_payload(status=live_status, session_id=session_id),
-                        )
-                        break
+                    if live_status != status:
+                        status = live_status
+                        for event in self._status_change_events(status, session_id):
+                            yield event
                     continue
 
                 if not isinstance(stream_event, LiveMessage):
@@ -794,6 +776,15 @@ class AssistantService:
 
                 message = stream_event.message
                 msg_type = message.get("type", "")
+
+                if msg_type in ("log_entry", "log_delta", "ask_user_question") and status != "running":
+                    # 发送、自主轮次都在 inbox 序上先切 running 再产出这些消息：
+                    # 先推 running，新一轮的内容不落在旧终态之下。
+                    live_status = await self.session_manager.get_status(session_id) or status
+                    if live_status == "running":
+                        status = live_status
+                        for event in self._status_change_events(status, session_id):
+                            yield event
 
                 if msg_type == "log_entry":
                     entry = message.get("entry")
@@ -810,8 +801,10 @@ class AssistantService:
 
                 if msg_type == "log_turn_complete":
                     if pending_result is not None:
+                        status = self._resolve_result_status(pending_result)
                         yield self._result_status_event(pending_result, session_id)
-                        break
+                        pending_result = None
+                        drain_beats = 0
                     continue
 
                 if msg_type == "ask_user_question":
@@ -824,13 +817,26 @@ class AssistantService:
                 if msg_type == "runtime_status":
                     terminal = self._check_runtime_status_terminal(message, session_id)
                     if terminal is not None:
+                        status = terminal.data["status"]
+                        pending_result = None
+                        drain_beats = 0
                         yield terminal
-                        break
                     continue
 
                 if msg_type == "result":
                     pending_result = message
                     continue
+
+    def _draft_sse_event(self, session_id: str) -> ServerSentEvent:
+        return self._sse_event("draft", {"session_id": session_id, **self.session_manager.get_draft_state(session_id)})
+
+    def _status_change_events(self, status: SessionStatus, session_id: str) -> list[ServerSentEvent]:
+        """不经 result 的状态变化。回到 running 时补一帧 draft 快照：会话若经驱逐后
+        复活，新进程的 delta rev 从头计数，客户端要换用新的过滤门槛。"""
+        events = [self._sse_event("status", self._build_status_event_payload(status=status, session_id=session_id))]
+        if status == "running":
+            events.append(self._draft_sse_event(session_id))
+        return events
 
     async def stream_startup_failure_events(
         self,

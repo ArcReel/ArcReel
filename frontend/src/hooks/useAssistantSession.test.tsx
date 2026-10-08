@@ -86,8 +86,11 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().turns).toHaveLength(2);
     });
     expect(useAssistantStore.getState().turns[0].content[0].text).toBe("历史消息");
-    // 非 running 会话不建 SSE 流
-    expect(FakeSseStream.instances).toHaveLength(0);
+    // 冷读之后接上常驻 entry 流，游标从冷读的最后一条之后开始
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    expect(streamOptions(0)).toMatchObject({ sessionId: "session-1", after: 1 });
   });
 
   it("connects entry stream for running sessions and appends entries in seq order", async () => {
@@ -174,7 +177,7 @@ describe("useAssistantSession", () => {
     expect(state.turns[0].content[0].text).toBe("部分内容（权威）");
   });
 
-  it("clears draft and closes stream on terminal status, keeps draft when interrupted", async () => {
+  it("clears draft on terminal status without closing the stream, keeps draft when interrupted", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "running")],
     });
@@ -198,7 +201,43 @@ describe("useAssistantSession", () => {
     // 中断保留 draft（被中断内容不入日志，刷新后自然消失）
     expect(useAssistantStore.getState().draftTurn?.content[0].text).toBe("被中断的回复");
     expect(useAssistantStore.getState().sessionStatus).toBe("interrupted");
-    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
+    expect(FakeSseStream.instances[0].close).not.toHaveBeenCalled();
+  });
+
+  it("keeps the stream open after a terminal status, so entries from a later send still show", async () => {
+    mockIdleSession([userEntry(0, "第一轮")]);
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({
+      session_id: "session-1",
+      status: "accepted",
+      entry: userEntry(1, "第二轮"),
+    });
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    const stream = FakeSseStream.instances[0];
+
+    // 开场与上一轮收尾下发的终态 status
+    act(() => {
+      stream.emit("status", { status: "completed" });
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("第二轮");
+    });
+    act(() => {
+      stream.emit("status", { status: "running" });
+      stream.emit("entry", { seq: 2, type: "assistant", content: [{ type: "text", text: "第二轮回复" }], uuid: "a-2" });
+      stream.emit("status", { status: "completed" });
+      stream.emit("entry", userEntry(3, "自主轮次"));
+    });
+
+    expect(FakeSseStream.instances).toHaveLength(1);
+    expect(stream.close).not.toHaveBeenCalled();
+    expect(useAssistantStore.getState().entries.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+    expect(useAssistantStore.getState().turns.at(-2)?.content[0].text).toBe("第二轮回复");
+    expect(useAssistantStore.getState().sessionStatus).toBe("completed");
   });
 
   it("writes pendingQuestion from question SSE events", async () => {
@@ -342,10 +381,10 @@ describe("useAssistantSession", () => {
       { type: "user", content: [{ type: "text", text: "hello" }], uuid: "u-0", timestamp: undefined },
     ]);
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
+    // 发送复用打开会话时建立的那条流
     expect(FakeSseStream.instances).toHaveLength(1);
     expect(streamOptions(0)).toMatchObject({ projectName: "demo", sessionId: "session-1" });
-    // 游标续传：冷订阅从已有条目之后开始
-    expect(streamOptions(0).after).toBe(0);
+    expect(FakeSseStream.instances[0].close).not.toHaveBeenCalled();
     // client_key 随请求发送
     expect(sendSpy.mock.calls[0][4]).toEqual(expect.any(String));
   });
@@ -374,7 +413,6 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessionStatus).toBe("idle");
     expect(useAssistantStore.getState().turns).toEqual([]);
     expect(useAssistantStore.getState().error).toBe("发送失败");
-    expect(FakeSseStream.instances).toHaveLength(0);
 
     await act(async () => {
       accepted = await result.current.sendMessage("hello");
@@ -530,8 +568,9 @@ describe("useAssistantSession", () => {
       await deferred.promise;
     });
 
-    // 迟到的发送完成不得污染已切换会话的时间线
-    expect(FakeSseStream.instances).toHaveLength(0);
+    // 迟到的发送完成不得污染已切换会话的时间线，也不为原会话建流
+    expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-1", "session-2"]);
+    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
     expect(useAssistantStore.getState().turns).toHaveLength(1);
   });
@@ -780,7 +819,7 @@ describe("useAssistantSession", () => {
     });
 
     // 不为已离开的项目 A 建 SSE 连接；状态与时间线保持项目 B
-    expect(FakeSseStream.instances).toHaveLength(0);
+    expect(openStreamSpy.mock.calls.map(([options]) => options.projectName)).toEqual(["project-b"]);
     expect(useAssistantStore.getState().currentSessionId).toBe("session-b");
     expect(useAssistantStore.getState().sessionStatus).toBe("idle");
     expect(useAssistantStore.getState().turns).toHaveLength(1);
@@ -837,60 +876,49 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().turns[0].content[0].text).toBe("S3-0");
   });
 
-  it("reconnects the entry stream when the current idle session resumes on its own", async () => {
+  it("shows an autonomous turn of the open session through its resident stream, without resubscribing", async () => {
     mockIdleSession([userEntry(0, "历史消息")]);
-
-    renderHook(() => useAssistantSession("demo"));
-
-    await waitFor(() => {
-      expect(useAssistantStore.getState().turns).toHaveLength(1);
-    });
-    expect(FakeSseStream.instances).toHaveLength(0);
-
-    act(() => {
-      useAssistantStore.getState().notifySessionResumed("demo", "session-1");
-    });
-
-    expect(useAssistantStore.getState().sessionStatus).toBe("running");
-    expect(FakeSseStream.instances).toHaveLength(1);
-    expect(streamOptions(0)).toMatchObject({ sessionId: "session-1", after: 0 });
-
-    // 自主轮次里的问答卡片经重新接上的流送达
-    act(() => {
-      FakeSseStream.instances[0].emit("question", makePendingQuestion());
-    });
-    expect(useAssistantStore.getState().pendingQuestion?.question_id).toBe("q-1");
-  });
-
-  it("replaces the previous turn's still-open stream when the session resumes", async () => {
-    // 两条 SSE 连接互不保序：恢复通知可能先于上一轮的终态到达，沿用旧句柄的话，
-    // 终态随后关掉它，自主轮次的输出就没有流来接。
-    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
-      sessions: [makeSession("session-1", "running")],
-    });
-    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
 
     renderHook(() => useAssistantSession("demo"));
     await waitFor(() => {
       expect(FakeSseStream.instances).toHaveLength(1);
     });
-    act(() => {
-      FakeSseStream.instances[0].emit("entry", userEntry(0, "hello"));
-    });
+    const stream = FakeSseStream.instances[0];
 
+    // 项目事件流的恢复通知留给会话列表等视图，当前会话不因它重新订阅
     act(() => {
       useAssistantStore.getState().notifySessionResumed("demo", "session-1");
     });
-    expect(FakeSseStream.instances).toHaveLength(2);
-    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
-    expect(streamOptions(1)).toMatchObject({ sessionId: "session-1", after: 0 });
+    expect(FakeSseStream.instances).toHaveLength(1);
+    expect(stream.close).not.toHaveBeenCalled();
 
-    // 上一轮迟到的终态落在已替换的旧句柄上，不再关掉接自主轮次的流
     act(() => {
-      FakeSseStream.instances[0].emit("status", { status: "idle" });
+      stream.emit("status", { status: "running" });
+      stream.emit("entry", { seq: 1, type: "assistant", content: [{ type: "text", text: "自主回复" }], uuid: "a-1" });
+      stream.emit("question", makePendingQuestion());
     });
-    expect(FakeSseStream.instances[1].close).not.toHaveBeenCalled();
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
+    expect(useAssistantStore.getState().turns.at(-1)?.content[0].text).toBe("自主回复");
+    expect(useAssistantStore.getState().pendingQuestion?.question_id).toBe("q-1");
+  });
+
+  it.each([
+    ["a resume of the current session", () => useAssistantStore.getState().notifySessionResumed("demo", "session-1")],
+    ["a project stream resync", () => useAssistantStore.getState().requestSessionResync("demo")],
+  ])("reopens the stream on %s only when the client gave it up", async (_label, notify) => {
+    mockIdleSession([userEntry(0, "历史消息")]);
+
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+
+    // 句柄已被流式客户端永久关闭（如服务端拒绝）：补建，游标停在最后 seq
+    FakeSseStream.instances[0].closed = true;
+    act(notify);
+
+    expect(FakeSseStream.instances).toHaveLength(2);
+    expect(streamOptions(1)).toMatchObject({ sessionId: "session-1", after: 0 });
   });
 
   it.each([
@@ -900,70 +928,27 @@ describe("useAssistantSession", () => {
     mockIdleSession([userEntry(0, "历史消息")]);
 
     renderHook(() => useAssistantSession("demo"));
-
     await waitFor(() => {
-      expect(useAssistantStore.getState().turns).toHaveLength(1);
+      expect(FakeSseStream.instances).toHaveLength(1);
     });
+    FakeSseStream.instances[0].closed = true;
 
     act(() => {
       useAssistantStore.getState().notifySessionResumed(projectName, sessionId);
     });
 
     expect(useAssistantStore.getState().sessionStatus).toBe("idle");
-    expect(FakeSseStream.instances).toHaveLength(0);
-  });
-
-  it("keeps a resume for the current session when another signal follows in the same tick", async () => {
-    mockIdleSession([userEntry(0, "历史消息")]);
-
-    renderHook(() => useAssistantSession("demo"));
-    await waitFor(() => {
-      expect(useAssistantStore.getState().turns).toHaveLength(1);
-    });
-
-    act(() => {
-      useAssistantStore.getState().notifySessionResumed("demo", "session-1");
-      useAssistantStore.getState().notifySessionResumed("demo", "session-other");
-    });
-
-    expect(useAssistantStore.getState().sessionStatus).toBe("running");
     expect(FakeSseStream.instances).toHaveLength(1);
-    expect(streamOptions(0)).toMatchObject({ sessionId: "session-1" });
   });
 
-  it("does not replay a handled resume notification after switching projects", async () => {
-    // 通知留在全局 store 里不消费的话，切项目重建回调会拿上一个项目的会话 id 在新项目下建流
-    mockIdleSession([userEntry(0, "历史消息")]);
-
-    const { rerender } = renderHook(({ project }) => useAssistantSession(project), {
-      initialProps: { project: "demo" },
-    });
-    await waitFor(() => {
-      expect(useAssistantStore.getState().turns).toHaveLength(1);
-    });
-    act(() => {
-      useAssistantStore.getState().notifySessionResumed("demo", "session-1");
-    });
-    expect(FakeSseStream.instances).toHaveLength(1);
-
-    rerender({ project: "other-project" });
-    await waitFor(() => {
-      expect(useAssistantStore.getState().messagesLoading).toBe(false);
-    });
-
-    expect(openStreamSpy.mock.calls.filter(([options]) => options.projectName === "other-project")).toEqual([]);
-  });
-
-  it("connects after the cold read settles when the session resumes mid-load", async () => {
-    // 加载链已按 idle 走冷读：此时到达的通知不能直接建流（冷读随后整帧覆写时间线），
-    // 记账后在加载收尾时补做核对。
+  it("opens one stream after the cold read settles when the session resumes mid-load", async () => {
+    // 加载链已按 idle 走冷读：此时到达的通知不建流（冷读随后整帧覆写时间线），
+    // 由加载收尾时建立的那条流接上。
     const deferredEntries = createDeferred<EntriesResponse>();
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "idle")],
     });
-    vi.spyOn(API, "getAssistantSession")
-      .mockResolvedValueOnce({ session: makeSession("session-1", "idle") })
-      .mockResolvedValue({ session: makeSession("session-1", "running") });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
     vi.spyOn(API, "listAssistantEntries").mockReturnValue(deferredEntries.promise);
 
     renderHook(() => useAssistantSession("demo"));
@@ -986,117 +971,6 @@ describe("useAssistantSession", () => {
       expect(FakeSseStream.instances).toHaveLength(1);
     });
     expect(streamOptions(0)).toMatchObject({ sessionId: "session-1", after: 0 });
-    expect(useAssistantStore.getState().sessionStatus).toBe("running");
-  });
-
-  it("still connects when the session resumes mid-load and the load then fails", async () => {
-    const deferredEntries = createDeferred<EntriesResponse>();
-    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
-      sessions: [makeSession("session-1", "idle")],
-    });
-    vi.spyOn(API, "getAssistantSession")
-      .mockResolvedValueOnce({ session: makeSession("session-1", "idle") })
-      .mockResolvedValue({ session: makeSession("session-1", "running") });
-    vi.spyOn(API, "listAssistantEntries").mockReturnValue(deferredEntries.promise);
-
-    renderHook(() => useAssistantSession("demo"));
-
-    await waitFor(() => {
-      expect(API.listAssistantEntries).toHaveBeenCalled();
-    });
-    act(() => {
-      useAssistantStore.getState().notifySessionResumed("demo", "session-1");
-    });
-
-    await act(async () => {
-      deferredEntries.reject(new Error("network down"));
-      await deferredEntries.promise.catch(() => {});
-    });
-
-    await waitFor(() => {
-      expect(FakeSseStream.instances).toHaveLength(1);
-    });
-    expect(streamOptions(0)).toMatchObject({ sessionId: "session-1" });
-    expect(useAssistantStore.getState().sessionStatus).toBe("running");
-  });
-
-  it.each([
-    ["running", "running"],
-    ["completed", "completed"],
-  ] as const)(
-    "re-checks the idle session after the project stream reconnects (server: %s)",
-    async (_label, serverStatus) => {
-      // 断线期间错过的恢复通知：running 接回流；已结束的也接一次，补发空窗里的条目
-      mockIdleSession([userEntry(0, "历史消息")]);
-
-      renderHook(() => useAssistantSession("demo"));
-      await waitFor(() => {
-        expect(useAssistantStore.getState().turns).toHaveLength(1);
-      });
-      vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", serverStatus) });
-
-      act(() => {
-        useAssistantStore.getState().requestSessionResync("demo");
-      });
-
-      await waitFor(() => {
-        expect(FakeSseStream.instances).toHaveLength(1);
-      });
-      expect(streamOptions(0)).toMatchObject({ sessionId: "session-1", after: 0 });
-      expect(useAssistantStore.getState().sessionStatus).toBe(serverStatus === "running" ? "running" : "idle");
-    },
-  );
-
-  it("replaces a stale running stream when the project stream reconnects", async () => {
-    // 错过了恢复通知、上一轮的终态又还没到：本地仍是 running，核对不能据此跳过，
-    // 否则旧句柄随后收到上一轮的终态把流关掉，自主轮次的输出无人接收。
-    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
-      sessions: [makeSession("session-1", "running")],
-    });
-    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
-
-    renderHook(() => useAssistantSession("demo"));
-    await waitFor(() => {
-      expect(FakeSseStream.instances).toHaveLength(1);
-    });
-
-    act(() => {
-      useAssistantStore.getState().requestSessionResync("demo");
-    });
-
-    await waitFor(() => {
-      expect(FakeSseStream.instances).toHaveLength(2);
-    });
-    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
-    act(() => {
-      FakeSseStream.instances[0].emit("status", { status: "idle" });
-    });
-    expect(FakeSseStream.instances[1].close).not.toHaveBeenCalled();
-    expect(useAssistantStore.getState().sessionStatus).toBe("running");
-  });
-
-  it("replaces a stale stream when the project stream reconnects after the missed turn finished", async () => {
-    // 旧句柄只会送出上一轮的终态，不会补发空窗里已结束那一轮的条目
-    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
-      sessions: [makeSession("session-1", "running")],
-    });
-    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
-
-    renderHook(() => useAssistantSession("demo"));
-    await waitFor(() => {
-      expect(FakeSseStream.instances).toHaveLength(1);
-    });
-    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "completed") });
-
-    act(() => {
-      useAssistantStore.getState().requestSessionResync("demo");
-    });
-
-    await waitFor(() => {
-      expect(FakeSseStream.instances).toHaveLength(2);
-    });
-    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
-    expect(streamOptions(1)).toMatchObject({ sessionId: "session-1" });
   });
 
   it("does not let a delayed idle cold-read overwrite state set by a concurrent sendMessage", async () => {
@@ -1201,7 +1075,9 @@ describe("useAssistantSession", () => {
       await deferredSwitch.promise;
     });
 
-    expect(FakeSseStream.instances).toHaveLength(0);
+    // 只有离开前打开的 session-1 建过流，且已随离开项目关闭
+    expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-1"]);
+    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
     expect(useAssistantStore.getState().sessionStatus).toBe("idle");
   });
@@ -1263,7 +1139,7 @@ describe("useAssistantSession", () => {
 
     // 不覆盖用户已切到的会话，不为已放弃的会话建 SSE 连接
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
-    expect(FakeSseStream.instances).toHaveLength(0);
+    expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-2"]);
   });
 
   it("ignores a delayed init auto-selection after deleteSession clears the current session", async () => {
@@ -1408,9 +1284,10 @@ describe("useAssistantSession", () => {
       await deferredB.promise;
     });
 
-    // B 的会话列表照常落地，供用户重新选择；不为任何会话建 SSE 连接
+    // B 的会话列表照常落地，供用户重新选择；不为 B 的任何会话建 SSE 连接，A 的流已随切项目关闭
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
-    expect(FakeSseStream.instances).toHaveLength(0);
+    expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-a1"]);
+    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
   });
 
   it("does not let a delayed session-list response overwrite the new project's list after project switch", async () => {
@@ -1613,9 +1490,10 @@ describe("useAssistantSession", () => {
     expect(state.sessions.map((s) => s.id)).toEqual(["session-2"]);
     expect(state.editingTurnUuid).toBeNull();
     expect(state.sending).toBe(false);
-    // running 的新会话由 entry 流从头回放，游标不带上一条时间线的残留
-    expect(FakeSseStream.instances).toHaveLength(1);
-    expect(streamOptions(0)).toMatchObject({ sessionId: "session-2", after: -1 });
+    // 原会话的流随切换关闭；running 的新会话由 entry 流从头回放，游标不带上一条时间线的残留
+    expect(FakeSseStream.instances).toHaveLength(2);
+    expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
+    expect(streamOptions(1)).toMatchObject({ sessionId: "session-2", after: -1 });
     // 刷新后仍停在新分支
     expect(JSON.parse(localStorage.getItem("arcreel:lastSessionByProject") ?? "{}")).toEqual({ demo: "session-2" });
   });
@@ -2435,7 +2313,7 @@ describe("useAssistantSession", () => {
 
     // 迟到的受理不得把用户从他已切去的会话拽到分支
     expect(useAssistantStore.getState().currentSessionId).toBe("session-3");
-    expect(FakeSseStream.instances).toHaveLength(0);
+    expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-1", "session-3"]);
     // 但服务端的分叉已经发生，列表补拉一次：已消失的 session-1 让位给 session-2
     await waitFor(() => {
       expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2", "session-3"]);
