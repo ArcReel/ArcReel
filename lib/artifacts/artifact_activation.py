@@ -57,6 +57,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_planner import (
     ARTIFACT_MANIFEST_SCHEMA_VERSION,
     ArtifactTargetStatePlan,
+    SharedVersionMetadata,
     TargetStatePlanner,
     episode_scope_for_key,
     plan_artifact_target_state,
@@ -322,7 +323,8 @@ def _plan_artifact_claim_reconciliation(
 ) -> tuple[dict[ArtifactKey, None], ArtifactTargetStatePlan]:
     """Resolve claimed paths through one canonical dependency snapshot."""
 
-    root_planner = TargetStatePlanner(project_dir)
+    shared_versions = SharedVersionMetadata()
+    root_planner = TargetStatePlanner(project_dir, shared_versions=shared_versions)
     planners: dict[int | None, TargetStatePlanner] = {None: root_planner}
     dependency_bytes: dict[Path, bytes] = {}
     dependency_digests: dict[Path, str] = {}
@@ -342,6 +344,7 @@ def _plan_artifact_claim_reconciliation(
                 project_dir,
                 episode_scope=scope,
                 project_bytes=root_planner.project_bytes,
+                shared_versions=shared_versions,
             )
             planners[scope] = planner
         target = planner.resolve_key(key)
