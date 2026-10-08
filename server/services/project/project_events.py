@@ -41,7 +41,7 @@ PROJECT_EVENTS_POLL_SECONDS = 0.5
 # 项目目录被删除后向订阅者广播的终止事件名——流在其后正常结束（见 stream_events._iter）。
 PROJECT_DELETED_EVENT = "project_deleted"
 # 项目下的 Agent 会话因 CLI 自主开启新一轮（后台任务完成后唤醒）回到 running；
-# idle 会话没有 entry 流订阅者，客户端凭此重新订阅。
+# 打开着的会话面板经常驻的 entry 流收到这一轮；会话列表等其他视图凭此得知状态变化。
 ASSISTANT_SESSION_RESUMED_EVENT = "assistant_session_resumed"
 
 #: 读取一个项目当前状态的读盘入口；在线程池中调用。项目目录不存在时抛 ``FileNotFoundError``。

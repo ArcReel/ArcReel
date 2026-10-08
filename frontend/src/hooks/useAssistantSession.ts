@@ -62,7 +62,9 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
 /**
  * 管理 Agent 会话生命周期，时间线唯一读源为会话事件日志：
  * - 冷读 GET entries（历史回放）
- * - SSE entry 流实时接收（事件 id 即 seq，断线由流式客户端带 Last-Event-ID 续传）
+ * - SSE entry 流实时接收（事件 id 即 seq，断线由流式客户端带 Last-Event-ID 续传）：
+ *   打开会话时建立一条，切换会话或关闭面板时关闭；轮次结束只更新状态、不关流，
+ *   发送与自主轮次的内容都从这条流收到
  * - 发送消息：服务端先写日志分配身份，响应回传权威条目；
  *   client_key 幂等，重试不产生重复；不渲染本地合成消息
  */
@@ -185,7 +187,7 @@ export function useAssistantSession(projectName: string | null) {
     streamSessionRef.current = null;
   }, []);
 
-  // 连接 SSE entry 流
+  // 连接 SSE entry 流（常驻：只由切换会话、关闭面板等离开会话的入口关闭）
   const connectStream = useCallback(
     (sessionId: string) => {
       // 已连接到同一 session 且句柄未关闭时跳过：断线重建由流式客户端自行完成。
@@ -216,6 +218,7 @@ export function useAssistantSession(projectName: string | null) {
         },
         status(data) {
           const status = (data.status as string) ?? statusRef.current;
+          const wasRunning = statusRef.current === "running";
 
           statusRef.current = status;
           store.getState().setSessionStatus(status as "idle");
@@ -228,10 +231,9 @@ export function useAssistantSession(projectName: string | null) {
             if (status !== "interrupted") {
               store.getState().clearDraft();
             }
-            closeStream();
 
-            // Turn 结束后刷新会话列表，获取 SDK summary 标题
-            refreshSessions();
+            // 轮次结束后刷新会话列表，获取 SDK summary 标题；开场下发的终态不算
+            if (wasRunning) refreshSessions();
           }
         },
         question(payload) {
@@ -262,103 +264,47 @@ export function useAssistantSession(projectName: string | null) {
     [clearPendingQuestion, projectName, closeStream, refreshSessions, store, syncPendingQuestion],
   );
 
-  // 会话加载期间跳过的恢复，按「项目 × 会话」记账：加载链可能已按 idle 走冷读，冷读
-  // 落地会整帧覆写时间线，当场建流的条目会被冲掉；loadSession 收尾时补做核对。
-  const deferredResumeRef = useRef<string | null>(null);
-
-  // 会话未经发送、自主开启了新一轮（后台任务完成后唤醒）：idle 时没有 entry 流，
-  // 重新接上才能看到这一轮的输出与问答卡片。同会话的旧句柄也要换掉：恢复通知与
-  // 上一轮的终态走两条连接、互不保序，旧句柄随后收到终态会把流关掉；新流从已有
-  // 条目之后续传，不丢内容。
-  const resumeStream = useCallback((sessionId: string) => {
-    statusRef.current = "running";
-    store.getState().setSessionStatus("running");
-    closeStream();
-    connectStream(sessionId);
-  }, [closeStream, connectStream, store]);
-
-  // 不确定是否错过了恢复时，按服务端状态补接：running 接回 entry 流；已结束的也接一次，
-  // 流补发冷读之后的条目再以终态关闭，补上整轮都落在空窗里的自主轮次。本地仍是 running
-  // 也照常核对：那可能只是上一轮的终态还没到，旧句柄随后会被它关掉。
-  const resyncSession = useCallback((sessionId: string, signal: AbortSignal) => {
-    API.getAssistantSession(projectName!, sessionId, { signal })
-      .then((res) => {
-        if (signal.aborted || store.getState().currentSessionId !== sessionId) return;
-        const raw = res as Record<string, unknown>;
-        const status = ((raw.session ?? raw) as Record<string, unknown>).status as string | undefined;
-        if (status === "running") {
-          resumeStream(sessionId);
-        } else if (status && TERMINAL.has(status)) {
-          // 同会话的旧句柄只会送出上一轮的终态，不会补发空窗里已结束那一轮的条目
-          closeStream();
-          connectStream(sessionId);
-        }
-      })
-      .catch(() => {/* 静默失败 */});
-  }, [projectName, closeStream, connectStream, resumeStream, store]);
-
+  // 项目事件流的恢复通知与重连核对：当前会话的新一轮已经从常驻的 entry 流收到，
+  // 只在这条流不在时补建（加载中的会话由 loadSession 收尾时建流）。
   const pendingResumeSignals = useAssistantStore((s) => s.sessionResumeSignals);
   useEffect(() => {
     if (pendingResumeSignals.length === 0) return;
     // 整批取走：留在全局 store 里，切项目重建回调时会被当成新信号再处理一次
     const signals = store.getState().takeSessionResumeSignals();
     const sessionId = store.getState().currentSessionId;
-    if (!projectName || !sessionId) return;
-    const relevant = signals.filter(
+    if (!projectName || !sessionId || store.getState().messagesLoading) return;
+    const relevant = signals.some(
       (s) => s.projectName === projectName && (s.kind === "resync" || s.sessionId === sessionId),
     );
-    if (relevant.length === 0) return;
-    if (store.getState().messagesLoading) {
-      deferredResumeRef.current = deletingKey(projectName, sessionId);
-      return;
-    }
-    if (relevant.some((s) => s.kind === "resumed")) {
-      resumeStream(sessionId);
-      return;
-    }
-    const signal = projectAbortRef.current?.signal;
-    if (signal && projectAbortOwnerRef.current === projectName) resyncSession(sessionId, signal);
-  }, [projectName, pendingResumeSignals, resumeStream, resyncSession, store]);
+    if (relevant) connectStream(sessionId);
+  }, [projectName, pendingResumeSignals, connectStream, store]);
 
-  // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放。
-  // signal 被 abort 时网络 await 断点由 fetch 自动 reject；写 store 与建流前
-  // 复核 aborted，拦截「abort 发生在响应已 resolve 之后」的窗口。
+  // 加载指定会话时间线：非 running 先冷读日志，再从其后接上 entry 流；running
+  // 直接交给 entry 流回放。signal 被 abort 时网络 await 断点由 fetch 自动 reject；
+  // 写 store 与建流前复核 aborted，拦截「abort 发生在响应已 resolve 之后」的窗口。
   const loadSession = useCallback(async (sessionId: string, options: { signal: AbortSignal }) => {
     const { signal } = options;
-    const resumeKey = deletingKey(projectName!, sessionId);
-    // 之前记的账由下面读到的状态覆盖（服务端先切 running 再发通知）
-    deferredResumeRef.current = null;
-    try {
-      store.getState().beginHistory();
-      const res = await API.getAssistantSession(projectName!, sessionId, { signal });
-      if (signal.aborted) return;
-      const raw = res as Record<string, unknown>;
-      const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
-      const status = (sessionObj.status as string) ?? "idle";
-      statusRef.current = status;
-      store.getState().setSessionStatus(status as "idle");
-      // 清掉跨挂载残留的过期问题（zustand 全局 store 在组件卸载后仍保留）；
-      // running 会话的未决问题由 entry 流的 question 事件重新投递。
-      clearPendingQuestion();
+    store.getState().beginHistory();
+    const res = await API.getAssistantSession(projectName!, sessionId, { signal });
+    if (signal.aborted) return;
+    const raw = res as Record<string, unknown>;
+    const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
+    const status = (sessionObj.status as string) ?? "idle";
+    statusRef.current = status;
+    store.getState().setSessionStatus(status as "idle");
+    // 清掉跨挂载残留的过期问题（zustand 全局 store 在组件卸载后仍保留）；
+    // 未决问题由 entry 流的 question 事件重新投递。
+    clearPendingQuestion();
 
-      if (status === "running") {
-        connectStream(sessionId);
-      } else {
-        const data = await API.listAssistantEntries(projectName!, sessionId, -1, { signal });
-        if (signal.aborted) return;
-        store.getState().setEntries(data.entries ?? []);
-        store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
-        store.getState().settleHistory();
-      }
-    } finally {
-      // 成功与失败都在这里补做：失败时调用方只吞异常，恢复通知又只来一次。
-      // 通知可能早于也可能晚于上面读到的状态，补做时重新核对。
-      if (!signal.aborted && deferredResumeRef.current === resumeKey) {
-        deferredResumeRef.current = null;
-        resyncSession(sessionId, signal);
-      }
+    if (status !== "running") {
+      const data = await API.listAssistantEntries(projectName!, sessionId, -1, { signal });
+      if (signal.aborted) return;
+      store.getState().setEntries(data.entries ?? []);
+      store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
+      store.getState().settleHistory();
     }
-  }, [projectName, clearPendingQuestion, connectStream, resyncSession, store]);
+    connectStream(sessionId);
+  }, [projectName, clearPendingQuestion, connectStream, store]);
 
   // 加载会话
   useEffect(() => {
@@ -547,6 +493,7 @@ export function useAssistantSession(projectName: string | null) {
         statusRef.current = "running";
         store.getState().setSessionStatus("running");
         store.getState().setSending(false);
+        // 已打开的会话复用常驻流；新会话在这里建立它的第一条流
         connectStream(sessionId);
         return true;
       } catch (err) {
